@@ -882,6 +882,43 @@ _ABBRUCH_BANNER = re.compile(r"^!+ .* !+$", re.M)
 _RC_NICHT_MESSBAR = frozenset({2, 3, 4})
 
 
+#: Der Kopf eines Abschnitts, in dem pytest die EIGENE Ausgabe eines Tests wiedergibt.
+_AUFGEFANGEN_AUF = re.compile(r"^-+ Captured [^\n]*-+\s*$")
+
+#: Eine Zeile, die einen neuen Abschnitt der obersten Ebene eroeffnet und damit den aufgefangenen
+#: Block schliesst. pytest zieht seine Abschnittstrenner aus `=`, `_` und `-`.
+#:
+#: `!` GEHOERT AUSDRUECKLICH NICHT DAZU, und die erste Fassung hatte es drin. Damit schloss die
+#: aufgefangene Diagnosezeile `! ordinary diagnostic !` den Block SELBST, blieb im Text stehen und
+#: wurde weiterhin als Banner gelesen — der Schnitt war wirkungslos, und genau der Fall, gegen den
+#: er gebaut ist, kam durch. Gefunden vom eigenen Eigenschaftsknoten, nicht beim Schreiben.
+_ABSCHNITT_ZU = re.compile(r"^(?:={3,}|_{3,}|-{3,})")
+
+
+def _ohne_aufgefangene_ausgabe(text: str) -> str:
+    """Der Berichtstext OHNE die Abschnitte, die pytest als Ausgabe des Tests beschriftet.
+
+    WARUM DIESE FLAECHE UND NICHT DER GANZE TEXT. Was ein Test auf stdout schreibt, ist Text des
+    TESTS, nicht des Laeufers. pytest sagt das selbst, indem es ihn unter `Captured stdout call`
+    einrahmt. Ein Riegel, der die Form eines Laeufer-Banners sucht, hat dort nichts verloren, und
+    genau dort hat er am 13.09.2026 (Codex r3999288387) falsch angeschlagen.
+
+    EHRLICHE GRENZE: erkannt werden die von pytest beschrifteten Abschnitte. Gibt ein Test seine
+    Zeilen ohne Auffangen direkt aus, etwa mit `-s`, stehen sie auf der obersten Ebene und sind von
+    einem Banner nicht zu unterscheiden. Der Mutationslauf dieses Tors faengt auf.
+    """
+    raus, drin = [], False
+    for zeile in text.splitlines(keepends=True):
+        if _AUFGEFANGEN_AUF.match(zeile.rstrip("\n")):
+            drin = True
+            continue
+        if drin and _ABSCHNITT_ZU.match(zeile):
+            drin = False
+        if not drin:
+            raus.append(zeile)
+    return "".join(raus)
+
+
 def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | None:
     """Das Urteil ueber einen Lauf: RUECKGABEWERT zuerst, dann die strukturierte Quelle, dann Text.
 
@@ -904,9 +941,37 @@ def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | Non
     # Deshalb jetzt die FORM statt des Wortlauts. Eine Aufzaehlung von Abbruchgruenden waere beim
     # naechsten stillschweigend zu kurz — dieselbe Lehre wie beim Ersatzwert in
     # `pre_tag_receipt_lib.verify_receipt`, wo eine Blockliste durch eine Formpruefung ersetzt wurde.
-    # Die fuenf Ausrufezeichen halten die Grenze zu einem Test, der das Wort in einem Traceback
-    # ausgibt: pytest rahmt seine Banner, gewoehnlicher Text tut das nicht.
-    if _ABBRUCH_BANNER.search(text) or re.search(r"^INTERNALERROR", text, re.M):
+    # HIER STAND EIN SATZ, DEN DIE FORM NICHT TRUG: "die fuenf Ausrufezeichen halten die Grenze zu
+    # einem Test, der das Wort in einem Traceback ausgibt". Fuenf kommen im Muster nicht vor, es
+    # verlangt EINS je Seite. Der Text erzaehlte die Haertung von Wortlaut zu Form und beschrieb
+    # dann eine Eigenschaft der Form, die sie nicht hat. Die Grenze zieht der Rueckgabewert, siehe
+    # unten; das Muster ist der Rueckfall fuer den Fall, dass keiner vorliegt.
+    # NICHT IM AUFGEFANGENEN AUSGABETEXT DES TESTS SUCHEN. Codex r3999288387, gemessen und
+    # bestaetigt: `^!+ .* !+$` verlangt EIN Ausrufezeichen je Seite, nicht fuenf, und trifft damit
+    # die gewoehnliche Diagnosezeile eines FEHLGESCHLAGENEN Tests (`! ordinary diagnostic !`).
+    # pytest uebernimmt so etwas aus dem aufgefangenen stdout in seinen Fehlerbericht. Bei rc=1 und
+    # gueltigem Bericht galt der Lauf dann als NICHT MESSBAR und das Pflichttor brach ab, obwohl
+    # pytest normal zu Ende lief. Ein gemessenes Rot wurde zum Abbruch.
+    #
+    # DIE ERSTE ABHILFE DES BERICHTS WAERE FALSCH GEWESEN, und das ist hier der eigentliche Befund.
+    # Sie lautet "wende die Heuristik nur an, wenn kein Rueckgabewert vorliegt". Gemessen haelt
+    # `tests/test_mutationstor_sammler_sieht_die_freigabeflaeche.py` einen realen Gegenfall fest:
+    # `pytest.exit()` schreibt sein Banner UND liefert rc=1, die Bilanz sagt `1 failed, 1 passed`,
+    # und der Test, der die Mutante haette toeten sollen, lief nie. Wer die Form bei vorhandenem
+    # Rueckgabewert abschaltet, verliert genau diesen Schutz. Eine Reparatur, die einen gemessenen
+    # Fall gegen einen anderen tauscht, ist keine.
+    #
+    # Der Unterschied liegt nicht am Rueckgabewert und nicht am Wortlaut, sondern am ORT: pytest
+    # schreibt seine Banner auf der obersten Ebene des Berichts, und was ein Test selbst ausgibt,
+    # steht in einem Abschnitt, den pytest AUSDRUECKLICH als Ausgabe des Tests beschriftet
+    # (`----- Captured stdout call -----`). Diese Abschnitte werden vor der Formpruefung
+    # herausgenommen. Gefragt wird damit weiterhin die FORM, nur an der richtigen Flaeche — keine
+    # Aufzaehlung von Abbruchgruenden, die beim naechsten stillschweigend zu kurz waere.
+    #
+    # Der Kommentar weiter oben behauptete ausserdem eine Grenze, die die Form nie trug (fuenf
+    # Ausrufezeichen). Sie steht dort jetzt richtig.
+    if _ABBRUCH_BANNER.search(_ohne_aufgefangene_ausgabe(text)) \
+            or re.search(r"^INTERNALERROR", text, re.M):
         return None
     aus_bericht = _rote_aus_bericht(bericht)
     return aus_bericht if aus_bericht is not None else _rote_aus_text(text)

@@ -67,7 +67,25 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if not re.search(r"^\s*(?:import\s+unittest|from\s+unittest\b)", text, re.MULTILINE):
+        # JEDER NAME DER ANWEISUNG, nicht nur der erste. Codex r3999288389, gemessen und
+        # bestaetigt: das alte Muster verlangte `unittest` UNMITTELBAR nach `import` und sah
+        # `import os, unittest` nicht. Der Syntaxbaum sah es, die beiden Ableitungen wurden
+        # UNEINIG, und die Gleichheitspruefung in `evaluate()` meldete ok=False fuer ein voellig
+        # gueltiges Testmodul — das Tor wies eine richtige Ergaenzung ab.
+        #
+        # NICHT der andere Weg, und das ist eine Korrektur an einer frueheren Antwort dieses
+        # Hauses: den Textpfad durch den AST-Pfad zu ERSETZEN haette die zweite Ableitung
+        # beseitigt, und die ist kein Versehen, sondern die Owner-Anordnung vom 2026-09-07
+        # (Riegel-Sweep P1). Zwei Leser mit verschiedener Fehlergeometrie sind der Riegel; wer
+        # einen davon streicht, behaelt die Zahl und verliert die Pruefung. Die richtige Abhilfe
+        # ist, dass beide DIESELBE Eigenschaft messen — dann ist ihre Differenz wieder eine
+        # Aussage ueber den Gegenstand statt ueber die schwaechere Lesart.
+        #
+        # `\bunittest\b` haelt die Grenze zu Nachbarnamen: `my_unittest_helper` und
+        # `unittest_extras` tragen einen Unterstrich, also keine Wortgrenze, und fallen nicht
+        # hinein. `import unittest.mock` faellt hinein, und der Syntaxbaum sieht es ebenso.
+        if not re.search(r"^\s*(?:import\s+[^\n]*\bunittest\b|from\s+unittest\b)",
+                         text, re.MULTILINE):
             out.append(path.name)
     return out
 
