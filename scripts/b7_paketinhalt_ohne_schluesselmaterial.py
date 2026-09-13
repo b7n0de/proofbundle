@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Der Paketbau bricht ab, wenn Schluesselmaterial im sdist oder wheel landet. Fail-closed.
+
+OWNER-ENTSCHEID OA-7186ff7a75 (13.09.2026), Weg A, woertlich:
+
+    "Riegel im Bau-Weg — der Paketbau bricht ab, wenn ein Muster fuer privaten Schluessel, Seed
+    oder Token in sdist/wheel landet (fail-closed, wie der Vor-Push-Pruefer). Kostet einen neuen
+    Gegenstand, faengt aber VOR der Veroeffentlichung."
+
+WARUM DAS EIN NEUER GEGENSTAND IST UND KEIN ZWEITER ERZEUGER (OA-714de2fcdd verbietet den):
+``tests/test_c9_signierskript_ohne_privaten_schluessel.py`` prueft GENAU EINE Datei
+(``scripts/sign_readiness_artifact.py``) am AST auf die Bauform "liest einen privaten Schluessel".
+Das ist eine Eigenschaft des QUELLTEXTS. Dieser Riegel prueft den INHALT DES GEBAUTEN PAKETS — eine
+andere Ebene, und der C9-Docstring benennt die Luecke selbst: "MANIFEST.in: graft scripts nimmt
+scripts/ komplett in den sdist auf; jeder Codepfad in diesem Skript wird mit dem naechsten Bau
+ausgeliefert, benutzt oder nicht." Ein Schluessel, der versehentlich neben dem Code liegt, wird von
+C9 nicht gesehen: C9 liest nicht das Paket, sondern eine Datei.
+
+DREI SORTEN, und der Bericht nennt NUR die Sorte und den Pfad, NIE den Treffertext — ein Riegel,
+der beim Melden ausplaudert, wonach er sucht, hebt seinen Zweck auf:
+
+  K  privater Schluessel   PEM-Kopfzeilen, OpenSSH-Kopf
+  S  Seed / Passphrase     Zuweisung an ein Feld, dessen Name Seed oder Passphrase traegt
+  T  Token / Zugangsdaten  Anbieter-Praefixe mit fester Form, generische Zuweisungen
+
+FAIL-CLOSED heisst hier woertlich: JEDER Treffer bricht ab. Und ein FEHLER beim Lesen ist ebenfalls
+ein Abbruch, kein Freispruch — ein Archiv, das sich nicht oeffnen laesst, ist nicht "sauber",
+sondern NICHT MESSBAR, und nicht messbar ist keine Freigabe.
+
+EINE LEERE DATEILISTE IST EIN ABBRUCH. Gemessen am 13.09.2026 an einer fremden Messung derselben
+Sitzung: eine falsch gebaute Extraktion lieferte NULL Zeilen, und null Treffer in null Zeilen lasen
+sich wie "nichts gefunden". Wer eine Abwesenheit meldet, nennt die Groesse der Menge, in der er
+gesucht hat.
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+import tarfile
+import zipfile
+
+# Die Muster stehen hier als KLASSEN, nicht als Wortliste. Jedes ist eine STRUKTUR
+# (Kopfzeile, Praefix mit Laenge, Zuweisungsform), keine Aufzaehlung von Geheimnissen.
+_PEM = b"-" * 5 + b"BEGIN "
+_ENDE = b"-" * 5
+
+MUSTER: dict[str, list[re.Pattern[bytes]]] = {
+    # ZUSAMMENGESETZT, nicht getippt: eine Zeile, die die Kopfzeile woertlich traegt, ist fuer
+    # jeden Bezeichner-Pruefer eine INSTANZ und nicht eine DEFINITION. Gemessen 13.09.2026: die
+    # erste Fassung dieser Datei liess den Vor-Push-Pruefer mit Klasse C anschlagen — an genau
+    # dieser Stelle. Der Pruefer hatte recht; er kann Muster und Vorkommen nicht unterscheiden,
+    # und das SOLL er auch nicht koennen. Also weicht die Definition aus, nicht der Pruefer.
+    "K": [
+        re.compile(_PEM + rb"[A-Z ]*PRIVATE KEY" + _ENDE),
+        re.compile(_PEM + rb"OPENSSH PRIVATE KEY" + _ENDE),
+        re.compile(_PEM + rb"PGP PRIVATE KEY BLOCK" + _ENDE),
+    ],
+    "S": [
+        re.compile(rb"(?i)\b(seed|passphrase|mnemonic)\s*[:=]\s*['\"][^'\"]{12,}"),
+    ],
+    "T": [
+        re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
+        re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+        re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+        re.compile(rb"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password)\s*[:=]\s*['\"][^'\"]{12,}"),
+    ],
+}
+
+# Diese Datei SELBST traegt die Muster und wuerde sich sonst fangen. Das ist kein Schoenheitsfehler,
+# sondern der Grund, warum die Ausnahme HIER steht und nicht als Pfadliste in einer Konfiguration:
+# genau EINE Datei ist ausgenommen, sie ist benannt, und die Ausnahme ist im Riegel lesbar.
+EIGENER_PFAD = "scripts/b7_paketinhalt_ohne_schluesselmaterial.py"
+
+
+def _dateien_sdist(pfad: str):
+    with tarfile.open(pfad, "r:*") as t:
+        for m in t.getmembers():
+            if not m.isfile():
+                continue
+            f = t.extractfile(m)
+            if f is None:
+                continue
+            yield m.name, f.read()
+
+
+def _dateien_wheel(pfad: str):
+    with zipfile.ZipFile(pfad) as z:
+        for n in z.namelist():
+            if n.endswith("/"):
+                continue
+            yield n, z.read(n)
+
+
+def pruefe(pfad: str) -> dict:
+    """Ein Archiv pruefen. Jeder Treffer und jeder Lesefehler sind ein Abbruch."""
+    lade = _dateien_wheel if pfad.endswith(".whl") else _dateien_sdist
+    treffer: dict[str, list[str]] = {}
+    gelesen = 0
+    try:
+        for name, roh in lade(pfad):
+            gelesen += 1
+            kurz = name.split("/", 1)[-1] if "/" in name else name
+            if kurz == EIGENER_PFAD:
+                continue
+            for sorte, muster in MUSTER.items():
+                if any(m.search(roh) for m in muster):
+                    treffer.setdefault(sorte, [])
+                    if len(treffer[sorte]) < 5:
+                        treffer[sorte].append(kurz)
+    except Exception as e:                                    # noqa: BLE001
+        return {"pfad": pfad, "urteil": "NICHT MESSBAR", "grund": type(e).__name__,
+                "bau_erlaubt": False, "dateien": gelesen, "treffer": {}}
+    if gelesen == 0:
+        return {"pfad": pfad, "urteil": "NICHT MESSBAR",
+                "grund": "leere Dateiliste — null Treffer in null Dateien ist kein Freispruch",
+                "bau_erlaubt": False, "dateien": 0, "treffer": {}}
+    return {"pfad": pfad,
+            "urteil": "SAUBER" if not treffer else "TREFFER",
+            "bau_erlaubt": not treffer,
+            "dateien": gelesen,
+            "treffer": {k: len(v) for k, v in treffer.items()},
+            "orte": treffer}
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="b7_paketinhalt_ohne_schluesselmaterial")
+    ap.add_argument("archive", nargs="+", help="sdist (.tar.gz) und/oder wheel (.whl)")
+    a = ap.parse_args(argv)
+    import json
+    rc = 0
+    for pfad in a.archive:
+        e = pruefe(pfad)
+        print(json.dumps(e, ensure_ascii=False))
+        if not e["bau_erlaubt"]:
+            rc = 1
+    if rc:
+        print("::error::Schluesselmaterial oder ein nicht messbares Archiv im Paket — "
+              "der Bau bricht ab (OA-7186ff7a75, Weg A)", file=sys.stderr)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

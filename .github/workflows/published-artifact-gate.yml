@@ -48,6 +48,12 @@ jobs:
         run: python -m pip install --upgrade build
       - name: Build the reproducible sdist
         run: python scripts/build_reproducible.py --outdir dist
+      # OA-7186ff7a75 (13.09.2026), Weg A: der Bau bricht ab, wenn Schluesselmaterial im Paket
+      # liegt. VOR der Cleanroom-Installation, weil ein Geheimnis, das erst nach dem Auspacken
+      # auffaellt, schon in einem Prozess war. Fail-closed: ein nicht lesbares oder leeres Archiv
+      # ist NICHT MESSBAR und damit ebenfalls ein Abbruch.
+      - name: Published bytes — no key material in the built artifact (fail-closed)
+        run: python scripts/b7_paketinhalt_ohne_schluesselmaterial.py dist/*.tar.gz
       - name: Fresh venv, install the BUILT sdist (cleanroom — the installed package, NOT this checkout)
         run: |
           python -m venv /tmp/clean
