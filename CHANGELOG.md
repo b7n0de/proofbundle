@@ -6,6 +6,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+Work on `main` since the `v6.0.0` tag that is not yet delivered in a release. The version is
+deliberately not bumped: nothing here changes the published package, and a bump without a release
+would claim a delivery that did not happen.
+
+### Added
+
+- Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
+  producer emits `findings_register_v2.json` plus two generated views, every record carries the
+  byte range of its own evidence, and the three 6.1 register lines are written directly in the new
+  form with their measured starting position.
+- The 6.0.0 register body now carries the signature of the anchor key, and the written target value
+  carries its provenance — a chain is appended rather than the previous value overwritten.
+- A guard that no shipped test module imports a non-shipped module by bare name. The
+  `published-artifact-gate / hermetic-cleanroom` job aborted at collection because
+  `tests/test_belegdatei_traegt_ihren_eigenen_digest.py` put `scripts/` on `sys.path` and then wrote
+  `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
+  ran, not one of the other tests. The guard decides in the checkout, where both the file and the
+  distribution listing are present, and leaves the cleanroom unchanged.
+
+### Fixed
+
+- Evidence digests: a record named a `path` and a `sha256` that described different objects, the
+  digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
+  file. The checker also never opened the file it named, so a deleted or altered piece of evidence
+  stayed green.
+- Gaps in the register numbering were silent; they are now named and gated.
+- The producer is read against the signed register rather than against its own in-memory list.
+
+### Changed
+
+- Identifiers transcribed, internal codename and account names.
+- The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
+
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 
 **The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.

@@ -18,6 +18,7 @@ geloeschter oder veraenderter Beleg blieb gruen. Ein Werkzeug sagt mehr, als es 
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -25,9 +26,30 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import gen_findings_register as gen  # noqa: E402
+# WARUM NICHT `sys.path.insert` PLUS `import gen_findings_register`.
+#
+# `scripts/gen_findings_register.py` wird ABSICHTLICH nicht ausgeliefert (MANIFEST.in, Owner-Auflage
+# zu OA-8b1a31cc4f: es liest einen privaten Schluessel aus Umgebung oder Datei). Im entpackten sdist
+# fehlt die Datei also, und das ist richtig so.
+#
+# Die blanke Form hat daraus einen SAMMELABBRUCH gemacht, nicht ein ehrliches SKIP: gemessen am
+# gebauten Paket dieses Kopfes brach `pytest tests/` mit `ModuleNotFoundError: No module named
+# 'gen_findings_register'` und `exit code 2` ab, und mit ihm ALLE uebrigen Tests des Pakets
+# (`published-artifact-gate / hermetic-cleanroom`, PR 198). Der Riegel in `conftest.py` konnte nicht
+# greifen: ein blanker Modulname traegt kein Verzeichnis, und ohne Verzeichnis ist "gehoert zu diesem
+# Projekt" nicht entscheidbar — er bleibt dann fail-closed laut, was fuer `import numpy` genau
+# richtig ist. Die Information, die hier fehlte, steht nicht im Fehler, sondern in DIESER Datei.
+#
+# Die Pfadform sagt sie aus: sie nennt die Datei, das Fehlen wird zu `FileNotFoundError` mit vollem
+# Pfad, und `conftest` kann den Fall als "nicht ausgeliefert" erkennen und ehrlich ueberspringen.
+# Dieselbe Form fuehrt `tests/test_budget_axis_measurement.py` seit dem 08.09.2026 aus demselben
+# Grund. Der Klassenriegel dazu ist `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py`.
+_spec = importlib.util.spec_from_file_location(
+    "_gen_findings_register", REPO / "scripts" / "gen_findings_register.py")
+gen = importlib.util.module_from_spec(_spec)
+sys.modules["_gen_findings_register"] = gen
+_spec.loader.exec_module(gen)
 
 TRAEGER = REPO / "audit_artifacts/600/findings_register_v2.json"
 
