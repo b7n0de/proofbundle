@@ -49,6 +49,12 @@ bytes in which the **middle** field is hashed separately first.
 
 Both roots per `n` are in `RUNS.txt`.
 
+**Read that denominator carefully.** For `n=0` neither leaf function is ever called —
+`MTH({})` is `HASH()` for *any* leaf rule — so the case cannot distinguish the readings at
+all. Counted over the cases that are actually applicable, it is **5 of 5**. The tool reports
+5 of 6 because it counts every `n` it ran; the summary line therefore reads milder than the
+measurement is.
+
 **On `e3b0c442…` at `n=0`:** that is the sha256 of the empty string, which is
 usually a sign of a *failed* measurement. Here it is correct — 2.1 prescribes
 `MTH({}) = HASH()` literally. The case is still marked **NOT APPLICABLE**, because
@@ -57,10 +63,22 @@ result.
 
 ## What the finding is — and what it is not
 
-The difference sits at **exactly one place**: the preimage of the leaf. The node rule
+The difference sits in the **leaf preimage**, and nowhere else in the tree: the node rule
 `HASH(left || right)` is identical in both readings, and so is the empty tree. The
-divergence propagates from the leaves; it does not arise in several places. Claiming
-more than that would overstate it.
+divergence propagates from the leaves; it does not arise at several levels.
+
+**Within the leaf, however, there are two independently sufficient differences.** An earlier
+version of this text said "exactly one place", which overstated it. Measured on transaction 0:
+
+| preimage | size |
+|---|---|
+| reading 2.1 — `CBOR([itx, evidence, dh])` | 74 B |
+| reading 3.2 — `itx ‖ HASH(evidence) ‖ dh` | 96 B |
+| hybrid — raw concatenation *without* the inner hash | 68 B |
+
+The hybrid removes the one difference named in section 3.2 (the middle field hashed
+separately) and **still** differs from reading 2.1, because CBOR framing is a second,
+separate difference. Neither one alone accounts for the divergence.
 
 **Not measured, with reason:** what a real CCF instance computes. The subject here is
 the document, not an implementation. A statement about CCF itself would not be covered
@@ -113,6 +131,19 @@ preimages (`itx-<i>`, `ce-<i>`, `dh-<i>`) so that every value can be recomputed 
 The countercheck runs **before** the result and aborts if it fails: without it, a uniform
 "diverges" proves nothing, since it could equally mean the comparison always reports
 unequal.
+
+Two hardenings here came out of an adversarial re-read, and both are worth stating because
+the first version failed them:
+
+- The countercheck exercises **each reading separately**. The first version ran only reading
+  3.2 — replacing reading 2.1 with a constant left it reporting "passed" while every row
+  still read "DIVERGES". A countercheck that touches only one side is blind to any fault
+  that hits only the other.
+- The countercheck prints a **trace** derived from the roots it actually computed
+  (`[spur …]`). Before that, inserting an early `return True` turned the whole check into
+  dead code without changing a single measured quantity — the surface read the *reported
+  result*, not whether the work happened. A value that falls out of the work cannot be
+  asserted, only computed.
 
 ## Provenance of the document
 

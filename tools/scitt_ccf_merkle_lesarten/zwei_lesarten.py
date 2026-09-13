@@ -169,23 +169,41 @@ def wurzeln(n: int) -> tuple[bytes, bytes]:
 
 
 # --- Gegenprobe: der Vergleich MUSS auch "gleich" sagen koennen ------------------------
-def gegenprobe() -> tuple[bool, str]:
-    """Beide Lesarten mit DEMSELBEN Blatturbild gefahren -- dann muessen sie gleich sein.
+def gegenprobe() -> tuple[bool, str, str]:
+    """Jede Lesart EINZELN auf gleich-Fall und ungleich-Fall pruefen.
 
-    Ohne diesen Fall belegt ein durchgaengiges "weicht ab" nichts: es koennte ebenso gut
+    Ohne diese Faelle belegt ein durchgaengiges "weicht ab" nichts: es koennte ebenso gut
     heissen, dass der Vergleich immer ungleich meldet.
+
+    BEIDE LESARTEN, und das ist eine Haertung aus einer Gegenlesung: die erste Fassung fuhr
+    ausschliesslich blatt_hash_b. Wer blatt_hash_a durch eine KONSTANTE ersetzte, bekam
+    unveraendert "bestanden" und weiter "WEICHT AB" in jeder Zeile -- die Lesart, ueber die
+    das Ergebnis etwas aussagt, war selbst nie geprueft. Eine Gegenprobe, die nur EINE Seite
+    anfasst, ist gegen jeden Fehler blind, der NUR die andere trifft.
     """
     blaetter = [blatt(i) for i in range(4)]
-    links = mth([blatt_hash_b(b) for b in blaetter])
-    rechts = mth([blatt_hash_b(b) for b in blaetter])
-    if links != rechts:
-        return False, "der Vergleich meldet ungleich, wo er gleich melden muss"
-    # und ein echter Unterschied MUSS als Unterschied durchkommen
     verbogen = list(blaetter)
     verbogen[0] = dict(verbogen[0], data_hash=H(b"dh-abweichend"))
-    if mth([blatt_hash_b(b) for b in verbogen]) == links:
-        return False, "der Vergleich meldet gleich, wo er ungleich melden muss"
-    return True, "gleich-Fall und ungleich-Fall beide richtig"
+
+    spur = b""
+    for name, blatt_hash in (("2.1", blatt_hash_a), ("3.2", blatt_hash_b)):
+        links = mth([blatt_hash(b) for b in blaetter])
+        rechts = mth([blatt_hash(b) for b in blaetter])
+        anders = mth([blatt_hash(b) for b in verbogen])
+        # DIE SPUR IST DER NACHWEIS, DASS DIESE ZEILEN LIEFEN. Eine zweite Gegenlesung hat
+        # gezeigt: wer ein frueheres `return True, "..."` einsetzt, legt die ganze Pruefung
+        # still, ohne dass irgendeine gemessene Groesse reagiert -- die Messflaeche las nur
+        # das MELDUNGSERGEBNIS. Ein Wert, der aus der Arbeit selbst faellt, laesst sich nicht
+        # behaupten, nur rechnen.
+        spur += links + anders
+        if links != rechts:
+            return False, "Lesart %s meldet ungleich, wo sie gleich melden muss" % name, ""
+        # Ein echter Unterschied MUSS durchkommen. Genau hier faellt eine Lesart auf, die
+        # ihren Eingang gar nicht liest (konstantes Blatt) -- die Wurzel bliebe dieselbe.
+        if anders == links:
+            return False, "Lesart %s meldet gleich, wo sie ungleich melden muss" % name, ""
+
+    return True, "gleich-Fall und ungleich-Fall beide richtig", hx(H(spur))[:16]
 
 
 def main() -> int:
@@ -193,8 +211,8 @@ def main() -> int:
     print("CBOR   :", CBOR_PFAD)
     print()
 
-    ok, grund = gegenprobe()
-    print(f"GEGENPROBE: {'BESTANDEN' if ok else 'GEFALLEN'} -- {grund}")
+    ok, grund, spur = gegenprobe()
+    print(f"GEGENPROBE: {'BESTANDEN' if ok else 'GEFALLEN'} -- {grund} [spur {spur}]")
     if not ok:
         print("Abbruch: ohne gueltige Gegenprobe ist jedes Ergebnis unten bedeutungslos.")
         return 2
