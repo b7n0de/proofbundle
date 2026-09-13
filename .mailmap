@@ -1,53 +1,45 @@
-# .mailmap — EINHEITLICHE ANZEIGE OHNE UMSCHRIFT DER GESCHICHTE
+# .mailmap — one identity for display, without touching a single commit
 #
-# Owner-Anordnung OA-517479ff38 vom 13.09.2026, Zusatz 1: "eine .mailmap im Repo, die die alten
-# Adressen auf die Hausidentitaet abbildet, damit git-Werkzeuge sie ab jetzt einheitlich zeigen,
-# ohne einen Commit anzufassen."
+# Owner order OA-dc47a6f71c, 2026-09-13, verbatim: "Form B, Zielidentitaet b7n0de
+# <kontakt@b7n0de.com>, kein Realname in der Datei, alle alten Adressen und kraxo@b7n0de.com nur
+# ueber die Adresse dorthin abbilden, crissi.jane damit vollstaendig abgebildet."
 #
-# WARUM DIESER WEG UND NICHT DIE UMSCHRIFT (Zusatz 2 derselben Anordnung, woertlich): Geschichte
-# wird nicht umgeschrieben, weil Tags, Receipts, Provenienz und Archive an die SHAs gebunden sind.
-# Eine .mailmap aendert nur, was `git log`, `git shortlog` und `git blame` ANZEIGEN; die Commits
-# bleiben Byte fuer Byte, wie sie sind, und jede Signatur, jeder Digest und jede Verankerung
-# behalten ihre Gueltigkeit.
+# WHY NO REWRITE (order OA-517479ff38, verbatim): history is not rewritten because tags, receipts,
+# provenance and archives are bound to the object names. A .mailmap only changes what `git log`,
+# `git shortlog` and `git blame` DISPLAY. Every commit stays byte for byte as it is, and every
+# signature, digest and anchoring keeps its validity.
 #
-# GEMESSEN 13.09.2026 ueber origin/main (1139 Commits), Adressbestand:
-#   662  kraxo <kraxo@b7n0de.com>                              <- die Hausidentitaet
-#   173  kraxo <45888075+b7n0de@users.noreply.github.com>
-#   132  kraxo <support@zudiroderzumir.de>
-#    99  kraxo <kontakt@b7n0de.com>
-#    23  Konrad Gruszka <raponchen@me.com>
-#    18  dependabot[bot]                                       <- kein Hauskonto
-#    17  b7n0de <b7n0de@users.noreply.github.com>
-#     5  kraxo <raponchen@me.com>
-#     3  tuodijihua <158809980+...@users.noreply.github.com>    <- externer Beitrag
-#     3  kraxo <security@b7n0de.com>
-#     2  Konrad Gruszka <kontakt@b7n0de.com>
-#     1  MarkovianProtocol <hello@quantsynth.net>               <- fremdes Konto
-#     1  crissi.jane <raponchen@me.com>
+# WHY BY ADDRESS AND NOT BY NAME. Mapping by name plus address would keep the owner's real name in
+# this file, which the order rules out. Mapping by address alone carries one accepted consequence,
+# and the order names it: the entry that wrote under `raponchen@me.com` with a different display
+# name is folded in as well. That is a decision, not an oversight.
 #
-# DIE GRENZE, gemessen: die Hausidentitaet erscheint erstmals in d602802c5bb3daeb76439c99651d84220a894306
-# (2026-07-09). Sie gilt aber NICHT ab da durchgehend — 80 spaetere Commits tragen weiter eine alte
-# Adresse. Die erste Stelle, ab der KEINE alte Adresse mehr folgt, ist
-# d4558036a04032a3747d9f72de7213e9d5c34dcb (2026-09-07T12:52:11+02:00); die 117 Commits danach
-# tragen ausschliesslich Hausadressen.
+# MEASURED over origin/main, 1139 commits, before this file existed:
+#   662  kraxo@b7n0de.com                              173  45888075+b7n0de@users.noreply.github.com
+#   132  support@zudiroderzumir.de                      99  kontakt@b7n0de.com
+#    28  raponchen@me.com                               17  b7n0de@users.noreply.github.com
+#     3  security@b7n0de.com
+#   plus dependabot, one outside contribution and one foreign account, none of them this owner.
+#
+# THE IDENTITY BOUNDARY, for the register: the house identity first appears in
+# d602802c5bb3daeb76439c99651d84220a894306 of 2026-07-09, but it does not hold from there, because
+# 80 later commits still carry an older address, the last being b9d35d492db87267ae197d882126c12fea9eeb14
+# of 2026-09-07T12:15:53+02:00. The first point after which no older address follows is
+# d4558036a04032a3747d9f72de7213e9d5c34dcb of 2026-09-07T12:52:11+02:00; the 117 commits after it
+# carry house addresses only.
 
-kraxo <kraxo@b7n0de.com> <support@zudiroderzumir.de>
-kraxo <kraxo@b7n0de.com> Konrad Gruszka <raponchen@me.com>
-kraxo <kraxo@b7n0de.com> kraxo <raponchen@me.com>
+# Die ZIELADRESSE braucht eine eigene Zeile, und das ist nicht Zierde. GEMESSEN ohne sie:
+# 101 Commits, die kontakt@b7n0de.com bereits benutzten, blieben unter ihren alten
+# Anzeigenamen stehen, darunter zweimal der Realname. Eine Abbildung ueber die Adresse
+# normalisiert den NAMEN einer Adresse nur, wenn die Adresse selbst eine Zeile hat.
+b7n0de <kontakt@b7n0de.com> <kontakt@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <kraxo@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <support@zudiroderzumir.de>
+b7n0de <kontakt@b7n0de.com> <raponchen@me.com>
+b7n0de <kontakt@b7n0de.com> <security@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <45888075+b7n0de@users.noreply.github.com>
+b7n0de <kontakt@b7n0de.com> <b7n0de@users.noreply.github.com>
 
-# NICHT ABGEBILDET, bewusst, und je mit dem Grund — wer eine dieser Zeilen will, entfernt das #:
-#
-# kraxo <kraxo@b7n0de.com> <kontakt@b7n0de.com>
-#     Hausdomain, kein Fremdbestand. Die Anordnung nennt "die alten Adressen", und gemeint war der
-#     Fund ueber die fremden. Ob kontakt@ eine Rolle ist oder dieselbe Person, ist NICHT GEMESSEN.
-# kraxo <kraxo@b7n0de.com> <45888075+b7n0de@users.noreply.github.com>
-# kraxo <kraxo@b7n0de.com> b7n0de <b7n0de@users.noreply.github.com>
-#     GitHub-Ersatzadressen desselben Kontos — vermutlich dieselbe Person, aber das ist eine
-#     Zuordnung ueber eine Kontonummer und nicht gemessen.
-# kraxo <kraxo@b7n0de.com> <security@b7n0de.com>
-#     Sieht nach einer ROLLENadresse aus. Eine Rolle mit einer Person zu verschmelzen waere eine
-#     Aussage, die ich nicht belegen kann.
-# crissi.jane <raponchen@me.com>
-#     NICHT abgebildet, obwohl die Adresse oben abgebildet wird: crissi.jane ist im Inventar ein
-#     eigener Name. Dieselbe Adresse unter einem anderen Namen zu vereinnahmen waere eine
-#     Identitaetsbehauptung. Diese eine Zeile bleibt deshalb sichtbar, wie sie ist.
+# NOT MAPPED, and each for a reason that is not convenience: dependabot[bot], the outside
+# contribution under 158809980+tuodijihua@users.noreply.github.com, and hello@quantsynth.net. None
+# of them is this owner, and folding a third party into an identity would be a false claim.
