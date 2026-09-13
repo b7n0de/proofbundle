@@ -1,9 +1,39 @@
 #!/bin/sh
-# proofbundle pre-commit hook: block mutation-mutant signatures on staged security paths
-# (incident 2026-07-23: a probe's `if False:` at the SD-JWT key-binding check survived into
-# the working tree). Install with: sh scripts/install_git_hooks.sh
+# proofbundle pre-commit hook. Zwei Pruefungen, beide FRUEH statt gruendlich — die gruendliche
+# Fassung laeuft in CI und bleibt dort das Tor.
 #
-# A legitimate exception needs a VISIBLE `# mutant-guard: allow` comment on (or directly
-# above) the flagged line. CI runs the same guard on the push/PR range, so skipping this
-# hook locally does not skip the check.
-exec python3 "$(git rev-parse --show-toplevel)/scripts/mutant_signature_guard.py" --staged
+# 1. Mutations-Signaturen auf gestagten Sicherheitspfaden (Vorfall 2026-07-23: das `if False:` einer
+#    Probe am SD-JWT-Key-Binding ueberlebte in den Arbeitsbaum). Eine berechtigte Ausnahme braucht
+#    einen SICHTBAREN `# mutant-guard: allow` Kommentar auf oder direkt ueber der Zeile.
+#
+# 2. Die MANIFEST-Entscheidung fuer neue Dateien unter scripts/ — neu am 14.09.2026, und der Grund
+#    ist gemessen: MANIFEST.in verlangt seit dem Owner-Entscheid vom 06.09.2026 eine Entscheidung JE
+#    DATEI, und der Riegel dafuer sass am Ende eines 22- bis 42-minuetigen Vollsuiten-Jobs. An einem
+#    Abend fielen DREI Zweige daran, zusammen neun CI-Jobs, um je EINE Zeile zu erfahren. Der Riegel
+#    war nie falsch, er war zu spaet. Hier kostet dieselbe Auskunft Sekunden.
+#
+#    KEIN ZWEITER ERZEUGER (OA-714de2fcdd): aufgerufen wird GENAU DER Pruefknoten, den auch CI faehrt.
+#    Zwei Werkzeuge fuer dieselbe Frage driften; dies ist dasselbe Werkzeug, nur frueher.
+#
+#    NUR WENN scripts/ BETROFFEN IST, sonst kostet der Hook jeden Commit die pytest-Startzeit.
+#
+# Installieren mit: sh scripts/install_git_hooks.sh
+# CI faehrt beide Pruefungen ueber den Push/PR-Bereich; diesen Hook lokal zu ueberspringen
+# ueberspringt die Pruefung also nicht.
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+python3 "$ROOT/scripts/mutant_signature_guard.py" --staged
+
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^scripts/'; then
+    # FAIL-OPEN AUSSCHLIESSLICH BEI FEHLENDEM WERKZEUG, und sichtbar: ein Entwickler ohne pytest soll
+    # nicht am Committen gehindert werden, aber auch nicht glauben, es sei geprueft worden. Das Tor
+    # bleibt CI; dieser Hook ist die fruehe Warnung, nicht die Entscheidung.
+    if PYTHONPATH="$ROOT/src" python3 -c "import pytest" 2>/dev/null; then
+        PYTHONPATH="$ROOT/src" python3 -m pytest \
+            "$ROOT/tests/test_sdist_ohne_signierwerkzeug.py::test_jede_datei_unter_scripts_ist_in_manifest_entschieden" \
+            -q -p no:cacheprovider --no-header
+    else
+        echo "pre-commit: pytest fehlt, die MANIFEST-Entscheidung wurde NICHT geprueft (CI prueft sie)" >&2
+    fi
+fi
