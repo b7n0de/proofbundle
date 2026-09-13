@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "5.1.0.post1",
+  "subject_tree_digest": "0905c21b6b9c8053eda76b380e8f92dbbbabf060ae759465603421e6973e01d6",
+  "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
+  "audit_command": "PYTHONPATH=$PWD/src python -m pytest tests/ -q -p no:randomly --deselect tests/test_anchors_rfc3161_type_floor.py --deselect tests/test_iter9_deepgate_round4.py::TestRfc3161FrozenNoneTyped",
+  "audit_exit_code": 0,
+  "audit_output_digest": "d41a804c3f4d7d0e6220d04b1dffefeff83290c021bd5ffca26f9b2ebc141590",
+  "runner_identity": "farmer",
+  "produced_at": "2026-09-04T22:14:29Z",
+  "signature": "iddALrtHi0NKulalcyR1X/C9Y2u6PXAhajK/rFk7LBEdN9nLPq1DNeiPQaOIeeNxMrz4tkqel+E5fQO8jHAQCg==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}
