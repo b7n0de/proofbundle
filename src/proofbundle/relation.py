@@ -29,8 +29,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._membership import is_member
+from ._wire_b64 import decode_b64
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -84,7 +86,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
     if not isinstance(obj, dict):
         errors.append(f"{path} must be an object {{digestAlgorithm, digest}}")
         return
-    unknown = sorted(set(obj) - set(_DIGEST_ALLOWED))
+    unknown = render_keys_safe(set(obj) - set(_DIGEST_ALLOWED))
     if unknown:
         errors.append(f"{path} unknown field(s) {unknown} (fail-closed)")
     alg = obj.get("digestAlgorithm")
@@ -118,7 +120,7 @@ def validate_relationships(value: Any) -> list[str]:
         if not isinstance(edge, dict):
             errors.append(f"{path} must be a JSON object")
             continue
-        unknown = sorted(set(edge) - set(_EDGE_ALLOWED))
+        unknown = render_keys_safe(set(edge) - set(_EDGE_ALLOWED))
         if unknown:
             errors.append(f"{path} unknown field(s) {unknown} (fail-closed)")
         for req in _EDGE_REQUIRED:
@@ -155,7 +157,9 @@ def require_valid_relationships(value: Any) -> None:
 # one STANDALONE with the existing machinery; this module never re-implements crypto. An
 # attached target is described by an AttachedTarget mapping:
 #     {"verified": bool,                     # target verified standalone (its own crypto)
-#      "relationships": list | None}         # the target's OWN edges (for the chain walk)
+#      "relationships": list | None,         # the target's OWN edges (for the chain walk)
+#      "payload_malformed": str | None}      # L4-01: the strict parser's reason when the SIGNED payload
+#                                            #   is not a well-formed statement (hard FAIL at any hop)
 # keyed by its content-root hex in `related`.
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -253,8 +257,33 @@ def verify_relationship_edges(
     # (TypeError: unhashable type). A non-str hex can never legitimately equal a str target_hex, so
     # None is the correct fail-closed coercion (self-reference check + cycle seed both stay honest).
     subject_hex = subject_hex if isinstance(subject_hex, str) else None
+    # DER SCHLUESSEL WIRD HIER GESETZT, NICHT BEIM AUFRUFER (deep gate Lauf 7, Fund L4-600-02, P1).
+    #
+    # WAS WAR: `supersededByAttached` fuellten die AUFRUFER — decision.py:682 und outcome.py:673 taten
+    # es, relation_statement.py nicht. Der Arm in evaluate_relations_policy (unten, (2)) liest genau
+    # diesen Schluessel, und deshalb war `reject_superseded` auf der Statement-Flaeche fuer den
+    # ANGEHAENGTEN Fall wirkungslos: die Flaeche nimmt die Flagge entgegen und konnte sie nie
+    # behaupten. Der unabhaengige Zeuge war der Rust-Verifizierer, der den Schluessel in BEIDEN Modi
+    # setzt (tools/pb_verify_rs/src/main.rs:1482) — Python endete mit 0, wo Rust mit 3 endet.
+    #
+    # DIE KLASSE, nicht die Instanz: drei Aufrufer, dreimal derselbe Dreizeiler, einer davon fehlte.
+    # Eine Pflicht, die an der Disziplin des Aufrufers haengt, wird irgendwann vergessen — der vierte
+    # Aufrufer haette sie genauso vergessen koennen. Diese Funktion bekommt `related` und
+    # `subject_hex` ohnehin, also gehoert der Schluessel in IHRE Rueckgabe. Danach KANN ihn kein
+    # Aufrufer mehr auslassen, weil er ihn nicht mehr selbst setzt.
+    #
+    # `successor_warning` haengt NICHT an den eigenen Kanten — sein erster Parameter heisst
+    # `_subject_relationships` und wird nicht gelesen. Deshalb traegt auch der NOT_EVALUATED-Zweig den
+    # Schluessel: ein angehaengter Nachbar kann eine Ruecknahme ueber dieses Objekt erklaeren, auch
+    # wenn das Objekt selbst gar keine Kante hat. Die Richtung ist monoton: der Schluessel kann eine
+    # Politik-Verletzung nur HINZUFUEGEN, nie eine entfernen.
+    #
+    # Die Aufrufer, die ihn heute selbst setzen, ueberschreiben ihn mit demselben Wert — ein
+    # No-Op. Ihre Zeilen zu entfernen ist die Nacharbeit, nicht die Bedingung dieser Haertung.
+    _sba = successor_warning(None, related, subject_hex=subject_hex)
     if relationships is None:
-        return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": []}
+        return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
+                "supersededByAttached": _sba}
 
     # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface — the caller
     # hands over an already-parsed structure, so loads_strict's input_bytes cap never runs here.
@@ -275,12 +304,14 @@ def verify_relationship_edges(
     except ProofBundleError as exc:
         return {"lineage": LINEAGE_FAIL, "edges": [],
                 "errors": [f"relation:over_budget: relationships exceed the verification budget "
-                           f"(fail-closed): {exc}"]}
+                           f"(fail-closed): {exc}"],
+                "supersededByAttached": _sba}
 
     structural = validate_relationships(relationships)
     if structural:
         return {"lineage": LINEAGE_FAIL, "edges": [],
-                "errors": [f"relation:malformed:{e}" for e in structural]}
+                "errors": [f"relation:malformed:{e}" for e in structural],
+                "supersededByAttached": _sba}
 
     edges_out: list[dict] = []
     errors: list[str] = []
@@ -301,6 +332,11 @@ def verify_relationship_edges(
             if not isinstance(target, dict):
                 entry["resolution"] = LINEAGE_FAIL
                 entry["errors"].append("relation:attached_target_malformed")
+            elif _target_payload_malformed(target) is not None:
+                # L4-01: the resolver could not parse the target's SIGNED payload strictly. That is a
+                # finding about the target (its bytes fail standalone), never "no edges, subject absent".
+                entry["resolution"] = LINEAGE_FAIL
+                entry["errors"].append(_target_payload_malformed(target))
             elif target.get("verified") is not True:
                 # Fail-closed: an ATTACHED target that does not verify standalone is a
                 # hard FAIL (present-and-wrong), unlike an absent one (declared-only).
@@ -347,7 +383,8 @@ def verify_relationship_edges(
         lineage = LINEAGE_VERIFIED
     else:  # pragma: no cover — empty list is structurally rejected above
         lineage = LINEAGE_NOT_EVALUATED
-    return {"lineage": lineage, "edges": edges_out, "errors": errors}
+    return {"lineage": lineage, "edges": edges_out, "errors": errors,
+            "supersededByAttached": _sba}
 
 
 def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
@@ -393,6 +430,12 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
         if not isinstance(node, dict):
             return ("relation:ancestor_attached_target_malformed: an ATTACHED ancestor is not a "
                     "well-formed target object (present-and-wrong is a hard FAIL at any hop)")
+        # L4-01 (deep gate 2026-09-05): the SAME payload gate as on the receipt's own edge, at every hop.
+        # A malformed payload used to arrive here as "verified, relationships=None" and end the path
+        # honestly at the horizon — exactly the hop an attacker inserts to hide a failing ancestor.
+        _payload_err = _target_payload_malformed(node)
+        if _payload_err is not None:
+            return f"relation:ancestor_edge: {_payload_err}"
         if node.get("verified") is not True:
             return ("relation:ancestor_verification_failed: an ATTACHED ancestor does not verify "
                     "standalone (present-and-wrong is a hard FAIL at any hop, exactly as for the "
@@ -451,11 +494,79 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     related = related if isinstance(related, dict) else {}
     if subject_hex is None:
         return None
+    # OWNER-ANORDNUNG 2026-09-08 (Karte OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1).
+    #
+    # WAS HIER STAND: `if not isinstance(nested, list) or validate_relationships(nested): continue`
+    # — ein STILLES Ueberspringen. Ein angehaengtes, kryptografisch verifiziertes Receipt, dessen
+    # eigener relationships-Block einen Formfehler traegt, fiel damit aus der Betrachtung, UND MIT
+    # IHM DIE RUECKNAHME, DIE ES DEKLARIERT. Der Angreifer haengt neben die `retracts`-Kante eine
+    # zweite, absichtlich fehlerhafte Kante; `validate_relationships` meldet einen Fehler, die
+    # Schleife geht weiter, `successor_warning` liefert None — und die ganze Kette dahinter
+    # (supersededByAttached -> reject_superseded -> policy_ok -> safeForAutomation -> exit 3)
+    # kippt lautlos in die freundliche Richtung: safeForAutomation false->true, exit 3->0.
+    # In Python UND Rust identisch, weshalb das Differential zwischen beiden blind war: beide
+    # Seiten machten denselben Fehler, und ein Vergleich zweier gleicher Fehler ist still.
+    #
+    # DIE UNTERSCHEIDUNG, auf die es ankommt: ein Receipt OHNE relationships-Feld hat schlicht
+    # nichts erklaert — das ist kein Fund und wird weiter uebersprungen. Ein Receipt MIT einem
+    # Feld, das nicht lesbar ist, hat etwas erklaert, das wir nicht auswerten koennen; das ist ein
+    # eigener, benannter Zustand und niemals Schweigen. Fail-closed heisst hier: eine nicht
+    # auswertbare Erklaerung wird wie eine Rueck nahme behandelt, nicht wie ihre Abwesenheit.
+    #
+    # ORDNUNG, damit das Verdikt nicht an der Reihenfolge haengt (dieselbe Regel, die _walk_chain
+    # fuer Zyklen schon anwendet: "A CYCLE IS ORDER-INDEPENDENT, so it is decided before any
+    # descent"): ZUERST werden alle Kandidaten auf eine ECHTE, lesbare Rueck nahme/Nachfolge
+    # geprueft; erst wenn es keine gibt, meldet der unlesbare Block. Ein malformed Nachbar kann
+    # eine echte Rueck nahme also nicht mehr maskieren, und `related` ist ein dict, dessen
+    # Einfuegereihenfolge der Angreifer sonst mitbestimmen wuerde.
+    # Der unlesbare Kandidat wird ORDNUNGSUNABHAENGIG gewaehlt (kleinster Hex), nicht "der erste".
+    # Grund ist die Paritaet mit dem Rust-Verifizierer: der iteriert eine HashMap, deren Reihenfolge
+    # in Rust bewusst randomisiert ist. "Der erste" haette dort bei mehreren unlesbaren Nachbarn je
+    # Lauf einen anderen Text ergeben, waehrend Pythons dict die Einfuegereihenfolge behaelt — zwei
+    # Sprachen, zwei Antworten, und der Unterschied haette nach einem Fund ausgesehen, der keiner ist.
+    unlesbar: str | None = None
+    unlesbar_hex: str | None = None
     for other_hex, other in related.items():
-        if not isinstance(other, dict) or other.get("verified") is not True:
+        if not isinstance(other, dict):
+            continue
+        # EIN UNLESBARER PAYLOAD IST NICHT DASSELBE WIE EINE UNGUELTIGE SIGNATUR (Lauf 8, beim
+        # Schliessen von L4-800-01 am Nachbar-Arm gemessen). `verified` traegt seit dem L4-01-Fix
+        # vom 05.09. ZWEI Bedeutungen: "Signatur haelt" UND "Payload lesbar" — der Aufloeser setzt
+        # es fuer beides auf False. Diese Schleife las es fuer die erste, und damit fiel ein
+        # Nachbar mit unlesbarem Payload STUMM aus der Betrachtung, mitsamt der Ruecknahme, die er
+        # erklaert. GEMESSEN, 4 von 4 Zeilen wie angesagt: ein solcher Nachbar meldete NICHTS,
+        # sogar dann, wenn er eine echte `retracts`-Kante ueber unser Subjekt trug. Die Verformung
+        # maskierte die Ruecknahme — genau der Fehlermodus, den der Absatz oben ausschliesst.
+        #
+        # Ein Nachbar mit gebrochener SIGNATUR bleibt uebersprungen: eine unsignierte Behauptung
+        # ist keine Aussage ueber uns. Ein Nachbar mit unlesbarem PAYLOAD dagegen hat etwas
+        # erklaert, das wir nicht auswerten koennen, und faellt in denselben unlesbar-Zweig wie ein
+        # unlesbarer relationships-Block.
+        _payload_kaputt = other.get("payload_malformed")
+        if other.get("verified") is not True and not _payload_kaputt:
+            continue
+        if _payload_kaputt:
+            if unlesbar_hex is None or other_hex < unlesbar_hex:
+                unlesbar_hex = other_hex
+                unlesbar = (
+                    f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
+                    f"receipt {other_hex[:12]}… carries a signed payload this verifier cannot read "
+                    f"({str(_payload_kaputt)[:80]}); a retraction or supersession declared in it "
+                    "cannot be evaluated and is therefore NOT ruled out (fail-closed — an "
+                    "unreadable statement about this receipt is never silence)")
             continue
         nested = other.get("relationships")
+        if nested is None:
+            continue  # kein Block deklariert — nichts erklaert, kein Fund
         if not isinstance(nested, list) or validate_relationships(nested):
+            if unlesbar_hex is None or other_hex < unlesbar_hex:
+                unlesbar_hex = other_hex
+                unlesbar = (
+                    f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
+                    f"receipt {other_hex[:12]}… verifies standalone but carries a relationships "
+                    "block this verifier cannot read; a retraction or supersession declared in it "
+                    "cannot be evaluated and is therefore NOT ruled out (fail-closed — an "
+                    "unreadable statement about this receipt is never silence)")
             continue
         for edge in nested:
             rel = edge.get("relation")
@@ -465,7 +576,7 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
             if rel == "retracts" and _edge_target_hex(edge) == subject_hex:
                 return (f"retracted_by_attached: attached receipt {other_hex[:12]}… declares "
                         f"retracts over this receipt")
-    return None
+    return unlesbar
 
 
 # ── Trust-policy `relations` evaluation (WP-A signer · WP-A2 target-pin, pure/offline) ──────────
@@ -488,17 +599,44 @@ CODE_RELATION_TARGET_SUBJECT_MISSING = "RELATION_TARGET_SUBJECT_MISSING"
 CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS = "RELATION_TARGET_SUBJECT_AMBIGUOUS"
 CODE_RELATION_TARGET_SUBJECT_MALFORMED = "RELATION_TARGET_SUBJECT_MALFORMED"
 
+# Deep gate 2026-09-05, finding L4-01 (P1): an ATTACHED target whose signed payload the strict parser refuses
+# (duplicate key, NaN, BOM, non-canonical, not an object) is `attached_target_malformed` — a hard FAIL at
+# every hop, with the same stable wire code in Python and Rust. Before this the resolver swallowed the parse
+# failure into "verified, no edges, subject absent", and a chain hidden behind a duplicate `predicate` key
+# walked to VERIFIED while the same bytes failed standalone (parser-differential at the resolver seam).
+CODE_RELATION_TARGET_MALFORMED = "RELATION_TARGET_MALFORMED"
+
+# OWNER-ANORDNUNG 2026-09-08 (OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1): ein ATTACHED,
+# standalone verifiziertes Receipt, dessen EIGENER relationships-Block nicht lesbar ist, wurde in
+# successor_warning still uebersprungen — samt der Rueck nahme, die es deklariert. Der Zustand hat
+# jetzt einen Namen, identisch in Python und Rust, damit die Paritaets-Vektoren einen Sollwert haben.
+CODE_RELATION_MALFORMED_SUCCESSOR = "RELATION_MALFORMED_SUCCESSOR"
+
+
+def _target_payload_malformed(target: dict) -> str | None:
+    """The resolver's typed verdict that an attached target's PAYLOAD is not a well-formed statement.
+
+    ``payload_malformed`` is set by :func:`proofbundle.cli._load_related` (and any foreign resolver that
+    follows the AttachedTarget contract) to the strict parser's reason. A ``subject_digest_state`` of
+    ``"malformed"`` alone is NOT this condition (that state also names a single subject with a bad digest,
+    which is the subject-pin's business); only the explicit payload verdict FAILs the whole target."""
+    reason = target.get("payload_malformed")
+    if reason is None or reason is False:
+        return None
+    return (f"relation:attached_target_malformed ({CODE_RELATION_TARGET_MALFORMED}): an ATTACHED target's "
+            f"signed payload is not a well-formed statement — {reason if isinstance(reason, str) else 'rejected'}"
+            " (present-and-malformed is a hard FAIL at any hop; the same bytes fail standalone)")
+
 
 def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
     """Byte-equality of two base64 Ed25519 keys AFTER decode — never a string/keyId compare (the
     formal keyid-alias gegenmodell, 2026-07-15: two different b64 encodings, or a keyId alias, must
     never read as the same key). Fail-closed: an undecodable value is never equal to anything."""
-    import base64  # noqa: PLC0415
     if not isinstance(a_b64, str) or not isinstance(b_b64, str):
         return False
     try:
-        ra = base64.b64decode(a_b64, validate=True)
-        rb = base64.b64decode(b_b64, validate=True)
+        ra = decode_b64(a_b64)
+        rb = decode_b64(b_b64)
     except (ValueError, TypeError):
         return False
     return len(ra) == 32 and ra == rb
@@ -527,6 +665,16 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     out: list[dict] = []
     if not isinstance(relations_section, dict):
         return out
+    # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached
+    # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
+    # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein
+    # unbekannter Schluessel ist hier eine Verletzung, kein Wurf (diese Funktion wirft nie).
+    from .policy import PolicyError, _huelle_relations  # noqa: PLC0415 - lokal, wie die Nachbarn
+    try:
+        _huelle_relations(relations_section)
+    except PolicyError as exc:
+        return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                 "message": f"relations policy section rejected before evaluation (fail-closed): {exc}"}]
     # R7-2b (3.6.3 adversarial re-audit sibling): coerce lineage_result at entry — a non-dict 2nd arg
     # crashed the reject_superseded branch (lineage_result.get('supersededByAttached')) which sits
     # outside the isinstance guard on the edges read below (fail-closed to {}, no violation from a

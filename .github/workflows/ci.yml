@@ -85,8 +85,20 @@ jobs:
         run: python scripts/claims_hygiene_check.py
       - name: Doc links (no broken internal Markdown links)
         run: python scripts/doc_link_check.py
+      # LAUF11-L6: DER NORMATIVE RUNNER, auf ALLEN fuenf Pflicht-Versionen.
+      # Vorher stand hier `python -m unittest discover -s tests -v`. `unittest discover` sammelt nur
+      # TestCase-Klassen; eine Testdatei aus reinen pytest-Funktionen ist dort unsichtbar. Gemessen
+      # am Kopf e95e72f: unittest 2711 Tests / 209 Module gegen 4080 unter pytest — eine Luecke von
+      # 1369 Tests / 71 Modulen, und darin liegt die Freigabeflaeche selbst (test_renewal*,
+      # test_audit_candidate_ready_logic, test_audit_matrix_version_pin_binding,
+      # test_freigabe_evidenz_provenienz_l5_g7_02, test_ausfuehrung_aus_quelltext_l5_g7_04).
+      # `coverage` fing sie auf 3.12 — also Einfach- statt Fuenffachabdeckung, keine Blindheit. Fuer
+      # ein Release, das 3.10 bis 3.14 verspricht, reicht das nicht.
+      # `scripts/test_manifest_gate.py` nennt pytest seit jeher "the normative runner"; hier folgt
+      # der Pflicht-Job dem Namen, den die Sache schon trug. pytest liegt im `[dev]`-Extra, das der
+      # Install-Schritt oben schon zieht — kein neuer Abhaengigkeitsschritt.
       - name: Test
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest -q
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
         run: python conformance/run_conformance.py
       - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)
@@ -236,17 +248,67 @@ jobs:
         # repo root, and the leftover guard below reported them -- correctly: it fails on ANY
         # working tree change after the probe run, and it must not learn exceptions, or it stops
         # catching the live mutants it exists for. Three shards went red on exactly this.
+        #
+        # `shell: bash` IST HIER DER GANZE RIEGEL, und er ist nicht kosmetisch. GEMESSEN am
+        # abgeschlossenen Job `mutation (2)` des Laufs 34235429542 (Log-Zeile direkt unter diesem
+        # Schritt): `shell: /usr/bin/bash -e {0}` — der Standard traegt KEIN `pipefail`. Ohne ihn
+        # ist der Exit-Code der Pipeline der von `tee`, und der ist 0, solange das Schreiben
+        # klappt. Ein `mutation_check.py`, das eine LUECKE meldet (Exit 1), faerbte den Job
+        # trotzdem gruen — und der Sammel-Job unten prueft `needs.mutation.result`, also genau
+        # das Ergebnis, das hier maskiert wuerde. Das Tor, dessen ganzer Zweck das laute
+        # Fehlschlagen ist, koennte still bestehen. Mit `shell: bash` faehrt GitHub
+        # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
+        shell: bash
         run: |
-          python scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
+          # `-u` IS NOT COSMETIC — it is the condition under which this step can be diagnosed at all.
+          # MEASURED 2026-09-10 on head 1b2adc2, shard 6 of this very matrix: the step started at
+          # 18:15:34Z, produced ZERO progress lines for 140 minutes (grep for `operator|mutant` over
+          # the whole 57 KB log: 0 hits), and was terminated at 20:35:24Z with exit 143 — SIGTERM
+          # from a GitHub-hosted runner shutdown. The follow-up step "Record how many operators this
+          # shard actually ran" was then skipped, so the one question that mattered — how far did it
+          # get, and was the fix in this head complete — became unanswerable at that run.
+          #
+          # The silence is a property of the pipe, not of the mutation gate: piping into `tee`
+          # switches Python's stdout from line- to block-buffering, so nothing is visible until a
+          # 4-8 KB buffer fills. A long run without visible progress is indistinguishable from a
+          # hung one, and both look identical to whoever reads the job while it is red.
+          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
             | tee "$RUNNER_TEMP/mutation-shard.log"
       - name: Record how many operators this shard actually ran
         # The count comes from the run's OWN closing line, not from the matrix index. A shard that
         # claims a number it did not run would make the summary's sum check pass every time.
+        #
+        # DIE GESAMTZAHL KOMMT MIT, und das ist der Fix vom 2026-09-07. Der Sammel-Job unten hielt
+        # sie als getippte Konstante `ERWARTET=88`; seit `15d05ab` (12 neue Operatoren) steht die
+        # Liste auf 100. Der Riegel gegen eine Luecke in der Partition haette bei jedem
+        # vollstaendigen Lauf eine gemeldet, die es nicht gibt. Eine Erwartung, die man tippt, ist
+        # eine zweite Wahrheit ueber dieselbe Groesse — sie kommt jetzt aus dem Lauf.
         if: always()
         run: |
+          # `|| true` AUCH HIER, und der Grund ist der Nachbar (Gegenlesung 2026-09-07): der
+          # Sammel-Job unten hatte genau diese ungeschuetzte Pipeline und stuerzte darueber ab.
+          # Dieser Schritt faehrt ohne `shell:`, also `bash -e` OHNE pipefail (gemessen, s.o.);
+          # `set -e` allein reicht aber schon. Fehlt die Logdatei oder das Muster — der
+          # Shard ist vor seiner Schlusszeile gestorben —, liefert `grep` 1, der Schritt bricht VOR
+          # dem `echo > file` ab, und die Datei entsteht nie. Der Sammel-Job meldet dann "fehlender
+          # Shard" statt "Shard lief, aber sein Log traegt keine Schlusszeile": fail-closed bleibt,
+          # die Diagnose zeigt in die falsche Richtung. Ein Fix nur am Sammel-Job waere ein
+          # Instanz-Fix gewesen; die Klasse sitzt in jeder ungeschuetzten Pipeline unter `set -e`.
           n="$(grep -oE '=> (OK|FAILED) \([0-9]+ operators' "$RUNNER_TEMP/mutation-shard.log" \
-               | grep -oE '[0-9]+' | tail -1)"
-          echo "shard=${{ matrix.shard }} operators=${n:-0}" \
+               | grep -oE '[0-9]+' | tail -1 || true)"
+          gesamt="$(grep -oE 'total=[0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
+                    | grep -oE '[0-9]+' | tail -1 || true)"
+          # DIE MITGLIEDSCHAFT WIRD MITGEMELDET, NICHT NUR IHRE GROESSE (Lauf 5, Linse 1, 2026-09-07).
+          # Der Sammel-Job unten prueft `Summe == Gesamtzahl`. Gemessen an diesem Repo faengt das den
+          # Fall NICHT, gegen den es antritt: gewichtete und round-robin-Partition liefern beide
+          # [10,10,10,10,10,10,10,10,10,10] und in beiden Faellen die Summe 100 — waehrend sich die
+          # MITGLIEDSCHAFTEN bei 10 von 10 Shards unterscheiden. Zwei Codestaende in einer Matrix
+          # kaemen so durch, und eine Ueberlappung, die sich mit einer Luecke aufhebt, ebenfalls.
+          # Die Indizes stehen im Log (`shard-item <idx> [<label>]`); sie werden hier uebertragen,
+          # damit der Sammel-Job Vereinigung und Disjunktheit RECHNEN kann statt sie zu glauben.
+          idx="$(grep -oE '^  shard-item [0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
+                 | grep -oE '[0-9]+' | sort -n | tr '\n' ',' | sed 's/,$//' || true)"
+          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
@@ -275,8 +337,18 @@ jobs:
     # warum das Sharding die Aussage des Tores nicht verduennt. Er faellt bei DREI Dingen:
     #   1. ein Shard FEHLT       -> ein ausgefallener Job darf nicht als bestanden durchgehen
     #   2. ein Shard ist ROT     -> needs+always() sieht das Ergebnis jedes Shards
-    #   3. die Summe != 88       -> die Partition muss lueckenlos sein, gerechnet statt geglaubt
-    # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index.
+    #   3. die Summe != gesamt   -> gerechnet statt geglaubt. EHRLICHE GRENZE (Gegenlesung
+  #                                 2026-09-07, ausgefuehrt): diese Summe beweist GLEICHHEIT, nicht
+  #                                 Lueckenlosigkeit. Acht Shards mit je 10, einer mit 15 und einer
+  #                                 mit 5 ergeben ebenfalls 100 und kommen hier durch — eine
+  #                                 Ueberlappung, die sich mit einer Luecke aufhebt. Dass die
+  #                                 Partition wirklich lueckenlos und ueberschneidungsfrei ist,
+  #                                 zeigen die Python-Faelle in tests/test_mutation_shard_partition
+  #                                 gegen `_indizes_des_laufs`, nicht diese Zeile. Zwei Schichten,
+  #                                 und nur zusammen tragen sie die Aussage.
+    #   4. die Shards sind sich ueber die Gesamtzahl uneinig -> zwei Codestaende in einer Matrix
+    # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index UND
+    # nicht aus einer hier getippten Konstante (siehe den Fix vom 2026-09-07 im Shard-Schritt).
     needs: [mutation]
     if: always()
     runs-on: ubuntu-latest
@@ -292,29 +364,87 @@ jobs:
         run: |
           set -euo pipefail
           K=10
-          ERWARTET=88
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::mutation matrix result=$MUTATION_RESULT — mindestens ein Shard ist rot"
             exit 1
           fi
           fehlend=""
           summe=0
+          gesamtwerte=""
           for i in $(seq 1 $K); do
             f="mutation-shard-$i.txt"
             if [ ! -f "$f" ]; then fehlend="$fehlend $i"; continue; fi
-            n="$(grep -oE 'operators=[0-9]+' "$f" | grep -oE '[0-9]+')"
-            echo "shard $i: ${n:-0} Operatoren"
+            # `|| true` IST HIER DER UNTERSCHIED ZWISCHEN DIAGNOSE UND ABSTURZ (Gegenlesung
+            # 2026-09-07, ausgefuehrt mit zehn synthetischen Shard-Dateien). Unter `set -e`
+            # beendet ein fehlgeschlagenes Kommando das Skript, und `grep` liefert 1, wenn es
+            # nichts findet. Eine Shard-Datei ohne `total=` — genau der Fall, den die Pruefung
+            # unten abfangen SOLL, etwa wenn ein alter Runner neben einem neuen laeuft — liess
+            # das Skript sofort abbrechen, mitten in der Schleife: die Shards danach wurden nie
+            # gelesen, und die eigens dafuer geschriebene Meldung "kein Shard hat eine Gesamtzahl
+            # gemeldet" war unerreichbarer Code. Fail-closed blieb zufaellig erhalten (der Job
+            # scheiterte ja), aber ein Riegel, der nur durch seinen eigenen Absturz haelt, sagt
+            # niemandem, WAS fehlt.
+            #
+            # EIN `| tail -1` REICHT DAFUER NICHT, und der erste Fix versuchte genau das: unter
+            # `set -o pipefail` ist der Rueckgabewert einer Pipeline nicht der ihres letzten
+            # Befehls, sondern der des ERSTEN, der fehlschlaegt. Der neue Fall
+            # `DerSammelJobWirdALSPROGRAMMGefahren` in tests/ hat diesen Fix in derselben Minute
+            # widerlegt, in der er geschrieben wurde — er faehrt den Block als Programm statt den
+            # Workflow als Text zu lesen. `|| true` traegt, `tail -1` bleibt fuer den Fall
+            # mehrerer Treffer je Datei.
+            n="$(grep -oE 'operators=[0-9]+' "$f" | grep -oE '[0-9]+' | tail -1 || true)"
+            g="$(grep -oE 'total=[0-9]+' "$f" | grep -oE '[0-9]+' | tail -1 || true)"
+            echo "shard $i: ${n:-0} von ${g:-0} Operatoren"
             summe=$((summe + ${n:-0}))
+            gesamtwerte="$gesamtwerte ${g:-0}"
           done
           if [ -n "$fehlend" ]; then
             echo "::error::fehlende Shards:$fehlend — ein fehlender Shard ist ROT, nicht gruen"
+            exit 1
+          fi
+          # Die Erwartung kommt aus den Laeufen. Sind sich die Shards uneinig, liefen zwei
+          # Codestaende in einer Matrix — dann sagt die Summe nichts, egal wie sie ausfaellt.
+          einig="$(echo $gesamtwerte | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+          if [ "$(echo $einig | wc -w)" -ne 1 ]; then
+            echo "::error::die Shards melden verschiedene Gesamtzahlen ($einig) — zwei Codestaende in einer Matrix"
+            exit 1
+          fi
+          ERWARTET="$(echo $einig | tr -d ' ')"
+          if [ "$ERWARTET" -eq 0 ]; then
+            echo "::error::kein Shard hat eine Gesamtzahl gemeldet — die Schlusszeile traegt kein total="
             exit 1
           fi
           if [ "$summe" -ne "$ERWARTET" ]; then
             echo "::error::Summe der gefahrenen Operatoren $summe != $ERWARTET — die Partition hat eine Luecke oder eine Ueberschneidung"
             exit 1
           fi
-          echo "mutation-summary OK: $K Shards, $summe Operatoren, keine Luecke"
+          # DIE SUMME IST NOTWENDIG UND NICHT HINREICHEND, und bis 2026-09-07 stand hier nur sie.
+          # Gemessen: eine Ueberlappung, die sich mit einer Luecke aufhebt, geht durch (acht Shards
+          # mit je zehn, einer mit fuenfzehn, einer mit fuenf ergibt ebenfalls 100), und zwei
+          # verschiedene Partitionsverfahren liefern hier IDENTISCHE Groessen bei durchgehend
+          # verschiedener Mitgliedschaft. Erst die Indizes machen die Aussage "lueckenlos und
+          # ueberschneidungsfrei" pruefbar, statt sie aus der Summe zu erschliessen.
+          alle_idx=""
+          for i in $(seq 1 $K); do
+            f="mutation-shard-$i.txt"
+            teil="$(grep -oE 'indizes=[0-9,]*' "$f" | sed 's/indizes=//' || true)"
+            if [ -z "$teil" ]; then
+              echo "::error::Shard $i meldet keine Mitgliedschaft — die Partition ist dann nicht nachrechenbar, nur behauptet"
+              exit 1
+            fi
+            alle_idx="$alle_idx $(echo "$teil" | tr ',' ' ')"
+          done
+          n_gesamt="$(echo $alle_idx | tr ' ' '\n' | grep -c . || true)"
+          n_eindeutig="$(echo $alle_idx | tr ' ' '\n' | grep . | sort -n | uniq | wc -l)"
+          if [ "$n_gesamt" -ne "$n_eindeutig" ]; then
+            echo "::error::die Shards ueberschneiden sich: $n_gesamt gemeldete Indizes, davon nur $n_eindeutig verschiedene"
+            exit 1
+          fi
+          if [ "$n_eindeutig" -ne "$ERWARTET" ]; then
+            echo "::error::die Vereinigung deckt $n_eindeutig von $ERWARTET Operatoren — es fehlen welche"
+            exit 1
+          fi
+          echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, Vereinigung vollstaendig und paarweise disjunkt"
       - name: Wanduhr der Matrix aus den Job-Zeitstempeln
         # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
         # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht

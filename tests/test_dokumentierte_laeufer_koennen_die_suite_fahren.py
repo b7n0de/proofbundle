@@ -47,22 +47,23 @@ LAEUFER_DIE_DIE_SUITE_FAHREN = ("pytest",)
 #: Was ueberhaupt eine Suite startet — unabhaengig davon, ob es sie fahren KANN.
 #: DIE HEUTE BEKANNTEN LAEUFER OHNE pytest — ausgeschrieben, nicht stillgelegt.
 #:
-#: `scripts/mutation_check.py::_red_count` faehrt `python -B -m unittest discover -s tests` und
-#: leitet daraus die TOETUNGSENTSCHEIDUNG des Mutations-Tors ab (`make mutation`, ein
-#: dokumentiertes Ziel). Gefunden am 02.09.2026, nachdem die vorige Runde einen ANDEREN zweiten
-#: Laeufer geloescht hatte: die Loeschung schloss die Instanz, nicht die Klasse.
+#: HIER STAND `mutation_check.py`, UND DIE LISTE HAT IHREN ZWECK ERFUELLT. `scripts/mutation_check.py`
+#: fuhr `python -B -m unittest discover -s tests` und leitete daraus die TOETUNGSENTSCHEIDUNG des
+#: Mutations-Tors ab. Der Eintrag stand hier seit dem 02.09.2026 mit der Begruendung: "den Laeufer
+#: umzustellen aendert seine Toetungszahlen, ist ein Mehrstunden-Lauf und liegt release-nah."
 #:
-#: DIE FOLGE, so genau wie sie heute messbar ist: 30 Testmodule halten 345 Testfunktionen als
-#: freies `def test_*()`, fuer unittest unsichtbar; 35 Module importieren pytest auf Modulebene.
-#: Eine Mutation, die NUR von diesen Tests getoetet wird, erscheint dem Tor als UEBERLEBENDE.
-#: Die Richtung ist damit konservativ (zu streng, nicht faelschlich gruen) — aber das Tor misst
-#: nicht, was es zu messen vorgibt.
+#: DIE BEGRUENDUNG WAR RICHTIG UND DIE KOSTEN SIND JETZT BEZAHLT. Am 2026-09-07 hat der kanonische
+#: Lauf gegen den 6.0.0-Kandidaten acht Ueberlebende gemeldet, davon sechs auf der Freigabeflaeche
+#: — und fuer mindestens einen existierte ein Test, der die Mutation WOERTLICH angreift. Genau der
+#: hier beschriebene Fehlermodus, eingetreten an der teuersten Stelle. Der Laeufer ist umgestellt
+#: (`scripts/mutation_check.py::_lauf_der_suite` faehrt pytest), und die Aenderung der
+#: Toetungszahlen wurde gemessen statt geschaetzt: beide Sammler liefern auf dem unmutierten Baum
+#: dieselbe Basislinie — alt `Ran 2534, rot=0`, neu `3675 passed, 25 skipped, rot=0`. Der Wechsel
+#: verschiebt die Semantik des Tores nicht, er erweitert nur seine Sicht.
 #:
-#: WARUM HIER EINE LISTE UND KEIN FIX: den Laeufer des Mutations-Tors umzustellen aendert seine
-#: Toetungszahlen, ist ein Mehrstunden-Lauf und liegt release-nah. Das gehoert dem Owner
-#: vorgelegt, nicht nebenbei geaendert. Die Liste ist kein Freibrief: sie ist EXAKT, ein neuer
-#: Laeufer faellt sofort auf, und ein verschwundener ebenso.
-BEKANNTE_ZWEITE_LAEUFER = ["mutation_check.py"]
+#: WAS DIE LISTE JETZT LEISTET: sie ist leer, und das ist eine Zusicherung, keine Notiz. Wer einen
+#: zweiten Laeufer einfuehrt, faellt unten in `test_die_liste_der_zweiten_laeufer_ist_zugesichert`.
+BEKANNTE_ZWEITE_LAEUFER: list[str] = []
 
 
 #: WAS EIN ZWEITER LAEUFER IST — die Eigenschaft, und zwar die AUSGEFUEHRTE.
@@ -154,13 +155,19 @@ _DOKUMENTE = (".github/PULL_REQUEST_TEMPLATE.md", "CONTRIBUTING.md", "README.md"
 #:
 #: Warum hier eine Liste und kein Fix: den CI-Laeufer umzustellen laesst pytest 3001 statt 2352
 #: Faelle ueber eine Matrix von fuenf Python-Versionen fahren. Was dabei neu rot wird, ist
-#: ungemessen, und das ist release-nah keine Nebenbei-Aenderung. Dasselbe fuer den Mutations-
-#: Laeufer, dessen Toetungszahlen sich aendern wuerden. Die Liste ist kein Freibrief: sie ist
-#: EXAKT, ein neuer Einstieg faellt sofort auf, ein verschwundener ebenso.
+#: ungemessen, und das ist release-nah keine Nebenbei-Aenderung. Die Liste ist kein Freibrief:
+#: sie ist EXAKT, ein neuer Einstieg faellt sofort auf, ein verschwundener ebenso.
+#:
+#: `scripts/mutation_check.py` STAND HIER UND IST AM 2026-09-07 HERAUSGENOMMEN WORDEN, weil der
+#: Laeufer umgestellt wurde (Begruendung und Messung oben bei BEKANNTE_ZWEITE_LAEUFER). Der Eintrag
+#: haette den Fix ueberlebt und die Liste haette dann ZU VIEL gedeckt — der Kommentar oben nennt
+#: genau diesen Fall ("ein VERSCHWUNDENER ist eine gute Nachricht, gehoert aber nachgezogen").
+#: Gefunden hat es nicht der Autor des Fixes, sondern eine Gegenlesung, die `make test` wirklich
+#: gefahren hat: die Zusicherung unten war danach rot, und zwar an einer Datei, die der Diff gar
+#: nicht anfasst.
 BEKANNTE_LAEUFER_OHNE_PYTEST = [
     ".github/PULL_REQUEST_TEMPLATE.md",
     ".github/workflows/ci.yml",
-    "scripts/mutation_check.py",
 ]
 
 
@@ -382,6 +389,21 @@ class DokumentierteLaeufer(unittest.TestCase):
             f"{_laeufer_ohne_pytest(REPO)}, bekannt {BEKANNTE_LAEUFER_OHNE_PYTEST}. Ein NEUER heisst, die "
             f"Regel braucht wieder zwei Traeger. Ein VERSCHWUNDENER ist eine gute Nachricht, "
             f"gehoert aber nachgezogen, sonst deckt die Liste beim naechsten Mal zu viel."))
+
+    def test_die_liste_der_zweiten_laeufer_ist_zugesichert(self):
+        """DIE ALLOWLIST OHNE AUFRUFER — eine eigene Klasse, und sie stand vier Tage hier.
+
+        `BEKANNTE_ZWEITE_LAEUFER` und `_zweite_laeufer()` existierten seit dem 02.09.2026, und
+        KEINE Zusicherung hat sie je gelesen (gemessen 2026-09-07 per `grep -rn` ueber das ganze
+        Repo: zwei Treffer, beide die Definition selbst). Eine Liste, die niemand prueft, ist kein
+        Riegel, sondern eine Notiz, die wie ein Riegel aussieht — sie haette einen neuen zweiten
+        Laeufer ebenso wenig gemeldet wie einen verschwundenen. Das ist dieselbe Klasse, gegen die
+        die Datei antritt, eine Ebene tiefer: der Mechanismus war da, der Aufrufer nicht.
+        """
+        self.assertEqual(_zweite_laeufer(REPO), BEKANNTE_ZWEITE_LAEUFER, (
+            f"die Menge der Skripte unter scripts/, die die Suite STARTEN, hat sich geaendert: "
+            f"gemessen {_zweite_laeufer(REPO)}, bekannt {BEKANNTE_ZWEITE_LAEUFER}. Ein NEUER "
+            f"zweiter Laeufer heisst, die Repo-Kontext-Regel braucht wieder zwei Traeger."))
 
     def test_meta_ein_zitat_ist_keine_anweisung_eine_anweisung_schon(self):
         """META fuer den eigenen Fehltritt: die Pruefung misst die ANWEISUNG, nicht das Vorkommen."""

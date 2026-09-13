@@ -65,13 +65,26 @@ class TestDSSE(unittest.TestCase):
         self.assertFalse(intoto.verify_intoto_dsse(env, _raw_pub(generate_signer()))["ok"])
 
     def test_urlsafe_base64_accepted(self):
-        # DSSE spec: a verifier MUST accept url-safe base64 too (not only standard)
+        # DSSE envelope spec (verified 2026-09-05): "Either standard or URL-safe encoding is allowed" —
+        # a verifier MUST accept url-safe base64 too. It says nothing about padding, so RFC 4648 §3.2
+        # applies and padding is REQUIRED: the PADDED url-safe spelling verifies.
         import base64
         signer = generate_signer()
         env = intoto.export_intoto_dsse(_claim(), signer)
         body = base64.b64decode(env["payload"])
-        env["payload"] = base64.urlsafe_b64encode(body).decode().rstrip("=")   # url-safe, no padding
+        env["payload"] = base64.urlsafe_b64encode(body).decode()   # url-safe, padded
         self.assertTrue(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"])
+
+    def test_unpadded_base64_is_a_second_wire_form_and_is_refused(self):
+        # Deep gate 2026-09-05 (L1-600-01, RT-08): the UNPADDED spelling decodes to the same bytes and was
+        # accepted by Python while the shipped Rust verifier refused it — two verifiers, one file, two
+        # verdicts. One signed artefact has exactly one accepted wire form per alphabet: unpadded is refused.
+        import base64
+        signer = generate_signer()
+        env = intoto.export_intoto_dsse(_claim(), signer)
+        body = base64.b64decode(env["payload"])
+        env["payload"] = base64.urlsafe_b64encode(body).decode().rstrip("=")   # url-safe, NO padding
+        self.assertFalse(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"])
 
     def test_non_json_payload_is_format_error_not_crash(self):
         # RE-GATE never-raise: a non-JSON payload is a fail-closed VERDICT (ok=False), never a raw crash and

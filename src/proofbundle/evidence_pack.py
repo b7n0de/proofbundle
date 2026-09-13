@@ -31,6 +31,7 @@ import base64
 from typing import Optional
 
 from .anchors_ots import _classify, calendar_operators, calendar_uris, verify_opentimestamps
+from ._wire_b64 import decode_b64
 
 __all__ = [
     "ots_upgraded_proof_is_self_contained",
@@ -156,8 +157,8 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
         return {"ok": False, "warn": False, "status": "over_budget",
                 "detail": f"evidence pack exceeds the verification budget (fail-closed): {exc}"}
     try:
-        proof = base64.b64decode(pack["proof"], validate=True)
-        canonical_root = base64.b64decode(pack["canonicalRoot"], validate=True)
+        proof = decode_b64(pack["proof"])
+        canonical_root = decode_b64(pack["canonicalRoot"])
     except (KeyError, ValueError, TypeError) as exc:
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack is missing or has a non-base64 proof/canonicalRoot: {exc}"}

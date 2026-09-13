@@ -36,7 +36,8 @@ additionally means this box had the full toolchain (cargo + build backend + a re
 #   build the normalised sdist, install it into a FRESH venv, run the demo + an
 #   emit/verify/tamper round-trip using only the published bytes, and prove two
 #   independent sdist builds are byte-identical.
-python3 scripts/build_reproducible.py --check-determinism   # two sdists byte-identical (needs `build`)
+python3 scripts/build_reproducible.py --check          # two sdists byte-identical (needs `build`)
+python3 scripts/build_reproducible.py --check-wheel    # the wheel FROM the shipped sdist equals the direct one
 ```
 
 ## 3. Test manifest (no silent test shrink)

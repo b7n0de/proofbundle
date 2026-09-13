@@ -44,6 +44,20 @@ _COLLECTED_RE = re.compile(r"(\d+)\s+tests?\s+collected")
 _ERROR_RE = re.compile(r"(\d+)\s+errors?\b")
 
 
+def _letzter_treffer(rx: "re.Pattern[str]", text: str):
+    """Der LETZTE Treffer im Text, zeilenweise von hinten — nicht der erste im Blob.
+
+    Eine Zahl, die ueber ein Gate entscheidet, gehoert in die Bilanzzeile des Laufs und nicht in
+    irgendeine Zeile, die zufaellig dieselbe Form hat. `re.search` liest von vorn, und vor der
+    Bilanz steht bei jedem Sammelfehler der Diagnosetext. Diese Funktion ist der Anker.
+    """
+    for zeile in reversed(text.splitlines()):
+        treffer = rx.search(zeile)
+        if treffer:
+            return treffer
+    return None
+
+
 def pytest_only_modules(tests_dir: Path) -> list[str]:
     """Every ``tests/test_*.py`` whose SOURCE does not import ``unittest`` — the class the legacy
     unittest-discover runner cannot see. Re-derived fresh each run (no hand-maintained list)."""
@@ -54,6 +68,47 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
         except OSError:
             continue
         if not re.search(r"^\s*(?:import\s+unittest|from\s+unittest\b)", text, re.MULTILINE):
+            out.append(path.name)
+    return out
+
+
+def pytest_only_modules_ast(tests_dir: Path) -> list[str]:
+    """DIESELBE Menge, auf einem UNABHAENGIGEN Weg: der Syntaxbaum statt eines Regex.
+
+    WARUM ES DIESE ZWEITE ABLEITUNG GIBT (Owner-Anordnung 2026-09-07, Riegel-Sweep P1): die
+    Zusicherung ueber die pytest-only-Menge war ein BODEN — `len(pyonly) >= floor`, Boden 5 bei 62
+    Modulen. Ein Boden mit 57 Kopffreiheit kann eine FEHLKLASSIFIKATION nicht bemerken: nimmt man
+    das `not` aus der Regex, waehlt sie die exakte Gegenmenge (199 statt 62 Module), und
+    `evaluate()` meldet weiter `ok=True`, weil 199 den Boden mit Leichtigkeit nimmt. Gemessen am
+    selben Tag; alle Faelle blieben gruen.
+
+    DIE REGEL IST DIE DES MUTATIONSLAUFS: die Erwartung kommt aus dem BAUM, nicht aus einer
+    getippten Zahl, und zwei unabhaengige Ableitungen muessen EINIG sein. Hier liest die eine den
+    Quelltext als Zeichenkette (Regex), die andere als Syntaxbaum (`ast`) — ein Import ist im Baum
+    ein `Import`/`ImportFrom`-Knoten und kein Textmuster. Ein Fehler in der einen Lesart kann die
+    andere nicht mitreissen; ihre Differenz ist der Riegel, und sie braucht keine Zahl.
+
+    Eine Datei, die nicht parst, gilt hier als NICHT pytest-only und faellt damit in die Differenz
+    auf — ein Sammelfehler ist ohnehin ein harter FAIL im selben Tor.
+    """
+    import ast  # noqa: PLC0415
+    out: list[str] = []
+    for path in sorted(tests_dir.glob("test_*.py")):
+        try:
+            baum = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        traegt_unittest = False
+        for knoten in ast.walk(baum):
+            if isinstance(knoten, ast.Import):
+                if any(a.name == "unittest" or a.name.startswith("unittest.") for a in knoten.names):
+                    traegt_unittest = True
+                    break
+            elif isinstance(knoten, ast.ImportFrom):
+                if (knoten.module or "") == "unittest" or (knoten.module or "").startswith("unittest."):
+                    traegt_unittest = True
+                    break
+        if not traegt_unittest:
             out.append(path.name)
     return out
 
@@ -71,9 +126,15 @@ def collect_count(tests_dir: Path) -> tuple[int, int, str]:
         env={**_env()},
     )
     tail = "\n".join((proc.stdout or "").strip().splitlines()[-4:])
-    m = _COLLECTED_RE.search(proc.stdout or "")
+    # VON HINTEN, NICHT VON VORN — Klassen-Sweep 2026-09-07, dieselbe Klasse wie der Fund an
+    # `mutation_check._rote_aus_text` (deep gate Lauf 5, Linse 5). `re.search` ueber den GANZEN
+    # stdout nimmt den ERSTEN Treffer. Bei einem Sammelfehler steht vor der Bilanz der Traceback
+    # samt Testkoerper und Docstring, und dieses Korpus traegt summary-foermige Zahlen in
+    # Docstrings — eine davon entschiede dann ueber die Bodenpruefung dieses Tores. Die Bilanz
+    # ist die LETZTE passende Zeile; alles davor ist Diagnosetext.
+    m = _letzter_treffer(_COLLECTED_RE, proc.stdout or "")
     collected = int(m.group(1)) if m else -1
-    em = _ERROR_RE.search(proc.stdout or "")
+    em = _letzter_treffer(_ERROR_RE, proc.stdout or "")
     errors = int(em.group(1)) if em else 0
     # pytest exits non-zero on collection errors even with tests collected; treat that as errors>0.
     if proc.returncode not in (0,) and errors == 0 and collected >= 0:
@@ -117,6 +178,19 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
     if len(pyonly) < floor_pytest_only:
         problems.append(f"{len(pyonly)} pytest-only module(s) < locked floor {floor_pytest_only} "
                         "(pytest-only coverage regressed — the unittest-invisible class shrank)")
+    # DIE ERWARTUNG KOMMT AUS DEM BAUM, NICHT AUS EINER ZAHL (Owner 2026-09-07). Der Boden oben
+    # prueft die GROESSE der Menge; er kann eine falsche Menge derselben oder groesserer Groesse
+    # nicht bemerken. Zwei unabhaengige Ableitungen — Zeichenkette und Syntaxbaum — muessen
+    # dieselben Module nennen. Ihre DIFFERENZ ist der Riegel und braucht keine getippte Zahl.
+    pyonly_ast = pytest_only_modules_ast(tests_dir)
+    nur_regex = sorted(set(pyonly) - set(pyonly_ast))
+    nur_ast = sorted(set(pyonly_ast) - set(pyonly))
+    if nur_regex or nur_ast:
+        problems.append(
+            f"die zwei Ableitungen der pytest-only-Menge sind UNEINIG: Regex nennt {len(pyonly)} "
+            f"Module, der Syntaxbaum {len(pyonly_ast)}. Nur im Regex: {nur_regex[:8]}; nur im "
+            f"Syntaxbaum: {nur_ast[:8]}. Eine Klassifikation, die sich selbst widerspricht, ist "
+            f"keine Klassifikation — und ein Boden ueber der Groesse haette es nicht bemerkt")
 
     return {
         "schema": "proofbundle.test_manifest_gate.v1",
@@ -125,6 +199,7 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
         "errors": errors,
         "min_collected_tests": floor_tests,
         "pytest_only_modules": len(pyonly),
+        "pytest_only_modules_ast": len(pyonly_ast),
         "min_pytest_only_modules": floor_pytest_only,
         "headroom_tests": (collected - floor_tests) if collected >= 0 else None,
         "problems": problems,

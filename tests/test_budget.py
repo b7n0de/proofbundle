@@ -12,6 +12,23 @@ import unittest
 from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError, ProofBundleError
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+
+#: OBERGRENZE FUER JEDE LAST, DIE EIN TEST AUS EINEM BUDGETFELD ABLEITET.
+#:
+#: WOFUER, gemessen in der Nacht zum 11.09.2026: der Mutationsoperator idx=90 hebt
+#: ``budget.data_digests`` von 2.000 auf 2.000.000.000. Ein Test, der seine Last als
+#: ``DEFAULT_BUDGET.data_digests + 1`` bildet, baut daraufhin zwei Milliarden 64-Zeichen-Strings.
+#: Drei Sampler massen 428,9 -> 51.129,2 MiB in 58 s (rund 874 MiB/s); unter ``RLIMIT_AS`` von
+#: 6 GiB endete derselbe Ausdruck nach 7,87 s mit ``MemoryError`` an dieser Zeile. Auf dem
+#: CI-Runner ist das kein Fehlschlag des Tests, sondern sein Tod — und ein toter Test toetet den
+#: Mutanten nicht, er meldet nur SIGKILL.
+#:
+#: DIE KLASSE: eine Testlast, die aus dem GEPRUEFTEN Wert abgeleitet wird, ist vom Mutanten
+#: steuerbar. Der Deckel trennt beides — die Last bleibt beschraenkt, und die Aussage ueber den
+#: Wert wird separat und direkt gefuehrt (siehe ``_zusichern_budget_im_rahmen``).
+#: Owner-Anordnung OA-afa1e17cfa, Option B (11.09.2026 06:54:52Z).
+HARTER_LASTDECKEL = 100_000
 
 
 class TestVerificationBudgetUnit(unittest.TestCase):
@@ -63,7 +80,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
 
     def test_trust_pack_keys_count_capped(self):
         from proofbundle.trust_pack import validate_trust_pack_predicate
-        over = DEFAULT_BUDGET.witnesses + 1
+        over = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=2048) + 1
         keys = {f"k-{i}": {"publicKey": _pub(generate_signer())} for i in range(over)}
         pred = {
             "schemaVersion": "0.1.0", "trustPackId": "t", "version": 1,
@@ -88,7 +105,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
 
     def test_trust_pack_role_keyids_count_capped(self):
         from proofbundle.trust_pack import validate_trust_pack_predicate
-        over = DEFAULT_BUDGET.witnesses + 1
+        over = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=2048) + 1
         # keys map itself stays small (isolates the ROLE keyIds cap from the top-level keys-map cap); the
         # role references key ids that need not all exist in `keys` for THIS specific check to fire first.
         keys = {"k-0": {"publicKey": _pub(generate_signer())}}
@@ -104,7 +121,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
     def test_renewal_ats_chain_length_capped(self):
         from proofbundle.renewal import ArchiveTimeStamp
         from proofbundle.renewal import verify_sequence as _verify_sequence
-        over = DEFAULT_BUDGET.renewal_ats_chain + 1
+        over = gedeckelt(DEFAULT_BUDGET.renewal_ats_chain, bytes_je_element=256) + 1
         # a synthetic (not necessarily chain-consistent) sequence — the budget check runs BEFORE the
         # covering-consistency walk, so this fires purely on count.
         chain = [ArchiveTimeStamp("sha256", "a" * 64, i) for i in range(over)]
@@ -120,6 +137,41 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
         res = _verify_sequence(seq, ["a" * 64], allow_unauthenticated_anchor=True)
         self.assertTrue(res.ok, [str(c) for c in res.checks if not c.ok])
         self.assertFalse(any(c.name == "renewal:budget" for c in res.checks))
+
+    def test_data_digests_count_capped(self):
+        """Review Runde 2, B1 (L2-600-01 follow-up): ``data_digests`` multiplies the ALREADY-capped
+        ``renewal_ats_chain`` axis right back into an unbounded one (measured: 10,000 chain-starts x
+        50,000 data digests cost 16.2s CPU) — same shape of guard as ``renewal_ats_chain`` above, its
+        own dimension, its own named check."""
+        from proofbundle.renewal import ArchiveTimeStamp
+        from proofbundle.renewal import verify_sequence as _verify_sequence
+        # DIE DIREKTE BEHAUPTUNG UEBER DEN WERT, und sie steht VOR der Last (Owner OA-afa1e17cfa B):
+        # so stirbt der Mutant idx=90 an dieser Zeile, statt den Lauf per SIGKILL mitzunehmen. Ohne
+        # sie wuerde der Deckel darunter den Mutanten UEBERLEBEN lassen — die Last bliebe klein, das
+        # Budget bliebe unbemerkt astronomisch, und der Test saehe gruen aus.
+        self.assertLessEqual(
+            DEFAULT_BUDGET.data_digests, HARTER_LASTDECKEL,
+            f"budget.data_digests ist {DEFAULT_BUDGET.data_digests:,} und damit ueber dem "
+            f"Lastdeckel {HARTER_LASTDECKEL:,} — ein Budget dieser Groesse ist keine Schranke "
+            "mehr, und jede daraus abgeleitete Testlast sprengt den Lauf")
+        # DER DECKEL AUF DIE ABGELEITETE LAST: auch wenn die Zusicherung oben einmal faellt, baut
+        # dieser Test nie mehr als HARTER_LASTDECKEL + 1 Elemente. Ein Test darf an einer Aussage
+        # scheitern, nie am Speicher.
+        over = min(DEFAULT_BUDGET.data_digests, HARTER_LASTDECKEL) + 1
+        daten = ["%064x" % i for i in range(over)]
+        seq = [[ArchiveTimeStamp("sha256", "a" * 64, 1)]]
+        res = _verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        self.assertFalse(res.ok)
+        self.assertTrue(any("renewal:budget:data_digests" in c.name and "budget.data_digests" in c.detail
+                            for c in res.checks), [str(c) for c in res.checks])
+
+    def test_data_digests_count_within_budget_unaffected(self):
+        from proofbundle.renewal import build_initial_sequence
+        from proofbundle.renewal import verify_sequence as _verify_sequence
+        seq = build_initial_sequence(["a" * 64], hash_alg="sha256", time=1000)
+        res = _verify_sequence(seq, ["a" * 64], allow_unauthenticated_anchor=True)
+        self.assertTrue(res.ok, [str(c) for c in res.checks if not c.ok])
+        self.assertFalse(any(c.name == "renewal:budget:data_digests" for c in res.checks))
 
 
 class TestInputBytesBudgetEnforced(unittest.TestCase):
@@ -182,7 +234,7 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         dsse, env, pub = self._env()
         # one real sig + enough junk entries to exceed the cap: without the guard this drives O(n) ed25519
         # verifies (none match, no early exit) = seconds of CPU; the input_bytes cap bounds only the payload.
-        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures)]
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256))]
         # adversarial re-audit round 6: verify_envelope is a public verify surface whose docstring signals only
         # BundleFormatError; the over-cap list now maps the internal BudgetExceeded to it (still a
         # ProofBundleError, so in-repo `except ProofBundleError` callers are unaffected — see the note at
@@ -192,7 +244,7 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
 
     def test_verify_envelope_accepts_at_signatures_limit(self):
         dsse, env, pub = self._env()
-        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures - 1)]
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256) - 1)]
         self.assertEqual(len(env["signatures"]), DEFAULT_BUDGET.signatures)
         self.assertTrue(dsse.verify_envelope(env, pub))   # at the limit is fine; real sig still verifies
 
@@ -243,7 +295,7 @@ class TestLoadsStrictResourceCaps(unittest.TestCase):
     def test_json_nodes_default_is_wired_not_dead(self):
         # regression: json_nodes was a documented budget field never referenced by any code.
         import proofbundle._strict_json as sj
-        big = "[" + ",".join("0" for _ in range(DEFAULT_BUDGET.json_nodes + 5)) + "]"
+        big = "[" + ",".join("0" for _ in range(gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 5)) + "]"
         with self.assertRaises(BudgetExceeded):
             sj.loads_strict(big)
 

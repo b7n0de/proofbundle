@@ -45,7 +45,21 @@ def _open_input(path, *, binary: bool = False):
     ``os.stat`` reads metadata only and never blocks, so refuse anything that is not a regular file up front.
     The raised ``BundleFormatError`` is mapped to a clean exit 2 by ``main()``'s backstop. Use this for every
     untrusted verify INPUT read; operator OUTPUT files (``--out``) and the operator's own emit payloads do not
-    need it (they are the operator's own destination/data, not hostile input)."""
+    need it (they are the operator's own destination/data, not hostile input).
+
+    Review Runde 2, Framing Auflage A3 (2026-09-05): der Text-Zweig oeffnete bisher mit
+    ``open(path, encoding="utf-8")`` — ``newline=None`` (der Vorgabewert) schaltet Pythons universelle
+    Zeilenumwandlung EIN, die JEDES ``\\r\\n``/``\\r`` beim Lesen STILL zu ``\\n`` macht, und der fehlende
+    ``errors=`` liess ein ungueltiges UTF-8-Byte mit einer rohen ``UnicodeDecodeError`` AN DIESER Stelle
+    scheitern — BEVOR ``_split_signed_note`` je eine Zeile sieht. Beides ist genau die Klasse, die diese
+    Lane schliesst: eine zweite, STILLE Drahtform derselben Datei, erzeugt an der DEKODIERSTELLE, nicht am
+    Parser. Jetzt: ``newline=""`` erhaelt jedes ``\\r``/``\\r\\n`` byte-genau (JSON behandelt ``\\r`` ohnehin
+    als unwesentlichen Zwischenraum, RFC 8259 — kein bestehender JSON-Verbraucher aendert sein Verhalten),
+    und ``errors="surrogateescape"`` (der Python-eigene, verlustfreie Weg, beliebige Bytes durch einen
+    ``str`` zu reichen, PEP 383) laesst ein ungueltiges Byte zu GENAU EINEM einsamen Surrogaten werden.
+    ``_split_signed_note`` hat diesen Fall LAENGST typisiert vorgesehen (``_SURROGAT_RE``): das typisierte
+    ``BundleFormatError`` des Parsers entscheidet jetzt, nicht mehr die Dekodierstelle davor. Roh-Bytes,
+    nicht Zeichenketten, durch BEIDE CLI-Wege gemessen: ``tests/test_note_cli_transport_bytegenau.py``."""
     import os  # noqa: PLC0415
     import stat as _stat  # noqa: PLC0415
     if not isinstance(path, (str, bytes, os.PathLike)):
@@ -53,7 +67,9 @@ def _open_input(path, *, binary: bool = False):
     st = os.stat(path)   # metadata only — does not block on a FIFO, does not read a device
     if not _stat.S_ISREG(st.st_mode):
         raise BundleFormatError("input path is not a regular file (fail-closed: FIFO/device/socket refused)")
-    return open(path, "rb") if binary else open(path, encoding="utf-8")
+    if binary:
+        return open(path, "rb")
+    return open(path, encoding="utf-8", errors="surrogateescape", newline="")
 
 
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
@@ -103,8 +119,30 @@ def _safe_line(s: str) -> str:
     before it is printed on its own labelled line, so it can never forge additional
     CRYPTO:/POLICY:/ASSURANCE: lines (verify-lens L3, 2026-07-09). Defense-in-depth: the ASSURANCE
     value is already enum-restricted by decode_eval_claim and WP-B3's _policy_line(reason=…) will
-    carry bundle-derived text — both go through here. Printable content is unchanged."""
-    return "".join(ch if ch.isprintable() else " " for ch in s)
+    carry bundle-derived text — both go through here. Printable content is unchanged.
+
+    RT-06 (deep gate 2026-09-05, L3-600-05/08): this is THE one writer discipline for every untrusted
+    string on the human path — Check rows, show-eval fields, svr properties, stderr ERROR lines. A lone
+    UTF-16 surrogate (a JSON ``\\ud800`` escape is valid UTF-8 on the wire and loads_strict yields the
+    surrogate str) cannot be ENCODED to a strict utf-8 stdout at all: it is rendered in its escaped
+    form ``\\ud800`` so the reader sees what was there and the process never dies in ``print``. Control
+    characters keep becoming a space (terminal-injection neutralisation)."""
+    out = []
+    for ch in s:
+        if ch.isprintable():
+            out.append(ch)
+        elif "\ud800" <= ch <= "\udfff":
+            out.append(f"\\u{ord(ch):04x}")
+        else:
+            out.append(" ")
+    return "".join(out)
+
+
+def _err(msg) -> None:
+    """The ONE stderr writer for ``ERROR: …`` lines (RT-06). Exception texts on the CLI carry untrusted
+    values (a schema string, an alg, a file's own content), so they go through ``_safe_line`` too: no
+    control character forges a second line, no lone surrogate crashes the except handler itself."""
+    print(f"ERROR: {_safe_line(str(msg))}", file=sys.stderr)
 
 
 # The machine-readable field names of the verify --json single-field contract (WP-B2). Kept in ONE
@@ -332,7 +370,7 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
             claim = load_claim_text(_read_capped(handle))
         bundle = emit_eval_receipt(claim, signer)
     except (EvalClaimError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(bundle, handle, indent=2)
@@ -361,10 +399,9 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
         if getattr(args, "verifier_key", None):
-            import base64 as _b64  # noqa: PLC0415
-            verifier_pubkey = _b64.b64decode(args.verifier_key, validate=True)
+            verifier_pubkey = decode_b64(args.verifier_key)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
@@ -376,16 +413,22 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     # a caller-pinned issuer closes exactly that gap — opt-in, fully backwards compatible.
     expected = getattr(args, "expect_issuer", None) or []
     if expected and claim["issuer"] not in expected:
-        print(f"=> FAILED: issuer mismatch — receipt is signed by {claim['issuer']}, "
-              f"expected {' or '.join(expected)} (re-signed forgery or wrong key)", file=sys.stderr)
+        print(_safe_line(f"=> FAILED: issuer mismatch — receipt is signed by {claim['issuer']}, "
+                         f"expected {' or '.join(expected)} (re-signed forgery or wrong key)"),
+              file=sys.stderr)
         return 1
-    print(f"suite      {claim['suite']} ({claim['suite_version']})")
-    print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
-    print(f"passed     {claim['passed']}   (n={claim['n']})")
+    # RT-06 (L3-600-05): every claim field is issuer-controlled text. A lone surrogate in `suite` killed
+    # show-eval in print() with a raw UnicodeEncodeError (no verdict, no exit code); a newline forged a
+    # second labelled line. One writer, every field — `_s` is `_safe_line(str(...))`.
+    def _s(v) -> str:
+        return _safe_line(str(v))
+    print(f"suite      {_s(claim['suite'])} ({_s(claim['suite_version'])})")
+    print(f"metric     {_s(claim['metric'])} {_s(claim['comparator'])} {_s(claim['threshold'])}")
+    print(f"passed     {_s(claim['passed'])}   (n={_s(claim['n'])})")
     ev = eval_evidence_class(claim)
-    print(f"evidence   {ev['score_evidence']} ({ev['detail']})")
-    print(f"note       {ev['methodology']} (the receipt never judges whether the suite is well designed)")
-    print(f"assurance  {claim.get('assurance_level', DEFAULT_ASSURANCE)}")
+    print(f"evidence   {_s(ev['score_evidence'])} ({_s(ev['detail'])})")
+    print(f"note       {_s(ev['methodology'])} (the receipt never judges whether the suite is well designed)")
+    print(f"assurance  {_s(claim.get('assurance_level', DEFAULT_ASSURANCE))}")
     proven = enclave_assurance_proven(claim, bundle, eat_jws=eat_jws, verifier_pubkey=verifier_pubkey,
                                       expected_profile=getattr(args, "profile", None))
     if proven is True:
@@ -394,18 +437,18 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         print("attested   NOT corroborated — the supplied EAT did not verify / bind this receipt (EXPERIMENTAL v2.0)")
     elif proven is False:
         print("attested   NOT corroborated — issuer-declared only; supply --eat/--verifier-key to check (EXPERIMENTAL v2.0)")
-    print(f"model      commit {claim['model_id_commit']}")
-    print(f"dataset    commit {claim['dataset_id_commit']}")
-    print(f"issuer     {claim['issuer']}")
-    print(f"timestamp  {claim['timestamp']}")
+    print(f"model      commit {_s(claim['model_id_commit'])}")
+    print(f"dataset    commit {_s(claim['dataset_id_commit'])}")
+    print(f"issuer     {_s(claim['issuer'])}")
+    print(f"timestamp  {_s(claim['timestamp'])}")
     hidden = sd_jwt_hidden_count(bundle)
     if hidden is not None:
-        print(f"sd-jwt     {hidden} field(s) withheld (selective disclosure)")
+        print(f"sd-jwt     {_s(hidden)} field(s) withheld (selective disclosure)")
     fresh = check_freshness(claim)
     if fresh["parsed"]:
-        print(f"age        {fresh['age_seconds']}s")
+        print(f"age        {_s(fresh['age_seconds'])}s")
     for w in claim_warnings(claim):
-        print(f"WARNING    {w}")
+        print(f"WARNING    {_s(w)}")
     print("=> OK")
     return 0
 
@@ -607,7 +650,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
                 if expected_root is not None:
                     try:
-                        explicit_root = _b64mod.b64decode(expected_root, validate=True)
+                        explicit_root = decode_b64(expected_root)
                     except (ValueError, TypeError) as exc:
                         raise ValueError("--expected-root is not valid base64") from exc
                     if explicit_root != cp_res["root"]:
@@ -682,7 +725,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
-    except (ProofBundleError, OSError, ValueError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
+    except (ProofBundleError, OSError, ValueError, OverflowError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
         # maps to the documented exit 2, never a raw traceback (verify-lens L3; load_bundle also guards
         # it centrally). PolicyError (a ProofBundleError) — malformed policy or aud ambiguity — also
@@ -691,7 +734,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc), **_error_verify_fields(str(exc))}))
         else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
         return 2
 
     crypto_ok = result.ok
@@ -903,9 +946,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(json.dumps(out, indent=2))
     else:
         for check in result.checks:
-            print(str(check))
+            # RT-06 (L3-600-08): a Check detail is built from issuer/holder strings (sdjwt `_sd_alg`,
+            # kbjwt `alg`, …). Unescaped, an embedded newline prints a forged `[PASS] …` row and a lone
+            # surrogate kills the process mid-verdict. Every row goes through the one writer.
+            print(_safe_line(str(check)))
         if roots is not None:
-            print(f"    stated root      {roots['stated_b64']}")
+            print(f"    stated root      {_safe_line(str(roots['stated_b64']))}")
             recomputed = roots["recomputed_b64"]
             # `roots['detail']` ist bei bundle.py:748 `str(exc)` — also exception-abgeleitet und
             # damit potenziell fremdbestimmt. Gleiche Klasse wie die Anker-Zeilen; ein Sweep
@@ -914,7 +960,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if getattr(args, "matrix", False):
             print("  ── check matrix ──")
             for row in _check_matrix(result):
-                print(f"    [{row['status']:<4}] {row['check']}")
+                print(f"    [{row['status']:<4}] {_safe_line(str(row['check']))}")
             print(f"  proves      {VERIFY_MEANING}")
             print(f"  proves NOT  {VERIFY_NON_MEANING}")
         # WP-B2 labelled result block. The bare `=> OK` is gone: every line is context-labelled so a
@@ -1129,7 +1175,7 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
         return 2
 
 
@@ -1144,14 +1190,14 @@ def _cmd_hf_token(args: argparse.Namespace) -> int:
                     token = _read_capped(handle).strip()
             result, _bundle = verify_receipt_token(token)
             for check in result.checks:
-                print(str(check))
+                print(_safe_line(str(check)))   # RT-06 (L3-600-08): same row discipline as `verify`
             print("=> OK" if result.ok else "=> FAILED")
             return 0 if result.ok else 1
         token = receipt_token(load_bundle(args.bundle_or_token))
         print(token)
         return 0
     except (ProofBundleError, OSError, ValueError) as exc:   # file/JSON/format errors → clean exit
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
@@ -1181,7 +1227,7 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
             indices = audit_challenge(args.root, args.n, args.k, nonce)
             mode = "auditor-nonce" if args.nonce else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         out = {"indices": indices, "n": args.n, "k": args.k, "mode": mode}
@@ -1205,7 +1251,7 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
             opening = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         res = verify_sample_opening(opening, args.root, args.n)
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         print(json.dumps(res))
@@ -1229,7 +1275,7 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         # F10 (2026-07-12): `demo` emits an eval receipt, which needs the RFC 8785 canonicalizer from the
         # [eval] extra. On a bare install that raised a raw traceback; surface the clean, actionable message
         # (it already names the install command) with a non-zero exit instead.
-        print(f"proofbundle demo: {exc}", file=sys.stderr)
+        print(f"proofbundle demo: {_safe_line(str(exc))}", file=sys.stderr)
         return 2
 
 
@@ -1249,7 +1295,7 @@ def _cmd_prereg(args: argparse.Namespace) -> int:
             if args.json:
                 print(json.dumps(res))
             else:
-                print(f"[{'PASS' if res['ok'] else 'FAIL'}] prereg: {res['detail']}")
+                print(f"[{'PASS' if res['ok'] else 'FAIL'}] prereg: {_safe_line(str(res['detail']))}")
             return 0 if res["ok"] else 1
         h = prereg_hash(args.protocol)
         if args.json:
@@ -1260,7 +1306,7 @@ def _cmd_prereg(args: argparse.Namespace) -> int:
                   file=sys.stderr)
         return 0
     except (ProofBundleError, OSError, ValueError, KeyError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
@@ -1280,7 +1326,7 @@ def _cmd_evalcard(args: argparse.Namespace) -> int:
             if args.json:
                 print(json.dumps(res))
             else:
-                print(f"[{'PASS' if res['ok'] else 'FAIL'}] evalcard: {res['detail']}")
+                print(f"[{'PASS' if res['ok'] else 'FAIL'}] evalcard: {_safe_line(str(res['detail']))}")
             return 0 if res["ok"] else 1
         h = evaluation_card_hash(args.card)
         if args.json:
@@ -1291,7 +1337,7 @@ def _cmd_evalcard(args: argparse.Namespace) -> int:
                   file=sys.stderr)
         return 0
     except (ProofBundleError, OSError, ValueError, KeyError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
@@ -1359,7 +1405,12 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         # bound-but-not-yet-confirmed; only unbound/malformed are hard binding errors.
         binding = verify_opentimestamps(proof, canonical_root, frozen={})
         if binding["status"] in ("unbound", "malformed", "no_lib"):
-            print(f"ERROR: {binding['detail']}", file=sys.stderr)
+            # RT-06 sweep follow-up (2026-09-05): this ERROR line was MISSED by the first pass, which
+            # matched the literal `{exc}` instead of enumerating every stderr writer — the same
+            # symptom-vs-class mistake the class is about. `binding['detail']` is built by
+            # anchors_ots from the attacker's proof bytes (it renders the bytes it got), so it is
+            # untrusted text on a labelled line.
+            _err(binding["detail"])
             return 2
         info = describe_proof(proof)
         if not ots_upgraded_proof_is_self_contained(proof):
@@ -1377,11 +1428,11 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
             else:
                 # dieselbe Klasse wie `anchor verify-pack` darunter: `msg['detail']` stammt aus
                 # der OTS-Pruefung, die es aus einem Ausnahmetext bauen kann.
-                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — "
+                print(f"[anchor upgrade] NOT UPGRADED ({_safe_line(str(info['state']))}) — "
                       f"{_safe_line(str(msg['detail']))}")
                 if info["provenCalendars"]:
-                    print(f"  calendars carrying it: {', '.join(info['provenCalendars'])} "
-                          f"(operators: {', '.join(info['provenCalendarOperators'])})")
+                    print(f"  calendars carrying it: {_safe_line(', '.join(map(str, info['provenCalendars'])))} "
+                          f"(operators: {_safe_line(', '.join(map(str, info['provenCalendarOperators'])))})")
             return 3
         declared = list(getattr(args, "calendar_declared", None) or [])
         bundled = _parse_bundled_headers(getattr(args, "bundled_header", None))
@@ -1408,18 +1459,18 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
             print(json.dumps(report, indent=2, ensure_ascii=False))
         else:
             print(f"[anchor upgrade] OK — self-contained pack written to {args.out}")
-            print(f"  Bitcoin height(s): {report['bitcoinHeights']}  ·  "
+            print(f"  Bitcoin height(s): {_safe_line(str(report['bitcoinHeights']))}  ·  "
                   f"operator redundancy embedded in the proof (UNVERIFIED transparency hint, "
-                  f"not audit evidence): {report['operatorRedundancy']} "
-                  f"{report['provenCalendarOperators']}")
+                  f"not audit evidence): {_safe_line(str(report['operatorRedundancy']))} "
+                  f"{_safe_line(str(report['provenCalendarOperators']))}")
             if report["declaredCalendars"]:
                 print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
-                      f"{', '.join(report['declaredCalendars'])}")
+                      f"{_safe_line(', '.join(map(str, report['declaredCalendars'])))}")
             print("  verify offline:  proofbundle anchor verify-pack "
                   f"{args.out} --bitcoin-header <HEIGHT:MERKLEROOT_HEX>")
         return 0
     except (ProofBundleError, OSError, ValueError, KeyError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
@@ -1428,7 +1479,6 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
     relying-party Bitcoin header (``--bitcoin-header``; the pack's own bundled header is never trusted).
     Exit 0 confirmed · 3 pending / needs-relying-party-header (honest not-pass) · 1 hard fail
     (unbound / block mismatch / malformed pack) · 2 malformed input."""
-    import base64 as _b64  # noqa: PLC0415
 
     from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
@@ -1451,7 +1501,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
         recomputed = {"selfContained": False, "provenCalendars": [],
                       "provenCalendarOperators": [], "operatorRedundancy": 0}
         try:
-            info = describe_proof(_b64.b64decode(pack["proof"], validate=True))
+            info = describe_proof(decode_b64(pack["proof"]))
             recomputed = {"selfContained": bool(info["selfContained"]),
                           "provenCalendars": info["provenCalendars"],
                           "provenCalendarOperators": info["provenCalendarOperators"],
@@ -1493,7 +1543,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             return 3
         return 1
     except (ProofBundleError, OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
@@ -1501,7 +1551,6 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
     """WP-B1 transparency: print the lifecycle state (pending/upgraded/self-contained) and the
     calendars/operators carrying an OpenTimestamps proof (.ots) or evidence pack. Read-only, no crypto
     trust — it reports state, it never confirms. Exit 0 unless the file cannot be read (exit 2)."""
-    import base64 as _b64  # noqa: PLC0415
     from .evidence_pack import describe_proof  # noqa: PLC0415
     try:
         with _open_input(args.path, binary=True) as handle:
@@ -1517,7 +1566,7 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             # falling through to the raw-proof inspect branch — never a raw RecursionError traceback.
             pack = None
         if pack is not None:
-            proof = _b64.b64decode(pack["proof"], validate=True)
+            proof = decode_b64(pack["proof"])
             info = describe_proof(proof)
             info["source"] = "evidence_pack"
             # No-Fake (2026-07-17): do NOT mirror the pack's own selfContained claim. `describe_proof`
@@ -1543,30 +1592,31 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print(json.dumps(info, indent=2, ensure_ascii=False))
         else:
-            print(f"[anchor inspect] state={info['state']}  self-contained={info['selfContained']}  "
-                  f"heights={info['bitcoinHeights']}")
+            print(f"[anchor inspect] state={_safe_line(str(info['state']))}  "
+                  f"self-contained={info['selfContained']}  "
+                  f"heights={_safe_line(str(info['bitcoinHeights']))}")
             if info["provenCalendars"]:
+                # RT-06: calendar URLs and operators are read from the PROOF BYTES (producer-controlled).
                 print(f"  calendars embedded in the proof (UNVERIFIED transparency hint, not audit "
-                      f"evidence): {', '.join(info['provenCalendars'])}")
+                      f"evidence): {_safe_line(', '.join(map(str, info['provenCalendars'])))}")
                 print(f"  distinct operators (UNVERIFIED transparency hint): "
-                      f"{', '.join(info['provenCalendarOperators'])} "
-                      f"(operator redundancy {info['operatorRedundancy']})")
+                      f"{_safe_line(', '.join(map(str, info['provenCalendarOperators'])))} "
+                      f"(operator redundancy {_safe_line(str(info['operatorRedundancy']))})")
             else:
                 print("  calendars embedded in the proof: none retained "
                       "(an upgraded proof no longer needs a calendar to verify)")
             if info.get("declaredCalendars"):
                 print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
-                      f"{', '.join(info['declaredCalendars'])}")
+                      f"{_safe_line(', '.join(map(str, info['declaredCalendars'])))}")
         return 0
     except (OSError, KeyError, ValueError, TypeError) as exc:
         # TypeError: fail-closed on a non-string declaredCalendars item reaching str.join (a
         # hand-edited pack could carry [123]) — exit 2, never a raw traceback (No-Fake, 2026-07-17).
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
 
 
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
-    import base64 as _b64  # noqa: PLC0415
     from .bundle import load_bundle  # noqa: PLC0415
     from .experimental.enclave import (enclave_binding_for,  # noqa: PLC0415
                                        verify_enclave_attestation)
@@ -1574,12 +1624,12 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         bundle = load_bundle(args.receipt)
         with _open_input(args.eat) as handle:
             eat = _read_capped(handle).strip()
-        verifier_pub = _b64.b64decode(args.verifier_key, validate=True)
+        verifier_pub = decode_b64(args.verifier_key)
         res = verify_enclave_attestation(
             eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),
             expected_profile=args.profile)
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
@@ -1590,8 +1640,8 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] "
               f"enclave-attestation: {_safe_line(str(res['detail']))}")
         if res["ok"]:
-            print(f"    tier    {res['tier']}")
-            print(f"    profile {res['profile']}")
+            print(f"    tier    {_safe_line(str(res['tier']))}")
+            print(f"    profile {_safe_line(str(res['profile']))}")
         print("=> OK" if res["ok"] else "=> FAILED")
     return 0 if res["ok"] else 1
 
@@ -1618,7 +1668,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             pub = decode_b64(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
             return 2
         pt = res.get("predicate_type")
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {pt!r})"
@@ -1641,7 +1691,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
             subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(envelope, handle, indent=2)
@@ -1663,14 +1713,25 @@ def _cmd_svr(args: argparse.Namespace) -> int:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, decode_b64(args.pub))
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
+            return 2
+        # RT-06 (L3-600-06): a validly signed SVR whose predicate is not an object / whose properties are
+        # not a list of strings printed `[PASS] SVR attestation` and THEN crashed on the dereference. The
+        # shape is now part of the library verdict (verify_svr_dsse: predicate_shape_ok); a malformed
+        # statement is malformed input (exit 2) and no PASS line is ever printed before every dereference
+        # this command performs has been type-checked.
+        if res.get("predicate_shape_ok") is False:
+            _err(f"SVR predicate malformed: {res.get('content_root_detail') or 'shape check failed'}")
             return 2
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
         if res["ok"]:
-            for p in res["statement"].get("predicate", {}).get("properties", []):
-                print(f"    {p}")
+            props = res["statement"].get("predicate", {}).get("properties", [])
+            for p in (props if isinstance(props, list) else []):
+                # RT-06 (L3-600-08): a property string is signer-controlled; `\n=> OK (forged)` printed as
+                # its own row before the real one. One writer, one line per property.
+                print(f"    {_safe_line(str(p))}")
         print("=> OK" if res["ok"] else "=> FAILED")
         return 0 if res["ok"] else 1
 
@@ -1687,7 +1748,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         bundle = load_bundle(args.receipt)
         envelope = export_svr_dsse(bundle, signer, policy=policy)
     except (OSError, ValueError, ProofBundleError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(envelope, handle, indent=2)
@@ -1706,13 +1767,43 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
             predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_decision_receipt(predicate, signer, strict=not args.lenient)
     except (DecisionReceiptError, ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(env, handle, indent=2)
         handle.write("\n")
     print(f"wrote decision receipt {args.out}")
     return 0
+
+
+#: Die Praedikattypen, deren Inhalt DIESES Paket liest. Nur fuer sie ist "predicate ist kein
+#: Objekt" ein Formfehler; bei einer fremden Attestation waere dieselbe Aussage eine Anmassung,
+#: und ihr Praedikat traegt ohnehin keine Kanten, die dieser Aufloeser lesen wuerde.
+_EIGENE_PRAEDIKATTYPEN = (
+    "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1",
+)
+
+
+def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
+    """Traegt ein Statement EINES UNSERER Typen ein `predicate`, das ein positiv falscher Typ ist?
+
+    ENG GEFASST, und die Enge ist der Punkt (deep gate Lauf 8, Jury zu L4-800-01): meine erste
+    Fassung fragte nur `"predicate" in stmt` und wies damit auch `predicate: null` ab. in-toto v1
+    erlaubt ein fehlendes oder leeres Praedikat, und `relationships: null` ist hier eine bewusst
+    gezogene Python/Rust-Paritaetslinie — die Jury hat den breiten Arm deshalb widerlegt, und sie
+    hat recht. Ein FEHLENDES und ein NULL-Praedikat bleiben also unberuehrt.
+
+    Positiv falsch heisst: vorhanden, nicht null, und kein Objekt — eine Liste, eine Zeichenkette,
+    eine Zahl. Dann ist das Ziel nicht lesbar, und nicht lesbar ist nie Schweigen.
+    """
+    if str(stmt.get("predicateType") or "") not in _EIGENE_PRAEDIKATTYPEN:
+        return False
+    if "predicate" not in stmt:
+        return False
+    wert = stmt["predicate"]
+    return wert is not None and not isinstance(wert, dict)
 
 
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
@@ -1728,8 +1819,12 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     import base64  # noqa: PLC0415
     from . import anchors as _anchors_mod  # noqa: PLC0415
     from . import dsse as _dsse  # noqa: PLC0415
+    from ._statement_payload import load_statement_strict  # noqa: PLC0415
     from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
+    #: Alle gelesenen Kopien je content root — die Zusammenfuehrung passiert NACH der
+    #: Schleife, damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
+    roh: dict[str, list[dict]] = {}
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
@@ -1737,7 +1832,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
         # position-paired per-target key; empty string or missing = same-key (main pub).
         rp_b64 = related_pubs[i] if i < len(related_pubs) else None
         try:
-            verify_key = base64.b64decode(rp_b64, validate=True) if rp_b64 else pub
+            verify_key = decode_b64(rp_b64) if rp_b64 else pub
         except (ValueError, TypeError) as exc:
             errs.append(f"cannot decode --related-pub for {path}: {exc}")
             continue
@@ -1754,18 +1849,55 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             continue
         rels = None
         subject_digest = None
+        payload_malformed = None
         # PB-2026-0717-01: classify the target's actual subject state so the verifier fails closed
         # on absent/ambiguous/malformed. NEVER silently pick subject[0] from a multi-subject
-        # statement (that was the resolver half of the subject-pin fail-open). "absent" is the
-        # fail-closed default if the statement cannot even be parsed.
+        # statement (that was the resolver half of the subject-pin fail-open).
+        #
+        # Deep gate 2026-09-05, finding L4-01 (P1): the SIGNED payload goes through the SAME strict,
+        # canonical oracle the standalone verifiers use (`_statement_payload.load_statement_strict`).
+        # Before this, a parse failure here (duplicate key, NaN, BOM, non-object) was swallowed into
+        # "verified=True, relationships=None, subject absent" — an attached target whose bytes FAIL
+        # standalone walked the chain as a verified, edge-less ancestor, and a failing chain hidden
+        # behind a duplicate `predicate` key came out VERIFIED (parser-differential at the resolver
+        # seam). Now such a target is `payload_malformed`, `verified=False`, and the engine FAILs it
+        # with RELATION_TARGET_MALFORMED at any hop. "absent" is no longer a parse-failure disguise.
         subject_digest_state = "absent"
         try:
-            stmt = loads_strict(body.decode("utf-8"))
-            if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
+            stmt = load_statement_strict(body, require_canonical=True)
+        except ProofBundleError as exc:
+            payload_malformed = str(exc)
+            verified = False
+            subject_digest_state = "malformed"
+            stmt = None
+        if stmt is not None:
+            if isinstance(stmt.get("predicate"), dict):
                 rels = stmt["predicate"].get("relationships")
+            elif _praedikat_ist_positiv_falsch(stmt):
+                # DER SONST-ARM (deep gate Lauf 8, Fund L4-800-01, P1). Der Zweig darueber zaehlte
+                # EINEN Typ auf und hatte kein Sonst — dieselbe Klasse, die der Absatz oben eine
+                # Ebene hoeher am 2026-09-05 geschlossen hat, hier eine Ebene tiefer wieder offen.
+                # GEMESSEN am Kopf 434e3a3: ein kanonisches, DSSE-gueltiges Statement mit
+                # `predicate` als LISTE oder ZEICHENKETTE kam als `verified=True` mit
+                # `relationships=None` durch — also stumm. Dieselben Bytes enden standalone mit
+                # exit 2. Eine angehaengte Ruecknahme in so einem Statement war damit unsichtbar,
+                # waehrend die identische Ruecknahme in einem lesbaren Nachbarn blockt.
+                #
+                # `predicate` ist im in-toto-Statement ein OBJEKT. Vorhanden und kein Objekt ist
+                # deshalb dasselbe wie ein Parse-Fehler: das Ziel ist NICHT lesbar, und
+                # "nicht lesbar" ist nie Schweigen. FEHLENDES `predicate` bleibt unberuehrt — das
+                # ist ein Statement ohne Kanten und kein Formfehler.
+                payload_malformed = (
+                    "statement predicate is "
+                    f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
+                    "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
-            subj = stmt.get("subject") if isinstance(stmt, dict) else None
+            subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
             elif len(subj) != 1:
@@ -1777,15 +1909,70 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 subject_digest_state = "present"
             else:
                 subject_digest_state = "malformed"   # single subject but no well-formed sha-256
-        except (ProofBundleError, ValueError):
-            rels = None
-            subject_digest_state = "absent"
-        related[root_hex] = {
+        roh.setdefault(root_hex, []).append({
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
             "subject_digest_state": subject_digest_state,
-        }
+            "payload_malformed": payload_malformed,
+        })
+    # ---- Zusammenfuehrung statt last-wins (deep gate Lauf 9, Fund L4-900-01, P0) ----
+    #
+    # VORHER stand hier `related[root_hex] = {...}` direkt in der Schleife. Der Schluessel ist der
+    # content root des SIGNIERTEN PAYLOADS — er wird also aus dem angehaengten Material ABGELEITET,
+    # und der Wert traegt ein VERIFIKATIONSURTEIL. Zwei Anhaenge mit demselben Payload und
+    # verschiedenen Umschlaegen kollidieren damit, und die zuletzt gelesene Kopie ersetzte die
+    # fruehere still.
+    #
+    # GEMESSEN am Kopf 8626618: eine angehaengte Kopie mit VERFAELSCHTER SIGNATUR loeschte eine
+    # gueltige, verifizierte Ruecknahme. `decision verify --with-related good.json` endet mit exit 3
+    # und safeForAutomation=False; dieselbe Aufrufung mit zusaetzlich `--with-related bad.json`
+    # endet mit exit 0, safeForAutomation=TRUE und lineage.supersededByAttached=None. Wer eine Datei
+    # ANHAENGEN kann, hebt damit eine Ruecknahme auf, ohne einen einzigen Schluessel zu brechen.
+    #
+    # WARUM `verified` HIER EIN ODER IST und kein UND. Der naheliegende Vorschlag lautet "verified
+    # nur, wenn ALLE Kopien verifizieren". Das waere ein Scheinfix: der Angreifer haengt dieselbe
+    # kaputte Kopie an, `verified` faellt auf False, die Ruecknahme zaehlt wieder nicht, und der
+    # Schaden ist derselbe unter anderem Namen. `verified` beantwortet die Frage "existiert eine
+    # gueltige Signatur ueber DIESE Bytes" — und eine verfaelschte Kopie derselben Bytes beantwortet
+    # sie nicht mit Nein. Sie beweist nur, dass jemand Bytes veraendern kann.
+    #
+    # DIE PAYLOAD-FELDER sind bei gleichem root_hex identisch, weil root_hex genau ueber diesen
+    # Payload gebildet wird. Weichen sie doch ab, ist eine Annahme dieses Codes verletzt — dann
+    # bricht die Aufloesung ab, statt eine der beiden Lesarten zu waehlen.
+    #
+    # `verified_under` wird DETERMINISTISCH gewaehlt (kleinster Schluessel unter den verifizierenden,
+    # sonst kleinster ueberhaupt), damit das Urteil nicht von der Reihenfolge der --with-related
+    # Argumente abhaengt. Die same-key-Regel in relation.py:720 vergleicht dieses Feld byte-genau;
+    # eine reihenfolgeabhaengige Wahl waere dort eine reihenfolgeabhaengige Autorisierung.
+    for root_hex, kopien in roh.items():
+        erste = kopien[0]
+        if len(kopien) == 1:
+            related[root_hex] = erste
+            continue
+        for feld in ("relationships", "subject_digest", "subject_digest_state", "payload_malformed"):
+            if any(k[feld] != erste[feld] for k in kopien):
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but disagree on {feld!r} — the content root is derived from exactly these "
+                    "bytes, so this cannot happen without a broken assumption; refusing to pick one")
+                break
+        else:
+            schluessel = sorted(k["verified_under"] for k in kopien)
+            verifizierende = sorted(k["verified_under"] for k in kopien if k["verified"])
+            if len({k["verified"] for k in kopien}) > 1 or len(set(schluessel)) > 1:
+                # Widerspruch NENNEN statt still aufloesen: der Aufrufer hat zwei Kopien desselben
+                # Statements uebergeben, die verschieden ausgehen. Der CLI-Pfad macht daraus exit 2.
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but verify differently (verified={sorted({k['verified'] for k in kopien})}, "
+                    f"keys={len(set(schluessel))}) — a duplicate that disagrees is a contradiction, "
+                    "not a tie to be broken silently")
+            related[root_hex] = {
+                **erste,
+                "verified": any(k["verified"] for k in kopien),
+                "verified_under": (verifizierende or schluessel)[0],
+            }
     return related, errs
 
 
@@ -1803,7 +1990,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # (e.g. decision-receipt-template-v1), not only a file path, via resolve_policy_source.
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
             return 2
     anchors = None
     if getattr(args, "anchors", None):
@@ -1811,7 +1998,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             with _open_input(args.anchors) as handle:
                 anchors = loads_strict(_read_capped(handle))   # WP-C1
         except (ProofBundleError, OSError, ValueError) as exc:
-            print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
+            _err(f"cannot read --anchors: {exc}")
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -1831,7 +2018,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                           getattr(args, "related_pub", None))
         if rel_errs:
             for e in rel_errs:
-                print(f"ERROR: {e}", file=sys.stderr)
+                _err(e)
             return 2
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=policy, anchors=anchors,
@@ -1839,7 +2026,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                          require_derived_subject=args.require_derived_subject,
                                          related=related or None)
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
@@ -1876,9 +2063,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
         for e in result["errors"]:
-            print(f"  - {e}", file=sys.stderr)
+            print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
-            print(f"  ! {w}", file=sys.stderr)
+            print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
         # No-Overclaim (§7.4 / lens 1): only assert integrity when crypto actually held — on a crypto FAIL
         # the CRYPTO: FAIL line already says it, and a positive trailer would itself be an overclaim.
         if result["crypto_ok"]:
@@ -1918,12 +2105,12 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     try:
         statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:   # bad base64 / dup key / not JSON → clean exit, not a traceback
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
     try:
@@ -2002,7 +2189,7 @@ def _cmd_outcome_emit(args: argparse.Namespace) -> int:
             predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_outcome_receipt(predicate, signer, strict=not args.lenient)
     except (OutcomeReceiptError, ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(env, handle, indent=2)
@@ -2026,7 +2213,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         try:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2036,7 +2223,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
                                           getattr(args, "related_pub", None))
         if rel_errs:
             for e in rel_errs:
-                print(f"ERROR: {e}", file=sys.stderr)
+                _err(e)
             return 2
         result = verify_outcome_receipt(
             env, pub, strict=args.strict,
@@ -2045,7 +2232,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             require_derived_subject=args.require_derived_subject, related=related or None,
             policy=policy)
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         report = {k: result[k] for k in (
@@ -2080,9 +2267,9 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
         for e in result["errors"]:
-            print(f"  - {e}", file=sys.stderr)
+            print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
-            print(f"  ! {w}", file=sys.stderr)
+            print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
         if result["crypto_ok"]:
             print("\nThis proves who signed what happened, bound to the referenced decision. It does not prove "
                   "the effect was good, correct or desired.")
@@ -2117,12 +2304,12 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     try:
         statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
     try:
@@ -2169,7 +2356,7 @@ def _cmd_relation_statement_emit(args: argparse.Namespace) -> int:
             predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_relation_statement(predicate, signer)
     except (RelationStatementError, ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(env, handle, indent=2)
@@ -2190,7 +2377,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         try:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2200,14 +2387,14 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
                                           getattr(args, "related_pub", None))
         if rel_errs:
             for e in rel_errs:
-                print(f"ERROR: {e}", file=sys.stderr)
+                _err(e)
             return 2
         result = verify_relation_statement(
             env, pub, strict=args.strict,
             require_derived_subject=args.require_derived_subject,
             related=related or None, policy=policy)
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     if args.json:
         report = {k: result[k] for k in (
@@ -2228,9 +2415,9 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
         for e in result["errors"]:
-            print(f"  - {e}", file=sys.stderr)
+            print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
-            print(f"  ! {w}", file=sys.stderr)
+            print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
         if result["crypto_ok"]:
             print("\nThis proves the issuer DECLARED the relation over exact bytes. It does not "
                   "retract the target's cryptographic validity, and whether the issuer may declare "
@@ -2257,12 +2444,12 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     try:
         statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
     try:
@@ -2285,7 +2472,7 @@ def _cmd_policy_explain(args: argparse.Namespace) -> int:
         if args.json:            # review: an empty stdout on the error path breaks a JSON consumer)
             print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
         else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
         return 2
     pins = explain_policy(policy)
     warns = policy_warnings(policy)
@@ -2293,14 +2480,14 @@ def _cmd_policy_explain(args: argparse.Namespace) -> int:
         print(json.dumps({"policy_id": policy.get("policy_id"), "schema": policy.get("schema"),
                           "pins": pins, "warnings": warns}, indent=2, ensure_ascii=False))
         return 0
-    print(f"policy   {policy.get('policy_id')}  ({policy.get('schema')})")
+    print(f"policy   {_safe_line(str(policy.get('policy_id')))}  ({_safe_line(str(policy.get('schema')))})")
     if pins:
         for line in pins:
-            print(f"  pins   {line}")
+            print(f"  pins   {_safe_line(str(line))}")
     else:
         print("  pins   (none — this policy is wirkungslos; see `policy lint`)")
     for w in warns:
-        print(f"  WARN   {w}")
+        print(f"  WARN   {_safe_line(str(w))}")
     return 0
 
 
@@ -2313,7 +2500,7 @@ def _cmd_policy_lint(args: argparse.Namespace) -> int:
         if args.json:            # emit an error object in --json (mirror _cmd_verify; exit 2 unchanged)
             print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
         else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
         return 2
     res = lint_policy(policy, strict=args.strict)
     if args.json:
@@ -2322,9 +2509,9 @@ def _cmd_policy_lint(args: argparse.Namespace) -> int:
         print(f"[policy-lint] {'PASS' if res['ok'] else 'FAIL'} · {len(res['pins'])} pin(s) · "
               f"{len(res['errors'])} error(s) · {len(res['warnings'])} warning(s)")
         for e in res["errors"]:
-            print(f"  ERROR {e}")
+            print(f"  ERROR {_safe_line(str(e))}")
         for w in res["warnings"]:
-            print(f"  WARN  {w}")
+            print(f"  WARN  {_safe_line(str(w))}")
     return 0 if res["ok"] else 1
 
 
@@ -2397,7 +2584,7 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            _err(exc)
         return 2
     out = json.dumps(inst, indent=2, ensure_ascii=False)
     if not inst.get("deploymentReady"):
@@ -2969,6 +3156,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# RT-06 backstop family (deep gate 2026-09-05, L3-600-05/06/07): the exception classes a hostile input has
+# been MEASURED to push out of a per-command handler — UnicodeEncodeError (a lone surrogate reaching a
+# strict stdout), OverflowError (a parseable ISO timestamp that overflows on astimezone/timestamp), and
+# the type-confusion family a malformed-but-signed statement produces on a dereference. Named, not
+# `Exception`: a KeyboardInterrupt / SystemExit stays what it is, and the list is a documented contract.
+_CLI_BACKSTOP_FAMILY = (OverflowError, ValueError, TypeError, KeyError, AttributeError, IndexError,
+                        RecursionError, MemoryError)
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -2981,7 +3177,25 @@ def main(argv=None) -> int:
         # otherwise leak one on hostile input; an uncaught format/budget/verify error is a malformed-input
         # class → clean exit 2. Per-command handlers keep their specific exit codes (1 fail / 3 policy);
         # this only catches what escapes them.
-        print(f"ERROR: {exc}", file=sys.stderr)
+        _err(exc)
+        return 2
+    except UnicodeEncodeError:
+        # RT-06 (L3-600-05): a lone UTF-16 surrogate in an untrusted string reached a strict stdout/stderr
+        # through a path that did not go through `_safe_line`. The per-site writer is the fix; this is the
+        # documented floor: no traceback, the malformed-input exit code, an ASCII-safe message.
+        sys.stderr.write("ERROR: output could not be encoded (a lone UTF-16 surrogate in an untrusted "
+                         "string reached a strict text stream); treated as malformed input\n")
+        return 2
+    except _CLI_BACKSTOP_FAMILY as exc:
+        # RT-06 floor for the named family: a consumer surface returns a verdict and a documented exit
+        # code for ANY input, never a traceback. Per-command handlers keep their specific codes; this
+        # catches only what escapes them, says so honestly, and keeps the traceback reachable for a
+        # developer via PROOFBUNDLE_DEBUG=1 (a hidden bug must not become invisible).
+        import os  # noqa: PLC0415
+        _err(f"unexpected {type(exc).__name__} on the CLI path (treated as malformed input): {exc}")
+        if os.environ.get("PROOFBUNDLE_DEBUG"):
+            import traceback  # noqa: PLC0415
+            traceback.print_exc()
         return 2
 
 

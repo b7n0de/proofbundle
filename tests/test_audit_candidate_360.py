@@ -39,6 +39,29 @@ _braucht_yaml = unittest.skipUnless(
     "nicht messbarer Zustand ist kein Fehlschlag")
 
 
+# ── Die Attrappe fuer das veroeffentlichte Bein ist ECHT geworden ──────────────────────────────
+#
+# GRUND (Tiefen-Gate 2026-09-05, Fund L5-G7-04, P3). Hier stand fuenfmal
+# `"jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n"` — eine Zeile, die das Wort
+# „sdist" enthaelt und sonst nichts tut. Sie genuegte, solange `c1_1_two_ci_gates` das
+# veroeffentlichte Bein als Teilzeichenkette ueber die ganze Datei las. Seit die Pruefung das
+# YAML-Dokument liest und einen NICHT abgeschalteten Schritt verlangt, der einen Bau UND eine
+# Benutzung der Distribution deklariert, muss die Attrappe das auch tun.
+#
+# Das ist kein Nachgeben gegenueber der Aenderung, sondern die Korrektur einer Attrappe, die fuer
+# eine Teilzeichenketten-Pruefung geformt war: diese Tests handeln von der ci.yml-Haelfte, und ihre
+# andere Haelfte soll dabei ECHT sein und nicht zufaellig durchrutschen.
+_PUBLISHED_GATE_YML = (
+    "name: published-artifact-gate\n"
+    "on: [push]\n"
+    "jobs:\n"
+    "  cleanroom:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - run: python -m build --sdist --outdir dist\n"
+    "      - run: pip install dist/proofbundle.tar.gz\n")
+
+
 def _load(name: str, rel: str):
     spec = importlib.util.spec_from_file_location(name, REPO / rel)
     mod = importlib.util.module_from_spec(spec)
@@ -70,6 +93,139 @@ class TestTestManifestGate(unittest.TestCase):
     def test_pytest_only_discovery_is_ast_derived(self):
         mods = self.g.pytest_only_modules(REPO / "tests")
         self.assertTrue(all(m.startswith("test_") and m.endswith(".py") for m in mods))
+
+    def test_die_ERWARTUNG_kommt_aus_dem_BAUM_und_nicht_aus_einem_BODEN(self):
+        """OWNER-ANORDNUNG 2026-09-07, und sie ist dieselbe Regel wie beim Mutationslauf: die
+        Erwartung wird GEMESSEN, nicht getippt.
+
+        Der Boden (`min_pytest_only_modules`) prueft die GROESSE der Menge. Er kann eine FALSCHE
+        Menge derselben oder groesserer Groesse nicht bemerken: nimmt man das `not` aus der Regex,
+        waehlt sie die Gegenmenge — 199 statt 62 Module — und `ok` bleibt True, weil 199 einen
+        Boden von 5 mit Leichtigkeit nimmt. Eine Kennzahl steht dann fuer eine Menge.
+
+        Der Riegel ist jetzt die DIFFERENZ zweier unabhaengiger Ableitungen: die eine liest den
+        Quelltext als Zeichenkette, die andere als Syntaxbaum. Ein Import ist im Baum ein Knoten
+        und kein Textmuster; ein Fehler in der einen Lesart kann die andere nicht mitreissen. Es
+        steht keine Zahl in dieser Zusicherung — sie verlangt Einigkeit, nicht einen Wert.
+        """
+        regex_menge = set(self.g.pytest_only_modules(REPO / "tests"))
+        ast_menge = set(self.g.pytest_only_modules_ast(REPO / "tests"))
+        assert regex_menge, "Vorbedingung: die Regex-Ableitung findet ueberhaupt Module"
+        assert ast_menge, "Vorbedingung: die Syntaxbaum-Ableitung findet ueberhaupt Module"
+        self.assertEqual(regex_menge, ast_menge, (
+            f"Die zwei Ableitungen der pytest-only-Menge sind uneinig. Nur im Regex: "
+            f"{sorted(regex_menge - ast_menge)[:8]}; nur im Syntaxbaum: "
+            f"{sorted(ast_menge - regex_menge)[:8]}. Eine Klassifikation, die sich selbst "
+            f"widerspricht, ist keine — und ein Boden ueber der GROESSE haette es nicht bemerkt."))
+        # Der ECHTE Baum muss einig sein — das ist der Gluecksfall-Pfad und mehr nicht.
+        # DASS eine Uneinigkeit das Tor toetet, prueft NICHT dieser Fall, sondern
+        # `test_eine_ECHTE_uneinigkeit_zwingt_das_tor_auf_NICHT_ok`. Diese Trennung steht hier,
+        # weil die erste Fassung dieses Falls den Kommentar "das Tor muss die Uneinigkeit zu einem
+        # PROBLEM machen" ueber eine Zusicherung schrieb, die das GEGENTEIL prueft (dass KEIN
+        # solches Problem gemeldet wird). Eine Linse fand es: der ganze Widerspruchs-Block liess
+        # sich entfernen und alle fuenf Faelle blieben gruen — gemessen, 0 von 5.
+        r = self.g.evaluate()
+        self.assertNotIn("uneinig", " ".join(r["problems"]).lower(),
+                         f"das Tor meldet eine Uneinigkeit, die hier keine sein duerfte: {r['problems']}")
+        self.assertEqual(r["pytest_only_modules"], r["pytest_only_modules_ast"], (
+            "Das Tor berichtet zwei verschiedene Groessen fuer dieselbe Menge."))
+
+    def test_eine_ECHTE_uneinigkeit_zwingt_das_tor_auf_NICHT_ok(self):
+        """DIE WIRKUNG, nicht der Wortlaut — und ohne Attrappe.
+
+        Es braucht keinen Monkeypatch, um die zwei Ableitungen zu trennen: eine Datei, die
+        ``import unittest`` NUR in einer Zeichenkette traegt, trennt sie von selbst. Die
+        Zeichenketten-Lesart sieht die Zeile am Zeilenanfang und haelt das Modul fuer ein
+        unittest-Modul; der Syntaxbaum sieht keinen Import-Knoten und haelt es fuer pytest-only.
+        Genau so sieht der Fehler in freier Wildbahn aus — Beispielcode in einem Docstring.
+
+        Der Fall verlangt zwei Dinge, die die reine Mengengleichheit oben nicht verlangt: dass die
+        Uneinigkeit ueberhaupt bis in ``problems`` durchschlaegt, und dass sie ``ok`` toetet. Ohne
+        ihn liess sich der ganze Widerspruchs-Block durch ``if False`` ersetzen, ohne dass ein
+        einziger Fall fiel.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "test_schein.py").write_text(
+                'BEISPIEL = """\nimport unittest\n"""\n\n\ndef test_x():\n    assert True\n')
+            (d / "test_echt.py").write_text(
+                'import unittest\n\n\nclass T(unittest.TestCase):\n'
+                '    def test_y(self):\n        pass\n')
+            regex_menge = set(self.g.pytest_only_modules(d))
+            ast_menge = set(self.g.pytest_only_modules_ast(d))
+            self.assertNotEqual(regex_menge, ast_menge, (
+                "VORBEDINGUNG dieses Falls: dieser Baum muss die zwei Ableitungen wirklich "
+                "trennen. Tut er es nicht, prueft der Fall nichts und darf nicht still bestehen."))
+            lock = d / "lock.json"
+            lock.write_text(json.dumps({"min_collected_tests": 0, "min_pytest_only_modules": 0}))
+            r = self.g.evaluate(tests_dir=d, lock_path=lock)
+            self.assertTrue(any("uneinig" in pr.lower() for pr in r["problems"]), (
+                f"Die zwei Ableitungen widersprechen sich, aber das Tor sagt nichts: {r['problems']}"))
+            self.assertFalse(r["ok"], (
+                "Das Tor meldet die Uneinigkeit, laesst den Lauf aber trotzdem durch. Ein Befund, "
+                "der nichts entscheidet, ist ein Bericht und kein Riegel."))
+
+    def test_ANTI_PARITAET_ein_EINIGER_baum_erzeugt_keinen_uneinig_eintrag(self):
+        """Die Kontrolle: der Riegel darf nicht einfach immer rot sein."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "test_a.py").write_text('def test_x():\n    assert True\n')
+            (d / "test_b.py").write_text(
+                'import unittest\n\n\nclass T(unittest.TestCase):\n'
+                '    def test_y(self):\n        pass\n')
+            self.assertEqual(set(self.g.pytest_only_modules(d)),
+                             set(self.g.pytest_only_modules_ast(d)),
+                             "VORBEDINGUNG: dieser Baum ist einig")
+            lock = d / "lock.json"
+            lock.write_text(json.dumps({"min_collected_tests": 0, "min_pytest_only_modules": 0}))
+            r = self.g.evaluate(tests_dir=d, lock_path=lock)
+            self.assertNotIn("uneinig", " ".join(r["problems"]).lower(),
+                             f"Der Riegel schlaegt ueber einem einigen Baum an: {r['problems']}")
+
+    def test_die_KLASSIFIKATION_selbst_ist_gebunden_positiv_und_negativ(self):
+        """DER FUND DES RIEGEL-SWEEPS (Owner-Auftrag 2026-09-07, P1): die Klassifikation war von
+        keinem Fall gebunden, nur ihr Ergebnis-UMFANG.
+
+        `pytest_only_modules` trennt Module OHNE unittest-Import (die der alte Sammler nicht sieht)
+        von denen MIT. GEMESSEN: nimmt man das `not` aus der Bedingung, waehlt sie die exakte
+        Gegenmenge — 199 Module statt 62 — und `evaluate()` meldet weiter `ok=True`, weil 199 den
+        Boden von 5 mit Leichtigkeit nimmt. Alle drei Faelle, die diese Funktion angeblich binden,
+        blieben gruen.
+
+        WARUM DIE VORHANDENEN FAELLE NICHT REICHEN, einzeln benannt: `test_real_floor_met` prueft
+        eine Zahl gegen einen Boden, `test_shrink_below_floor_is_caught` denselben Vergleich mit
+        einem unmoeglich hohen Boden, und `test_pytest_only_discovery_is_ast_derived` prueft nur,
+        dass die Treffer `test_*.py` heissen — nie, ob die RICHTIGEN Module getroffen sind. Ein
+        Boden mit 57 Kopffreiheit kann eine Fehlklassifikation nicht bemerken; er misst die Groesse
+        einer Menge und sagt nichts ueber ihre Mitglieder. Dieselbe Klasse wie die Summe im
+        Sammel-Job: eine KENNZAHL steht fuer eine MENGE.
+
+        Dieser Fall stellt beide Seiten her: ein Modul mit `import unittest` DARF NICHT erscheinen,
+        eines ohne MUSS. Ein Nur-Positiv-Test bindet nichts.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tests_dir = Path(td)
+            (tests_dir / "test_mit_unittest.py").write_text(
+                "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_x(self):\n"
+                "        self.assertTrue(True)\n", encoding="utf-8")
+            (tests_dir / "test_mit_from_unittest.py").write_text(
+                "from unittest import TestCase\n\n\nclass T(TestCase):\n"
+                "    def test_x(self):\n        assert True\n", encoding="utf-8")
+            (tests_dir / "test_nur_pytest.py").write_text(
+                "def test_x():\n    assert True\n", encoding="utf-8")
+            mods = set(self.g.pytest_only_modules(tests_dir))
+
+        self.assertIn("test_nur_pytest.py", mods, (
+            "Ein Modul OHNE unittest-Import gilt nicht als pytest-only. Genau diese Module sind "
+            "fuer den alten Sammler unsichtbar — sie zu uebersehen ist der Fund vom 2026-09-07 "
+            "(57 von 254 Dateien blind, darunter vollstaendig die Freigabeflaeche)."))
+        self.assertNotIn("test_mit_unittest.py", mods, (
+            "Ein Modul MIT `import unittest` gilt als pytest-only. Die Klassifikation ist dann "
+            "invertiert oder blind — und der Boden bemerkt es nicht, weil er nur die GROESSE der "
+            "Menge prueft, nicht ihre Mitglieder."))
+        self.assertNotIn("test_mit_from_unittest.py", mods, (
+            "Die `from unittest import ...`-Form wird nicht erkannt. Beide Importformen sind fuer "
+            "den alten Sammler sichtbar; nur eine davon zu pruefen bindet die halbe Bedingung."))
 
 
 class TestAuditCandidateMatrix(unittest.TestCase):
@@ -146,6 +302,38 @@ class TestAuditCandidateMatrix(unittest.TestCase):
             self.m.CHECKS[:] = orig
 
 
+def _repo_mit_vertrauensanker(td) -> Path:
+    """Macht aus einem leeren Verzeichnis ein git-Repo MIT committetem Vertrauensanker.
+
+    WARUM ES DEN HELFER GIBT (2026-09-06). Die C12.2-Tests dieser Klasse messen die
+    REGISTER-Diskriminierung: fehlt das Register, ist es manipuliert, ist es von einem fremden
+    Schluessel signiert. Sie bauten dafuer ein blankes ``tempfile.TemporaryDirectory()``. Das genuegte,
+    solange ``c12_2_audit_pack_zero_p0p1`` direkt das Register-JSON las. Seit die Zeile ihre
+    autorisierten Schluessel aus dem COMMITTETEN Vertrauensanker holt (``git show HEAD:…``), faellt ein
+    Verzeichnis ohne ``.git`` schon eine Stufe FRUEHER — mit ``DATA_BLOCKED``, und zwar zu Recht: eine
+    unmessbare Vertrauensbasis ist nie eine erfuellte. Die Tests bekamen damit die richtige Antwort auf
+    die falsche Frage.
+
+    Ein Test, der eine Eigenschaft messen will, muss ALLES bereitstellen, was der Pruefling braucht,
+    AUSSER dem, was gerade unter Test steht. Der Helfer stellt genau die Vertrauensbasis bereit — er
+    kopiert den ECHTEN committeten Anker des Repositoriums, erfindet also keinen —, und laesst das
+    Register selbst unberuehrt, damit weiterhin dieses die Entscheidung traegt.
+    """
+    import subprocess
+    ziel = Path(td)
+    art = ziel / "audit_artifacts"
+    art.mkdir(parents=True, exist_ok=True)
+    quelle = Path(REPO) / "audit_artifacts" / "readiness_trusted_pubkeys.txt"
+    (art / "readiness_trusted_pubkeys.txt").write_bytes(quelle.read_bytes())
+    def lauf(*a):
+        return subprocess.run(["git", "-C", str(ziel), *a], capture_output=True, timeout=20)
+    lauf("init", "-q")
+    lauf("add", "audit_artifacts/readiness_trusted_pubkeys.txt")
+    lauf("-c", "user.email=fixture@local", "-c", "user.name=fixture",
+         "commit", "-q", "-m", "fixture: der Vertrauensanker, damit das REGISTER entscheidet")
+    return ziel
+
+
 class TestCheckDiscrimination(unittest.TestCase):
     """Per-check red/green discrimination (FIX 3): each check must FAIL when its own obligation is
     genuinely broken/absent, not only pass in aggregate. Modelled on
@@ -166,8 +354,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
             self.assertIn("ci.yml", detail)
@@ -178,8 +365,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text("name: nope\njobs:\n  x:\n    steps:\n      - run: echo hi\n")
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
@@ -188,19 +374,44 @@ class TestCheckDiscrimination(unittest.TestCase):
     # substring scan. The old lexical '0 open P0/P1' md-scan granted a FALSE PASS from a stale record; it is
     # replaced by a fail-closed signed register (absent/tampered/foreign-key/empty -> FAIL, never PENDING). ---
 
-    def test_c12_2_green_on_real_repo(self):
-        verdict, _ = self.m.c12_2_audit_pack_zero_p0p1()
-        self.assertEqual(verdict, self.m.PASS)
+    def test_c12_2_states_which_release_it_is_green_FOR(self):
+        """GEAENDERT 2026-09-05 nach dem Tiefen-Gate-Fund L5-G6-02 (P1) — dieselbe Korrektur, die
+        L6-01 an `test_matrix_is_ready_and_has_33_checks` erzwungen hat, eine Ebene tiefer.
+
+        Hier stand `assertEqual(verdict, PASS)` ohne Bedingung, und genau das liess das falsche Gruen
+        durch: das signierte Register ist auf `3.6.1` datiert, die Matrix urteilt ueber 6.0.0, und die
+        Zeile war trotzdem gruen — weil die siebzehn Funde ehrlich gezaehlt wurden, nur eben ueber eine
+        andere Fassung. Ein Test, der Gruen behauptet, ohne zu sagen WOFUER, kann die beiden Faelle
+        nicht unterscheiden.
+
+        Beide Richtungen stehen hier: passt die Registerfassung zur Fassung unter Test, MUSS die Zeile
+        gruen sein (sonst waere die Bindung ein konstantes FAIL); passt sie nicht, MUSS sie rot sein
+        und den Grund nennen."""
+        verdict, detail = self.m.c12_2_audit_pack_zero_p0p1()
+        import json as _json
+        reg = _json.loads((REPO / "audit_artifacts" / "findings_register_361.json")
+                          .read_text(encoding="utf-8"))
+        if reg.get("version") == self.m.VERSION_UNDER_TEST:
+            self.assertEqual(verdict, self.m.PASS, detail)
+        else:
+            self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("REGISTER_VERSION_MISMATCH", detail)
+            self.assertIn(str(reg.get("version")), detail)
+            self.assertIn(self.m.VERSION_UNDER_TEST, detail)
 
     def test_c12_2_fails_when_register_absent(self):
         # RT-10: absence of the register is FAIL, not PASS and not PENDING (assertion-by-absence guard).
         # A fabricated '0 open P0/P1' note in a bare .md no longer grants anything — only the register counts.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.1. 0 open P0/P1 issues.\n")
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            # DER GRUND WIRD MITGEPRUEFT (2026-09-05): seit der Versionsbindung (L5-G6-02) faellt ein
+            # fremd-versioniertes Register schon daran. Ohne diese Zeile waere der Test auch dann noch
+            # gruen, wenn die Abwesenheits-Regel selbst ausgebaut waere — er wuerde die falsche Sache messen.
+            self.assertIn("missing", detail.lower())
 
     def test_c12_2_fails_on_tampered_register(self):
         # a copy of the real register with a P0 flipped to 'open' breaks the pinned-key signature -> FAIL
@@ -209,12 +420,16 @@ class TestCheckDiscrimination(unittest.TestCase):
         real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
         reg = json.loads(real.read_text(encoding="utf-8"))
         reg["findings"][0]["status"] = "open"  # tamper: does not re-sign
+        reg["version"] = self.m.VERSION_UNDER_TEST   # 2026-09-05: die Fassung passt, damit dieser Test
+        # weiterhin die SIGNATUR misst und nicht die neue Versionsbindung (L5-G6-02) — sonst waere er
+        # vakuoes: auch ohne jede Signaturpruefung rot, und niemand haette es bemerkt.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(reg))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("signature", detail.lower())
 
     def test_c12_2_fails_on_foreign_key_register(self):
         # a register validly signed by a DIFFERENT key must be rejected by the committed pin -> FAIL.
@@ -227,6 +442,9 @@ class TestCheckDiscrimination(unittest.TestCase):
         from proofbundle import canonical
         real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
         body = {k: v for k, v in json.loads(real.read_text(encoding="utf-8")).items() if k != "signature"}
+        # 2026-09-05: die Fassung passt zur Fassung unter Test, damit dieser Test den PIN misst und
+        # nicht die neue Versionsbindung (L5-G6-02) — sonst waere er auch ohne jeden Pin rot.
+        body["version"] = self.m.VERSION_UNDER_TEST
         k = Ed25519PrivateKey.generate()
         pub = k.public_key().public_bytes(encoding=serialization.Encoding.Raw,
                                           format=serialization.PublicFormat.Raw)
@@ -235,11 +453,22 @@ class TestCheckDiscrimination(unittest.TestCase):
                                "public_key_b64": base64.b64encode(pub).decode(),
                                "sig_b64": base64.b64encode(k.sign(canonical.canonicalize_statement(body))).decode()}
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(forged))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            # AN DEN TYPISIERTEN CODE GEBUNDEN, NICHT AN PROSA (2026-09-06). Hier stand
+            # `assertIn("pinned", …)`. Das Wort beschrieb den modul-eigenen Pin in
+            # `findings_register.py` — genau den, den Teil F entfernt hat: die autorisierten
+            # Schluessel reisen seither aus dem committeten Vertrauensanker an. Die Ablehnung ist
+            # unveraendert richtig, nur ihre Begruendung heisst jetzt anders. Ein Test, der eine
+            # Zusicherung an ein Wort der Meldung haengt, misst die Formulierung und bricht, sobald
+            # jemand sie praezisiert — dieselbe Klasse, gegen die diese Datei anderswo selbst
+            # argumentiert ("a gate distinguishes ABSENT from REJECTED by a typed field, never by a
+            # message string"). Geprueft wird deshalb der Code, den der Leser wirklich vergibt.
+            import findings_register as _fr
+            self.assertIn(_fr.CODE_REGISTER_UNAUTHORISED_KEY.lower(), detail.lower())
 
     # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
 
@@ -250,8 +479,8 @@ class TestCheckDiscrimination(unittest.TestCase):
         # it; sort order across the tree can no longer let a foreign file win).
         import pre_tag_audit_gate as pta
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "000_marker_fake.md").write_text(  # '000_' sorts before '360/' in an rglob
                 "# six-lens adversarial notes touching 3.6.0\n\n**0 open P0 / P1.**\n")
             # C12.1: the existence locator finds no version-scoped record, evaluate() is not ok
@@ -266,6 +495,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         # version-scoped .md carrying '0 open P0/P1' grants NOTHING now — with no signed register present,
         # C12.2 is FAIL. This is the anti-gaming improvement: a stale/forged .md can no longer mask reality.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             rec = Path(td) / "audit_artifacts" / "360"
             rec.mkdir(parents=True)
             (rec / "pre_tag_adversarial_audit_360.md").write_text(
@@ -280,8 +510,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "# this workflow will run pytest one day\n"
                 "name: CI\n"
@@ -309,8 +538,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "name: CI\non: [push]\n"
                 "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
@@ -324,8 +552,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "name: CI\non: [push]\n"
                 "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
@@ -367,6 +594,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         # record — the anchor is the exact directory '360', never a raw substring.
         import pre_tag_audit_gate as pta
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
             sib = art / "1360"
             sib.mkdir(parents=True)

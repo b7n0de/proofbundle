@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .bundle import load_bundle, verify_bundle
 from .emit import emit_bundle
+from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_member
@@ -224,11 +225,10 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         # proofbundle.persample.build_sample_tree — the samples root is SIGNED with the claim,
         # so tree-size lies and post-hoc sample swaps are closed at the signature layer
         # (an RFC 6962 inclusion proof constrains n only up to path-shape equivalence).
-        import base64 as _b64mod  # noqa: PLC0415
         if not isinstance(samples, dict) or set(samples) - {"root_b64", "n", "leaf_alg"}:
             raise EvalClaimError("samples must be {root_b64, n, leaf_alg} (see persample module)")
         try:
-            root_raw = _b64mod.b64decode(samples["root_b64"], validate=True)
+            root_raw = decode_b64(samples["root_b64"])
         except (KeyError, ValueError, TypeError) as exc:
             raise EvalClaimError("samples.root_b64 must be valid base64") from exc
         if len(root_raw) != 32:
@@ -267,7 +267,7 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
         raise EvalClaimError(f"claim missing required fields: {sorted(missing)}")
     extra = set(claim) - _REQUIRED - _OPTIONAL
     if extra:
-        raise EvalClaimError(f"claim has unknown fields: {sorted(extra)}")
+        raise EvalClaimError(f"claim has unknown fields: {render_keys_safe(extra)}")
     payload = canonicalize(claim)
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
@@ -341,7 +341,7 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             if (isinstance(s_n, bool) or not isinstance(s_n, int)
                     or isinstance(c_n, bool) or not isinstance(c_n, int) or s_n != c_n):
                 return None
-            if len(base64.b64decode(samples["root_b64"], validate=True)) != 32:
+            if len(decode_b64(samples["root_b64"])) != 32:
                 return None
         if expected_context is not None and claim.get("context_binding") != expected_context:
             return None
@@ -514,14 +514,22 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     raw = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
     try:
         dt = datetime.fromisoformat(raw)
-    except ValueError:
+    except (ValueError, OverflowError):
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": f"unparseable timestamp {ts!r}"}
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     ref = now or datetime.now(timezone.utc)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=timezone.utc)
-    age = int((ref - dt).total_seconds())
+    # RT-06 neighbour of L3-600-07 (sweep of every datetime site, 2026-09-05): an aware timestamp whose
+    # UTC instant lies outside year 1..9999 (``0001-01-01T00:00:00+23:00``) parses fine and then raises
+    # OverflowError in the SUBTRACTION — reachable from show-eval (age line) and from a policy
+    # max_iat_age_seconds. Out of range is "not parsed", never a crash on a never-raise surface.
+    try:
+        age = int((ref - dt).total_seconds())
+    except OverflowError:
+        return {"parsed": False, "age_seconds": None, "fresh": None,
+                "reason": f"timestamp {ts!r} is out of the representable range"}
     if max_age_seconds is None:
         return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
     fresh = 0 <= age <= max_age_seconds
@@ -549,7 +557,7 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     try:
         jwt = token.split("~", 1)[0]                     # issuer JWT, before any disclosures
         payload_b64 = jwt.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)     # restore base64url padding
+        # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
         # F12 (release-audit follow-up 2026-07-12): loads_strict, not json.loads — a 5th SD-JWT
         # issuer-payload parse site of the same parser-differential class. A duplicate key (e.g. two
         # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.

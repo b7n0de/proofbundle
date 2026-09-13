@@ -160,12 +160,25 @@ class TestDSSERoundtrip(unittest.TestCase):
 
     def test_verify_accepts_urlsafe_base64_payload(self):
         # DSSE verifiers MUST accept standard OR url-safe base64 (Paket 2 test 13, second half).
+        # The spec allows either ALPHABET and says nothing about padding, so RFC 4648 §3.2 applies and
+        # the padded url-safe spelling is the one that verifies (deep gate 2026-09-05, L1-600-01).
+        import base64
+        s = generate_signer()
+        env = export_eval_result_dsse(CLAIM, s)
+        raw = base64.b64decode(env["payload"])
+        env["payload"] = base64.urlsafe_b64encode(raw).decode()
+        self.assertTrue(verify_eval_result_dsse(env, _raw_pub(s))["ok"])
+
+    def test_verify_refuses_the_unpadded_second_wire_form(self):
+        # The neighbour of the test above, and the reason this file changed: the UNPADDED spelling
+        # decodes to the same bytes, so accepting it gives one signed artefact two accepted wire forms.
+        # The shipped Rust verifier always refused it; since L1-600-01 Python agrees.
         import base64
         s = generate_signer()
         env = export_eval_result_dsse(CLAIM, s)
         raw = base64.b64decode(env["payload"])
         env["payload"] = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-        self.assertTrue(verify_eval_result_dsse(env, _raw_pub(s))["ok"])
+        self.assertFalse(verify_eval_result_dsse(env, _raw_pub(s))["ok"])
 
 
 if __name__ == "__main__":
