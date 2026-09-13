@@ -392,13 +392,57 @@ def _severity(kennung: str, aus_tabelle: str | None = None) -> dict:
     PASS, gegen den dieses Register gebaut ist."""
     for f in FINDINGS:
         if f["id"] == kennung:
-            return {"value": f["severity"], "source": "findings_register v1, signiert"}
+            # DAS ETIKETT SAGTE "signiert" UND LAS DEN SPEICHER (Codex r3999796578). FINDINGS ist
+            # eine Python-Liste in DIESER Datei; eine Aenderung daran aendert die veroeffentlichte
+            # Schwere, und das Ergebnis wies sich als signierte Evidenz aus. Der Weg ist derselbe
+            # geblieben, die AUSSAGE darueber ist jetzt wahr: die Liste wird genannt, wie sie ist,
+            # und ob sie mit dem signierten Register uebereinstimmt, prueft
+            # tests/test_register_gegen_erzeuger.py als eigene Zusicherung — nicht dieses Etikett.
+            return {"value": f["severity"],
+                    "source": "FINDINGS in scripts/gen_findings_register.py",
+                    "source_state": "NICHT GEGEN DAS SIGNIERTE ARTEFAKT GEPRUEFT",
+                    "source_reason": ("die Liste steht im Erzeuger, nicht im signierten Register; "
+                                      "ihre Uebereinstimmung damit ist eine eigene Zusicherung und "
+                                      "keine Eigenschaft dieses Feldes")}
     if aus_tabelle:
         return {"value": aus_tabelle, "source": f"Severity-Spalte in {RESTRISIKO_REL}"}
     return {"value": None, "state": "NOT MEASURED",
             "reason": ("diese Kennung steht weder im signierten v1-Register noch in einer "
                        "Tabelle mit Severity-Spalte; eine Schwere hier zu setzen waere eine "
                        "Einstufung ohne Beleg")}
+
+
+def _status_aus_tabelle(stueck: str, kopf: list) -> str | None:
+    """Ein Zustand, der in der Tabelle STEHT. Spalte nach NAMEN, nicht nach Position."""
+    if not kopf or "State" not in kopf:
+        return None
+    spalten = [x.strip() for x in stueck.splitlines()[0].strip().strip("|").split("|")]
+    i = kopf.index("State")
+    return spalten[i][:80] if i < len(spalten) and spalten[i] else None
+
+
+def _status(kennung: str, aus_tabelle: str | None = None) -> dict:
+    """Der Zustand eines Fundes, GELESEN statt geraten.
+
+    Codex r3999621596: `_offen` fiel fuer jede Kennung, die nicht in FINDINGS steht, auf
+    `bool(severity) and record_role == "finding"` zurueck und las den Zustand der Quelle NIE.
+    Gemessen trat das ein: A4 steht in der Quelltabelle ausdruecklich als `closed` und erschien in
+    der erzeugten Ansicht `known_issues.md` als offener P1. Ein Zustand, der aus Schwere und Rolle
+    GERATEN wird, ist keine Auskunft ueber den Fund, sondern ueber die Form seines Datensatzes.
+
+    Drei Zustaende, nie zwei: aus der Liste des Erzeugers, aus der Zustandsspalte der Quelle, oder
+    NOT MEASURED mit Grund.
+    """
+    for f in FINDINGS:
+        if f["id"] == kennung:
+            return {"value": f["status"],
+                    "source": "FINDINGS in scripts/gen_findings_register.py"}
+    if aus_tabelle:
+        return {"value": "closed" if aus_tabelle.lower().startswith("closed") else "open",
+                "source": f"State-Spalte in {RESTRISIKO_REL}", "wortlaut": aus_tabelle}
+    return {"value": None, "state": "NOT MEASURED",
+            "reason": ("diese Kennung steht weder in der Liste des Erzeugers noch in einer Tabelle "
+                       "mit Zustandsspalte; einen Zustand hier zu setzen waere geraten")}
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -449,6 +493,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
                                   if fundart == "tabelle_spalte1" else None),
+            "status": _status(k, _status_aus_tabelle(stueck.decode("utf-8"), kopf)
+                              if fundart == "tabelle_spalte1" else None),
             "evidence": [{
                 "path": f"{EVIDENZ_REL}/{k}.md",
                 "sha256": hashlib.sha256(stueck).hexdigest(),
@@ -517,11 +563,34 @@ def _zusicherungen(text: str, records: list) -> list:
     als eigenem Feld daneben.
     """
     import re  # noqa: PLC0415
+    # UEBER DIE DATENSAETZE, NICHT UEBER EINEN REGEX AUF DEN ROHTEXT (Codex r3999820857).
+    #
+    # Die alte Fassung suchte `| <Kennung> | P0/P1 | … |` — also ausschliesslich Zeilen der
+    # A-Tabelle, weil nur dort die Schwere in Spalte zwei steht. Gemessen sind das 1 von 145
+    # Datensaetzen; alle Funde in UEBERSCHRIFTENFORM (S, R, Z, G) und alle Eintraege aus der Liste
+    # des Erzeugers waren strukturell unsichtbar. Ein offener P0 oder P1 aus diesen Mengen haette
+    # `holds` nicht beruehrt, und die Zusicherung "0 open P0/P1" haette weiter gehalten.
+    #
+    # Der Fund nennt das eine Faehigkeit; gemessen am heutigen Bestand tritt sie NICHT ein, denn
+    # kein Eintrag ausserhalb der A-Tabelle traegt heute P0 oder P1. Das ist genau der Unterschied
+    # zwischen einem falschen Bestehen und der MOEGLICHKEIT eines falschen Bestehens, und beides
+    # gehoert benannt.
+    #
+    # Gerechnet wird jetzt ueber die Datensaetze, die Schwere UND Zustand je aus einer benannten
+    # Quelle tragen. Damit zaehlt dieselbe Menge, ueber die das Register spricht.
     hoch = []
-    for m in re.finditer(r"^\|\s*([A-Z]\d+)\s*\|\s*(P[01])\s*\|([^\n]*)", text, re.M):
-        zustand = [t.strip() for t in m.group(3).strip().strip("|").split("|")][-1]
-        hoch.append({"id": m.group(1), "severity": m.group(2), "state": zustand[:60]})
-    offen = [h for h in hoch if not h["state"].lower().startswith("closed")]
+    for r in records:
+        sev = (r.get("severity") or {}).get("value")
+        if sev not in ("P0", "P1"):
+            continue
+        st = r.get("status") or {}
+        hoch.append({"id": r["id"], "severity": sev,
+                     "state": st.get("value") or st.get("state") or "NOT MEASURED",
+                     "state_source": st.get("source") or st.get("reason", "")[:60]})
+    # EIN UNBEKANNTER ZUSTAND IST NICHT "GESCHLOSSEN". Die alte Fassung fragte, ob der Zustandstext
+    # mit "closed" beginnt — was jeden nicht gemessenen Zustand stillschweigend als offen zaehlte
+    # und umgekehrt jede fremde Schreibweise als offen. Hier zaehlt nur, was ausdruecklich zu ist.
+    offen = [h for h in hoch if h["state"] != "closed"]
     anmerkung = None
     if re.search(r"every entry here is P2 or P3", text) and hoch:
         anmerkung = ("die Prosa ueber der Severity-Tabelle begruendet '0 open P0/P1' mit "
@@ -954,11 +1023,15 @@ def pruefe_v2(doc, repo) -> list[str]:
 # ── DIE ANSICHTEN: erzeugt, nie von Hand geschrieben ───────────────────────────────────────
 
 def _offen(r) -> bool:
-    sev = (r.get("severity") or {}).get("value")
-    for f in FINDINGS:
-        if f["id"] == r["id"]:
-            return f["status"] == "open"
-    return bool(sev) and r.get("record_role") == "finding"
+    """Offen heisst: eine Quelle sagt es. Ein unbekannter Zustand ist NICHT offen und nicht zu.
+
+    Die alte Fassung riet fuer jede Kennung ausserhalb von FINDINGS aus Schwere und Rolle. Gemessen
+    machte sie A4, in der Quelle ausdruecklich `closed`, zu einem offenen P1 in der Ansicht.
+    """
+    st = r.get("status") or {}
+    if st.get("value") in ("open", "closed"):
+        return st["value"] == "open"
+    return False
 
 
 def ansicht_uebersicht(doc) -> str:
