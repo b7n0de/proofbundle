@@ -43,6 +43,47 @@ jobs:
           BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python scripts/branch_base_check.py
 
+  pr-language-gate:
+    # R2 des Standards "auf GitHub immer Englisch" (kraxo/00_standards_regeln/
+    # STANDARD_github_immer_englisch_pr_issue_commit_20260913.md). Er gehoert in die SCHNELLE
+    # Schicht: er braucht keine Installation, keine Matrix und keine Shards, und er soll melden,
+    # bevor jemand einen Text nach aussen gibt.
+    #
+    # ANLASS, gemessen am 13.09.2026: PR 201 war ganz deutsch, PR 200 trug einen deutschen Titel
+    # ueber englischem Text. Beide wurden von Hand repariert. Eine Regel, die nur in Prosa lebt,
+    # wird befolgt, bis jemand es eilig hat.
+    #
+    # NUR BEI pull_request: auf einem push gibt es keinen PR-Titel und keinen PR-Text, und ein Job,
+    # der dann eine leere Zeichenkette prueft, meldet gruen ohne gemessen zu haben.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Collect the commit messages of this pull request
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git log --format=%B%x00 "$BASE_SHA..$HEAD_SHA" > /tmp/pr_commits.txt
+      - name: Write the pull request body to a file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" > /tmp/pr_body.md
+      - name: On GitHub we always write English
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: >-
+          python scripts/pr_language_gate.py
+          --title "$PR_TITLE"
+          --body-file /tmp/pr_body.md
+          --commits-file /tmp/pr_commits.txt
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —
