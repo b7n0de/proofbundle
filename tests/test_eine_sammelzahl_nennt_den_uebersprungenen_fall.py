@@ -85,6 +85,30 @@ _chm = importlib.util.module_from_spec(_spec_ch)
 _spec_ch.loader.exec_module(_chm)
 _VERNEINT = _chm._NEGATION_RE
 
+#: Die Verneinung muss das SKIP-WORT verneinen, nicht irgendwo im Satz stehen.
+#:
+#: Die erste Fassung fragte `_VERNEINT.search(satz)` — und wurde damit UEBERSTRENG. GEMESSEN
+#: 14.09.2026 an fuenf Saetzen: DREI gueltige Benennungen wurden verschluckt, weil das Haus-Muster
+#: auch `no`, `without` und `never` kennt und die in einem Satz ueber einen uebersprungenen Test
+#: voellig harmlos vorkommen:
+#:     "`test_a` was skipped, no other tests were affected"
+#:     "`test_a` was skipped, without a fixture nothing runs"
+#:     "`test_a` was skipped; never re-enabled since"
+#: Alle drei BENENNEN ihren Fall ordentlich; der Riegel haette den Abschnitt trotzdem gemeldet.
+#: Gefunden von der Gegenlesung, die genau danach gefragt hat.
+#:
+#: Der Grund fuer den Irrtum ist der Zweck-Unterschied: im Ueberclaim-Pruefer entlastet eine
+#: Verneinung IRGENDWO im Satz ("the docs say it does not prove"), weil dort der SATZ die Behauptung
+#: traegt. Hier traegt das WORT die Eigenschaft. Dieselbe Liste, andere Reichweite — importiert wird
+#: weiterhin, aber der Suchbereich ist jetzt das Vorfeld des Treffers.
+_VORFELD_ZEICHEN = 24
+
+
+def _verneint_das_skip_wort(satz: str, treffer_start: int) -> bool:
+    """Steht eine Verneinung unmittelbar VOR dem Skip-Wort?"""
+    vorfeld = satz[max(0, treffer_start - _VORFELD_ZEICHEN):treffer_start]
+    return bool(_VERNEINT.search(vorfeld))
+
 
 def benannte_uebersprungene(rumpf: str) -> set[str]:
     """Die Testnamen, die der Abschnitt AUSDRUECKLICH als uebersprungen ausweist.
@@ -95,7 +119,9 @@ def benannte_uebersprungene(rumpf: str) -> set[str]:
     """
     namen: set[str] = set()
     for m in _SKIP_SATZ.finditer(rumpf):
-        if _VERNEINT.search(m.group(0)):
+        satz = m.group(0)
+        stelle = satz.lower().find("skip")
+        if stelle >= 0 and _verneint_das_skip_wort(satz, stelle):
             continue        # "was NOT skipped" benennt keinen uebersprungenen Fall
         satz = m.group(0)
         gefunden = set(_TESTNAME.findall(satz))
@@ -390,3 +416,33 @@ def test_die_verneinungsliste_ist_die_des_hauses_und_keine_zweite():
     assert _VERNEINT is _chm._NEGATION_RE
     for wort in ("not", "never", "no", "without"):
         assert _VERNEINT.search(f"it was {wort} skipped"), f"{wort!r} gilt nicht als Verneinung"
+
+
+# ── Nachtrag 2: die Verneinung gehoert an das SKIP-WORT, nicht an den Satz ───────────────────────
+
+def test_ein_harmloses_verneinungswort_im_satz_schluckt_die_benennung_nicht():
+    """Die Gegenlesung fragte danach, und die Messung gab ihr recht — schaerfer sogar.
+
+    Die erste Fassung fragte `_VERNEINT.search(satz)`. Das Haus-Muster kennt auch `no`, `without`
+    und `never`, und die kommen in einem Satz ueber einen uebersprungenen Test harmlos vor.
+    GEMESSEN: DREI von fuenf gueltigen Benennungen wurden verschluckt, der Riegel haette
+    ordentlich geschriebene Abschnitte gemeldet.
+
+    Der Zweck-Unterschied ist der Grund: im Ueberclaim-Pruefer entlastet eine Verneinung IRGENDWO im
+    Satz, weil dort der SATZ die Behauptung traegt. Hier traegt das WORT die Eigenschaft.
+    """
+    for satz in ("`test_a` was skipped, no other tests were affected",
+                 "`test_a` was skipped, without a fixture nothing runs",
+                 "`test_a` was skipped; never re-enabled since",
+                 "`test_a` was skipped because the fixture is absent"):
+        assert benannte_uebersprungene(satz) == {"test_a"}, (
+            f"eine gueltige Benennung wurde verschluckt: {satz!r}")
+
+
+def test_eine_verneinung_UNMITTELBAR_vor_dem_skip_wort_zaehlt_weiterhin():
+    """Die Gegenrichtung, ohne die der Fix nur nachgiebiger waere statt richtiger."""
+    for satz in ("`test_a` was not skipped; it passed",
+                 "`test_a` was never skipped; it passed",
+                 "`test_a` is no longer skipped"):
+        assert benannte_uebersprungene(satz) == set(), (
+            f"eine echte Verneinung wurde als Benennung gelesen: {satz!r}")
