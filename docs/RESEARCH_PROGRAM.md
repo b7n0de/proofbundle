@@ -6,7 +6,7 @@ tree at a named head, or says in one of three words why it does not: `NOT MEASUR
 claim here.
 
 **What this file is not.** It is not a plan, not a promise, and not a positioning statement. The
-external note that prompted it (`kraxo/02_proofbundle_berichte/WISSENSCHAFTLICHE_EINORDNUNG_extern_20260912/`,
+external note that prompted it (`Betreiber/02_proofbundle_berichte/WISSENSCHAFTLICHE_EINORDNUNG_extern_20260912/`,
 sha256 `d28af81d…`) is a structural proposal without a named author. **None of its scales, scores or
 verdicts are adopted here.** It supplied the questions; the answers below are measured in this tree.
 
