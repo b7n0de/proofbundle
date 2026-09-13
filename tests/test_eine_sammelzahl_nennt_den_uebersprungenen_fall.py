@@ -30,6 +30,7 @@ kann er aus dem Text nicht. Er schliesst die stumme Sammelzahl aus, nicht die fa
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import pathlib
 import re
 
@@ -68,6 +69,22 @@ _ZUSTANDSZEILEN = re.compile(r"^.*\bState\b.*$", re.M | re.I)
 #: Ein Satz, der vom Ueberspringen handelt. Satzgrenze ist Punkt oder Zeilenumbruch.
 _SKIP_SATZ = re.compile(r"[^.\n]*\bskip(?:ped)?\b[^.\n]*", re.I)
 
+#: VERNEINUNG, und sie ist der Unterschied zwischen einer Eigenschaft und ihrem Gegenteil.
+#: Fund der Codex-Runde gegen genau diesen Riegel: ein Abschnitt mit `9 passed, 1 skipped` und
+#: daneben dem Satz "`test_deciding` was not skipped; it passed" wurde als ORDENTLICH BENANNT
+#: durchgewunken — das Muster oben trifft "not skipped" wie "skipped", und der entscheidende,
+#: wirklich uebersprungene Fall blieb dadurch verdeckt. Reproduziert am 14.09.2026:
+#: `benannte_uebersprungene` gab {'test_deciding'} zurueck und `stumme_sammelzahlen` schwieg.
+#:
+#: Der Ausdruck wird aus scripts/claims_hygiene_check.py IMPORTIERT statt kopiert. Dort steht seit
+#: laengerem dieselbe Unterscheidung fuer die Ueberclaim-Pruefung ("die Doku sagt: does not prove"),
+#: und zwei Listen von Verneinungswoertern laufen auseinander (OA-714de2fcdd, kein zweiter Erzeuger).
+_CH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "claims_hygiene_check.py"
+_spec_ch = importlib.util.spec_from_file_location("claims_hygiene_check", _CH)
+_chm = importlib.util.module_from_spec(_spec_ch)
+_spec_ch.loader.exec_module(_chm)
+_VERNEINT = _chm._NEGATION_RE
+
 
 def benannte_uebersprungene(rumpf: str) -> set[str]:
     """Die Testnamen, die der Abschnitt AUSDRUECKLICH als uebersprungen ausweist.
@@ -78,6 +95,8 @@ def benannte_uebersprungene(rumpf: str) -> set[str]:
     """
     namen: set[str] = set()
     for m in _SKIP_SATZ.finditer(rumpf):
+        if _VERNEINT.search(m.group(0)):
+            continue        # "was NOT skipped" benennt keinen uebersprungenen Fall
         satz = m.group(0)
         gefunden = set(_TESTNAME.findall(satz))
         if not gefunden:
@@ -327,3 +346,47 @@ def test_ANTI_parametrisierte_faelle_zaehlen_einzeln():
     text = (f"### TP · parametrisiert\n\n{_MESSEND}\n"
             "22 passed, 2 skipped — uebersprungen: test_first[a] und test_first[b].\n")
     assert stumme_sammelzahlen(text) == []
+
+
+# ── Nachtrag 14.09.2026: die Verneinung einer Eigenschaft ist nicht die Eigenschaft ──────────────
+
+_VERNEINTER_ABSCHNITT = (
+    "### R7 Beispiel\n"
+    "**State:** MEASURED at head abc1234\n"
+    "9 passed, 1 skipped\n"
+    "`test_deciding` was not skipped; it passed\n")
+
+_EHRLICHER_ABSCHNITT = (
+    "### R7 Beispiel\n"
+    "**State:** MEASURED at head abc1234\n"
+    "9 passed, 1 skipped\n"
+    "`test_deciding` was skipped because the fixture is absent\n")
+
+
+def test_ein_verneinter_skip_satz_benennt_keinen_uebersprungenen_fall():
+    """Der Fund, reproduziert und festgenagelt.
+
+    `_SKIP_SATZ` trifft jeden Satz mit `skip`/`skipped` — auch `was NOT skipped`. Ein Abschnitt, der
+    `1 skipped` meldet und daneben schreibt, ein Test sei NICHT uebersprungen worden, galt damit als
+    ordentlich aufgeschluesselt, und der wirklich uebersprungene Fall blieb verdeckt. Gemessen am
+    14.09.2026: `benannte_uebersprungene` gab {'test_deciding'} zurueck, `stumme_sammelzahlen`
+    schwieg.
+    """
+    assert benannte_uebersprungene(_VERNEINTER_ABSCHNITT) == set()
+    assert stumme_sammelzahlen(_VERNEINTER_ABSCHNITT), (
+        "der Abschnitt nennt keinen uebersprungenen Fall und muss gemeldet werden")
+
+
+def test_ein_echter_skip_satz_benennt_ihn_weiterhin():
+    """Die Gegenrichtung, ohne die der Fix nur strenger waere statt richtiger."""
+    assert benannte_uebersprungene(_EHRLICHER_ABSCHNITT) == {"test_deciding"}
+    assert stumme_sammelzahlen(_EHRLICHER_ABSCHNITT) == []
+
+
+def test_die_verneinungsliste_ist_die_des_hauses_und_keine_zweite():
+    """Kein zweiter Erzeuger (OA-714de2fcdd): dieselbe Unterscheidung steht seit laengerem in
+    scripts/claims_hygiene_check.py fuer die Ueberclaim-Pruefung. Zwei Listen von
+    Verneinungswoertern laufen auseinander, also wird IMPORTIERT statt kopiert."""
+    assert _VERNEINT is _chm._NEGATION_RE
+    for wort in ("not", "never", "no", "without"):
+        assert _VERNEINT.search(f"it was {wort} skipped"), f"{wort!r} gilt nicht als Verneinung"
