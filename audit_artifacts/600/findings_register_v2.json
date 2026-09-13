@@ -21,6 +21,7 @@
         "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
         "fields": [
           "records[].objektklasse_begruendung",
+          "records[].not_a_defect.beleg",
           "inventory.coverage_gaps[].reason",
           "inventory.cross_count._auflage",
           "inventory.cross_count.warum_zu_viel_je_kennung.*"
@@ -30,7 +31,7 @@
     ]
   },
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T17:46:32Z",
+  "generated_at": "2026-09-13T17:51:51Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -159,6 +160,9 @@
       "id": "A1",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -199,6 +203,9 @@
       "id": "A2",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -239,6 +246,9 @@
       "id": "A3",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -279,6 +289,9 @@
       "id": "A4",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -319,6 +332,9 @@
       "id": "G1",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -360,6 +376,9 @@
       "id": "G2",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -401,6 +420,9 @@
       "id": "N1",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -442,6 +464,9 @@
       "id": "N2",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -483,6 +508,9 @@
       "id": "N3",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -524,6 +552,9 @@
       "id": "N4",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -565,6 +596,9 @@
       "id": "N5",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -606,6 +640,9 @@
       "id": "N6",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -647,6 +684,9 @@
       "id": "N7",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -688,6 +728,11 @@
       "id": "N8",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": true,
+        "source": "declared exception `messung_ohne_fund` in RESTRISIKO_600_OBJEKTKLASSEN.json",
+        "beleg": "RESTRISIKO_600.md, Tabellenzeile N8: '`audit-candidate-matrix` reports C12.1 as not applicable on a pull request … the gate at work, not a defect'"
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -729,6 +774,9 @@
       "id": "N9",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -770,6 +818,9 @@
       "id": "N10",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -811,6 +862,9 @@
       "id": "N11",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -852,6 +906,9 @@
       "id": "N12",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -893,6 +950,9 @@
       "id": "N13",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -934,6 +994,9 @@
       "id": "N14",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -975,6 +1038,9 @@
       "id": "N15",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1016,6 +1082,9 @@
       "id": "N16",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1057,6 +1126,9 @@
       "id": "N17",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1098,6 +1170,9 @@
       "id": "N18",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1139,6 +1214,9 @@
       "id": "N19",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1180,6 +1258,9 @@
       "id": "N20",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1221,6 +1302,11 @@
       "id": "N21",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": true,
+        "source": "declared exception `messung_ohne_fund` in RESTRISIKO_600_OBJEKTKLASSEN.json",
+        "beleg": "RESTRISIKO_600.md, Tabellenzeile N21: 'Intended behaviour of a validity window, not a defect of the candidate'"
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1262,6 +1348,9 @@
       "id": "R1",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1302,6 +1391,9 @@
       "id": "R2",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1342,6 +1434,9 @@
       "id": "R3",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1382,6 +1477,9 @@
       "id": "R4",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1422,6 +1520,9 @@
       "id": "R5",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1462,6 +1563,9 @@
       "id": "R6",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1502,6 +1606,9 @@
       "id": "R7",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1542,6 +1649,9 @@
       "id": "S1",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1583,6 +1693,9 @@
       "id": "S2",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1623,6 +1736,11 @@
       "id": "S3",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": true,
+        "source": "declared exception `messung_ohne_fund` in RESTRISIKO_600_OBJEKTKLASSEN.json",
+        "beleg": "RESTRISIKO_600.md, Ueberschrift '### S3 · `pre_tag_audit_gate` first-candidate acceptance — NO FINDING, measured in both directions'"
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1664,6 +1782,9 @@
       "id": "S4",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1704,6 +1825,9 @@
       "id": "S5",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1744,6 +1868,9 @@
       "id": "S6",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1784,6 +1911,9 @@
       "id": "S7",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1824,6 +1954,9 @@
       "id": "S8",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1864,6 +1997,9 @@
       "id": "S9",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1904,6 +2040,9 @@
       "id": "S10",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1944,6 +2083,9 @@
       "id": "S11",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -1985,6 +2127,9 @@
       "id": "S12",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2026,6 +2171,9 @@
       "id": "S13",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2067,6 +2215,9 @@
       "id": "S14",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2108,6 +2259,9 @@
       "id": "S15",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2149,6 +2303,9 @@
       "id": "S16",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2190,6 +2347,9 @@
       "id": "S17",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2231,6 +2391,9 @@
       "id": "S18",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2272,6 +2435,9 @@
       "id": "S19",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2313,6 +2479,9 @@
       "id": "S20",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2354,6 +2523,9 @@
       "id": "S21",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2395,6 +2567,9 @@
       "id": "S22",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2436,6 +2611,9 @@
       "id": "S23",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2477,6 +2655,9 @@
       "id": "S24",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2518,6 +2699,9 @@
       "id": "S25",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2559,6 +2743,9 @@
       "id": "S26",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2600,6 +2787,9 @@
       "id": "S27",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2641,6 +2831,9 @@
       "id": "S28",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2682,6 +2875,9 @@
       "id": "S29",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2723,6 +2919,9 @@
       "id": "S30",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2764,6 +2963,9 @@
       "id": "S31",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2805,6 +3007,9 @@
       "id": "S32",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2846,6 +3051,9 @@
       "id": "S33",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2887,6 +3095,9 @@
       "id": "S34",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2928,6 +3139,9 @@
       "id": "S35",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -2969,6 +3183,9 @@
       "id": "S36",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3010,6 +3227,9 @@
       "id": "S37",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3051,6 +3271,9 @@
       "id": "S38",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3092,6 +3315,9 @@
       "id": "S39",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3133,6 +3359,9 @@
       "id": "S40",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3174,6 +3403,9 @@
       "id": "S41",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3215,6 +3447,9 @@
       "id": "S42",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3256,6 +3491,9 @@
       "id": "S43",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3297,6 +3535,9 @@
       "id": "S44",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3338,6 +3579,9 @@
       "id": "S45",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3379,6 +3623,9 @@
       "id": "S46",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3420,6 +3667,9 @@
       "id": "S47",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3461,6 +3711,9 @@
       "id": "S48",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3502,6 +3755,9 @@
       "id": "S49",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3543,6 +3799,9 @@
       "id": "S50",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3584,6 +3843,9 @@
       "id": "S51",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3625,6 +3887,9 @@
       "id": "S52",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3666,6 +3931,9 @@
       "id": "S53",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3707,6 +3975,9 @@
       "id": "S54",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3748,6 +4019,9 @@
       "id": "S55",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3789,6 +4063,9 @@
       "id": "S56",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3830,6 +4107,9 @@
       "id": "S57",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3871,6 +4151,9 @@
       "id": "S58",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3912,6 +4195,9 @@
       "id": "S59",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3953,6 +4239,9 @@
       "id": "S60",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -3994,6 +4283,9 @@
       "id": "S61",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4035,6 +4327,9 @@
       "id": "S62",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4076,6 +4371,9 @@
       "id": "S63",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4117,6 +4415,9 @@
       "id": "S64",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4158,6 +4459,9 @@
       "id": "S65",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4199,6 +4503,9 @@
       "id": "S66",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4240,6 +4547,9 @@
       "id": "S67",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4281,6 +4591,9 @@
       "id": "S68",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4322,6 +4635,9 @@
       "id": "S69",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4363,6 +4679,9 @@
       "id": "S70",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4404,6 +4723,9 @@
       "id": "S71",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4445,6 +4767,9 @@
       "id": "S72",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4486,6 +4811,9 @@
       "id": "S73",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4527,6 +4855,9 @@
       "id": "S74",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4568,6 +4899,9 @@
       "id": "S75",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4609,6 +4943,9 @@
       "id": "S76",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4650,6 +4987,9 @@
       "id": "S77",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4691,6 +5031,9 @@
       "id": "S78",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4732,6 +5075,9 @@
       "id": "S79",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4773,6 +5119,9 @@
       "id": "S80",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4814,6 +5163,9 @@
       "id": "S81",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4855,6 +5207,9 @@
       "id": "S82",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4896,6 +5251,9 @@
       "id": "S83",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4937,6 +5295,9 @@
       "id": "S84",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -4978,6 +5339,9 @@
       "id": "S85",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5019,6 +5383,9 @@
       "id": "S102",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5060,6 +5427,9 @@
       "id": "S103",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5101,6 +5471,9 @@
       "id": "S104",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5142,6 +5515,9 @@
       "id": "S105",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5183,6 +5559,9 @@
       "id": "S106",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5224,6 +5603,9 @@
       "id": "S107",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5265,6 +5647,9 @@
       "id": "S108",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5306,6 +5691,9 @@
       "id": "S109",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5347,6 +5735,9 @@
       "id": "S110",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5388,6 +5779,9 @@
       "id": "S111",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5429,6 +5823,9 @@
       "id": "S112",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5470,6 +5867,9 @@
       "id": "S113",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5511,6 +5911,9 @@
       "id": "S114",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5552,6 +5955,9 @@
       "id": "S115",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5593,6 +5999,9 @@
       "id": "S116",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5634,6 +6043,9 @@
       "id": "S117",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5675,6 +6087,9 @@
       "id": "S118",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5716,6 +6131,9 @@
       "id": "S119",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5757,6 +6175,9 @@
       "id": "S120",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5798,6 +6219,9 @@
       "id": "Z2",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5839,6 +6263,9 @@
       "id": "Z3",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5880,6 +6307,9 @@
       "id": "Z4",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5921,6 +6351,9 @@
       "id": "Z5",
       "record_revision": 0,
       "record_role": "boundary",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -5962,6 +6395,9 @@
       "id": "S121",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -6003,6 +6439,9 @@
       "id": "S122",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
@@ -6044,6 +6483,9 @@
       "id": "S123",
       "record_revision": 0,
       "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",

@@ -541,6 +541,15 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     qd = hashlib.sha256(roh).hexdigest()
     ok = _json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
 
+    # DIE DEKLARIERTE AUSNAHME, EINMAL GELESEN. Nur wer hier steht — mit Grund UND Beleg, das
+    # verlangt tests/test_objektklassen_gegen_das_register.py — gilt als "gemessen, nichts
+    # vorgefunden" und damit als KEIN Defekt. Alles andere bleibt ein Defekt, auch wenn es aus
+    # Zaehlgruenden nicht zur Fundsumme beitraegt.
+    _aus = (ok.get("ausnahmen_von_der_klasse") or {}).get("messung_ohne_fund") or {}
+    _belege = _aus.get("beleg") or {}
+    _OHNE_FUND = {kx: (_belege.get(kx) or _aus.get("warum") or "declared without a reason")
+                  for kx in (_aus.get("kennungen") or [])}
+
     records, ohne_fundstelle = [], []
     for e in ok["eintraege"]:
         k = e["kennung"]
@@ -555,6 +564,35 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "id": k,
             "record_revision": revision,
             "record_role": "finding" if e.get("zaehlt_als_fund") else "boundary",
+            # ZWEI GRUENDE, EIN FELD — und deshalb ein zweites (Codex 4000176743).
+            #
+            # `record_role: boundary` heisst nur `zaehlt_als_fund: false`, und das beantwortet eine
+            # ZAEHLFRAGE: traegt der Eintrag zur Fundsumme bei? Es beantwortet NICHT die Frage, ob
+            # ein Defekt vorliegt. GEMESSEN am Bestand tragen ACHT Grenzen den Zustand offen, und
+            # sie zerfallen in zwei Mengen:
+            #   N21 ist in der Objektklassen-Datei als `messung_ohne_fund` DEKLARIERT — die Quelle
+            #       sagt ausdruecklich, dass nichts vorliegt. Das gehoert nicht unter die offenen
+            #       Punkte.
+            #   R1 bis R7 sind `nachgemessene_fassung_einer_runde`: sie zaehlen nicht mit, weil man
+            #       sonst DIESELBE Runde mehrfach zaehlte — aber die Defekte sind offen und echt
+            #       ("contradicts the shipped code", "raises a raw exception", "three numbers are
+            #       wrong").
+            #
+            # Die naheliegende Abhilfe — Grenzen aus der Ansicht nehmen — haette daher SIEBEN echte
+            # offene Funde versteckt. Entschieden wird deshalb an der DEKLARIERTEN Ausnahme, nicht
+            # an der Rolle: nur wer im Block `messung_ohne_fund` steht, mit Grund und Beleg, ist
+            # kein Defekt. Der Vertrag zu diesem Block verlangt beides seit heute frueh.
+            # EIN FELD, EINE HERKUNFT — und das war beim ersten Anlauf nicht so. Der Riegel
+            # `test_die_sprachangabe_deckt_was_sie_sagt.py` wies ihn zurueck: dasselbe Feld trug
+            # bei 142 Saetzen eine ERZEUGTE englische Begruendung und bei drei ein deutsches
+            # ZITAT. Eine Herkunftsangabe, die fuer ein Feld gilt, muss fuer ALLE seine Werte
+            # gelten. Das Zitat heisst deshalb `beleg` und steht nur da, wo es eines gibt; der
+            # verneinte Fall traegt gar keine Prosa, denn "nichts deklariert" braucht keinen Satz.
+            "not_a_defect": ({"value": True,
+                              "source": "declared exception `messung_ohne_fund` in "
+                                        "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                              "beleg": _OHNE_FUND.get(k)}
+                             if k in _OHNE_FUND else {"value": False}),
             # ART NICHT GERATEN. Die Objektklassen unterscheiden nach HERKUNFT
             # (S/N/A/R/Z/G), nicht nach security/quality: `fund_sicherheit_und_korrektheit`
             # mischt beides, `fund_nachtrag` sagt ueber die Art nichts. Die erste Fassung
@@ -643,6 +681,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                          "the evidence they exist to reproduce")},
                 {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
                  "fields": ["records[].objektklasse_begruendung",
+                            "records[].not_a_defect.beleg",
                             "inventory.coverage_gaps[].reason",
                             "inventory.cross_count._auflage",
                             "inventory.cross_count.warum_zu_viel_je_kennung.*"],
@@ -1302,6 +1341,11 @@ def _offen(r) -> bool:
     Die alte Fassung riet fuer jede Kennung ausserhalb von FINDINGS aus Schwere und Rolle. Gemessen
     machte sie A4, in der Quelle ausdruecklich `closed`, zu einem offenen P1 in der Ansicht.
     """
+    # EINE DEKLARIERTE NICHT-ABWEICHUNG IST KEIN OFFENER PUNKT (Codex 4000176743). Der Zustand
+    # sagt, ob die HANDLUNG offen ist; ob ueberhaupt ein Defekt vorliegt, sagt die deklarierte
+    # Ausnahme. Beides zu vermengen fuehrt in die eine oder die andere Richtung in die Irre.
+    if ((r.get("not_a_defect") or {}).get("value")):
+        return False
     st = r.get("status") or {}
     if st.get("value") in ("open", "closed"):
         return st["value"] == "open"
