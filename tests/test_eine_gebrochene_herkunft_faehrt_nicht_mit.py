@@ -97,14 +97,28 @@ def test_GEPRUEFT_bleibt_ohne_befund():
 
 
 def test_der_zustand_wird_aus_den_BYTES_abgeleitet_nicht_behauptet(tmp_path):
-    """[ZAEHLT] Am Erzeuger gemessen: liegt die Quelle da und weicht ab, heisst der Zustand so."""
+    """[ZAEHLT] Am Erzeuger gemessen: derselbe Block, drei Lagen, drei Zustaende.
+
+    DIESER FALL WAR IN SEINER ERSTEN FASSUNG EINE TAUTOLOGIE. Er rechnete einen Digest aus und
+    verglich ihn mit sich selbst — gruen, ohne den Erzeuger je aufzurufen. Der Linter fand die
+    ungenutzte Variable, und dahinter stand der eigentliche Fehler: eine Zusicherung, die nicht
+    fallen kann, ist keine. Jetzt faehrt sie `_gegenrechnung` gegen einen echten Baum.
+    """
     g = _gen()
-    q = tmp_path / "sollliste.json"
-    q.write_text("andere bytes\n", encoding="utf-8")
-    ist = hashlib.sha256(q.read_bytes()).hexdigest()
-    assert ist != "f" * 64, "Vorbedingung"
-    # Der Erzeuger leitet den Zustand aus dem Vergleich ab; hier wird die Eigenschaft der
-    # ABLEITUNG festgehalten, nicht eine Zeichenkette: gleiche Bytes -> GEPRUEFT, andere ->
-    # ABWEICHEND, keine Datei -> NICHT MESSBAR.
-    assert hashlib.sha256(b"andere bytes\n").hexdigest() == ist
-    assert not (tmp_path / "gibt_es_nicht.json").exists()
+    inhalt = b"die sollliste\n"
+    digest = hashlib.sha256(inhalt).hexdigest()
+    rel = "sollliste.json"
+
+    def lauf(datei_da: bool, bytes_gleich: bool):
+        if datei_da:
+            (tmp_path / rel).write_bytes(inhalt if bytes_gleich else b"andere bytes\n")
+        elif (tmp_path / rel).exists():
+            (tmp_path / rel).unlink()
+        ok = {"gegenrechnung_gegen_die_sollliste": {
+                  "quelle": rel, "sha256_der_sollliste": digest,
+                  "sollliste_kennungen": ["A4"]}}
+        return (g._gegenrechnung(ok, [], tmp_path).get("herkunft_der_sollliste") or {}).get("zustand")
+
+    assert lauf(True, True) == "GEPRUEFT", "gleiche Bytes muessen GEPRUEFT ergeben"
+    assert lauf(True, False) == "ABWEICHEND", "andere Bytes muessen ABWEICHEND ergeben"
+    assert lauf(False, False) == "NICHT MESSBAR", "keine Datei muss NICHT MESSBAR ergeben"

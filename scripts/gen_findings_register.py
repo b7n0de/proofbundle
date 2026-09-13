@@ -700,11 +700,41 @@ def _zusicherungen(text: str, records: list) -> list:
                      + ". The assurance holds because that entry is closed, not for the reason "
                        "the sentence gives. A sentence that justifies a true statement with a "
                        "false premise survives the change that makes it false.")
+    # DIE UEBERSPRUNGENEN GEHOEREN IN DIE ZUSICHERUNG (Codex 4000140168).
+    #
+    # Die Schleife oben ueberspringt jeden Datensatz, dessen Schwere NICHT P0 oder P1 ist — und
+    # damit auch jeden, dessen Schwere GAR NICHT GEMESSEN ist. Beides sah gleich aus. GEMESSEN am
+    # Bestand: 120 von 145 Datensaetzen tragen in Schwere UND Zustand NICHT MESSBAR, waehrend die
+    # Zusicherung ueber die verbleibende Handvoll rechnete und `holds: true` meldete. Eine Aussage
+    # ueber "0 offene P0/P1" spricht aber ueber die GANZE Menge, nicht ueber die Teilmenge, die
+    # sich einstufen liess.
+    #
+    # NICHT EINGESTUFT IST WEDER HOCH NOCH NIEDRIG. Wer die Ungemessenen als "nicht P0/P1"
+    # verbucht, hat sie stillschweigend freigesprochen; wer sie als offen zaehlt, erfindet Funde.
+    # Der dritte Zustand ist der ehrliche: die Zusicherung ist UNBESTIMMT, und die Zahl der
+    # Ungemessenen steht daneben. `holds` traegt dann None — kein `true`, das mehr behauptet, als
+    # die Datenlage hergibt, und kein `false`, das einen Fund erfindet.
+    ohne_einstufung = [r["id"] for r in records
+                       if (r.get("severity") or {}).get("value") is None]
+    bestimmbar = not ohne_einstufung
+    grundgesamtheit = {
+        "records_gesamt": len(records),
+        "mit_schwere": len(records) - len(ohne_einstufung),
+        "ohne_schwere": len(ohne_einstufung),
+        "ohne_schwere_beispiele": ohne_einstufung[:8],
+    }
     return [{
         "claim": "0 open P0/P1",
         "computed": {"p0_p1_total": len(hoch), "p0_p1_open": len(offen),
-                     "entries": hoch, "open_entries": [h["id"] for h in offen]},
-        "holds": not offen,
+                     "entries": hoch, "open_entries": [h["id"] for h in offen],
+                     "population": grundgesamtheit},
+        "holds": (not offen) if bestimmbar else None,
+        "holds_state": "MEASURED" if bestimmbar else "INDETERMINATE",
+        "holds_reason": None if bestimmbar else (
+            f"{len(ohne_einstufung)} of {len(records)} records carry no measured severity, so they "
+            f"can be shown to be neither P0/P1 nor anything else; a claim about the whole "
+            f"population cannot be established from the {len(records) - len(ohne_einstufung)} that "
+            f"could be classified"),
         "prose_rationale_state": "REFUTED" if anmerkung else "NOT MEASURED",
         "prose_rationale_note": anmerkung,
     }]
@@ -1280,7 +1310,9 @@ def ansicht_uebersicht(doc) -> str:
             z.append(f"  Second reader: **{zl.get('zustand', 'UNKNOWN')}** — "
                      f"{zl.get('grund') or zl.get('abweichende_felder')}")
     for a in inv.get("assurance_checks") or []:
-        z += ["", f"Assurance `{a['claim']}`: **{'holds' if a['holds'] else 'DOES NOT HOLD'}**, "
+        _m = ("holds" if a.get("holds") else
+              "INDETERMINATE" if a.get("holds") is None else "DOES NOT HOLD")
+        z += ["", f"Assurance `{a['claim']}`: **{_m}**, "
                   f"computed — {a['computed']['p0_p1_total']} P0/P1 in the source, "
                   f"{a['computed']['p0_p1_open']} open."]
         if a.get("prose_rationale_state") == "REFUTED":
@@ -1353,7 +1385,8 @@ def ansicht_html(doc) -> str:
         kreuz = ""
     zus = ""
     for a in inv.get("assurance_checks") or []:
-        marke = "holds" if a["holds"] else "DOES NOT HOLD"
+        marke = ("holds" if a.get("holds") else
+                 "INDETERMINATE" if a.get("holds") is None else "DOES NOT HOLD")
         zus += (f"<p>Assurance <code>{_h.escape(a['claim'])}</code>: <b>{marke}</b>, computed — "
                 f"{a['computed']['p0_p1_total']} P0/P1 in the source, {a['computed']['p0_p1_open']} open.</p>")
         if a.get("prose_rationale_note"):

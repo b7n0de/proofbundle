@@ -14,7 +14,7 @@ Cross-count against the independent tally, computed: 140 equal, 0 missing, 5 ext
   extra `S123`: nach der Fremdzaehlung angelegt (2132Z Registerzeile 3)
   Second reader (hand tally in the same file): agrees.
 
-Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
+Assurance `0 open P0/P1`: **INDETERMINATE**, computed — 1 P0/P1 in the source, 0 open.
   The prose rationale in the source is REFUTED by the source's own table; the claim is carried here because it is COMPUTED, not quoted.
 
 ## All records

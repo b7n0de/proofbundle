@@ -30,7 +30,7 @@
     ]
   },
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T17:32:01Z",
+  "generated_at": "2026-09-13T17:40:04Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -129,9 +129,26 @@
               "state_source": "State-Spalte in RESTRISIKO_600.md"
             }
           ],
-          "open_entries": []
+          "open_entries": [],
+          "population": {
+            "records_gesamt": 145,
+            "mit_schwere": 25,
+            "ohne_schwere": 120,
+            "ohne_schwere_beispiele": [
+              "G1",
+              "G2",
+              "R1",
+              "R2",
+              "R3",
+              "R4",
+              "R5",
+              "R6"
+            ]
+          }
         },
-        "holds": true,
+        "holds": null,
+        "holds_state": "INDETERMINATE",
+        "holds_reason": "120 of 145 records carry no measured severity, so they can be shown to be neither P0/P1 nor anything else; a claim about the whole population cannot be established from the 25 that could be classified",
         "prose_rationale_state": "REFUTED",
         "prose_rationale_note": "the prose above the severity table justifies '0 open P0/P1' with 'every entry here is P2 or P3'. Measured against that same table: A4 carries P1. The assurance holds because that entry is closed, not for the reason the sentence gives. A sentence that justifies a true statement with a false premise survives the change that makes it false."
       }
