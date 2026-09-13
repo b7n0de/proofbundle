@@ -250,3 +250,61 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
     assert ist_rein(heil)
     # und die alte, unzureichende Pruefung waere bei BEIDEN gruen gewesen:
     assert "fromJSON" in kaputt and "fromJSON" in heil
+
+
+# ── Nachtrag 14.09.2026: ein Zeitbudget UNTER der gemessenen Dauer ist ein Abbruch mit Ansage ─────
+
+#: Die laengste je GEMESSENE Laufzeit je Job, in Minuten, aus der GitHub-Actions-API ueber die
+#: juengsten 40 Laeufe des Repositoriums (Zustand success oder failure, also wirklich beendet;
+#: abgebrochene Laeufe sagen ueber die Dauer nichts). Erhoben 14.09.2026 00:0xZ.
+#:
+#: WARUM ES DIESE ZAHLEN GIBT. Der Schnitt setzte `timeout-minutes` nach Augenmass statt nach
+#: Messung, und Nachtrag 1 hatte ausdruecklich "Wert aus den gemessenen Dauern plus Reserve"
+#: verlangt. GEMESSEN am eigenen Landekandidaten: `coverage` lief von 21:31:18Z bis 22:01:33Z,
+#: exakt 30 Minuten, und GitHub meldete den Zeitueberlauf als `cancelled` — nicht als `failure`.
+#: Eine abgebrochene Pflichtpruefung ist unter dem stehenden GO weder gruen noch messbar, der
+#: Landekandidat des Schnitts blockierte sich also an seiner eigenen Zeile. Die drei beendeten
+#: coverage-Laeufe davor brauchten 34, 40 und 41 Minuten: das Limit lag UNTER dem Minimum.
+GEMESSENE_MAXIMA_MIN = {"test": 30, "coverage": 40}
+
+#: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
+#: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.
+RESERVE = 1.25
+
+
+def _zu_knappe_budgets(wfs: dict, maxima: dict[str, int]) -> list[str]:
+    """Jobs, deren Budget die gemessene Hoechstdauer plus Reserve nicht traegt. Rein, damit ein
+    gebautes Gegenbeispiel sie fallen lassen kann."""
+    import math
+    zu_knapp = []
+    for name, d in sorted(wfs.items()):
+        for job, v in ((d or {}).get("jobs") or {}).items():
+            if job not in maxima or not isinstance(v, dict):
+                continue
+            noetig = math.ceil(maxima[job] * RESERVE)
+            hat = v.get("timeout-minutes")
+            if hat is None or hat < noetig:
+                zu_knapp.append(f"{name}::{job} hat {hat}, braucht mindestens {noetig}")
+    return zu_knapp
+
+
+def test_kein_zeitbudget_liegt_unter_der_gemessenen_dauer():
+    assert _zu_knappe_budgets(_workflows(), GEMESSENE_MAXIMA_MIN) == []
+
+
+def test_fangnachweis_ein_budget_gleich_dem_maximum_wird_gefunden():
+    """Die Richtung, an der die erste Fassung scheiterte: 30 Minuten Limit bei 30 Minuten
+    gemessener Dauer sah aus wie ein Budget und war keins."""
+    gebaut = {"x.yml": {"jobs": {"test": {"runs-on": "u", "timeout-minutes": 30}}}}
+    assert _zu_knappe_budgets(gebaut, {"test": 30}) == ["x.yml::test hat 30, braucht mindestens 38"]
+
+
+def test_fangnachweis_ein_fehlendes_budget_wird_gefunden():
+    gebaut = {"x.yml": {"jobs": {"coverage": {"runs-on": "u"}}}}
+    assert _zu_knappe_budgets(gebaut, {"coverage": 40}) == [
+        "x.yml::coverage hat None, braucht mindestens 50"]
+
+
+def test_fangnachweis_ein_ausreichendes_budget_wird_NICHT_gemeldet():
+    gebaut = {"x.yml": {"jobs": {"test": {"runs-on": "u", "timeout-minutes": 50}}}}
+    assert _zu_knappe_budgets(gebaut, {"test": 30}) == []
