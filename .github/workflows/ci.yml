@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # `labeled` ist NICHT der Standard: GitHub sendet ohne `types` nur opened, synchronize und
+    # reopened. Die schwere Schicht haengt aber am Label `landung` — das Anbringen des Labels an
+    # einem ruhenden PR loeste damit GAR KEINEN Lauf aus, und die vier zusaetzlichen
+    # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
+    # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:        # Landetrigger (Nachtrag 1, B3): die volle Schicht von Hand
 
 # NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
@@ -104,7 +110,8 @@ jobs:
         python-version: >-
           ${{ fromJSON(
             ( github.event_name == 'workflow_dispatch'
-              || startsWith(github.head_ref, 'release/')
+              || ( github.event.pull_request.head.repo.full_name == github.repository
+                   && startsWith(github.head_ref, 'release/') )
               || startsWith(github.ref_name, 'release/')
               || contains(github.event.pull_request.labels.*.name, 'landung') )
             && '["3.10","3.11","3.12","3.13","3.14"]'
@@ -273,7 +280,8 @@ jobs:
     needs: [test, coverage]
     if: >-
       github.event_name == 'workflow_dispatch'
-      || startsWith(github.head_ref, 'release/')
+      || ( github.event.pull_request.head.repo.full_name == github.repository
+           && startsWith(github.head_ref, 'release/') )
       || startsWith(github.ref_name, 'release/')
       || contains(github.event.pull_request.labels.*.name, 'landung')
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
@@ -411,7 +419,24 @@ jobs:
     # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index UND
     # nicht aus einer hier getippten Konstante (siehe den Fix vom 2026-09-07 im Shard-Schritt).
     needs: [mutation]
-    if: always()
+    # DIE BEDINGUNG STEHT HIER NOCH EINMAL, und das ist kein Versehen. `always()` allein hiess:
+    # laeuft immer, auch wenn `mutation` gar nicht laufen SOLLTE. Seit B3 die schwere Schicht an den
+    # Landekandidaten bindet, ist `needs.mutation.result` auf jedem gewoehnlichen Push nach main
+    # `skipped` — und der Schritt unten bricht bei allem ab, was nicht `success` ist. Ein Push nach
+    # main waere damit ROT geworden, obwohl die schwere Schicht ABSICHTLICH ausblieb. Gefunden von
+    # der Codex-Runde eins an PR 202, am Baum gegengeprueft (`if: always()`, `needs: [mutation]`,
+    # `exit 1` bei result != success).
+    #
+    # Der Sammler traegt deshalb DASSELBE Praedikat wie der Erzeuger: laeuft die Schicht, ist er
+    # fail-closed wie zuvor; laeuft sie nicht, entfaellt er mit ihr. Gegen das Auseinanderlaufen der
+    # zwei Kopien steht ein Vertragstest, der sie zeichenweise gleich haelt.
+    if: >-
+      always()
+      && ( github.event_name == 'workflow_dispatch'
+           || ( github.event.pull_request.head.repo.full_name == github.repository
+                && startsWith(github.head_ref, 'release/') )
+           || startsWith(github.ref_name, 'release/')
+           || contains(github.event.pull_request.labels.*.name, 'landung') )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

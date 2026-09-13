@@ -29,17 +29,16 @@ on:
         description: "sha256 of the reproducible sdist."
         value: ${{ jobs.build-attest.outputs.sdist-sha256 }}
 
-# NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
-# auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
-# liefen 65 bis 255 Minuten mit 28 Mutations-Shards, waehrend test und coverage darin laengst rot
-# waren. Ursache war Saettigung durch eigene Last, kein Ausfall.
-#
-# cancel-in-progress ist BEDINGT, nicht pauschal: ein spaeterer Push auf denselben Zweig macht das
-# Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
-# dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+# KEINE eigene NEBENLAEUFIGKEITS-GRUPPE, und das ist die AUSNAHME zu B1 aus Nachtrag 1 — mit Grund,
+# nicht aus Vergesslichkeit. Dieser Workflow hat `on: workflow_call` und NICHTS sonst; er laeuft nie
+# eigenstaendig. In einem AUFGERUFENEN Workflow ist `github.workflow` der Name des AUFRUFERS, nicht
+# der eigene. Eine Gruppe `${{ github.workflow }}-${{ github.ref }}` loest hier also auf denselben
+# Wert auf wie die des einzigen Aufrufers (published-artifact-gate.yml, Zeile 48-50, ruft ihn in
+# Zeile 136). Mit `cancel-in-progress` bei pull_request und push haette der Aufgerufene damit seinen
+# eigenen Aufrufer abgebrochen — und mit ihm die Reproduzierbarkeits- und Reinraum-Urteile, fuer die
+# er ueberhaupt gerufen wird. Gefunden von der Codex-Runde eins an PR 202, gegengeprueft an beiden
+# Dateien. Die Nebenlaeufigkeit dieses Laufs regelt der Aufrufer, wie es sich fuer einen gerufenen
+# Workflow gehoert.
 
 permissions:
   contents: read

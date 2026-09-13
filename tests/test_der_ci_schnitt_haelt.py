@@ -88,9 +88,107 @@ def _bedingung_ist_geklammert(ausdruck: str) -> bool:
     return False
 
 
+def _nur_gerufen(d: dict) -> bool:
+    """Ein Workflow, den es nur als GERUFENEN gibt: `workflow_call` und sonst nichts."""
+    return _trigger(d) == {"workflow_call"}
+
+
 def test_jeder_workflow_hat_eine_concurrency_gruppe():
-    fehlend = [n for n, d in _workflows().items() if not (d or {}).get("concurrency")]
+    """Mit EINER Ausnahme, und die ist keine Nachlaessigkeit, sondern eine Messung.
+
+    In einem AUFGERUFENEN Workflow ist `github.workflow` der Name des AUFRUFERS. Eine Gruppe
+    `${{ github.workflow }}-${{ github.ref }}` loest dort also auf denselben Wert auf wie beim
+    Aufrufer, und mit `cancel-in-progress` bricht der Gerufene seinen eigenen Aufrufer ab. Gemessen
+    an `reusable-build-attest.yml` (nur `workflow_call`) und `published-artifact-gate.yml`, das ihn
+    ruft: beide trugen bis zur Codex-Runde eins an PR 202 exakt denselben Gruppenausdruck.
+
+    Die Regel kehrt sich fuer diese Klasse also UM: ein nur gerufener Workflow darf KEINE eigene
+    Gruppe tragen. Seine Nebenlaeufigkeit regelt der Aufrufer.
+    """
+    wfs = _workflows()
+    fehlend = [n for n, d in wfs.items() if not _nur_gerufen(d or {}) and not (d or {}).get("concurrency")]
     assert not fehlend, f"ohne concurrency-Gruppe: {fehlend}"
+    zuviel = [n for n, d in wfs.items() if _nur_gerufen(d or {}) and (d or {}).get("concurrency")]
+    assert not zuviel, (
+        "ein nur ueber workflow_call erreichbarer Workflow traegt eine EIGENE concurrency-Gruppe: "
+        f"{zuviel} — dort ist github.workflow der Name des AUFRUFERS, die Gruppen fallen zusammen, "
+        "und der Gerufene bricht seinen Aufrufer ab")
+
+
+def _ohne_fremd_schutz(wfs: dict) -> list[str]:
+    """Stellen, die `github.head_ref` fuer die SCHWERE Schicht lesen, ohne auf dasselbe Repository
+    einzuschraenken. Auf einem Fork-PR bestimmt der Beitragende diesen Wert; ein Zweig namens
+    `release/x` schaltete damit zehn Mutations-Shards und die Fuenferversionen-Matrix frei."""
+    schutz = "head.repo.full_name == github.repository"
+    schlecht = []
+    for n, d in sorted(wfs.items()):
+        for job, v in ((d or {}).get("jobs") or {}).items():
+            if not isinstance(v, dict):
+                continue
+            stellen = [("if", str(v.get("if") or ""))]
+            m = ((v.get("strategy") or {}).get("matrix") or {})
+            if isinstance(m, dict):
+                stellen.append(("matrix", str(m.get("python-version") or "")))
+            for wo, s in stellen:
+                if "github.head_ref" in s and schutz not in s:
+                    schlecht.append(f"{n}::{job}::{wo}")
+    return schlecht
+
+
+def test_die_schwere_schicht_haengt_nicht_an_einem_fremdbestimmten_zweignamen():
+    assert _ohne_fremd_schutz(_workflows()) == []
+
+
+def test_der_sammler_traegt_dasselbe_praedikat_wie_der_erzeuger():
+    """`mutation-summary` ist fail-closed und faellt bei allem, was nicht `success` ist. Seit die
+    schwere Schicht bedingt ist, waere `skipped` — der Normalfall auf main — genau das gewesen."""
+    jobs = _workflows()["ci.yml"]["jobs"]
+    def kern(s: str) -> str:
+        """Das Praedikat ohne seine Verpackung. NICHT `replace("&&", " ", 1)`: das erste `&&` steht
+        seit dem Fork-Schutz INNERHALB der Bedingung, nicht am `always()`-Gelenk — die erste Fassung
+        dieser Normalisierung schnitt damit das falsche Zeichen heraus und meldete einen Unterschied,
+        den es nicht gab."""
+        s = " ".join(str(s).split())
+        if s.startswith("always()"):
+            s = s[len("always()"):].lstrip()
+            if s.startswith("&&"):
+                s = s[2:].lstrip()
+        if s.startswith("(") and s.endswith(")"):
+            s = s[1:-1].strip()
+        return " ".join(s.split())
+    assert kern(jobs["mutation-summary"]["if"]) == kern(jobs["mutation"]["if"]), (
+        "Erzeuger und Sammler tragen VERSCHIEDENE Landebedingungen — dann ist der Sammler entweder "
+        "rot, wenn die Schicht absichtlich ausbleibt, oder still, wenn sie rot ist")
+
+
+def test_ein_label_praedikat_verlangt_das_label_ereignis():
+    """Ohne `types` sendet GitHub nur opened, synchronize, reopened. Ein Praedikat auf `landung`
+    ohne `labeled` ist eine Bedingung, die niemand stellt."""
+    for n, d in _workflows().items():
+        s = str((d or {}).get("jobs") or {})
+        if "labels.*.name, 'landung'" not in s:
+            continue
+        on = (d.get(True) or d.get("on") or {})
+        typen = (on.get("pull_request") or {}).get("types") if isinstance(on, dict) else None
+        assert typen and "labeled" in typen, (
+            f"{n} entscheidet am Label `landung`, abonniert aber kein `labeled` — das Anbringen des "
+            f"Labels loest dort keinen Lauf aus (types={typen})")
+
+
+def test_fangnachweis_eine_eigene_gruppe_im_gerufenen_workflow_wird_gefunden():
+    gebaut = {"r.yml": {"on": {"workflow_call": None}, "concurrency": {"group": "x"}, "jobs": {}}}
+    zuviel = [n for n, d in gebaut.items() if _nur_gerufen(d) and d.get("concurrency")]
+    assert zuviel == ["r.yml"]
+    ohne = {"r.yml": {"on": {"workflow_call": None}, "jobs": {}}}
+    assert [n for n, d in ohne.items() if _nur_gerufen(d) and d.get("concurrency")] == []
+
+
+def test_fangnachweis_ein_ungeschuetztes_head_ref_wird_gefunden():
+    gebaut = {"x.yml": {"jobs": {"m": {"if": "startsWith(github.head_ref, 'release/')"}}}}
+    assert _ohne_fremd_schutz(gebaut) == ["x.yml::m::if"]
+    heil = {"x.yml": {"jobs": {"m": {"if": "github.event.pull_request.head.repo.full_name == "
+                                           "github.repository && startsWith(github.head_ref, 'release/')"}}}}
+    assert _ohne_fremd_schutz(heil) == []
 
 
 def test_cancel_in_progress_ist_bedingt_und_nicht_pauschal():
