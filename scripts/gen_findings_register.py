@@ -468,7 +468,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "identifiers_in_this_register": len(records),
             "identifiers_without_evidence": ohne_fundstelle,
             "coverage_gaps": luecken,
-            "cross_count": ok.get("gegenrechnung_gegen_die_sollliste"),
+            "cross_count": _gegenrechnung(ok, records),
             "assurance_checks": _zusicherungen(text, records),
         },
         "records": records,
@@ -516,6 +516,103 @@ def _zusicherungen(text: str, records: list) -> list:
     }]
 
 
+def _gegenrechnung(ok: dict, records: list) -> dict:
+    """Die Fremdzaehlung GERECHNET — und gegen die Handzaehlung derselben Datei gehalten.
+
+    DER DEFEKT, gemessen 2026-09-13. ``RESTRISIKO_600_OBJEKTKLASSEN.json`` traegt ZWEI
+    richtige Zahlen: den historischen Stand der Fremdzaehlung (140 gleich, 0 fehlt, 2 zu
+    viel — richtig fuer den 12.09. 13:16Z) und darunter ``gegen_den_heutigen_bestand``
+    (140/0/5, richtig fuer heute, mit Begruendung je Kennung). Dieser Erzeuger reichte den
+    OBEREN durch:
+
+        "cross_count": ok.get("gegenrechnung_gegen_die_sollliste")
+
+    Damit veroeffentlichten der Traeger und BEIDE Ansichten "2 extra", waehrend die
+    aktuelle Zahl eine Ebene tiefer in derselben Datei stand. Nicht die Daten waren
+    veraltet — der Leser griff in das falsche Fach. Die Probe, die es zeigt, ist eine
+    Addition: 140 + 2 = 142, das Register traegt 145.
+
+    ZWEITER TEIL DESSELBEN DEFEKTS, in der Ansicht: an die Liste war fest verdrahtet
+    "named boundaries, not findings". Fuer G1/G2 stimmt das (zaehlt_als_fund = false);
+    S121-S123 tragen zaehlt_als_fund = TRUE. Waere nur die Zahl korrigiert worden, haette
+    der Satz drei FUNDE zu Grenzen erklaert. Eine Begruendung, die an einer variablen
+    Liste klebt, wird irgendwann fuer etwas ausgesprochen, das sie nicht meint.
+
+    DIE BAUART. Gerechnet wird aus der Kennungsliste der Fremdzaehlung, die die Eingabe
+    mitfuehrt (``sollliste_kennungen``, gebunden ueber den bereits gefuehrten sha256).
+    Die handgefuehrte Zahl ``gegen_den_heutigen_bestand`` bleibt stehen und wird NICHT
+    ersetzt, sondern als ZWEITER LESER derselben Quelle dagegen gehalten: stimmen beide
+    nicht ueberein, ist das Ergebnis ROT. Zwei Ableitungen mit verschiedener
+    Fehlergeometrie sind billiger als eine Zahl, der man glauben muss — und das ist
+    dieselbe Methode, die diesen Defekt gefunden hat.
+
+    FAIL-CLOSED: fehlt die Kennungsliste, gibt es keine gerechnete Zahl, sondern
+    NOT MEASURED mit Grund — nie ein stiller Rueckfall auf das historische Fach.
+    """
+    ein = ok.get("gegenrechnung_gegen_die_sollliste") or {}
+    hand = ein.get("gegen_den_heutigen_bestand") or {}
+    kopf = {
+        "_auflage": ein.get("_auflage"),
+        "quelle": ein.get("quelle"),
+        "sha256_der_sollliste": ein.get("sha256_der_sollliste"),
+        "stand_der_fremdzaehlung": ein.get("stand_der_fremdzaehlung"),
+        "historisch": {k: ein.get(k) for k in ("gemessen_utc", "gleich", "fehlt", "zu_viel",
+                                               "zu_viel_welche")},
+    }
+    soll = ein.get("sollliste_kennungen")
+    if not isinstance(soll, list) or not soll:
+        return {**kopf, "state": "NOT MEASURED",
+                "reason": ("die Eingabe fuehrt keine Liste `sollliste_kennungen`; ohne sie "
+                           "laesst sich gegen die Fremdzaehlung nicht RECHNEN, und der "
+                           "historische Block waere ein Zitat aus einem frueheren Stand")}
+    # LINSE 1, Nebenfund 13.09.2026: `sorted()` ueber eine Menge mit unvergleichbaren Typen
+    # (None neben str, int neben str) warf einen ROHEN TypeError — und zwar in `baue_v2`, also
+    # VOR `pruefe_v2`. Ein Riegel, der mit einem Traceback endet statt mit einem Urteil, hat
+    # keinen NOT-MEASURED-Pfad; er hat gar keinen. Eine Kennung ist eine Zeichenkette, und was
+    # keine ist, wird BENANNT statt stillschweigend zu einer gemacht.
+    fremd = [x for x in soll if not isinstance(x, str)] + \
+            [r.get("id") for r in records if not isinstance(r.get("id"), str)]
+    if fremd:
+        return {**kopf, "state": "NOT MEASURED",
+                "reason": (f"{len(fremd)} Kennung(en) sind keine Zeichenketten "
+                           f"({[type(x).__name__ for x in fremd[:4]]}); eine Gegenrechnung ueber "
+                           f"gemischte Typen ist keine Messung, sondern ein Zufall der Sortierung")}
+    soll_ids, reg_ids = set(soll), {r["id"] for r in records}
+    zu_viel, fehlt = sorted(reg_ids - soll_ids), sorted(soll_ids - reg_ids)
+    gruende = hand.get("zu_viel_welche_grund") or {}
+    gerechnet = {
+        "gerechnet_aus": {"sollliste": len(soll_ids), "register": len(reg_ids)},
+        "gleich": len(soll_ids & reg_ids),
+        "fehlt": len(fehlt), "fehlt_welche": fehlt,
+        "zu_viel": len(zu_viel), "zu_viel_welche": zu_viel,
+        "warum_zu_viel_je_kennung": {k: gruende.get(k) or "NOT EXPLAINED" for k in zu_viel},
+    }
+    # ZWEITER LESER: die handgefuehrte Zahl derselben Datei, gegen die gerechnete gehalten.
+    abweichung = None
+    if hand:
+        anders = [f for f in ("gleich", "fehlt", "zu_viel")
+                  if hand.get(f) != gerechnet[f]]
+        wl = set(hand.get("zu_viel_welche") or [])
+        if wl != set(zu_viel):
+            anders.append("zu_viel_welche")
+        abweichung = anders or None
+    # DER ZWEITE LESER IST EIN ZUSTAND, KEIN None. Linse 2 hat am 13.09.2026 gezeigt, warum:
+    # fehlte `gegen_den_heutigen_bestand`, stand hier `uebereinstimmung: None`, `pruefe_v2` prueft
+    # auf `is False` — und BEIDE Ansichten meldeten "145 equal, 0 missing, 0 extra", ohne mit
+    # einem Wort zu sagen, dass der zweite Leser nie lief. Die Abwesenheit einer Pruefung sah
+    # aus wie ihr Bestehen. Genau die Klasse, gegen die dieses Feld gebaut ist.
+    if not hand:
+        zweiter = {"zustand": "FEHLT",
+                   "grund": ("die Eingabe fuehrt keinen Block `gegen_den_heutigen_bestand`; diese "
+                             "Zahl hat damit nur EINEN Leser und ist nicht gegengerechnet")}
+    elif abweichung:
+        zweiter = {"zustand": "UNEINIG", "abweichende_felder": abweichung,
+                   "grund": "gerechnet und handgezaehlt sagen Verschiedenes"}
+    else:
+        zweiter = {"zustand": "EINIG", "abweichende_felder": None}
+    return {**kopf, **gerechnet, "zweiter_leser": zweiter}
+
+
 def pruefe_belege_auf_platte(doc, repo) -> list[str]:
     """Die Datei unter `path` oeffnen und gegen `sha256` halten. Leer heisst gruen.
 
@@ -550,7 +647,17 @@ def pruefe_belege_auf_platte(doc, repo) -> list[str]:
 
 
 def pruefe_v2(doc, repo) -> list[str]:
-    """Die Regeln, die der Erzeuger erzwingt. Leer heisst, die Ausgabe darf entstehen.
+    """STABILE CODES statt Prosa fuer die Gegenrechnungs-Meldungen (`[GR-...]`).
+
+    Gemessen 13.09.2026 an einem eigenen Fehler: der Vertrag filterte mit
+    `"tragfaehige Begruendung" in f` — einem Satzfragment. Beim naechsten Umbau aenderte sich
+    der Satz, der Filter traf nichts mehr, und der Test meldete daraufhin „alle Platzhalter
+    bestehen den Boden", obwohl der Boden sie fing. **Ein Orakel, das an Prosa haengt, misst die
+    Schreibweise seines Gegenstands statt dessen Verhalten** — dieselbe Klasse, gegen die dieses
+    Modul in derselben Nacht mehrfach umgebaut wurde. Wer die Meldungstexte aendert, darf die
+    Codes NICHT aendern; sie sind der Vertrag, der Satz ist die Erklaerung.
+
+    Die Regeln, die der Erzeuger erzwingt. Leer heisst, die Ausgabe darf entstehen.
 
     Uebernommen aus dem Strukturbeispiel vom 11.09. und um die Belegbindung erweitert: ein
     Beleg zaehlt nur, wenn seine Bytes noch die der Quelle sind — ein Byte genuegt.
@@ -620,6 +727,155 @@ def pruefe_v2(doc, repo) -> list[str]:
             fehler.append(f"Luecke {g['range']}: Zustand ist kein Lueckenwort")
         if not g.get("reason"):
             fehler.append(f"Luecke {g['range']}: ohne Grund")
+    # Die Gegenrechnung muss AUFGEHEN. Eine Kennung ist in der Fremdzaehlung oder nicht —
+    # ein drittes Fach gibt es nicht, und die Summe ist der billigste Riegel dagegen, dass
+    # eine gerechnete Zahl wieder zu einer zitierten wird.
+    cc = inv.get("cross_count") or {}
+    if cc.get("state") in LUECKENWOERTER:
+        if not cc.get("reason"):
+            fehler.append("[GR-LUECKENWORT] Lueckenwort ohne Grund")
+    elif cc:
+        g, z = cc.get("gleich"), cc.get("zu_viel")
+        if not isinstance(g, int) or not isinstance(z, int):
+            fehler.append(f"[GR-ARITHMETIK] gleich/zu_viel sind keine Zahlen ({g!r}/{z!r})")
+        elif g + z != inv["identifiers_in_this_register"]:
+            fehler.append(
+                f"[GR-ARITHMETIK] geht nicht auf: gleich {g} + zu viel {z} = {g + z}, "
+                f"das Register traegt {inv['identifiers_in_this_register']}")
+        # ZWEI ITERATIONEN AN DIESER EINEN PRUEFUNG, und die zweite ist die lehrreichere.
+        #
+        # Iteration 1 (Linse 1, Z5): `if not v or v == "NOT EXPLAINED"` liess ' ', '-', 'TODO',
+        # 'n/a', 'x' und 'siehe oben' durch — es pruefte Anwesenheit, nicht Inhalt.
+        #
+        # Iteration 2 (Re-Gate, Linse 1): mein ERSATZ — Laenge >=25 UND Wortzahl >=4 — ist in
+        # BEIDEN Richtungen falsifiziert, beides ausgefuehrt gemessen:
+        #   falsch NEGATIV: 'aaaa bbbb cccc dddd eeee ffff', 'G1 G1 G1 …', Lorem ipsum und ein
+        #     wortwoertlich aus diesem Docstring kopierter Satz bestehen alle.
+        #   falsch POSITIV: 'S121 postdates 2026-09-12T13:16Z' (3 Woerter), ein vollstaendiger
+        #     chinesischer Satz (str.split() zaehlt EIN Wort) und das im Haus uebliche
+        #     durchgekoppelte Format 'Nachtragsaufnahme-am-…' werden zu Unrecht geblockt.
+        # Die Wortzahl faellt deshalb ERSATZLOS: sie hat gemessenen Schaden und keinen gemessenen
+        # Nutzen — jeder der vier sinnfreien Faelle hat Woerter im Ueberfluss.
+        #
+        # DIE GRENZE, und sie wird hier nicht mehr verhandelt: ob eine Begruendung WAHR ist, ist
+        # aus ihrem Text nicht entscheidbar. Lorem ipsum und ein kopierter Satz bleiben ungefangen,
+        # und das ist KEIN Versehen, sondern die ehrliche Reichweite. Noch eine Formregel
+        # draufzusetzen waere derselbe Fehler eine Ebene tiefer — genau die Klasse, wegen der
+        # dieses Modul in derselben Nacht dreimal umgebaut wurde.
+        #
+        # Was die Pruefung WIRKLICH leistet, und nur das behauptet sie:
+        #   1. kein Platzhalter (leer, Lueckenwort, zu kurz — Zeichen, nicht Woerter),
+        #   2. nicht die Kennung selbst,
+        #   3. nicht EIN Token, das sich wiederholt.
+        #
+        # ITERATION 3, und sie kam von den EIGENEN DATEN, nicht von einer Linse: ich hatte hier
+        # zusaetzlich verlangt, dass keine zwei Kennungen dieselbe Begruendung tragen ("Kopieren
+        # ist mechanisch entscheidbar"). Gegen den LIVE-Bestand gemessen fiel die Regel sofort:
+        # G1 und G2 tragen byte-identische Begruendungen — und zwar zu Recht, denn sie haben
+        # denselben Grund ("G-Kennungen sind keine Funde, die Fremdzaehlung kennt das Praefix G
+        # nicht"). Eine geteilte Begruendung ist von einer kopierten NICHT unterscheidbar; die
+        # Regel war also nie eine Messung, sondern eine Annahme ueber die Daten. Sie ist ersatzlos
+        # weg. Dritte Fassung dieser einen Pruefung, und jede der ersten beiden hat etwas
+        # Gesundes geblockt oder etwas Krankes durchgelassen — deshalb steht die Reichweite
+        # jetzt ausdruecklich im Text statt in der Hoffnung.
+        gruende = cc.get("warum_zu_viel_je_kennung") or {}
+        ohne = []
+        for k, v in gruende.items():
+            t = (v or "").strip() if isinstance(v, str) else ""
+            marken = []
+            if not t or t == "NOT EXPLAINED":
+                marken.append("leer/Lueckenwort")
+            elif len(t) < 25:
+                marken.append(f"zu kurz ({len(t)} Zeichen)")
+            if t and t == k:
+                marken.append("ist die Kennung selbst")
+            wort = t.split()
+            if wort and len(set(wort)) == 1 and len(wort) > 2:
+                marken.append("EIN Token, wiederholt")
+            if marken:
+                ohne.append(f"{k}: {', '.join(marken)}")
+        if ohne:
+            fehler.append(
+                f"[GR-BEGRUENDUNG] {ohne} — der Boden schliesst Platzhalter, Selbstbezug und "
+                f"Wiederholungen aus; ob die Begruendung STIMMT, prueft er ausdruecklich NICHT")
+        # RE-GATE, LINSE 2, FALL 6 — der schwerste Fund dieser Runde, und er ist strukturell:
+        # dieser Pruefer las den Traeger und prueft seine FORM, nie seine HERLEITUNG. Gemessen,
+        # ausgefuehrt: ein von Hand gefaelschter `cross_count` (gleich=100, zu_viel=45 mit 45
+        # ERFUNDENEN Kennungen, `zweiter_leser: EINIG`; echt waren 140/5) bestand `pruefe_v2` mit
+        # NULL Fehlern — und der zugehoerige Vertrag lief gruen mit, weil er denselben
+        # gespeicherten Wert laedt, den er pruefen soll. Ein Pruefer, der das Artefakt liest,
+        # das er beglaubigen soll, beglaubigt eine Faelschung genauso bereitwillig wie das Echte.
+        #
+        # Zweiter Fund derselben Runde (Fall 4b): verglichen wurden `gleich`, `fehlt`, `zu_viel`
+        # und `zu_viel_welche` — `fehlt_welche` NIE (ein einziger Codetreffer, seine eigene
+        # Erzeugung). Die Zahl konnte stimmen und die benannte Kennung falsch sein.
+        #
+        # BEIDE schliesst dieselbe Massnahme: NEU ABLEITEN und Feld fuer Feld vergleichen, statt
+        # dem Traeger zu glauben. Was neu abgeleitet werden kann, wird nicht geglaubt.
+        #
+        # WAS DIESE MASSNAHME NICHT LEISTET, ausgefuehrt gemessen im Re-Gate Iteration 3, Linse 1:
+        # sie leitet aus einer Datei ab, die im SELBEN Repo liegt wie der Traeger. Wer beide
+        # konsistent faelscht — drei erfundene Kennungen im Traeger UND den Eingabeblock mit
+        # derselben Funktion sauber nachgerechnet — kommt mit NULL Fehlern durch. Nur die HALB
+        # gefaelschte Fassung wurde gefangen ([GR-ZWEITER-LESER] UNEINIG).
+        #
+        # Das Urteil der Linse, woertlich uebernommen, weil es stimmt: die Neuableitung ist ein
+        # ANKER gegen unbeabsichtigtes Driften (Veralten, halbe Bearbeitung) und eine ZEREMONIE
+        # gegen einen Angreifer, der den ganzen Baum kontrolliert. Ein echter Anker muesste aus
+        # einer UNABHAENGIGEN Quelle stammen — signiert, versioniert oder von aussen gehalten.
+        # Das ist hier NICHT gebaut, und der Unterschied gehoert an diese Stelle statt in einen
+        # Bericht, den beim Aendern niemand liest.
+        #
+        # KOSTEN, gemessen statt gefuerchtet: der zweite Aufruf kostet rund 0,025 ms, etwa
+        # 0,004 % der Gesamtlaufzeit von `schreibe_v2`. Ueber 95 % gehen an `schneide_beleg`.
+        try:
+            import json as _j  # noqa: PLC0415
+            _ok = _j.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+            # RE-GATE ITERATION 3, LINSE 1, ACHSE C: ein syntaktisch gueltiges JSON mit falschem
+            # Toplevel (`[]`) liess `_ok.get(...)` mit AttributeError platzen — die entkam der
+            # Klausel darunter, und `pruefe_v2` endete mit einem TRACEBACK statt mit einem Urteil.
+            # DIESELBE KLASSE HATTE ICH IN ITERATION 2 GESCHLOSSEN — in `_gegenrechnung`, nicht
+            # hier. Eine Klasse an EINEM Ort zu schliessen heisst nicht, sie geschlossen zu haben;
+            # der zweite Ort war der, der die Datei selbst laedt.
+            if not isinstance(_ok, dict):
+                raise TypeError(f"Toplevel ist {type(_ok).__name__}, erwartet ein Objekt")
+            _neu = _gegenrechnung(_ok, doc["records"])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            fehler.append(f"[GR-NEUABLEITUNG] nicht neu ableitbar ({type(e).__name__}: {e}) — "
+                          f"ohne Neuableitung ist der Block eine Behauptung")
+            _neu = None
+        if _neu is not None:
+            _abw = [f for f in ("gleich", "fehlt", "zu_viel", "fehlt_welche", "zu_viel_welche",
+                                "warum_zu_viel_je_kennung", "state")
+                    if cc.get(f) != _neu.get(f)]
+            if _abw:
+                fehler.append(
+                    f"[GR-NEUABLEITUNG] der Traeger weicht ab in {_abw} — "
+                    f"Traeger sagt gleich={cc.get('gleich')} zu_viel={cc.get('zu_viel')}, neu "
+                    f"abgeleitet gleich={_neu.get('gleich')} zu_viel={_neu.get('zu_viel')}. Ein "
+                    f"gespeicherter Block, der sich nicht nachrechnen laesst, ist eine Behauptung")
+            _zl_neu = (_neu.get("zweiter_leser") or {}).get("zustand")
+            if (cc.get("zweiter_leser") or {}).get("zustand") != _zl_neu:
+                fehler.append(
+                    f"[GR-ZWEITER-LESER] der Traeger meldet den zweiten Leser als "
+                    f"{(cc.get('zweiter_leser') or {}).get('zustand')!r}, neu abgeleitet ist er "
+                    f"{_zl_neu!r} — ein Etikett ohne Ableitungspfad")
+
+        zl = cc.get("zweiter_leser") or {}
+        if zl.get("zustand") == "UNEINIG":
+            fehler.append(
+                f"[GR-ZWEITER-LESER] gerechnet und handgezaehlt sind sich uneinig in "
+                f"{zl.get('abweichende_felder')} — zwei Leser derselben Quelle, und "
+                f"solange sie sich widersprechen, gilt keine der beiden Zahlen")
+        if zl.get("zustand") not in ("EINIG", "UNEINIG", "FEHLT"):
+            fehler.append(f"[GR-ZWEITER-LESER] der zweite Leser traegt keinen Zustand ({zl!r})")
+        # Linse 2, zweiter Fund: fehlte `warum_zu_viel_je_kennung` GANZ (statt leer), gab
+        # pruefe_v2 null Fehler und beide Ansichten liessen die Begruendungszeilen still weg.
+        # Eine fehlende Liste ist keine leere Liste, sie ist eine unbeantwortete Frage.
+        if cc.get("zu_viel") and cc.get("warum_zu_viel_je_kennung") is None:
+            fehler.append(
+                f"Gegenrechnung: {cc['zu_viel']} ueberzaehlige Kennungen, aber das Feld "
+                f"`warum_zu_viel_je_kennung` fehlt GANZ — keine leere Antwort, sondern keine")
     return fehler
 
 
@@ -643,10 +899,22 @@ def ansicht_uebersicht(doc) -> str:
     for g in inv["coverage_gaps"]:
         z.append(f"Known gap, {g['range']}, {g['count']} identifiers, {g['state']}, {g['reason']}")
     cc = inv.get("cross_count") or {}
-    if cc:
-        z += ["", f"Cross-count against the independent tally: {cc.get('gleich')} equal, "
-                  f"{cc.get('fehlt')} missing, {cc.get('zu_viel')} extra "
-                  f"({', '.join(cc.get('zu_viel_welche') or [])} — named boundaries, not findings)."]
+    if cc.get("state"):
+        z += ["", f"Cross-count against the independent tally: {cc['state']} — {cc.get('reason')}"]
+    elif cc:
+        z += ["", f"Cross-count against the independent tally, computed: {cc.get('gleich')} equal, "
+                  f"{cc.get('fehlt')} missing, {cc.get('zu_viel')} extra."]
+        # JE KENNUNG, nicht als Sammelsatz. Der frueher hier fest verdrahtete Zusatz
+        # "named boundaries, not findings" war fuer G1/G2 richtig und haette S121-S123,
+        # die zaehlt_als_fund=true tragen, als Grenzen ausgewiesen.
+        for k, warum in (cc.get("warum_zu_viel_je_kennung") or {}).items():
+            z.append(f"  extra `{k}`: {warum}")
+        zl = cc.get("zweiter_leser") or {}
+        if zl.get("zustand") == "EINIG":
+            z.append("  Second reader (hand tally in the same file): agrees.")
+        else:
+            z.append(f"  Second reader: **{zl.get('zustand', 'UNKNOWN')}** — "
+                     f"{zl.get('grund') or zl.get('abweichende_felder')}")
     for a in inv.get("assurance_checks") or []:
         z += ["", f"Assurance `{a['claim']}`: **{'holds' if a['holds'] else 'DOES NOT HOLD'}**, "
                   f"computed — {a['computed']['p0_p1_total']} P0/P1 in the source, "
@@ -694,6 +962,31 @@ def ansicht_html(doc) -> str:
     luecken = "".join(
         f"<li><b>{_h.escape(g['range'])}</b> ({g['count']}) — <span class=gap>{_h.escape(g['state'])}</span>: "
         f"{_h.escape(g['reason'][:300])}</li>" for g in inv["coverage_gaps"])
+    # DIE GEGENRECHNUNG STAND IN DIESER ANSICHT GAR NICHT — gemessen 13.09.2026. Die
+    # Markdown-Ansicht fuehrte sie, die HTML-Ansicht nicht, und der Owner liest die HTML.
+    # Eine Auflage, die nur in der Ansicht erfuellt ist, die niemand oeffnet, ist offen.
+    cc = inv.get("cross_count") or {}
+    if cc.get("state"):
+        kreuz = (f"<h2>Cross-count</h2><p class=warn>{_h.escape(cc['state'])} — "
+                 f"{_h.escape(str(cc.get('reason') or ''))}</p>")
+    elif cc:
+        je = "".join(
+            f"<li><b>{_h.escape(k)}</b> — {_h.escape(str(v))}</li>"
+            for k, v in (cc.get("warum_zu_viel_je_kennung") or {}).items())
+        kreuz = (f"<h2>Cross-count against the independent tally</h2>"
+                 f"<p>Computed from {cc.get('gerechnet_aus', {}).get('sollliste')} tallied "
+                 f"identifiers against {cc.get('gerechnet_aus', {}).get('register')} carried: "
+                 f"<b>{cc.get('gleich')}</b> equal, <b>{cc.get('fehlt')}</b> missing, "
+                 f"<b>{cc.get('zu_viel')}</b> extra.</p>"
+                 + (f"<ul>{je}</ul>" if je else ""))
+        zl = cc.get("zweiter_leser") or {}
+        if zl.get("zustand") == "EINIG":
+            kreuz += "<p>Second reader (hand tally in the same file): <b>agrees</b>.</p>"
+        else:
+            kreuz += (f"<p class=warn>Second reader: <b>{_h.escape(str(zl.get('zustand','UNKNOWN')))}"
+                      f"</b> — {_h.escape(str(zl.get('grund') or zl.get('abweichende_felder')))}</p>")
+    else:
+        kreuz = ""
     zus = ""
     for a in inv.get("assurance_checks") or []:
         marke = "holds" if a["holds"] else "DOES NOT HOLD"
@@ -720,6 +1013,7 @@ def ansicht_html(doc) -> str:
  {inv['identifiers_in_this_register']} of {inv['identifiers_total']} identifiers carried</p>
 {zus}
 <h2>Known gaps</h2><ul>{luecken}</ul>
+{kreuz}
 <h2>All records</h2>
 <table><thead><tr><th>Id<th>Role<th>Class<th>Severity<th>Title<th>Bytes</tr></thead>
 <tbody>{''.join(zeilen)}</tbody></table>
