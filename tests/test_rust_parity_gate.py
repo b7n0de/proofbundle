@@ -399,3 +399,64 @@ class TestMainCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEineBehauptungOhneBelegIstKeineVerifizierte(unittest.TestCase):
+    """DER FUND DES RIEGEL-SWEEPS (Owner-Auftrag 2026-09-07, P1): Wahrheit ueber der leeren Menge.
+
+    Dieses Skript nennt sich im eigenen Docstring ein HONESTY GATE gegen "a stale/lying COVERED
+    claim". Es prueft JEDEN genannten Beleg — aber ueber einer LEEREN Belegliste ist jede
+    Allaussage wahr, und `problem` blieb None. Ein Eintrag mit `"status": "COVERED"` und zwei
+    leeren Listen lief als verifiziert durch: gemessen `covered=1, stale=[], integrity_ok=True`.
+
+    Kein Fall im Korpus konstruierte das, weil JEDE COVERED-Fixture mindestens einen Beleg trug.
+    Die Luecke war nicht falsch geprueft — sie war NIE erreicht.
+
+    Dieselbe Klasse wie die leere Menge im Formpruefer der Release-Notiz ("ein Pruefer ueber
+    nichts besteht immer"): eine Bedingung, die nur ueber einer nicht-leeren Menge etwas aussagt,
+    sagt ueber der leeren nichts — und schweigt dabei zustimmend.
+    """
+
+    def _baum(self, tmp: Path, eintrag: dict) -> dict:
+        t = _FixtureTree(tmp)
+        t.write_module("beispiel", "def verify_irgendwas(x):\n    return True\n")
+        t.write_rust_arms(["irgendwas"])
+        t.write_crosscheck(["verify_irgendwas"])
+        t.write_registry({"proofbundle.beispiel.verify_irgendwas": eintrag})
+        return t.evaluate()
+
+    def test_eine_COVERED_behauptung_OHNE_jeden_beleg_ist_STALE(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self._baum(Path(d), {"status": "COVERED", "rust_subcommands": [],
+                                     "crosscheck_refs": [], "notes": "trust me"})
+        self.assertEqual(r["covered"], 0, (
+            f"Eine COVERED-Behauptung ohne jeden Beleg wird als abgedeckt gezaehlt "
+            f"(covered={r['covered']}). Eine Behauptung, die keinen einzigen pruefbaren Beleg "
+            f"nennt, ist nicht verifiziert — sie ist unpruefbar, und dieses Tor nennt sich ein "
+            f"Ehrlichkeits-Tor."))
+        self.assertTrue(r["stale"], (
+            "Der belegfreie Eintrag steht nicht unter `stale`. Er muss als STALE_COVERED_CLAIM "
+            "auffallen, sonst ist die Registry-Integritaet eine Aussage ueber Eintraege, die "
+            "zufaellig Belege tragen."))
+        self.assertFalse(r["registry_integrity_ok"],
+                         "Die Registry gilt trotz einer unpruefbaren COVERED-Behauptung als integer.")
+
+    def test_ANTI_PARITAET_ein_eintrag_MIT_beleg_bleibt_abgedeckt(self):
+        """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Tor, das JEDE Behauptung
+        verwirft — dann waere die Registry dauerhaft rot und das Tor wertlos.
+
+        Der Beleg ist hier ein `crosscheck_ref` und KEIN `rust_subcommand`, und das ist gemessen
+        und nicht beliebig: ohne `rust_bin` faellt `rust_coverage_report` auf das ECHTE Binary
+        dieses Baums zurueck, und ein erfundenes Subkommando steht in dessen Coverage-Report
+        naturgemaess nicht — die Fixture haette dann am falschen Riegel gemessen. Zugleich zeigt
+        der Fall die GRENZE des neuen Riegels: er verlangt EINEN Beleg, nicht beide Arten.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            r = self._baum(Path(d), {"status": "COVERED", "rust_subcommands": [],
+                                     "crosscheck_refs": ["verify_irgendwas"], "notes": "eine Art"})
+        self.assertEqual(r["covered"], 1, (
+            f"Ein Eintrag mit einem pruefbaren crosscheck_ref wird verworfen (stale={r['stale']}). "
+            f"Der Riegel trifft dann den Normalfall mit und ist eine Verschaerfung der "
+            f"Registry-Regel statt des Schliessens der leeren Menge."))
+        self.assertFalse(r["stale"], "Der Riegel trifft den Normalfall mit")
+        self.assertTrue(r["registry_integrity_ok"])

@@ -30,6 +30,7 @@ from typing import Any, TypeGuard
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
 TRUST_PACK_SCHEMA_VERSION = "0.1.0"
@@ -179,7 +180,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
                 label = _KEY_ALG_LABEL.get(alg, "Ed25519")
                 try:
-                    raw = base64.b64decode(kv["publicKey"], validate=True)
+                    raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
                         errors.append(f"keys[{kid!r}].publicKey must be a {want_len}-byte {label} key (got {len(raw)})")
                 except Exception:  # noqa: BLE001
@@ -190,7 +191,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                         errors.append(f"keys[{kid!r}].publicKeyPq is required for alg 'hybrid-ed25519-mldsa65'")
                     else:
                         try:
-                            rawpq = base64.b64decode(pq, validate=True)
+                            rawpq = decode_b64(pq)
                             if len(rawpq) != _KEY_RAW_LEN["mldsa65"]:
                                 errors.append(
                                     f"keys[{kid!r}].publicKeyPq must be a {_KEY_RAW_LEN['mldsa65']}-byte "
@@ -209,7 +210,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
             if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
                 continue
             try:
-                _mat = base64.b64decode(kv["publicKey"], validate=True).hex()
+                _mat = decode_b64(kv["publicKey"]).hex()
             except Exception:  # noqa: BLE001
                 continue
             if _mat in _seen_material:
@@ -385,7 +386,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
         if not isinstance(sig_b64, str):
             return False
         try:
-            sig = base64.b64decode(sig_b64, validate=True)
+            sig = decode_b64(sig_b64)
         except Exception:  # noqa: BLE001
             return False
         try:
@@ -397,9 +398,9 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
         if not isinstance(pq_pub_b64, str) or not isinstance(sig_b64, str) or not isinstance(sig_pq_b64, str):
             return False
         try:
-            sig = base64.b64decode(sig_b64, validate=True)
-            pq_pub = base64.b64decode(pq_pub_b64, validate=True)
-            sig_pq = base64.b64decode(sig_pq_b64, validate=True)
+            sig = decode_b64(sig_b64)
+            pq_pub = decode_b64(pq_pub_b64)
+            sig_pq = decode_b64(sig_pq_b64)
         except Exception:  # noqa: BLE001
             return False
         try:
@@ -411,7 +412,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     if not isinstance(sig_b64, str):
         return False
     try:
-        sig = base64.b64decode(sig_b64, validate=True)
+        sig = decode_b64(sig_b64)
     except Exception:  # noqa: BLE001
         return False
     return verify_ed25519(pub, sig, msg)
@@ -530,7 +531,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         if not isinstance(pub_b64, str):
             continue
         try:
-            pub = base64.b64decode(pub_b64, validate=True)
+            pub = decode_b64(pub_b64)
         except Exception:  # noqa: BLE001
             continue
         if pub in valid_root:  # same key material already counted — aliasing cannot inflate the threshold
@@ -600,7 +601,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             if not isinstance(pub_b64, str):
                 continue
             try:
-                pub = base64.b64decode(pub_b64, validate=True)
+                pub = decode_b64(pub_b64)
             except Exception:  # noqa: BLE001
                 continue
             if pub in old_valid:

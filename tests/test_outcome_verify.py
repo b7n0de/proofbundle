@@ -299,13 +299,20 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
     tests `executor_trusted_by_role` / the new `trust_pack` param, additively."""
 
     @staticmethod
-    def _trust_pack(*, member_key_id="kid-exec", revoked=None):
+    def _trust_pack(*, member_key_id="kid-exec", revoked=None, executor_pub=None):
+        # Deep gate 2026-09-05 (L1-600-02): a role member's key MATERIAL lives in `keys`, and
+        # verify_outcome_receipt binds executor.keyId to the key the receipt verified under. The fixture
+        # therefore carries the executor's real public key (a pack without it is invalid by contract).
+        import base64
+        keys = {"root-0": {"publicKey": "A" * 43 + "="}}
+        if executor_pub is not None:
+            keys[member_key_id] = {"publicKey": base64.b64encode(executor_pub).decode("ascii")}
         return {
             "schemaVersion": "0.1.0", "trustPackId": "tp-1", "version": 1,
             "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
             "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
                      "outcomeExecutors": {"keyIds": [member_key_id], "threshold": 1}},
-            "keys": {"root-0": {"publicKey": "A" * 43 + "="}},
+            "keys": keys,
             "nonClaims": ["names which keys hold which role, not that the holders are honest"],
             **({"revoked": revoked} if revoked else {}),
         }
@@ -320,7 +327,7 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
     def test_member_key_id_is_trusted(self):
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(), s)   # _pred()'s executor.keyId == "kid-exec"
-        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec"))
+        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", executor_pub=pub))
         self.assertTrue(r["executor_role_trusted"], r)
         self.assertTrue(r["ok"], r)
 
@@ -336,7 +343,7 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(), s)
         r = verify_outcome_receipt(
-            env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", revoked=["kid-exec"]))
+            env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", revoked=["kid-exec"], executor_pub=pub))
         self.assertFalse(r["executor_role_trusted"])
         self.assertFalse(r["ok"])
 

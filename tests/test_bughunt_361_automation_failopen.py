@@ -79,7 +79,9 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
                       "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
                       "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
                                 "outcomeExecutors": {"keyIds": ["kid-exec"], "threshold": 1}},
-                      "keys": {"root-0": {"publicKey": "A" * 43 + "="}}, "nonClaims": ["role mapping only"]}
+                      "keys": {"root-0": {"publicKey": "A" * 43 + "="},
+                               "kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")}},
+                      "nonClaims": ["role mapping only"]}
         pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "rel",
                            "relations": policy_relations})
         env = emit_outcome_receipt(pred, s, strict=False)
@@ -117,7 +119,8 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
               "prevVersionDigest": None,
               "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
                         "outcomeExecutors": {"keyIds": ["kid-exec"], "threshold": 1}},
-              "keys": {"root-0": {"publicKey": "A" * 43 + "="}}, "nonClaims": ["x"]}
+              "keys": {"root-0": {"publicKey": "A" * 43 + "="},
+                       "kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")}}, "nonClaims": ["x"]}
         env = emit_outcome_receipt(pred, s, strict=False)
         for bad in (42, ["x"], "str"):
             r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp)

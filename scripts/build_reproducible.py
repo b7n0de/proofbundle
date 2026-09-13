@@ -18,8 +18,16 @@ technique Debian's ``strip-nondeterminism`` applies; here it is inlined with no 
 CLI:
   python scripts/build_reproducible.py [--outdir DIR] [--epoch N]   # build one normalised sdist
   python scripts/build_reproducible.py --check                      # build twice, prove byte-identical
+  python scripts/build_reproducible.py --check --json               # the same, machine-readable
+
+  python scripts/build_reproducible.py --check-wheel                # wheel-from-sdist == direct build
 
 Exit 0 on success; ``--check`` exits non-zero if the two normalised sdists differ.
+
+DIE ZWEITE HAELFTE DES BYTE-FREEZE (``--check-wheel``, hinzugefuegt 2026-09-07). Der Release-Standard
+6.0.0 verlangt beides: zwei byte-identische sdists UND ein wheel aus dem sdist, das byteweise dem
+direkt gebauten gleicht. Nur die erste Haelfte hatte eine Messstelle; die zweite stand im
+fail-closed-Satz und wurde von nichts gemessen. Siehe ``measure_wheel_from_sdist``.
 """
 from __future__ import annotations
 
@@ -32,6 +40,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -103,6 +113,56 @@ def normalize_sdist(src: Path, dst: Path, epoch: int) -> str:
     return hashlib.sha256(dst.read_bytes()).hexdigest()
 
 
+def normalize_wheel(src: Path, dst: Path, epoch: int) -> str:
+    """Ein wheel auf eine kanonische Form bringen: feste Modi, feste Zeiten. Gibt sha256 von dst.
+
+    WARUM ES DAS GIBT (Owner-Entscheid OA-402ef6f4e9 / OA-7af1e29036, 2026-09-07, Option 1
+    "im Bauweg kanonisieren"). Bedingung 4 des Release-Standards 6.0.0 war ROT: das wheel aus dem
+    ausgelieferten sdist war nicht bytegleich mit dem direkt gebauten. Gemessen am Kopf dac3eb52:
+    82 Eintraege je Seite, NULL inhaltliche Unterschiede, 11 Eintraege verschieden allein im
+    Dateimodus, 0o100664 gegen 0o100644.
+
+    DIE URSACHE, und sie ist NICHT umask (das wurde am 2026-09-07 durch eine eigene Gegenprobe
+    widerlegt: bei umask 022 aenderten sich beide Digests und blieben verschieden). Sie liegt eine
+    Ebene tiefer: ``normalize_sdist`` setzt jede Datei im sdist auf 0o644, waehrend dieselben Dateien
+    im Arbeitsbaum 0o664 tragen. Der Packer uebernimmt den Modus der Quelldatei in den ZIP-Eintrag —
+    also traegt das wheel aus dem sdist 644 und das aus dem Baum 664. Die Kanonisierung muss deshalb
+    genau dort greifen, wo der Packer den Modus schreibt.
+
+    WAS KANONISIERT WIRD UND WAS NICHT. Modi (Verzeichnisse 0755, Dateien 0644) und Zeitstempel
+    (aus ``epoch``). NICHT die Reihenfolge: die ``RECORD``-Datei eines wheels steht nach Konvention
+    am Ende, und eine Sortierung wuerde sie verschieben, ohne dass die Bedingung das verlangt. Der
+    Owner-Entscheid nennt ausdruecklich "Modi und Zeiten". Inhalte bleiben unberuehrt, damit die
+    Hashes in ``RECORD`` weiter stimmen.
+    """
+    eintraege: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(src, "r") as zin:
+        for zi in zin.infolist():                      # Reihenfolge bewusst beibehalten
+            eintraege.append((zi, zin.read(zi.filename)))
+
+    stempel = time.gmtime(epoch)[:6]
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+        for zi, daten in eintraege:
+            neu = zipfile.ZipInfo(filename=zi.filename, date_time=stempel)
+            neu.compress_type = zi.compress_type
+            neu.create_system = 3                      # Unix — keine Bauhost-Identitaet im Artefakt
+            neu.external_attr = ((0o40755 << 16) | 0x10) if zi.is_dir() else (0o100644 << 16)
+            neu.internal_attr = zi.internal_attr
+            zout.writestr(neu, daten)
+    return hashlib.sha256(dst.read_bytes()).hexdigest()
+
+
+def build_normalized_wheel(quelle: Path, outdir: Path, epoch: int, *,
+                           no_isolation: bool = False) -> tuple[Path, str]:
+    """Ein wheel bauen UND kanonisieren. Das Ergebnis ist das, was ausgeliefert wird."""
+    with tempfile.TemporaryDirectory(prefix="pb_whl_roh_") as td:
+        roh = _build_wheel(quelle, Path(td), epoch, no_isolation=no_isolation)
+        outdir.mkdir(parents=True, exist_ok=True)
+        ziel = outdir / roh.name
+        digest = normalize_wheel(roh, ziel, epoch)
+    return ziel, digest
+
+
 def build_normalized(outdir: Path, epoch: int, *, no_isolation: bool = False) -> tuple[Path, str]:
     with tempfile.TemporaryDirectory(prefix="pb_sdist_") as td:
         raw = _build_sdist(Path(td), epoch, no_isolation=no_isolation)
@@ -112,16 +172,159 @@ def build_normalized(outdir: Path, epoch: int, *, no_isolation: bool = False) ->
     return dst, digest
 
 
-def check_reproducible(epoch: int, *, no_isolation: bool = False) -> int:
+#: Schema des maschinenlesbaren Ergebnisses. Es gibt es, weil der Aufrufer sonst PROSA lesen muss:
+#: `audit_candidate_matrix.c9_1_two_sdists_identical` leitete sein Urteil aus den Teilzeichenketten
+#: "reproducible ok" / "byte-identical" / "not reproducible" der Standardausgabe ab. Eine
+#: freigabeentscheidende Zeile, die einen Satz liest, aendert ihr Urteil, sobald jemand den Satz
+#: umformuliert (Tiefen-Gate 2026-09-05, Sweep der Klasse A).
+MEASUREMENT_SCHEMA = "proofbundle.reproducible_sdist_check.v1"
+
+
+def measure_reproducible(epoch: int, *, no_isolation: bool = False) -> dict:
+    """Zwei normalisierte sdists bauen und STRUKTURIERT berichten. Keine Prosa im Ergebnis."""
     with tempfile.TemporaryDirectory(prefix="pb_repro_a_") as a, \
          tempfile.TemporaryDirectory(prefix="pb_repro_b_") as b:
         _, da = build_normalized(Path(a), epoch, no_isolation=no_isolation)
         _, db = build_normalized(Path(b), epoch, no_isolation=no_isolation)
-    if da == db:
+    return {"schema": MEASUREMENT_SCHEMA, "reproducible": da == db,
+            "sha256_a": da, "sha256_b": db, "epoch": epoch}
+
+
+#: Schema der ZWEITEN Haelfte des Byte-Freeze. Eigene Kennung, weil es eine andere Aussage ist:
+#: die erste sagt „zweimal bauen ergibt dasselbe sdist", diese sagt „aus dem ausgelieferten sdist
+#: entsteht dasselbe wheel wie aus dem Baum".
+WHEEL_MEASUREMENT_SCHEMA = "proofbundle.wheel_from_sdist_check.v1"
+
+
+def _build_wheel(quelle: Path, outdir: Path, epoch: int, *, no_isolation: bool = False) -> Path:
+    """Ein ROHES wheel aus ``quelle`` bauen. Die Kanonisierung macht ``build_normalized_wheel``.
+
+    HIER STAND BIS 2026-09-07 DAS GEGENTEIL, mit der Begruendung: "eine Normalisierung hier wuerde
+    genau den Unterschied wegbuegeln, den diese Messung finden soll. Wer zwei verschiedene wheels
+    gleichmacht, misst seine Normalisierung, nicht den Bau." Das Argument ist richtig — aber nur
+    fuer eine Normalisierung, die NUR in der Messung sitzt. Der Owner-Entscheid vom 07.09. legt sie
+    in den BAUWEG: kanonisiert wird das Artefakt, das ausgeliefert wird, und die Messung vergleicht
+    danach zwei ausgelieferte Artefakte statt zweier Zwischenstaende. Der Unterschied ist die
+    Bedingung, unter der die Messung ehrlich bleibt: ``release.yml`` MUSS denselben Weg fahren.
+    Taete es das nicht, waere die gruene Messung genau der Selbstbetrug, vor dem der alte Text warnt.
+    """
+    env = dict(os.environ)
+    env["SOURCE_DATE_EPOCH"] = str(epoch)
+    outdir.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "build", "--wheel", "--outdir", str(outdir)]
+    if no_isolation:
+        cmd.insert(4, "--no-isolation")
+    subprocess.run(cmd, cwd=str(quelle), env=env, check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    whls = sorted(outdir.glob("*.whl"))
+    if not whls:
+        raise RuntimeError(f"no wheel produced in {outdir} (source {quelle})")
+    return whls[-1]
+
+
+def _entpacke_sicher(tf: tarfile.TarFile, ziel: Path) -> None:
+    """Ein Archiv auspacken, OHNE dem Archiv zu glauben (CWE-22 / py/tarslip).
+
+    WARUM DAS HIER STEHT, obwohl das Archiv zwei Zeilen vorher selbst gebaut wurde: bis 2026-09-07
+    stand an der Aufrufstelle ``tf.extractall(...)`` mit einem ``noqa``-Kommentar und der
+    Begruendung "eigenes, soeben gebautes Archiv". Die Begruendung ist inhaltlich richtig und als
+    Schutz trotzdem nichts wert — sie ist ein Satz, kein Riegel. CodeQL hat die Stelle auf dem
+    Release-Kandidaten als ``py/tarslip`` mit hoher Schwere gemeldet (Alert 114, eingefuehrt von
+    Commit 0aca175 derselben Runde), und das zu Recht: wer den Bauweg aendert, aendert auch die
+    Herkunft dieses Archivs, und der Kommentar wandert nicht mit.
+
+    Geprueft wird JEDES Mitglied VOR der Extraktion, danach wird Mitglied fuer Mitglied ausgepackt
+    (nicht ``extractall``, damit kein ungeprueftes Mitglied durch einen spaeteren Umbau nachrutscht):
+
+      * nur regulaere Dateien und Verzeichnisse — keine Symlinks, keine Hardlinks, keine
+        Geraetedateien; ein Link kann aus dem Zielordner heraus zeigen, ohne dass sein eigener
+        Pfad das verraet,
+      * der AUFGELOESTE Zielpfad muss unter der Zielwurzel liegen; das faengt ``../``, absolute
+        Pfade und alles, was ueber Symlink-Ketten hinausfuehrt.
+
+    Faellt eine Pruefung, wird geworfen statt uebersprungen: ein Archiv, das so etwas enthaelt, ist
+    kein halb brauchbares Archiv, sondern ein Befund.
+    """
+    wurzel = ziel.resolve()
+    mitglieder = tf.getmembers()
+    for m in mitglieder:
+        if not (m.isfile() or m.isdir()):
+            raise RuntimeError(
+                f"archive member is neither a regular file nor a directory: {m.name!r} "
+                f"(type {m.type!r}) — refusing to extract")
+        p = (wurzel / m.name).resolve()
+        if p != wurzel and wurzel not in p.parents:
+            raise RuntimeError(
+                f"archive member escapes the extraction directory: {m.name!r} -> {p} "
+                f"(root {wurzel})")
+    for m in mitglieder:
+        tf.extract(m, wurzel)
+
+
+def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
+    """Die zweite Haelfte des Byte-Freeze: wheel AUS DEM SDIST gegen wheel AUS DEM BAUM.
+
+    WARUM ES DIESE FUNKTION GIBT. Der Release-Standard 6.0.0 vom 05.09.2026 nennt in seinem
+    fail-closed-Satz „Byte-Freeze mit zwei byte-identischen sdists UND wheel aus sdist byteweise
+    gleich dem direkt gebauten". Die erste Haelfte misst ``measure_reproducible``. Die zweite hatte
+    am 2026-09-07 KEINE Messstelle: dieses Skript baute ueberhaupt keine wheels, unter ``scripts/``
+    gab es kein weiteres Werkzeug dafuer, und die Audit-Matrix liest ``candidate.wheel_sha256``
+    ausdruecklich ohne ihn nachzurechnen. Eine Bedingung im fail-closed-Satz ohne Messstelle gilt
+    stillschweigend als gruen, ohne je gemessen worden zu sein — das ist teurer als eine rote Zeile.
+
+    BEIDE SEITEN WERDEN KANONISIERT (seit dem Owner-Entscheid vom 07.09., Option 1). Verglichen
+    werden damit zwei AUSGELIEFERTE Artefakte, nicht zwei Zwischenstaende. Das ist nur ehrlich,
+    solange ``release.yml`` denselben Bauweg faehrt — siehe die Bedingung in ``_build_wheel``.
+
+    GEBAUT WIRD AUS DEM NORMALISIERTEN SDIST, nicht aus dem rohen: das normalisierte ist das, was
+    ausgeliefert wird und was ein Nutzer herunterlaedt. Eine Messung gegen das rohe wuerde eine
+    Datei pruefen, die niemand bekommt.
+    """
+    with tempfile.TemporaryDirectory(prefix="pb_wheel_") as td:
+        arbeit = Path(td)
+        direkt, _ = build_normalized_wheel(REPO, arbeit / "direkt", epoch, no_isolation=no_isolation)
+        sdist, _ = build_normalized(arbeit / "sd", epoch, no_isolation=no_isolation)
+        entpackt = arbeit / "aus"
+        entpackt.mkdir()
+        with tarfile.open(sdist, "r:gz") as tf:
+            _entpacke_sicher(tf, entpackt)
+        wurzeln = [q for q in entpackt.iterdir() if q.is_dir()]
+        if len(wurzeln) != 1:
+            raise RuntimeError(f"sdist entpackt nicht zu genau einem Wurzelordner: {wurzeln}")
+        aus_sdist, _ = build_normalized_wheel(wurzeln[0], arbeit / "aus_sdist", epoch,
+                                              no_isolation=no_isolation)
+        ha = hashlib.sha256(direkt.read_bytes()).hexdigest()
+        hb = hashlib.sha256(aus_sdist.read_bytes()).hexdigest()
+        return {"schema": WHEEL_MEASUREMENT_SCHEMA, "identical": ha == hb,
+                "sha256_direct": ha, "sha256_from_sdist": hb,
+                "name_direct": direkt.name, "name_from_sdist": aus_sdist.name, "epoch": epoch}
+
+
+def check_wheel_from_sdist(epoch: int, *, no_isolation: bool = False, as_json: bool = False) -> int:
+    r = measure_wheel_from_sdist(epoch, no_isolation=no_isolation)
+    if as_json:
+        import json as _json  # noqa: PLC0415
+        print(_json.dumps(r, sort_keys=True))
+    elif r["identical"]:
+        print("WHEEL FREEZE OK: wheel from the shipped sdist is byte-identical to the direct build"
+              f"\n  sha256={r['sha256_direct']}\n  epoch={epoch}")
+    else:
+        print("WHEEL FREEZE FAILED: the two wheels differ"
+              f"\n  direct     = {r['sha256_direct']}\n  from sdist = {r['sha256_from_sdist']}")
+    return 0 if r["identical"] else 1
+
+
+def check_reproducible(epoch: int, *, no_isolation: bool = False, as_json: bool = False) -> int:
+    r = measure_reproducible(epoch, no_isolation=no_isolation)
+    da, db = r["sha256_a"], r["sha256_b"]
+    if as_json:
+        import json as _json  # noqa: PLC0415
+        print(_json.dumps(r, sort_keys=True))
+    elif r["reproducible"]:
         print(f"REPRODUCIBLE OK: two normalised sdists are byte-identical\n  sha256={da}\n  epoch={epoch}")
-        return 0
-    print(f"NOT REPRODUCIBLE: sdist sha256 differ\n  run A={da}\n  run B={db}")
-    return 1
+    else:
+        print(f"NOT REPRODUCIBLE: sdist sha256 differ\n  run A={da}\n  run B={db}")
+    return 0 if r["reproducible"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -130,16 +333,31 @@ def main(argv: list[str] | None = None) -> int:
                    help="where to write the normalised sdist (default: ./dist)")
     p.add_argument("--epoch", type=int, default=None,
                    help="SOURCE_DATE_EPOCH (default: HEAD commit time)")
+    p.add_argument("--with-wheel", action="store_true",
+                   help="zusaetzlich zum sdist ein KANONISIERTES wheel in --outdir bauen (der "
+                        "Bauweg des Release-Workflows; ohne das liefert release.yml ein wheel, "
+                        "das den Modus seiner Quelldateien traegt)")
     p.add_argument("--check", action="store_true",
                    help="build twice and prove the normalised sdists are byte-identical")
+    p.add_argument("--check-wheel", action="store_true",
+                   help="prove the wheel built FROM the shipped sdist is byte-identical to the "
+                        "wheel built directly from the tree (second half of the byte freeze)")
     p.add_argument("--no-isolation", action="store_true",
                    help="pass --no-isolation to `python -m build` (offline host with build deps present)")
+    p.add_argument("--json", action="store_true",
+                   help="with --check: print the machine-readable measurement instead of prose")
     args = p.parse_args(argv)
     epoch = args.epoch if args.epoch is not None else head_commit_epoch()
+    if args.check_wheel:
+        return check_wheel_from_sdist(epoch, no_isolation=args.no_isolation, as_json=args.json)
     if args.check:
-        return check_reproducible(epoch, no_isolation=args.no_isolation)
+        return check_reproducible(epoch, no_isolation=args.no_isolation, as_json=args.json)
     dst, digest = build_normalized(args.outdir, epoch, no_isolation=args.no_isolation)
     print(f"built normalised sdist: {dst}\n  sha256={digest}\n  epoch={epoch}")
+    if args.with_wheel:
+        whl, wdigest = build_normalized_wheel(REPO, args.outdir, epoch,
+                                              no_isolation=args.no_isolation)
+        print(f"built normalised wheel: {whl}\n  sha256={wdigest}\n  epoch={epoch}")
     return 0
 
 

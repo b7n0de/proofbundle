@@ -1,114 +1,132 @@
 {
   "schema": "proofbundle.findings_register.v1",
-  "version": "3.6.1",
-  "generated_at": "2026-07-18T00:00:00Z",
+  "version": "6.0.0",
+  "generated_at": "2026-09-06T10:27:05Z",
   "findings": [
     {
-      "id": "PB-2026-0718-01",
-      "severity": "P0",
+      "id": "N1",
+      "severity": "P3",
       "status": "closed",
-      "note": "lineage target-subject-digest: 6 invalid states fail-closed (relation._target_subject_pin_error, 4 wire codes); conformance green"
+      "note": "flip oracle of the A5 corpus test read one field; fixed to require ok (bc95dd6). The wider class — narrow-scope comparison oracles — is not swept repo-wide"
     },
     {
-      "id": "PB-2026-0718-06",
-      "severity": "P0",
+      "id": "N2",
+      "severity": "P3",
       "status": "closed",
-      "note": "decision canonicality fail-closed (canonicality_ok = canonical_ok is True); minimal-env rfc8785-absent rejects"
+      "note": "corpus input key serialised the whole params; fixed to the keys the runner reads, meta test both ways (bc95dd6)"
     },
     {
-      "id": "PB-2026-0718-02",
-      "severity": "P1",
-      "status": "closed",
-      "note": "sdist ships tests/schemas/examples/conformance/formal; repo-context tests skip outside checkout; packaging suite green"
-    },
-    {
-      "id": "PB-2026-0718-04",
-      "severity": "P1",
-      "status": "closed",
-      "note": "relation same-key requires verified_under; RELATION_SIGNER_UNAUTHORIZED fail-closed; conformance green"
-    },
-    {
-      "id": "PB-2026-0718-05",
-      "severity": "P1",
-      "status": "closed",
-      "note": "relation conformance carries the missing-subject negative state (present-equal..absent..ambiguous)"
-    },
-    {
-      "id": "PB-2026-0718-07",
-      "severity": "P1",
-      "status": "closed",
-      "note": "malformed untrusted json to the verify API yields a fail-closed verdict, never a raw exception (never-raise sweep clean)"
-    },
-    {
-      "id": "PB-2026-0718-08",
-      "severity": "P1",
-      "status": "closed",
-      "note": "decision legacy proven-digest presence deprecated/coupled, no longer overstates assurance"
-    },
-    {
-      "id": "PB-2026-0718-11",
-      "severity": "P1",
-      "status": "closed",
-      "note": "cross-format singleton groups fail-closed (no vacuous pass); every xfmt id linked decision<->outcome"
-    },
-    {
-      "id": "PB-2026-0718-14",
-      "severity": "P1",
-      "status": "closed",
-      "note": "audit-candidate stale-zero false-pass fixed: this signed structured register + C12.2 rewrite (current-wins, evaluated_count>0, contradiction=ERROR)"
-    },
-    {
-      "id": "PB-2026-0718-17",
-      "severity": "P1",
-      "status": "closed",
-      "note": "RecursionError never-raise: structural depth budget enforced on the direct-dict path (RT-09), 0 raw RecursionError across public verify surfaces at recursionlimit 3000"
-    },
-    {
-      "id": "PB-2026-0718-16",
+      "id": "N3",
       "severity": "P2",
       "status": "closed",
-      "note": "structural budgets (depth/nodes/merkle_path) enforced on the direct-dict verify path (RT-09), per-dimension direct-dict acceptance verified"
+      "note": "the Receipt: line of a published disclosure block is the file hash, not receipt_digest(); documented in 6.0.0 rather than changed, because two published receipts carry it. Can mislead a reader who copies the line into priorDigest"
     },
     {
-      "id": "PB-2026-0718-03",
+      "id": "N4",
+      "severity": "P3",
+      "status": "closed",
+      "note": "POLICY_NOT_EVALUATED and AGENT_REVIEW_LEGACY_V01 moved from reason_codes to advisory_codes; no released build carried either code before 6.0.0"
+    },
+    {
+      "id": "N5",
       "severity": "P2",
-      "status": "open",
-      "note": "published wheel/sdist not yet byte-reproducibility-attested (Sigstore bundle/Rekor); follow-up"
+      "status": "closed",
+      "note": "agent-review/v0.2 emits only selfDeclared assurance; a witness outside the agent workspace is not provided — documented honest limit"
     },
     {
-      "id": "PB-2026-0718-09",
+      "id": "N6",
+      "severity": "P3",
+      "status": "closed",
+      "note": "the time block of a policy file is evaluated only when present; the shipped standard policy carries none (time_policy_decision: null)"
+    },
+    {
+      "id": "N7",
+      "severity": "P3",
+      "status": "closed",
+      "note": "the skipped set of the PR-185 full run was not enumerated; the freeze audit run (pytest -rs) enumerates it and the receipt README lists it"
+    },
+    {
+      "id": "N8",
+      "severity": "P3",
+      "status": "closed",
+      "note": "C12.1 reports not-applicable on a pull request and absent on main until the signed 6.0.0 receipt exists — the gate at work, not a defect"
+    },
+    {
+      "id": "N9",
+      "severity": "P3",
+      "status": "closed",
+      "note": "the relative CHANGELOG.md link in the new README section was dead in the sdist; fixed to an absolute URL (72c21e7)"
+    },
+    {
+      "id": "N10",
+      "severity": "P3",
+      "status": "closed",
+      "note": "CAP-1 coverage (feat/cap1-abdeckung, target 6.1.0) is not part of 6.0.0 by decision; the branch is not in the frozen tree"
+    },
+    {
+      "id": "N11",
       "severity": "P2",
-      "status": "open",
-      "note": "rust relation parity not yet dynamically replayable from the published artifact; follow-up"
+      "status": "closed",
+      "note": "the canonical full mutation run was started on 658ed063 before this file existed; the byte-identity of src/, tests/ and scripts/ against the frozen head is measured and recorded, or the run is repeated"
     },
     {
-      "id": "PB-2026-0718-10",
+      "id": "N12",
       "severity": "P2",
-      "status": "open",
-      "note": "formal lineage model not yet refined to the release implementation; follow-up"
+      "status": "closed",
+      "note": "the learned-class ledger replay cannot finish inside the 240 s default window its runner carries (182 nodes measured 479 s); measured to completion under a wide window it reports pass. A property of the release-side replay runner, not of shipped code"
     },
     {
-      "id": "PB-2026-0718-12",
+      "id": "N13",
+      "severity": "P2",
+      "status": "closed",
+      "note": "the replay set contains at least one node whose result depends on runtime state OUTSIDE the tree under test (tests/test_warte_riegel.py in the 2bedone repository); recorded because it can decide this package's gate verdict"
+    },
+    {
+      "id": "N14",
       "severity": "P2",
       "status": "open",
-      "note": "rust verifier has zero native unit tests for boundary states; follow-up"
+      "note": "CLASS: a signing path in the shipped tree. sign_readiness_artifact.py is CLOSED (no code path loads a private key, measured by AST); pre_tag_receipt.py is DEFUSED, not closed — excluded from the sdist file by file and refusing to run inline without PB_INLINE_SIGNING=1, never on an automated build host. The CLASS — a build host that can reach a private key at all — is carried to 6.1 with the separate signing principal, so this entry stays OPEN until then. Owner decision 2026-09-06, card OA-8b1a31cc4f"
     },
     {
-      "id": "PB-2026-0718-13",
+      "id": "N15",
       "severity": "P2",
       "status": "open",
-      "note": "dev typecheck pq-mldsa version floor mismatch (mypy gate); follow-up"
+      "note": "the wheel of 6.0.0 is bit-reproducible in both directions and also built from the shipped sdist; the sdist is not. Cause measured to the byte: the sdist path of setuptools 84.0.0 does not honour SOURCE_DATE_EPOCH, so each archive carries a pax header with the wall clock. The CONTENT of both builds is identical. Owner decision 2026-09-06: 6.0.0 ships with this sdist and the non-reproducibility is named rather than played down; the build-backend change is a 6.1 item"
     },
     {
-      "id": "PB-2026-0718-15",
+      "id": "N16",
       "severity": "P2",
-      "status": "closed",
-      "note": "rust cargo fmt/clippy green with a pinned toolchain (tools/pb_verify_rs/rust-toolchain.toml 1.95.0); deterministic CI fmt/clippy gate wired"
+      "status": "open",
+      "note": "deep gate run 5, L6-02: action/action.yml:35-36 interpolates ${{ inputs.version }} and ${{ inputs.extras }} directly into a run: shell body, while lines 43-44 route inputs.command through env: and say why. A class fix applied to one of three inputs of one file and never swept to its siblings. NOT introduced by this release: the file is byte-identical to the one at the public v1.0.0 tag (sha256 91cfcdc4…, a single commit ever touched it, that tag is an ancestor of this candidate). Measured reach: INTEGRATIONS.md points at action@v1.0.0, that tag is FIXED, and no moving major ref v1 exists — so a fix on main does NOT reach the documented users; a new action ref is outward-facing and needs its own owner GO. Owner decision OA-b4489d0204: first item after the tag, not pulled forward, because action/action.yml lies inside the frozen tree"
+    },
+    {
+      "id": "N17",
+      "severity": "P2",
+      "status": "open",
+      "note": "deep gate run 5, L5-G8-01: scripts/rust_parity_gate.py:124 swallows an unparseable or unreadable source file (except (SyntaxError, OSError): continue), and registry_integrity_ok derives its verdict as ok = not (untracked or orphaned or stale) — an assertion from ABSENT complaint over the resulting population. The consumers c8_1_registry_integrity and c8_3_pending_documented are RELEASE-DECIDING (measured: neither is in _INFORMATIVE_CHECKS, audit_candidate_matrix.py:84). MEASURED LIMIT on this candidate: the population is COMPLETE — 68 of 68 .py under src/ parse and are readable — so no verdict of this release rests on a narrowed set; the finding is the CAPABILITY of a false pass, not its occurrence. The same class is already closed in the neighbour (type_confusion_gate.py:487-499, which names rust_parity_gate.py:124 verbatim as the defect site), and the docstring of the defective function itself lists FOUR narrowings of this class lifted on 2026-08-26; this branch survived that sweep and carries no test (no occurrence of SyntaxError or OSError in tests/test_rust_parity_gate.py). Owner decision OA-b4489d0204: below the hold threshold for 6.0.0, closed in the collection release following the pattern the neighbour already carries, with a catch-proof"
+    },
+    {
+      "id": "N18",
+      "severity": "P2",
+      "status": "open",
+      "note": "deep gate run 5, L6-01: pip install <sdist> && pytest WITHOUT the [test] extras is RED, not skipped, while the shipped pyproject.toml promises a bare [eval] install 'degrades to clean skips'. Measured: 1 failed, 3075 passed, 482 skipped; the red node is tests/test_ausfuehrung_aus_quelltext_l5_g7_04.py::test_gate_meta_koexistenz_im_selben_job_reicht_nicht_mehr, which reaches PyYAML INDIRECTLY through scripts/audit_candidate_matrix.py:1395 and therefore does not carry the module's own @_braucht_yaml guard — the guard sits where the import is VISIBLE, not where the dependency IS. Introduced by this candidate's own commit 1311498. Additionally measured: the CI step whose own comment claims to pin exactly this property (published-artifact-gate.yml:83-84, 'Stops the invariant from drifting false again') installs [test] into the same venv at line 86 before the suite starts at line 92 — the bare path is exercised NOWHERE; and the guard built for the earlier instance of this class (L6-F1-SDIST-PYYAML, 2026-08-25) is scaled to a single file (tests/test_sdist_selftest_optional_deps.py:35), while the regression landed in its sibling. Owner decision OA-b4489d0204, Auflage 4: own register entry and named in the release note; in the collection release the promise is either honoured or reworded in pyproject.toml"
+    },
+    {
+      "id": "N19",
+      "severity": "P3",
+      "status": "open",
+      "note": "the mutation gate collects its test population with unittest discover and therefore measures a SUBSET: measured on this candidate, unittest discover runs 2537 tests while pytest collects 3702, and 59 of 252 test files carry only pytest functions and are invisible to that collector. Every stage-6 statement of this release is bounded by that subset: SURVIVED means 'no unittest-visible test catches this'. Of the 100 operators, 91 were killed, 7 survived only because the gate cannot see the test that kills them (each proven by running pytest against the MEASURED covering file), 1 is not measurable (N20), 1 is a documented equivalent expected to survive — and ZERO are real gaps. Sibling scope figures of this release: the learned-class ledger replay ran 94 of 182 classes (the other 88 carry no evidence in either direction), the Python/Rust parity gate saw 68 of 68 source files. Closing action after the tag: move the gate to a collector that sees every test, with a catch-proof"
+    },
+    {
+      "id": "N20",
+      "severity": "P3",
+      "status": "open",
+      "note": "one mutation operator is NOT MEASURABLE rather than killed or survived: 'budget: data_digests-Schranke praktisch entfernt' removes the very resource ceiling under test, and the mutated run reached 116519388 kB RSS (111 GiB, 88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the OOM killer, whose choice of victim would not have been the same process. An earlier attempt ended at signal 9. Neither outcome is a test verdict — what stopped the run was the kernel, not an assertion — so it is counted in neither sort. This is evidence that the ceiling the operator removes does its job, not a defect of the candidate"
     }
   ],
   "signature": {
     "alg": "ed25519",
-    "public_key_b64": "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o=",
-    "sig_b64": "PAUCRI/c3BBbhbTBDefz8s2RAgCHWN69Ec51YDBlfkqpk7/NVfaeyhFO10YJCpXEA4YvQB3W9mTTVuNOa8iaCA=="
+    "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
+    "sig_b64": "e9rbNINEvPNjPAaR6MeY+tBI+d3BZlWJpsswmw6lEeElbB+XW2AxrTT94MD5H1s42RdyW44efnFI2jDloCdSCQ=="
   }
 }

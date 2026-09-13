@@ -26,7 +26,6 @@ import hashlib
 import re
 from typing import Any
 
-from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -191,7 +190,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     """
     from . import anchors as _anchors  # noqa: PLC0415
     from . import dsse  # noqa: PLC0415
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from ._statement_payload import load_statement_strict  # noqa: PLC0415
     from .relation import (  # noqa: PLC0415
         CODE_LINEAGE_REQUIREMENT_FAILED,
         LINEAGE_FAIL,
@@ -214,8 +213,10 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
         body = dsse.load_payload(envelope)
-        DEFAULT_BUDGET.check("input_bytes", len(body))
-        statement = loads_strict(body.decode("utf-8"))
+        # L4-01 (deep gate 2026-09-05): the ONE payload oracle shared with the --with-related resolver, so
+        # "well-formed standalone" and "well-formed as an attached target" can never mean two things.
+        # (input_bytes budget + strict parse + object check; canonicality is judged below, as before.)
+        statement = load_statement_strict(body)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
         r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
@@ -260,6 +261,26 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # cycle/depth/attached-but-wrong/subject-mismatch -> FAIL).
         r["lineage"] = verify_relationship_edges(
             predicate.get("relationships"), related, subject_hex=_subject_hex)
+        # DER ANGEHAENGTE ARM FEHLTE AUF DIESER FLAECHE (deep gate Lauf 7, Fund L4-600-02, P1).
+        #
+        # `reject_superseded` traegt zwei disjunkte Bedeutungen (relation.py:604-610): den EIGENEN
+        # verifizierten Nachfolge-Rand des Statements (die Selbstauskunft, weiter unten) UND einen
+        # ANGEHAENGTEN, verifizierten Nachbarn, der eine Nachfolge oder Ruecknahme ueber DIESES
+        # Objekt erklaert. Den zweiten wertet der gemeinsame Bewerter aus (relation.py:637), aber
+        # nur, wenn jemand ihm den Schluessel `supersededByAttached` fuellt. decision.py:682 und
+        # outcome.py:673 tun das seit jeher; diese Flaeche tat es nie, und deshalb war der Arm hier
+        # WIRKUNGSLOS: die Flaeche nimmt die Flagge entgegen und konnte sie in diesem Fall nie
+        # behaupten.
+        #
+        # DER UNABHAENGIGE ZEUGE, an dem es auffiel: der Rust-Verifizierer setzt den Schluessel in
+        # BEIDEN Modi (tools/pb_verify_rs/src/main.rs:1482, ausserhalb des statement_mode-Zweigs)
+        # und legt den Selbstauskunfts-Arm nur OBENDRAUF (main.rs:1502). Python endete mit 0, wo
+        # Rust mit 3 endet — ein Paritaetsbruch auf einer ausgelieferten Eigenschaft, und kein
+        # Vektor dieser Flaeche stand im Kreuzvergleich, weshalb das Differential still blieb.
+        # Gesetzt hat ihn verify_relationship_edges selbst (siehe dort); hier wird er nur GELESEN.
+        _sw = r["lineage"].get("supersededByAttached")
+        if _sw:
+            r["warnings"].append(f"lineage: {_sw}")
         if r["lineage"]["lineage"] == LINEAGE_FAIL:
             r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
         r["lineage_ok"] = False if r["lineage"]["lineage"] == LINEAGE_FAIL else None
@@ -274,7 +295,12 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
                 _cls = None
             if _cls is not None:
                 r["subject_binding"] = {"mode": _cls["mode"], "matches": _cls["matches"]}
-                if not _cls["matches"]:
+                if _cls["mode"] == "AMBIGUOUS":
+                    # Deep gate 2026-09-05, L4-02: never silently subject[0]; order-invariant by count.
+                    r["warnings"].append(
+                        "subject is AMBIGUOUS — the statement carries more than one subject; which object "
+                        "it commits to is undecided (never silently the first one)")
+                elif not _cls["matches"]:
                     r["warnings"].append(
                         "subject is EXTERNAL_ATTESTED — it does not commit to this predicate "
                         "(subject-rehang); trust it only via a policy that pins the external attester")
@@ -283,7 +309,9 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
                     if not _cls["matches"]:
                         r["errors"].append(
                             "require_derived_subject: subject is not a DERIVED commitment to the "
-                            "predicate (fail-closed)")
+                            + ("predicate (AMBIGUOUS: more than one subject) " if _cls["mode"] == "AMBIGUOUS"
+                               else "predicate ")
+                            + "(fail-closed)")
             elif require_derived_subject:
                 r["subject_derived_ok"] = False
                 r["errors"].append(

@@ -31,6 +31,41 @@ use sha2::{Digest, Sha256};
 // Strict JSON: reject a duplicate key at every object level (the C1 Bishop-Fox
 // parser-differential defense — Python rejects it via _strict_json; we must too).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// I-JSON-GANZZAHLDOMAIN — die EINE Zahlenregel, auf beiden Seiten dieselbe.
+//
+// OWNER-ANORDNUNG OA-2f7da83522 vom 10.09.2026, woertlich: „Eine Zahlenregel auf beiden Seiten.
+// Ganzzahl-Literale ausserhalb plus minus 2^53 minus 1 lehnen Python und Rust ab, Rust im
+// Ganzzahlpfad visit_i64 visit_u64 visit_i128, nicht in visit_f64."
+//
+// DIE GRENZE IST NICHT HIER ERFUNDEN. Sie steht auf der Python-Seite in rfc8785/_impl.py Zeile 23
+// und 24 (`_INT_MAX = 2**53 - 1`, `_INT_MIN = -(2**53) + 1`) und wirft dort `IntegerDomainError`.
+// Diese Konstanten bilden dieselbe Regel ab, damit BEIDE Implementierungen denselben Wert
+// abweisen — der Sinn des zweiten Verifizierers ist Uebereinstimmung, nicht eigene Strenge.
+//
+// WARUM AUSDRUECKLICH NICHT IN `visit_f64`, und das ist der Punkt, an dem mein erster Vorschlag
+// falsch war: JEDER Double ab 2^53 ist ganzzahlig. Eine Ganzzahlpruefung im Float-Pfad wuerde
+// deshalb `1e+21` und `2^68` abweisen — beides sind LEGITIME Zeilen aus Anhang B von RFC 8785.
+// Der Split waere damit nicht geschlossen, sondern nur auf die andere Seite gewandert.
+//
+// DIE FLOAT-GEGEN-FLOAT-KOLLISION BLEIBT und ist kein Defekt: dass 9223372036854775807.0 und
+// 9223372036854775808.0 auf denselben Double fallen, ist eine Eigenschaft von IEEE 754 und damit
+// von RFC 8785. Sie steht im Register als Eigenschaft, nicht als Befund (Owner-Entscheid, selbe
+// Karte). Was der Fix schliesst, ist die Kollision zwischen einem GANZZAHL-Literal und einem
+// Float-Literal — nach ihm wird das Ganzzahl-Literal abgewiesen, und es bleibt nur ein Weg.
+const IJSON_INT_MAX: i128 = 9_007_199_254_740_991; // 2^53 - 1
+const IJSON_INT_MIN: i128 = -9_007_199_254_740_991; // -(2^53) + 1
+const DOMAIN_MELDUNG: &str =
+    "integer literal outside the I-JSON safe range [-(2^53)+1, 2^53-1] (RFC 7493 section 2.2); \
+     Python's rfc8785 raises IntegerDomainError for the same value";
+
+fn pruefe_ganzzahl_domain(v: i128) -> Result<(), &'static str> {
+    if v > IJSON_INT_MAX || v < IJSON_INT_MIN {
+        return Err(DOMAIN_MELDUNG);
+    }
+    Ok(())
+}
+
 struct StrictValue(serde_json::Value);
 
 impl<'de> Deserialize<'de> for StrictValue {
@@ -47,11 +82,44 @@ impl<'de> Deserialize<'de> for StrictValue {
             fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
                 Ok(serde_json::Value::Bool(v))
             }
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> {
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(i128::from(v)).map_err(de::Error::custom)?;
                 Ok(serde_json::Value::Number(v.into()))
             }
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(i128::from(v)).map_err(de::Error::custom)?;
                 Ok(serde_json::Value::Number(v.into()))
+            }
+            // DER SCHLUSS-ARM DES GANZZAHLPFADS. serde_json ohne `arbitrary_precision` reicht
+            // heute keine 128-Bit-Ganzzahl durch — es faellt jenseits von u64 auf f64. Der Arm
+            // steht trotzdem, weil eine Regelmenge ohne Sonst genau die Bauart ist, an der dieses
+            // Repo zweimal gemessen gescheitert ist (S78, und der Korpus-Filter im crosscheck).
+            // Ein Pfad, der heute nicht getroffen wird, ist morgen ein Loch.
+            fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(v).map_err(de::Error::custom)?;
+                i64::try_from(v)
+                    .map(|n| serde_json::Value::Number(n.into()))
+                    .map_err(|_| de::Error::custom("integer out of i64 range"))
+            }
+            fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let n = i128::try_from(v)
+                    .map_err(|_| de::Error::custom(DOMAIN_MELDUNG))?;
+                pruefe_ganzzahl_domain(n).map_err(de::Error::custom)?;
+                u64::try_from(v)
+                    .map(|u| serde_json::Value::Number(u.into()))
+                    .map_err(|_| de::Error::custom("integer out of u64 range"))
             }
             fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
             where
@@ -100,10 +168,217 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 
+/// Ganzzahl-LITERALE ausserhalb der I-JSON-Domain, lexikalisch am Rohtext erkannt.
+///
+/// WARUM DIESE STELLE ZUSAETZLICH ZUM VISITOR NOETIG IST, gemessen 11.09.2026: die
+/// Owner-Anordnung OA-2f7da83522 nennt den Ganzzahlpfad `visit_i64 visit_u64 visit_i128`. Die
+/// ersten beiden greifen; `visit_i128` wird von `serde_json` OHNE `arbitrary_precision` NIE
+/// gerufen — ein Ganzzahl-Literal jenseits von u64 wird sofort auf `f64` abgebildet, und der
+/// Ganzzahlpfad kommt gar nicht vor. Gemessen an `{"v":295147905179352825856}` (2^68): Python
+/// wirft IntegerDomainError, Rust lieferte eine Wurzel. Der Visitor allein erfuellt das
+/// Fertig-Kriterium der Anordnung also nicht.
+///
+/// GEPRUEFT WIRD DAS LITERAL, NICHT DER WERT, und genau darin liegt die Trennung, die die
+/// Anordnung verlangt: ein Zahl-Token OHNE `.`, `e` oder `E` ist ein Ganzzahl-Literal und faellt
+/// unter die Domain-Regel; sobald eines dieser Zeichen vorkommt, ist es ein Float-Literal und
+/// bleibt unangetastet. Damit passieren `1e21`, `2.9514790517935283e20` und
+/// `295147905179352825856.0` unveraendert — die Anhang-B-Zeilen von RFC 8785, die der Owner
+/// ausdruecklich schuetzt. `visit_f64` bleibt unberuehrt.
+///
+/// KEIN JSON-NACHBAU: gesucht werden Zahl-Token in der Byte-Folge, Zeichenketten werden dabei
+/// uebersprungen (ein Ziffernblock in einem String ist keine Zahl). Die eigentliche Struktur
+/// prueft danach weiterhin serde_json.
+fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
+    let mut i = 0usize;
+    let n = bytes.len();
+    while i < n {
+        let c = bytes[i];
+        if c == b'"' {
+            // Zeichenkette ueberspringen, Escapes beachten.
+            i += 1;
+            while i < n {
+                if bytes[i] == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == b'"' {
+                    break;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        let beginnt_zahl = c == b'-' && i + 1 < n && bytes[i + 1].is_ascii_digit();
+        if !(c.is_ascii_digit() || beginnt_zahl) {
+            i += 1;
+            continue;
+        }
+        // Ein Zahl-Token darf nicht mitten in einem Bezeichner beginnen.
+        if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        if c == b'-' {
+            i += 1;
+        }
+        let mut ist_float = false;
+        while i < n {
+            let b = bytes[i];
+            if b.is_ascii_digit() {
+                i += 1;
+            } else if b == b'.' || b == b'e' || b == b'E' || b == b'+' || b == b'-' {
+                if b == b'.' || b == b'e' || b == b'E' {
+                    ist_float = true;
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if ist_float {
+            continue;
+        }
+        let text = std::str::from_utf8(&bytes[start..i]).map_err(|_| "invalid utf-8".to_string())?;
+        match text.parse::<i128>() {
+            Ok(v) => pruefe_ganzzahl_domain(v).map_err(|e| e.to_string())?,
+            // Mehr Stellen als i128 traegt: erst recht ausserhalb der I-JSON-Domain.
+            Err(_) => return Err(DOMAIN_MELDUNG.to_string()),
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// STRUKTURBUDGET (LAUF11-L1, P0). Deep Gate Lauf 11 mass: ein echtes, RFC-8785-kanonisches,
+// gueltig signiertes DSSE-Ziel mit einem Feld ueber 1 MB laesst Python mit `exit 2` abbrechen
+// (`verification budget exceeded: string_len = 1333724 > limit 1000000`), waehrend dieser
+// Verifizierer `exit 0` und `{"lineage":"VERIFIED"}` meldete. Ein `grep` ueber diese Datei nach
+// `budget|json_nodes|json_depth|string_len|input_bytes` lieferte 0 Treffer; die einzigen
+// Konstanten waren MAX_CHAIN_DEPTH und MAX_EDGES_PER_RECEIPT, beide unverwandt, und `read_file`
+// war ein nacktes `std::fs::read`.
+//
+// WARUM DAS ZAEHLT: dieser Verifizierer IST die unabhaengige Instanz der Release-Zusage
+// (SPEC.md, "Independent Rust cross-verification"). Bestaetigt er eine Abstammung, bei der die
+// erste Instanz aus Sicherheitsgruenden gar nicht prueft, ist die Unabhaengigkeit ein Schaden
+// statt einer Absicherung.
+//
+// DIE ZAHLEN SIND DIESELBEN WIE IN PYTHON und duerfen nicht driften. Damit das nicht von einem
+// Kommentar abhaengt, gibt der Unterbefehl `budget` sie als JSON aus, und ein Test der
+// Python-Suite vergleicht sie mit `DEFAULT_BUDGET` — gemessen wird, was der Binary WIRKLICH
+// benutzt, nicht was im Quelltext steht.
+const BUDGET_INPUT_BYTES: usize = 8_388_608;
+const BUDGET_JSON_NODES: usize = 200_000;
+const BUDGET_JSON_DEPTH: usize = 64;
+const BUDGET_STRING_LEN: usize = 1_000_000;
+// LAUF12-L1 (P0, zweimal ausgefuehrt gemessen): `signatures` und `witnesses`. Python kennt zwoelf
+// Achsen, dieser Verifizierer kannte nach Lauf 11 vier — und Lauf 12 fuhr ein Ziel mit 601 Signaturen
+// (Python: fail-closed, Limit 512; Rust: OK, exit 0) und ein Trust Pack mit 300 root-keyIds (Python:
+// structure_ok=false, Limit 256; Rust: root_threshold_met=true). Eine Nachbildung, die nur die beim
+// ERSTEN Fund gemessenen Achsen kennt, ist selbst eine Stichprobe. Hier stehen deshalb ALLE Achsen,
+// die dieser Binary auf einem seiner Pfade durchsetzt; `budget` gibt genau diese MENGE aus, und die
+// Python-Seite vergleicht die Menge, nicht nur die Werte.
+const BUDGET_SIGNATURES: usize = 512;
+const BUDGET_WITNESSES: usize = 256;
+
+/// Die Achsen, die dieser Binary durchsetzt — EINE Liste, aus der `budget` und die Tests lesen.
+const BUDGET_ACHSEN: &[(&str, usize)] = &[
+    ("input_bytes", BUDGET_INPUT_BYTES),
+    ("json_nodes", BUDGET_JSON_NODES),
+    ("json_depth", BUDGET_JSON_DEPTH),
+    ("string_len", BUDGET_STRING_LEN),
+    ("signatures", BUDGET_SIGNATURES),
+    ("witnesses", BUDGET_WITNESSES),
+];
+
+fn budget_json() -> String {
+    let felder: Vec<String> = BUDGET_ACHSEN
+        .iter()
+        .map(|(name, wert)| format!("\"{name}\":{wert}"))
+        .collect();
+    format!("{{{}}}", felder.join(","))
+}
+
+/// LAUF12-L1 (P1, ausgefuehrt): `string_len` zaehlt in Python CODEPOINTS (`len(str)`), hier zaehlte
+/// `s.len()` UTF-8-BYTES. Dieselbe Datei mit 1.000.000 Codepoints eines Vier-Byte-Zeichens: Python
+/// nahm sie an, dieser Verifizierer wies sie ab (4.000.000 > 1.000.000). Die Richtung war "Rust
+/// strenger", also kein Bypass — aber zwei Urteile ueber ein Dokument sind der Fehler, gegen den ein
+/// Zweitverifizierer steht. `input_bytes` bleibt bewusst in Bytes: dort misst Python ebenfalls Bytes.
+fn zeichen(s: &str) -> usize {
+    s.chars().count()
+}
+
+/// Die Meldungsform ist die von Python, damit ein Differentialtest beide Seiten vergleichen kann.
+fn budget_ueberschritten(dimension: &str, got: usize, limit: usize) -> String {
+    format!("verification budget exceeded: {dimension} = {got} > limit {limit}")
+}
+
+/// Knoten, Tiefe und Zeichenkettenlaenge eines geparsten Dokuments — iterativ, nicht rekursiv:
+/// eine Tiefenpruefung, die selbst den Stack sprengt, ist keine.
+fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
+    let mut stapel: Vec<(&serde_json::Value, usize)> = vec![(value, 1)];
+    let mut knoten: usize = 0;
+    while let Some((v, tiefe)) = stapel.pop() {
+        if tiefe > BUDGET_JSON_DEPTH {
+            return Err(budget_ueberschritten("json_depth", tiefe, BUDGET_JSON_DEPTH));
+        }
+        match v {
+            serde_json::Value::String(s) => {
+                let n = zeichen(s);
+                if n > BUDGET_STRING_LEN {
+                    return Err(budget_ueberschritten("string_len", n, BUDGET_STRING_LEN));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                knoten += items.len();
+                if knoten > BUDGET_JSON_NODES {
+                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                }
+                for it in items {
+                    stapel.push((it, tiefe + 1));
+                }
+            }
+            serde_json::Value::Object(map) => {
+                knoten += map.len();
+                if knoten > BUDGET_JSON_NODES {
+                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                }
+                for (k, val) in map {
+                    // DER SCHLUESSEL ZAEHLT MIT. Python schloss genau diese Achse am 2026-09-09
+                    // (Fund S80: der Schluessel bekam weder Schranke noch Abweisung); eine
+                    // Nachbildung, die ihn auslaesst, waere von Anfang an die halbe Pruefung.
+                    let nk = zeichen(k);
+                    if nk > BUDGET_STRING_LEN {
+                        return Err(budget_ueberschritten("string_len", nk, BUDGET_STRING_LEN));
+                    }
+                    stapel.push((val, tiefe + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    // LAUF11-L1: die Eingangsgroesse VOR dem Parsen — ein Dokument, das die Schranke reisst, soll
+    // nicht erst vollstaendig in einen Baum verwandelt werden.
+    if bytes.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            bytes.len(),
+            BUDGET_INPUT_BYTES,
+        ));
+    }
+    ganzzahl_literale_pruefen(bytes)?;
     let mut de = serde_json::Deserializer::from_slice(bytes);
     let v = StrictValue::deserialize(&mut de).map_err(|e| e.to_string())?;
     de.end().map_err(|e| e.to_string())?;
+    // LAUF11-L1: und die Struktur NACH dem Parsen. `strict_parse` ist der eine Eingang jedes
+    // Dokuments in diesen Verifizierer — die Schranke gehoert hierher und nicht in jeden Aufrufer,
+    // sonst ist sie beim naechsten neuen Unterbefehl still nicht dabei.
+    strukturbudget_pruefen(&v.0)?;
     Ok(v.0)
 }
 
@@ -138,11 +413,27 @@ fn dsse_pae(payload_type: &str, body: &[u8]) -> Vec<u8> {
     out
 }
 
-fn b64_std(s: &str) -> Result<Vec<u8>, String> {
-    // DSSE emits standard base64; accept standard, fall back to url-safe (spec allows either on verify).
+// Wire-form canonicality (deep gate 2026-09-05, L1-600-01 / RT-08): a signed artefact has EXACTLY ONE
+// accepted wire form, and this verifier must agree with the Python verifier about the same file.
+// `base64` 0.22's STANDARD / URL_SAFE engines already refuse non-canonical pad bits and missing
+// padding; what this file used to add on top was `.trim()`, which accepted surrounding whitespace
+// that Python refuses -- the disagreement measured in the other direction. No trimming anywhere.
+//
+// Two helpers, because two formats have two rules:
+//  * `b64_strict`: standard alphabet only (native bundle fields, public keys, Merkle roots).
+//  * `b64_dsse`: standard OR url-safe, both padded and canonical -- the DSSE envelope spec allows
+//    either alphabet for `payload` and `signatures[].sig` and says nothing about padding, so RFC 4648
+//    padding is required (mirror of Python `_wire_b64.decode_b64_either`).
+fn b64_strict(s: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
-        .decode(s.trim())
-        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s.trim()))
+        .decode(s)
+        .map_err(|e| format!("base64 decode failed: {e}"))
+}
+
+fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
@@ -174,25 +465,32 @@ fn verify_dsse(
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
-    let body = b64_std(payload_b64)?;
+    let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
-    let pk_bytes = b64_std(pubkey_b64)?;
+    // LAUF12-L1 (P0): dieselbe Kappe wie Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
+    // "signatures"), VOR dem Schluessel und vor der Verify-Schleife — ein DoS-Riegel, der erst nach
+    // der Arbeit greift, ist keiner.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .ok_or("envelope has no signatures array")?;
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+    }
+
+    let pk_bytes = b64_strict(pubkey_b64)?;
     let pk_arr: [u8; 32] = pk_bytes
         .as_slice()
         .try_into()
         .map_err(|_| "public key is not 32 bytes".to_string())?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
 
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope has no signatures array")?;
     for s in sigs {
         let Some(sig_b64) = s.get("sig").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(sig_bytes) = b64_std(sig_b64) else {
+        let Ok(sig_bytes) = b64_dsse(sig_b64) else {
             continue;
         };
         let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
@@ -292,8 +590,11 @@ fn root_from_inclusion(
 }
 
 fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
+    // JWS compact segments (RFC 7515 section 2): url-safe alphabet WITHOUT padding. A padded segment is
+    // a second wire form of the same bytes and is refused here as in Python `decode_b64url` (the old
+    // `trim_end_matches('=')` accepted both spellings).
     base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(s.trim_end_matches('='))
+        .decode(s)
         .map_err(|e| format!("base64url decode failed: {e}"))
 }
 
@@ -339,7 +640,7 @@ fn verify_sdjwt_issuer(
         return Ok(false);
     }
     // issuer Ed25519 signature over the signing input `header_b64.payload_b64`.
-    let pk = b64_std(issuer_pub_b64)?;
+    let pk = b64_strict(issuer_pub_b64)?;
     let pk_arr: [u8; 32] = pk
         .as_slice()
         .try_into()
@@ -401,7 +702,7 @@ fn verify_bundle(
         .get("payload_b64")
         .and_then(|v| v.as_str())
         .ok_or("missing payload_b64")?;
-    let payload = b64_std(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
+    let payload = b64_strict(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
 
     let sig = b.get("signature").ok_or("missing signature")?;
     let pub_b64 = sig
@@ -412,13 +713,13 @@ fn verify_bundle(
         .get("sig_b64")
         .and_then(|v| v.as_str())
         .ok_or("missing signature.sig_b64")?;
-    let pk = b64_std(pub_b64)?;
+    let pk = b64_strict(pub_b64)?;
     let pk_arr: [u8; 32] = pk
         .as_slice()
         .try_into()
         .map_err(|_| "public key not 32 bytes")?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
-    let sb = b64_std(sig_b64)?;
+    let sb = b64_strict(sig_b64)?;
     let sa: [u8; 64] = sb
         .as_slice()
         .try_into()
@@ -443,11 +744,11 @@ fn verify_bundle(
         .ok_or("missing merkle.inclusion_proof_b64")?;
     let mut proof = Vec::new();
     for p in proof_list {
-        proof.push(b64_std(
+        proof.push(b64_strict(
             p.as_str().ok_or("inclusion proof entry not a string")?,
         )?);
     }
-    let root = b64_std(
+    let root = b64_strict(
         mk.get("root_b64")
             .and_then(|v| v.as_str())
             .ok_or("missing merkle.root_b64")?,
@@ -462,7 +763,7 @@ fn verify_bundle(
     // relying-party root authentication (P0-A): the stated root is not signed, so a supplied
     // expectation must match bit-exactly.
     if let Some(er) = expected_root {
-        if root != b64_std(er)? {
+        if root != b64_strict(er)? {
             return Ok(false);
         }
     }
@@ -537,7 +838,7 @@ fn verify_trust_pack_threshold(
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
-    let body = b64_std(payload_b64)?;
+    let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
     let statement = strict_parse(&body)?;
@@ -548,6 +849,12 @@ fn verify_trust_pack_threshold(
         .get("keys")
         .and_then(|v| v.as_object())
         .ok_or("predicate.keys missing")?;
+    // LAUF12-L1 (P0): Python `trust_pack.validate_trust_pack_predicate` weist `keys` UND jede
+    // Rolle mit mehr als `witnesses` Eintraegen ab, BEVOR es Schluesselmaterial anfasst. Hier
+    // zaehlte niemand — 300 Root-Schluessel bestaetigten eine Schwelle von 2.
+    if keys.len() > BUDGET_WITNESSES {
+        return Err(budget_ueberschritten("witnesses", keys.len(), BUDGET_WITNESSES));
+    }
     let revoked: HashSet<String> = predicate
         .get("revoked")
         .and_then(|v| v.as_array())
@@ -561,10 +868,16 @@ fn verify_trust_pack_threshold(
         .get("roles")
         .and_then(|r| r.get("root"))
         .ok_or("predicate.roles.root missing")?;
-    let root_ids: HashSet<String> = root_role
+    let root_kids = root_role
         .get("keyIds")
         .and_then(|v| v.as_array())
-        .ok_or("predicate.roles.root.keyIds missing")?
+        .ok_or("predicate.roles.root.keyIds missing")?;
+    // Die ROHE Laenge, vor dem Widerruf-Filter — so zaehlt Python (`len(kids)`), und ein Angreifer
+    // waehlt die Liste, nicht der Verifizierer.
+    if root_kids.len() > BUDGET_WITNESSES {
+        return Err(budget_ueberschritten("witnesses", root_kids.len(), BUDGET_WITNESSES));
+    }
+    let root_ids: HashSet<String> = root_kids
         .iter()
         .filter_map(|x| x.as_str().map(String::from))
         .filter(|k| !revoked.contains(k))
@@ -576,11 +889,17 @@ fn verify_trust_pack_threshold(
 
     let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
     let mut skipped_non_ed25519: u64 = 0;
-    for entry in envelope
+    let sigs = envelope
         .get("signatures")
         .and_then(|v| v.as_array())
-        .ok_or("envelope.signatures missing")?
-    {
+        .ok_or("envelope.signatures missing")?;
+    // Nachbar derselben Klasse: Python `verify_trust_pack` kappt auch die Signaturliste des
+    // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
+    // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+    }
+    for entry in sigs {
         let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -596,7 +915,7 @@ fn verify_trust_pack_threshold(
         let Some(pub_b64) = kv.get("publicKey").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(pk_bytes) = b64_std(pub_b64) else {
+        let Ok(pk_bytes) = b64_strict(pub_b64) else {
             continue;
         };
         let Ok(pk_arr): Result<[u8; 32], _> = pk_bytes.as_slice().try_into() else {
@@ -611,7 +930,7 @@ fn verify_trust_pack_threshold(
         let Some(sig_b64) = entry.get("sig").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(sig_bytes) = b64_std(sig_b64) else {
+        let Ok(sig_bytes) = b64_dsse(sig_b64) else {
             continue;
         };
         let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
@@ -677,6 +996,34 @@ const LINEAGE_NOT_EVALUATED: &str = "NOT_EVALUATED";
 
 const RELATION_STATEMENT_PREDICATE_TYPE: &str =
     "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1";
+
+/// Die Praedikattypen, deren Inhalt DIESES Paket liest. Nur fuer sie ist "predicate ist kein
+/// Objekt" ein Formfehler; bei einer fremden Attestation waere dieselbe Aussage eine Anmassung.
+/// Spiegel von `_EIGENE_PRAEDIKATTYPEN` in `src/proofbundle/cli.py` (deep gate Lauf 8, L4-800-01).
+const EIGENE_PRAEDIKATTYPEN: [&str; 3] = [
+    "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1",
+    RELATION_STATEMENT_PREDICATE_TYPE,
+];
+
+/// Traegt ein Statement EINES UNSERER Typen ein `predicate`, das ein positiv falscher Typ ist?
+///
+/// ENG GEFASST wie auf der Python-Seite: vorhanden, nicht null, und kein Objekt. Ein FEHLENDES
+/// und ein NULL-Praedikat bleiben unberuehrt (in-toto v1 erlaubt beides), und eine fremde
+/// Attestation wird nicht beurteilt.
+fn praedikat_ist_positiv_falsch(stmt: &serde_json::Value) -> bool {
+    let ptype = stmt
+        .get("predicateType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !EIGENE_PRAEDIKATTYPEN.contains(&ptype) {
+        return false;
+    }
+    match stmt.get("predicate") {
+        None => false,
+        Some(v) => !v.is_null() && !v.is_object(),
+    }
+}
 
 fn is_sha256_hex(s: &str) -> bool {
     s.len() == 64
@@ -832,6 +1179,10 @@ struct TargetInfo {
     verified_under: String,
     subject_digest: Option<String>,
     relationships: Option<serde_json::Value>,
+    /// Deep gate 2026-09-05, L4-01 (P1): the attached target's SIGNED payload failed the strict parse
+    /// (duplicate key / not an object / non-canonical). Mirrors Python `payload_malformed`: a hard FAIL
+    /// at any hop, never "verified with no edges".
+    payload_malformed: bool,
 }
 
 struct EdgeOut {
@@ -894,6 +1245,17 @@ fn walk_chain(
         // ASYMMETRY vs Python, stated rather than silently absent: TargetInfo is a typed struct,
         // so the "attached target is not a well-formed object" case cannot arise here — the
         // loader rejects it earlier. Python needs that third gate, Rust does not.
+        // L4-01 (deep gate 2026-09-05): the payload gate binds at EVERY hop, exactly like the
+        // receipt's own edge — otherwise the hop an attacker inserts is precisely the one nobody checks.
+        if node.payload_malformed {
+            return Some(
+                "relation:ancestor_edge: relation:attached_target_malformed \
+                 (RELATION_TARGET_MALFORMED): an ATTACHED target's signed payload is not a \
+                 well-formed statement (present-and-malformed is a hard FAIL at any hop; the same \
+                 bytes fail standalone)"
+                    .into(),
+            );
+        }
         if !node.verified {
             return Some(
                 "relation:ancestor_verification_failed: an ATTACHED ancestor does not verify \
@@ -1015,7 +1377,11 @@ fn verify_relationship_edges(
             entry.resolution = LINEAGE_FAIL.into();
         } else if let Some(th) = &target_hex {
             if let Some(target) = related.get(th) {
-                if !target.verified {
+                if target.payload_malformed {
+                    // L4-01: the target's signed payload is not a well-formed statement — the same bytes
+                    // fail standalone, so the edge FAILs here (RELATION_TARGET_MALFORMED), never VERIFIED.
+                    entry.resolution = LINEAGE_FAIL.into();
+                } else if !target.verified {
                     entry.resolution = LINEAGE_FAIL.into(); // attached-but-unverified = present-and-wrong
                 } else {
                     let mut seed: HashSet<String> = HashSet::new();
@@ -1070,19 +1436,95 @@ fn verify_relationship_edges(
 
 /// Mirror of relation.successor_warning: an attached, verified receipt declaring a successor/retracts
 /// edge over `subject_hex`.
+///
+/// OWNER-ANORDNUNG 2026-09-08 (Karte OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1). Hier stand
+/// `if !nested.is_array() || !validate_relationships(nested).is_empty() { continue; }` — ein STILLES
+/// Ueberspringen, wortgleich zur Python-Seite. Ein angehaengtes, standalone verifiziertes Receipt,
+/// dessen eigener relationships-Block einen Formfehler traegt, fiel aus der Betrachtung, UND MIT IHM
+/// DIE RUECKNAHME, DIE ES DEKLARIERT: superseded_by_attached blieb None, `reject_superseded` fand
+/// nichts, safeForAutomation kippte false->true, exit 3->0. Dass Python denselben Fehler machte, ist
+/// der Grund, warum das Differential zwischen beiden Sprachen blind war — ein Vergleich zweier
+/// gleicher Fehler ist still.
+///
+/// Ein Receipt OHNE relationships schweigt weiter (es hat nichts erklaert); eines MIT einem
+/// unlesbaren Block meldet (es hat etwas erklaert, das dieser Verifizierer nicht auswerten kann).
+///
+/// ORDNUNGSUNABHAENGIG, und das ist hier keine Kosmetik: `related` ist eine HashMap, deren
+/// Iterationsreihenfolge Rust bewusst randomisiert. "Der erste unlesbare" haette je Lauf einen
+/// anderen Text ergeben, waehrend Pythons dict die Einfuegereihenfolge behaelt — zwei Sprachen, zwei
+/// Antworten, und der Unterschied haette in den Paritaets-Vektoren nach einem Fund ausgesehen, der
+/// keiner ist. Beide Seiten waehlen daher den lexikografisch kleinsten Kandidaten. Aus demselben
+/// Grund gewinnt eine LESBARE Ruecknahme immer gegen die unlesbare Meldung: sonst koennte ein
+/// Vorleger die praezise Aussage durch die unpraezise ersetzen, indem er die Reihenfolge waehlt.
 fn successor_warning(
     related: &std::collections::HashMap<String, TargetInfo>,
     subject_hex: Option<&str>,
 ) -> Option<String> {
     let subject = subject_hex?;
+    let mut unlesbar: Option<(String, String)> = None;
     for (other_hex, other) in related {
+        // EIN UNLESBARER PAYLOAD IST NICHT DASSELBE WIE EINE UNGUELTIGE SIGNATUR — gespiegelt aus
+        // relation.py (Lauf 8, Nachbar-Arm von L4-800-01). `verified` traegt zwei Bedeutungen, und
+        // diese Schleife las es fuer die falsche: ein Nachbar mit unlesbarem Payload fiel stumm
+        // heraus, MITSAMT der Ruecknahme, die er erklaert. Eine gebrochene Signatur bleibt
+        // uebersprungen, ein unlesbarer Payload landet im unlesbar-Zweig.
+        if other.payload_malformed {
+            let ist_kleiner = match &unlesbar {
+                None => true,
+                Some((bisher, _)) => other_hex.as_str() < bisher.as_str(),
+            };
+            if ist_kleiner {
+                unlesbar = Some((
+                    other_hex.clone(),
+                    format!(
+                        "relation:malformed_successor (RELATION_MALFORMED_SUCCESSOR): attached \
+                         receipt {} carries a signed payload this verifier cannot read; a \
+                         retraction or supersession declared in it cannot be evaluated and is \
+                         therefore NOT ruled out (fail-closed)",
+                        &other_hex[..12.min(other_hex.len())]
+                    ),
+                ));
+            }
+            continue;
+        }
         if !other.verified {
             continue;
         }
         let Some(nested) = &other.relationships else {
             continue;
         };
+        // PARITAET MIT PYTHON, gefunden von einer Gegenlesung ueber genau diesen Fix (08.09.2026).
+        // load_related setzt `relationships = Some(r.clone())`, sobald der JSON-Schluessel DA ist —
+        // auch bei explizitem `"relationships": null`, denn serde_json liefert dort Some(&Null).
+        // Python liest an derselben Stelle `dict.get(...)` und bekommt None, kann also zwischen
+        // "Schluessel fehlt" und "Schluessel ist null" gar nicht unterscheiden und schweigt in
+        // beiden Faellen. Ohne diese Zeile meldete Rust fuer DIESELBEN Bytes
+        // RELATION_MALFORMED_SUCCESSOR, wo Python schweigt.
+        //
+        // Die Divergenz war vorher da und FOLGENLOS: beide Seiten uebersprangen still, der
+        // Unterschied hatte keine Wirkung. Der Fix gegen die stille Ruecknahme hat sie aktiviert,
+        // indem er einem der beiden Wege eine Bedeutung gab. Das ist die unangenehme Haelfte von
+        // "fix the class": eine schlafende Asymmetrie wird zum Fund, sobald einer der Wege etwas TUT.
+        if nested.is_null() {
+            continue;
+        }
         if !nested.is_array() || !validate_relationships(nested).is_empty() {
+            let ist_kleiner = match &unlesbar {
+                None => true,
+                Some((bisher, _)) => other_hex.as_str() < bisher.as_str(),
+            };
+            if ist_kleiner {
+                unlesbar = Some((
+                    other_hex.clone(),
+                    format!(
+                        "relation:malformed_successor (RELATION_MALFORMED_SUCCESSOR): attached \
+                         receipt {} verifies standalone but carries a relationships block this \
+                         verifier cannot read; a retraction or supersession declared in it cannot \
+                         be evaluated and is therefore NOT ruled out (fail-closed)",
+                        &other_hex[..12.min(other_hex.len())]
+                    ),
+                ));
+            }
             continue;
         }
         for edge in nested.as_array().unwrap() {
@@ -1105,12 +1547,12 @@ fn successor_warning(
             }
         }
     }
-    None
+    unlesbar.map(|(_, meldung)| meldung)
 }
 
 fn keys_equal(a_b64: &str, b_b64: &str) -> bool {
-    let da = base64::engine::general_purpose::STANDARD.decode(a_b64.trim());
-    let db = base64::engine::general_purpose::STANDARD.decode(b_b64.trim());
+    let da = base64::engine::general_purpose::STANDARD.decode(a_b64);
+    let db = base64::engine::general_purpose::STANDARD.decode(b_b64);
     match (da, db) {
         (Ok(ra), Ok(rb)) => ra.len() == 32 && ra == rb,
         _ => false,
@@ -1244,7 +1686,10 @@ fn load_related(
     main_pub_b64: &str,
     expected_payload_type: &str,
 ) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
-    let mut related = std::collections::HashMap::new();
+    // Alle gelesenen Kopien je content root; die Zusammenfuehrung passiert NACH der Schleife,
+    // damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
+    let mut roh: std::collections::HashMap<String, Vec<TargetInfo>> =
+        std::collections::HashMap::new();
     for (i, path) in paths.iter().enumerate() {
         let rp = related_pubs
             .get(i)
@@ -1257,16 +1702,39 @@ fn load_related(
             .get("payload")
             .and_then(|v| v.as_str())
             .ok_or("related has no payload")?;
-        let body = b64_std(payload_b64)?;
+        let body = b64_dsse(payload_b64)?;
         let root_hex = statement_content_root_hex(&body);
         // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
         // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
-        let verified =
+        let mut verified =
             verify_dsse(&env, verify_key_b64, Some(expected_payload_type)).unwrap_or(false);
         let mut relationships = None;
         let mut subject_digest = None;
-        if let Ok(stmt) = strict_parse(&body) {
-            if let Some(pred) = stmt.get("predicate") {
+        // Deep gate 2026-09-05, L4-01 (P1): the SAME payload gate as the standalone verify path, mirroring
+        // Python `_statement_payload.load_statement_strict`. A target whose signed payload the strict parser
+        // refuses (duplicate key), that is not an object, or that is not RFC-8785 canonical is
+        // `payload_malformed` — a hard FAIL at any hop, never "verified with no edges". Before this, a
+        // failing ancestor hidden behind a duplicate `predicate` key came out lineage=VERIFIED / exit 0 in
+        // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
+        let mut payload_malformed = false;
+        let parsed = match strict_parse(&body) {
+            Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
+            _ => {
+                payload_malformed = true;
+                verified = false;
+                None
+            }
+        };
+        if let Some(stmt) = parsed {
+            // DER SONST-ARM, gespiegelt aus cli.py (deep gate Lauf 8, Fund L4-800-01, P1). `pred.get`
+            // liefert auf einem Nicht-Objekt schlicht None, und damit kam ein signiertes, kanonisches
+            // Statement mit einer LISTE als `predicate` als "geprueft, keine Kanten" durch — stumm,
+            // waehrend dieselben Bytes standalone durchfallen. Ohne diesen Arm bliebe das Differential
+            // gegen Python genau fuer diese Klasse blind, denn beide Seiten schwiegen gleich.
+            if praedikat_ist_positiv_falsch(&stmt) {
+                payload_malformed = true;
+                verified = false;
+            } else if let Some(pred) = stmt.get("predicate") {
                 if let Some(r) = pred.get("relationships") {
                     relationships = Some(r.clone());
                 }
@@ -1288,16 +1756,62 @@ fn load_related(
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
         let verified_under =
-            base64::engine::general_purpose::STANDARD.encode(b64_std(verify_key_b64)?);
-        related.insert(
-            root_hex,
-            TargetInfo {
-                verified,
-                verified_under,
-                subject_digest,
-                relationships,
-            },
-        );
+            base64::engine::general_purpose::STANDARD.encode(b64_strict(verify_key_b64)?);
+        roh.entry(root_hex).or_default().push(TargetInfo {
+            verified,
+            verified_under,
+            subject_digest,
+            relationships,
+            payload_malformed,
+        });
+    }
+    // ---- Zusammenfuehrung statt last-wins (deep gate Lauf 9, Fund L4-900-01, P0) ----
+    //
+    // SPIEGEL zu Python `cli._load_related`. Vorher stand hier `related.insert(root_hex, ...)`
+    // direkt in der Schleife, und `HashMap::insert` ist ebenso last-wins wie die Python-Zuweisung.
+    // Der Schluessel ist der content root des SIGNIERTEN PAYLOADS, also aus dem angehaengten
+    // Material ABGELEITET, und der Wert traegt ein Verifikationsurteil: eine angehaengte Kopie mit
+    // verfaelschter Signatur loeschte damit eine gueltige, verifizierte Ruecknahme.
+    //
+    // BEIDE Implementierungen teilten den Defekt, weshalb das Differential daran STILL blieb — der
+    // Grund, warum dieser Spiegel im selben Zug faellt und nicht spaeter.
+    //
+    // Da `root_hex` genau ueber diesen Payload gebildet wird, sind die Payload-Felder bei einer
+    // Kollision identisch. Weichen sie ab, oder gehen die Kopien im Verifikationsurteil
+    // auseinander, endet die Aufloesung mit einem Fehler — dasselbe Ergebnis wie Python, wo der
+    // Widerspruch ueber `errs` zu exit 2 fuehrt. Ein Duplikat, das widerspricht, ist ein
+    // Widerspruch und kein still zu brechender Gleichstand.
+    let mut related = std::collections::HashMap::new();
+    for (root_hex, kopien) in roh {
+        let kurz: String = root_hex.chars().take(12).collect();
+        let mut iter = kopien.into_iter();
+        let erste = iter
+            .next()
+            .expect("or_default().push() garantiert mindestens eine Kopie");
+        let rest: Vec<TargetInfo> = iter.collect();
+        if rest.is_empty() {
+            related.insert(root_hex, erste);
+            continue;
+        }
+        let anzahl = rest.len() + 1;
+        if rest.iter().any(|k| {
+            k.relationships != erste.relationships
+                || k.subject_digest != erste.subject_digest
+                || k.payload_malformed != erste.payload_malformed
+        }) {
+            return Err(format!(
+                "--with-related: {anzahl} attachments share content root {kurz}\u{2026} but disagree                  on payload fields \u{2014} the content root is derived from exactly these bytes, so                  this cannot happen without a broken assumption; refusing to pick one"
+            ));
+        }
+        if rest
+            .iter()
+            .any(|k| k.verified != erste.verified || k.verified_under != erste.verified_under)
+        {
+            return Err(format!(
+                "--with-related: {anzahl} attachments share content root {kurz}\u{2026} but verify                  differently \u{2014} a duplicate that disagrees is a contradiction, not a tie to be                  broken silently"
+            ));
+        }
+        related.insert(root_hex, erste);
     }
     Ok(related)
 }
@@ -1323,7 +1837,7 @@ fn run_verify_relation(
     let Some(payload_b64) = envelope.get("payload").and_then(|v| v.as_str()) else {
         return (2, "null".into());
     };
-    let Ok(body) = b64_std(payload_b64) else {
+    let Ok(body) = b64_dsse(payload_b64) else {
         return (2, "null".into());
     };
     let Ok(statement) = strict_parse(&body) else {
@@ -1389,7 +1903,7 @@ fn run_verify_relation(
         if let Some(relations) = pol.get("relations") {
             if relations.is_object() {
                 let succ_key = base64::engine::general_purpose::STANDARD
-                    .encode(b64_std(pub_b64).unwrap_or_default());
+                    .encode(b64_strict(pub_b64).unwrap_or_default());
                 let mut viol = evaluate_relations_policy(relations, &lineage, &succ_key);
                 // Standalone self-assertion gate (relation-statement only): reject_retracted /
                 // reject_superseded fire on the statement's OWN verified edge.
@@ -1480,7 +1994,14 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         }
     };
     let policy = policy_path.as_ref().map(|p| {
-        strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")))
+        let pol = strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
+        // Lauf 13 (Linse L4, F1, P0): bis hierher wurde die Policy nur GEPARST und dann nach dem
+        // hartkodierten Schluessel "relations" befragt — ein Tippfehler ("relatoins") liess Rust die
+        // ganze Policy still ignorieren (exit 0), waehrend Python fail-closed exit 2 meldet. Dieselben
+        // Bytes, zwei Urteile, Accept gegen Refuse. Die Huelle wird jetzt wie in policy.load_policy
+        // geprueft, BEVOR eine Sektion gelesen wird.
+        policy_huelle_pruefen(&pol).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
+        pol
     });
     let (code, lineage) = run_verify_relation(
         &env,
@@ -1499,7 +2020,98 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
 }
 
 fn read_file(path: &str) -> Vec<u8> {
-    std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
+    read_file_begrenzt(path).unwrap_or_else(|e| fatal(&e))
+}
+
+/// Die Eingabe ist VOR dem vollstaendigen Einlesen begrenzt — an der Eigenschaft, nicht an der Form.
+///
+/// LAUF11-L1 prueft die Groesse an den METADATEN; LAUF12-L1 (P1, ausgefuehrt) zeigte, dass das an
+/// die FORM "regulaere Datei mit bekannter Groesse" bindet: eine FIFO traegt die stat-Groesse 0,
+/// passierte die Vorpruefung und wurde mit 12,58 MB vollstaendig materialisiert, bevor `input_bytes`
+/// griff; `/dev/zero` haette nie ein Ende geliefert. Python hat fuer denselben Pfad zwei Mechanismen
+/// (`cli._open_input`: S_ISREG-Stat-Guard VOR dem Oeffnen, `_read_capped`: der LESEAUFRUF selbst ist
+/// gekappt). Beide stehen jetzt auch hier: keine Nicht-Regulaerdatei, und `take(limit + 1)` — mehr als
+/// die Schranke plus ein Byte wird nie gelesen, egal was die Metadaten sagen.
+fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    if !md.is_file() {
+        return Err(format!(
+            "cannot read {path}: not a regular file (a FIFO, device or directory is refused before \
+             any byte is read)"
+        ));
+    }
+    if md.len() as usize > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            md.len() as usize,
+            BUDGET_INPUT_BYTES,
+        ));
+    }
+    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let mut buf: Vec<u8> = Vec::new();
+    f.take(BUDGET_INPUT_BYTES as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("cannot read {path}: {e}"))?;
+    if buf.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten("input_bytes", buf.len(), BUDGET_INPUT_BYTES));
+    }
+    Ok(buf)
+}
+
+const POLICY_SCHEMA_V01: &str = "proofbundle/trust-policy/v0.1";
+const POLICY_SCHEMA_V02: &str = "proofbundle/trust-policy/v0.2";
+/// Spiegel von policy._TOP_KEYS — jedes andere Feld auf oberster Ebene ist fail-closed ein Fehler.
+const POLICY_TOP_KEYS: &[&str] = &[
+    "schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature", "merkle",
+    "sd_jwt", "status", "assurance", "decision_receipt", "anchors", "relations", "deploymentReady",
+    "requiresIdentityOverlay", "valid_until", "valid_from", "policyPurpose", "generatedFromTemplate",
+];
+/// Spiegel von policy._RELATIONS_KEYS.
+const POLICY_RELATIONS_KEYS: &[&str] = &[
+    "require_relation_resolution", "reject_superseded", "reject_retracted", "relation_signer",
+    "require_relation_target",
+];
+
+/// Spiegel der Huellen-Pruefung von `proofbundle.policy.load_policy`: Schema aus der bekannten
+/// Menge, kein unbekanntes Feld auf oberster Ebene, `policy_id` nichtleer, `relations` und
+/// `decision_receipt` nur unter v0.2, und in `relations` kein unbekanntes Feld. Was Python darueber
+/// hinaus je Sektion tief prueft (merkle, sd_jwt, anchors, ...), liest dieser Verifizierer nicht —
+/// die Huelle und die Sektion, die er auswertet, muessen aber dasselbe Urteil bekommen.
+fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
+    let obj = pol.as_object().ok_or("trust policy must be a JSON object")?;
+    let schema = obj.get("schema").and_then(|v| v.as_str()).unwrap_or("");
+    if schema != POLICY_SCHEMA_V01 && schema != POLICY_SCHEMA_V02 {
+        return Err(format!(
+            "unsupported trust policy schema {:?}, expected one of [{POLICY_SCHEMA_V01:?}, {POLICY_SCHEMA_V02:?}]",
+            obj.get("schema")
+        ));
+    }
+    let mut fremd: Vec<&str> = obj.keys().map(|k| k.as_str()).filter(|k| !POLICY_TOP_KEYS.contains(k)).collect();
+    if !fremd.is_empty() {
+        fremd.sort_unstable();
+        return Err(format!("unknown field(s) in trust policy: {fremd:?} (trust policy is fail-closed)"));
+    }
+    match obj.get("policy_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => {}
+        _ => return Err("trust policy requires a non-empty string policy_id".to_string()),
+    }
+    if obj.contains_key("decision_receipt") && schema != POLICY_SCHEMA_V02 {
+        return Err(format!("decision_receipt section requires schema {POLICY_SCHEMA_V02}"));
+    }
+    if let Some(rel) = obj.get("relations") {
+        if schema != POLICY_SCHEMA_V02 {
+            return Err(format!("relations section requires schema {POLICY_SCHEMA_V02}"));
+        }
+        let rel = rel.as_object().ok_or("relations must be a JSON object")?;
+        let mut fremd: Vec<&str> =
+            rel.keys().map(|k| k.as_str()).filter(|k| !POLICY_RELATIONS_KEYS.contains(k)).collect();
+        if !fremd.is_empty() {
+            fremd.sort_unstable();
+            return Err(format!("unknown field(s) in relations: {fremd:?} (trust policy is fail-closed)"));
+        }
+    }
+    Ok(())
 }
 
 fn fatal(msg: &str) -> ! {
@@ -1511,12 +2123,18 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: pb_verify_rs <content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
+            "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
 verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-report> ..."
         );
         exit(2);
     }
     match args[1].as_str() {
+        // LAUF11-L1: die Grenzen, die dieser Binary WIRKLICH benutzt. Ein Python-Test vergleicht sie
+        // mit DEFAULT_BUDGET — eine Drift zwischen den beiden Verifizierern faellt damit auf,
+        // bevor sie zu zwei Urteilen ueber dieselbe Datei wird.
+        "budget" => {
+            println!("{}", budget_json());
+        }
         "content-root" => {
             let path = args
                 .get(2)
@@ -1650,6 +2268,13 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 }
             };
             match verify_trust_pack_threshold(&v) {
+                // LAUF12-L4: der GRUND einer Ablehnung gehoert in die Ausgabe, sonst kann kein
+                // Kreuzvergleich "beide lehnen ab" von "beide lehnen aus demselben Grund ab"
+                // unterscheiden. Praefix und Exit-Klasse bleiben.
+                Err(e) => {
+                    println!("MALFORMED: {e}");
+                    exit(2);
+                }
                 Ok((true, signers, threshold, skipped)) => {
                     println!(
                         "OK root_threshold_met=true signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
@@ -1661,10 +2286,6 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         "FAIL root_threshold_met=false signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
                     );
                     exit(1);
-                }
-                Err(_) => {
-                    println!("MALFORMED");
-                    exit(2);
                 }
             }
         }
@@ -1690,5 +2311,276 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             dispatch_verify_relation(&args, "verify-relation-statement", true)
         }
         other => fatal(&format!("unknown subcommand: {other}")),
+    }
+}
+
+
+// ===========================================================================
+// TESTS IM VERIFIZIERER SELBST (LAUF11-L1).
+//
+// Deep Gate Lauf 11 mass: `grep -c '#\[test\]'` ueber diese Datei lieferte **0**. Der unabhaengige
+// Zweitverifizierer wurde ausschliesslich ueber `crosscheck.py` geprueft — also von aussen, durch
+// dieselbe Python-Seite, gegen die er unabhaengig sein soll. Faellt der Kreuzvergleich aus oder
+// fehlt ihm ein Vektor (genau das war Fund L4), prueft diesen Verifizierer niemand.
+//
+// Diese Tests laufen mit `cargo test` und brauchen weder Python noch Netz.
+// ===========================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wert(roh: &str) -> Result<serde_json::Value, String> {
+        strict_parse(roh.as_bytes())
+    }
+
+    #[test]
+    fn anti_paritaet_ein_gewoehnliches_dokument_geht_durch() {
+        // ZUERST und nicht verhandelbar: ohne diese Zusicherung bestuende ein Parser, der ALLES
+        // abweist, jede Probe darunter.
+        let v = wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
+        assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn ein_einsames_surrogat_wird_abgewiesen_ein_paar_nicht() {
+        // Lauf 13, Gegenlesung Stelle 6: Python nahm `"\ud800"` an, serde_json weist es ab. Python
+        // weist jetzt ebenfalls ab; dieser Test pinnt die Rust-Seite, damit ein Parserwechsel die
+        // Paritaet nicht still kippt.
+        assert!(strict_parse(br#"{"a":"\ud800"}"#).is_err(), "einsames Surrogat angenommen");
+        assert!(strict_parse(br#"{"\udfff":1}"#).is_err(), "einsames Surrogat als Schluessel angenommen");
+        assert!(strict_parse(br#"{"a":"\ud83d\ude00"}"#).is_ok(), "gueltiges Paar abgewiesen");
+    }
+
+    #[test]
+    fn zu_lange_zeichenkette_wird_abgewiesen() {
+        let lang = "x".repeat(BUDGET_STRING_LEN + 1);
+        let roh = format!("{{\"a\":\"{lang}\"}}");
+        let e = wert(&roh).expect_err("eine Zeichenkette ueber der Schranke wurde angenommen");
+        assert!(e.contains("string_len"), "falsche Dimension gemeldet: {e}");
+        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+    }
+
+    #[test]
+    fn ein_zu_langer_schluessel_wird_ebenso_abgewiesen() {
+        // DIE ACHSE, DIE PYTHON ERST SPAETER SCHLOSS (Fund S80, 2026-09-09): der SCHLUESSEL bekam
+        // dort weder Schranke noch Abweisung. Eine Nachbildung, die ihn auslaesst, waere von
+        // Anfang an die halbe Pruefung.
+        let lang = "k".repeat(BUDGET_STRING_LEN + 1);
+        let roh = format!("{{\"{lang}\":1}}");
+        let e = wert(&roh).expect_err("ein Schluessel ueber der Schranke wurde angenommen");
+        assert!(e.contains("string_len"), "falsche Dimension gemeldet: {e}");
+    }
+
+    #[test]
+    fn zu_tiefe_verschachtelung_wird_abgewiesen() {
+        let n = BUDGET_JSON_DEPTH + 5;
+        let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
+        let e = wert(&roh).expect_err("eine zu tiefe Verschachtelung wurde angenommen");
+        assert!(e.contains("json_depth") || e.contains("recursion"), "unerwartete Meldung: {e}");
+    }
+
+    #[test]
+    fn die_tiefe_knapp_unter_der_schranke_bleibt_erlaubt() {
+        // Die Gegenrichtung zur Zeile darueber: der Deckel darf nicht schon darunter beissen,
+        // sonst weist er zulaessige Dokumente ab und die Probe oben sagt nichts ueber die Grenze.
+        let n = BUDGET_JSON_DEPTH - 2;
+        let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
+        assert!(wert(&roh).is_ok(), "ein Dokument unter der Tiefenschranke wurde abgewiesen");
+    }
+
+    #[test]
+    fn zu_viele_knoten_werden_abgewiesen() {
+        let n = BUDGET_JSON_NODES + 10;
+        let mut roh = String::from("[");
+        for i in 0..n {
+            if i > 0 {
+                roh.push(',');
+            }
+            roh.push('0');
+        }
+        roh.push(']');
+        let e = wert(&roh).expect_err("ein Dokument ueber der Knotenschranke wurde angenommen");
+        assert!(e.contains("json_nodes"), "falsche Dimension gemeldet: {e}");
+    }
+
+    #[test]
+    fn eine_zu_grosse_eingabe_wird_vor_dem_parsen_abgewiesen() {
+        let roh = format!("[{}]", "1,".repeat(BUDGET_INPUT_BYTES / 2 + 10));
+        let e = strict_parse(roh.as_bytes()).expect_err("eine Eingabe ueber der Schranke ging durch");
+        assert!(e.contains("input_bytes"), "die Eingangsschranke meldete etwas anderes: {e}");
+    }
+
+    #[test]
+    fn die_meldungsform_ist_die_von_python() {
+        // Der Differentialtest der Python-Seite vergleicht Meldungen. Weicht die Form ab, wird aus
+        // einer echten Uebereinstimmung ein gemeldeter Unterschied — und aus einem Riegel Laerm.
+        assert_eq!(
+            budget_ueberschritten("string_len", 1_333_724, 1_000_000),
+            "verification budget exceeded: string_len = 1333724 > limit 1000000"
+        );
+    }
+
+    fn _policy(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).expect("test policy parses")
+    }
+
+    #[test]
+    fn eine_policy_mit_tippfehler_wird_abgewiesen_statt_still_ignoriert() {
+        // Lauf 13 L4 F1 (P0): "relatoins" statt "relations" — Python exit 2, Rust verifizierte mit exit 0.
+        let ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_superseded":true}}"#);
+        assert!(policy_huelle_pruefen(&ok).is_ok(), "gueltige Policy abgewiesen");
+        let typo = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relatoins":{"reject_superseded":true}}"#);
+        let e = policy_huelle_pruefen(&typo).expect_err("Tippfehler angenommen");
+        assert!(e.contains("unknown field") && e.contains("relatoins"), "{e}");
+        let typo_innen = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_supersede":true}}"#);
+        let e = policy_huelle_pruefen(&typo_innen).expect_err("Tippfehler in relations angenommen");
+        assert!(e.contains("unknown field(s) in relations"), "{e}");
+    }
+
+    #[test]
+    fn schema_und_policy_id_sind_pflicht_relations_nur_unter_v02() {
+        let ohne_schema = _policy(r#"{"policy_id":"p","relations":{}}"#);
+        assert!(policy_huelle_pruefen(&ohne_schema).expect_err("ohne schema").contains("unsupported trust policy schema"));
+        let v01_rel = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p","relations":{}}"#);
+        assert!(policy_huelle_pruefen(&v01_rel).expect_err("relations unter v0.1").contains("requires schema"));
+        let v01_ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p"}"#);
+        assert!(policy_huelle_pruefen(&v01_ok).is_ok(), "v0.1 ohne relations ist gueltig");
+        let ohne_id = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2"}"#);
+        assert!(policy_huelle_pruefen(&ohne_id).expect_err("ohne policy_id").contains("policy_id"));
+        let kein_objekt = serde_json::json!([1, 2]);
+        assert!(policy_huelle_pruefen(&kein_objekt).is_err(), "Liste als Policy angenommen");
+    }
+
+    #[test]
+    fn die_schranken_sind_die_von_python() {
+        // Die Zahlen stehen hier noch einmal ausgeschrieben, damit eine Aenderung an den
+        // Konstanten eine BEWUSSTE ist. Der Abgleich gegen Python fuehrt der Test auf der
+        // Gegenseite; dieser hier faengt das versehentliche Verstellen.
+        assert_eq!(BUDGET_INPUT_BYTES, 8_388_608);
+        assert_eq!(BUDGET_JSON_NODES, 200_000);
+        assert_eq!(BUDGET_JSON_DEPTH, 64);
+        assert_eq!(BUDGET_STRING_LEN, 1_000_000);
+        assert_eq!(BUDGET_SIGNATURES, 512);
+        assert_eq!(BUDGET_WITNESSES, 256);
+    }
+
+    #[test]
+    fn der_budget_bericht_nennt_jede_durchgesetzte_achse() {
+        // LAUF12-L1: die MENGE der Achsen ist die Aussage, nicht nur ihre Werte. Lauf 11 schloss
+        // vier, Lauf 12 fand die fuenfte und sechste — ein Bericht, der nur die bekannten nennt,
+        // haette beide verschwiegen.
+        let j = budget_json();
+        for name in ["input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"] {
+            assert!(j.contains(&format!("\"{name}\":")), "Achse {name} fehlt im Bericht: {j}");
+        }
+        assert_eq!(BUDGET_ACHSEN.len(), 6, "eine Achse kam dazu oder fiel weg — bewusst?");
+    }
+
+    // RFC 8032 Abschnitt 7.1, Testvektor 1: ein GUELTIGER Ed25519-Schluessel, damit die Proben
+    // unten am Budget scheitern und nicht am Schluessel.
+    fn gueltiger_pubkey_b64() -> String {
+        let roh = hex::decode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+            .expect("hex");
+        base64::engine::general_purpose::STANDARD.encode(roh)
+    }
+
+    fn umschlag_mit_signaturen(n: usize) -> serde_json::Value {
+        let sigs: Vec<serde_json::Value> = (0..n).map(|_| serde_json::json!({"sig": "AA=="})).collect();
+        serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=", "signatures": sigs})
+    }
+
+    #[test]
+    fn zu_viele_signaturen_werden_vor_der_pruefung_abgewiesen() {
+        // LAUF12-L1 F1 (P0): 601 Signaturen — Python fail-closed, Rust bestaetigte.
+        let env = umschlag_mit_signaturen(BUDGET_SIGNATURES + 1);
+        let e = verify_dsse(&env, &gueltiger_pubkey_b64(), None)
+            .expect_err("ein Umschlag ueber der Signaturschranke wurde geprueft");
+        assert!(e.contains("signatures"), "falsche Dimension: {e}");
+        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+    }
+
+    #[test]
+    fn genau_die_signaturschranke_bleibt_erlaubt() {
+        // Die Gegenrichtung: an der Grenze wird geprueft (und mangels echter Signatur abgelehnt),
+        // nicht am Budget verweigert.
+        let env = umschlag_mit_signaturen(BUDGET_SIGNATURES);
+        let r = verify_dsse(&env, &gueltiger_pubkey_b64(), None);
+        assert_eq!(r, Ok(false), "an der Schranke muss geprueft werden, nicht verweigert: {r:?}");
+    }
+
+    fn trust_pack_mit_root_keyids(n: usize) -> serde_json::Value {
+        let kids: Vec<String> = (0..n).map(|i| format!("k{i}")).collect();
+        let keys: serde_json::Map<String, serde_json::Value> = kids
+            .iter()
+            .map(|k| (k.clone(), serde_json::json!({"publicKey": gueltiger_pubkey_b64()})))
+            .collect();
+        let statement = serde_json::json!({
+            "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
+        });
+        let body = serde_json::to_vec(&statement).expect("json");
+        serde_json::json!({
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": base64::engine::general_purpose::STANDARD.encode(body),
+            "signatures": [{"keyid": "k0", "sig": "AA=="}]
+        })
+    }
+
+    #[test]
+    fn zu_viele_zeugen_werden_abgewiesen() {
+        // LAUF12-L1 F2 (P0): 300 root-keyIds — Python structure_ok=false, Rust Schwelle erfuellt.
+        let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES + 1);
+        let e = verify_trust_pack_threshold(&env)
+            .expect_err("ein Trust Pack ueber der Zeugenschranke wurde geprueft");
+        assert!(e.contains("witnesses"), "falsche Dimension: {e}");
+    }
+
+    #[test]
+    fn genau_die_zeugenschranke_bleibt_erlaubt() {
+        let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES);
+        let r = verify_trust_pack_threshold(&env).expect("an der Schranke wurde verweigert");
+        assert!(!r.0, "eine Junk-Signatur darf die Schwelle nicht erfuellen");
+    }
+
+    #[test]
+    fn string_len_zaehlt_zeichen_wie_python() {
+        // LAUF12-L1 F3 (P1): 1.000.000 Codepoints eines Zwei-Byte-Zeichens sind 2.000.000 Bytes und
+        // genau EIN Zeichen unter der Grenze plus eins. Python zaehlt Zeichen; hier ebenso.
+        let an_der_grenze = "\u{e9}".repeat(BUDGET_STRING_LEN);
+        assert!(wert(&format!("{{\"a\":\"{an_der_grenze}\"}}")).is_ok(),
+                "ein Feld mit genau string_len Zeichen (aber mehr Bytes) wurde abgewiesen");
+        let drueber = "\u{e9}".repeat(BUDGET_STRING_LEN + 1);
+        let e = wert(&format!("{{\"a\":\"{drueber}\"}}")).expect_err("ein Zeichen zu viel ging durch");
+        assert!(e.contains(&format!("string_len = {}", BUDGET_STRING_LEN + 1)),
+                "die Meldung zaehlt nicht in Zeichen: {e}");
+    }
+
+    #[test]
+    fn read_file_liest_keine_nicht_regulaere_datei() {
+        // LAUF12-L1 F5 (P1): eine FIFO traegt die stat-Groesse 0 und passierte die Metadaten-
+        // Vorpruefung. Ein Verzeichnis ist die naechste Nicht-Regulaerdatei, die ein Test ohne
+        // Sonderrechte anlegen kann; die Eigenschaft (`is_file`) ist dieselbe.
+        let d = std::env::temp_dir();
+        let e = read_file_begrenzt(d.to_str().expect("utf-8")).expect_err("ein Verzeichnis wurde gelesen");
+        assert!(e.contains("not a regular file"), "unerwartete Meldung: {e}");
+    }
+
+    #[test]
+    fn read_file_kappt_das_lesen_selbst() {
+        let d = std::env::temp_dir().join(format!("pb_verify_rs_lesekappe_{}", std::process::id()));
+        std::fs::create_dir_all(&d).expect("tmp");
+        let gross = d.join("gross.json");
+        std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
+        let e = read_file_begrenzt(gross.to_str().expect("utf-8")).expect_err("ueber der Schranke gelesen");
+        assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
+        let klein = d.join("klein.json");
+        std::fs::write(&klein, b"{\"a\":1}").expect("write");
+        assert_eq!(read_file_begrenzt(klein.to_str().expect("utf-8")).expect("klein"), b"{\"a\":1}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ein_doppelter_schluessel_wird_weiter_abgewiesen() {
+        // Eine bestehende Eigenschaft, die das neue Budget nicht beschaedigt haben darf.
+        assert!(wert(r#"{"a":1,"a":2}"#).is_err(), "der Duplikat-Schluessel geht jetzt durch");
     }
 }

@@ -179,8 +179,8 @@ def _jwt_payload(compact: str) -> dict:
     verify-time callers (check_binds_bundle, bundle.py's identity check) catch it fail-closed."""
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
-    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-    return loads_strict(decode_b64url(padded).decode("utf-8"))
+    # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
+    return loads_strict(decode_b64url(payload_b64).decode("utf-8"))
 
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
