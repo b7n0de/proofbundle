@@ -108,10 +108,34 @@ def schneide_beleg(text: str, kennung: str):
     (S/R/G/Z) und Tabellenzeile mit der Kennung in Spalte 1 (N/A).
     """
     import re  # noqa: PLC0415
-    for ebene in (4, 3, 2):
+    # VIERTE FASSUNG, Fund der Fremdfamilie (Codex r3999820860, 13.09.2026). Die dritte suchte von
+    # der TIEFSTEN Ebene aufwaerts (4, 3, 2) und nahm damit bei neun Kennungen einen spaeteren
+    # `### <K>, Nachtrag` statt der HAUPTSTELLE `## <K>`. Gemessen an der erzeugten Belegdatei:
+    # `audit_artifacts/600/register_evidence/S35.md`, 3755 B und committet, trug AUSSCHLIESSLICH
+    # den ersten Nachtrag; die Hauptstelle fehlte vollstaendig, der zweite Nachtrag ebenso.
+    #
+    # Der Selbsttest der Funktion mass "keine Ueberlappung", nie "richtiger Abschnitt" — deshalb
+    # rutschte der Fehler durch zwei vorherige Haertungen hindurch. Eine Eigenschaft, die niemand
+    # prueft, haelt nur zufaellig.
+    #
+    # GESUCHT WIRD JETZT VON DER FLACHSTEN EBENE ABWAERTS, weil die Hauptstelle die flachste ist.
+    # AUSNAHME, und sie ist GEMESSEN statt vermutet: eine Ueberschrift, die eine SPANNE eroeffnet
+    # (`## S102 bis S114`), gehoert mehreren Kennungen und darf nicht der Beleg EINER sein — dort
+    # ist die tiefere Ebene die richtige, und das ist die dokumentierte Absicht der zweiten
+    # Fassung. Ueber alle 132 Ueberschriften des Bestands gemessen: NEUN Kennungen haben mehrere
+    # Ueberschriften, GENAU EINE davon eroeffnet eine Spanne.
+    #
+    # Die Spannenform ist eng gefasst, `bis`/`to` plus Kennung. Eine erste, weitere Fassung nahm
+    # auch einen Gedankenstrich vor einer Kennung und hielt damit S21, S24, S49 und Z5
+    # faelschlich fuer Sammelkoepfe — dort steht nach dem Strich nur der erste Satz.
+    for ebene in (2, 3, 4):
         m = re.search(rf"^({'#' * ebene}) {re.escape(kennung)}(?![0-9A-Za-z])", text, re.M)
         if not m:
             continue
+        zeilenende = text.find("\n", m.end())
+        rest = text[m.end():zeilenende if zeilenende != -1 else len(text)]
+        if re.match(r"^\s*(?:bis|to)\s+[A-Z]\d+\b", rest):
+            continue                      # Sammelkopf einer Spanne, die tiefere Ebene gilt
         ende = len(text)
         for n in _kopf_muster().finditer(text, m.end()):
             if len(n.group(1)) <= ebene or n.group(2) != kennung:

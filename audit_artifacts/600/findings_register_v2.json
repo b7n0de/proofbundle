@@ -6,7 +6,7 @@
   "issuer": "b7n0de",
   "language": "en",
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T03:07:46Z",
+  "generated_at": "2026-09-13T15:35:00Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -22,7 +22,7 @@
       },
       {
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
-        "sha256": "ac4102c23a1d2452b911a8e075df8b1ee4a77d27f6c59525c0059988e3213bb0",
+        "sha256": "a33ae7007e27f6236b87ca5e08f0b2d62f083d8229418317dceeb00cf6bbe387",
         "identifiers": 145
       }
     ],
@@ -2069,7 +2069,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Nachtrag vom 2026-09-08: die Frage ist am Kandidatenkopf gemessen beantwortet — 42",
+      "title": "Rohmatrix und signiertes Differential-Artefakt tragen verschiedene Zahlen",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -2083,13 +2083,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S22.md",
-          "sha256": "13dc3277adcb34f60f4346d6628264f37d2197a3a50256bf3c04f99c67abc8bd",
+          "sha256": "f2ee932f09138479eeae4c819216ab5fa7797b69732fd80be30c0fe2cf2663dd",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            111734,
-            114004
+            105021,
+            105936
           ],
           "fundart": "ueberschrift"
         }
@@ -2357,7 +2357,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "(4), Nachtrag vom 09.09.2026 — die vierte Modulform verhaelt sich im sdist genauso, und das entscheidet ueber den Meta-Test",
+      "title": "Zwei Grenzen des Import-Riegels, die am Artefakt nicht entscheidbar sind",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -2371,13 +2371,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S30.md",
-          "sha256": "6fb83a53ace61e39de5d8e612b45b39670c885ac0b3091fd6bda6b6262c263f9",
+          "sha256": "a5ff9cf2e64a83506479b3e4650edeb73aca32117ecbbc291c79c0b1cf3a83a4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            148326,
-            150388
+            126157,
+            131313
           ],
           "fundart": "ueberschrift"
         }
@@ -2501,7 +2501,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Korrektur vom 09.09.2026 — die un-Gegenlesung hat ein Glied dieser Kette widerlegt",
+      "title": "Zwei einzeln korrekte Riegel schliessen zusammen die Tuer zur Signatur",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -2515,12 +2515,12 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S34.md",
-          "sha256": "16235285e6399b3f38758248e40f9af77bda09c6935f3d8ec1668443f310cfe8",
+          "sha256": "4e4e12e244ab8cce0649546293c3ed4b380c1ec669bbe1d95147325cf41e69b2",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            144156,
+            140060,
             148326
           ],
           "fundart": "ueberschrift"
@@ -2537,7 +2537,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Nachtrag vom 09.09.2026 — die Gegenlesung hat vier Stellen getroffen, drei davon tragen",
+      "title": "Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -2551,13 +2551,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S35.md",
-          "sha256": "dde383dcdd3ad5a12c4770f3ae56e535345c9c00ca8b69a4d268558c9d018517",
+          "sha256": "b715e856ba414ef5d8a5f40e6b95a1f855b6ea524fc7e12fef38e9998f355072",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            157958,
-            161713
+            150388,
+            164044
           ],
           "fundart": "ueberschrift"
         }
@@ -2573,7 +2573,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "nachgemessen — und die Messung entscheidet die Frage NICHT, die sie entscheiden sollte",
+      "title": "Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung\"",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -2587,13 +2587,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S36.md",
-          "sha256": "9f37068d8f510e549f10068e75a09d7378dcc259d2d228d614ded240cb81b339",
+          "sha256": "c33b0c14765c49ee5af4be35cd0bacce827438988151ef1387e1492475915140",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            173660,
-            176196
+            164044,
+            165910
           ],
           "fundart": "ueberschrift"
         }
@@ -3077,7 +3077,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Nachtrag — „alle drei ueberholt\" war getragen, jetzt ist es gemessen",
+      "title": "Die drei lokalen Zweige sind ueberholt, und ich haette daraus fast einen Befund gegen die Release-Linie gemacht",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -3091,13 +3091,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S50.md",
-          "sha256": "516ede61721555dc154d3d0a47c527659711b6e00b6223e165d7ec050844349c",
+          "sha256": "80cbbe6a293f8bf912bf683d5780cb625b3445d098000c0ccc6d083b7e18029e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            223814,
-            225644
+            219058,
+            221375
           ],
           "fundart": "ueberschrift"
         }
@@ -3473,7 +3473,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Nachtrag — der Muss-Fehlschlag in voller Groesse, unabhaengig reproduziert",
+      "title": "`coverage` ist rot, die Suite ist gruen, und der Grund ist ein DATEINAME aus meinem eigenen Meta-Test",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -3487,13 +3487,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S61.md",
-          "sha256": "974da452d405cdf3c8e993ba61be75f2daf141a343d529c37bd55ed938222f9c",
+          "sha256": "80ab9b584300d55ea1e59d16585f57eb9fc92054ef1ab112ebfa5e79a6bf98a4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            284057,
-            285608
+            260188,
+            263471
           ],
           "fundart": "ueberschrift"
         }
@@ -3653,7 +3653,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
-      "title": "Nachtrag — die zwei offenen Faelle sind gemessen, und dazwischen lagen ein LOCH und ein UEBERFANGEN",
+      "title": "Nach-dem-Tag-Punkt 1 ist gebaut und belegt: der neue Baum-Riegel, 5 von 5 mit ECHTEN Baeumen",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
@@ -3667,12 +3667,12 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S66.md",
-          "sha256": "73e093e8d9eec840331091908d943b13988307938d589bd1e57caae0fc21ce88",
+          "sha256": "b26cc0d13373ed8b370ac0ee65f3361a4dd2942bab1ee2108d283a332a729932",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
           "byte_range": [
-            294199,
+            291046,
             297202
           ],
           "fundart": "ueberschrift"
