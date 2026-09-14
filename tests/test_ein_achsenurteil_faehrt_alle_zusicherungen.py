@@ -80,13 +80,23 @@ def test_das_schwerste_urteil_gewinnt(m):
         raise RuntimeError("die Messung selbst faellt aus")
     urteil, meldung = m._gesamtausgang([("a", _reisst()), ("b", bricht)])
     assert urteil == "ABGEBROCHEN"
-    assert "a" in meldung and "b" in meldung, "die leichtere Meldung wurde verschluckt"
+    # GEPRUEFT WIRD DIE GERENDERTE ZEILE, NICHT DER BLOSSE NAME (gemessen 14.09.2026). Vorher stand
+    # hier `"a" in meldung and "b" in meldung`. Die Schablone von _gesamtausgang enthaelt immer das
+    # Wort "nicht bestanden" — und darin stecken a, b UND c. Beide Proben waren also wahr,
+    # unabhaengig davon, ob der Name je im Text stand; der einzige inhaltliche Halt dieses Tests
+    # war damit leer. Ein Mutant, der nur die schwerste Meldung behaelt, blieb gruen.
+    assert "a: GERISSEN" in meldung, f"die leichtere Meldung wurde verschluckt: {meldung!r}"
+    assert "b: ABGEBROCHEN" in meldung, f"die schwerere Meldung fehlt: {meldung!r}"
 
 
 def test_jede_nicht_bestandene_wird_namentlich_genannt(m):
     urteil, meldung = m._gesamtausgang([("a", _reisst()), ("b", _ok), ("c", _reisst())])
     assert "2 von 3" in meldung
-    assert "a" in meldung and "c" in meldung
+    # Dieselbe Falle wie oben: "c" steckt in "nicht", "a" und "b" in "bestanden". Nur die
+    # gerenderte Zeile `<name>: <urteil>` bindet den Namen wirklich an sein Urteil.
+    assert "a: GERISSEN" in meldung, f"die erste gerissene fehlt namentlich: {meldung!r}"
+    assert "c: GERISSEN" in meldung, f"die letzte gerissene fehlt namentlich: {meldung!r}"
+    assert "b:" not in meldung, f"eine BESTANDENE wurde mitgemeldet: {meldung!r}"
 
 
 @pytest.mark.parametrize("marke", ["dim", "kombi"])
@@ -110,3 +120,12 @@ def test_die_achse_faehrt_alle_sechs_benannten_zusicherungen(m):
               "kombi_bleibt_unter_der_summe_der_obergrenzen",
               "kombi_speicher_bleibt_unter_der_grenze"):
         assert f'"{n}"' in quelle, f"die Kombi faehrt {n} nicht"
+
+
+def test_eine_leere_liste_ist_kein_bestanden(m):
+    """Ohne eigenen Ausgang wirft `max()` einen ValueError — ein Absturz ohne Urteil ist in einem
+    Modul gegen die vakuose Zustimmung die falsche Antwort, und ein BESTANDEN waere die
+    schlimmere: es haette nichts gemessen und trotzdem zugestimmt."""
+    urteil, meldung = m._gesamtausgang([])
+    assert urteil == "ABGEBROCHEN", f"eine leere Liste ergab {urteil}"
+    assert "nichts gemessen" in meldung, meldung

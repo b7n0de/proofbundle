@@ -122,6 +122,14 @@ def _gesamtausgang(rufe: list[tuple[str, object]]) -> tuple[str, str]:
     # irgendeine ihrer Zusicherungen reisst, ist nicht bestanden — und die Meldung nennt jede
     # nicht bestandene namentlich. Wer das Urteil je nach Zusicherung abstufen will, aendert eine
     # Aussage ueber die Achse und nicht nur eine Rangfolge.
+    # EINE LEERE LISTE IST KEIN BESTANDEN (gemessen 14.09.2026). Ohne diesen Ausgang wirft `max()`
+    # unten `ValueError: max() arg is an empty sequence` — ein unbenannter Absturz statt eines
+    # typisierten Urteils, ausgerechnet in einem Modul, das sonst gegen die vakuose Zustimmung
+    # baut (siehe die `bool(achsen) and bool(kombis)`-Probe in `messe`). Ueber `messe` derzeit
+    # nicht erreichbar, weil dort feste 6er- und 3er-Listen stehen; wer eine davon dynamisch
+    # aufbaut, faellt sonst in genau die Luecke, die das Modul anderswo schliesst.
+    if not rufe:
+        return "ABGEBROCHEN", "keine Zusicherung uebergeben — nichts gemessen"
     rang = {"ABGEBROCHEN": 3, "GERISSEN": 2, "UEBERSPRUNGEN": 1, "BESTANDEN": 0}
     ergebnisse = [(name, *_ausgang(ruf)) for name, ruf in rufe]
     schlimmste = max(ergebnisse, key=lambda e: rang[e[1]])[1]
