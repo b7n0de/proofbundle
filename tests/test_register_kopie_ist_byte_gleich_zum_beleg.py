@@ -48,7 +48,18 @@ def test_die_abweichung_zum_zitat_besteht_und_ist_genau_ein_zeilentrenner():
     assert a != z, (
         "die aeussere Fassung und das Byte-Zitat sind byte-gleich geworden — eine der beiden "
         "Seiten wurde angeglichen. Beide sollen unterschiedlich bleiben.")
-    assert a.rstrip(b"\n") == z.rstrip(b"\n"), (
-        "die Differenz ist NICHT mehr nur das Zeilenende — der Inhalt weicht ab, und das ist "
-        "ein echter Fund statt der gewollten Abweichung.")
-    assert len(z) - len(a) == 1, f"erwartet ein Byte Unterschied, gemessen {len(z) - len(a)}"
+    # GENAU DIESE FORM, und der Weg dahin gehoert dazu. Eine Gegenlesung am 14.09.2026 hielt
+    # die fruehere Fassung `a.rstrip(b"\n") == z.rstrip(b"\n")` zusammen mit
+    # `len(z) - len(a) == 1` fuer zu schwach: rstrip entferne ALLE Zeilentrenner am Ende, ein
+    # Zitat mit zwei zusaetzlichen Leerzeilen komme durch. NACHGEMESSEN STIMMT DAS NICHT — mit
+    # einer Laengendifferenz von genau 1 daneben kann der Unterschied nichts anderes sein als
+    # ein einzelner abschliessender Zeilentrenner; der eingepflanzte Fall faellt in BEIDEN
+    # Fassungen. Die Einwaende einer Gegenlesung sind Kandidaten, keine Funde.
+    # Geblieben ist die Form trotzdem, aus einem schwaecheren aber echten Grund: sie sagt die
+    # Eigenschaft in EINER Gleichung statt in zwei Zusicherungen, die man zusammendenken muss.
+    assert z == a + b"\n", (
+        f"das Zitat ist nicht mehr die aeussere Fassung plus genau einem Zeilentrenner. "
+        f"Gemessen: {len(a)} B gegen {len(z)} B; die letzten vier Bytes lauten "
+        f"{a[-4:].hex()} und {z[-4:].hex()}. Entweder hat sich der Inhalt geaendert, oder die "
+        f"Abweichung sitzt nicht mehr am Dateiende — beides ist ein echter Fund und nicht die "
+        f"gewollte Differenz.")
