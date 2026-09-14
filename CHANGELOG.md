@@ -8,9 +8,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Work on `main` since the `v6.0.0` tag that is not yet delivered in a release. The version is
-deliberately not bumped: nothing here changes the published package, and a bump without a release
-would claim a delivery that did not happen.
+Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
+not bumped: nothing here changes the published package, and a bump without a release would claim a
+delivery that did not happen.
+
+This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
+Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
+work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
+rather than before, which is itself the finding.
 
 ### Added
 
@@ -40,6 +45,28 @@ would claim a delivery that did not happen.
 
 - Identifiers transcribed, internal codename and account names.
 - The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
+
+### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
+
+- **A concurrency group coalesces a queue, it does not serialize one.** `cancel-in-progress` is
+  evaluated on the *arriving* run, but the *group* decides which run dies. The eight workflow groups
+  now carry `github.event_name`, so a pull-request run and a push run of the same ref no longer
+  displace each other.
+- **A called workflow cancelled its caller.** In a `workflow_call` workflow `github.workflow` is the
+  *caller's* name, so `reusable-build-attest.yml` shared a concurrency group with whatever invoked
+  it. Its `concurrency` block is removed; a reusable workflow does not own the group.
+- **A running release could be cancelled.** `release.yml` now carries `cancel-in-progress: false`,
+  which `RESTRISIKO_600.md` had required verbatim and which had never been implemented. Between
+  draft, upload and publication there is no safe interruption point.
+- **Two time budgets sat below the duration they were meant to bound.** `test` was capped at 30
+  minutes against a measured 32.3, `coverage` at 30 against a measured 40.0. A timeout reports as
+  `cancelled`, not `failure`, so both would have read as somebody's cancellation rather than as too
+  small a budget — and under the standing merge rule an unmeasurable required check halts a landing.
+  Now 50 and 60.
+
+The matrix expression that drives the cut was also a string where a list was meant, and
+`tests/test_der_ci_schnitt_haelt.py` (27 cases) now binds each of these properties with a
+counter-example that fails against the pre-fix shape.
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 
