@@ -1,0 +1,93 @@
+{
+  "_was_das_ist": "Der EINE vollstaendige Fall aus Punkt 2d der Fuenferliste, vom Fund bis zur Uebernahme. Er ist KEIN Beispiel, sondern der Weg selbst: erst wenn dieser steht, folgen weitere Faelle. Jedes Glied traegt seine Messung, nicht seine Kennung.",
+  "kennung": "r3999283100",
+  "gebaut_utc": "2026-09-14T23:40:02Z",
+  "1_fund": {
+    "quelle": "https://github.com/b7n0de/proofbundle/pull/197#discussion_r3999283100",
+    "autor": "chatgpt-codex-connector[bot]",
+    "erstellt_utc": "2026-09-13T09:28:06Z",
+    "pfad": "docs/RESEARCH_PROGRAM.md",
+    "schwere": "P2",
+    "titel": "Mark the skipped differential as not measured",
+    "defektklasse": "an aggregate suite result masks a skipped deciding check",
+    "state": "VERIFIED",
+    "wie": "GitHub API, Kommentar-ID aufgeloest"
+  },
+  "2_reproduktion": {
+    "befehl": "pytest -q -rs tests/test_relation_statement_rust_parity.py tests/test_rust_parity_gate.py",
+    "vom_fund_behauptet": {
+      "passed": 23,
+      "skipped": 1,
+      "skip": "test_crosscheck_relation_differential_green",
+      "gemessen_an": "009fea3c875c85476c15daa8cf99591bb2d5a251"
+    },
+    "selbst_gemessen": {
+      "passed": 23,
+      "skipped": 1,
+      "skip": "test_crosscheck_relation_differential_green",
+      "skip_grund": "pb_verify_rs not cargo-built (run `cargo build` in tools/pb_verify_rs)",
+      "gemessen_an": "daef9dc711a6a2bd990576306d0ae0b01fdc38d8"
+    },
+    "state": "VERIFIED",
+    "wie": "nachgefahren statt zitiert; die Zahlen und der Name des uebersprungenen Tests stimmen mit dem Fund ueberein, gemessen an einem ANDEREN Kopf als der Fund",
+    "was_das_nicht_zeigt": "dass Python und Rust uebereinstimmen — genau das misst der uebersprungene Test, und er lief auch hier nicht"
+  },
+  "3_reparatur": {
+    "commit": "83732042f10aae33ed89700ff75f1989b2d32347",
+    "kurz": "8373204",
+    "titel": "docs(research): T5 is NOT MEASURED in the run it cited, and the skip is now named",
+    "datei": "docs/RESEARCH_PROGRAM.md",
+    "was_sich_aendert": "der Zustand der These T5 geht von 'MEASURED, partially' auf 'NOT MEASURED in the run cited below'; der uebersprungene Test wird BEIM NAMEN genannt und der Grund dazu",
+    "state": "VERIFIED",
+    "wie": "git show, Diff gelesen"
+  },
+  "4_aktuelle_geltung": {
+    "auf_origin_main": true,
+    "text_steht_noch": true,
+    "state": "VERIFIED",
+    "wie": "Vorfahrenschaft gegen origin/main und der Wortlaut in der heutigen Datei"
+  },
+  "5_belegpruefung_nach_2a": {
+    "1_fundrevision": {
+      "haelt": true,
+      "warum": "verletzte Eigenschaft (agreement is not measured) und Gegenstand (docs/RESEARCH_PROGRAM.md, These T5) sind beide benannt"
+    },
+    "2_pruefprofil_vor_der_bewertung": {
+      "haelt": false,
+      "warum": "kein Profil legte vorher fest, welche Belegart diese Eigenschaft tragen darf"
+    },
+    "3_belegbytes_und_aussteller": {
+      "haelt": false,
+      "warum": "die Bytes sind da und nachrechenbar, der Aussteller ist ein GitHub-Bot ohne Signatur unter fester Vertrauensregel"
+    },
+    "4_signierter_inhalt_bindet": {
+      "haelt": false,
+      "warum": "nichts ist signiert"
+    },
+    "5_beleg_traegt_genau_die_aussage": {
+      "haelt": true,
+      "warum": "der Fund behauptet eine Zahl und einen Testnamen; beide sind nachgefahren und stimmen"
+    },
+    "6_reparatur_nur_am_nachgewiesenen_gegenstand": {
+      "haelt": true,
+      "warum": "die Reparatur aendert GENAU die Datei, ueber die der Fund spricht, und behauptet nichts ueber ausgelieferte Bytes"
+    },
+    "summe": "3 von 6 halten, 3 nicht — und keine der 3 faellt an diesem Fall, sondern am Weg. Diese Zahl ist GERECHNET; die erste Fassung sagte 2 und war falsch, gefangen vom eigenen Vertrag."
+  },
+  "6_nachgelesene_antwort": {
+    "gelesen": true,
+    "kern": "None of the passing cases measures Python-Rust agreement, so this MEASURED verdict is unsupported",
+    "state": "VERIFIED",
+    "wie": "Kommentartext ueber die API geholt und gelesen"
+  },
+  "7_uebernahme_in_die_registersicht": {
+    "im_register": false,
+    "state": "NOT APPLICABLE",
+    "warum": "dieser Fund gehoert zum Codex-Zustand von PR 197 und nicht zum 6.0.0-Fundregister; E3 verbietet einen zweiten Schreiber am Codex-Zustand, die Uebernahme ist damit ausdruecklich NICHT meine Bahn"
+  },
+  "8_mengenabgleich": {
+    "register_datensaetze": 145,
+    "dieser_fall_darin": 0,
+    "warum": "siehe Schritt 7 — er gehoert nicht in diese Menge, und das ist gemessen, nicht versaeumt"
+  }
+}
