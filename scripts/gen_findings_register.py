@@ -782,6 +782,68 @@ def _subject(repo, text: str) -> dict:
     }
 
 
+#: Die Zahl, die Punkt 2b als Beispiel vom 11.09. nennt. Sie steht hier, damit die Abweichung
+#: RECHENBAR ist statt in einer Fussnote zu stehen — und sie ist ausdruecklich KEIN Sollwert.
+ABSTIMMUNG_BEISPIEL_1109 = 139
+
+
+def _fortschrittssicht(records: list, kreuz: dict, wege: dict, mess: dict) -> dict:
+    """Die DREI ZAHLEN GETRENNT (Punkt 2b) — und die Mengenabstimmung davor.
+
+    2b verlangt woertlich: "Ausgabe drei Zahlen getrennt, historische Abschluesse (13), belegte
+    Reparaturen (startet bei NICHT GEMESSEN), Evidenzluecken. Mengenabstimmung 139 Kennungen
+    (Beispiel 11.09.) gegen 145 Datensaetze (13.09.) VOR jeder Fortschrittsaussage."
+
+    WARUM GETRENNT: eine einzige Fortschrittszahl mischt drei verschiedene Dinge — was frueher
+    geschlossen wurde, was NEU belegt repariert ist, und was gar nicht gemessen werden konnte.
+    Zusammengezaehlt liest sich ein historischer Abschluss wie eine heutige Reparatur.
+
+    DIE ABSTIMMUNG STEHT VORAN UND WIRD GERECHNET. 2b nennt das Paar 139 gegen 145; gemessen am
+    heutigen Bestand sind es 140 gegen 145. Die genannte Zahl stammt aus dem Beispiel vom 11.09.
+    und ist kein Sollwert — aber wer eine Fortschrittsaussage auf die ALTE Zahl stuetzt, rechnet
+    gegen einen Stand, den es nicht mehr gibt. Deshalb steht beides da, mit der Differenz.
+    """
+    zu = [f["id"] for f in FINDINGS if f.get("status") == "closed"]
+    repariert = [r["id"] for r in records if r.get("remediation")]
+    soll = (kreuz.get("gerechnet_aus") or {}).get("sollliste")
+    return {
+        "reconciliation_first": {
+            "records_in_register": len(records),
+            "identifiers_in_tally": soll,
+            "example_1109_named_in_point_2b": ABSTIMMUNG_BEISPIEL_1109,
+            "difference_to_that_example": (None if soll is None
+                                           else soll - ABSTIMMUNG_BEISPIEL_1109),
+            "why_it_stands_first": ("point 2b requires the reconciliation BEFORE any statement of "
+                                    "progress; the number named there is an example from 11.09. "
+                                    "and not a target, so a progress claim resting on it would "
+                                    "count against a state that no longer exists"),
+        },
+        "historical_closures": {
+            "value": len(zu), "ids": zu,
+            "source": "FINDINGS in this generator, entries with status `closed`",
+            "what_it_is_not": ("these were closed before this register existed; none of them is a "
+                               "repair evidenced by this carrier"),
+        },
+        "evidenced_repairs": {
+            "value": len(repariert) or None,
+            "state": None if repariert else "NOT MEASURED",
+            "reason": (None if repariert else
+                       "no record carries a remediation claim, so there is nothing whose evidence "
+                       "could be checked — this counter starts at NOT MEASURED by construction, "
+                       "exactly as point 2b says"),
+        },
+        "evidence_gaps": {
+            "without_find_site": len(
+                [r for r in records if not r.get("evidence")]),
+            "not_measurable": (mess.get("states") or {}).get("NOT MEASURABLE", 0),
+            "without_determined_evidence_path": wege.get("not_measured"),
+            "reason": ("three different gaps, counted apart: an entry with no find site at all, "
+                       "one whose evidence file cannot be recomputed, and one whose KIND of "
+                       "evidence nobody has decided"),
+        },
+    }
+
+
 def _drei_zeiten(ok: dict, generated_at: str) -> dict:
     """Erstsichtung, Messung, Ausgabe — je mit dem, was die Quelle HERGIBT.
 
@@ -1459,6 +1521,12 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     # braucht den Signaturzustand, `subject.content` und die Datensaetze — also alles, was erst
     # jetzt dasteht.
     doc["inventory"]["closing_contract"]["conditions"] = _vertragslage(doc)
+    # PUNKT 2b: die drei Zahlen getrennt, die Mengenabstimmung voran. Braucht die fertigen
+    # Bloecke, steht deshalb hier.
+    doc["inventory"]["progress_view"] = _fortschrittssicht(
+        doc["records"], doc["inventory"].get("cross_count") or {},
+        doc["inventory"].get("evidence_paths") or {},
+        doc["inventory"].get("measurement_summary") or {})
     return doc
 
 
@@ -1983,6 +2051,29 @@ def pruefe_v2(doc, repo) -> list[str]:
         if _sig.get("state") == "UNSIGNED" and not _sig.get("consequence_for_the_reader"):
             fehler.append("Signatur: UNSIGNED ohne die Folge fuer den Leser — wer die Einschraenkung "
                           "nicht nennt, veroeffentlicht sie auch nicht")
+    _fv = inv.get("progress_view")
+    if not isinstance(_fv, dict):
+        fehler.append("[FS-FEHLT] das Inventar fuehrt keine Fortschrittssicht")
+    else:
+        _ab = _fv.get("reconciliation_first") or {}
+        if _ab.get("records_in_register") != inv["identifiers_in_this_register"]:
+            fehler.append("[FS-ABSTIMMUNG] die Abstimmung nennt eine andere Datensatzzahl als das "
+                          "Inventar")
+        _hc = _fv.get("historical_closures") or {}
+        _neu = len([f["id"] for f in FINDINGS if f.get("status") == "closed"])
+        if _hc.get("value") != _neu:
+            fehler.append(f"[FS-NEUABLEITUNG] historische Abschluesse: Traeger {_hc.get('value')!r}, "
+                          f"neu abgeleitet {_neu} — eine Zahl ohne Ableitungspfad")
+        _rp = _fv.get("evidenced_repairs") or {}
+        if _rp.get("value") is None and _rp.get("state") not in LUECKENWOERTER:
+            fehler.append("[FS-REPARATUR] belegte Reparaturen ohne Zahl und ohne Lueckenwort")
+        elif _rp.get("value") is None and not _rp.get("reason"):
+            fehler.append("[FS-GRUND] Lueckenwort ohne Grund bei den Reparaturen")
+        # EINE FORTSCHRITTSZAHL, DIE DREI DINGE MISCHT, IST KEINE.
+        if "value" in _fv:
+            fehler.append("[FS-GEMISCHT] die Fortschrittssicht traegt eine Sammelzahl; 2b verlangt "
+                          "die drei getrennt")
+
     _zt = doc.get("times")
     if not isinstance(_zt, dict):
         fehler.append("[ZT-FEHLT] der Traeger fuehrt keine drei Zeiten")

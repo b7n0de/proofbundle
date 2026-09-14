@@ -639,3 +639,60 @@ def test_eine_messzeit_aus_der_laufuhr_wird_abgewiesen():
     gen, doc = _gen(), _doc()
     doc["times"]["measured"] = {"value": doc["generated_at"], "source": "die Uhr"}
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[ZT-UHR]" in f]
+
+
+# ── Punkt 2b: drei Zahlen getrennt, Mengenabstimmung voran ───────────────────────────────────
+
+def test_die_drei_zahlen_stehen_getrennt():
+    """Eine Sammelzahl liesse einen historischen Abschluss wie eine heutige Reparatur aussehen."""
+    f = _doc()["inventory"]["progress_view"]
+    assert "value" not in f, "die Fortschrittssicht traegt eine Sammelzahl"
+    for name in ("historical_closures", "evidenced_repairs", "evidence_gaps"):
+        assert name in f, name
+
+
+def test_die_mengenabstimmung_steht_voran_und_ist_gerechnet():
+    doc = _doc()
+    a = doc["inventory"]["progress_view"]["reconciliation_first"]
+    assert a["records_in_register"] == doc["inventory"]["identifiers_in_this_register"]
+    assert a["identifiers_in_tally"] == \
+        doc["inventory"]["cross_count"]["gerechnet_aus"]["sollliste"]
+    assert a["difference_to_that_example"] == \
+        a["identifiers_in_tally"] - a["example_1109_named_in_point_2b"]
+    assert "not a target" in a["why_it_stands_first"]
+
+
+def test_die_historischen_abschluesse_sind_abgeleitet():
+    gen = _gen()
+    h = _doc()["inventory"]["progress_view"]["historical_closures"]
+    erwartet = [f["id"] for f in gen.FINDINGS if f["status"] == "closed"]
+    assert h["value"] == len(erwartet) and h["ids"] == erwartet
+    assert "none of them is a repair evidenced by this carrier" in h["what_it_is_not"]
+
+
+def test_belegte_reparaturen_starten_bei_nicht_gemessen():
+    gen = _gen()
+    r = _doc()["inventory"]["progress_view"]["evidenced_repairs"]
+    if r["value"] is None:
+        assert r["state"] in gen.LUECKENWOERTER and r.get("reason")
+        assert "by construction" in r["reason"]
+
+
+def test_die_evidenzluecken_werden_getrennt_gezaehlt():
+    """Drei verschiedene Luecken, nicht eine Zahl."""
+    g = _doc()["inventory"]["progress_view"]["evidence_gaps"]
+    for k in ("without_find_site", "not_measurable", "without_determined_evidence_path"):
+        assert isinstance(g[k], int), k
+    assert "counted apart" in g["reason"]
+
+
+def test_eine_gemischte_fortschrittszahl_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["inventory"]["progress_view"]["value"] = 13
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[FS-GEMISCHT]" in f]
+
+
+def test_eine_nicht_nachrechenbare_abschlusszahl_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["inventory"]["progress_view"]["historical_closures"]["value"] = 99
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[FS-NEUABLEITUNG]" in f]
