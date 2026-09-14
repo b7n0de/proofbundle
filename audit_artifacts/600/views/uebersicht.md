@@ -11,13 +11,13 @@ Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vo
 
 | State | Entries |
 |---|---:|
-| MEASURED | 129 |
+| INTEGRITY_VERIFIED | 129 |
 | NOT APPLICABLE | 16 |
 | **total** | **145** |
 
 Derivation: per entry: NOT APPLICABLE when the class card says it does not count as a finding, NOT MEASURABLE when the evidence file is missing or differs from its byte range, MEASURED otherwise
 Limit: a falling NOT MEASURED count is progress only with a substantiated statement behind it; byte equality proves the integrity of the quotation, never that it describes the matter correctly
-Wall 3 class rule: wall 3 is NO — the witness does not read the checking mechanism from a tree other than the one being judged. every env_blocked line is NOT MEASURABLE with a reason; none counts as passed. PARTIAL over a proofbundle commit is the permanently correct answer and a named state, not a gap. Reach in this tree: 0 records (MEASURED — no env_blocked ledger is reachable at env_blocked.json in this repository, so the rule applies to zero records here; this is a measurement with the result zero, not an omission).
+Wall 3 class rule: wall 3 is NO — the witness does not read the checking mechanism from a tree other than the one being judged. every env_blocked line is NOT MEASURABLE with a reason; none counts as passed. PARTIAL over a proofbundle commit is the permanently correct answer and a named state, not a gap. Reach in this tree: None records (NOT APPLICABLE — env_blocked is a property of a gate receipt component, so no record of this register can carry it. The receipts live in the 2bedone repository; reading them from here is exactly the cross tree read the decision forbids, so this generator does not read them and reports no number it has not measured).
 
 ## How an evidence range ends
 

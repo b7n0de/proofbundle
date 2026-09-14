@@ -565,29 +565,51 @@ def _messung(kennung: str, zaehlt_als_fund: bool, beleg_traegt: bool, klasse) ->
                 "reason": ("the evidence file is missing or its bytes differ from the byte range "
                            "of the source, so nothing here can be recomputed"),
                 "objektklasse": klasse}
-    return {"state": "MEASURED",
+    # DAS WORT TRUG MEHR ALS DER TEST (un-Gegenlesung 15.09.2026, Punkte A und B). Es hiess
+    # `MEASURED`, und das liest sich wie ein Urteil ueber den INHALT. Geprueft wird aber nur
+    # Byte-Gleichheit zum Quellbereich — und zwar an einer Datei, die DERSELBE Lauf gleich
+    # darauf selbst schreibt. Nach dem ersten Lauf ist die Gleichheit trivial erfuellt; die
+    # Aussage ist damit "zwischen zwei Laeufen hat niemand die Datei veraendert", nicht "hier
+    # wurde etwas gemessen". Der Name sagt das jetzt.
+    return {"state": "INTEGRITY_VERIFIED",
             "reason": ("the evidence file carries exactly the bytes of its byte range in the "
-                       "source; this establishes the integrity of the quotation, NOT that the "
-                       "quotation describes the matter correctly"),
+                       "source. This establishes the INTEGRITY of the quotation — that nobody "
+                       "altered the file since it was cut — and NOTHING about whether the "
+                       "quotation describes the matter correctly. The file is written by this "
+                       "same generator, so after its first run the equality holds unless "
+                       "something outside changed it"),
             "objektklasse": klasse}
 
 
 def _wand3_klassenregel(repo, records: list) -> dict:
-    """Die Wand-3-Klassenregel MIT gemessener Reichweite.
+    """Die Wand-3-Klassenregel — und der GEGENSTAND, auf den sie zielt.
 
-    Owner-Entscheid vom 14.09.2026 (ENTSCHEID_wand3_nein_beleg_bleibt_partial): Wand 3 ist NEIN.
-    Der Zeuge liest die Pruefmechanik nicht aus einem anderen Baum als dem beurteilten; PARTIAL
-    ueber einem proofbundle-Commit ist die dauerhaft richtige Antwort und ein Zustand MIT NAMEN.
-    Jede `env_blocked`-Zeile bekommt NOT MEASURABLE mit Grund nach dem Standard vom 11.09., und
-    KEINE zaehlt als bestanden.
+    Owner-Entscheid vom 14.09.2026: Wand 3 ist NEIN. Der Zeuge liest die Pruefmechanik nicht aus
+    einem anderen Baum als dem beurteilten; PARTIAL ueber einem proofbundle-Commit ist die
+    dauerhaft richtige Antwort und ein Zustand MIT NAMEN. Jede `env_blocked`-Zeile ist NOT
+    MEASURABLE mit Grund, KEINE zaehlt als bestanden.
 
-    DIE REICHWEITE WIRD GEMESSEN, NICHT ANGENOMMEN. Der Ledger, der `env_blocked` fuehrt, liegt
-    nicht in diesem Repository. Statt die Regel stumm nicht anzuwenden, steht hier, worauf sie
-    in diesem Baum trifft — auf nichts, und das ist eine Messung mit Ergebnis null, keine
-    Auslassung.
+    ZWEI FEHLER IN DER ERSTEN FASSUNG, beide beim Nachmessen der un-Gegenlesung gefunden.
+
+      1. SIE SUCHTE EINE DATEI, DIE ICH ERFUNDEN HATTE. `audit_artifacts/600/env_blocked.json`
+         existiert nirgends — gemessen, null Treffer ueber beide Repositories. Ein Riegel, der
+         eine nie existierende Eingabe vermisst, meldet verlaesslich ihr Fehlen und hat nie
+         etwas geprueft.
+      2. SIE ZAEHLTE UEBER DIE FALSCHE GRUNDGESAMTHEIT und meldete `applied_to: 0` mit
+         `reach_state: MEASURED`. `env_blocked` ist gar keine Eigenschaft eines FUNDES. Gemessen
+         am Abschluss-Beleg ueber diesem Commit sind es Eigenschaften von GATE-KOMPONENTEN:
+         `deterministic_pre_sweep`, `class_ledger_replay` und `anti_tautology_meta_test`, je mit
+         dem Grund "fehlt im content-adressierten Baum". Kein Datensatz dieses Registers kann so
+         etwas tragen; die Null war richtig und bedeutete etwas anderes, als sie sagte.
+
+    UND DER GEGENSTAND LIEGT AUSSERHALB. Jene Komponenten stehen im Gate-Beleg im Repository
+    2bedone. Ihn von hier aus zu lesen waere genau der baumfremde Griff, den der Entscheid
+    verbietet — dieser Erzeuger tut es deshalb NICHT und nennt keine Zahl, die er nicht gemessen
+    hat. Die Regel steht hier vollstaendig, ihr Gegenstand wird benannt, und die Reichweite ueber
+    die Datensaetze dieses Registers ist NOT APPLICABLE mit Grund statt einer Null, die wie ein
+    Ergebnis aussieht.
     """
-    ledger = repo / "audit_artifacts/600/env_blocked.json"
-    regel = {
+    return {
         "decision": "wall 3 is NO — the witness does not read the checking mechanism from a tree "
                     "other than the one being judged",
         "consequence": "every env_blocked line is NOT MEASURABLE with a reason; none counts as "
@@ -595,21 +617,16 @@ def _wand3_klassenregel(repo, records: list) -> dict:
                        "answer and a named state, not a gap",
         "decision_document": "kraxo/00_standards_regeln/"
                              "ENTSCHEID_wand3_nein_beleg_bleibt_partial_20260914.md",
+        "subject": ("components of an adversarial deep gate receipt over a commit — NOT records "
+                    "of this findings register"),
+        "reach_over_records": None,
+        "reach_state": "NOT APPLICABLE",
+        "reach_reason": ("env_blocked is a property of a gate receipt component, so no record of "
+                         "this register can carry it. The receipts live in the 2bedone "
+                         "repository; reading them from here is exactly the cross tree read the "
+                         "decision forbids, so this generator does not read them and reports no "
+                         "number it has not measured"),
     }
-    if not ledger.is_file():
-        return {**regel, "applied_to": 0, "reach_state": "MEASURED",
-                "reach_reason": (f"no env_blocked ledger is reachable at {ledger.name} in this "
-                                 f"repository, so the rule applies to zero records here; this is "
-                                 f"a measurement with the result zero, not an omission")}
-    import json as _j  # noqa: PLC0415
-    try:
-        roh = _j.loads(ledger.read_text(encoding="utf-8"))
-        betroffen = {str(x) for x in (roh.get("env_blocked") or [])}
-    except (OSError, ValueError) as e:
-        return {**regel, "applied_to": None, "reach_state": "NOT MEASURED",
-                "reach_reason": f"the ledger is present but unreadable ({type(e).__name__})"}
-    return {**regel, "applied_to": len([r for r in records if r["id"] in betroffen]),
-            "reach_state": "MEASURED", "reach_reason": f"read from {ledger.name} at build time"}
 
 
 def _sent_beleg(repo, kennung: str, erklaert, stueck: bytes):
@@ -690,6 +707,15 @@ def _messsumme(records: list, repo) -> dict:
         "what_this_is_not": ("a falling NOT MEASURED count is progress only with a substantiated "
                              "statement behind it; byte equality proves the integrity of the "
                              "quotation, never that it describes the matter correctly"),
+        # un-Gegenlesung 15.09.2026, Punkt D: die Neuableitung liest Klassenkarte und
+        # Belegdateien aus DEMSELBEN Repository wie den Traeger. Wer alle drei konsistent
+        # faelscht, kommt durch. Das ist ein Anker gegen Driften, keine Zeremonie gegen einen
+        # Angreifer mit Schreibrecht im Baum — und der Unterschied gehoert hierher statt in
+        # einen Bericht, den beim Aendern niemand liest.
+        "what_this_check_is": ("a consistency check, not authentication: the states are re-derived "
+                               "from the class card and the evidence files, which live in the same "
+                               "repository as this carrier. It anchors against unnoticed drift; it "
+                               "does not withstand an adversary who can write in this tree"),
         "wall_3_class_rule": _wand3_klassenregel(repo, records),
     }
 
@@ -1546,8 +1572,25 @@ def pruefe_v2(doc, repo) -> list[str]:
     # tests/test_der_traeger_nennt_seine_schnittkonvention.py; so kann sie weder hier still
     # verschwinden noch dort unbemerkt falsch werden.
     # DER MESSZUSTAND: ein Lueckenwort NUR mit Grund, und die Summe muss sich nachrechnen lassen.
-    _MESSZUSTAENDE = {"MEASURED"} | LUECKENWOERTER
-    _gez_m = {}
+    # AUS DER QUELLE NEU ABLEITEN, NICHT AUS DEM TRAEGER ZAEHLEN. Die erste Fassung zaehlte die
+    # `measurement.state`-Felder des Traegers und verglich sie mit der Summe DESSELBEN Traegers —
+    # das faengt eine gefaelschte SUMME, aber keinen gefaelschten EINZELZUSTAND, und es ist
+    # dieselbe Zirkularitaet, die [GR-NEUABLEITUNG] eine Ebene tiefer schon benennt. Gefunden
+    # beim Formulieren der Commit-Botschaft, die mehr behauptete als der Code tat.
+    #
+    # Gerechnet wird jetzt aus der KLASSENKARTE (zaehlt_als_fund) und den BELEGDATEIEN, also aus
+    # denselben zwei Quellen, aus denen der Erzeuger den Zustand ableitet.
+    _MESSZUSTAENDE = {"INTEGRITY_VERIFIED"} | LUECKENWOERTER
+    try:
+        _okm = json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+        _kein_fund = {e["kennung"] for e in _okm["eintraege"]
+                      if not e.get("zaehlt_als_fund", True)}
+        _ms_ableitbar = True
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        fehler.append(f"[MS-NEUABLEITUNG] die Klassenkarte ist nicht lesbar "
+                      f"({type(e).__name__}) — ohne sie ist der Messzustand eine Behauptung")
+        _kein_fund, _ms_ableitbar = set(), False
+    _gez_m, _quelle_cache = {}, {}
     for r in doc["records"]:
         _m = r.get("measurement")
         if not isinstance(_m, dict):
@@ -1558,6 +1601,25 @@ def pruefe_v2(doc, repo) -> list[str]:
             fehler.append(f"{r['id']}, [MS-ZUSTAND] unbekannter Messzustand ({_z!r})")
         if not _m.get("reason"):
             fehler.append(f"{r['id']}, [MS-GRUND] Messzustand ohne Grund ist eine leere Marke")
+        if _ms_ableitbar:
+            _b0 = (r.get("evidence") or [{}])[0]
+            _sp = _b0.get("source_path")
+            if _sp not in _quelle_cache:
+                _qq = repo / str(_sp)
+                _quelle_cache[_sp] = _qq.read_bytes() if _qq.is_file() else None
+            _qroh, _br0 = _quelle_cache[_sp], _b0.get("byte_range")
+            _bp = repo / str(_b0.get("path") or "")
+            _traegt0 = (_qroh is not None and isinstance(_br0, list) and len(_br0) == 2
+                        and _bp.is_file()
+                        and _bp.read_bytes() == _qroh[_br0[0]:_br0[1]])
+            _soll = ("NOT APPLICABLE" if r["id"] in _kein_fund
+                     else "INTEGRITY_VERIFIED" if _traegt0 else "NOT MEASURABLE")
+            if _z != _soll:
+                fehler.append(
+                    f"{r['id']}, [MS-NEUABLEITUNG] der Traeger meldet {_z!r}, aus Klassenkarte "
+                    f"und Belegdatei abgeleitet ist es {_soll!r} — ein Messzustand ohne "
+                    f"Ableitungspfad ist ein Etikett")
+            _z = _soll
         _gez_m[_z] = _gez_m.get(_z, 0) + 1
     _ms = inv.get("measurement_summary")
     if not isinstance(_ms, dict):

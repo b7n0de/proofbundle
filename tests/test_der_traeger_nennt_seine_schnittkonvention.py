@@ -203,7 +203,8 @@ def test_ein_sent_beleg_ohne_grund_oder_datum_wird_abgewiesen():
 
 # ── Punkt 2 der Fuenferliste: der Messer je Objektklasse ─────────────────────────────────────
 
-_MESSZUSTAENDE = {"MEASURED", "NOT MEASURED", "NOT MEASURABLE", "NOT APPLICABLE"}
+_MESSZUSTAENDE = {"INTEGRITY_VERIFIED", "NOT MEASURED", "NOT MEASURABLE",
+                  "NOT APPLICABLE"}
 
 
 def test_jeder_eintrag_traegt_einen_messzustand_mit_grund():
@@ -232,25 +233,37 @@ def test_die_verteilung_laesst_sich_aus_der_klassenkarte_nachrechnen():
                  (REPO / b["path"]).read_bytes() == (REPO / b["source_path"]).read_bytes()[
                      b["byte_range"][0]:b["byte_range"][1]]
         z = ("NOT APPLICABLE" if r["id"] in kein_fund
-             else "MEASURED" if traegt else "NOT MEASURABLE")
+             else "INTEGRITY_VERIFIED" if traegt else "NOT MEASURABLE")
         erwartet[z] = erwartet.get(z, 0) + 1
     ms = doc["inventory"]["measurement_summary"]
     assert ms["states"] == erwartet, f"Traeger {ms['states']}, nachgerechnet {erwartet}"
     assert sum(ms["states"].values()) == doc["inventory"]["identifiers_in_this_register"]
 
 
-def test_die_wand3_regel_nennt_ihre_gemessene_reichweite():
+def test_die_wand3_regel_nennt_ihren_gegenstand_und_keine_erfundene_zahl():
+    """un-Gegenlesung 15.09.: `applied_to 0` mit `MEASURED` war eine Null, die wie ein Ergebnis
+    aussah. env_blocked ist eine Eigenschaft von Gate-Komponenten, nicht von Funden."""
     w3 = _doc()["inventory"]["measurement_summary"]["wall_3_class_rule"]
     assert "wall 3 is NO" in w3["decision"]
     assert "none counts as passed" in w3["consequence"]
-    assert w3["reach_state"] in _MESSZUSTAENDE
-    assert w3.get("reach_reason"), "eine Regel ohne gemessene Reichweite ist eine Absichtserklaerung"
+    assert w3["subject"], "eine Regel ohne benannten Gegenstand zielt auf alles und nichts"
+    assert "NOT records of this findings register" in w3["subject"]
+    assert w3["reach_state"] == "NOT APPLICABLE", w3["reach_state"]
+    assert w3["reach_over_records"] is None, "eine Zahl, die nicht gemessen wurde, steht nicht da"
+    assert w3.get("reach_reason")
+
+
+def test_der_traeger_nennt_die_reichweite_seiner_eigenen_pruefung():
+    """un-Gegenlesung 15.09., Punkt D: Anker gegen Driften, keine Authentisierung."""
+    ms = _doc()["inventory"]["measurement_summary"]
+    assert "not authentication" in ms["what_this_check_is"]
+    assert "same" in ms["what_this_check_is"] and "repository" in ms["what_this_check_is"]
 
 
 def test_eine_verfaelschte_messsumme_wird_abgewiesen():
     """FANGNACHWEIS."""
     gen, doc = _gen(), _doc()
-    doc["inventory"]["measurement_summary"]["states"]["MEASURED"] += 1
+    doc["inventory"]["measurement_summary"]["states"]["INTEGRITY_VERIFIED"] += 1
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[MS-NEUABLEITUNG]" in f]
 
 
