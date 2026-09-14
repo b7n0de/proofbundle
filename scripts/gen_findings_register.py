@@ -525,6 +525,44 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
+def _schnittkonvention(gezaehlt: dict, gesamt: int) -> dict:
+    """Wie ein Bereich ENDET — deklariert statt vorausgesetzt.
+
+    WARUM ES DIESEN BLOCK GIBT, gemessen 15.09.2026. Der Traeger fuehrt `byte_range` und
+    `fundart`, aber KEIN Wort darueber, ob der Bereich den Trenner zur naechsten Ueberschrift
+    einschliesst. Er tut es: `schneide_beleg` setzt das Ende auf den Beginn der naechsten
+    Ueberschrift, und weil `^` unter `re.M` hinter dem Zeilenumbruch trifft, faellt die
+    Leerzeile zwischen den Abschnitten in den Schnitt. Gemessen ueber den Bestand: 118 von 145
+    Bereichen enden mit einer Leerzeile, 25 ohne Zeilenumbruch (Tabellenzeilen), 2 mit einem.
+
+    WAS DIE LUECKE GEKOSTET HAT: `docs/register/G1.md` traegt 3669 B und ist mit der Mail vom
+    12.09. nach aussen gebunden; die Belegdatei traegt 3670 B. Der eine Unterschied ist genau
+    dieser Trenner. Ohne die Deklaration liest sich die Differenz wie ein Defekt in einer der
+    beiden Fassungen — und ein Leser, der den Abschnitt nach Augenmass nachschneidet, bekommt
+    eine andere Zahl als das Feld daneben nennt. Der Owner-Auftrag zu diesem Register verlangt
+    das Gegenteil: nachrechenbar, "ohne dass wir ihm erklaeren muessen, was wir gehasht haben".
+
+    DIE ZAHLEN WERDEN GERECHNET, nicht geschrieben. Eine Konvention, die ihre eigene Verteilung
+    behauptet statt sie zu messen, ist wieder ein Traeger, dem man glauben muss.
+    """
+    return {
+        "interval": "half open [from, to) into source_path, measured in bytes",
+        "rule_by_fundart": {
+            "ueberschrift": ("starts at the '#' of the heading that opens this identifier and "
+                             "ends at the first byte of the next heading that opens a DIFFERENT "
+                             "identifier — so the range INCLUDES the blank line that separates "
+                             "the two sections"),
+            "tabelle_spalte1": ("starts at the '|' of the row and ends at the newline that "
+                                "terminates it — so the range carries NO trailing newline"),
+        },
+        "measured_endings": dict(gezaehlt),
+        "population": gesamt,
+        "consequence_for_the_reader": ("re-cut the range from source_path and hash those bytes; "
+                                       "cutting 'the section' by eye instead can differ by the "
+                                       "separator and will not reproduce the digest"),
+    }
+
+
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     """Der Traeger der Registerform 6.1 aus drei gemessenen Quellen.
 
@@ -551,6 +589,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                   for kx in (_aus.get("kennungen") or [])}
 
     records, ohne_fundstelle = [], []
+    schnittenden = {"ends_with_blank_line": 0, "ends_with_one_newline": 0,
+                    "ends_without_newline": 0}
     for e in ok["eintraege"]:
         k = e["kennung"]
         t = schneide_beleg(text, k)
@@ -559,6 +599,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             continue
         von, bis, fundart = t
         stueck = roh[von:bis]
+        schnittenden["ends_with_blank_line" if stueck.endswith(b"\n\n")
+                     else "ends_with_one_newline" if stueck.endswith(b"\n")
+                     else "ends_without_newline"] += 1
         kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
         records.append({
             "id": k,
@@ -715,6 +758,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "coverage_gaps": luecken,
             "cross_count": _gegenrechnung(ok, records, repo),
             "assurance_checks": _zusicherungen(text, records),
+            "evidence_cut": _schnittkonvention(schnittenden, len(records)),
         },
         "records": records,
         # NICHT ANWENDBAR WAR DAS FALSCHE WORT (Codex 3999796576). Es liest sich wie "eine Signatur
@@ -1244,6 +1288,57 @@ def pruefe_v2(doc, repo) -> list[str]:
             fehler.append(f"Luecke {g['range']}: Zustand ist kein Lueckenwort")
         if not g.get("reason"):
             fehler.append(f"Luecke {g['range']}: ohne Grund")
+    # DIE SCHNITTKONVENTION WIRD NEU ABGELEITET, NICHT GEGLAUBT. Eine Deklaration ueber die
+    # eigene Verteilung ist sonst genau der Traeger, dem man glauben muss — dieselbe Klasse, die
+    # [GR-NEUABLEITUNG] eine Ebene tiefer schon schliesst. Gerechnet wird aus den Bytebereichen,
+    # die derselbe Traeger fuehrt, also aus der Quelle und nicht aus dem Block.
+    # KEINE ANGABE IST NICHT DASSELBE WIE EINE FALSCHE ANGABE — und das musste dieses Modul
+    # nicht zum ersten Mal lernen. Die erste Fassung dieses Riegels verlangte den Block
+    # UNBEDINGT und brach damit tests/test_belegdatei_traegt_ihren_eigenen_digest.py, der einen
+    # MINIMALEN Wegwerf-Traeger baut, um eine ganz andere Eigenschaft zu messen. Der rote Test
+    # hatte recht; es ist woertlich dieselbe Praezedenz, die ein paar Zeilen weiter oben fuer
+    # `gemessen_an` schon steht. Gefragt ist hier die WIDERSPRUCHSFREIHEIT einer VORHANDENEN
+    # Angabe — fehlt sie ganz, gibt es nichts zu widerlegen.
+    #
+    # Dass der ECHTE Bestand sie fuehrt, ist eine eigene Zusicherung und steht in
+    # tests/test_der_traeger_nennt_seine_schnittkonvention.py; so kann sie weder hier still
+    # verschwinden noch dort unbemerkt falsch werden.
+    _sk = inv.get("evidence_cut")
+    if _sk is None:
+        pass                              # keine Angabe, also keine widerspruechliche
+    elif not isinstance(_sk, dict):
+        fehler.append(f"[SK-FORM] `evidence_cut` ist {type(_sk).__name__}, erwartet ein Objekt")
+    else:
+        _gez = {"ends_with_blank_line": 0, "ends_with_one_newline": 0, "ends_without_newline": 0}
+        _cache, _ableitbar = {}, True
+        for r in doc["records"]:
+            for b in r.get("evidence", []):
+                _sp = b.get("source_path")
+                if _sp not in _cache:
+                    _q = repo / str(_sp)
+                    _cache[_sp] = _q.read_bytes() if _q.is_file() else None
+                _r = _cache[_sp]
+                _br = b.get("byte_range")
+                if _r is None or not (isinstance(_br, list) and len(_br) == 2
+                                      and all(isinstance(x, int) for x in _br)):
+                    _ableitbar = False
+                    continue
+                _st = _r[_br[0]:_br[1]]
+                _gez["ends_with_blank_line" if _st.endswith(b"\n\n")
+                     else "ends_with_one_newline" if _st.endswith(b"\n")
+                     else "ends_without_newline"] += 1
+        if not _ableitbar:
+            fehler.append("[SK-NEUABLEITUNG] mindestens ein Beleg laesst sich nicht nachschneiden; "
+                          "ohne Neuableitung ist die Schnittkonvention eine Behauptung")
+        elif _sk.get("measured_endings") != _gez:
+            fehler.append(f"[SK-NEUABLEITUNG] der Traeger nennt {_sk.get('measured_endings')!r}, "
+                          f"neu abgeleitet ist es {_gez!r} — eine gezaehlte Verteilung, die sich "
+                          f"nicht nachrechnen laesst")
+        elif sum(_gez.values()) != inv["identifiers_in_this_register"]:
+            fehler.append(f"[SK-ARITHMETIK] die Schnittenden summieren zu {sum(_gez.values())}, "
+                          f"das Register traegt {inv['identifiers_in_this_register']}")
+        if not _sk.get("rule_by_fundart"):
+            fehler.append("[SK-REGEL] die Schnittkonvention nennt keine Regel je Fundart")
     # Die Gegenrechnung muss AUFGEHEN. Eine Kennung ist in der Fremdzaehlung oder nicht —
     # ein drittes Fach gibt es nicht, und die Summe ist der billigste Riegel dagegen, dass
     # eine gerechnete Zahl wieder zu einer zitierten wird.
@@ -1488,6 +1583,15 @@ def ansicht_uebersicht(doc) -> str:
          _signaturzeile(doc), ""]
     for g in inv["coverage_gaps"]:
         z.append(f"Known gap, {g['range']}, {g['count']} identifiers, {g['state']}, {g['reason']}")
+    sk = inv.get("evidence_cut") or {}
+    if sk:
+        me = sk.get("measured_endings") or {}
+        z += ["", "## How an evidence range ends", "",
+              f"Interval: {sk.get('interval')}.",
+              *[f"* `{fa}` — {regel}" for fa, regel in (sk.get("rule_by_fundart") or {}).items()],
+              f"Measured over {sk.get('population')} carried identifiers: "
+              + ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in me.items()) + ".",
+              sk.get("consequence_for_the_reader", "")]
     cc = inv.get("cross_count") or {}
     if cc.get("state"):
         z += ["", f"Cross-count against the independent tally: {cc['state']} — {cc.get('reason')}"]
@@ -1579,6 +1683,19 @@ def ansicht_html(doc) -> str:
                       f"</b> — {_h.escape(str(zl.get('grund') or zl.get('abweichende_felder')))}</p>")
     else:
         kreuz = ""
+    sk = inv.get("evidence_cut") or {}
+    if sk:
+        me = sk.get("measured_endings") or {}
+        schnitt = ("<h2>How an evidence range ends</h2>"
+                   f"<p>Interval: {_h.escape(str(sk.get('interval')))}.</p><ul>"
+                   + "".join(f"<li><code>{_h.escape(str(fa))}</code> — {_h.escape(str(rg))}</li>"
+                             for fa, rg in (sk.get("rule_by_fundart") or {}).items())
+                   + "</ul><p>Measured over "
+                   + f"<b>{_h.escape(str(sk.get('population')))}</b> carried identifiers: "
+                   + ", ".join(f"<b>{v}</b> {_h.escape(k.replace('_', ' '))}" for k, v in me.items())
+                   + f".</p><p class=sub>{_h.escape(str(sk.get('consequence_for_the_reader')))}</p>")
+    else:
+        schnitt = ""
     zus = ""
     for a in inv.get("assurance_checks") or []:
         marke = ("holds" if a.get("holds") else
@@ -1607,6 +1724,7 @@ def ansicht_html(doc) -> str:
 <p class=warn>{_h.escape(_signaturzeile(doc))}</p>
 {zus}
 <h2>Known gaps</h2><ul>{luecken}</ul>
+{schnitt}
 {kreuz}
 <h2>All records</h2>
 <table><thead><tr><th>Id<th>Role<th>Class<th>Severity<th>Title<th>Bytes</tr></thead>

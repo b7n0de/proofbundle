@@ -31,7 +31,7 @@
     ]
   },
   "issued_at": "2026-09-14",
-  "generated_at": "2026-09-14T15:24:38Z",
+  "generated_at": "2026-09-14T22:15:19Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -153,7 +153,21 @@
         "prose_rationale_state": "REFUTED",
         "prose_rationale_note": "the prose above the severity table justifies '0 open P0/P1' with 'every entry here is P2 or P3'. Measured against that same table: A4 carries P1. The assurance holds because that entry is closed, not for the reason the sentence gives. A sentence that justifies a true statement with a false premise survives the change that makes it false."
       }
-    ]
+    ],
+    "evidence_cut": {
+      "interval": "half open [from, to) into source_path, measured in bytes",
+      "rule_by_fundart": {
+        "ueberschrift": "starts at the '#' of the heading that opens this identifier and ends at the first byte of the next heading that opens a DIFFERENT identifier — so the range INCLUDES the blank line that separates the two sections",
+        "tabelle_spalte1": "starts at the '|' of the row and ends at the newline that terminates it — so the range carries NO trailing newline"
+      },
+      "measured_endings": {
+        "ends_with_blank_line": 118,
+        "ends_with_one_newline": 2,
+        "ends_without_newline": 25
+      },
+      "population": 145,
+      "consequence_for_the_reader": "re-cut the range from source_path and hash those bytes; cutting 'the section' by eye instead can differ by the separator and will not reproduce the digest"
+    }
   },
   "records": [
     {

@@ -7,6 +7,14 @@ Signature, UNSIGNED — this carrier has NOT been through the signing path; it w
 Known gap, S86 bis S101, 16 identifiers, NOT MEASURED, Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: "Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102." Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.
 Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten.
 
+## How an evidence range ends
+
+Interval: half open [from, to) into source_path, measured in bytes.
+* `ueberschrift` — starts at the '#' of the heading that opens this identifier and ends at the first byte of the next heading that opens a DIFFERENT identifier — so the range INCLUDES the blank line that separates the two sections
+* `tabelle_spalte1` — starts at the '|' of the row and ends at the newline that terminates it — so the range carries NO trailing newline
+Measured over 145 carried identifiers: 118 ends with blank line, 2 ends with one newline, 25 ends without newline.
+re-cut the range from source_path and hash those bytes; cutting 'the section' by eye instead can differ by the separator and will not reproduce the digest
+
 Cross-count against the independent tally, computed: 140 equal, 0 missing, 5 extra.
   extra `G1`: benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht
   extra `G2`: benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht
