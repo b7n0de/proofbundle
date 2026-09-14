@@ -8,11 +8,43 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Work on `main` after the 6.0.0 tag, not yet released. This section exists because
-`scripts/check_version_and_changelog.py` asked for it by name: four non-trivial commits had landed
-with no changelog trace, and the guard called that "undelivered work". It was right — the entry
-below is the trace it was missing, written after the fact rather than before, which is itself the
-finding.
+Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
+not bumped: nothing here changes the published package, and a bump without a release would claim a
+delivery that did not happen.
+
+This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
+Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
+work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
+rather than before, which is itself the finding.
+
+### Added
+
+- Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
+  producer emits `findings_register_v2.json` plus two generated views, every record carries the
+  byte range of its own evidence, and the three 6.1 register lines are written directly in the new
+  form with their measured starting position.
+- The 6.0.0 register body now carries the signature of the anchor key, and the written target value
+  carries its provenance — a chain is appended rather than the previous value overwritten.
+- A guard that no shipped test module imports a non-shipped module by bare name. The
+  `published-artifact-gate / hermetic-cleanroom` job aborted at collection because
+  `tests/test_belegdatei_traegt_ihren_eigenen_digest.py` put `scripts/` on `sys.path` and then wrote
+  `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
+  ran, not one of the other tests. The guard decides in the checkout, where both the file and the
+  distribution listing are present, and leaves the cleanroom unchanged.
+
+### Fixed
+
+- Evidence digests: a record named a `path` and a `sha256` that described different objects, the
+  digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
+  file. The checker also never opened the file it named, so a deleted or altered piece of evidence
+  stayed green.
+- Gaps in the register numbering were silent; they are now named and gated.
+- The producer is read against the signed register rather than against its own in-memory list.
+
+### Changed
+
+- Identifiers transcribed, internal codename and account names.
+- The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
 
 ### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
 

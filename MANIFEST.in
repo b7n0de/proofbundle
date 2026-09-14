@@ -81,6 +81,12 @@ include Makefile
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
 #
+# DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
+# importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
+# (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
+# es benutzt — nicht bei uns. Dazu laden drei ausgelieferte Testdateien es ueber
+# spec_from_file_location; sie umgehen den blanken Modul-Import ausdruecklich, weil scripts/ im
+# entpackten sdist nicht auf sys.path liegt, brauchen aber die DATEI.
 # DRIN, und die Entscheidung ist GEMESSEN statt geraten: scripts/b7_paketinhalt_ohne_schluesselmaterial.py.
 # Der erste Reflex war, ihn wie budget_axis_measurement.py als Freigabe-Beweismittel dieses Repos zu
 # fuehren und draussen zu lassen — ein Riegel fuer den Bauweg klingt nach Werkbank, nicht nach
@@ -98,6 +104,7 @@ include scripts/rust_parity_registry.json
 include scripts/_build_anchor_fixture.py
 include scripts/audit_candidate_matrix.py
 include scripts/audit_output_aufloesbar.py
+include scripts/b7_historie.py
 include scripts/b7_paketinhalt_ohne_schluesselmaterial.py
 include scripts/branch_base_check.py
 include scripts/build_reproducible.py
