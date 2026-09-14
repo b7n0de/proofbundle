@@ -549,6 +549,88 @@ BELEGWEGE = {
 NIE_REPARIERT = "decision_or_boundary"
 
 
+def _artefakt_kandidaten(text: str) -> list:
+    """Jede Stelle der Quelle, die einen Artefaktnamen UND einen sha256 in EINER Zeile fuehrt.
+
+    GEMESSEN statt abgeschrieben. Eine Liste von Digests, die ich beim Lesen notiert und in den
+    Code getippt haette, waere genau die "Zahl aus dem Gedaechtnis", gegen die dieses Modul an
+    mehreren Stellen gebaut ist. Gefunden wird zur Bauzeit, im selben Text, den der Rest des
+    Registers zitiert.
+    """
+    import re  # noqa: PLC0415
+    muster = re.compile(
+        r"(proofbundle-[0-9][^\s`|]*?\.(?:whl|tar\.gz))[^\n]*?\b([0-9a-f]{64})\b"
+        r"|\b([0-9a-f]{64})\b[^\n]*?(proofbundle-[0-9][^\s`|]*?\.(?:whl|tar\.gz))")
+    raus = []
+    for i, zeile in enumerate(text.splitlines(), 1):
+        m = muster.search(zeile)
+        if not m:
+            continue
+        name = m.group(1) or m.group(4)
+        digest = m.group(2) or m.group(3)
+        raus.append({"filename": name, "sha256": digest, "source_line": i})
+    return raus
+
+
+def _subject(repo, text: str) -> dict:
+    """Identifikator UND Inhaltsdigest GETRENNT (Punkt 2a) — und der Inhalt ist hier nicht bindbar.
+
+    2a verlangt: "subject fuehrt Identifikator und Inhaltsdigest getrennt, Wheel und sdist
+    getrennt (N15), Action unter Referenz (N16)."
+
+    DER IDENTIFIKATOR ist trivial: Name, Version, Tag. Er sagt, WORUEBER das Register spricht.
+
+    DER INHALTSDIGEST IST ES NICHT, und das ist ein Befund. Gemessen fuehrt die Quelle mehrere
+    Paare aus Artefaktname und sha256 — sie stammen aus BAUVERSUCHEN ueber VERSCHIEDENE Commits
+    und mit verschiedenen Groessen, nicht aus dem veroeffentlichten Artefakt. Keine Stelle sagt
+    "das ist, was ausgeliefert wurde". Einen davon zu waehlen hiesse, eine Release-Bindung zu
+    behaupten, die niemand geprueft hat — und der Leser koennte den Unterschied nicht sehen.
+    Deshalb steht hier NOT MEASURABLE mit Grund, und die gefundenen Kandidaten stehen daneben,
+    damit die Luecke nachvollziehbar ist statt nur behauptet.
+
+    EINE BEILAEUFIGE LEHRE, weil sie mich in dieser Runde fast erwischt hat: aus N15 ("die sdist
+    ist nicht bit-reproduzierbar") liesse sich ableiten, zwei sdist-Digests seien zwei Bauten
+    desselben Baums. Gemessen stimmt das nicht — es sind zwei Commits mit verschiedener Groesse,
+    und an einer der Stellen steht ausdruecklich `reproducible: true`. Eine Erklaerung, die
+    passt, ist noch keine Messung.
+
+    DIE ACTION DAGEGEN IST BINDBAR (N16): die Datei liegt im Baum, ihr Digest wird gerechnet.
+    """
+    import hashlib  # noqa: PLC0415
+    kand = _artefakt_kandidaten(text)
+    inhalt = {
+        "state": "NOT MEASURABLE",
+        "reason": ("the source names artifact digests from build experiments over different "
+                   "commits and with different sizes; no place states which bytes were "
+                   "published, so binding the release to one of them would assert a link nobody "
+                   "checked"),
+        "candidates_in_source": kand,
+        "candidate_count": len(kand),
+        "wheel_and_sdist_are_separate": ("they are listed separately because they are separate "
+                                         "artifacts with separate digests — see N15"),
+    }
+    apfad = repo / "action/action.yml"
+    if apfad.is_file():
+        roh = apfad.read_bytes()
+        aktion = {"state": "VERIFIED", "path": "action/action.yml",
+                  "sha256": hashlib.sha256(roh).hexdigest(), "bytes": len(roh),
+                  "documented_ref": "action@v1.0.0",
+                  "reason": ("the file lies in this tree, so its digest is computed here rather "
+                             "than quoted. Which ref a consumer resolves is a property of the "
+                             "remote tag, not of this file — see N16")}
+    else:
+        aktion = {"state": "NOT MEASURABLE", "path": "action/action.yml",
+                  "reason": "the action file is not present in this tree"}
+    return {
+        "identifier": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
+        "content": inhalt,
+        "action": aktion,
+        "why_separate": ("an identifier says WHICH release is meant; a content digest says WHICH "
+                         "BYTES. A register that conflates them cannot tell a renamed artifact "
+                         "from a changed one"),
+    }
+
+
 def _belegweg(klasse) -> dict:
     """Welcher der vier Belegwege — nur wo die Quelle es HERGIBT.
 
@@ -1078,6 +1160,10 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
         "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
+        # PUNKT 2a: Identifikator und Inhaltsdigest GETRENNT. `release_subject` bleibt, wie es
+        # ist — es ist der Identifikator und wird von Vertraegen gelesen; `subject` stellt
+        # daneben, was `release_subject` nie sagte: WELCHE BYTES.
+        "subject": _subject(repo, text),
         # DIE BEWERTUNGSGRENZE IST KEINE EIGENSCHAFT DES ERZEUGUNGSLAUFS (Codex r4000054881).
         # Sie stand auf `generated_at`, also auf dem Zeitpunkt, an dem dieser Befehl lief. Gemessen:
         # `baue_v2(..., "2099-01-01T00:00:00Z")` meldet null Fehler und laesst beide Ansichten eine
@@ -1663,6 +1749,27 @@ def pruefe_v2(doc, repo) -> list[str]:
         if _sig.get("state") == "UNSIGNED" and not _sig.get("consequence_for_the_reader"):
             fehler.append("Signatur: UNSIGNED ohne die Folge fuer den Leser — wer die Einschraenkung "
                           "nicht nennt, veroeffentlicht sie auch nicht")
+    _su = doc.get("subject")
+    if not isinstance(_su, dict):
+        fehler.append("[SU-FEHLT] der Traeger fuehrt kein `subject`")
+    else:
+        if not (_su.get("identifier") or {}).get("version"):
+            fehler.append("[SU-IDENT] `subject.identifier` nennt keine Version")
+        for feld in ("content", "action"):
+            _b = _su.get(feld)
+            if not isinstance(_b, dict):
+                fehler.append(f"[SU-FORM] `subject.{feld}` ist kein Objekt")
+                continue
+            if _b.get("state") not in ("VERIFIED", *LUECKENWOERTER):
+                fehler.append(f"[SU-ZUSTAND] `subject.{feld}` traegt {_b.get('state')!r}")
+            elif not _b.get("reason"):
+                fehler.append(f"[SU-GRUND] `subject.{feld}` ohne Grund")
+        # EIN GEWAEHLTER DIGEST OHNE GEPRUEFTE BINDUNG IST DIE KLASSE, GEGEN DIE 2a GEBAUT IST.
+        _c = _su.get("content") or {}
+        if _c.get("state") == "VERIFIED" and not _c.get("verified_against"):
+            fehler.append("[SU-BINDUNG] `subject.content` meldet VERIFIED, nennt aber nicht, "
+                          "wogegen geprueft wurde — ein Digest ohne Bindung ist eine Behauptung")
+
     _bg = doc.get("assessment_cutoff")
     if isinstance(_bg, dict):
         if _bg.get("state") not in LUECKENWOERTER or not _bg.get("reason"):

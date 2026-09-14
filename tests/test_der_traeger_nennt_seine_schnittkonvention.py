@@ -375,3 +375,62 @@ def test_eine_grenze_die_sich_als_repariert_ausgibt_wird_abgewiesen():
              if r["evidence_path"].get("value") == gen.NIE_REPARIERT)
     z["evidence_path"]["counts_as_repaired"] = True
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[BW-REPARIERT]" in f]
+
+
+# ── Punkt 2a: subject fuehrt Identifikator und Inhaltsdigest GETRENNT ────────────────────────
+
+def test_subject_trennt_identifikator_und_inhalt():
+    s = _doc()["subject"]
+    assert s["identifier"]["name"] == "proofbundle"
+    assert s["identifier"]["version"] and s["identifier"]["tag"]
+    assert "content" in s and "action" in s
+    assert s.get("why_separate"), "die Trennung ohne Begruendung ist eine Formalie"
+
+
+def test_der_inhaltsdigest_wird_nicht_gewaehlt_sondern_benannt():
+    """Die Quelle fuehrt Digests aus Bauversuchen ueber verschiedene Commits.
+
+    Einen davon zum Release-Digest zu erklaeren waere eine Bindung, die niemand geprueft hat.
+    """
+    c = _doc()["subject"]["content"]
+    assert c["state"] == "NOT MEASURABLE", c["state"]
+    assert c.get("reason")
+    assert c["candidate_count"] == len(c["candidates_in_source"])
+    assert c["candidate_count"] >= 2, "ohne Kandidaten waere die Luecke nicht nachvollziehbar"
+    for k in c["candidates_in_source"]:
+        assert len(k["sha256"]) == 64 and k["filename"].startswith("proofbundle-")
+        assert isinstance(k["source_line"], int)
+
+
+def test_die_kandidaten_stehen_wirklich_in_der_quelle():
+    """Zweiter Messweg: jede genannte Zeile wird in RESTRISIKO_600.md nachgeschlagen."""
+    zeilen = (REPO / "RESTRISIKO_600.md").read_text(encoding="utf-8").splitlines()
+    for k in _doc()["subject"]["content"]["candidates_in_source"]:
+        z = zeilen[k["source_line"] - 1]
+        assert k["sha256"] in z and k["filename"] in z, (k, z[:120])
+
+
+def test_die_action_ist_gerechnet_nicht_zitiert():
+    """N16: die Datei liegt im Baum, also wird ihr Digest hier gerechnet."""
+    import hashlib as _h
+    a = _doc()["subject"]["action"]
+    p = REPO / "action/action.yml"
+    if not p.is_file():
+        assert a["state"] == "NOT MEASURABLE" and a.get("reason")
+        return
+    assert a["state"] == "VERIFIED"
+    assert a["sha256"] == _h.sha256(p.read_bytes()).hexdigest()
+    assert a["bytes"] == p.stat().st_size
+
+
+def test_ein_verifizierter_inhalt_ohne_bindung_wird_abgewiesen():
+    """FANGNACHWEIS: VERIFIED ohne `verified_against` ist ein Digest ohne Bindung."""
+    gen, doc = _gen(), _doc()
+    doc["subject"]["content"] = {"state": "VERIFIED", "reason": "weil ich es sage"}
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[SU-BINDUNG]" in f]
+
+
+def test_ein_subject_ohne_grund_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["subject"]["content"].pop("reason")
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[SU-GRUND]" in f]
