@@ -13,25 +13,6 @@
     "state": "VERIFIED",
     "wie": "GitHub API, Kommentar-ID aufgeloest"
   },
-  "2_reproduktion": {
-    "befehl": "pytest -q -rs tests/test_relation_statement_rust_parity.py tests/test_rust_parity_gate.py",
-    "vom_fund_behauptet": {
-      "passed": 23,
-      "skipped": 1,
-      "skip": "test_crosscheck_relation_differential_green",
-      "gemessen_an": "009fea3c875c85476c15daa8cf99591bb2d5a251"
-    },
-    "selbst_gemessen": {
-      "passed": 23,
-      "skipped": 1,
-      "skip": "test_crosscheck_relation_differential_green",
-      "skip_grund": "pb_verify_rs not cargo-built (run `cargo build` in tools/pb_verify_rs)",
-      "gemessen_an": "daef9dc711a6a2bd990576306d0ae0b01fdc38d8"
-    },
-    "state": "VERIFIED",
-    "wie": "nachgefahren statt zitiert; die Zahlen und der Name des uebersprungenen Tests stimmen mit dem Fund ueberein, gemessen an einem ANDEREN Kopf als der Fund",
-    "was_das_nicht_zeigt": "dass Python und Rust uebereinstimmen — genau das misst der uebersprungene Test, und er lief auch hier nicht"
-  },
   "3_reparatur": {
     "commit": "83732042f10aae33ed89700ff75f1989b2d32347",
     "kurz": "8373204",
@@ -82,12 +63,39 @@
   },
   "7_uebernahme_in_die_registersicht": {
     "im_register": false,
-    "state": "NOT APPLICABLE",
-    "warum": "dieser Fund gehoert zum Codex-Zustand von PR 197 und nicht zum 6.0.0-Fundregister; E3 verbietet einen zweiten Schreiber am Codex-Zustand, die Uebernahme ist damit ausdruecklich NICHT meine Bahn"
+    "state": "EXCLUDED_BY_LANE",
+    "warum": "dieser Fund gehoert zum Codex-Zustand von PR 197 und nicht zum 6.0.0-Fundregister; E3 verbietet einen zweiten Schreiber am Codex-Zustand, die Uebernahme ist damit ausdruecklich NICHT meine Bahn",
+    "_korrektur_un_gegenlesung": "NOT APPLICABLE sagt 'trifft nicht zu'. Hier trifft der Schritt sehr wohl zu — er ist Teil des Weges, den 2d beschreibt —, er wird nur von einer anderen Bahn ausgefuehrt. Das ist eine AKTIVE Ausklammerung und traegt jetzt ihren eigenen Namen, statt sich als Irrelevanz zu geben."
   },
   "8_mengenabgleich": {
     "register_datensaetze": 145,
     "dieser_fall_darin": 0,
     "warum": "siehe Schritt 7 — er gehoert nicht in diese Menge, und das ist gemessen, nicht versaeumt"
+  },
+  "2_nachmessung_heute": {
+    "befehl": "pytest -q -rs tests/test_relation_statement_rust_parity.py tests/test_rust_parity_gate.py",
+    "vom_fund_behauptet": {
+      "passed": 23,
+      "skipped": 1,
+      "skip": "test_crosscheck_relation_differential_green",
+      "gemessen_an": "009fea3c875c85476c15daa8cf99591bb2d5a251"
+    },
+    "selbst_gemessen": {
+      "passed": 23,
+      "skipped": 1,
+      "skip": "test_crosscheck_relation_differential_green",
+      "skip_grund": "pb_verify_rs not cargo-built (run `cargo build` in tools/pb_verify_rs)",
+      "gemessen_an": "daef9dc711a6a2bd990576306d0ae0b01fdc38d8"
+    },
+    "state": "VERIFIED",
+    "wie": "nachgefahren statt zitiert; die Zahlen und der Name des uebersprungenen Tests stimmen mit dem Fund ueberein, gemessen an einem ANDEREN Kopf als der Fund",
+    "was_das_nicht_zeigt": "dass Python und Rust uebereinstimmen — genau das misst der uebersprungene Test, und er lief auch hier nicht",
+    "_korrektur_un_gegenlesung": "Die erste Fassung nannte das hier REPRODUKTION. Gemessen ist es etwas anderes: der Commit, den der Fund nennt (009fea3c875c85476c15daa8cf99591bb2d5a251), ist in diesem Repository NICHT vorhanden ('bad object'). Gemessen wurde am HEUTIGEN Kopf. Das zeigt, dass der Zustand sich nicht geaendert hat — ein Regressionsnachweis —, nicht, dass der Fund an SEINEM Stand nachvollzogen wurde. Die Begriffe sind verschieden, und die Verwechslung war meine.",
+    "reproduktion_am_fundcommit": {
+      "state": "NOT MEASURABLE",
+      "commit": "009fea3c875c85476c15daa8cf99591bb2d5a251",
+      "reason": "der genannte Commit ist in diesem Repository nicht auffindbar; ohne ihn laesst sich der Lauf des Funds nicht an seinem eigenen Stand wiederholen"
+    },
+    "was_hier_wirklich_gezeigt_ist": "regression check at today's head: the same two files still produce 23 passed and 1 skipped, and the skipped one is still the deciding test"
   }
 }

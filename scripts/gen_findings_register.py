@@ -822,8 +822,16 @@ def _einordnung(kennung: str, status, note: str, vorgaben: dict) -> dict:
         kopf = {"named_in_source": v.get("wortlaut"),
                 "named_source": vorgaben.get("quelle_abschnitt")}
     if status == "open":
-        return {**kopf, "bucket": "confirmed_open_defect",
-                "derived_from": "status `open` in the producer list"}
+        # "OPEN" IST KEINE BESTAETIGUNG (un-Gegenlesung 15.09.2026, die benannte Bruchstelle).
+        # Der Korb heisst `confirmed_open_defect`; `open` sagt UNGELOEST, nicht VERIFIZIERT. Ein
+        # Defekt kann offen und unbestaetigt sein. Aus einem Zustandswort einen Pruefstatus zu
+        # machen ist eine semantische Ueberhoehung — dieselbe Klasse wie `MEASURED` fuer eine
+        # blosse Byte-Gleichheit, nur eine Ebene weiter.
+        return {**kopf, "bucket": None, "state": "NOT MEASURED",
+                "derived_from": "status `open` in the producer list",
+                "reason": ("`open` says the entry is unresolved, not that the defect was "
+                           "confirmed; no source records a confirmation, and the bucket "
+                           "`confirmed_open_defect` claims one")}
     treffer = [h for h in re.findall(r"\b[0-9a-f]{7,40}\b", note or "") if not h.isdigit()]
     if status == "closed" and treffer:
         return {**kopf, "bucket": None, "state": "NOT MEASURED",
@@ -892,6 +900,21 @@ def _fortschrittssicht(records: list, kreuz: dict, wege: dict, mess: dict) -> di
             "out_of_scope": len([r for r in records if r.get("classification") is None]),
             "scope": ("only entries the producer list carries; the other identifiers come from "
                       "the source register and have no status to classify"),
+            # EIN KORB, DER HEUTE NIEMAND ERREICHT, IST KEINE LEERE ZAHL, SONDERN EINE AUSSAGE
+            # (un-Gegenlesung 15.09., Punkt C2). Ohne diesen Block liest sich eine Null wie
+            # "es gibt gerade keinen Fall" statt wie "kein Fall KANN ihn erreichen, weil ...".
+            "why_each_bucket_is_empty_today": {
+                "evidenced_repair": ("a repair claim exists for eight entries, but no evidence of "
+                                     "it has been checked — condition 6 of the closing contract"),
+                "confirmed_open_defect": ("`open` is recorded, a confirmation is not; deriving one "
+                                          "from the other would claim a verification nobody did"),
+                "reasoned_refutation": ("no source records a refutation with its reasoning"),
+                "decision_or_boundary": ("the producer list carries only N entries; the object "
+                                         "class that names boundaries is not among them"),
+            },
+            "what_would_fill_them": ("the evaluating component of point 2b, reading the evidence "
+                                     "references — that component is the work, and these zeros are "
+                                     "its input, not its result"),
         },
         "evidence_gaps": {
             "without_find_site": len(

@@ -55,7 +55,7 @@ def test_die_reparatur_gilt_heute_noch(fall):
 def test_die_reproduktion_laesst_sich_nachfahren(fall):
     """[ZAEHLT] Die Zahl UND der Name des uebersprungenen Tests, beides neu gemessen."""
     import re
-    r = fall["2_reproduktion"]
+    r = fall["2_nachmessung_heute"]
     aus = subprocess.run(
         # WOMIT gemessen wird, ist Teil der Messung: derselbe Interpreter, der diesen Test
         # faehrt. "python" waere das, was PATH gerade dafuer haelt.
@@ -82,9 +82,17 @@ def test_die_reproduktion_laesst_sich_nachfahren(fall):
     assert r["selbst_gemessen"]["skip_grund"].split("(")[0].strip() in aus.stdout
 
 
+def test_der_fall_trennt_nachmessung_von_reproduktion(fall):
+    """un-Gegenlesung 15.09.: dieselben Zahlen an einem ANDEREN Kopf sind eine Wiederholung."""
+    r = fall["2_nachmessung_heute"]
+    assert r["reproduktion_am_fundcommit"]["state"] == "NOT MEASURABLE"
+    assert "nicht auffindbar" in r["reproduktion_am_fundcommit"]["reason"]
+    assert "regression check" in r["was_hier_wirklich_gezeigt_ist"]
+
+
 def test_der_fall_sagt_was_die_reproduktion_NICHT_zeigt(fall):
     """Die Zahlen stimmen — Uebereinstimmung misst genau der Test, der uebersprungen wird."""
-    assert "dass Python und Rust uebereinstimmen" in fall["2_reproduktion"]["was_das_nicht_zeigt"]
+    assert "dass Python und Rust uebereinstimmen" in fall["2_nachmessung_heute"]["was_das_nicht_zeigt"]
 
 
 def test_die_belegpruefung_nennt_je_bedingung_einen_grund(fall):
@@ -102,7 +110,7 @@ def test_die_belegpruefung_nennt_je_bedingung_einen_grund(fall):
 def test_die_uebernahme_ist_fremde_bahn_und_sagt_es(fall):
     u = fall["7_uebernahme_in_die_registersicht"]
     assert u["im_register"] is False
-    assert u["state"] == "NOT APPLICABLE"
+    assert u["state"] == "EXCLUDED_BY_LANE"
     # KLEINSCHREIBUNG GEMESSEN, nicht angenommen: der Traeger schreibt "NICHT meine Bahn".
     assert "E3" in u["warum"] and "nicht meine bahn" in u["warum"].lower()
 

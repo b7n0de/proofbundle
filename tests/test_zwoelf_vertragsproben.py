@@ -56,6 +56,22 @@ def _rot(gen, doc, marke: str) -> list:
     return [f for f in gen.pruefe_v2(doc, REPO) if marke in f]
 
 
+def _rundgang(gen, echt, mach, marke: str) -> None:
+    """Sicherung entfernt ROT, wiederhergestellt GRUEN — je Probe, nicht nur einmal global.
+
+    un-Gegenlesung 15.09.2026, Punkt A1: eine Probe, die nur fragt "kommt die erwartete Marke",
+    bestuende auch bei einem Riegel, der auf JEDEN Eingriff alles meldet. `test_00` schliesst nur
+    den unveraenderten Fall aus. Der Rundgang schliesst die Luecke von der anderen Seite: DERSELBE
+    Traeger ohne den Eingriff muss gruen sein, also hat der Eingriff die Marke verursacht und
+    nicht die Tageslage.
+    """
+    d = copy.deepcopy(echt)
+    mach(d)
+    assert _rot(gen, d, marke), f"der Defekt kam durch, erwartet war {marke}"
+    unberuehrt = gen.pruefe_v2(copy.deepcopy(echt), REPO)
+    assert unberuehrt == [], f"ohne den Eingriff nicht gruen: {unberuehrt[:2]}"
+
+
 # ── Die Gegenrichtung, EINMAL und fuer alle: der unveraenderte Traeger ist gruen ─────────────
 
 def test_00_bestandspruefung_der_unveraenderte_traeger_ist_gruen(gen, echt):
@@ -72,6 +88,8 @@ def test_01_falsche_fundzuordnung(gen, echt):
     r = next(x for x in d["records"] if x.get("classification"))
     r["classification"] = {"bucket": "evidenced_repair", "derived_from": "behauptet"}
     assert _rot(gen, d, "[EO-REPARATUR]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_02_unvollstaendige_erfassung(gen, echt):
@@ -81,6 +99,8 @@ def test_02_unvollstaendige_erfassung(gen, echt):
     # [IV-MENGE] gibt es, WEIL diese Probe zuerst nichts fand: die Inventarzahlen waren
     # untereinander stimmig und niemand hielt sie gegen die Liste.
     assert _rot(gen, d, "[IV-MENGE]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_03_digestverwechslung(gen, echt):
@@ -89,6 +109,8 @@ def test_03_digestverwechslung(gen, echt):
     a, b = d["records"][0]["evidence"][0], d["records"][1]["evidence"][0]
     a["sha256"], b["sha256"] = b["sha256"], a["sha256"]
     assert _rot(gen, d, "Beleg veraendert")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_04_falsche_herkunft(gen, echt):
@@ -96,6 +118,8 @@ def test_04_falsche_herkunft(gen, echt):
     d = copy.deepcopy(echt)
     d["records"][0]["evidence"][0]["source_sha256"] = "0" * 64
     assert _rot(gen, d, "die Quelle hat sich seit dem Schnitt geaendert")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_05_falscher_stand(gen, echt):
@@ -103,6 +127,8 @@ def test_05_falscher_stand(gen, echt):
     d = copy.deepcopy(echt)
     d["generated_at"] = "2099-01-01T00:00:00Z"
     assert _rot(gen, d, "Zeitmarke")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_06_schwaches_pruefinstrument(gen, echt):
@@ -114,6 +140,8 @@ def test_06_schwaches_pruefinstrument(gen, echt):
         if b["nr"] == 4:
             b["met"], b["state"] = True, "MET"
     assert _rot(gen, d, "[AV-SIGNATUR]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_07_historie_ohne_wirkung(gen, echt):
@@ -121,6 +149,8 @@ def test_07_historie_ohne_wirkung(gen, echt):
     d = copy.deepcopy(echt)
     d["inventory"]["progress_view"]["historical_closures"]["value"] = 99
     assert _rot(gen, d, "[FS-NEUABLEITUNG]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_08_squash_oder_cherry_pick(gen, echt):
@@ -128,6 +158,8 @@ def test_08_squash_oder_cherry_pick(gen, echt):
     d = copy.deepcopy(echt)
     d["records"][0]["measurement"]["second_reader"]["state"] = "DEVIATING"
     assert _rot(gen, d, "[ZL-ABWEICHEND]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_09_fremder_laufzustand(gen, echt):
@@ -135,6 +167,8 @@ def test_09_fremder_laufzustand(gen, echt):
     d = copy.deepcopy(echt)
     d["times"]["measured"] = {"value": d["generated_at"], "source": "die Uhr des Laufs"}
     assert _rot(gen, d, "[ZT-UHR]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_10_fehlerhafte_auslieferung(gen, echt):
@@ -142,6 +176,8 @@ def test_10_fehlerhafte_auslieferung(gen, echt):
     d = copy.deepcopy(echt)
     d["subject"]["content"] = {"state": "VERIFIED", "reason": "behauptet"}
     assert _rot(gen, d, "[SU-BINDUNG]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_11_abbruch_oder_konkurrenz(gen, echt):
@@ -150,6 +186,8 @@ def test_11_abbruch_oder_konkurrenz(gen, echt):
     b = d["records"][0]["evidence"][0]
     b["byte_range"] = [b["byte_range"][1], b["byte_range"][0]]
     assert _rot(gen, d, "Bytebereich unmoeglich")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 def test_12_fehlende_uebernahme(gen, echt):
@@ -160,6 +198,8 @@ def test_12_fehlende_uebernahme(gen, echt):
         pytest.skip("kein revidierter Datensatz im Bestand")
     r.pop("supersedes", None)
     assert _rot(gen, d, "[SP-FEHLT]")
+    assert gen.pruefe_v2(copy.deepcopy(echt), REPO) == [], \
+        "ohne den Eingriff nicht gruen — die Marke kam nicht vom Defekt"
 
 
 # ── Der Meta-Test ueber die Proben selbst ────────────────────────────────────────────────────
