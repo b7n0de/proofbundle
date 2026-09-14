@@ -15,8 +15,10 @@ For 5.1.0 the record was written after the closing round. For 6.0.0 the owner fi
 byte-freeze standard of 2026-07-31: freeze first, publish later, never reload mid-sequence), and the
 closing gate round — DEEP, six lenses, refute-to-kill jury — runs on exactly that frozen head. The
 pre-tag receipt that the tag depends on binds the tree digest at the tag, not this path for all
-time. This file may be continued afterwards; earlier receipts stay valid for the tree they were
-written against.
+time. This file may be continued afterwards, and earlier receipts stay valid for the tree they
+were written against. What may be continued is bounded by the paragraph below and does not
+touch it: a finding of the closing round is still never written into this file. A continuation
+is a correction of what the file says about itself, or a later note that is not such a finding.
 
 What follows from that order is stated plainly: a finding of the closing round that must be fixed
 or must be written down is a **new iteration with a new freeze** (standard, rule 2), never an edit
