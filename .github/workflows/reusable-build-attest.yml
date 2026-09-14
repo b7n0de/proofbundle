@@ -86,6 +86,15 @@ jobs:
           python scripts/build_reproducible.py --outdir dist
           python -m build --wheel --outdir dist
 
+      # DERSELBE RIEGEL WIE IM RELEASE-WEG (Codex 3999892822, P1 — Nachbar, selbst gefunden).
+      # Dieser Auftrag baut sdist UND wheel, attestiert sie danach und laedt sie hoch. Das ist ein
+      # Veroeffentlichungsweg wie der Tag-Weg auch; der Riegel stand auf keinem von beiden. Der
+      # Klassenriegel tests/test_der_riegel_steht_auf_jedem_bauweg.py hat diese Stelle gemeldet,
+      # nicht der Bericht — die Luecke war nicht im Tor, sondern in der Menge der Wege.
+      # VOR dem Digest-Schritt, damit nichts attestiert wird, was nicht gemessen wurde.
+      - name: Published bytes — no key material in sdist OR wheel (fail-closed, OA-7186ff7a75)
+        run: python scripts/b7_paketinhalt_ohne_schluesselmaterial.py dist/*.tar.gz dist/*.whl
+
       - name: Record artifact digests (the attested subjects)
         id: digests
         run: |
