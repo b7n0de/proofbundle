@@ -80,6 +80,17 @@ include Makefile
 #
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
+#
+# DRIN, und die Entscheidung ist GEMESSEN statt geraten: scripts/b7_paketinhalt_ohne_schluesselmaterial.py.
+# Der erste Reflex war, ihn wie budget_axis_measurement.py als Freigabe-Beweismittel dieses Repos zu
+# fuehren und draussen zu lassen — ein Riegel fuer den Bauweg klingt nach Werkbank, nicht nach
+# Paket-Faehigkeit. Die Messung entscheidet anders: tests/test_paketinhalt_ohne_schluesselmaterial.py
+# laedt das Skript auf MODULEBENE ueber spec_from_file_location und exec_module, ohne Schutz. Fehlt
+# es im sdist, ist das kein Skip, sondern ein Collection-Error beim Nutzer — genau PB-2026-0717-02
+# aus Zeile 1 dieser Datei. Die Regel steht dort schon: die Skripte, die die Tests aufrufen, gehoeren
+# in den sdist. Dass er dabei seine eigenen Muster mitliefert, ist bedacht: der Riegel nimmt genau
+# eine Datei aus, sich selbst (EIGENER_PFAD), und zwar praefix-tolerant, weil im sdist jeder Pfad
+# unter proofbundle-<version>/ liegt.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
 include scripts/mutation_shard_weights.json
@@ -87,6 +98,7 @@ include scripts/rust_parity_registry.json
 include scripts/_build_anchor_fixture.py
 include scripts/audit_candidate_matrix.py
 include scripts/audit_output_aufloesbar.py
+include scripts/b7_paketinhalt_ohne_schluesselmaterial.py
 include scripts/branch_base_check.py
 include scripts/build_reproducible.py
 include scripts/check_version_and_changelog.py
