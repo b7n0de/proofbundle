@@ -7,6 +7,18 @@ Signature, UNSIGNED — this carrier has NOT been through the signing path; it w
 Known gap, S86 bis S101, 16 identifiers, NOT MEASURED, Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: "Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102." Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.
 Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten.
 
+## Measurement state, per entry
+
+| State | Entries |
+|---|---:|
+| MEASURED | 129 |
+| NOT APPLICABLE | 16 |
+| **total** | **145** |
+
+Derivation: per entry: NOT APPLICABLE when the class card says it does not count as a finding, NOT MEASURABLE when the evidence file is missing or differs from its byte range, MEASURED otherwise
+Limit: a falling NOT MEASURED count is progress only with a substantiated statement behind it; byte equality proves the integrity of the quotation, never that it describes the matter correctly
+Wall 3 class rule: wall 3 is NO — the witness does not read the checking mechanism from a tree other than the one being judged. every env_blocked line is NOT MEASURABLE with a reason; none counts as passed. PARTIAL over a proofbundle commit is the permanently correct answer and a named state, not a gap. Reach in this tree: 0 records (MEASURED — no env_blocked ledger is reachable at env_blocked.json in this repository, so the rule applies to zero records here; this is a measurement with the result zero, not an omission).
+
 ## How an evidence range ends
 
 Interval: half open [from, to) into source_path, measured in bytes.

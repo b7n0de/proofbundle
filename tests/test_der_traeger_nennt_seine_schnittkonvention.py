@@ -199,3 +199,62 @@ def test_ein_sent_beleg_ohne_grund_oder_datum_wird_abgewiesen():
         doc = _doc()
         next(r for r in doc["records"] if r["id"] == "G1")["evidence"][1].pop(feld)
         assert [f for f in gen.pruefe_v2(doc, REPO) if code in f], f"{feld} ungeprueft"
+
+
+# ── Punkt 2 der Fuenferliste: der Messer je Objektklasse ─────────────────────────────────────
+
+_MESSZUSTAENDE = {"MEASURED", "NOT MEASURED", "NOT MEASURABLE", "NOT APPLICABLE"}
+
+
+def test_jeder_eintrag_traegt_einen_messzustand_mit_grund():
+    for r in _doc()["records"]:
+        m = r.get("measurement")
+        assert isinstance(m, dict), f"{r['id']} ohne Messzustand"
+        assert m["state"] in _MESSZUSTAENDE, f"{r['id']}: {m['state']!r}"
+        assert m.get("reason"), f"{r['id']}: Zustand ohne Grund ist eine leere Marke"
+
+
+def test_der_messzustand_steht_nicht_im_klassenfeld():
+    """`class_state` beantwortet eine ANDERE Frage und bleibt unberuehrt."""
+    for r in _doc()["records"]:
+        assert r["class_state"] == "NOT MEASURED"
+        assert "class identifier" in r["class_reason"]
+
+
+def test_die_verteilung_laesst_sich_aus_der_klassenkarte_nachrechnen():
+    doc = _doc()
+    ok = json.loads((REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json").read_text(encoding="utf-8"))
+    kein_fund = {e["kennung"] for e in ok["eintraege"] if not e.get("zaehlt_als_fund", True)}
+    erwartet = {}
+    for r in doc["records"]:
+        b = r["evidence"][0]
+        traegt = (REPO / b["path"]).is_file() and \
+                 (REPO / b["path"]).read_bytes() == (REPO / b["source_path"]).read_bytes()[
+                     b["byte_range"][0]:b["byte_range"][1]]
+        z = ("NOT APPLICABLE" if r["id"] in kein_fund
+             else "MEASURED" if traegt else "NOT MEASURABLE")
+        erwartet[z] = erwartet.get(z, 0) + 1
+    ms = doc["inventory"]["measurement_summary"]
+    assert ms["states"] == erwartet, f"Traeger {ms['states']}, nachgerechnet {erwartet}"
+    assert sum(ms["states"].values()) == doc["inventory"]["identifiers_in_this_register"]
+
+
+def test_die_wand3_regel_nennt_ihre_gemessene_reichweite():
+    w3 = _doc()["inventory"]["measurement_summary"]["wall_3_class_rule"]
+    assert "wall 3 is NO" in w3["decision"]
+    assert "none counts as passed" in w3["consequence"]
+    assert w3["reach_state"] in _MESSZUSTAENDE
+    assert w3.get("reach_reason"), "eine Regel ohne gemessene Reichweite ist eine Absichtserklaerung"
+
+
+def test_eine_verfaelschte_messsumme_wird_abgewiesen():
+    """FANGNACHWEIS."""
+    gen, doc = _gen(), _doc()
+    doc["inventory"]["measurement_summary"]["states"]["MEASURED"] += 1
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[MS-NEUABLEITUNG]" in f]
+
+
+def test_ein_messzustand_ohne_grund_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["records"][0]["measurement"].pop("reason")
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[MS-GRUND]" in f]

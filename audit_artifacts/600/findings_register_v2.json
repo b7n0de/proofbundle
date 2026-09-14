@@ -32,7 +32,7 @@
     ]
   },
   "issued_at": "2026-09-14",
-  "generated_at": "2026-09-14T22:29:39Z",
+  "generated_at": "2026-09-14T22:41:00Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -168,6 +168,45 @@
       },
       "population": 145,
       "consequence_for_the_reader": "re-cut the range from source_path and hash those bytes; cutting 'the section' by eye instead can differ by the separator and will not reproduce the digest"
+    },
+    "measurement_summary": {
+      "states": {
+        "MEASURED": 129,
+        "NOT APPLICABLE": 16
+      },
+      "population": 145,
+      "by_object_class": {
+        "benannte_grenze": {
+          "NOT APPLICABLE": 2
+        },
+        "fund_aussenflaeche": {
+          "MEASURED": 4
+        },
+        "fund_nachtrag": {
+          "MEASURED": 19,
+          "NOT APPLICABLE": 2
+        },
+        "fund_sicherheit_und_korrektheit": {
+          "MEASURED": 106,
+          "NOT APPLICABLE": 1
+        },
+        "nachgemessene_fassung_einer_runde": {
+          "NOT APPLICABLE": 7
+        },
+        "richtigstellung_einer_eigenen_aussage": {
+          "NOT APPLICABLE": 4
+        }
+      },
+      "derivation": "per entry: NOT APPLICABLE when the class card says it does not count as a finding, NOT MEASURABLE when the evidence file is missing or differs from its byte range, MEASURED otherwise",
+      "what_this_is_not": "a falling NOT MEASURED count is progress only with a substantiated statement behind it; byte equality proves the integrity of the quotation, never that it describes the matter correctly",
+      "wall_3_class_rule": {
+        "decision": "wall 3 is NO — the witness does not read the checking mechanism from a tree other than the one being judged",
+        "consequence": "every env_blocked line is NOT MEASURABLE with a reason; none counts as passed. PARTIAL over a proofbundle commit is the permanently correct answer and a named state, not a gap",
+        "decision_document": "kraxo/00_standards_regeln/ENTSCHEID_wand3_nein_beleg_bleibt_partial_20260914.md",
+        "applied_to": 0,
+        "reach_state": "MEASURED",
+        "reach_reason": "no env_blocked ledger is reachable at env_blocked.json in this repository, so the rule applies to zero records here; this is a measurement with the result zero, not an omission"
+      }
     }
   },
   "records": [
@@ -185,6 +224,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_aussenflaeche"
+      },
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
@@ -228,6 +272,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_aussenflaeche"
+      },
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
@@ -271,6 +320,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_aussenflaeche"
+      },
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
@@ -314,6 +368,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_aussenflaeche"
+      },
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
@@ -357,6 +416,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "benannte_grenze"
+      },
       "objektklasse": "benannte_grenze",
       "objektklasse_begruendung": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist.",
       "severity": {
@@ -413,6 +477,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "benannte_grenze"
+      },
       "objektklasse": "benannte_grenze",
       "objektklasse_begruendung": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist.",
       "severity": {
@@ -457,6 +526,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -501,6 +575,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -545,6 +624,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -589,6 +673,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -633,6 +722,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -677,6 +771,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -721,6 +820,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -767,6 +871,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "Praefix N, Klasse fund_nachtrag — mit DEKLARIERTER Ausnahme. Die Quelle weist den Eintrag in seiner eigenen Tabellenzeile als Nicht-Fund aus. Siehe ausnahmen_von_der_klasse.",
       "severity": {
@@ -811,6 +920,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -855,6 +969,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -899,6 +1018,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -943,6 +1067,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -987,6 +1116,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1031,6 +1165,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1075,6 +1214,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1119,6 +1263,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1163,6 +1312,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1207,6 +1361,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1251,6 +1410,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1295,6 +1459,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
       "severity": {
@@ -1341,6 +1510,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "fund_nachtrag"
+      },
       "objektklasse": "fund_nachtrag",
       "objektklasse_begruendung": "Praefix N, Klasse fund_nachtrag — mit DEKLARIERTER Ausnahme. Die Quelle weist den Eintrag in seiner eigenen Tabellenzeile als Nicht-Fund aus. Siehe ausnahmen_von_der_klasse.",
       "severity": {
@@ -1385,6 +1559,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1428,6 +1607,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1471,6 +1655,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1514,6 +1703,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1557,6 +1751,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1600,6 +1799,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1643,6 +1847,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "nachgemessene_fassung_einer_runde"
+      },
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
       "severity": {
@@ -1686,6 +1895,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1730,6 +1944,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1775,6 +1994,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Praefix S, also Klasse fund_sicherheit_und_korrektheit — aber mit DEKLARIERTER Ausnahme. Die Ueberschrift der Quelle weist den Eintrag selbst als Nicht-Fund aus: 'NO FINDING, measured in both directions'. Siehe ausnahmen_von_der_klasse.",
       "severity": {
@@ -1819,6 +2043,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1862,6 +2091,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1905,6 +2139,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1948,6 +2187,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -1991,6 +2235,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2034,6 +2283,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2077,6 +2331,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2120,6 +2379,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2164,6 +2428,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2208,6 +2477,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2252,6 +2526,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2296,6 +2575,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2340,6 +2624,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2384,6 +2673,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2428,6 +2722,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2472,6 +2771,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2516,6 +2820,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2560,6 +2869,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2604,6 +2918,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2648,6 +2967,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2692,6 +3016,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2736,6 +3065,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2780,6 +3114,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2824,6 +3163,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2868,6 +3212,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2912,6 +3261,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -2956,6 +3310,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3000,6 +3359,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3044,6 +3408,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3088,6 +3457,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3132,6 +3506,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3176,6 +3555,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3220,6 +3604,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3264,6 +3653,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3308,6 +3702,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3352,6 +3751,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3396,6 +3800,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3440,6 +3849,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3484,6 +3898,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3528,6 +3947,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3572,6 +3996,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3616,6 +4045,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3660,6 +4094,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3704,6 +4143,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3748,6 +4192,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3792,6 +4241,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3836,6 +4290,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3880,6 +4339,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3924,6 +4388,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -3968,6 +4437,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4012,6 +4486,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4056,6 +4535,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4100,6 +4584,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4144,6 +4633,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4188,6 +4682,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4232,6 +4731,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4276,6 +4780,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4320,6 +4829,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4364,6 +4878,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4408,6 +4927,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4452,6 +4976,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4496,6 +5025,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4540,6 +5074,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4584,6 +5123,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4628,6 +5172,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4672,6 +5221,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4716,6 +5270,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4760,6 +5319,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4804,6 +5368,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4848,6 +5417,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4892,6 +5466,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4936,6 +5515,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -4980,6 +5564,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5024,6 +5613,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5068,6 +5662,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5112,6 +5711,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5156,6 +5760,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5200,6 +5809,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5244,6 +5858,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5288,6 +5907,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5332,6 +5956,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5376,6 +6005,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5420,6 +6054,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5464,6 +6103,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5508,6 +6152,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5552,6 +6201,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5596,6 +6250,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5640,6 +6299,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5684,6 +6348,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5728,6 +6397,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5772,6 +6446,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5816,6 +6495,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5860,6 +6544,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5904,6 +6593,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5948,6 +6642,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -5992,6 +6691,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6036,6 +6740,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6080,6 +6789,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6124,6 +6838,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6168,6 +6887,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6212,6 +6936,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
       "severity": {
@@ -6256,6 +6985,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "richtigstellung_einer_eigenen_aussage"
+      },
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
       "severity": {
@@ -6300,6 +7034,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "richtigstellung_einer_eigenen_aussage"
+      },
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
       "severity": {
@@ -6344,6 +7083,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "richtigstellung_einer_eigenen_aussage"
+      },
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
       "severity": {
@@ -6388,6 +7132,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "NOT APPLICABLE",
+        "reason": "the object class card declares this identifier as not counting as a finding, so there is no measurement to make — this is a decision about the entry, not a gap in the evidence",
+        "objektklasse": "richtigstellung_einer_eigenen_aussage"
+      },
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
       "severity": {
@@ -6432,6 +7181,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Ein Fund am Gegenstand: eine Faehigkeit, die das Werkzeug hat, wird fuer die eigenen Quittungen nicht gebraucht. Gemessen 0 von 20 echten Hausquittungen. Keine falsche Zusicherung, aber ein moeglicher Beleg, der fehlt — deshalb Fund und nicht benannte Grenze: eine Grenze hat kein Ziel-Update, diese Zeile hat 6.1.",
       "severity": {
@@ -6476,6 +7230,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Wie S121: die Faehigkeit ist da (Fixtures proof_7271 und submit_7727), der Gebrauch fehlt. Gemessen 0 von 20. Ziel 6.1, Einreichung bleibt Owner-Tuer je Einreichung.",
       "severity": {
@@ -6520,6 +7279,11 @@
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
+      "measurement": {
+        "state": "MEASURED",
+        "reason": "the evidence file carries exactly the bytes of its byte range in the source; this establishes the integrity of the quotation, NOT that the quotation describes the matter correctly",
+        "objektklasse": "fund_sicherheit_und_korrektheit"
+      },
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Ein Fund an der Anschlussfaehigkeit: ohne Abbildung auf ein gemeinsames Feldvokabular entsteht ein Eigenformat dort, wo ein Standard ein Feld hat. Ziel 6.1 als Abbildung, Bau erst nach Ratifizierung oder Owner-Wort.",
       "severity": {

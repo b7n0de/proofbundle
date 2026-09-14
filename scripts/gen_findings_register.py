@@ -530,6 +530,88 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
+def _messung(kennung: str, zaehlt_als_fund: bool, beleg_traegt: bool, klasse) -> dict:
+    """Der Messzustand EINES Eintrags — abgeleitet, nie von Hand gesetzt.
+
+    Punkt 2 der Fuenferliste, praezisiert durch Nachtrag 1 zu 2155Z (2a): "measurement traegt
+    NOT MEASURED, NOT MEASURABLE, NOT APPLICABLE nach Standard 11.09., nie im Reparaturstatus."
+    Karte OA-3e7d0749b2 (3C): kein neues Feld in der KLASSENKARTE, der Zustand steht im Traeger
+    in den vorhandenen Paaren `state` und `reason`.
+
+    DAS FELD IST NEU, WEIL DIE FRAGE NEU IST. Ein erster Entwurf schrieb den Zustand nach
+    `class_state` — und das Feld beantwortet dort etwas anderes ("die Quelle traegt keine
+    Klassenkennungen"). Einen Wert in ein Feld zu legen, das eine andere Frage stellt, ist die
+    Klasse, an der dieses Register schon mehrfach haengengeblieben ist; `class_state` bleibt
+    deshalb unberuehrt.
+
+    DREI GRUENDE, DREI ZUSTAENDE, und die Zusammenlegung war der Fund der Gegenlesung vom
+    14.09.: "die Belegdatei fehlt oder weicht ab" ist ein technischer Mangel, den man
+    nacharbeiten kann; "der Eintrag zaehlt nicht als Fund" ist eine inhaltliche Festlegung, bei
+    der es nichts nachzuarbeiten gibt. In EINEM Wort zusammengefasst arbeitet der Leser an der
+    falschen Haelfte.
+
+    EHRLICHE GRENZE, und sie steht hier statt in einem Bericht: Byte-Gleichheit belegt die
+    UNVERSEHRTHEIT des Zitats, nicht seine inhaltliche Richtigkeit. Ein Beleg, der den
+    Sachverhalt falsch beschreibt, ist hier MEASURED.
+    """
+    if not zaehlt_als_fund:
+        return {"state": "NOT APPLICABLE",
+                "reason": ("the object class card declares this identifier as not counting as a "
+                           "finding, so there is no measurement to make — this is a decision "
+                           "about the entry, not a gap in the evidence"),
+                "objektklasse": klasse}
+    if not beleg_traegt:
+        return {"state": "NOT MEASURABLE",
+                "reason": ("the evidence file is missing or its bytes differ from the byte range "
+                           "of the source, so nothing here can be recomputed"),
+                "objektklasse": klasse}
+    return {"state": "MEASURED",
+            "reason": ("the evidence file carries exactly the bytes of its byte range in the "
+                       "source; this establishes the integrity of the quotation, NOT that the "
+                       "quotation describes the matter correctly"),
+            "objektklasse": klasse}
+
+
+def _wand3_klassenregel(repo, records: list) -> dict:
+    """Die Wand-3-Klassenregel MIT gemessener Reichweite.
+
+    Owner-Entscheid vom 14.09.2026 (ENTSCHEID_wand3_nein_beleg_bleibt_partial): Wand 3 ist NEIN.
+    Der Zeuge liest die Pruefmechanik nicht aus einem anderen Baum als dem beurteilten; PARTIAL
+    ueber einem proofbundle-Commit ist die dauerhaft richtige Antwort und ein Zustand MIT NAMEN.
+    Jede `env_blocked`-Zeile bekommt NOT MEASURABLE mit Grund nach dem Standard vom 11.09., und
+    KEINE zaehlt als bestanden.
+
+    DIE REICHWEITE WIRD GEMESSEN, NICHT ANGENOMMEN. Der Ledger, der `env_blocked` fuehrt, liegt
+    nicht in diesem Repository. Statt die Regel stumm nicht anzuwenden, steht hier, worauf sie
+    in diesem Baum trifft — auf nichts, und das ist eine Messung mit Ergebnis null, keine
+    Auslassung.
+    """
+    ledger = repo / "audit_artifacts/600/env_blocked.json"
+    regel = {
+        "decision": "wall 3 is NO — the witness does not read the checking mechanism from a tree "
+                    "other than the one being judged",
+        "consequence": "every env_blocked line is NOT MEASURABLE with a reason; none counts as "
+                       "passed. PARTIAL over a proofbundle commit is the permanently correct "
+                       "answer and a named state, not a gap",
+        "decision_document": "kraxo/00_standards_regeln/"
+                             "ENTSCHEID_wand3_nein_beleg_bleibt_partial_20260914.md",
+    }
+    if not ledger.is_file():
+        return {**regel, "applied_to": 0, "reach_state": "MEASURED",
+                "reach_reason": (f"no env_blocked ledger is reachable at {ledger.name} in this "
+                                 f"repository, so the rule applies to zero records here; this is "
+                                 f"a measurement with the result zero, not an omission")}
+    import json as _j  # noqa: PLC0415
+    try:
+        roh = _j.loads(ledger.read_text(encoding="utf-8"))
+        betroffen = {str(x) for x in (roh.get("env_blocked") or [])}
+    except (OSError, ValueError) as e:
+        return {**regel, "applied_to": None, "reach_state": "NOT MEASURED",
+                "reach_reason": f"the ledger is present but unreadable ({type(e).__name__})"}
+    return {**regel, "applied_to": len([r for r in records if r["id"] in betroffen]),
+            "reach_state": "MEASURED", "reach_reason": f"read from {ledger.name} at build time"}
+
+
 def _sent_beleg(repo, kennung: str, erklaert, stueck: bytes):
     """Der Beleg der nach aussen versendeten Fassung — ein evidence-Eintrag mit role `sent`.
 
@@ -582,6 +664,34 @@ def _sent_beleg(repo, kennung: str, erklaert, stueck: bytes):
         block["reason"] = ("the declared copy is present and carries different bytes than the "
                            "declaration claims")
     return block
+
+
+def _messsumme(records: list, repo) -> dict:
+    """Die drei Zahlen GETRENNT, wie Punkt 2b es verlangt — und ohne Zirkelschluss.
+
+    NICHT GEGEN `grundgesamtheit.keine_funde` GEGENGERECHNET. Die Gegenlesung vom 14.09. hat
+    gezeigt, dass jenes Feld eine SUMME UEBER DASSELBE `zaehlt_als_fund` ist; eine
+    Uebereinstimmung damit ist kein zweiter Messweg, sondern derselbe zweimal. Was hier steht,
+    ist die Verteilung und ihre Herleitung — mehr wird nicht behauptet.
+    """
+    from collections import Counter  # noqa: PLC0415
+    c = Counter((r.get("measurement") or {}).get("state") for r in records)
+    je_klasse = {}
+    for r in records:
+        m = r.get("measurement") or {}
+        je_klasse.setdefault(str(m.get("objektklasse")), Counter())[m.get("state")] += 1
+    return {
+        "states": dict(c),
+        "population": len(records),
+        "by_object_class": {k: dict(v) for k, v in sorted(je_klasse.items())},
+        "derivation": ("per entry: NOT APPLICABLE when the class card says it does not count as "
+                       "a finding, NOT MEASURABLE when the evidence file is missing or differs "
+                       "from its byte range, MEASURED otherwise"),
+        "what_this_is_not": ("a falling NOT MEASURED count is progress only with a substantiated "
+                             "statement behind it; byte equality proves the integrity of the "
+                             "quotation, never that it describes the matter correctly"),
+        "wall_3_class_rule": _wand3_klassenregel(repo, records),
+    }
 
 
 def _schnittkonvention(gezaehlt: dict, gesamt: int) -> dict:
@@ -670,6 +780,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                      else "ends_with_one_newline" if stueck.endswith(b"\n")
                      else "ends_without_newline"] += 1
         kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
+        # TRAEGT DER BELEG? Gerechnet gegen die Bytes, die gleich geschrieben werden.
+        _bd = repo / f"{EVIDENZ_REL}/{k}.md"
+        _traegt = _bd.is_file() and _bd.read_bytes() == stueck
         _sent = _sent_beleg(repo, k, _GEBUNDEN.get(k), stueck)
         records.append({
             "id": k,
@@ -729,6 +842,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "class_id": None,
             "class_state": "NOT MEASURED",
             "class_reason": "the source carries no class identifiers",
+            "measurement": _messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
             "objektklasse": e.get("klasse"),
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
@@ -834,6 +948,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "cross_count": _gegenrechnung(ok, records, repo),
             "assurance_checks": _zusicherungen(text, records),
             "evidence_cut": _schnittkonvention(schnittenden, len(records)),
+            "measurement_summary": _messsumme(records, repo),
         },
         "records": records,
         # NICHT ANWENDBAR WAR DAS FALSCHE WORT (Codex 3999796576). Es liest sich wie "eine Signatur
@@ -1430,6 +1545,38 @@ def pruefe_v2(doc, repo) -> list[str]:
     # Dass der ECHTE Bestand sie fuehrt, ist eine eigene Zusicherung und steht in
     # tests/test_der_traeger_nennt_seine_schnittkonvention.py; so kann sie weder hier still
     # verschwinden noch dort unbemerkt falsch werden.
+    # DER MESSZUSTAND: ein Lueckenwort NUR mit Grund, und die Summe muss sich nachrechnen lassen.
+    _MESSZUSTAENDE = {"MEASURED"} | LUECKENWOERTER
+    _gez_m = {}
+    for r in doc["records"]:
+        _m = r.get("measurement")
+        if not isinstance(_m, dict):
+            fehler.append(f"{r['id']}, [MS-FEHLT] kein Messzustand")
+            continue
+        _z = _m.get("state")
+        if _z not in _MESSZUSTAENDE:
+            fehler.append(f"{r['id']}, [MS-ZUSTAND] unbekannter Messzustand ({_z!r})")
+        if not _m.get("reason"):
+            fehler.append(f"{r['id']}, [MS-GRUND] Messzustand ohne Grund ist eine leere Marke")
+        _gez_m[_z] = _gez_m.get(_z, 0) + 1
+    _ms = inv.get("measurement_summary")
+    if not isinstance(_ms, dict):
+        fehler.append("[MS-SUMME] das Inventar fuehrt keine Messsumme")
+    else:
+        if _ms.get("states") != _gez_m:
+            fehler.append(f"[MS-NEUABLEITUNG] die Summe nennt {_ms.get('states')!r}, neu "
+                          f"abgeleitet ist es {_gez_m!r} — eine Verteilung, die sich nicht "
+                          f"nachrechnen laesst, ist eine Behauptung")
+        elif sum(_gez_m.values()) != inv["identifiers_in_this_register"]:
+            fehler.append(f"[MS-ARITHMETIK] die Messzustaende summieren zu {sum(_gez_m.values())}, "
+                          f"das Register traegt {inv['identifiers_in_this_register']}")
+        _w3 = _ms.get("wall_3_class_rule") or {}
+        if _w3.get("reach_state") not in ("MEASURED", *LUECKENWOERTER):
+            fehler.append(f"[MS-WAND3] die Klassenregel nennt keine gemessene Reichweite "
+                          f"({_w3.get('reach_state')!r})")
+        elif not _w3.get("reach_reason"):
+            fehler.append("[MS-WAND3] Reichweite ohne Grund")
+
     _sk = inv.get("evidence_cut")
     if _sk is None:
         pass                              # keine Angabe, also keine widerspruechliche
@@ -1715,6 +1862,19 @@ def ansicht_uebersicht(doc) -> str:
          _signaturzeile(doc), ""]
     for g in inv["coverage_gaps"]:
         z.append(f"Known gap, {g['range']}, {g['count']} identifiers, {g['state']}, {g['reason']}")
+    ms = inv.get("measurement_summary") or {}
+    if ms:
+        st = ms.get("states") or {}
+        z += ["", "## Measurement state, per entry", "",
+              "| State | Entries |", "|---|---:|",
+              *[f"| {k} | {v} |" for k, v in sorted(st.items())],
+              f"| **total** | **{ms.get('population')}** |", "",
+              f"Derivation: {ms.get('derivation')}",
+              f"Limit: {ms.get('what_this_is_not')}"]
+        w3 = ms.get("wall_3_class_rule") or {}
+        z += [f"Wall 3 class rule: {w3.get('decision')}. {w3.get('consequence')}. "
+              f"Reach in this tree: {w3.get('applied_to')} records "
+              f"({w3.get('reach_state')} — {w3.get('reach_reason')})."]
     sk = inv.get("evidence_cut") or {}
     if sk:
         me = sk.get("measured_endings") or {}
@@ -1815,6 +1975,24 @@ def ansicht_html(doc) -> str:
                       f"</b> — {_h.escape(str(zl.get('grund') or zl.get('abweichende_felder')))}</p>")
     else:
         kreuz = ""
+    ms = inv.get("measurement_summary") or {}
+    if ms:
+        st = ms.get("states") or {}
+        w3 = ms.get("wall_3_class_rule") or {}
+        messung = ("<h2>Measurement state, per entry</h2><table><thead><tr><th>State<th>Entries"
+                   "</tr></thead><tbody>"
+                   + "".join(f"<tr><td>{_h.escape(str(k))}</td><td class=n>{v}</td></tr>"
+                             for k, v in sorted(st.items()))
+                   + f"<tr><td><b>total</b></td><td class=n><b>{ms.get('population')}</b></td></tr>"
+                   + f"</tbody></table><p class=sub>{_h.escape(str(ms.get('derivation')))}</p>"
+                   + f"<p class=warn>{_h.escape(str(ms.get('what_this_is_not')))}</p>"
+                   + f"<p>Wall 3 class rule: {_h.escape(str(w3.get('decision')))}. "
+                   + f"{_h.escape(str(w3.get('consequence')))}. Reach in this tree: "
+                   + f"<b>{w3.get('applied_to')}</b> records "
+                   + f"({_h.escape(str(w3.get('reach_state')))} — "
+                   + f"{_h.escape(str(w3.get('reach_reason')))}).</p>")
+    else:
+        messung = ""
     sk = inv.get("evidence_cut") or {}
     if sk:
         me = sk.get("measured_endings") or {}
@@ -1856,6 +2034,7 @@ def ansicht_html(doc) -> str:
 <p class=warn>{_h.escape(_signaturzeile(doc))}</p>
 {zus}
 <h2>Known gaps</h2><ul>{luecken}</ul>
+{messung}
 {schnitt}
 {kreuz}
 <h2>All records</h2>
