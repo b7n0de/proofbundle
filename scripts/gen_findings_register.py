@@ -2297,6 +2297,16 @@ def pruefe_v2(doc, repo) -> list[str]:
     if inv["identifiers_in_this_register"] + len(inv["identifiers_without_evidence"]) \
             != inv["identifiers_total"]:
         fehler.append("Inventar: getragen + ohne Beleg != gesamt")
+    # DIE ZAHL GEGEN DIE MENGE, nicht nur gegen die anderen Zahlen. GEFUNDEN von Vertragsprobe 2
+    # ("unvollstaendige Erfassung", Punkt 2c): ein Datensatz aus `records` entfernt, und dieser
+    # Pruefer schwieg — die drei Inventarzahlen blieben untereinander stimmig, weil sie
+    # GESPEICHERT sind und niemand sie gegen die tatsaechliche Liste hielt. Eine Summe, die nur
+    # mit sich selbst aufgeht, bemerkt keinen Verlust.
+    if len(doc["records"]) != inv["identifiers_in_this_register"]:
+        fehler.append(
+            f"[IV-MENGE] das Inventar nennt {inv['identifiers_in_this_register']} getragene "
+            f"Kennungen, die Liste traegt {len(doc['records'])} — eine Zahl, die nur gegen andere "
+            f"Zahlen stimmt, bemerkt einen fehlenden Datensatz nicht")
     for g in inv["coverage_gaps"]:
         if g["state"] not in LUECKENWOERTER:
             fehler.append(f"Luecke {g['range']}: Zustand ist kein Lueckenwort")
