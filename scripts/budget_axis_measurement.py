@@ -275,6 +275,20 @@ def main(argv=None) -> int:
           f"{d['maschinenfaktor_schnellstes_ende']} · Referenzmessung="
           f"{d['ist_referenzmessung']} · ok={d['ok']}"
           + ("" if a.no_write else f" -> {a.out}"))
+    # WELCHE ZUSICHERUNG FIEL, GEHOERT DORTHIN, WO SIE GELESEN WIRD (Gegenlesung 14.09.2026).
+    # Die Zeile darueber nennt nur Zaehler. `meldung` nennt jede nicht bestandene Zusicherung
+    # namentlich, stand aber ausschliesslich in der JSON-Datei — und wer einen Lauf beurteilt,
+    # liest stdout. Der Unterschied ist nicht kosmetisch: seit dieser Aenderung faehrt die Achse
+    # alle sechs Zusicherungen, und eine davon, `kurve_ist_nicht_ueberlinear`, traegt keine der
+    # vier Rauschabstinenzen der Testdatei (Befund
+    # DIE-SECHSTE-ZUSICHERUNG-TRAEGT-KEINE-DER-VIER-RAUSCHABSTINENZEN-01). Ein GERISSEN kann
+    # also aus einer echten Kostenregression ODER aus Messrauschen der Kurvenform kommen, und
+    # ein Zaehler allein laesst den Leser das nicht unterscheiden. Das Urteil bleibt unveraendert
+    # — geaendert wird nur, was man sieht.
+    for art, eintraege in (("achse", d["achsen"]), ("kombi", d["kombis"])):
+        for e in eintraege:
+            if e.get("urteil") != "BESTANDEN":
+                print(f"[budget-axis]   {art} {e['name']}: {e['urteil']} — {e.get('meldung', '')}")
     return 0 if d["ok"] else 1
 
 

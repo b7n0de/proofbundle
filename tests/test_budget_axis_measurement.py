@@ -240,3 +240,31 @@ def test_die_attrappe_traegt_die_aritaet_der_echten_methode():
                 f"{klasse}.{methode}: echt {echt_namen}, Attrappe fuehrt {gefuehrt}")
     assert not abweichungen, "die Attrappe bildet eine andere Welt ab:\n  " + "\n  ".join(
         abweichungen)
+
+
+def test_stdout_nennt_die_gefallene_zusicherung_nicht_nur_ihre_zahl(monkeypatch, capsys, tmp_path):
+    """Ein Zaehler sagt DASS etwas fiel, nicht WAS. Seit die Achse alle sechs Zusicherungen
+    faehrt, ist das entscheidend: `kurve_ist_nicht_ueberlinear` traegt keine der vier
+    Rauschabstinenzen der Testdatei, ein GERISSEN kann also aus einer echten Kostenregression
+    oder aus Messrauschen kommen. Wer nur stdout liest — und das tut, wer einen Lauf beurteilt —
+    konnte das nicht unterscheiden, weil `meldung` ausschliesslich in der JSON-Datei stand.
+    """
+    monkeypatch.setattr(bam, "messe", lambda: {
+        "achsen": [
+            {"name": "json_nodes", "urteil": "BESTANDEN", "meldung": "6 Zusicherungen, alle bestanden"},
+            {"name": "renewal_ats_chain", "urteil": "GERISSEN",
+             "meldung": "1 von 6 nicht bestanden — kurve_ist_nicht_ueberlinear: GERISSEN "
+                        "— AssertionError: Zeit-Exponent 1.31 > 1.2"},
+        ],
+        "kombis": [{"name": "alle_zusammen", "urteil": "BESTANDEN", "meldung": "3 Zusicherungen, alle bestanden"}],
+        "achsen_bestanden": 1, "achsen_uebersprungen": 0, "achsen_gerissen": 1,
+        "maschinenfaktor_schnellstes_ende": 1.0, "ist_referenzmessung": True, "ok": False,
+    })
+    rc = bam.main(["--out", str(tmp_path / "b.json")])
+    aus = capsys.readouterr().out
+    assert rc == 1, "ok=False muss einen roten Ausgang geben"
+    assert "kurve_ist_nicht_ueberlinear" in aus, (
+        "die gefallene Zusicherung wird auf stdout nicht namentlich genannt:\n" + aus)
+    assert "renewal_ats_chain" in aus, "die gefallene Achse fehlt namentlich:\n" + aus
+    assert "json_nodes" not in aus.split("[budget-axis] ", 1)[-1].split("\n", 1)[-1], (
+        "eine BESTANDENE Achse wurde mitgemeldet:\n" + aus)
