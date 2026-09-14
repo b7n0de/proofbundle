@@ -22,6 +22,7 @@
         "fields": [
           "records[].objektklasse_begruendung",
           "records[].not_a_defect.beleg",
+          "records[].bound_external_copy.declared_reason",
           "inventory.coverage_gaps[].reason",
           "inventory.cross_count._auflage",
           "inventory.cross_count.warum_zu_viel_je_kennung.*"
@@ -31,7 +32,7 @@
     ]
   },
   "issued_at": "2026-09-14",
-  "generated_at": "2026-09-14T22:15:19Z",
+  "generated_at": "2026-09-14T22:22:07Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -47,7 +48,7 @@
       },
       {
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
-        "sha256": "efdf86033c7a87572460da16b01fe113cbcc4959b21365bc3d9b4dc22cbd0166",
+        "sha256": "4eacaf2afae91a0e69b171b18f6d87a100966aaf3c8805f82b9797ceb176e3bb",
         "identifiers": 145
       }
     ],
@@ -209,6 +210,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -252,6 +254,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -295,6 +298,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -338,6 +342,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -382,6 +387,17 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": {
+        "path": "docs/register/G1.md",
+        "declared_sha256": "9cc2181744900fbb535666873356968cb486c08c0982512da1e8651229941830",
+        "declared_reason": "Diese Fassung ist mit der Mail vom 12.09.2026 nach aussen gebunden; der Empfaenger haelt ihren Digest. Sie bleibt deshalb unveraendert, auch wenn die Belegdatei aus dem Bytebereich ein Byte mehr traegt. Zwei Rollen, zwei Digests, kein Widerspruch: der Beleg zitiert die Quelle byte-genau, die Aussenfassung haelt das Versendete.",
+        "bound_since": "2026-09-12",
+        "role": "the copy sent outside, whose digest a third party holds; the evidence file is the byte range of the source and serves the register",
+        "measured_sha256": "9cc2181744900fbb535666873356968cb486c08c0982512da1e8651229941830",
+        "bytes": 3669,
+        "relation_to_evidence": "the evidence file is this copy plus 1 byte(s): b'\\n' — the separator the byte range cuts along",
+        "state": "VERIFIED"
+      },
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -426,6 +442,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -470,6 +487,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -514,6 +532,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -558,6 +577,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -602,6 +622,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -646,6 +667,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -690,6 +712,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -734,6 +757,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -780,6 +804,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -824,6 +849,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -868,6 +894,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -912,6 +939,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -956,6 +984,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1000,6 +1029,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1044,6 +1074,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1088,6 +1119,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1132,6 +1164,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1176,6 +1209,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1220,6 +1254,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1264,6 +1299,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1308,6 +1344,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1354,6 +1391,7 @@
           "fundart": "tabelle_spalte1"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1397,6 +1435,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1440,6 +1479,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1483,6 +1523,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1526,6 +1567,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1569,6 +1611,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1612,6 +1655,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1655,6 +1699,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1699,6 +1744,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1742,6 +1788,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1788,6 +1835,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1831,6 +1879,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1874,6 +1923,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1917,6 +1967,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -1960,6 +2011,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2003,6 +2055,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2046,6 +2099,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2089,6 +2143,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2133,6 +2188,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2177,6 +2233,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2221,6 +2278,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2265,6 +2323,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2309,6 +2368,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2353,6 +2413,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2397,6 +2458,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2441,6 +2503,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2485,6 +2548,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2529,6 +2593,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2573,6 +2638,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2617,6 +2683,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2661,6 +2728,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2705,6 +2773,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2749,6 +2818,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2793,6 +2863,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2837,6 +2908,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2881,6 +2953,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2925,6 +2998,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -2969,6 +3043,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3013,6 +3088,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3057,6 +3133,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3101,6 +3178,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3145,6 +3223,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3189,6 +3268,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3233,6 +3313,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3277,6 +3358,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3321,6 +3403,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3365,6 +3448,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3409,6 +3493,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3453,6 +3538,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3497,6 +3583,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3541,6 +3628,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3585,6 +3673,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3629,6 +3718,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3673,6 +3763,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3717,6 +3808,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3761,6 +3853,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3805,6 +3898,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3849,6 +3943,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3893,6 +3988,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3937,6 +4033,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -3981,6 +4078,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4025,6 +4123,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4069,6 +4168,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4113,6 +4213,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4157,6 +4258,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4201,6 +4303,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4245,6 +4348,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4289,6 +4393,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4333,6 +4438,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4377,6 +4483,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4421,6 +4528,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4465,6 +4573,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4509,6 +4618,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4553,6 +4663,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4597,6 +4708,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4641,6 +4753,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4685,6 +4798,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4729,6 +4843,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4773,6 +4888,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4817,6 +4933,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4861,6 +4978,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4905,6 +5023,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4949,6 +5068,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -4993,6 +5113,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5037,6 +5158,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5081,6 +5203,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5125,6 +5248,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5169,6 +5293,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5213,6 +5338,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5257,6 +5383,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5301,6 +5428,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5345,6 +5473,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5389,6 +5518,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5433,6 +5563,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5477,6 +5608,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5521,6 +5653,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5565,6 +5698,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5609,6 +5743,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5653,6 +5788,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5697,6 +5833,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5741,6 +5878,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5785,6 +5923,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5829,6 +5968,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5873,6 +6013,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5917,6 +6058,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -5961,6 +6103,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6005,6 +6148,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6049,6 +6193,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6093,6 +6238,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6137,6 +6283,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6181,6 +6328,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6225,6 +6373,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6269,6 +6418,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6313,6 +6463,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6357,6 +6508,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6401,6 +6553,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6445,6 +6598,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6489,6 +6643,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
@@ -6533,6 +6688,7 @@
           "fundart": "ueberschrift"
         }
       ],
+      "bound_external_copy": null,
       "last_measured": null,
       "last_measured_state": "NOT MEASURED",
       "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"

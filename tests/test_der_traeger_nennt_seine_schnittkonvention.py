@@ -116,3 +116,37 @@ def test_eine_fehlende_angabe_ist_kein_fehler():
     doc["inventory"].pop("evidence_cut")
     assert not [f for f in gen.pruefe_v2(doc, REPO) if f.startswith("[SK-")], (
         "ein Traeger ohne die Angabe wird faelschlich abgewiesen")
+
+
+# ── K2, Owner-Auflage vom 14.09.2026: der Grund steht AM DATENSATZ, nicht in einem Kommentar ──
+
+def test_der_datensatz_G1_nennt_seine_gebundene_aussenfassung():
+    g1 = next(r for r in _doc()["records"] if r["id"] == "G1")
+    b = g1.get("bound_external_copy")
+    assert isinstance(b, dict), "der Datensatz G1 nennt seine gebundene Aussenfassung nicht"
+    assert b["path"] == "docs/register/G1.md"
+    assert b["state"] == "VERIFIED", f"Zustand {b.get('state')!r}, erwartet VERIFIED"
+    assert b["declared_sha256"] == b["measured_sha256"]
+    assert b["declared_sha256"].startswith("9cc21817")
+    assert b["bytes"] == 3669
+    assert b.get("declared_reason"), "zwei Digests ohne Grund sind ein Widerspruch, keine Auskunft"
+    assert "plus 1 byte" in b["relation_to_evidence"], b["relation_to_evidence"]
+
+
+def test_die_kennung_steht_in_den_daten_nicht_im_erzeuger():
+    """Ein Erzeuger, der 'G1' kennt, waere eine Punktfixtur."""
+    quelle = (REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8")
+    kopf = quelle.split("def _gebundene_fassung", 1)[1].split("\ndef ", 1)[0]
+    assert "G1" not in kopf, "die Kennung steht im Code statt in der Deklaration"
+    ok = json.loads((REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json").read_text(encoding="utf-8"))
+    erklaert = ok["ausnahmen_von_der_klasse"]["gebundene_aussenfassung"]["kennungen"]
+    assert "G1" in erklaert and erklaert["G1"].get("warum")
+
+
+def test_eine_gebrochene_aussenbindung_wird_abgewiesen():
+    """FANGNACHWEIS: der Riegel leitet neu ab statt dem gespeicherten Zustand zu glauben."""
+    gen, doc = _gen(), _doc()
+    g1 = next(r for r in doc["records"] if r["id"] == "G1")
+    g1["bound_external_copy"]["declared_sha256"] = "0" * 64   # state bleibt VERIFIED
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[BA-NEUABLEITUNG]" in f], (
+        "ein verfaelschter Digest kam durch, weil der Zustand geglaubt statt gerechnet wurde")

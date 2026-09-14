@@ -525,6 +525,52 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
+def _gebundene_fassung(repo, kennung: str, erklaert, stueck: bytes):
+    """Die nach aussen versendete Fassung EINER Kennung — nachgerechnet, nicht uebernommen.
+
+    Der Digest wird nicht durchgereicht: die genannte Datei wird GEOEFFNET und gehasht. Ein
+    durchgereichter Digest ist eine gruene Herkunftsaussage ueber Bytes, die niemand gesehen
+    hat — derselbe Fund, den die Sollliste eine Ebene weiter unten schon einmal ausgeloest hat.
+
+    Das VERHAELTNIS zum Beleg wird gemessen und nicht behauptet: traegt der Beleg die
+    Aussenfassung plus etwas, steht dieses Etwas als Bytes da.
+    """
+    if not erklaert:
+        return None
+    import hashlib  # noqa: PLC0415
+    pfad = erklaert.get("pfad")
+    soll = erklaert.get("sha256")
+    block = {"path": pfad, "declared_sha256": soll, "declared_reason": erklaert.get("warum"),
+             "bound_since": erklaert.get("gebunden_seit"),
+             "role": ("the copy sent outside, whose digest a third party holds; the evidence file "
+                      "is the byte range of the source and serves the register")}
+    if not pfad or not soll:
+        return {**block, "state": "NOT MEASURED",
+                "reason": "the declaration names no path or no digest, so nothing can be recomputed"}
+    q = repo / pfad
+    if not q.is_file():
+        return {**block, "state": "NOT MEASURED",
+                "reason": f"the declared copy {pfad} is not present in this tree"}
+    roh = q.read_bytes()
+    ist = hashlib.sha256(roh).hexdigest()
+    block["measured_sha256"], block["bytes"] = ist, len(roh)
+    # Das Verhaeltnis der beiden Fassungen, gemessen.
+    if stueck == roh:
+        block["relation_to_evidence"] = "byte identical"
+    elif stueck.startswith(roh):
+        block["relation_to_evidence"] = (
+            f"the evidence file is this copy plus {len(stueck) - len(roh)} byte(s): "
+            f"{stueck[len(roh):]!r} — the separator the byte range cuts along")
+    else:
+        block["relation_to_evidence"] = (
+            f"the two differ beyond a suffix: {len(roh)} B declared, {len(stueck)} B evidence")
+    block["state"] = "VERIFIED" if ist == soll else "DEVIATING"
+    if ist != soll:
+        block["reason"] = ("the declared copy is present and carries different bytes than the "
+                           "declaration claims")
+    return block
+
+
 def _schnittkonvention(gezaehlt: dict, gesamt: int) -> dict:
     """Wie ein Bereich ENDET — deklariert statt vorausgesetzt.
 
@@ -587,6 +633,14 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     _belege = _aus.get("beleg") or {}
     _OHNE_FUND = {kx: (_belege.get(kx) or _aus.get("warum") or "declared without a reason")
                   for kx in (_aus.get("kennungen") or [])}
+
+    # DIE ZWEITE DEKLARIERTE AUSNAHME: eine nach aussen gebundene Fassung derselben Kennung.
+    # Owner-Auflage K2 vom 14.09.2026: "Zwei Rollen, zwei Digests, kein Widerspruch. Der Grund
+    # steht im Register AM DATENSATZ G1, nicht in einem Kommentar." Deshalb steht die Erklaerung
+    # hier am Eintrag und nicht nur als Konvention im Inventar — und die Kennung steht in den
+    # DATEN, nicht in diesem Code: ein Erzeuger, der "G1" kennt, ist eine Punktfixtur.
+    _gb = (ok.get("ausnahmen_von_der_klasse") or {}).get("gebundene_aussenfassung") or {}
+    _GEBUNDEN = _gb.get("kennungen") or {}
 
     records, ohne_fundstelle = [], []
     schnittenden = {"ends_with_blank_line": 0, "ends_with_one_newline": 0,
@@ -672,6 +726,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 "byte_range": [von, bis],
                 "fundart": fundart,
             }],
+            "bound_external_copy": _gebundene_fassung(repo, k, _GEBUNDEN.get(k), stueck),
             "last_measured": None,
             "last_measured_state": "NOT MEASURED",
             "last_measured_reason": ("the source names the day it was produced, not the time "
@@ -725,6 +780,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
                  "fields": ["records[].objektklasse_begruendung",
                             "records[].not_a_defect.beleg",
+                            "records[].bound_external_copy.declared_reason",
                             "inventory.coverage_gaps[].reason",
                             "inventory.cross_count._auflage",
                             "inventory.cross_count.warum_zu_viel_je_kennung.*"],
@@ -1303,6 +1359,51 @@ def pruefe_v2(doc, repo) -> list[str]:
     # Dass der ECHTE Bestand sie fuehrt, ist eine eigene Zusicherung und steht in
     # tests/test_der_traeger_nennt_seine_schnittkonvention.py; so kann sie weder hier still
     # verschwinden noch dort unbemerkt falsch werden.
+    # EIN GESCHRIEBENER WIDERSPRUCH IST KEINE ERLEDIGTE PRUEFUNG — dieselbe Lehre wie bei
+    # [GR-HERKUNFT]. Eine gebundene Aussenfassung, die messbar andere Bytes traegt, faehrt nicht
+    # als Randnotiz in einer erfolgreichen Veroeffentlichung mit.
+    for r in doc["records"]:
+        _bx = r.get("bound_external_copy")
+        if _bx is None:
+            continue
+        if not isinstance(_bx, dict):
+            fehler.append(f"{r['id']}, [BA-FORM] bound_external_copy ist kein Objekt")
+            continue
+        _bz = _bx.get("state")
+        # NEU ABLEITEN, NICHT DEN ZUSTAND GLAUBEN. Die erste Fassung dieses Riegels pruefte nur
+        # das gespeicherte `state` — und ein von Hand auf einen falschen `declared_sha256`
+        # gesetzter Block behielt `VERIFIED` und kam mit NULL Fehlern durch (ausgefuehrt
+        # gemessen). Das ist woertlich die Klasse, die [GR-NEUABLEITUNG] eine Ebene tiefer schon
+        # schliesst: wer das Artefakt liest, das er beglaubigen soll, beglaubigt die Faelschung
+        # genauso bereitwillig wie das Echte. Was neu abgeleitet werden kann, wird nicht geglaubt.
+        _bp = repo / str(_bx.get("path") or "")
+        if _bx.get("path") and _bp.is_file():
+            _bist = hashlib.sha256(_bp.read_bytes()).hexdigest()
+            if _bx.get("measured_sha256") != _bist:
+                fehler.append(
+                    f"{r['id']}, [BA-NEUABLEITUNG] der Traeger nennt gemessen "
+                    f"{str(_bx.get('measured_sha256'))[:12]}, neu gerechnet ist es "
+                    f"{_bist[:12]} — ein gespeicherter Messwert, der sich nicht nachrechnen laesst")
+            _bsoll = "VERIFIED" if _bist == _bx.get("declared_sha256") else "DEVIATING"
+            if _bz != _bsoll:
+                fehler.append(
+                    f"{r['id']}, [BA-NEUABLEITUNG] der Traeger meldet {_bz!r}, neu abgeleitet ist "
+                    f"der Zustand {_bsoll!r} — ein Etikett ohne Ableitungspfad")
+                _bz = _bsoll
+        if _bz == "DEVIATING":
+            fehler.append(
+                f"{r['id']}, [BA-ABWEICHEND] die gebundene Aussenfassung {_bx.get('path')!r} ist "
+                f"da und traegt {str(_bx.get('measured_sha256'))[:12]}, deklariert ist "
+                f"{str(_bx.get('declared_sha256'))[:12]} — eine nach aussen gebundene Fassung, "
+                f"die sich geaendert hat, bricht die Bindung")
+        elif _bz == "NOT MEASURED":
+            if not _bx.get("reason"):
+                fehler.append(f"{r['id']}, [BA-LUECKENWORT] NOT MEASURED ohne Grund")
+        elif _bz != "VERIFIED":
+            fehler.append(f"{r['id']}, [BA-ZUSTAND] unbekannter Zustand ({_bz!r})")
+        if not _bx.get("declared_reason"):
+            fehler.append(f"{r['id']}, [BA-GRUND] die gebundene Fassung steht ohne Grund da")
+
     _sk = inv.get("evidence_cut")
     if _sk is None:
         pass                              # keine Angabe, also keine widerspruechliche

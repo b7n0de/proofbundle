@@ -92,6 +92,19 @@
         "N21": "RESTRISIKO_600.md, Tabellenzeile N21: 'Intended behaviour of a validity window, not a defect of the candidate'"
       },
       "_nachtrag_13_09": "N8 und N21 kamen nach S3 dazu, gefunden von der Fremdfamilie (Codex r4000054883) gegen den Riegel, der S3 geschlossen hatte. Er sah nur UEBERSCHRIFTEN; beide tragen ihre Absage in der TABELLENZEILE. Die Grenze war als solche benannt und hatte trotzdem zwei Instanzen — eine deklarierte Grenze entschuldigt keinen Fund, sie benennt ihn nur vorher."
+    },
+    "gebundene_aussenfassung": {
+      "_warum_es_diesen_block_gibt": "Eine Kennung kann ZWEI Dateien haben: den Beleg, der den Bytebereich der Quelle traegt, und eine nach aussen versendete Fassung, an die ein Dritter einen Digest gebunden hat. Die beiden duerfen sich unterscheiden, und sie tun es — der Beleg schneidet den Trenner zur naechsten Ueberschrift mit. Ohne diese Deklaration liest sich der Unterschied wie ein Defekt in einer der beiden Fassungen, und genau so wurde er einmal gelesen, mit einem Angleich, der die aeussere Bindung brach.",
+      "_regel": "Wer hier steht, braucht Pfad, sha256 und einen Grund. Der Erzeuger OEFFNET die genannte Datei und rechnet nach; er uebernimmt den Digest nicht. Drei Zustaende: GEPRUEFT, ABWEICHEND (Fehler, die Datei ist da und sagt etwas anderes), NICHT MESSBAR mit Grund.",
+      "kennungen": {
+        "G1": {
+          "pfad": "docs/register/G1.md",
+          "sha256": "9cc2181744900fbb535666873356968cb486c08c0982512da1e8651229941830",
+          "bytes": 3669,
+          "gebunden_seit": "2026-09-12",
+          "warum": "Diese Fassung ist mit der Mail vom 12.09.2026 nach aussen gebunden; der Empfaenger haelt ihren Digest. Sie bleibt deshalb unveraendert, auch wenn die Belegdatei aus dem Bytebereich ein Byte mehr traegt. Zwei Rollen, zwei Digests, kein Widerspruch: der Beleg zitiert die Quelle byte-genau, die Aussenfassung haelt das Versendete."
+        }
+      }
     }
   },
   "eintraege": [
