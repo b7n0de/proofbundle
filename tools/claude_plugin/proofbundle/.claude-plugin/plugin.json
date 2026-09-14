@@ -1,0 +1,10 @@
+{
+  "name": "proofbundle",
+  "description": "Verify proofbundle evidence receipts offline: DSSE signature, subject binding, and the honest strength of the verdict.",
+  "version": "0.1.0",
+  "author": {
+    "name": "b7n0de"
+  },
+  "homepage": "https://github.com/b7n0de/proofbundle",
+  "license": "Apache-2.0"
+}
