@@ -319,3 +319,59 @@ def test_ein_abweichender_zweiter_leser_ist_ein_fehler():
     gen, doc = _gen(), _doc()
     doc["records"][0]["measurement"]["second_reader"]["state"] = "DEVIATING"
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[ZL-ABWEICHEND]" in f]
+
+
+# ── Punkt 2a, die vier Belegwege (die sechs Bedingungen fehlen, Owner-Karte laeuft) ──────────
+
+def test_die_vier_belegwege_stehen_vollstaendig_im_traeger():
+    e = _doc()["inventory"]["evidence_paths"]
+    assert set(e["paths"]) == {"executable_product_defect", "mechanically_checkable_doc_error",
+                               "substantive_doc_error", "decision_or_boundary"}, sorted(e["paths"])
+    assert e["never_counts_as_repaired"] == "decision_or_boundary"
+    assert "NEVER counts as repaired" in e["paths"]["decision_or_boundary"]
+
+
+def test_jeder_datensatz_traegt_einen_belegweg_oder_eine_benannte_luecke():
+    gen = _gen()
+    for r in _doc()["records"]:
+        b = r.get("evidence_path")
+        assert isinstance(b, dict), f"{r['id']} ohne Belegweg"
+        if b.get("value") is None:
+            assert b["state"] in gen.LUECKENWOERTER and b.get("reason"), r["id"]
+        else:
+            assert b["value"] in gen.BELEGWEGE, f"{r['id']}: {b['value']!r}"
+            assert b.get("source"), f"{r['id']}: Zuordnung ohne Quelle"
+
+
+def test_der_vierte_weg_zaehlt_nie_als_repariert():
+    gen = _gen()
+    for r in _doc()["records"]:
+        b = r["evidence_path"]
+        if b.get("value") == gen.NIE_REPARIERT:
+            assert b.get("counts_as_repaired") is False, r["id"]
+
+
+def test_die_zahl_der_zuordnungen_ist_die_aussage():
+    """2 von 145 — und die 143 sind der Arbeitsauftrag von 2b, kein Mangel."""
+    doc = _doc()
+    e = doc["inventory"]["evidence_paths"]
+    ok = json.loads((REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json").read_text(encoding="utf-8"))
+    grenzen = sum(1 for x in ok["eintraege"] if x["klasse"] == "benannte_grenze")
+    assert e["assigned"]["decision_or_boundary"] == grenzen, (e["assigned"], grenzen)
+    assert sum(e["assigned"].values()) + e["not_measured"] == \
+        doc["inventory"]["identifiers_in_this_register"]
+    assert e.get("why_so_few"), "eine auffaellige Zahl ohne Begruendung ist eine offene Frage"
+
+
+def test_ein_erfundener_belegweg_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["records"][0]["evidence_path"] = {"value": "weil_ich_es_sage", "source": "x"}
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[BW-UNBEKANNT]" in f]
+
+
+def test_eine_grenze_die_sich_als_repariert_ausgibt_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    z = next(r for r in doc["records"]
+             if r["evidence_path"].get("value") == gen.NIE_REPARIERT)
+    z["evidence_path"]["counts_as_repaired"] = True
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[BW-REPARIERT]" in f]

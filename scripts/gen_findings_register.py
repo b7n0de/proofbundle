@@ -530,6 +530,52 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
+#: DIE VIER BELEGWEGE, Punkt 2a der Fuenferliste (Nachtrag 1 zu 2155Z). Sie stehen dort
+#: vollstaendig ausgeschrieben, anders als die sechs Bedingungen, deren Aufarbeitung in diesem
+#: Baum nicht auffindbar ist (gemessen 15.09.2026 auf drei Wegen, Owner-Karte
+#: `substanz61_punkt2a_sechs_bedingungen`). Was ausgeschrieben ist, wird gebaut; was nur als
+#: Etikett vorliegt, wird nicht erfunden.
+BELEGWEGE = {
+    "executable_product_defect": "a defect in the shipped product, demonstrated by something that "
+                                 "runs",
+    "mechanically_checkable_doc_error": "a documentation error a machine can decide",
+    "substantive_doc_error": "a documentation error only a reader can decide",
+    "decision_or_boundary": "a decision or a named boundary of the subject — NEVER counts as "
+                            "repaired",
+}
+
+#: Der vierte Weg zaehlt nie als repariert. Das steht als DATEN neben dem Weg, nicht als
+#: Bedingung in einem `if`, damit ein Riegel es pruefen kann statt es zu wiederholen.
+NIE_REPARIERT = "decision_or_boundary"
+
+
+def _belegweg(klasse) -> dict:
+    """Welcher der vier Belegwege — nur wo die Quelle es HERGIBT.
+
+    GEMESSEN, und die Zahl ist die Aussage: die Objektklassen unterscheiden nach HERKUNFT
+    (S/N/A/R/Z/G), nicht nach Belegart. Genau EINE Klasse traegt die Zuordnung in ihrer eigenen
+    Begruendung: `benannte_grenze` sagt, sie benenne eine Grenze des Gegenstands — das ist der
+    vierte Weg, wortgleich. Fuer die uebrigen fuenf Klassen sagt keine Quelle, ob ein Fund ueber
+    einen ausfuehrbaren Produktfehler, einen maschinell entscheidbaren oder einen inhaltlichen
+    Doku-Fehler belegt ist.
+
+    Dieselbe Begruendung steht ein paar Zeilen weiter oben schon bei `kind`, und aus demselben
+    Grund wird auch hier nichts abgeleitet, was nur plausibel waere. 2 von 145 tragen den Weg,
+    143 eine benannte Luecke — und diese 143 sind der Arbeitsauftrag des auswertenden Bausteins
+    aus Punkt 2b, nicht ein Mangel dieses Erzeugers.
+    """
+    if klasse == "benannte_grenze":
+        return {"value": "decision_or_boundary",
+                "source": "object class `benannte_grenze` in RESTRISIKO_600_OBJEKTKLASSEN.json, "
+                          "whose own rationale states that it names a boundary of the subject",
+                "counts_as_repaired": False}
+    return {"value": None, "state": "NOT MEASURED",
+            "reason": ("the object classes separate by origin, not by the kind of evidence; no "
+                       "source says whether this finding is carried by an executable product "
+                       "defect, a mechanically checkable documentation error or a substantive "
+                       "one, and it is decided per finding rather than derived")}
+
+
 def _commitlage(repo) -> dict:
     """Quelle und Belegbaum AUS DEM OBJEKTSPEICHER — die Arbeitskopie wird nicht geoeffnet.
 
@@ -950,6 +996,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "class_reason": "the source carries no class identifiers",
             "measurement": {**_messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
                             "second_reader": _zweit},
+            "evidence_path": _belegweg(e.get("klasse")),
             "objektklasse": e.get("klasse"),
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
@@ -1056,6 +1103,20 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "assurance_checks": _zusicherungen(text, records),
             "evidence_cut": _schnittkonvention(schnittenden, len(records)),
             "measurement_summary": _messsumme(records, repo),
+            "evidence_paths": {
+                "paths": dict(BELEGWEGE),
+                "never_counts_as_repaired": NIE_REPARIERT,
+                "assigned": {w: sum(1 for r in records
+                                    if (r.get("evidence_path") or {}).get("value") == w)
+                             for w in BELEGWEGE},
+                "not_measured": sum(1 for r in records
+                                    if (r.get("evidence_path") or {}).get("value") is None),
+                "why_so_few": ("only one object class carries the assignment in its own "
+                               "rationale; for the rest no source says which path applies, and a "
+                               "plausible guess would be a contract without cover. These are the "
+                               "work item of the evaluating component of point 2b, not a defect "
+                               "of this generator"),
+            },
         },
         "records": records,
         # NICHT ANWENDBAR WAR DAS FALSCHE WORT (Codex 3999796576). Es liest sich wie "eine Signatur
@@ -1701,6 +1762,19 @@ def pruefe_v2(doc, repo) -> list[str]:
                     f"und Belegdatei abgeleitet ist es {_soll!r} — ein Messzustand ohne "
                     f"Ableitungspfad ist ein Etikett")
             _z = _soll
+        _bw = r.get("evidence_path")
+        if not isinstance(_bw, dict):
+            fehler.append(f"{r['id']}, [BW-FEHLT] kein Belegweg")
+        elif _bw.get("value") is None:
+            if _bw.get("state") not in LUECKENWOERTER:
+                fehler.append(f"{r['id']}, [BW-LUECKENWORT] Belegweg fehlt ohne Lueckenwort")
+            elif not _bw.get("reason"):
+                fehler.append(f"{r['id']}, [BW-GRUND] Lueckenwort ohne Grund")
+        elif _bw["value"] not in BELEGWEGE:
+            fehler.append(f"{r['id']}, [BW-UNBEKANNT] Belegweg {_bw['value']!r}")
+        elif _bw["value"] == NIE_REPARIERT and _bw.get("counts_as_repaired") is not False:
+            fehler.append(f"{r['id']}, [BW-REPARIERT] der Weg {NIE_REPARIERT} zaehlt nie als "
+                          f"repariert, der Datensatz sagt das nicht")
         _zw = _m.get("second_reader") or {}
         if _zw.get("state") == "DEVIATING":
             fehler.append(f"{r['id']}, [ZL-ABWEICHEND] {_zw.get('reason')}")
