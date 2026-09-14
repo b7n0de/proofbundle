@@ -995,6 +995,58 @@ def pruefe_belege_auf_platte(doc, repo) -> list[str]:
     return fehler
 
 
+def _signatur_lage(doc) -> tuple[str, str]:
+    """Der EINE Ausgang fuer die Frage, ob dieser Traeger echt ist.
+
+    ANWESENHEIT IST KEINE PRUEFUNG, und genau das stand hier (Codex r4001142831, P2, am Kopf
+    fc2bdc57 nachgestellt). `pruefe_v2` verlangte bei vorhandenem `sig_b64` nur, dass `alg` und
+    `public_key_b64` DA sind, und `_signaturzeile` schrieb daraufhin "Signed, ed25519.".
+    Gemessen: mit dem Block {"alg": "ed25519", "public_key_b64": "not base64",
+    "sig_b64": "not a signature"} meldete der Pruefer NULL Fehler und die Ansicht nannte den
+    Traeger signiert. Eine Faelschung aenderte kein einziges Urteil.
+
+    Warum ein gemeinsamer Ausgang und nicht zwei Pruefungen. Pruefer und Ansicht beantworteten
+    dieselbe Frage getrennt, und nur einer von beiden wurde spaeter geschaerft — das ist dieselbe
+    Klasse eine Ebene hoeher. Wer hier etwas aendert, aendert es fuer beide.
+
+    FAIL-CLOSED bei fehlender Bibliothek. Ohne `cryptography` ist die Signatur NICHT PRUEFBAR,
+    und das ist ein Fehler, kein Bestehen. Ein Pruefer, der bei fehlendem Werkzeug gruen meldet,
+    behauptet das Gegenteil dessen, was er gemessen hat.
+
+    Rueckgabe: (zustand, detail). zustand ist FEHLT, UNSIGNED, VERIFIZIERT, GEBROCHEN oder
+    NICHT_PRUEFBAR.
+    """
+    import binascii  # noqa: PLC0415
+    s = doc.get("signature")
+    if not isinstance(s, dict) or not s:
+        return "FEHLT", "der Traeger sagt ueber seine Echtheit gar nichts"
+    if not s.get("sig_b64"):
+        return "UNSIGNED", str(s.get("state") or "UNKNOWN")
+    if not (s.get("alg") and s.get("public_key_b64")):
+        return "NICHT_PRUEFBAR", ("eine Signatur ohne Verfahren oder oeffentlichen Schluessel "
+                                  "ist nicht pruefbar")
+    if s.get("alg") != "ed25519":
+        return "NICHT_PRUEFBAR", f"unbekanntes Verfahren: {s.get('alg')!r}"
+    try:
+        from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
+            Ed25519PublicKey)
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    except ImportError as e:
+        return "NICHT_PRUEFBAR", (f"die Signaturbibliothek fehlt ({e.name}) — NICHT GEMESSEN, "
+                                  f"und nicht gemessen ist keine Freigabe")
+    try:
+        pub = Ed25519PublicKey.from_public_bytes(decode_b64(s["public_key_b64"]))
+        roh = decode_b64(s["sig_b64"])
+    except (binascii.Error, ValueError) as e:
+        return "GEBROCHEN", f"Signatur oder Schluessel ist kein kanonisches base64 ({e})"
+    try:
+        pub.verify(roh, canonical_bytes(doc))
+    except InvalidSignature:
+        return "GEBROCHEN", "die Signatur haelt ueber den kanonischen Rumpf nicht"
+    return "VERIFIZIERT", str(s.get("alg"))
+
+
 def pruefe_v2(doc, repo) -> list[str]:
     """STABILE CODES statt Prosa fuer die Gegenrechnungs-Meldungen (`[GR-...]`).
 
@@ -1140,12 +1192,15 @@ def pruefe_v2(doc, repo) -> list[str]:
     # dasteht, ist eine Notiz; gefordert ist ein BEKANNTER Zustand mit Grund, und wenn eine
     # Signatur behauptet wird, muessen ihre Teile auch da sein.
     _sig = doc.get("signature")
-    if not isinstance(_sig, dict) or not _sig:
-        fehler.append("Signatur: der Traeger sagt ueber seine Echtheit gar nichts")
-    elif _sig.get("sig_b64"):
-        if not (_sig.get("alg") and _sig.get("public_key_b64")):
-            fehler.append("Signatur: eine Signatur ohne Verfahren oder oeffentlichen Schluessel "
-                          "ist nicht pruefbar")
+    _zustand, _detail = _signatur_lage(doc)
+    if _zustand == "FEHLT":
+        fehler.append(f"Signatur: {_detail}")
+    elif _zustand == "NICHT_PRUEFBAR":
+        fehler.append(f"Signatur: {_detail}")
+    elif _zustand == "GEBROCHEN":
+        fehler.append(f"Signatur: sie ist da und sie haelt nicht — {_detail}")
+    elif _zustand == "VERIFIZIERT":
+        pass
     else:
         if _sig.get("state") not in ("UNSIGNED", *LUECKENWOERTER):
             fehler.append(f"Signatur: unbekannter Zustand ({_sig.get('state')!r})")
@@ -1408,8 +1463,15 @@ def _signaturzeile(doc) -> str:
     unsigniert ist. Eine Herkunftsangabe, die nur im Rohdokument steht, erreicht ihn nicht.
     """
     s = doc.get("signature") or {}
-    if s.get("sig_b64"):
-        return f"Signed, {s.get('alg', 'unknown algorithm')}."
+    lage, detail = _signatur_lage(doc)
+    if lage == "VERIFIZIERT":
+        return f"Signed and verified against the canonical body, {detail}."
+    if lage == "GEBROCHEN":
+        return ("A signature is present and it does NOT verify against the canonical body. "
+                "Treat this carrier as unauthenticated.")
+    if lage == "NICHT_PRUEFBAR":
+        return (f"A signature is present but it could not be checked here ({detail}). "
+                f"Not checked is not verified.")
     zustand = s.get("state") or "UNKNOWN"
     grund = s.get("reason") or "no reason given"
     folge = s.get("consequence_for_the_reader")
