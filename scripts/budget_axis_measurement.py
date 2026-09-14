@@ -93,6 +93,21 @@ def _gesamtausgang(rufe: list[tuple[str, object]]) -> tuple[str, str]:
     schwerste Urteil gewinnt, ABGEBROCHEN vor GERISSEN vor UEBERSPRUNGEN vor BESTANDEN, und die
     Meldung nennt JEDE Zusicherung, die nicht bestanden hat, mit ihrem Namen.
     """
+    # GEGENGELESEN VON EINER FREMDEN FAMILIE (14.09.2026, qwen3.8:27b). Ihr Einwand: eine
+    # Nebenpruefung koenne mit ABGEBROCHEN fallen waehrend die Kostenmessung bestand, und das
+    # Sammelurteil behaupte dann faelschlich, die MESSUNG sei ausgefallen.
+    #
+    # WIDERLEGT, gemessen: ABGEBROCHEN entsteht in _ausgang NIE aus einer gefallenen Zusicherung.
+    # Eine gerissene Zusicherung wirft AssertionError oder Failed und ergibt GERISSEN; ABGEBROCHEN
+    # gibt es nur bei einer ANDEREN Ausnahme, also wenn die Messung selbst umfaellt. Der
+    # beschriebene Fall existiert nicht. Drei Faelle nachgefahren: Nebenpruefung reisst -> GERISSEN,
+    # Messung bricht -> ABGEBROCHEN, Kostenpruefung reisst -> GERISSEN.
+    #
+    # WORAUF SIE ABER ZU RECHT ZEIGT: Fall eins und Fall drei sind beide GERISSEN, das Urteil
+    # unterscheidet also nicht, WELCHE Zusicherung fiel. Das ist hier gewollt — eine Achse, auf der
+    # irgendeine ihrer Zusicherungen reisst, ist nicht bestanden — und die Meldung nennt jede
+    # nicht bestandene namentlich. Wer das Urteil je nach Zusicherung abstufen will, aendert eine
+    # Aussage ueber die Achse und nicht nur eine Rangfolge.
     rang = {"ABGEBROCHEN": 3, "GERISSEN": 2, "UEBERSPRUNGEN": 1, "BESTANDEN": 0}
     ergebnisse = [(name, *_ausgang(ruf)) for name, ruf in rufe]
     schlimmste = max(ergebnisse, key=lambda e: rang[e[1]])[1]
