@@ -61,6 +61,17 @@ _ENDE = b"-" * 5
 # EHRLICHE GRENZE, benannt statt verschwiegen: ein Wert mit einem Punkt darin (etwa ein JWT mit
 # seinen drei Abschnitten) faellt in der NACKTEN Form durch diese Maschen. Gequotet wird er
 # gefangen, nackt nicht.
+#: DER TRENNER DARF DIE ZEILE NICHT VERLASSEN (gemessen 14.09.2026 beim Gegenpruefen der drei
+#: Codex-P1 an diesem PR, und von ihnen NICHT gemeldet). Vorher stand hier `\s*[:=]\s*`, und
+#: `\s` enthaelt den Zeilenumbruch. Gemessen: `API_KEY=\nSIGNING_PRIVATE_KEY=` traf, und der
+#: gemeldete WERT war der NAME des naechsten Feldes; `API_KEY=\nHARMLOSE_ZEILE_OHNE_ALLES` ebenso.
+#:
+#: Ein leerer Platzhalter mit einer langen Zeile darunter ist die kanonische Form einer
+#: `.env.example`, und genau sie wurde als Fund gemeldet. Das ist der teuerste Fehlalarm, den ein
+#: Riegel haben kann: er schlaegt bei der EMPFOHLENEN Schreibweise an und wird darum abgeschaltet.
+#: Die gemeldete STELLE war dabei ebenfalls falsch, weil der Treffer ueber zwei Zeilen lief.
+_TRENNER = rb"[ \t]*[:=][ \t]*"
+
 _WERT = (rb"['\"][^'\"]{12,}"            # gequotet, wie bisher
          rb"|[A-Za-z0-9_\-+/=]{12,}(?=[\s#;,]|$)")   # nackt, bis Zeilenende oder Trenner
 
@@ -89,7 +100,7 @@ MUSTER: dict[str, list[re.Pattern[bytes]]] = {
         re.compile(_PEM + rb"PGP PRIVATE KEY BLOCK" + _ENDE),
     ],
     "S": [
-        re.compile(rb"(?i)" + _PRAEFIX + rb"(seed|passphrase|mnemonic)\s*[:=]\s*(?:" + _WERT + rb")"),
+        re.compile(rb"(?i)" + _PRAEFIX + rb"(seed|passphrase|mnemonic)" + _TRENNER + rb"(?:" + _WERT + rb")"),
     ],
     "T": [
         re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
@@ -106,7 +117,7 @@ MUSTER: dict[str, list[re.Pattern[bytes]]] = {
                    # und lief durch. Codex-Runde eins an PR 200, am Muster gegengeprueft.
                    + rb"(api[_-]?key|secret[_-]?key|access[_-]?token|password"
                      rb"|private[_-]?key)"
-                   rb"\s*[:=]\s*(?:" + _WERT + rb")"),
+                   + _TRENNER + rb"(?:" + _WERT + rb")"),
     ],
 }
 
