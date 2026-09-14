@@ -782,6 +782,60 @@ def _subject(repo, text: str) -> dict:
     }
 
 
+def _drei_zeiten(ok: dict, generated_at: str) -> dict:
+    """Erstsichtung, Messung, Ausgabe — je mit dem, was die Quelle HERGIBT.
+
+    Punkt 2a verlangt "drei Zeiten (Erstsichtung, Messung, Ausgabe)". GEMESSEN traegt die
+    Klassenkarte je Eintrag genau sechs Felder — kennung, klasse, praefix, titel_im_register,
+    warum_diese_klasse, zaehlt_als_fund — und KEINE Zeit. Zwei der drei sind trotzdem da:
+
+      Messung  aus `gemessen_an.utc`, dem Messzeitpunkt der Quelle. NICHT aus der Uhr dieses
+               Laufs — die wuerde den gemessenen Stand vordatieren, und genau dieser Fehler
+               steht ein paar Zeilen weiter oben bei der Bewertungsgrenze schon angeschrieben.
+      Ausgabe  `generated_at`, der Zeitpunkt dieses Laufs. Das ist die EINZIGE der drei, fuer
+               die die Uhr des Laufs die richtige Quelle ist.
+      Erstsichtung  fehlt. Keine Quelle sagt, wann ein Fund zuerst gesehen wurde; das Datum im
+               Dateinamen einer Runde waere die Runde, nicht der Fund.
+
+    Die Zeiten stehen auf DOKUMENTEBENE, weil sie dort gemessen sind. Sie je Datensatz zu
+    wiederholen haette aus einer Messung 145 Behauptungen gemacht.
+    """
+    import re  # noqa: PLC0415
+    roh = str(((ok.get("gemessen_an") or {}).get("utc")) or "")
+    gemessen = roh if re.match(r"\d{4}-\d{2}-\d{2}", roh) else None
+    return {
+        "first_seen": {"value": None, "state": "NOT MEASURED",
+                       "reason": ("no source records when a finding was first seen; the date in a "
+                                  "round's filename is the round, not the finding")},
+        "measured": ({"value": gemessen, "source": "`gemessen_an.utc` in "
+                                                   "RESTRISIKO_600_OBJEKTKLASSEN.json"}
+                     if gemessen else
+                     {"value": None, "state": "NOT MEASURED",
+                      "reason": ("the object class file carries no readable time under "
+                                 "`gemessen_an.utc`; the clock of this run is NOT used, because "
+                                 "it would predate the measured state")}),
+        "issued": {"value": generated_at, "source": "the time of this generation run"},
+        "why_at_document_level": ("these three are measured for the source as a whole; repeating "
+                                  "them per record would turn one measurement into 145 claims"),
+    }
+
+
+def _supersedes(kennung: str, erklaert, revision: int):
+    """Was eine Revision ABLOEST — additiv, die alte Aussage bleibt lesbar.
+
+    Nur ein Datensatz, dessen `record_revision` groesser als null ist, loest etwas ab. Was er
+    hinzufuegt, wird aus der DEKLARATION abgeleitet, nicht erzaehlt: wer eine gebundene
+    Aussenfassung deklariert, hat dem Eintrag einen `sent`-Beleg hinzugefuegt.
+    """
+    if not revision:
+        return None
+    return {"record_revision": revision - 1,
+            "added": "an evidence entry with role `sent`" if erklaert else "not derivable",
+            "additive": True,
+            "note": ("the previous statement stays readable: the historical_record entry is "
+                     "untouched, the new entry stands beside it")}
+
+
 def _belegweg(klasse) -> dict:
     """Welcher der vier Belegwege — nur wo die Quelle es HERGIBT.
 
@@ -1238,6 +1292,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "measurement": {**_messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
                             "second_reader": _zweit},
             "evidence_path": _belegweg(e.get("klasse")),
+            "supersedes": _supersedes(k, _GEBUNDEN.get(k),
+                                      int((_GEBUNDEN.get(k) or {}).get("record_revision") or 0)),
             "objektklasse": e.get("klasse"),
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
@@ -1333,6 +1389,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         # Quelle, wie die Objektklassen-Datei ihn fuehrt. Laesst er sich nicht lesen, steht NOT
         # MEASURED mit Grund — nie ein Rueckfall auf die Uhr des Laufs, denn das war der Fehler.
         "assessment_cutoff": _bewertungsgrenze(ok),
+        # PUNKT 2a: drei Zeiten. Zwei sind gemessen, eine fehlt MIT Grund.
+        "times": _drei_zeiten(ok, generated_at),
         "inventory": {
             "source_documents": [{"path": RESTRISIKO_REL, "sha256": qd,
                                   "identifiers": len(ok["eintraege"])},
@@ -1925,6 +1983,39 @@ def pruefe_v2(doc, repo) -> list[str]:
         if _sig.get("state") == "UNSIGNED" and not _sig.get("consequence_for_the_reader"):
             fehler.append("Signatur: UNSIGNED ohne die Folge fuer den Leser — wer die Einschraenkung "
                           "nicht nennt, veroeffentlicht sie auch nicht")
+    _zt = doc.get("times")
+    if not isinstance(_zt, dict):
+        fehler.append("[ZT-FEHLT] der Traeger fuehrt keine drei Zeiten")
+    else:
+        for name in ("first_seen", "measured", "issued"):
+            _z = _zt.get(name)
+            if not isinstance(_z, dict):
+                fehler.append(f"[ZT-FORM] `times.{name}` fehlt oder ist kein Objekt")
+                continue
+            if _z.get("value") is None:
+                if _z.get("state") not in LUECKENWOERTER:
+                    fehler.append(f"[ZT-LUECKENWORT] `times.{name}` ohne Lueckenwort")
+                elif not _z.get("reason"):
+                    fehler.append(f"[ZT-GRUND] `times.{name}`: Lueckenwort ohne Grund")
+            elif not _z.get("source"):
+                fehler.append(f"[ZT-QUELLE] `times.{name}` traegt einen Wert ohne Quelle")
+        # DIE AUSGABEZEIT IST DIE EINZIGE, DIE AUS DER UHR DES LAUFS KOMMEN DARF.
+        _m = (_zt.get("measured") or {}).get("value")
+        if _m and _m == doc.get("generated_at"):
+            fehler.append("[ZT-UHR] die Messzeit ist gleich der Ausgabezeit — die Uhr dieses Laufs "
+                          "ist keine Quelle fuer den gemessenen Stand")
+    for r in doc["records"]:
+        _sp = r.get("supersedes")
+        if r.get("record_revision", 0) and not isinstance(_sp, dict):
+            fehler.append(f"{r['id']}, [SP-FEHLT] revidiert, nennt aber nicht was es abloest")
+        elif isinstance(_sp, dict):
+            if _sp.get("record_revision") != r.get("record_revision", 0) - 1:
+                fehler.append(f"{r['id']}, [SP-KETTE] `supersedes` zeigt nicht auf die "
+                              f"Vorgaengerrevision")
+            if not _sp.get("additive"):
+                fehler.append(f"{r['id']}, [SP-ADDITIV] eine Revision, die nicht additiv ist, "
+                              f"loescht die alte Aussage")
+
     _cc = (inv.get("closing_contract") or {})
     _bed = _cc.get("conditions")
     if not isinstance(_bed, list) or len(_bed) != 6:

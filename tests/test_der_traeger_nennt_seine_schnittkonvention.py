@@ -570,3 +570,72 @@ def test_die_grenze_der_belegweg_zuordnung_ist_benannt():
         b = r["evidence_path"]
         if b.get("value") == gen.NIE_REPARIERT:
             assert "whether the boundary is itself evidenced" in b["not_checked"]
+
+
+# ── Punkt 2a, Rest: drei Zeiten und additive Revision ────────────────────────────────────────
+
+def test_der_traeger_fuehrt_drei_zeiten():
+    gen = _gen()
+    z = _doc()["times"]
+    assert set(z) >= {"first_seen", "measured", "issued"}
+    for name in ("first_seen", "measured", "issued"):
+        b = z[name]
+        if b.get("value") is None:
+            assert b["state"] in gen.LUECKENWOERTER and b.get("reason"), name
+        else:
+            assert b.get("source"), f"{name} traegt einen Wert ohne Quelle"
+
+
+def test_die_messzeit_kommt_nicht_aus_der_uhr_des_laufs():
+    """Derselbe Fehler wie einst bei der Bewertungsgrenze — die Uhr wuerde den Stand vordatieren."""
+    doc = _doc()
+    m = doc["times"]["measured"]
+    if m.get("value"):
+        assert m["value"] != doc["generated_at"]
+        assert "gemessen_an" in m["source"]
+
+
+def test_die_erstsichtung_fehlt_mit_grund():
+    f = _doc()["times"]["first_seen"]
+    assert f["value"] is None and f["state"] == "NOT MEASURED"
+    assert "the round, not the finding" in f["reason"]
+
+
+def test_nur_revidierte_datensaetze_loesen_etwas_ab():
+    for r in _doc()["records"]:
+        if r.get("record_revision", 0) == 0:
+            assert r.get("supersedes") is None, r["id"]
+        else:
+            s = r["supersedes"]
+            assert s["record_revision"] == r["record_revision"] - 1
+            assert s["additive"] is True
+            assert s.get("added")
+
+
+def test_die_alte_aussage_bleibt_neben_der_neuen_lesbar():
+    """Additiv heisst: der historische Beleg wird nicht ersetzt."""
+    for r in _doc()["records"]:
+        if r.get("supersedes"):
+            rollen = [b["role"] for b in r["evidence"]]
+            assert rollen[0] == "historical_record", rollen
+            assert len(rollen) > 1, "additiv, aber nichts hinzugefuegt"
+
+
+def test_eine_nicht_additive_revision_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    r = next(x for x in doc["records"] if x.get("supersedes"))
+    r["supersedes"]["additive"] = False
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[SP-ADDITIV]" in f]
+
+
+def test_eine_gerissene_revisionskette_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    r = next(x for x in doc["records"] if x.get("supersedes"))
+    r["supersedes"]["record_revision"] = 99
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[SP-KETTE]" in f]
+
+
+def test_eine_messzeit_aus_der_laufuhr_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["times"]["measured"] = {"value": doc["generated_at"], "source": "die Uhr"}
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[ZT-UHR]" in f]
