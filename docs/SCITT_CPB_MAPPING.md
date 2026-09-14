@@ -9,7 +9,22 @@ not about anyone's intent.
 `bd0161ab0ce6` (`pyproject` 5.0.0). The draft side was read the same day **from the draft itself**
 (`https://www.ietf.org/archive/id/draft-mih-sokolov-scitt-payload-binding-02.txt`), not from a
 summary: every section number below (4.1, 7.1, 8, 1.1) was checked against it, and one claim did not
-survive that check — see G4. **Re-measured the same day** after G3 and G4 were closed
+survive that check — see G4.
+
+**Re-measured 2026-09-13 against `-05`, and the draft has been retitled.** The subject on the other
+side is now `draft-mih-sokolov-scitt-payload-binding-05`, 11 September 2026 — **115389 bytes**,
+sha256 `938073e7ce4f4289ca6d45bebac0b319f2a701804eac5c32203124e65f2fb4fa`, fetched from
+`ietf.org/archive/id` with the HTTP status recorded per request. The **draft name is unchanged**;
+the **title** is now *"Canonicalization Declaration for SCITT Signed Statements"* (it was about
+payload binding). Section 2 of `-05` states the scope of the change in its own words: *"This
+revision changes framing, placement, and wording only. It makes no normative change: no requirement
+is added, removed, or changed in force, no registry entry changes, and the vectors at the locations
+in Section 14.1.1 are unchanged."* Section 4 is retitled **"Canonicalization Algorithm
+Registrations"**, and `jcs` and `as-transmitted` are restated as **registrations** (identifier,
+normative reference, digest context, declaration rule) rather than as procedures; the withdrawn
+entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page carries the same
+section number in `-05` as it did in `-02`** — nothing moved, one wording widened (see G2) and one
+of our own claims stopped holding as written (see the claims table). **Re-measured the same day** after G3 and G4 were closed
 additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
 in the IETF process, sitting on top of [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) — the
@@ -55,6 +70,15 @@ exclusion set. We do not declare one either way, so this is the same duty sectio
 rather than leave it to be inferred. Named here; the declaration itself is a profile decision, not a code
 change.
 
+**What `-05` adds here, measured 2026-09-13.** Section 4.1 now states the exclusion-set rule more
+tightly than `-02` did: the exclusion set *"is matched against the top-level member names of the
+payload only; a member of the same name nested inside a member's value is not removed."* That
+sharpens the consequence recorded above rather than changing it — we declare no exclusion set either
+way. And `-05` carries a **second active registration**, `as-transmitted` (4.4), beside `jcs`; the
+withdrawn `jcs-n` (4.2) and `cde-n` (4.3) are unchanged. **We name `jcs` and nothing else**, so
+`as-transmitted` does not reach us today; whether any of our export paths would be better described
+by it is **NOT MEASURED**.
+
 **What is already in place, and it belongs in the record:** `intoto.py:145` carries the token
 `legacy-sortkeys-json-v0` as an algorithm in its own right, and `intoto.py:178` **rejects** a
 `sort_keys` body offered *as* `jcs-sha256-v1`. The declaration and the guard exist; what is missing is
@@ -66,7 +90,7 @@ the migration itself. It is owner-gated and tracked as its own item, not done he
 |---|---|
 | **Our side** | `src/proofbundle/merkle.py:34` computes RFC 6962 correctly, leaf hash `SHA-256(0x00 ‖ data)`. `src/proofbundle/bundle.py:770` passes the **payload** as leaf data: `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT. |
 | **Draft** | section 7.1 opens *"This profile imposes no leaf construction on a Verifiable Data Structure"*, then makes one conditional requirement: **where a Transparency Service's VDS keys its log on the derived identifier**, a 64-character hex `D` MUST enter the tree as `bytes.fromhex(D)` (raw 32 bytes) and never as `D.encode("utf-8")` (64 ASCII bytes). Section 5.1 separately makes representation normative: a payload class **MUST specify which representation it uses** for each field containing or referencing a derived identifier, and a verifier **MUST NOT silently coerce** between them. |
-| **Verdict** | **Section 7.1 does not reach our construction, and saying it does was my own overcorrection.** Read at source on 2026-08-30 (`draft-mih-sokolov-scitt-payload-binding-02.txt`, 92428 B, sha256 `47ab6757...`), the section opens: *"This profile imposes no leaf construction on a Verifiable Data Structure."* The `MUST` that follows is **conditional** -- *"Where a Transparency Service's VDS keys its log on the derived identifier"* -- and names the hex-as-text mistake as the failure that requirement exists to prevent. **We do not key on the derived identifier; we bind the payload.** So we are neither conformant with 7.1 nor in violation of it: the conditional does not reach us, and there is no defect here to declare. |
+| **Verdict** | **Section 7.1 does not reach our construction, and saying it does was my own overcorrection.** Read at source on 2026-08-30 (`draft-mih-sokolov-scitt-payload-binding-02.txt`, 92428 B, sha256 `47ab6757...`) and **re-read at source on 2026-09-13 against `-05`** (115389 B, sha256 `938073e7...`), the section opens — in both revisions, verbatim and unchanged: *"This profile imposes no leaf construction on a Verifiable Data Structure."* **The condition on the `MUST` is wider in `-05` and carries a new duty.** `-02` read *"Where a Transparency Service's VDS keys its log on the derived identifier"*; `-05` reads *"Where a Transparency Service's VDS keys its log on **a digest associated with** the derived identifier"*, and adds: *"The VDS or an applicable profile **MUST state which one is its leaf input**, and producer and verifier MUST use that same representation."* **We do not key on the derived identifier, nor on a digest associated with it; we bind the payload** (`bundle.py:770`, `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT — not a digest at all). So we are neither conformant with 7.1 nor in violation of it under either revision: the conditional does not reach us, and there is no defect here to declare. **Honest limit of this re-measurement:** the `-05` text was measured against this page's claims, **not** against our source tree a second time; whether any code path added since 2026-08-30 keys on such a digest is **NOT MEASURED**. |
 
 **What does reach us is section 5.1, and it is an obligation to declare rather than to change.** 5.1 makes
 representation *normative*: a payload class **MUST specify which representation it uses for each field
@@ -112,8 +136,8 @@ the argument for it, and used it in one place out of several.
 | | |
 |---|---|
 | **Our side** | measured across all nine schemas under `schemas/`: no `population_size`, no `evaluated_count`, no `unresolved_count`. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined — same spirit, different level, and it does not answer the question about the examined set. |
-| **CPB draft** | coverage does not appear anywhere in it. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. Absence, not an explicit exclusion. |
-| **Verdict** | **Absent on both sides — and it stays absent on ours for now.** |
+| **CPB draft** | **evaluation** coverage does not appear in it. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. Absence, not an explicit exclusion. **Narrowed on 2026-09-13 against `-05`, because the unqualified form stopped being true:** the word `coverage` does occur twice there, as *"signature coverage"* (8.3) and *"neither kind of coverage"* about hash binding (6.2), and `Unresolved` occurs twelve times as a processing state of a typed reference (8.1). None of those is an examined-set quantity. The claims table below carries the count. |
+| **Verdict** | **Evaluation coverage is absent on both sides — and it stays absent on ours for now.** The qualifier is load-bearing and was added on 2026-09-13: an unqualified "absent" is refutable by a single word search against `-05`, and a reader who runs that search before reading this row would be right to stop trusting the page. |
 
 **This entry was rewritten on 2026-08-30, and the reason matters more than the conclusion.** An
 earlier version of it recorded that we had closed the gap additively with three fields
@@ -147,7 +171,11 @@ it and wonder.
 The draft side of this page was originally written from a reading that was not retained. On 2026-08-30
 the draft was fetched and every claim this page makes about it was re-checked against the text:
 `draft-mih-sokolov-scitt-payload-binding-02.txt`, **92428 bytes**, sha256
-`47ab675797d7edfe...`, from `ietf.org/archive/id`.
+`47ab675797d7edfe...`, from `ietf.org/archive/id`. **Repeated on 2026-09-13 against `-05`:**
+`draft-mih-sokolov-scitt-payload-binding-05.txt`, **115389 bytes**, sha256
+`938073e7ce4f4289ca6d45bebac0b319f2a701804eac5c32203124e65f2fb4fa`, same source. Two of the three
+candidate URLs tried returned **HTTP 404 and still wrote 76766 bytes of HTML** — the status code was
+recorded per request, because a file's size alone cannot tell an error page from a draft.
 
 | Claim | Section | Result |
 |---|---|---|
@@ -156,7 +184,7 @@ the draft was fetched and every claim this page makes about it was re-checked ag
 | representation is normative and must be declared | 5.1 | **holds**; this is the duty that actually reaches us |
 | leaf construction rule | 7.1 | **did NOT hold as stated** -- the section imposes no leaf construction, its `MUST` is conditional, and the condition does not apply to us |
 | typed digest reference: `type`, `purpose`, `digest_alg`, `digest` | 8 | **holds exactly**, including which are REQUIRED and which CONDITIONAL |
-| coverage does not appear | whole draft | **holds, and stronger than stated**: `coverage`, `population`, `evaluated_count`, `unresolved` and `sample` have **0 occurrences in the entire document**, not merely in 1.1 |
+| coverage does not appear | whole draft | **against `-02`: held as stated.** **Against `-05` the count no longer holds, the substance does.** Measured 2026-09-13 over the whole `-05` text: `population` 0, `evaluated_count` 0, `sample` 0 — but `coverage` **2** and `unresolved` **12**. Both are a different quantity: `coverage` appears as *"signature coverage"* (8.3) and *"neither kind of coverage"* about hash binding (6.2); `Unresolved` is a named **processing state** of a typed reference (8.1), not a count. **Evaluation coverage still does not appear in `-05`.** The claim is corrected rather than defended: an all-quantified statement about someone else's text has to be re-measured at every revision, and this is the one that moved. |
 
 One of six did not survive. That is the reason this table exists: a claim about someone else's normative
 text, carried forward from our own earlier summary, is not a measurement.
