@@ -15,6 +15,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:              # Merge Queue: DIESE Datei definiert den Pflichtkontext `guard`.
+    # Sie ist die zweite von zwei Bahndateien, die einen der sieben Pflichtkontexte tragen, und
+    # ohne diesen Ausloeser meldet `guard` fuer die Queue-SHA nie. `protect-main` wartete dann auf
+    # einen siebten Kontext, den niemand startet, waehrend die sechs aus ci.yml gruen dastehen —
+    # eine Queue, die fuer immer haengt, und zwar STILL. Gefunden von einer Gegenlesung an genau
+    # der Aenderung, die den Ausloeser in ci.yml ergaenzte: dort war die Annahme, alle sieben
+    # Kontexte laegen in EINER Datei. Gemessen liegen sie in zwei.
+    types: [checks_requested]
 
 # NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
 # auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
