@@ -102,7 +102,18 @@ def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
     """[ZAEHLT] Die Verschaerfung darf den Weg, auf den sie zeigt, nicht verbauen."""
     g, doc = _gen(), _doc()
     k = copy.deepcopy(doc)
-    k["signature"] = {"alg": "ed25519", "public_key_b64": "AAAA", "sig_b64": "BBBB"}
+    # DIE ATTRAPPE MUSS DIE FORM HABEN, NACH DER GEFRAGT WIRD (gemessen 14.09.2026). Vorher
+    # stand hier `"AAAA"` — base64 fuer DREI Bytes, waehrend ein Ed25519-Schluessel 32 hat. Das
+    # ging durch, solange `pruefe_v2` nur die ANWESENHEIT der Felder pruefte. Genau diese
+    # Anwesenheits-Pruefung ersetzt dieser Pull Request durch eine Eigenschafts-Pruefung
+    # (`_signatur_lage`, Codex-Thread 'Presence-as-verification') — und damit ueberholte die
+    # Aenderung die Vorrichtung, die sie begleiten soll. Der Riegel hat recht, die Attrappe war
+    # falsch: sie mass, ob eine Attrappe durchgeht, die keine sein darf.
+    # 32 bzw. 64 Nullbytes sind formal gueltig; verifiziert wird an DIESER Stelle nichts, nur die
+    # Form geprueft — deshalb genuegt und gehoert hier die formal richtige Groesse.
+    k["signature"] = {"alg": "ed25519",
+                      "public_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                      "sig_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}
     assert not [x for x in g.pruefe_v2(k, REPO) if x.startswith("Signatur")]
 
 

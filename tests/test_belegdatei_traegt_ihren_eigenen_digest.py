@@ -91,9 +91,23 @@ def test_belegdatei_traegt_genau_die_quellbytes():
                 abweichend.append(f"{r['id']}: Datei fehlt")
                 continue
             von, bis = b["byte_range"]
-            if p.read_bytes() != quelle[von:bis]:
-                abweichend.append(
-                    f"{r['id']}: Datei {len(p.read_bytes())} B, Ausschnitt {bis - von} B")
+            hier = p.read_bytes()
+            dort = quelle[von:bis]
+            if hier != dort:
+                # DIE MELDUNG NENNT, WAS SICH UNTERSCHEIDET (gemessen 14.09.2026). Vorher stand
+                # hier ausschliesslich die LAENGE beider Seiten — verglichen werden aber die
+                # BYTES. Bei gleicher Laenge und anderem Inhalt las sich der Beleg einer
+                # Abweichung als zwei identische Zahlen: "Datei 306 B, Ausschnitt 306 B". Ein
+                # Diagnosetext, der eine andere Eigenschaft nennt als die verglichene, schickt
+                # den Leser in die falsche Richtung; genau das ist hier passiert.
+                if len(hier) != len(dort):
+                    abweichend.append(
+                        f"{r['id']}: Laenge Datei {len(hier)} B, Bereich {len(dort)} B")
+                else:
+                    i = next(k for k in range(len(hier)) if hier[k] != dort[k])
+                    abweichend.append(
+                        f"{r['id']}: gleiche Laenge {len(hier)} B, erster Unterschied bei Byte "
+                        f"{i} (Datei {hier[i:i+16]!r}, Bereich {dort[i:i+16]!r})")
     assert not abweichend, (
         f"{len(abweichend)} Belegdateien tragen nicht genau die Bytes ihres Bereichs: "
         + "; ".join(abweichend[:5]))
