@@ -29,6 +29,17 @@ on:
         description: "sha256 of the reproducible sdist."
         value: ${{ jobs.build-attest.outputs.sdist-sha256 }}
 
+# KEINE eigene NEBENLAEUFIGKEITS-GRUPPE, und das ist die AUSNAHME zu B1 aus Nachtrag 1 — mit Grund,
+# nicht aus Vergesslichkeit. Dieser Workflow hat `on: workflow_call` und NICHTS sonst; er laeuft nie
+# eigenstaendig. In einem AUFGERUFENEN Workflow ist `github.workflow` der Name des AUFRUFERS, nicht
+# der eigene. Eine Gruppe `${{ github.workflow }}-${{ github.ref }}` loest hier also auf denselben
+# Wert auf wie die des einzigen Aufrufers (published-artifact-gate.yml, Zeile 48-50, ruft ihn in
+# Zeile 136). Mit `cancel-in-progress` bei pull_request und push haette der Aufgerufene damit seinen
+# eigenen Aufrufer abgebrochen — und mit ihm die Reproduzierbarkeits- und Reinraum-Urteile, fuer die
+# er ueberhaupt gerufen wird. Gefunden von der Codex-Runde eins an PR 202, gegengeprueft an beiden
+# Dateien. Die Nebenlaeufigkeit dieses Laufs regelt der Aufrufer, wie es sich fuer einen gerufenen
+# Workflow gehoert.
+
 permissions:
   contents: read
 
@@ -50,6 +61,7 @@ defaults:
 jobs:
   build-attest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write        # keyless OIDC for the build-provenance attestation (only used when not dry_run)
