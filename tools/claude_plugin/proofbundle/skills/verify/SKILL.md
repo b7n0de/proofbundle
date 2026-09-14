@@ -22,6 +22,25 @@ consistent with itself. A valid receipt copied from a *different* subject would 
 2026-08-31): "whoever copies a valid receipt and claims it belongs to another pull request changes
 nothing about the envelope; they lie beside it."
 
+### How to obtain that digest
+
+The verifier compares against `subjectContext` — so build one from the object you are looking at
+and let the library derive the digest, rather than hashing anything by hand:
+
+```bash
+PYTHONPATH=src python3 -c "
+from proofbundle import agent_review as ar
+print(ar._subject_digest({'subjectContext': {
+    'forge': 'github', 'kind': 'githubPullRequest',
+    'repositoryId': '<repo node id>', 'pullRequestNodeId': '<PR node id>',
+    'headSha': '<head sha you are looking at>', 'baseSha': '<base sha>',
+}}))"
+```
+
+Take every value from the pull request in front of you (`gh pr view <n> --json id,headRefOid,baseRefOid`),
+never from the receipt. Hashing the file yourself will not match: the digest is computed over a
+canonicalised structure, not over raw bytes.
+
 If no independent subject digest is available, run without one and say so plainly: the run then
 checked internal consistency and the signature, and **nothing established that the receipt belongs
 to the object in front of you**. That is an honest partial result, not a passed verification.
@@ -66,6 +85,15 @@ Say which of these three you actually ran, because they are not the same claim:
    nothing ties it to your object.
 3. **Signature, consistency and binding** — an expected subject digest from the object itself.
    Only this one answers "does this receipt belong to what I am looking at".
+4. **All three, but the key came from the same place as the receipt** — the most common case in
+   practice, and the weakest. If the public key hex was taken from the same pull request, issue or
+   artifact repository that carries the receipt, the chain is circular one level up: whoever could
+   forge the receipt could supply the key beside it. Binding then shows `MATCH` and proves nothing
+   about who signed. Say so explicitly, and name where the key came from. A key is only a trust
+   anchor if its provenance is independent of the thing it verifies.
+
+This fourth case was found by a foreign-family review on 2026-09-14 and is the same circularity as
+the subject digest, one level higher: it is easy to fix the digest and leave the key untouched.
 
 Honest limits, always worth stating: this verifies a signature and a binding. It says nothing about
 whether the reviewed work is correct, and it is not a security audit.
