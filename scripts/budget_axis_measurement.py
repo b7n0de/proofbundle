@@ -75,6 +75,33 @@ def _ausgang(ruf) -> tuple[str, str]:
     return "BESTANDEN", ""
 
 
+def _gesamtausgang(rufe: list[tuple[str, object]]) -> tuple[str, str]:
+    """ALLE Zusicherungen einer Flaeche fahren und zu EINEM Urteil verdichten.
+
+    Codex r4001145754 (P1), am Kopf c53ee88370ee03b08238925d9fb73e2ff31d8bdc nachgestellt. Je
+    Achse lief GENAU EINE der sechs Zusicherungen, die das Quellmodul fuer eine Achse fuehrt, und
+    ihr Ausgang wurde als `urteil` der ganzen Achse ausgegeben. Reisst der Lastbau, bleibt der
+    CPU-Test schnell und meldet BESTANDEN — ein gruenes Urteil ueber eine Flaeche, auf der nicht
+    gemessen wurde.
+
+    DIE KOMBIS HATTEN DENSELBEN DEFEKT und standen in keinem Kommentar. Dort lief eine von drei.
+    Deshalb ein gemeinsamer Ausgang statt zweier Reparaturen. Ein Fix an einer von zwei Stellen
+    laesst die zweite still zurueckkehren.
+
+    FAIL-CLOSED und ohne Abkuerzung: es wird NICHT beim ersten Riss abgebrochen, sonst haetten die
+    uebrigen Zusicherungen wieder nicht gemessen und der Bericht naehme die Antwort vorweg. Das
+    schwerste Urteil gewinnt, ABGEBROCHEN vor GERISSEN vor UEBERSPRUNGEN vor BESTANDEN, und die
+    Meldung nennt JEDE Zusicherung, die nicht bestanden hat, mit ihrem Namen.
+    """
+    rang = {"ABGEBROCHEN": 3, "GERISSEN": 2, "UEBERSPRUNGEN": 1, "BESTANDEN": 0}
+    ergebnisse = [(name, *_ausgang(ruf)) for name, ruf in rufe]
+    schlimmste = max(ergebnisse, key=lambda e: rang[e[1]])[1]
+    schlecht = [f"{n}: {u}{(' — ' + m) if m else ''}" for n, u, m in ergebnisse if u != "BESTANDEN"]
+    if not schlecht:
+        return "BESTANDEN", f"{len(ergebnisse)} Zusicherungen, alle bestanden"
+    return schlimmste, f"{len(schlecht)} von {len(ergebnisse)} nicht bestanden — " + " | ".join(schlecht)
+
+
 def messe() -> dict:
     t = _testmodul()
     marke = t._bauhost()
@@ -86,7 +113,21 @@ def messe() -> dict:
                   else t._faktor_spanne(klammer)[0])
         _deckel = t._faktor_deckel(ausser=dim.name)
         fall = t.TestObergrenzeAmGroesstenZugelassenenWert()
-        urteil, meldung = _ausgang(lambda d=dim: fall.test_kosten_am_limit_unter_der_obergrenze(d))
+        kurve = t.TestKostenkurve()
+        urteil, meldung = _gesamtausgang([
+            ("last_erreicht_das_limit",
+             lambda d=dim: fall.test_die_last_erreicht_das_limit_wirklich(d)),
+            ("l_minus_eins_l_und_l_plus_eins",
+             lambda d=dim: fall.test_l_minus_eins_l_und_l_plus_eins(d)),
+            ("kosten_am_limit_unter_der_obergrenze",
+             lambda d=dim: fall.test_kosten_am_limit_unter_der_obergrenze(d)),
+            ("speicher_am_limit_unter_der_grenze",
+             lambda d=dim: fall.test_speicher_am_limit_unter_der_grenze(d)),
+            ("prozessspitze_gemessen_und_messweg_genannt",
+             lambda d=dim: fall.test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt(d)),
+            ("kurve_ist_nicht_ueberlinear",
+             lambda d=dim: kurve.test_die_kurve_ist_nicht_ueberlinear(d)),
+        ])
         achsen.append({
             "name": dim.name,
             "flaeche": dim.was,
@@ -117,8 +158,14 @@ def messe() -> dict:
     for name, n_achsen, bau in t.KOMBIS:
         m = t._kombi_messung(name, bau)
         fall = t.TestKombinierteAchsen()
-        urteil, meldung = _ausgang(
-            lambda n=name, a=n_achsen, b=bau: fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(n, a, b))
+        urteil, meldung = _gesamtausgang([
+            ("kombi_erreicht_jede_benannte_dimension",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_erreicht_jede_benannte_dimension(n, a, b)),
+            ("kombi_bleibt_unter_der_summe_der_obergrenzen",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(n, a, b)),
+            ("kombi_speicher_bleibt_unter_der_grenze",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_speicher_bleibt_unter_der_grenze(n, a, b)),
+        ])
         kombis.append({
             "name": name, "eingabeachsen": n_achsen,
             "dauer_max_s": round(m["dauer_max"], 6),
