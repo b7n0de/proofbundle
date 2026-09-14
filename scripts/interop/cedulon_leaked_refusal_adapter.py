@@ -355,6 +355,7 @@ def run(fixture_dir: pathlib.Path, out_dir: pathlib.Path) -> dict[str, Any]:
     dm_pub = dm_signer.public_key().public_bytes_raw()
     ex_pub = ex_signer.public_key().public_bytes_raw()
     import base64
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     for name, signer in (("decision_maker", dm_signer), ("executor", ex_signer)):
         p = out_dir / f"{name}.TESTKEY"
         p.write_bytes(signer.private_bytes_raw())
@@ -366,7 +367,10 @@ def run(fixture_dir: pathlib.Path, out_dir: pathlib.Path) -> dict[str, Any]:
 
     dec_pred, dec_rows = build_decision_predicate(fx)
     dec_env = emit_decision_receipt(dec_pred, dm_signer, strict=True)
-    dec_payload = base64.b64decode(dec_env["payload"])
+    # STRIKT STATT STDLIB (Vertrag tests/test_lauf11_l2_scripts_dekodieren_strikt.py). Die
+    # stdlib nimmt mehrere Drahtformen derselben Bytes an; ueber einem SIGNIERTEN Artefakt
+    # heisst das, dasselbe Statement hat mehr als eine angenommene Kodierung.
+    dec_payload = decode_b64(dec_env["payload"])
     decision_root = canonical.statement_content_root(dec_payload).hex()
 
     out_pred, out_rows = build_outcome_predicate(fx, decision_root, base64.b64encode(ex_pub).decode())
@@ -406,6 +410,7 @@ def run(fixture_dir: pathlib.Path, out_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def verify_pair(report: dict[str, Any]) -> dict[str, Any]:
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     """Hand the pair to our own verifier, with the decision binding and role separation pinned."""
     import base64
 
@@ -415,9 +420,9 @@ def verify_pair(report: dict[str, Any]) -> dict[str, Any]:
     art = report["artefacts"]
     dec_env = json.loads(pathlib.Path(art["decision_receipt"]).read_text(encoding="utf-8"))
     out_env = json.loads(pathlib.Path(art["action_outcome"]).read_text(encoding="utf-8"))
-    dec_res = verify_decision_receipt(dec_env, base64.b64decode(art["decision_maker_pub_b64"]), strict=True)
+    dec_res = verify_decision_receipt(dec_env, decode_b64(art["decision_maker_pub_b64"]), strict=True)
     out_res = verify_outcome_receipt(
-        out_env, base64.b64decode(art["executor_pub_b64"]), strict=True,
+        out_env, decode_b64(art["executor_pub_b64"]), strict=True,
         expected_decision_ref=art["decision_content_root"],
         decision_maker_id=art["decision_maker_id"],
     )
