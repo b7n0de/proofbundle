@@ -65,6 +65,7 @@ REGISTER_REL = "audit_artifacts/findings_register_361.json"
 # Grundsatz, dass der private Schluessel am Mac bleibt.
 
 RESTRISIKO_REL = "RESTRISIKO_600.md"
+AUSGELIEFERT_REL = "audit_artifacts/600/released_artifacts.json"
 OBJEKTKLASSEN_REL = "RESTRISIKO_600_OBJEKTKLASSEN.json"
 EVIDENZ_REL = "audit_artifacts/600/register_evidence"
 V2_REL = "audit_artifacts/600/findings_register_v2.json"
@@ -617,16 +618,39 @@ def _vertragslage(doc_teil: dict) -> list:
                                       "carries exactly the claim applied for; that is a semantic "
                                       "property no digest can establish")
         elif b["nr"] == 6:
-            erfuellt, grund = False, (f"`subject.content` is {inhalt!r}: the shipped bytes are not "
-                                      f"bound in this repository, which is precisely the second "
-                                      f"half of this condition")
+            _repariert = [r["id"] for r in records if r.get("remediation")]
+            if inhalt != "VERIFIED":
+                erfuellt, grund = False, (f"`subject.content` is {inhalt!r}: the shipped bytes are "
+                                          f"not bound, which is the second half of this condition")
+            elif _repariert:
+                erfuellt, grund = False, (f"{len(_repariert)} records claim a repair; each would "
+                                          f"have to name the subject it was proven on")
+            else:
+                erfuellt, grund = True, ("the shipped bytes are bound to recorded published "
+                                         "digests, and no record claims a repair — the first half "
+                                         "holds VACUOUSLY, because nothing is claimed, not because "
+                                         "something was proven")
         elif b["nr"] == 1:
-            erfuellt, grund = False, ("records carry a title and an object class, but no field "
-                                      "names the violated property separately from the subject")
+            # ABGELEITET, NICHT VERDRAHTET (un-Gegenlesung, Punkt 2 — die Bruchstelle). Eine
+            # Konstante, die immer NOT MET sagt, faellt nicht auf, wenn das Feld spaeter kommt;
+            # sie ist ein toter Zweig in der Verkleidung eines Riegels. Die Frage IST am Traeger
+            # entscheidbar, also wird sie gestellt.
+            _ohne = [r["id"] for r in records if not (r.get("violated_property") or "").strip()]
+            erfuellt = not _ohne and bool(records)
+            grund = ("every record names the violated property separately from the subject"
+                     if erfuellt else
+                     f"{len(_ohne)} of {len(records)} records carry no `violated_property`; a "
+                     f"title names the finding, not the property it violates")
         else:
-            erfuellt, grund = False, ("no test profile is fixed before the assessment; the kind of "
-                                      "evidence is decided per finding and is NOT MEASURED for 143 "
-                                      "of them")
+            _offen = [r["id"] for r in records
+                      if (r.get("evidence_path") or {}).get("value") is None]
+            _profil = bool((doc_teil.get("inventory") or {}).get("test_profile"))
+            erfuellt = _profil and not _offen
+            grund = ("a test profile is declared and every record's evidence kind follows from it"
+                     if erfuellt else
+                     f"test profile declared: {_profil}; {len(_offen)} of {len(records)} records "
+                     f"have no determined evidence kind, so nothing was fixed before the "
+                     f"assessment")
         lage.append({**b, "met": erfuellt, "state": "MET" if erfuellt else "NOT MET",
                      "reason": grund})
     return lage
@@ -680,18 +704,62 @@ def _subject(repo, text: str) -> dict:
     DIE ACTION DAGEGEN IST BINDBAR (N16): die Datei liegt im Baum, ihr Digest wird gerechnet.
     """
     import hashlib  # noqa: PLC0415
+    import json as _j  # noqa: PLC0415
     kand = _artefakt_kandidaten(text)
-    inhalt = {
-        "state": "NOT MEASURABLE",
-        "reason": ("the source names artifact digests from build experiments over different "
-                   "commits and with different sizes; no place states which bytes were "
-                   "published, so binding the release to one of them would assert a link nobody "
-                   "checked"),
-        "candidates_in_source": kand,
-        "candidate_count": len(kand),
-        "wheel_and_sdist_are_separate": ("they are listed separately because they are separate "
-                                         "artifacts with separate digests — see N15"),
-    }
+    # NICHT MESSBAR WAR ZU FRUEH GESAGT (un-Gegenlesung 15.09.2026, Punkt 1). Ich hatte
+    # geschlossen, die ausgelieferten Bytes seien nicht bindbar, OHNE die eine Stelle zu fragen,
+    # die es entscheidet. Gemessen: der Index des Pakets antwortet, und die veroeffentlichten
+    # Digeste stimmen mit KEINEM der Kandidaten aus der Quelle ueberein — alle drei dort sind
+    # Bauversuche. "Von hier nicht sichtbar" ist nicht "nicht messbar"; der Unterschied ist genau
+    # die Klasse, gegen die dieses Register gebaut ist.
+    #
+    # ZUR BAUZEIT WIRD NICHT INS NETZ GEGRIFFEN. Ein Erzeuger, der bauen will und dabei das Netz
+    # braucht, ist weder hermetisch noch offline reproduzierbar. Die Messung steht als DATEI mit
+    # ihrer Herkunft und ihrem Messzeitpunkt; hier wird sie gelesen und gebunden.
+    _ap = repo / AUSGELIEFERT_REL
+    gemein = None
+    if _ap.is_file():
+        try:
+            _ag = _j.loads(_ap.read_text(encoding="utf-8"))
+            _art = _ag.get("artefakte") or []
+        except (OSError, ValueError):
+            _ag, _art = None, []
+    else:
+        _ag, _art = None, []
+    if _art:
+        _quellendigests = {k["sha256"] for k in kand}
+        gemein = sorted(_quellendigests & {a["sha256"] for a in _art})
+        inhalt = {
+            "state": "VERIFIED",
+            "verified_against": {"path": AUSGELIEFERT_REL, "source": _ag.get("quelle"),
+                                 "measured_utc": _ag.get("gemessen_utc"),
+                                 "how": _ag.get("_wie_gemessen")},
+            "artifacts": [{k: a.get(k) for k in
+                           ("filename", "packagetype", "sha256", "bytes", "upload_time_utc")}
+                          for a in _art],
+            "reason": ("the digests of the PUBLISHED artifacts are recorded with their origin and "
+                       "the time they were measured; wheel and sdist are carried separately "
+                       "because they are separate artifacts (N15)"),
+            "source_candidates_that_match": gemein,
+            "what_that_means": ("none of the digests the source register carries is a published "
+                                "artifact — they are build experiments. A reader who took one of "
+                                "them for the release would bind the wrong bytes, which is exactly "
+                                "what condition 6 of the closing contract is about"),
+            "candidates_in_source": kand,
+            "candidate_count_is_a_lower_bound": ("the finder reads one line at a time and matches "
+                                                 "lowercase hex, so a table split across lines or "
+                                                 "a digest on the following line is not seen"),
+        }
+    else:
+        inhalt = {
+            "state": "NOT MEASURABLE",
+            "reason": (f"{AUSGELIEFERT_REL} is not present, so the published bytes are not "
+                       f"recorded in this tree. This says the measurement is not available HERE, "
+                       f"not that it is impossible — the package index carries it"),
+            "candidates_in_source": kand,
+            "candidate_count_is_a_lower_bound": ("the finder reads one line at a time and matches "
+                                                 "lowercase hex"),
+        }
     apfad = repo / "action/action.yml"
     if apfad.is_file():
         roh = apfad.read_bytes()
@@ -733,7 +801,15 @@ def _belegweg(klasse) -> dict:
         return {"value": "decision_or_boundary",
                 "source": "object class `benannte_grenze` in RESTRISIKO_600_OBJEKTKLASSEN.json, "
                           "whose own rationale states that it names a boundary of the subject",
-                "counts_as_repaired": False}
+                "counts_as_repaired": False,
+                # UND DIE GRENZE DER ZUORDNUNG, benannt statt verschwiegen (un-Gegenlesung,
+                # Punkt 4): der Weg verlangt eine Grenze, die SELBST NACHGEWIESEN ist. Geprueft
+                # wird hier nur die Klassenzugehoerigkeit. Ueber den heutigen Bestand nachgesehen
+                # sind beide Traeger echte Grenzen des Gegenstands und keine technischen Limits —
+                # das ist eine Messung an zwei Faellen, keine Eigenschaft der Regel.
+                "not_checked": ("whether the boundary is itself evidenced. The mapping follows "
+                                "from the class, not from a proof, and was inspected over the two "
+                                "records that carry it")}
     return {"value": None, "state": "NOT MEASURED",
             "reason": ("the object classes separate by origin, not by the kind of evidence; no "
                        "source says whether this finding is carried by an executable product "
@@ -1863,12 +1939,18 @@ def pruefe_v2(doc, repo) -> list[str]:
             if not b.get("requires"):
                 fehler.append(f"[AV-TEXT] Bedingung {b.get('nr')} ohne Wortlaut")
         # EIN VERTRAG, DER SICH SELBST GRUEN MELDET, WAEHREND DER TRAEGER UNSIGNIERT IST.
-        _sigz = (doc.get("signature") or {}).get("state")
-        if _sigz != "VERIFIED":
+        # DER ZUSTAND WIRD GERECHNET, NICHT GELESEN (un-Gegenlesung, Punkt 3). Die erste Fassung
+        # las `signature.state` aus DEMSELBEN Dokument, dessen Vertrag sie prueft — wer beides
+        # konsistent faelscht, kam durch. `_signatur_lage` verifiziert die Signatur kryptografisch
+        # gegen den kanonischen Rumpf; das ist der vorhandene Pruefer, und er wird hier benutzt
+        # statt nachgebaut.
+        _sigz, _ = _signatur_lage(doc)
+        if _sigz != "VERIFIZIERT":
             for b in _bed:
                 if b["nr"] in (3, 4) and b.get("met"):
-                    fehler.append(f"[AV-SIGNATUR] Bedingung {b['nr']} meldet MET, der Traeger ist "
-                                  f"aber {_sigz!r} — sie verlangt eine gepruefte Signatur")
+                    fehler.append(f"[AV-SIGNATUR] Bedingung {b['nr']} meldet MET, die Signatur des "
+                                  f"Traegers ist aber {_sigz} — sie verlangt eine GEPRUEFTE "
+                                  f"Signatur, und geprueft heisst hier nachgerechnet")
     if not _cc.get("source_sha256_prefix"):
         fehler.append("[AV-QUELLE] der Abschlussvertrag nennt keinen Digest seiner Quelle")
 

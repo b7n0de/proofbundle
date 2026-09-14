@@ -1,0 +1,23 @@
+{
+  "_warum_es_diese_datei_gibt": "Bedingung 6 des Abschlussvertrags verlangt fuer die AUSGELIEFERTEN Bytes einen eigenen Nachweis. Das Quellregister fuehrt nur Digests aus Bauversuchen; gemessen stimmt KEINER davon mit dem ueberein, was veroeffentlicht wurde. Diese Datei haelt die veroeffentlichten Digeste fest, damit der Erzeuger sie binden kann, OHNE zur Bauzeit ins Netz zu greifen — ein Erzeuger, der baut und dabei das Netz braucht, ist weder hermetisch noch offline reproduzierbar.",
+  "_wie_gemessen": "HTTP GET https://pypi.org/pypi/proofbundle/6.0.0/json, Feld urls[].digests.sha256",
+  "quelle": "https://pypi.org/pypi/proofbundle/6.0.0/json",
+  "gemessen_utc": "2026-09-14T23:17:30Z",
+  "version": "6.0.0",
+  "artefakte": [
+    {
+      "filename": "proofbundle-6.0.0-py3-none-any.whl",
+      "packagetype": "bdist_wheel",
+      "sha256": "3c206fcff592833a75d712ed421e4b9f6aaf7d1fa857b2fc0ba50839d3dfe14d",
+      "bytes": 556432,
+      "upload_time_utc": "2026-09-11T18:41:54.124356Z"
+    },
+    {
+      "filename": "proofbundle-6.0.0.tar.gz",
+      "packagetype": "sdist",
+      "sha256": "c24f91e5f137783de500f1e1269b66e77f64dcbae9c125ef3b07d94e850b7ecb",
+      "bytes": 2259376,
+      "upload_time_utc": "2026-09-11T18:41:56.150114Z"
+    }
+  ]
+}

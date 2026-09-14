@@ -387,17 +387,24 @@ def test_subject_trennt_identifikator_und_inhalt():
     assert s.get("why_separate"), "die Trennung ohne Begruendung ist eine Formalie"
 
 
-def test_der_inhaltsdigest_wird_nicht_gewaehlt_sondern_benannt():
-    """Die Quelle fuehrt Digests aus Bauversuchen ueber verschiedene Commits.
+def test_der_inhaltsdigest_wird_nie_aus_der_quelle_GEWAEHLT():
+    """Die Eigenschaft, nicht der Zustand.
 
-    Einen davon zum Release-Digest zu erklaeren waere eine Bindung, die niemand geprueft hat.
+    Erste Fassung schrieb `state == "NOT MEASURABLE"` fest — und wurde rot, als die Bindung
+    gegen die veroeffentlichten Bytes gelang. Ein Test, der einen ZUSTAND pinnt, blockt genau
+    den Fortschritt, den er begleiten soll. Geschuetzt werden sollte etwas anderes: dass kein
+    Digest aus dem Quellregister zum Release-Digest ERKLAERT wird. Das gilt in beiden Zustaenden.
     """
     c = _doc()["subject"]["content"]
-    assert c["state"] == "NOT MEASURABLE", c["state"]
+    assert c["state"] in ("VERIFIED", "NOT MEASURABLE"), c["state"]
     assert c.get("reason")
-    assert c["candidate_count"] == len(c["candidates_in_source"])
-    assert c["candidate_count"] >= 2, "ohne Kandidaten waere die Luecke nicht nachvollziehbar"
-    for k in c["candidates_in_source"]:
+    if c["state"] == "VERIFIED":
+        # gebunden wird gegen eine benannte, datierte Messung — nie gegen die Quelle
+        assert c["verified_against"]["path"].endswith("released_artifacts.json")
+        quell = {k["sha256"] for k in c.get("candidates_in_source") or []}
+        veroeff = {a["sha256"] for a in c["artifacts"]}
+        assert not (quell & veroeff), "ein Quellkandidat wurde zum Release-Digest erklaert"
+    for k in c.get("candidates_in_source") or []:
         assert len(k["sha256"]) == 64 and k["filename"].startswith("proofbundle-")
         assert isinstance(k["source_line"], int)
 
@@ -488,3 +495,78 @@ def test_die_vier_belegwege_tragen_ihre_woertliche_fassung():
     assert "rejection of the old version" in gen.BELEGWEGE["mechanically_checkable_doc_error"]
     assert "NO test claim" in gen.BELEGWEGE["substantive_doc_error"]
     assert "NEVER counts as repaired" in gen.BELEGWEGE["decision_or_boundary"]
+
+
+# ── un-Gegenlesung 15.09., zweite Runde: vier Urteile, alle eingearbeitet ────────────────────
+
+def test_der_inhalt_ist_gegen_die_veroeffentlichten_bytes_gebunden():
+    """Punkt 1: 'nicht bindbar' war zu frueh gesagt — der Paketindex entscheidet es."""
+    c = _doc()["subject"]["content"]
+    if c["state"] == "NOT MEASURABLE":
+        assert "not that it is impossible" in c["reason"]
+        pytest.skip("released_artifacts.json liegt in diesem Baum nicht vor")
+    assert c["state"] == "VERIFIED"
+    va = c["verified_against"]
+    assert va["path"].endswith("released_artifacts.json") and va["source"] and va["measured_utc"]
+    arten = {a["packagetype"] for a in c["artifacts"]}
+    assert {"bdist_wheel", "sdist"} <= arten, arten
+
+
+def test_kein_digest_der_quelle_ist_ein_veroeffentlichtes_artefakt():
+    """Gemessener Fund: alle drei Kandidaten der Quelle sind Bauversuche."""
+    c = _doc()["subject"]["content"]
+    if c["state"] != "VERIFIED":
+        pytest.skip("ohne Bindung ist der Vergleich nicht messbar")
+    assert c["source_candidates_that_match"] == []
+    assert "would bind the wrong bytes" in c["what_that_means"]
+
+
+def test_die_kandidatenzahl_ist_als_untergrenze_deklariert():
+    """Punkt 1b: ein Zeilen-Regex sieht keine mehrzeilige Tabelle."""
+    c = _doc()["subject"]["content"]
+    assert "lower_bound" in " ".join(c.keys()) or c.get("candidate_count_is_a_lower_bound")
+
+
+def test_bedingung_1_und_2_sind_abgeleitet_nicht_verdrahtet():
+    """Punkt 2, die Bruchstelle: eine Konstante, die immer NOT MET sagt, ist kein Riegel."""
+    doc = _doc()
+    b = {x["nr"]: x for x in doc["inventory"]["closing_contract"]["conditions"]}
+    n = len(doc["records"])
+    assert str(n) in b[1]["reason"], b[1]["reason"]
+    ohne_weg = sum(1 for r in doc["records"]
+                   if (r.get("evidence_path") or {}).get("value") is None)
+    assert str(ohne_weg) in b[2]["reason"], b[2]["reason"]
+
+
+def test_der_vertrag_kann_sich_bewegen():
+    """Punkt 2b: mindestens eine Bedingung wechselt durch eine MESSUNG, nicht durch Code."""
+    b = _doc()["inventory"]["closing_contract"]["conditions"]
+    assert any(x["met"] for x in b), "kein einziger Zustand erreichbar — dann ist es kein Vertrag"
+    assert any(not x["met"] for x in b), "alle gruen waere hier ein falsches Bestehen"
+
+
+def test_bedingung_6_nennt_ihre_vakuitaet():
+    b = {x["nr"]: x for x in _doc()["inventory"]["closing_contract"]["conditions"]}
+    if b[6]["met"]:
+        assert "VACUOUSLY" in b[6]["reason"], b[6]["reason"]
+
+
+def test_der_signaturriegel_rechnet_statt_zu_lesen():
+    """Punkt 3: `_signatur_lage` verifiziert kryptografisch; ein gesetztes Feld genuegt nicht."""
+    gen, doc = _gen(), _doc()
+    doc["signature"] = {"state": "VERIFIED", "reason": "x", "alg": "ed25519",
+                        "public_key_b64": "not base64", "sig_b64": "not a signature"}
+    for x in doc["inventory"]["closing_contract"]["conditions"]:
+        if x["nr"] == 4:
+            x["met"], x["state"] = True, "MET"
+    f = gen.pruefe_v2(doc, REPO)
+    assert [z for z in f if "[AV-SIGNATUR]" in z], f"konsistente Faelschung kam durch: {f[:3]}"
+
+
+def test_die_grenze_der_belegweg_zuordnung_ist_benannt():
+    """Punkt 4: geprueft wird die Klasse, nicht ob die Grenze selbst nachgewiesen ist."""
+    gen = _gen()
+    for r in _doc()["records"]:
+        b = r["evidence_path"]
+        if b.get("value") == gen.NIE_REPARIERT:
+            assert "whether the boundary is itself evidenced" in b["not_checked"]
