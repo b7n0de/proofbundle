@@ -11,6 +11,12 @@ on:
     # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
     # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group:              # Merge Queue: der Kandidatenzweig, den die Queue selbst baut.
+    # Ohne diesen Ausloeser laeuft auf einem Queue-Eintrag GAR KEIN Job, also meldet auch keiner
+    # der sieben Pflichtkontexte, und der Eintrag wartet bis zum Timeout auf eine Pruefung, die
+    # niemand startet. Dieselbe Form wie beim Label eine Zeile hoeher: ein Zustandspraedikat ohne
+    # das passende Ereignis ist eine Bedingung, die niemand stellt.
+    types: [checks_requested]
   workflow_dispatch:        # Landetrigger (Nachtrag 1, B3): die volle Schicht von Hand
 
 # NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
@@ -113,7 +119,8 @@ jobs:
               || ( github.event.pull_request.head.repo.full_name == github.repository
                    && startsWith(github.head_ref, 'release/') )
               || startsWith(github.ref_name, 'release/')
-              || contains(github.event.pull_request.labels.*.name, 'landung') )
+              || contains(github.event.pull_request.labels.*.name, 'landung')
+              || github.event_name == 'merge_group' )
             && '["3.10","3.11","3.12","3.13","3.14"]'
             || '["3.12"]' ) }}
     steps:
@@ -284,6 +291,7 @@ jobs:
            && startsWith(github.head_ref, 'release/') )
       || startsWith(github.ref_name, 'release/')
       || contains(github.event.pull_request.labels.*.name, 'landung')
+      || github.event_name == 'merge_group'
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
     #
@@ -436,7 +444,8 @@ jobs:
            || ( github.event.pull_request.head.repo.full_name == github.repository
                 && startsWith(github.head_ref, 'release/') )
            || startsWith(github.ref_name, 'release/')
-           || contains(github.event.pull_request.labels.*.name, 'landung') )
+           || contains(github.event.pull_request.labels.*.name, 'landung')
+           || github.event_name == 'merge_group' )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
