@@ -71,31 +71,44 @@ def _falschmodul(urteil_je_achse: dict, marke: str = "", kombi_urteil: str = "BE
     # mehr gibt, und faellt mit AttributeError statt mit einer Aussage. Alle Zusicherungen tragen
     # DASSELBE Urteil, damit diese Tests weiterhin genau eine Sache messen, naemlich was der
     # Schreiber aus einem gegebenen Ausgang macht.
-    def _alle(urteil_fuer):
-        def m_(self, *a, **k):
-            _mach(urteil_fuer(*a, **k))()
+    # DIE ATTRAPPE TRAEGT DIE ARITAET DER ECHTEN METHODE (gemessen 14.09.2026). Vorher stand hier
+    # EIN Bauer mit `(self, *a, **k)` fuer alle neun Methoden, gleich ob das Original ein oder
+    # drei Argumente nimmt. Gemessen: entfernt man in einer Wegwerfkopie das dritte Argument aus
+    # dem Kombi-Aufruf in messe(), wirft die ECHTE Klasse TypeError und das Urteil wird
+    # ABGEBROCHEN — die Attrappe lief klaglos durch und die Datei blieb gruen. Eine Attrappe, die
+    # jede Argumentzahl annimmt, kann eine falsch verdrahtete Aufrufstelle strukturell nicht
+    # fangen. Die Namen unten sind an die echten Signaturen gebunden, siehe
+    # test_die_attrappe_traegt_die_aritaet_der_echten_methode.
+    def _je_dim(urteil_fuer):
+        def m_(self, dim):
+            _mach(urteil_fuer(dim))()
         return m_
 
-    def _je_achse(dim, *a, **k):
+    def _je_kombi_m(urteil_fuer):
+        def m_(self, name, achsen, bau):
+            _mach(urteil_fuer(name, achsen, bau))()
+        return m_
+
+    def _je_achse(dim):
         return urteil_je_achse[dim.name]
 
-    def _je_kombi(*a, **k):
+    def _je_kombi(name, achsen, bau):
         return kombi_urteil
 
     class _Einzel:
-        test_die_last_erreicht_das_limit_wirklich = _alle(_je_achse)
-        test_l_minus_eins_l_und_l_plus_eins = _alle(_je_achse)
-        test_kosten_am_limit_unter_der_obergrenze = _alle(_je_achse)
-        test_speicher_am_limit_unter_der_grenze = _alle(_je_achse)
-        test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt = _alle(_je_achse)
+        test_die_last_erreicht_das_limit_wirklich = _je_dim(_je_achse)
+        test_l_minus_eins_l_und_l_plus_eins = _je_dim(_je_achse)
+        test_kosten_am_limit_unter_der_obergrenze = _je_dim(_je_achse)
+        test_speicher_am_limit_unter_der_grenze = _je_dim(_je_achse)
+        test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt = _je_dim(_je_achse)
 
     class _Kurve:
-        test_die_kurve_ist_nicht_ueberlinear = _alle(_je_achse)
+        test_die_kurve_ist_nicht_ueberlinear = _je_dim(_je_achse)
 
     class _Kombi:
-        test_kombi_erreicht_jede_benannte_dimension = _alle(_je_kombi)
-        test_kombi_bleibt_unter_der_summe_der_obergrenzen = _alle(_je_kombi)
-        test_kombi_speicher_bleibt_unter_der_grenze = _alle(_je_kombi)
+        test_kombi_erreicht_jede_benannte_dimension = _je_kombi_m(_je_kombi)
+        test_kombi_bleibt_unter_der_summe_der_obergrenzen = _je_kombi_m(_je_kombi)
+        test_kombi_speicher_bleibt_unter_der_grenze = _je_kombi_m(_je_kombi)
 
     m.TestObergrenzeAmGroesstenZugelassenenWert = _Einzel
     m.TestKostenkurve = _Kurve
@@ -166,3 +179,64 @@ class TestDerSchreiberZeichnetAufUndRechnetNichtNach:
         d = _messe_mit(monkeypatch, urteil_je_achse={"input_bytes": "BESTANDEN",
                                                      "json_nodes": "BESTANDEN"})
         assert d["ok"] is True and d["ist_referenzmessung"] is True
+
+
+def test_die_attrappe_traegt_die_aritaet_der_echten_methode():
+    """Die Attrappe oben schreibt `(self, dim)` und `(self, name, achsen, bau)` hin. Geschrieben
+    ist nicht gemessen: dieser Vertrag liest die ECHTEN Signaturen und vergleicht sie.
+
+    Ohne ihn waeren die Namen in der Attrappe eine Behauptung ueber ein anderes Modul, die genau
+    so lange stimmt, bis dort jemand ein Argument hinzufuegt. Dann laege der Fehler in der
+    Attrappe, waehrend die Tests gruen blieben und die echte Aufrufstelle in messe() falsch
+    verdrahtet waere.
+    """
+    import importlib.util
+    import inspect
+    import pathlib
+    import sys
+
+    quelle = pathlib.Path(__file__).with_name("test_budget_kostenkurve.py")
+    spec = importlib.util.spec_from_file_location("_tbk_fuer_den_aritaetsvertrag", quelle)
+    echt = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = echt
+    try:
+        spec.loader.exec_module(echt)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    # Genau die neun, die messe() verdrahtet, und die Signatur, die die Attrappe fuer sie fuehrt.
+    erwartet = {
+        ("TestObergrenzeAmGroesstenZugelassenenWert",
+         "test_die_last_erreicht_das_limit_wirklich"): ["self", "dim"],
+        ("TestObergrenzeAmGroesstenZugelassenenWert",
+         "test_l_minus_eins_l_und_l_plus_eins"): ["self", "dim"],
+        ("TestObergrenzeAmGroesstenZugelassenenWert",
+         "test_kosten_am_limit_unter_der_obergrenze"): ["self", "dim"],
+        ("TestObergrenzeAmGroesstenZugelassenenWert",
+         "test_speicher_am_limit_unter_der_grenze"): ["self", "dim"],
+        ("TestObergrenzeAmGroesstenZugelassenenWert",
+         "test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt"): ["self", "dim"],
+        ("TestKostenkurve", "test_die_kurve_ist_nicht_ueberlinear"): ["self", "dim"],
+        ("TestKombinierteAchsen",
+         "test_kombi_erreicht_jede_benannte_dimension"): ["self", "name", "achsen", "bau"],
+        ("TestKombinierteAchsen",
+         "test_kombi_bleibt_unter_der_summe_der_obergrenzen"): ["self", "name", "achsen", "bau"],
+        ("TestKombinierteAchsen",
+         "test_kombi_speicher_bleibt_unter_der_grenze"): ["self", "name", "achsen", "bau"],
+    }
+    abweichungen = []
+    for (klasse, methode), gefuehrt in sorted(erwartet.items()):
+        k = getattr(echt, klasse, None)
+        if k is None:
+            abweichungen.append(f"{klasse}: Klasse fehlt im echten Modul")
+            continue
+        f = getattr(k, methode, None)
+        if f is None:
+            abweichungen.append(f"{klasse}.{methode}: Methode fehlt im echten Modul")
+            continue
+        echt_namen = list(inspect.signature(f).parameters)
+        if echt_namen != gefuehrt:
+            abweichungen.append(
+                f"{klasse}.{methode}: echt {echt_namen}, Attrappe fuehrt {gefuehrt}")
+    assert not abweichungen, "die Attrappe bildet eine andere Welt ab:\n  " + "\n  ".join(
+        abweichungen)
