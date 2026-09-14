@@ -1,0 +1,14 @@
+{
+  "_warum_es_diese_datei_gibt": "Punkt 2b verlangt, jeden Eintrag einzuordnen. Der Nachtrag 1 zu 2155Z nennt SECHS Eintraege namentlich; die uebrigen muss ein auswertender Baustein ableiten. Die genannten stehen hier als DATEN, damit der Erzeuger sie nicht kennen muss — ein Erzeuger, der 'N3' im Code fuehrt, ist eine Punktfixtur, und die naechste Vorgabe braeuchte wieder eine Codeaenderung.",
+  "_regel": "Was hier steht, ist WOERTLICH die Einordnung des Nachtrags. Der abgeleitete Korb steht daneben und ist als abgeleitet markiert; wo die Notiz ihn nicht hergibt, bleibt er NOT MEASURED mit Grund.",
+  "quelle": "globe/staging/incoming/20260913T2305Z__prompt_kraxo__NACHTRAG_1_zu_2155Z_punkt_2_abschlussvertrag_am_register_sicht_statt_zusammenlegung_ein_voller_fall_nach_gegenlesung.md",
+  "quelle_abschnitt": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+  "kennungen": {
+    "N3":  {"wortlaut": "Gegenfall gegen falsche Reparaturzaehlung"},
+    "N5":  {"wortlaut": "Gegenfall gegen falsche Reparaturzaehlung"},
+    "N8":  {"wortlaut": "Gegenfall gegen falsche Reparaturzaehlung"},
+    "N10": {"wortlaut": "Gegenfall gegen falsche Reparaturzaehlung"},
+    "N9":  {"wortlaut": "Reparaturfall"},
+    "N1":  {"wortlaut": "Einzelfix bei ungemessener Klasse"}
+  }
+}

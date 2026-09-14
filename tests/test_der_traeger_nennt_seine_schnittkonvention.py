@@ -696,3 +696,74 @@ def test_eine_nicht_nachrechenbare_abschlusszahl_wird_abgewiesen():
     gen, doc = _gen(), _doc()
     doc["inventory"]["progress_view"]["historical_closures"]["value"] = 99
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[FS-NEUABLEITUNG]" in f]
+
+
+# ── Punkt 2b, Rest: die Eintraege einordnen ──────────────────────────────────────────────────
+
+def test_die_vier_koerbe_stehen_im_traeger():
+    gen = _gen()
+    c = _doc()["inventory"]["progress_view"]["classification"]
+    assert set(c["buckets"]) == set(gen.EINORDNUNG_KOERBE)
+    assert "never counts as repaired" in c["buckets"]["decision_or_boundary"]
+
+
+def test_jeder_eingeordnete_eintrag_nennt_seine_herkunft():
+    gen = _gen()
+    for r in _doc()["records"]:
+        e = r.get("classification")
+        if e is None:
+            continue
+        if e.get("bucket") is None:
+            assert e["state"] in gen.LUECKENWOERTER and e.get("reason"), r["id"]
+        else:
+            assert e["bucket"] in gen.EINORDNUNG_KOERBE
+            assert e.get("derived_from") or e.get("named_in_source"), r["id"]
+
+
+def test_der_korb_belegte_reparatur_ist_leer_und_das_ist_der_punkt():
+    """2b: 'belegte Reparaturen (startet bei NICHT GEMESSEN)'."""
+    c = _doc()["inventory"]["progress_view"]["classification"]
+    assert c["counted"]["evidenced_repair"] == 0
+
+
+def test_eine_behauptete_reparatur_wird_nicht_als_belegte_gezaehlt():
+    """Eine Notiz mit Commit BEHAUPTET; ob der Beleg traegt, ist Bedingung 6."""
+    treffer = [r for r in _doc()["records"]
+               if (r.get("classification") or {}).get("claimed_repair_reference")]
+    assert treffer, "kein Eintrag nennt eine Reparaturkennung — dann fehlt die Probe"
+    for r in treffer:
+        assert r["classification"]["bucket"] is None
+        assert "condition 6" in r["classification"]["reason"]
+
+
+def test_die_namentlich_genannten_stehen_in_den_daten_nicht_im_code():
+    gen = _gen()
+    # NUR DIE EINORDNUNGSLOGIK, nicht die ganze Datei. Erste Fassung suchte im gesamten
+    # Quelltext und wurde rot, weil FINDINGS die Kennungen selbstverstaendlich als EINTRAEGE
+    # fuehrt — das ist ihre Liste, keine Punktfixtur. Gemessen gehoert die Stelle, an der eine
+    # Punktfixtur stehen WUERDE: die Funktion, die einordnet.
+    quelle = (REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8")
+    fn = next(k for k in ast.parse(quelle).body
+              if isinstance(k, ast.FunctionDef) and k.name == "_einordnung")
+    if fn.body and isinstance(fn.body[0], ast.Expr) \
+            and isinstance(getattr(fn.body[0], "value", None), ast.Constant):
+        fn.body[0].value.value = ""
+    code = ast.unparse(fn)
+    for k in ("N3", "N5", "N8", "N10", "N9", "N1"):
+        assert f'"{k}"' not in code and f"'{k}'" not in code, f"{k} steht in _einordnung"
+    v = json.loads((REPO / gen.EINORDNUNG_REL).read_text(encoding="utf-8"))
+    assert set(v["kennungen"]) == {"N1", "N3", "N5", "N8", "N9", "N10"}
+
+
+def test_die_einordnung_geht_auf():
+    doc = _doc()
+    c = doc["inventory"]["progress_view"]["classification"]
+    mit = len([r for r in doc["records"] if r.get("classification") is not None])
+    assert sum(c["counted"].values()) + c["not_measured"] == mit
+
+
+def test_eine_belegte_reparatur_ohne_gepruften_beleg_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    r = next(x for x in doc["records"] if x.get("classification"))
+    r["classification"] = {"bucket": "evidenced_repair", "derived_from": "weil ich es sage"}
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[EO-REPARATUR]" in f]

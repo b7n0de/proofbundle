@@ -18,6 +18,15 @@
       },
       {
         "language": "de",
+        "source": "audit_artifacts/600/einordnung_vorgaben.json",
+        "fields": [
+          "records[].classification.named_in_source",
+          "records[].classification.named_source"
+        ],
+        "why": "the wording of the classification comes verbatim from the owner addendum and is carried in a declared file; translating it would detach it from the text that ordered it"
+      },
+      {
+        "language": "de",
         "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
         "fields": [
           "records[].objektklasse_begruendung",
@@ -32,7 +41,7 @@
     ]
   },
   "issued_at": "2026-09-14",
-  "generated_at": "2026-09-14T23:26:33Z",
+  "generated_at": "2026-09-14T23:32:56Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -112,7 +121,7 @@
       "source": "`gemessen_an.utc` in RESTRISIKO_600_OBJEKTKLASSEN.json"
     },
     "issued": {
-      "value": "2026-09-14T23:26:33Z",
+      "value": "2026-09-14T23:32:56Z",
       "source": "the time of this generation run"
     },
     "why_at_document_level": "these three are measured for the source as a whole; repeating them per record would turn one measurement into 145 claims"
@@ -128,6 +137,11 @@
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
         "sha256": "1362350d79668c295f6834640d8b82537061bb896039da41228e8e1d88b50040",
         "identifiers": 145
+      },
+      {
+        "path": "audit_artifacts/600/einordnung_vorgaben.json",
+        "sha256": "f49ca78c8832205992a63e60fa417d99d373ffe232814b07c901c2a324705844",
+        "identifiers": 6
       }
     ],
     "identifiers_total": 145,
@@ -398,6 +412,23 @@
         "state": "NOT MEASURED",
         "reason": "no record carries a remediation claim, so there is nothing whose evidence could be checked — this counter starts at NOT MEASURED by construction, exactly as point 2b says"
       },
+      "classification": {
+        "buckets": {
+          "evidenced_repair": "a repair whose evidence has been checked",
+          "confirmed_open_defect": "a defect that stands open and is confirmed",
+          "reasoned_refutation": "a claim that was refuted, with the reasoning recorded",
+          "decision_or_boundary": "a decision or a named boundary — never counts as repaired"
+        },
+        "counted": {
+          "evidenced_repair": 0,
+          "confirmed_open_defect": 8,
+          "reasoned_refutation": 0,
+          "decision_or_boundary": 0
+        },
+        "not_measured": 13,
+        "out_of_scope": 124,
+        "scope": "only entries the producer list carries; the other identifiers come from the source register and have no status to classify"
+      },
       "evidence_gaps": {
         "without_find_site": 0,
         "not_measurable": 0,
@@ -429,7 +460,7 @@
           "state": "VERIFIED",
           "expected_oid": "81c1aa991b9e70c5d18d058f171c1d50664fb16b",
           "committed_oid": "81c1aa991b9e70c5d18d058f171c1d50664fb16b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -438,6 +469,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
@@ -490,7 +522,7 @@
           "state": "VERIFIED",
           "expected_oid": "b94bac795ecda7a8db6c72006f71eea20294f5fb",
           "committed_oid": "b94bac795ecda7a8db6c72006f71eea20294f5fb",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -499,6 +531,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
@@ -551,7 +584,7 @@
           "state": "VERIFIED",
           "expected_oid": "0aa925fd1b471f4c802fb7350897a4e6bc632771",
           "committed_oid": "0aa925fd1b471f4c802fb7350897a4e6bc632771",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -560,6 +593,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
@@ -612,7 +646,7 @@
           "state": "VERIFIED",
           "expected_oid": "d2b554f7e4d64a08d9d30af81db854fcd2467620",
           "committed_oid": "d2b554f7e4d64a08d9d30af81db854fcd2467620",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -621,6 +655,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_aussenflaeche",
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
@@ -673,7 +708,7 @@
           "state": "VERIFIED",
           "expected_oid": "764a933cad03fa682d6c563c0f31c703d9031223",
           "committed_oid": "764a933cad03fa682d6c563c0f31c703d9031223",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -683,6 +718,7 @@
         "counts_as_repaired": false,
         "not_checked": "whether the boundary is itself evidenced. The mapping follows from the class, not from a proof, and was inspected over the two records that carry it"
       },
+      "classification": null,
       "supersedes": {
         "record_revision": 0,
         "added": "an evidence entry with role `sent`",
@@ -753,7 +789,7 @@
           "state": "VERIFIED",
           "expected_oid": "c30223fc1b39f9179137527b4e2b1dc9c4e696d9",
           "committed_oid": "c30223fc1b39f9179137527b4e2b1dc9c4e696d9",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -763,6 +799,7 @@
         "counts_as_repaired": false,
         "not_checked": "whether the boundary is itself evidenced. The mapping follows from the class, not from a proof, and was inspected over the two records that carry it"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "benannte_grenze",
       "objektklasse_begruendung": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist.",
@@ -816,7 +853,7 @@
           "state": "VERIFIED",
           "expected_oid": "33a9161ed6be2fabad9d179be263f7773c236c3b",
           "committed_oid": "33a9161ed6be2fabad9d179be263f7773c236c3b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -824,6 +861,14 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Einzelfix bei ungemessener Klasse",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "claimed_repair_reference": "bc95dd6",
+        "reason": "the note claims a repair by naming a commit, but whether its evidence carries — and whether it holds for the SHIPPED bytes — is condition 6 of the closing contract and is not checked here"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -878,7 +923,7 @@
           "state": "VERIFIED",
           "expected_oid": "386eac1a0eebd5c33d99440a678283234b976119",
           "committed_oid": "386eac1a0eebd5c33d99440a678283234b976119",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -886,6 +931,12 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "claimed_repair_reference": "bc95dd6",
+        "reason": "the note claims a repair by naming a commit, but whether its evidence carries — and whether it holds for the SHIPPED bytes — is condition 6 of the closing contract and is not checked here"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -940,7 +991,7 @@
           "state": "VERIFIED",
           "expected_oid": "f0cd9c2df89b4274dfc4a93f3016a1db14e84f4b",
           "committed_oid": "f0cd9c2df89b4274dfc4a93f3016a1db14e84f4b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -948,6 +999,13 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Gegenfall gegen falsche Reparaturzaehlung",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1002,7 +1060,7 @@
           "state": "VERIFIED",
           "expected_oid": "4f24bb6868d9bcada144f87906c65463fe2f284f",
           "committed_oid": "4f24bb6868d9bcada144f87906c65463fe2f284f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1010,6 +1068,11 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1064,7 +1127,7 @@
           "state": "VERIFIED",
           "expected_oid": "4beb8aa0f35ebf2497068a97b3f5f3b278ce85f7",
           "committed_oid": "4beb8aa0f35ebf2497068a97b3f5f3b278ce85f7",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1072,6 +1135,13 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Gegenfall gegen falsche Reparaturzaehlung",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1126,7 +1196,7 @@
           "state": "VERIFIED",
           "expected_oid": "2d5ca8597e6b5275668d8e61f3e1aa82b705ae96",
           "committed_oid": "2d5ca8597e6b5275668d8e61f3e1aa82b705ae96",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1134,6 +1204,11 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1188,7 +1263,7 @@
           "state": "VERIFIED",
           "expected_oid": "cd608723fc63948c1f300bc833915b5ac8f2ddf8",
           "committed_oid": "cd608723fc63948c1f300bc833915b5ac8f2ddf8",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1196,6 +1271,11 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1252,7 +1332,7 @@
           "state": "VERIFIED",
           "expected_oid": "6eed18cd6b464c7433eefccb9c433e8abd8bdd1b",
           "committed_oid": "6eed18cd6b464c7433eefccb9c433e8abd8bdd1b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1260,6 +1340,13 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Gegenfall gegen falsche Reparaturzaehlung",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1314,7 +1401,7 @@
           "state": "VERIFIED",
           "expected_oid": "b15f184cbae893f5dd3702ed46fc875603bf3cc1",
           "committed_oid": "b15f184cbae893f5dd3702ed46fc875603bf3cc1",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1322,6 +1409,14 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Reparaturfall",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "claimed_repair_reference": "72c21e7",
+        "reason": "the note claims a repair by naming a commit, but whether its evidence carries — and whether it holds for the SHIPPED bytes — is condition 6 of the closing contract and is not checked here"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1376,7 +1471,7 @@
           "state": "VERIFIED",
           "expected_oid": "2ac964cee4693bcdede262739fdae54b29c8df4c",
           "committed_oid": "2ac964cee4693bcdede262739fdae54b29c8df4c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1384,6 +1479,13 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "named_in_source": "Gegenfall gegen falsche Reparaturzaehlung",
+        "named_source": "2b, die 20 Eintraege einordnen, Sicht erzeugen",
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1438,7 +1540,7 @@
           "state": "VERIFIED",
           "expected_oid": "ef425829b3c11f992360ce584efb682ca4e1f0a5",
           "committed_oid": "ef425829b3c11f992360ce584efb682ca4e1f0a5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1446,6 +1548,12 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "claimed_repair_reference": "658ed063",
+        "reason": "the note claims a repair by naming a commit, but whether its evidence carries — and whether it holds for the SHIPPED bytes — is condition 6 of the closing contract and is not checked here"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1500,7 +1608,7 @@
           "state": "VERIFIED",
           "expected_oid": "7c650cd4a55b992be7a7811f2f2433b04e3bf30f",
           "committed_oid": "7c650cd4a55b992be7a7811f2f2433b04e3bf30f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1508,6 +1616,11 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1562,7 +1675,7 @@
           "state": "VERIFIED",
           "expected_oid": "d0360240ffea3ab5dd3cc2990f5ea30fde0aff9a",
           "committed_oid": "d0360240ffea3ab5dd3cc2990f5ea30fde0aff9a",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1570,6 +1683,11 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": null,
+        "state": "NOT MEASURED",
+        "reason": "the entry is closed and no source says by what — neither a commit nor a decision is referenced, so any bucket would be a guess"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1624,7 +1742,7 @@
           "state": "VERIFIED",
           "expected_oid": "da2301852e01aade0df90bff8738d0e6cf5e3f88",
           "committed_oid": "da2301852e01aade0df90bff8738d0e6cf5e3f88",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1632,6 +1750,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1686,7 +1808,7 @@
           "state": "VERIFIED",
           "expected_oid": "b39b20f873d8186a86d400a3ac6c92bcf705b55c",
           "committed_oid": "b39b20f873d8186a86d400a3ac6c92bcf705b55c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1694,6 +1816,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1748,7 +1874,7 @@
           "state": "VERIFIED",
           "expected_oid": "64fa2266a8e2519aa3446db2b956e03d631aaa78",
           "committed_oid": "64fa2266a8e2519aa3446db2b956e03d631aaa78",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1756,6 +1882,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1810,7 +1940,7 @@
           "state": "VERIFIED",
           "expected_oid": "685620d216d0dab9b3005378429e636977118194",
           "committed_oid": "685620d216d0dab9b3005378429e636977118194",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1818,6 +1948,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1872,7 +2006,7 @@
           "state": "VERIFIED",
           "expected_oid": "da447a8a88f183c277967c902fe5a4077f92e718",
           "committed_oid": "da447a8a88f183c277967c902fe5a4077f92e718",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1880,6 +2014,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1934,7 +2072,7 @@
           "state": "VERIFIED",
           "expected_oid": "b579f3ddcf5d7f22351c6cd668025bca9c854deb",
           "committed_oid": "b579f3ddcf5d7f22351c6cd668025bca9c854deb",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -1942,6 +2080,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -1996,7 +2138,7 @@
           "state": "VERIFIED",
           "expected_oid": "eec9678848ccf95a9451bbf71a899ca8b0d6a2dc",
           "committed_oid": "eec9678848ccf95a9451bbf71a899ca8b0d6a2dc",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2004,6 +2146,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -2060,7 +2206,7 @@
           "state": "VERIFIED",
           "expected_oid": "a10a4f2d53e59eba357da3af571708c45d60cb8d",
           "committed_oid": "a10a4f2d53e59eba357da3af571708c45d60cb8d",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2068,6 +2214,10 @@
         "value": null,
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
+      },
+      "classification": {
+        "bucket": "confirmed_open_defect",
+        "derived_from": "status `open` in the producer list"
       },
       "supersedes": null,
       "objektklasse": "fund_nachtrag",
@@ -2122,7 +2272,7 @@
           "state": "VERIFIED",
           "expected_oid": "59f0e3332538824d2552f86865b8006c06c2e931",
           "committed_oid": "59f0e3332538824d2552f86865b8006c06c2e931",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2131,6 +2281,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2183,7 +2334,7 @@
           "state": "VERIFIED",
           "expected_oid": "59af8e410478048262daf6aeee0bfa606742b7a5",
           "committed_oid": "59af8e410478048262daf6aeee0bfa606742b7a5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2192,6 +2343,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2244,7 +2396,7 @@
           "state": "VERIFIED",
           "expected_oid": "1838bbd38d68473de5d1822d02ffa4f227e7f7b9",
           "committed_oid": "1838bbd38d68473de5d1822d02ffa4f227e7f7b9",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2253,6 +2405,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2305,7 +2458,7 @@
           "state": "VERIFIED",
           "expected_oid": "dab2ae08d5f692a3dd35dae9da6f4ad56d742891",
           "committed_oid": "dab2ae08d5f692a3dd35dae9da6f4ad56d742891",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2314,6 +2467,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2366,7 +2520,7 @@
           "state": "VERIFIED",
           "expected_oid": "6fcfdb40283b03d76ed0ef84d95fe40c17c893a3",
           "committed_oid": "6fcfdb40283b03d76ed0ef84d95fe40c17c893a3",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2375,6 +2529,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2427,7 +2582,7 @@
           "state": "VERIFIED",
           "expected_oid": "1e0c5f58b0d7197b9f6b3f9c61e88d5e5879689f",
           "committed_oid": "1e0c5f58b0d7197b9f6b3f9c61e88d5e5879689f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2436,6 +2591,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2488,7 +2644,7 @@
           "state": "VERIFIED",
           "expected_oid": "fc18a29de3e954e3dc6489162b4bf6f5060fdb54",
           "committed_oid": "fc18a29de3e954e3dc6489162b4bf6f5060fdb54",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2497,6 +2653,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "nachgemessene_fassung_einer_runde",
       "objektklasse_begruendung": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
@@ -2549,7 +2706,7 @@
           "state": "VERIFIED",
           "expected_oid": "583116324d16b720079baa2090954dfbe648deae",
           "committed_oid": "583116324d16b720079baa2090954dfbe648deae",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2558,6 +2715,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2611,7 +2769,7 @@
           "state": "VERIFIED",
           "expected_oid": "aad18e1798df21f8861bfa00a14e1095fd94b343",
           "committed_oid": "aad18e1798df21f8861bfa00a14e1095fd94b343",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2620,6 +2778,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2674,7 +2833,7 @@
           "state": "VERIFIED",
           "expected_oid": "034549ed097a3940880f41299905319d53ce3e14",
           "committed_oid": "034549ed097a3940880f41299905319d53ce3e14",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2683,6 +2842,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Praefix S, also Klasse fund_sicherheit_und_korrektheit — aber mit DEKLARIERTER Ausnahme. Die Ueberschrift der Quelle weist den Eintrag selbst als Nicht-Fund aus: 'NO FINDING, measured in both directions'. Siehe ausnahmen_von_der_klasse.",
@@ -2736,7 +2896,7 @@
           "state": "VERIFIED",
           "expected_oid": "aa727bb4df0fda8973c19c99f81ac54e3e89d478",
           "committed_oid": "aa727bb4df0fda8973c19c99f81ac54e3e89d478",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2745,6 +2905,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2797,7 +2958,7 @@
           "state": "VERIFIED",
           "expected_oid": "d962b566c42e4a7c554a52ca3b267a272544d5e9",
           "committed_oid": "d962b566c42e4a7c554a52ca3b267a272544d5e9",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2806,6 +2967,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2858,7 +3020,7 @@
           "state": "VERIFIED",
           "expected_oid": "015f22f1084bf40d915a04a7fef2caa4cb84a505",
           "committed_oid": "015f22f1084bf40d915a04a7fef2caa4cb84a505",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2867,6 +3029,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2919,7 +3082,7 @@
           "state": "VERIFIED",
           "expected_oid": "ab4e6c7561b07a158883bfc9d315844b44d97b7c",
           "committed_oid": "ab4e6c7561b07a158883bfc9d315844b44d97b7c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2928,6 +3091,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -2980,7 +3144,7 @@
           "state": "VERIFIED",
           "expected_oid": "16c5b92e212aa97d6d9db3a9fb1cbf30be5dc228",
           "committed_oid": "16c5b92e212aa97d6d9db3a9fb1cbf30be5dc228",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -2989,6 +3153,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3041,7 +3206,7 @@
           "state": "VERIFIED",
           "expected_oid": "e4f13cc3753e0cb242c9dbb90aec2032aab8533c",
           "committed_oid": "e4f13cc3753e0cb242c9dbb90aec2032aab8533c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3050,6 +3215,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3102,7 +3268,7 @@
           "state": "VERIFIED",
           "expected_oid": "7f53b3227fbb3cbcf06b3c3de4241889f77ea12a",
           "committed_oid": "7f53b3227fbb3cbcf06b3c3de4241889f77ea12a",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3111,6 +3277,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3163,7 +3330,7 @@
           "state": "VERIFIED",
           "expected_oid": "75a64d3996c054cc63958f50c87cf94dd03c91f1",
           "committed_oid": "75a64d3996c054cc63958f50c87cf94dd03c91f1",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3172,6 +3339,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3225,7 +3393,7 @@
           "state": "VERIFIED",
           "expected_oid": "fc05d72a91659f3e407ff66b06c51b6ad46e2651",
           "committed_oid": "fc05d72a91659f3e407ff66b06c51b6ad46e2651",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3234,6 +3402,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3287,7 +3456,7 @@
           "state": "VERIFIED",
           "expected_oid": "2bc5fa5dc2f1866272041e5c2d5760180948e879",
           "committed_oid": "2bc5fa5dc2f1866272041e5c2d5760180948e879",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3296,6 +3465,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3349,7 +3519,7 @@
           "state": "VERIFIED",
           "expected_oid": "ba3c409e4bb5838676bf3518548cc3b8eb398989",
           "committed_oid": "ba3c409e4bb5838676bf3518548cc3b8eb398989",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3358,6 +3528,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3411,7 +3582,7 @@
           "state": "VERIFIED",
           "expected_oid": "b95d4c4debe36b5a2b004a6236927c8f3eda6761",
           "committed_oid": "b95d4c4debe36b5a2b004a6236927c8f3eda6761",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3420,6 +3591,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3473,7 +3645,7 @@
           "state": "VERIFIED",
           "expected_oid": "4933674dae5cec4ba8aa445182ff24b9ea768c21",
           "committed_oid": "4933674dae5cec4ba8aa445182ff24b9ea768c21",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3482,6 +3654,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3535,7 +3708,7 @@
           "state": "VERIFIED",
           "expected_oid": "124e46753d1b0c42e523935f67f796825db7dc08",
           "committed_oid": "124e46753d1b0c42e523935f67f796825db7dc08",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3544,6 +3717,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3597,7 +3771,7 @@
           "state": "VERIFIED",
           "expected_oid": "085e1fa833a019bc95bbd01bb3fe1034211f24d8",
           "committed_oid": "085e1fa833a019bc95bbd01bb3fe1034211f24d8",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3606,6 +3780,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3659,7 +3834,7 @@
           "state": "VERIFIED",
           "expected_oid": "e98ade25e493d14ecf30fae760fe259d6f56525f",
           "committed_oid": "e98ade25e493d14ecf30fae760fe259d6f56525f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3668,6 +3843,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3721,7 +3897,7 @@
           "state": "VERIFIED",
           "expected_oid": "cdd91410c4016f9874945284c3d279906fc3794f",
           "committed_oid": "cdd91410c4016f9874945284c3d279906fc3794f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3730,6 +3906,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3783,7 +3960,7 @@
           "state": "VERIFIED",
           "expected_oid": "e9b743d07fdd4c8ed8ee37d25826415b9fc233eb",
           "committed_oid": "e9b743d07fdd4c8ed8ee37d25826415b9fc233eb",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3792,6 +3969,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3845,7 +4023,7 @@
           "state": "VERIFIED",
           "expected_oid": "3979001e2da2ef0084b7bd9f88044f2baee45d05",
           "committed_oid": "3979001e2da2ef0084b7bd9f88044f2baee45d05",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3854,6 +4032,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3907,7 +4086,7 @@
           "state": "VERIFIED",
           "expected_oid": "782f7d089e689a9dc743d27411ab2c4efe989709",
           "committed_oid": "782f7d089e689a9dc743d27411ab2c4efe989709",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3916,6 +4095,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -3969,7 +4149,7 @@
           "state": "VERIFIED",
           "expected_oid": "224047a03fba6ce64548deedcd3b0852cb7e395a",
           "committed_oid": "224047a03fba6ce64548deedcd3b0852cb7e395a",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -3978,6 +4158,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4031,7 +4212,7 @@
           "state": "VERIFIED",
           "expected_oid": "e7c8c06ca45e1a6157cfa51df0b17a59f431496b",
           "committed_oid": "e7c8c06ca45e1a6157cfa51df0b17a59f431496b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4040,6 +4221,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4093,7 +4275,7 @@
           "state": "VERIFIED",
           "expected_oid": "ccedebc037bd4c4295d10d0cb3fe7bd942d137d7",
           "committed_oid": "ccedebc037bd4c4295d10d0cb3fe7bd942d137d7",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4102,6 +4284,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4155,7 +4338,7 @@
           "state": "VERIFIED",
           "expected_oid": "d53b955e70fc28ba76a3dc30b167980ebb143724",
           "committed_oid": "d53b955e70fc28ba76a3dc30b167980ebb143724",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4164,6 +4347,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4217,7 +4401,7 @@
           "state": "VERIFIED",
           "expected_oid": "93e559b1041673873d7f5a5700ed2d33c741b85a",
           "committed_oid": "93e559b1041673873d7f5a5700ed2d33c741b85a",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4226,6 +4410,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4279,7 +4464,7 @@
           "state": "VERIFIED",
           "expected_oid": "a9dac1f5ae68dcb86bfb67cca90e3ad871bfce71",
           "committed_oid": "a9dac1f5ae68dcb86bfb67cca90e3ad871bfce71",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4288,6 +4473,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4341,7 +4527,7 @@
           "state": "VERIFIED",
           "expected_oid": "831e7b2f32440c80017320823e1d694594accd65",
           "committed_oid": "831e7b2f32440c80017320823e1d694594accd65",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4350,6 +4536,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4403,7 +4590,7 @@
           "state": "VERIFIED",
           "expected_oid": "39f15b25ede2ef9329f23d346ab000ac10e51aa5",
           "committed_oid": "39f15b25ede2ef9329f23d346ab000ac10e51aa5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4412,6 +4599,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4465,7 +4653,7 @@
           "state": "VERIFIED",
           "expected_oid": "ede022af643048ca6d408ed41f3a26265b95b401",
           "committed_oid": "ede022af643048ca6d408ed41f3a26265b95b401",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4474,6 +4662,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4527,7 +4716,7 @@
           "state": "VERIFIED",
           "expected_oid": "60272428b93591423a46a272a13dacbc67dae6cd",
           "committed_oid": "60272428b93591423a46a272a13dacbc67dae6cd",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4536,6 +4725,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4589,7 +4779,7 @@
           "state": "VERIFIED",
           "expected_oid": "a9d5a4a2afdcfe019c6bf7c4cbea0728ae6df183",
           "committed_oid": "a9d5a4a2afdcfe019c6bf7c4cbea0728ae6df183",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4598,6 +4788,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4651,7 +4842,7 @@
           "state": "VERIFIED",
           "expected_oid": "74ef49031842d2618327185458865002290240d8",
           "committed_oid": "74ef49031842d2618327185458865002290240d8",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4660,6 +4851,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4713,7 +4905,7 @@
           "state": "VERIFIED",
           "expected_oid": "072e9ecd26503d32fef6558b9abee8e187e87a5d",
           "committed_oid": "072e9ecd26503d32fef6558b9abee8e187e87a5d",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4722,6 +4914,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4775,7 +4968,7 @@
           "state": "VERIFIED",
           "expected_oid": "e7ac9ca4d7350d5ae820c42308bea8f8c2e1f5e1",
           "committed_oid": "e7ac9ca4d7350d5ae820c42308bea8f8c2e1f5e1",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4784,6 +4977,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4837,7 +5031,7 @@
           "state": "VERIFIED",
           "expected_oid": "1091e353de2443ec8cdbc0f2f5e3e0c7e5912b6c",
           "committed_oid": "1091e353de2443ec8cdbc0f2f5e3e0c7e5912b6c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4846,6 +5040,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4899,7 +5094,7 @@
           "state": "VERIFIED",
           "expected_oid": "f5f7c85e5ec480c4c82f5804751fad3e5958575c",
           "committed_oid": "f5f7c85e5ec480c4c82f5804751fad3e5958575c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4908,6 +5103,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -4961,7 +5157,7 @@
           "state": "VERIFIED",
           "expected_oid": "61d8f5e8b559e94e0c03065dfec24919de9a91c7",
           "committed_oid": "61d8f5e8b559e94e0c03065dfec24919de9a91c7",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -4970,6 +5166,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5023,7 +5220,7 @@
           "state": "VERIFIED",
           "expected_oid": "37a163561dfea6025c771a95e44ff0f87a5fadc5",
           "committed_oid": "37a163561dfea6025c771a95e44ff0f87a5fadc5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5032,6 +5229,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5085,7 +5283,7 @@
           "state": "VERIFIED",
           "expected_oid": "6cee526ec53093f162b75c9abc5c32c8f41bebca",
           "committed_oid": "6cee526ec53093f162b75c9abc5c32c8f41bebca",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5094,6 +5292,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5147,7 +5346,7 @@
           "state": "VERIFIED",
           "expected_oid": "fc8842f2946bb740e1cae9d0088027ea1d248226",
           "committed_oid": "fc8842f2946bb740e1cae9d0088027ea1d248226",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5156,6 +5355,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5209,7 +5409,7 @@
           "state": "VERIFIED",
           "expected_oid": "fb527868b2dffa3d25a0cc886f65f04a1c841a2e",
           "committed_oid": "fb527868b2dffa3d25a0cc886f65f04a1c841a2e",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5218,6 +5418,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5271,7 +5472,7 @@
           "state": "VERIFIED",
           "expected_oid": "0febdc3d118a5385109f0b64851eed80f091a6b9",
           "committed_oid": "0febdc3d118a5385109f0b64851eed80f091a6b9",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5280,6 +5481,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5333,7 +5535,7 @@
           "state": "VERIFIED",
           "expected_oid": "8c7203ef0fdc7fcdf2cc28e5af65c7d00e44687f",
           "committed_oid": "8c7203ef0fdc7fcdf2cc28e5af65c7d00e44687f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5342,6 +5544,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5395,7 +5598,7 @@
           "state": "VERIFIED",
           "expected_oid": "52dd0f762df7bf500ffa007958d7827635ddf180",
           "committed_oid": "52dd0f762df7bf500ffa007958d7827635ddf180",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5404,6 +5607,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5457,7 +5661,7 @@
           "state": "VERIFIED",
           "expected_oid": "ee305707c2e6e3bdab6d9744d60c84968ae65efc",
           "committed_oid": "ee305707c2e6e3bdab6d9744d60c84968ae65efc",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5466,6 +5670,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5519,7 +5724,7 @@
           "state": "VERIFIED",
           "expected_oid": "a80bdad8fd1587a7f6d936e49fc915e86f4b4c96",
           "committed_oid": "a80bdad8fd1587a7f6d936e49fc915e86f4b4c96",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5528,6 +5733,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5581,7 +5787,7 @@
           "state": "VERIFIED",
           "expected_oid": "422ea4faeffb5d160775283a3641dfaeadf2b815",
           "committed_oid": "422ea4faeffb5d160775283a3641dfaeadf2b815",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5590,6 +5796,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5643,7 +5850,7 @@
           "state": "VERIFIED",
           "expected_oid": "ec6c7928ad9c8ef8e1906cd6c1fbb68df00788d5",
           "committed_oid": "ec6c7928ad9c8ef8e1906cd6c1fbb68df00788d5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5652,6 +5859,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5705,7 +5913,7 @@
           "state": "VERIFIED",
           "expected_oid": "be1907a307716f94b0800a4c4810d9ce08d1b6bc",
           "committed_oid": "be1907a307716f94b0800a4c4810d9ce08d1b6bc",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5714,6 +5922,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5767,7 +5976,7 @@
           "state": "VERIFIED",
           "expected_oid": "0b4631c8d9bcb276ca2cded11fc10fb53efa969f",
           "committed_oid": "0b4631c8d9bcb276ca2cded11fc10fb53efa969f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5776,6 +5985,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5829,7 +6039,7 @@
           "state": "VERIFIED",
           "expected_oid": "19313b7235d946577511d404e0b37fec6c3ea1e8",
           "committed_oid": "19313b7235d946577511d404e0b37fec6c3ea1e8",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5838,6 +6048,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5891,7 +6102,7 @@
           "state": "VERIFIED",
           "expected_oid": "b9aab4df228b24c42668c7205bc4bb4669581169",
           "committed_oid": "b9aab4df228b24c42668c7205bc4bb4669581169",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5900,6 +6111,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -5953,7 +6165,7 @@
           "state": "VERIFIED",
           "expected_oid": "56784a2ffd455a1a11ae832773e6bc5fe9fd55ca",
           "committed_oid": "56784a2ffd455a1a11ae832773e6bc5fe9fd55ca",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -5962,6 +6174,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6015,7 +6228,7 @@
           "state": "VERIFIED",
           "expected_oid": "7195a7499310df185d7c690702e5b3be13b931bf",
           "committed_oid": "7195a7499310df185d7c690702e5b3be13b931bf",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6024,6 +6237,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6077,7 +6291,7 @@
           "state": "VERIFIED",
           "expected_oid": "c216369a9ea94dcc1c5c83816558f3d271b2400b",
           "committed_oid": "c216369a9ea94dcc1c5c83816558f3d271b2400b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6086,6 +6300,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6139,7 +6354,7 @@
           "state": "VERIFIED",
           "expected_oid": "3da25d803bbaa8e1b6144d4ee6739783fc92e7c5",
           "committed_oid": "3da25d803bbaa8e1b6144d4ee6739783fc92e7c5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6148,6 +6363,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6201,7 +6417,7 @@
           "state": "VERIFIED",
           "expected_oid": "23c9eab025cf1fce045db91161f2542f8a6dd164",
           "committed_oid": "23c9eab025cf1fce045db91161f2542f8a6dd164",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6210,6 +6426,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6263,7 +6480,7 @@
           "state": "VERIFIED",
           "expected_oid": "a9a8c220826353b7d71eb747010ccdad32f89056",
           "committed_oid": "a9a8c220826353b7d71eb747010ccdad32f89056",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6272,6 +6489,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6325,7 +6543,7 @@
           "state": "VERIFIED",
           "expected_oid": "1d2b570cafa6f6a4fa0e5eb2df2bec8b1e10880f",
           "committed_oid": "1d2b570cafa6f6a4fa0e5eb2df2bec8b1e10880f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6334,6 +6552,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6387,7 +6606,7 @@
           "state": "VERIFIED",
           "expected_oid": "3d004ac5ac2abb102178c56fb34560a43cd44e80",
           "committed_oid": "3d004ac5ac2abb102178c56fb34560a43cd44e80",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6396,6 +6615,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6449,7 +6669,7 @@
           "state": "VERIFIED",
           "expected_oid": "c3183b07223c67e3c8a2e5de356b1c9511386b45",
           "committed_oid": "c3183b07223c67e3c8a2e5de356b1c9511386b45",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6458,6 +6678,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6511,7 +6732,7 @@
           "state": "VERIFIED",
           "expected_oid": "b6f2eedf7206690d2d4212f740c7cf122a199184",
           "committed_oid": "b6f2eedf7206690d2d4212f740c7cf122a199184",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6520,6 +6741,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6573,7 +6795,7 @@
           "state": "VERIFIED",
           "expected_oid": "3ebfd47ef8f22de56b998fc18a832cb973ef76d8",
           "committed_oid": "3ebfd47ef8f22de56b998fc18a832cb973ef76d8",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6582,6 +6804,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6635,7 +6858,7 @@
           "state": "VERIFIED",
           "expected_oid": "b8aecf476dd9d16d820a19670e21106a449b01a0",
           "committed_oid": "b8aecf476dd9d16d820a19670e21106a449b01a0",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6644,6 +6867,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6697,7 +6921,7 @@
           "state": "VERIFIED",
           "expected_oid": "d6b4f85cd767ec4440109f4bcf53b8d95a26e5fb",
           "committed_oid": "d6b4f85cd767ec4440109f4bcf53b8d95a26e5fb",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6706,6 +6930,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6759,7 +6984,7 @@
           "state": "VERIFIED",
           "expected_oid": "278526f52bb447363df2402c228442985a496e3f",
           "committed_oid": "278526f52bb447363df2402c228442985a496e3f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6768,6 +6993,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6821,7 +7047,7 @@
           "state": "VERIFIED",
           "expected_oid": "716f5f5656cac7709ae13aebc9e0e99bc3909658",
           "committed_oid": "716f5f5656cac7709ae13aebc9e0e99bc3909658",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6830,6 +7056,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6883,7 +7110,7 @@
           "state": "VERIFIED",
           "expected_oid": "65e499655f9083ef2e3733330c03b0676df5fdee",
           "committed_oid": "65e499655f9083ef2e3733330c03b0676df5fdee",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6892,6 +7119,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -6945,7 +7173,7 @@
           "state": "VERIFIED",
           "expected_oid": "39dec67fee0cb2d0a54eb7603fa4db5cacbb7a8f",
           "committed_oid": "39dec67fee0cb2d0a54eb7603fa4db5cacbb7a8f",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -6954,6 +7182,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7007,7 +7236,7 @@
           "state": "VERIFIED",
           "expected_oid": "3f2d58a739336f9a40ac4db1a65af5778c43f943",
           "committed_oid": "3f2d58a739336f9a40ac4db1a65af5778c43f943",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7016,6 +7245,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7069,7 +7299,7 @@
           "state": "VERIFIED",
           "expected_oid": "80572b3696177eba223374fd41fd5305b3a89419",
           "committed_oid": "80572b3696177eba223374fd41fd5305b3a89419",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7078,6 +7308,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7131,7 +7362,7 @@
           "state": "VERIFIED",
           "expected_oid": "8f6018fe5e5949daded990495adb54ef3da15975",
           "committed_oid": "8f6018fe5e5949daded990495adb54ef3da15975",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7140,6 +7371,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7193,7 +7425,7 @@
           "state": "VERIFIED",
           "expected_oid": "0f3f2325e2dc8b817d30fcc84b84f9fd627fe338",
           "committed_oid": "0f3f2325e2dc8b817d30fcc84b84f9fd627fe338",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7202,6 +7434,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7255,7 +7488,7 @@
           "state": "VERIFIED",
           "expected_oid": "8ca0633b748cd07fe84bbc04205cfaf3ef84988e",
           "committed_oid": "8ca0633b748cd07fe84bbc04205cfaf3ef84988e",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7264,6 +7497,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7317,7 +7551,7 @@
           "state": "VERIFIED",
           "expected_oid": "276edfa85e3ec588feaf4dae7e1353442c7e2a8b",
           "committed_oid": "276edfa85e3ec588feaf4dae7e1353442c7e2a8b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7326,6 +7560,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7379,7 +7614,7 @@
           "state": "VERIFIED",
           "expected_oid": "15def65a3c24caab3cc9b0296a1ac3edd67e7297",
           "committed_oid": "15def65a3c24caab3cc9b0296a1ac3edd67e7297",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7388,6 +7623,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7441,7 +7677,7 @@
           "state": "VERIFIED",
           "expected_oid": "e7830d88a7eb1b54148902ecbe8220fa45429b63",
           "committed_oid": "e7830d88a7eb1b54148902ecbe8220fa45429b63",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7450,6 +7686,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7503,7 +7740,7 @@
           "state": "VERIFIED",
           "expected_oid": "4fce84d73fcb37f4eebfda8ee9d39682b0196e38",
           "committed_oid": "4fce84d73fcb37f4eebfda8ee9d39682b0196e38",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7512,6 +7749,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7565,7 +7803,7 @@
           "state": "VERIFIED",
           "expected_oid": "f152db024713e354e4ceae8d19669d7e09767e0b",
           "committed_oid": "f152db024713e354e4ceae8d19669d7e09767e0b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7574,6 +7812,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7627,7 +7866,7 @@
           "state": "VERIFIED",
           "expected_oid": "68039a814d591f9d5da32f69174039831dbbeb9b",
           "committed_oid": "68039a814d591f9d5da32f69174039831dbbeb9b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7636,6 +7875,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7689,7 +7929,7 @@
           "state": "VERIFIED",
           "expected_oid": "1e02653e2a40dbc56e50f3887781488335f5b76e",
           "committed_oid": "1e02653e2a40dbc56e50f3887781488335f5b76e",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7698,6 +7938,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7751,7 +7992,7 @@
           "state": "VERIFIED",
           "expected_oid": "c77288d29cda20302a86ffddfc98a2d7ab2dc30c",
           "committed_oid": "c77288d29cda20302a86ffddfc98a2d7ab2dc30c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7760,6 +8001,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7813,7 +8055,7 @@
           "state": "VERIFIED",
           "expected_oid": "cee1a5d7f2c7127641f5430eaeece5d01d60f676",
           "committed_oid": "cee1a5d7f2c7127641f5430eaeece5d01d60f676",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7822,6 +8064,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7875,7 +8118,7 @@
           "state": "VERIFIED",
           "expected_oid": "b08a3667ac8fc939845bd962728b4277ee346242",
           "committed_oid": "b08a3667ac8fc939845bd962728b4277ee346242",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7884,6 +8127,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7937,7 +8181,7 @@
           "state": "VERIFIED",
           "expected_oid": "5063513dfc5d4954bd9b0e65fb5d4dfaeebb75ce",
           "committed_oid": "5063513dfc5d4954bd9b0e65fb5d4dfaeebb75ce",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -7946,6 +8190,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -7999,7 +8244,7 @@
           "state": "VERIFIED",
           "expected_oid": "605f12c49ebcb20396faf61a498c74579b7ee146",
           "committed_oid": "605f12c49ebcb20396faf61a498c74579b7ee146",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8008,6 +8253,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8061,7 +8307,7 @@
           "state": "VERIFIED",
           "expected_oid": "01102c83581affa75783d159076544fa6bed8043",
           "committed_oid": "01102c83581affa75783d159076544fa6bed8043",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8070,6 +8316,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8123,7 +8370,7 @@
           "state": "VERIFIED",
           "expected_oid": "1a3b240d6a09b583d245067ca65b02abd00e65d5",
           "committed_oid": "1a3b240d6a09b583d245067ca65b02abd00e65d5",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8132,6 +8379,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8185,7 +8433,7 @@
           "state": "VERIFIED",
           "expected_oid": "980263ea4e40e9549ceb2fc0f8b19d28fdc63850",
           "committed_oid": "980263ea4e40e9549ceb2fc0f8b19d28fdc63850",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8194,6 +8442,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8247,7 +8496,7 @@
           "state": "VERIFIED",
           "expected_oid": "8f023f69400de23ded86956d48b852f0ac9617c1",
           "committed_oid": "8f023f69400de23ded86956d48b852f0ac9617c1",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8256,6 +8505,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8309,7 +8559,7 @@
           "state": "VERIFIED",
           "expected_oid": "2bce971db00998043fa3c7090e6d43f55c2a20a9",
           "committed_oid": "2bce971db00998043fa3c7090e6d43f55c2a20a9",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8318,6 +8568,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8371,7 +8622,7 @@
           "state": "VERIFIED",
           "expected_oid": "c82e3b809719905609d6c2eaeac0d8dfc88be1c6",
           "committed_oid": "c82e3b809719905609d6c2eaeac0d8dfc88be1c6",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8380,6 +8631,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8433,7 +8685,7 @@
           "state": "VERIFIED",
           "expected_oid": "d1f276634abf9093c94eba1fd41af66bf79510cb",
           "committed_oid": "d1f276634abf9093c94eba1fd41af66bf79510cb",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8442,6 +8694,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8495,7 +8748,7 @@
           "state": "VERIFIED",
           "expected_oid": "b7ec46cf48b86e6a17613e8d06eb99198847ab27",
           "committed_oid": "b7ec46cf48b86e6a17613e8d06eb99198847ab27",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8504,6 +8757,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8557,7 +8811,7 @@
           "state": "VERIFIED",
           "expected_oid": "1cbf693c5405e3da3c11cb323f788278be2f071c",
           "committed_oid": "1cbf693c5405e3da3c11cb323f788278be2f071c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8566,6 +8820,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8619,7 +8874,7 @@
           "state": "VERIFIED",
           "expected_oid": "3da35de290bad92a043ac68b94ff5445437bea97",
           "committed_oid": "3da35de290bad92a043ac68b94ff5445437bea97",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8628,6 +8883,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8681,7 +8937,7 @@
           "state": "VERIFIED",
           "expected_oid": "602bcf836318e4a04655f380e97d1f4355fed664",
           "committed_oid": "602bcf836318e4a04655f380e97d1f4355fed664",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8690,6 +8946,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8743,7 +9000,7 @@
           "state": "VERIFIED",
           "expected_oid": "1266b7516ce04470698fed27bfd359ddc553393b",
           "committed_oid": "1266b7516ce04470698fed27bfd359ddc553393b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8752,6 +9009,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8805,7 +9063,7 @@
           "state": "VERIFIED",
           "expected_oid": "3f3b9425c397c48535f10d29f46984298b7d5c19",
           "committed_oid": "3f3b9425c397c48535f10d29f46984298b7d5c19",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8814,6 +9072,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8867,7 +9126,7 @@
           "state": "VERIFIED",
           "expected_oid": "039bbbb4522828dff1252d252ea43e878e59676b",
           "committed_oid": "039bbbb4522828dff1252d252ea43e878e59676b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8876,6 +9135,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8929,7 +9189,7 @@
           "state": "VERIFIED",
           "expected_oid": "b01d2f4a7dc89cde2294488b3519b74300d89a42",
           "committed_oid": "b01d2f4a7dc89cde2294488b3519b74300d89a42",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -8938,6 +9198,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
@@ -8991,7 +9252,7 @@
           "state": "VERIFIED",
           "expected_oid": "d444a00a6e8652497e767243cba28ea818d2c6be",
           "committed_oid": "d444a00a6e8652497e767243cba28ea818d2c6be",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9000,6 +9261,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
@@ -9053,7 +9315,7 @@
           "state": "VERIFIED",
           "expected_oid": "ac6de0907dee07cd9f61c4dc301191995507579b",
           "committed_oid": "ac6de0907dee07cd9f61c4dc301191995507579b",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9062,6 +9324,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
@@ -9115,7 +9378,7 @@
           "state": "VERIFIED",
           "expected_oid": "55194a6fb96964b0bf49dc98a372a54e1f55f56c",
           "committed_oid": "55194a6fb96964b0bf49dc98a372a54e1f55f56c",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9124,6 +9387,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
@@ -9177,7 +9441,7 @@
           "state": "VERIFIED",
           "expected_oid": "bec15777a7473a1436e848984bbd44cad5c5027e",
           "committed_oid": "bec15777a7473a1436e848984bbd44cad5c5027e",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9186,6 +9450,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "richtigstellung_einer_eigenen_aussage",
       "objektklasse_begruendung": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
@@ -9239,7 +9504,7 @@
           "state": "VERIFIED",
           "expected_oid": "f400e94c2a24c622b3d3448ccbf01c5912710782",
           "committed_oid": "f400e94c2a24c622b3d3448ccbf01c5912710782",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9248,6 +9513,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Ein Fund am Gegenstand: eine Faehigkeit, die das Werkzeug hat, wird fuer die eigenen Quittungen nicht gebraucht. Gemessen 0 von 20 echten Hausquittungen. Keine falsche Zusicherung, aber ein moeglicher Beleg, der fehlt — deshalb Fund und nicht benannte Grenze: eine Grenze hat kein Ziel-Update, diese Zeile hat 6.1.",
@@ -9301,7 +9567,7 @@
           "state": "VERIFIED",
           "expected_oid": "c96cc9d789b25f573ea156f795bce53afb773151",
           "committed_oid": "c96cc9d789b25f573ea156f795bce53afb773151",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9310,6 +9576,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Wie S121: die Faehigkeit ist da (Fixtures proof_7271 und submit_7727), der Gebrauch fehlt. Gemessen 0 von 20. Ziel 6.1, Einreichung bleibt Owner-Tuer je Einreichung.",
@@ -9363,7 +9630,7 @@
           "state": "VERIFIED",
           "expected_oid": "9ccbef73987b085f64812e4f45ca15ea29e0fac6",
           "committed_oid": "9ccbef73987b085f64812e4f45ca15ea29e0fac6",
-          "at_commit": "98b45e995b06394b27c3a6d19abe221b3b74d1f8",
+          "at_commit": "b3f935c23b739856619b7c80e145f62fc3c513a7",
           "reason": "object id of the committed evidence file equals the object id the committed byte range would have. This reader opens no working copy, so a run cannot establish it by writing — only by committing"
         }
       },
@@ -9372,6 +9639,7 @@
         "state": "NOT MEASURED",
         "reason": "the object classes separate by origin, not by the kind of evidence; no source says whether this finding is carried by an executable product defect, a mechanically checkable documentation error or a substantive one, and it is decided per finding rather than derived"
       },
+      "classification": null,
       "supersedes": null,
       "objektklasse": "fund_sicherheit_und_korrektheit",
       "objektklasse_begruendung": "Ein Fund an der Anschlussfaehigkeit: ohne Abbildung auf ein gemeinsames Feldvokabular entsteht ein Eigenformat dort, wo ein Standard ein Feld hat. Ziel 6.1 als Abbildung, Bau erst nach Ratifizierung oder Owner-Wort.",

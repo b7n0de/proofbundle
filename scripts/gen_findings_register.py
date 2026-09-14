@@ -66,6 +66,7 @@ REGISTER_REL = "audit_artifacts/findings_register_361.json"
 
 RESTRISIKO_REL = "RESTRISIKO_600.md"
 AUSGELIEFERT_REL = "audit_artifacts/600/released_artifacts.json"
+EINORDNUNG_REL = "audit_artifacts/600/einordnung_vorgaben.json"
 OBJEKTKLASSEN_REL = "RESTRISIKO_600_OBJEKTKLASSEN.json"
 EVIDENZ_REL = "audit_artifacts/600/register_evidence"
 V2_REL = "audit_artifacts/600/findings_register_v2.json"
@@ -787,6 +788,54 @@ def _subject(repo, text: str) -> dict:
 ABSTIMMUNG_BEISPIEL_1109 = 139
 
 
+#: Die vier Koerbe aus Punkt 2b, in die jeder Eintrag gehoert.
+EINORDNUNG_KOERBE = {
+    "evidenced_repair": "a repair whose evidence has been checked",
+    "confirmed_open_defect": "a defect that stands open and is confirmed",
+    "reasoned_refutation": "a claim that was refuted, with the reasoning recorded",
+    "decision_or_boundary": "a decision or a named boundary — never counts as repaired",
+}
+
+
+def _einordnung(kennung: str, status, note: str, vorgaben: dict) -> dict:
+    """Welcher der vier Koerbe — genannt, abgeleitet, oder benannt offen.
+
+    Punkt 2b: "Ein auswertender Baustein liest die vorhandenen Belegreferenzen und ordnet jeden
+    Eintrag ein." Der Nachtrag ordnet SECHS namentlich ein; die stehen in den Daten, nicht hier.
+
+    WAS ABGELEITET WIRD, und nur das:
+      offen            -> bestaetigter offener Defekt. Der Zustand steht in der Liste des
+                          Erzeugers, das ist eine Quelle und keine Vermutung.
+      geschlossen      -> NICHT als belegte Reparatur. Eine Notiz, die einen Commit nennt,
+                          BEHAUPTET eine Reparatur; ob deren Beleg traegt, ist Bedingung 6 des
+                          Abschlussvertrags und hier NICHT geprueft. Der Korb bleibt leer, die
+                          Behauptung steht daneben.
+
+    WARUM DER ERSTE KORB HEUTE LEER IST: "belegte Reparatur" verlangt einen gepruften Beleg. Der
+    Traeger ist unsigniert, die ausgelieferten Bytes sind zwar gebunden, aber kein Datensatz
+    fuehrt eine Reparaturaussage mit Beleg. Ein voller Korb waere hier eine Zahl ohne Deckung.
+    """
+    import re  # noqa: PLC0415
+    v = (vorgaben.get("kennungen") or {}).get(kennung)
+    kopf = {}
+    if v:
+        kopf = {"named_in_source": v.get("wortlaut"),
+                "named_source": vorgaben.get("quelle_abschnitt")}
+    if status == "open":
+        return {**kopf, "bucket": "confirmed_open_defect",
+                "derived_from": "status `open` in the producer list"}
+    treffer = [h for h in re.findall(r"\b[0-9a-f]{7,40}\b", note or "") if not h.isdigit()]
+    if status == "closed" and treffer:
+        return {**kopf, "bucket": None, "state": "NOT MEASURED",
+                "claimed_repair_reference": treffer[0],
+                "reason": ("the note claims a repair by naming a commit, but whether its evidence "
+                           "carries — and whether it holds for the SHIPPED bytes — is condition 6 "
+                           "of the closing contract and is not checked here")}
+    return {**kopf, "bucket": None, "state": "NOT MEASURED",
+            "reason": ("the entry is closed and no source says by what — neither a commit nor a "
+                       "decision is referenced, so any bucket would be a guess")}
+
+
 def _fortschrittssicht(records: list, kreuz: dict, wege: dict, mess: dict) -> dict:
     """Die DREI ZAHLEN GETRENNT (Punkt 2b) — und die Mengenabstimmung davor.
 
@@ -831,6 +880,18 @@ def _fortschrittssicht(records: list, kreuz: dict, wege: dict, mess: dict) -> di
                        "no record carries a remediation claim, so there is nothing whose evidence "
                        "could be checked — this counter starts at NOT MEASURED by construction, "
                        "exactly as point 2b says"),
+        },
+        "classification": {
+            "buckets": dict(EINORDNUNG_KOERBE),
+            "counted": {b: len([r for r in records
+                                if (r.get("classification") or {}).get("bucket") == b])
+                        for b in EINORDNUNG_KOERBE},
+            "not_measured": len([r for r in records
+                                 if r.get("classification")
+                                 and (r["classification"]).get("bucket") is None]),
+            "out_of_scope": len([r for r in records if r.get("classification") is None]),
+            "scope": ("only entries the producer list carries; the other identifiers come from "
+                      "the source register and have no status to classify"),
         },
         "evidence_gaps": {
             "without_find_site": len(
@@ -1272,6 +1333,14 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     _GEBUNDEN = _gb.get("kennungen") or {}
 
     _commitlage_ = _commitlage(repo)
+    _vorgaben_ = {}
+    _vp = repo / EINORDNUNG_REL
+    if _vp.is_file():
+        try:
+            _vorgaben_ = _json.loads(_vp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _vorgaben_ = {}
+    _FINDSTATUS = {f["id"]: (f.get("status"), f.get("note", "")) for f in FINDINGS}
 
     records, ohne_fundstelle = [], []
     schnittenden = {"ends_with_blank_line": 0, "ends_with_one_newline": 0,
@@ -1354,6 +1423,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "measurement": {**_messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
                             "second_reader": _zweit},
             "evidence_path": _belegweg(e.get("klasse")),
+            "classification": (_einordnung(k, *_FINDSTATUS[k], _vorgaben_)
+                               if k in _FINDSTATUS else None),
             "supersedes": _supersedes(k, _GEBUNDEN.get(k),
                                       int((_GEBUNDEN.get(k) or {}).get("record_revision") or 0)),
             "objektklasse": e.get("klasse"),
@@ -1423,6 +1494,12 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                  "why": ("headings cut verbatim out of the source register; the evidence files "
                          "are byte pinned and digest checked, so translating them would falsify "
                          "the evidence they exist to reproduce")},
+                {"language": "de", "source": EINORDNUNG_REL,
+                 "fields": ["records[].classification.named_in_source",
+                            "records[].classification.named_source"],
+                 "why": ("the wording of the classification comes verbatim from the owner "
+                         "addendum and is carried in a declared file; translating it would "
+                         "detach it from the text that ordered it")},
                 {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
                  "fields": ["records[].objektklasse_begruendung",
                             "records[].not_a_defect.beleg",
@@ -1459,7 +1536,16 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                                  {"path": OBJEKTKLASSEN_REL,
                                   "sha256": hashlib.sha256(
                                       (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
-                                  "identifiers": len(ok["eintraege"])}],
+                                  "identifiers": len(ok["eintraege"])}]
+                                + ([{"path": EINORDNUNG_REL,
+                                     "sha256": hashlib.sha256(
+                                         (repo / EINORDNUNG_REL).read_bytes()).hexdigest(),
+                                     "identifiers": len(_vorgaben_.get("kennungen") or {})}]
+                                   # EINE ZITIERTE QUELLE MUSS GEPINNT SEIN. Der Sprachvertrag
+                                   # verlangt es zu Recht: ein Zitat aus einer Datei, deren Bytes
+                                   # der Traeger nicht festhaelt, ist nicht nachrechenbar. Die
+                                   # Vorgabendatei wird woertlich zitiert, also steht sie hier.
+                                   if (repo / EINORDNUNG_REL).is_file() else []),
             "identifiers_total": len(ok["eintraege"]),
             "identifiers_in_this_register": len(records),
             "identifiers_without_evidence": ohne_fundstelle,
@@ -2059,6 +2145,30 @@ def pruefe_v2(doc, repo) -> list[str]:
         if _ab.get("records_in_register") != inv["identifiers_in_this_register"]:
             fehler.append("[FS-ABSTIMMUNG] die Abstimmung nennt eine andere Datensatzzahl als das "
                           "Inventar")
+        _cl = _fv.get("classification") or {}
+        for r in doc["records"]:
+            _c = r.get("classification")
+            if _c is None:
+                continue
+            _b = _c.get("bucket")
+            if _b is None:
+                if _c.get("state") not in LUECKENWOERTER:
+                    fehler.append(f"{r['id']}, [EO-LUECKENWORT] Einordnung ohne Lueckenwort")
+                elif not _c.get("reason"):
+                    fehler.append(f"{r['id']}, [EO-GRUND] Lueckenwort ohne Grund")
+            elif _b not in EINORDNUNG_KOERBE:
+                fehler.append(f"{r['id']}, [EO-KORB] unbekannter Korb {_b!r}")
+            elif not _c.get("derived_from") and not _c.get("named_in_source"):
+                fehler.append(f"{r['id']}, [EO-HERKUNFT] eingeordnet ohne Herkunft")
+            # EINE BELEGTE REPARATUR OHNE GEPRUEFTEN BELEG IST KEINE.
+            if _b == "evidenced_repair" and not _c.get("evidence_checked"):
+                fehler.append(f"{r['id']}, [EO-REPARATUR] Korb `evidenced_repair` ohne gepruften "
+                              f"Beleg — genau die Zaehlung, gegen die 2b gebaut ist")
+        _summe = sum((_cl.get("counted") or {}).values()) + (_cl.get("not_measured") or 0)
+        _traegt = len([r for r in doc["records"] if r.get("classification") is not None])
+        if _summe != _traegt:
+            fehler.append(f"[EO-ARITHMETIK] eingeordnet {_summe}, mit Einordnung {_traegt}")
+
         _hc = _fv.get("historical_closures") or {}
         _neu = len([f["id"] for f in FINDINGS if f.get("status") == "closed"])
         if _hc.get("value") != _neu:
