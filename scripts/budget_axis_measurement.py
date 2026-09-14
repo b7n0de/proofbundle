@@ -75,6 +75,70 @@ def _ausgang(ruf) -> tuple[str, str]:
     return "BESTANDEN", ""
 
 
+def _gesamtausgang(rufe: list[tuple[str, object]]) -> tuple[str, str]:
+    """ALLE Zusicherungen einer Flaeche fahren und zu EINEM Urteil verdichten.
+
+    Codex r4001145754 (P1), am Kopf c53ee88370ee03b08238925d9fb73e2ff31d8bdc nachgestellt. Je
+    Achse lief GENAU EINE der sechs Zusicherungen, die das Quellmodul fuer eine Achse fuehrt, und
+    ihr Ausgang wurde als `urteil` der ganzen Achse ausgegeben. Reisst der Lastbau, bleibt der
+    CPU-Test schnell und meldet BESTANDEN — ein gruenes Urteil ueber eine Flaeche, auf der nicht
+    gemessen wurde.
+
+    DIE KOMBIS HATTEN DENSELBEN DEFEKT und standen in keinem Kommentar. Dort lief eine von drei.
+    Deshalb ein gemeinsamer Ausgang statt zweier Reparaturen. Ein Fix an einer von zwei Stellen
+    laesst die zweite still zurueckkehren.
+
+    FAIL-CLOSED und ohne Abkuerzung: es wird NICHT beim ersten Riss abgebrochen, sonst haetten die
+    uebrigen Zusicherungen wieder nicht gemessen und der Bericht naehme die Antwort vorweg. Das
+    schwerste Urteil gewinnt, ABGEBROCHEN vor GERISSEN vor UEBERSPRUNGEN vor BESTANDEN, und die
+    Meldung nennt JEDE Zusicherung, die nicht bestanden hat, mit ihrem Namen.
+    """
+    # ZWEI WEITERE EINWAENDE DERSELBEN GEGENLESUNG, beide gemessen:
+    #
+    # NEBENWIRKUNGEN durch den Sammelaufruf (gemeinsamer Zustand, Reihenfolge, doppelte Messung).
+    # WIDERLEGT ueber den Syntaxbaum: KEINE der sechs Zusicherungen schreibt fremden Zustand,
+    # weder per Attributzuweisung noch per global. Sie koennen einander in keiner Reihenfolge
+    # beeinflussen. Die Linse hatte das ausdruecklich als Vermutung formuliert ("wahrscheinlich",
+    # "wenn", "angenommen"), weil sie nur den Diff sah und nicht die aufgerufenen Zusicherungen.
+    #
+    # LAUFZEIT: der Einwand ist arithmetisch richtig, je Achse laufen jetzt SECHS statt einer
+    # Zusicherung und je Kombi DREI statt einer. Fuer CI ist er trotzdem gegenstandslos, und aus
+    # einem Grund, den weder die Linse noch ich auf dem Schirm hatte: budget_axis_measurement wird
+    # in KEINEM Workflow unter .github/ aufgerufen. Es gibt hier keinen Zeitdeckel zu reissen.
+    # Wer das Modul spaeter in CI haengt, hat die Vervielfachung ab dann zu messen.
+    #
+    # GEGENGELESEN VON EINER FREMDEN FAMILIE (14.09.2026, qwen3.8:27b). Ihr Einwand: eine
+    # Nebenpruefung koenne mit ABGEBROCHEN fallen waehrend die Kostenmessung bestand, und das
+    # Sammelurteil behaupte dann faelschlich, die MESSUNG sei ausgefallen.
+    #
+    # WIDERLEGT, gemessen: ABGEBROCHEN entsteht in _ausgang NIE aus einer gefallenen Zusicherung.
+    # Eine gerissene Zusicherung wirft AssertionError oder Failed und ergibt GERISSEN; ABGEBROCHEN
+    # gibt es nur bei einer ANDEREN Ausnahme, also wenn die Messung selbst umfaellt. Der
+    # beschriebene Fall existiert nicht. Drei Faelle nachgefahren: Nebenpruefung reisst -> GERISSEN,
+    # Messung bricht -> ABGEBROCHEN, Kostenpruefung reisst -> GERISSEN.
+    #
+    # WORAUF SIE ABER ZU RECHT ZEIGT: Fall eins und Fall drei sind beide GERISSEN, das Urteil
+    # unterscheidet also nicht, WELCHE Zusicherung fiel. Das ist hier gewollt — eine Achse, auf der
+    # irgendeine ihrer Zusicherungen reisst, ist nicht bestanden — und die Meldung nennt jede
+    # nicht bestandene namentlich. Wer das Urteil je nach Zusicherung abstufen will, aendert eine
+    # Aussage ueber die Achse und nicht nur eine Rangfolge.
+    # EINE LEERE LISTE IST KEIN BESTANDEN (gemessen 14.09.2026). Ohne diesen Ausgang wirft `max()`
+    # unten `ValueError: max() arg is an empty sequence` — ein unbenannter Absturz statt eines
+    # typisierten Urteils, ausgerechnet in einem Modul, das sonst gegen die vakuose Zustimmung
+    # baut (siehe die `bool(achsen) and bool(kombis)`-Probe in `messe`). Ueber `messe` derzeit
+    # nicht erreichbar, weil dort feste 6er- und 3er-Listen stehen; wer eine davon dynamisch
+    # aufbaut, faellt sonst in genau die Luecke, die das Modul anderswo schliesst.
+    if not rufe:
+        return "ABGEBROCHEN", "keine Zusicherung uebergeben — nichts gemessen"
+    rang = {"ABGEBROCHEN": 3, "GERISSEN": 2, "UEBERSPRUNGEN": 1, "BESTANDEN": 0}
+    ergebnisse = [(name, *_ausgang(ruf)) for name, ruf in rufe]
+    schlimmste = max(ergebnisse, key=lambda e: rang[e[1]])[1]
+    schlecht = [f"{n}: {u}{(' — ' + m) if m else ''}" for n, u, m in ergebnisse if u != "BESTANDEN"]
+    if not schlecht:
+        return "BESTANDEN", f"{len(ergebnisse)} Zusicherungen, alle bestanden"
+    return schlimmste, f"{len(schlecht)} von {len(ergebnisse)} nicht bestanden — " + " | ".join(schlecht)
+
+
 def messe() -> dict:
     t = _testmodul()
     marke = t._bauhost()
@@ -86,7 +150,21 @@ def messe() -> dict:
                   else t._faktor_spanne(klammer)[0])
         _deckel = t._faktor_deckel(ausser=dim.name)
         fall = t.TestObergrenzeAmGroesstenZugelassenenWert()
-        urteil, meldung = _ausgang(lambda d=dim: fall.test_kosten_am_limit_unter_der_obergrenze(d))
+        kurve = t.TestKostenkurve()
+        urteil, meldung = _gesamtausgang([
+            ("last_erreicht_das_limit",
+             lambda d=dim: fall.test_die_last_erreicht_das_limit_wirklich(d)),
+            ("l_minus_eins_l_und_l_plus_eins",
+             lambda d=dim: fall.test_l_minus_eins_l_und_l_plus_eins(d)),
+            ("kosten_am_limit_unter_der_obergrenze",
+             lambda d=dim: fall.test_kosten_am_limit_unter_der_obergrenze(d)),
+            ("speicher_am_limit_unter_der_grenze",
+             lambda d=dim: fall.test_speicher_am_limit_unter_der_grenze(d)),
+            ("prozessspitze_gemessen_und_messweg_genannt",
+             lambda d=dim: fall.test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt(d)),
+            ("kurve_ist_nicht_ueberlinear",
+             lambda d=dim: kurve.test_die_kurve_ist_nicht_ueberlinear(d)),
+        ])
         achsen.append({
             "name": dim.name,
             "flaeche": dim.was,
@@ -117,8 +195,14 @@ def messe() -> dict:
     for name, n_achsen, bau in t.KOMBIS:
         m = t._kombi_messung(name, bau)
         fall = t.TestKombinierteAchsen()
-        urteil, meldung = _ausgang(
-            lambda n=name, a=n_achsen, b=bau: fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(n, a, b))
+        urteil, meldung = _gesamtausgang([
+            ("kombi_erreicht_jede_benannte_dimension",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_erreicht_jede_benannte_dimension(n, a, b)),
+            ("kombi_bleibt_unter_der_summe_der_obergrenzen",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(n, a, b)),
+            ("kombi_speicher_bleibt_unter_der_grenze",
+             lambda n=name, a=n_achsen, b=bau: fall.test_kombi_speicher_bleibt_unter_der_grenze(n, a, b)),
+        ])
         kombis.append({
             "name": name, "eingabeachsen": n_achsen,
             "dauer_max_s": round(m["dauer_max"], 6),
@@ -191,6 +275,20 @@ def main(argv=None) -> int:
           f"{d['maschinenfaktor_schnellstes_ende']} · Referenzmessung="
           f"{d['ist_referenzmessung']} · ok={d['ok']}"
           + ("" if a.no_write else f" -> {a.out}"))
+    # WELCHE ZUSICHERUNG FIEL, GEHOERT DORTHIN, WO SIE GELESEN WIRD (Gegenlesung 14.09.2026).
+    # Die Zeile darueber nennt nur Zaehler. `meldung` nennt jede nicht bestandene Zusicherung
+    # namentlich, stand aber ausschliesslich in der JSON-Datei — und wer einen Lauf beurteilt,
+    # liest stdout. Der Unterschied ist nicht kosmetisch: seit dieser Aenderung faehrt die Achse
+    # alle sechs Zusicherungen, und eine davon, `kurve_ist_nicht_ueberlinear`, traegt keine der
+    # vier Rauschabstinenzen der Testdatei (Befund
+    # DIE-SECHSTE-ZUSICHERUNG-TRAEGT-KEINE-DER-VIER-RAUSCHABSTINENZEN-01). Ein GERISSEN kann
+    # also aus einer echten Kostenregression ODER aus Messrauschen der Kurvenform kommen, und
+    # ein Zaehler allein laesst den Leser das nicht unterscheiden. Das Urteil bleibt unveraendert
+    # — geaendert wird nur, was man sieht.
+    for art, eintraege in (("achse", d["achsen"]), ("kombi", d["kombis"])):
+        for e in eintraege:
+            if e.get("urteil") != "BESTANDEN":
+                print(f"[budget-axis]   {art} {e['name']}: {e['urteil']} — {e.get('meldung', '')}")
     return 0 if d["ok"] else 1
 
 

@@ -343,6 +343,14 @@ AUSGESCHLOSSEN = {
     # "tests/ liegt nicht im sdist" — war schlicht falsch: MANIFEST.in Zeile 1-10 liefert die
     # Tests mitsamt ihren Assets aus.)
     "budget_axis_measurement.py": "Freigabe-Beweismittel dieses Repos, nicht Paket-Faehigkeit",
+    # Gemessen 13.09.2026 beim Vorbereiten des Landezugs, und der Ausschlag kam von der EINGABE,
+    # nicht vom Namen: der Adapter liest die eingefrorene Fixture `interop/mizan-ig/fixtures/
+    # leaked-refusal`, die in einem FREMDEN Begleit-Repository liegt und in diesem Baum nirgends
+    # existiert (`--fixture-dir` zeigt darauf). Ein Werkzeug, dessen einzige Eingabe es im Paket
+    # nicht gibt, ist dort kein Angebot, sondern eine Sackgasse. Ausgefuehrt wird es von nichts:
+    # kein Test laedt es, kein Workflow ruft es, die drei Fundstellen sind Doku-Verweise, die das
+    # ERGEBNIS der Messung vom 05.09. belegen — und Herkunft darf auf einen Repo-Pfad zeigen.
+    "interop/cedulon_leaked_refusal_adapter.py": "Einmal-Messwerkzeug; seine Fixture liegt in einem fremden Repo",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

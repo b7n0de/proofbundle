@@ -6,6 +6,68 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
+not bumped: nothing here changes the published package, and a bump without a release would claim a
+delivery that did not happen.
+
+This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
+Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
+work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
+rather than before, which is itself the finding.
+
+### Added
+
+- Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
+  producer emits `findings_register_v2.json` plus two generated views, every record carries the
+  byte range of its own evidence, and the three 6.1 register lines are written directly in the new
+  form with their measured starting position.
+- The 6.0.0 register body now carries the signature of the anchor key, and the written target value
+  carries its provenance — a chain is appended rather than the previous value overwritten.
+- A guard that no shipped test module imports a non-shipped module by bare name. The
+  `published-artifact-gate / hermetic-cleanroom` job aborted at collection because
+  `tests/test_belegdatei_traegt_ihren_eigenen_digest.py` put `scripts/` on `sys.path` and then wrote
+  `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
+  ran, not one of the other tests. The guard decides in the checkout, where both the file and the
+  distribution listing are present, and leaves the cleanroom unchanged.
+
+### Fixed
+
+- Evidence digests: a record named a `path` and a `sha256` that described different objects, the
+  digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
+  file. The checker also never opened the file it named, so a deleted or altered piece of evidence
+  stayed green.
+- Gaps in the register numbering were silent; they are now named and gated.
+- The producer is read against the signed register rather than against its own in-memory list.
+
+### Changed
+
+- Identifiers transcribed, internal codename and account names.
+- The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
+
+### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
+
+- **A concurrency group coalesces a queue, it does not serialize one.** `cancel-in-progress` is
+  evaluated on the *arriving* run, but the *group* decides which run dies. The eight workflow groups
+  now carry `github.event_name`, so a pull-request run and a push run of the same ref no longer
+  displace each other.
+- **A called workflow cancelled its caller.** In a `workflow_call` workflow `github.workflow` is the
+  *caller's* name, so `reusable-build-attest.yml` shared a concurrency group with whatever invoked
+  it. Its `concurrency` block is removed; a reusable workflow does not own the group.
+- **A running release could be cancelled.** `release.yml` now carries `cancel-in-progress: false`,
+  which `RESTRISIKO_600.md` had required verbatim and which had never been implemented. Between
+  draft, upload and publication there is no safe interruption point.
+- **Two time budgets sat below the duration they were meant to bound.** `test` was capped at 30
+  minutes against a measured 32.3, `coverage` at 30 against a measured 40.0. A timeout reports as
+  `cancelled`, not `failure`, so both would have read as somebody's cancellation rather than as too
+  small a budget — and under the standing merge rule an unmeasurable required check halts a landing.
+  Now 50 and 60.
+
+The matrix expression that drives the cut was also a string where a list was meant, and
+`tests/test_der_ci_schnitt_haelt.py` (27 cases) now binds each of these properties with a
+counter-example that fails against the pre-fix shape.
+
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 
 **The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.

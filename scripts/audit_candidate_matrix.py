@@ -691,6 +691,26 @@ def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> tuple[bool | None
                       "whether the key predates the candidate cannot be decided here")
     letzter = r.stdout.strip()
     if letzter == head_sha:
+        # EIN FLACHER CHECKOUT MACHT JEDE DATEI ZUR NEUEINFUEHRUNG (Jury Linse 2, 13.09.2026,
+        # Nachbar derselben Klasse wie Codex 4000088153). Der Pfropf-Commit hat keinen Elternteil,
+        # also vergleicht `git log` ihn gegen einen LEEREN Baum — jede vorhandene Datei sieht aus,
+        # als sei sie in genau diesem Commit eingefuehrt worden. GEMESSEN am 13.09.2026 an diesem
+        # Repository: im vollen Klon meldet die Abfrage b05fc6a (ein frueherer Commit, der
+        # zulaessige Fall), im Klon mit Tiefe 1 meldet sie 435ac75 — den Kandidaten selbst.
+        # Der Job, der diese Funktion ruft, checkt ohne Tiefenangabe aus, also flach: die Kontrolle
+        # gegen Selbstregistrierung haette bei JEDEM Lauf einen rechtmaessig vorregistrierten
+        # Anker als selbstregistriert gemeldet.
+        #
+        # NICHT MESSBAR IST WEDER EIN FUND NOCH EINE FREIGABE. Der Aufrufer kennt den dritten
+        # Zustand bereits und macht daraus ART_UNMEASURABLE_HERE — genau richtig hier.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from b7_historie import historie_abgeschnitten  # noqa: PLC0415
+        abgeschnitten = historie_abgeschnitten(Path(repo))
+        if abgeschnitten:
+            return None, (f"the history here is incomplete ({abgeschnitten}); a grafted boundary "
+                          f"commit has no parent, so EVERY file looks introduced in it. Whether "
+                          f"{READINESS_TRUST_ANCHOR_REL} predates the candidate cannot be decided "
+                          f"in this checkout")
         return True, f"last modified in {letzter[:12]}…, the candidate commit itself"
     return False, f"last modified in {letzter[:12]}…, an earlier commit than the candidate"
 

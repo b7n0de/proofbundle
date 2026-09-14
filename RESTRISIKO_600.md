@@ -14,8 +14,15 @@ For 5.1.0 the record was written after the closing round. For 6.0.0 the owner fi
 2026-09-05: this file lands on `main` first, the head that carries it is the frozen tree (the
 byte-freeze standard of 2026-07-31: freeze first, publish later, never reload mid-sequence), and the
 closing gate round — DEEP, six lenses, refute-to-kill jury — runs on exactly that frozen head. The
-pre-tag receipt that the tag depends on binds this file by its sha256, so it cannot be edited once
-the receipt exists.
+pre-tag receipt that the tag depends on binds the tree digest at the tag, not this path for all
+time. This file may be continued afterwards, and earlier receipts stay valid for the tree they
+were written against. What may be continued is bounded by one property, not by a list: a
+continuation is any change that does NOT record a finding of the closing round. Correcting what
+this file says about itself, replacing a statement that has been measured wrong, and adding a
+later note all pass that test; they are examples and not the whole set. A finding of the closing
+round is never written here and stays what the paragraph below says it is. The rule is a
+property rather than an enumeration on purpose, because an enumeration is incomplete the first
+time a case appears that nobody listed, and the first such case was this file's own diff.
 
 What follows from that order is stated plainly: a finding of the closing round that must be fixed
 or must be written down is a **new iteration with a new freeze** (standard, rule 2), never an edit
@@ -4239,7 +4246,25 @@ Refs**, kollidieren also nicht. Der gefaehrliche Fall ist nur der **zweimal gepu
 selten, aber genau dann waere der Abbruch am teuersten.
 
 **Deshalb gilt fuer die Landung: `release.yml` bekommt `cancel-in-progress: false`.** Die Gruppe
-selbst ist dort trotzdem sinnvoll (sie serialisiert, statt zu verwerfen).
+selbst ist dort trotzdem sinnvoll, aber NICHT aus dem Grund, der hier zuerst stand.
+
+**Berichtigung 14.09.2026, aus der Codex-Runde drei an PR 202.** Der Satz lautete "sie serialisiert,
+statt zu verwerfen". Das ist falsch, und der Irrtum hat einen Namen: eine Warteschlange, die
+zusammenfaellt, wird fuer eine Reihenfolge gehalten. GitHub-Nebenlaeufigkeit SERIALISIERT NICHT. Je
+Gruppe bleibt hoechstens EIN wartender Lauf; tritt ein neuerer ein, wird der aeltere wartende
+abgebrochen. Bei drei Pushes desselben Tags waehrend der erste Release laeuft, wird der zweite Lauf
+also vom dritten verdraengt.
+
+**Was die Gruppe wirklich leistet, und warum sie bleibt:** sie verhindert, dass ZWEI Release-Laeufe
+desselben Tags GLEICHZEITIG veroeffentlichen. Ohne Gruppe liefen alle drei parallel, mit drei
+konkurrierenden PyPI-Uploads. Mit `cancel-in-progress: false` ist der LAUFENDE Lauf geschuetzt, und
+genau er ist der, der zwischen Entwurf, Upload und Veroeffentlichung nicht abbrechen darf.
+
+**Was verloren geht, und warum das kein Verlust ist:** der verdraengte wartende Lauf ist derselbe Tag
+und damit dieselbe Arbeit wie der, der ihn verdraengt. Die Auflage "release.yml darf nicht
+abgebrochen werden" meint den laufenden Veroeffentlichungsvorgang, nicht einen redundanten Wartenden
+auf denselben Ref. Der Wortlaut oben war zu weit gefasst; er ist hiermit auf das eingegrenzt, was er
+schuetzen soll.
 
 **Warum das hier steht und nicht erst beim Landen auffaellt:** eine gute Idee wird durch ein Detail
 zum Vorfall. Ich haette den Patch fuer alle acht Dateien gleich geschrieben, weil sie in der
@@ -5038,3 +5063,165 @@ die herabgestuften Klassen — gemessen 15:2xZ meldet der Pre-Sweep sechs nicht 
 deep-gate-v4-Workflow am getaggten Kopf. Grün: C6.2, C6.3, C8.2 emittieren, signieren, als Nachtrag zum Release
 veröffentlichen, S120 durch Messung schließen. Rot: 6.0.1-Fund. Kein Lauf 15 vor der Signatur. Diese Zeile ist damit
 kein offener Entscheid mehr, sondern ein benannter Nachzug mit Bedingung (Tag).
+### G1 · Kein fremder Zeuge: die Erkennung einer Gabelung durch Dritte ist NICHT MESSBAR — gemessen 12.09.2026 (Messung 1 aus `20260912T0849Z`, Auflage 3 aus `20260912T0927Z`, benannte Grenze, KEIN Fund, Ziel 6.1)
+
+**Bauart:** Quittung ohne dritten Zeugen. Unsere Kette ist selbstbezeugt.
+**Herkunft:** Iman Schrock auf der SCITT-Liste — eine lokale Hash-Kette entdeckt keine Gabelung. Befund W7 vom 04.09.
+führte das als NICHT GEPRÜFT. Der Owner hat die Messung am 12.09. angeordnet und die Registerzeile als Auflage 3 der
+Weg-B-Freigabe gebunden: beide in EINEM Zug, kein zweiter Lauf.
+
+**Gemessen am heutigen Kopf** `4e32e83` = `v6.0.0`, nicht am Stand vom 05.09.: **wir behaupten den Schutz nirgends.**
+Die Grenze ist **vierfach** ausdrücklich benannt, einmal mit dem Angriff im Wortlaut:
+
+> `docs/predicates/run-ledger.md:7–12` — „**Limit.** A Run Ledger is a local chain: … not to a reader who was shown
+> another one. **An issuer can sign two intact ledgers of the same study and present each to a different reader;
+> nothing in this predicate detects that.** Detecting it needs a commitment to the ledger head that the issuer does
+> not control alone, for example a witnessed checkpoint (SPEC.md 7d)."
+
+Dazu `CHANGELOG.md:410` (im Release dokumentiert), `INTEROP.md:145` — `non-equivocation` steht dort in der
+**Rekor**-Spalte, unsere „Does NOT"-Zeile lautet *„Global append-only guarantee — a lone `emit_bundle` tree is
+issuer-local"* — und `docs/adr/0006:74`, wo `tamper-proof` in einer **Verbotsliste** steht. Gegenprobe an den starken
+Wörtern: 26 Dateien mit `tamper-evident` und 18 mit `append-only` geprüft; `README.md:123` sagt *„tamper evident
+without turning the claim into truth"*, `manipulationssicher` kommt **nullmal** vor. Keine Fundstelle legt einem Leser
+nahe, unsere Kette entdecke eine Gabelung.
+
+**Dieselbe Grenze auf der zweiten Fläche**, am selben Tag gemessen und deshalb hier und nicht zweimal: der
+Manipulationsanker des Hauses (`2bedone/scripts/b7_audit_trail_anchor.py`) ist ebenso selbstbezeugt. Seit `1f4797b25`
+deckt ein `record_sha256` alle übrigen Felder seines Records — das fängt das Entfernen oder Verändern **einzelner**
+Felder, nicht eine vollständige Neuschrift, und keine Kreuzsignatur steht dahinter. Ein vollständig neu geschriebener
+Record, der die neuen Felder weglässt und `schema` zurückdreht, ist am Artefakt allein von einem echten alten Record
+**nicht zu unterscheiden**.
+
+**Warum das kein Fund ist:** RFC 9162 Abschnitt 1.1.6 sagt es selbst — *„the log auditing mechanisms described in this
+document can be circumvented by a misbehaving log that shows different, inconsistent views of itself to different
+clients. Therefore, it is necessary to treat each log as a trusted third party."* Mechanismen dagegen nennt das
+Dokument ausdrücklich außerhalb seines Umfangs. Wir behaupten nichts Falsches; die Grenze wird **benannt**, nicht
+geschlossen.
+
+**Fertig-Bedingung:** ein fremder Zeuge oder eine Kreuzsignatur — ein witnessed checkpoint im Sinne von `SPEC.md 7d`
+oder die Registrierung in einem Transparenzdienst (Registerzeile zwei aus `20260911T2132Z`). **Heute ausdrücklich
+nicht verlangt**, Owner-Wortlaut `20260912T0927Z`: „Kein fremder Zeuge muss heute stehen. Die Auflage ist, die Grenze
+zu benennen, nicht sie sofort zu schließen." Ein späterer Witness ist ein eigener Vorgang mit eigener Tür; der Versand
+an Iman ebenso.
+
+**Schwere:** keine Fund-Schwere. `G` ist eine **benannte Grenze** und zählt nicht als Fund — sonst wüchse die
+Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt. Genau dafür gibt es die Objektklassen.
+
+### G2 · Ein Werkzeug sagt mehr, als es prüft — die Aussage wird nie gegen die Messung gehalten (Owner-Beobachtung `20260912T1143Z`, benannte Grenze, KEIN Fund, Ziel 6.1)
+
+**Bauart:** Zusicherung ohne Deckung durch die Messung, die sie trägt.
+**Herkunft:** Owner-Beobachtung über DREI Funde desselben Tages, wörtlich: *„Die Karte behauptete eine Restzeit,
+die sie nicht misst. Das Register behauptete eine Grundgesamtheit, die es nicht führt. Der Anker behauptet
+Unverändertheit, wo er nur Zeilengleichheit misst. Das ist keine Häufung von Zufällen, das ist eine Klasse."*
+
+**Warum die Zeile hier steht und nicht nur im Haus-Ledger:** wie `G1` liegt die Grenze auf **beiden Flächen**. Zwei
+der drei genannten Instanzen sind proofbundle (die Restzeit-Karte, die Grundgesamtheit dieses Registers), die dritte
+ist der Manipulationsanker des Hauses. Die Klasse ist im Klassen-Ledger von 2bedone geführt
+(`EIN-WERKZEUG-SAGT-MEHR-ALS-ES-PRUEFT-01`, Zeile 351, `class_open`) mit gekoppeltem Befund.
+
+**Drei weitere Instanzen, alle beim UMSETZEN der zugehörigen Auflage am selben Tag entstanden** — sie sind der
+eigentliche Beleg, dass es eine Klasse ist und keine Anekdote:
+
+| | Die Zusicherung | Was tatsächlich gemessen wurde |
+|---|---|---|
+| 4 | Die Auflage nannte **vier** Zeilentrenner (LF, CRLF, CR, U+2028) | `str.splitlines()` trennt an **elf** — VT, FF, FS, GS, RS, NEL und U+2029 fehlten |
+| 5 | Eine Gegenprobe sollte `-text` belegen | sie lieferte **mit und ohne** die Regel dasselbe — ein Prüfer mit konstantem Urteil misst nichts |
+| 6 | Ein Test trug die Marke `[ZÄHLT]` | er rief die geprüfte Funktion **nie** auf und lief auch gegen die ungefixte Fassung grün |
+
+Instanz 6 fand eine Gegenlesung — **eine Stunde, nachdem die Klasse in den Ledger geschrieben worden war**.
+
+**Warum das kein Fund ist:** die Klasse beschreibt eine Bauart von Zusicherungen, keinen Defekt am Gegenstand des
+Release. Sie **zählt nicht als Fund** und lässt die Fundzahl 129 unberührt; nur die Grundgesamtheit wächst um diese
+eine Zeile. Genau dafür gibt es die Objektklassen (`G` mit `zaehlt_als_fund: false`).
+
+**Die zwei Gegenmaßnahmen, beide am 12.09. gebaut und gemessen:**
+1. **Die Deklaration aus dem VERHALTEN ableiten statt sie zu pflegen.** Die Kanonisierung des Manipulationsankers
+   fragt `splitlines()` selbst und kann von der Wirklichkeit nicht abweichen — eine handgepflegte Liste war schon
+   beim Schreiben zu kurz (Instanz 4).
+2. **Die Grenze als eigenes Feld neben die Aussage stellen**, nicht als Prosa daneben: `kanonisierung.grenze` im
+   Ankerrecord sagt ausdrücklich, dass eine reine Zeilentrenner-Umschrift die Bytes ändert und diesen Hash nicht.
+
+**Fertig-Bedingung:** ein Sweep über jedes Feld im Haus, das eine Eigenschaft BEHAUPTET (`status`, `verdict`, `note`,
+`aussage`), gegen das, was der Code dafür tatsächlich prüft. **NICHT GEFAHREN** — sechs Instanzen sind belegt, der
+Sweep über die übrigen steht aus. Heute ausdrücklich nicht verlangt; die Auflage war, die Klasse zu benennen.
+
+**Schwere:** keine Fund-Schwere. `G` ist eine **benannte Grenze**.
+
+### S121 · Die eigenen Quittungen tragen keinen Zeitanker — Zusicherung ohne Beleg der Existenzzeit (P3, Ziel 6.1)
+
+**Bauart.** Jede Quittung, die das Haus über einen Release-Stand ausstellt — Vorab-Quittung,
+Gate-Verdikt, agent-review — soll einen RFC-3161-Token oder einen OpenTimestamps-Beweis über ihre
+kanonischen Bytes tragen, und der Verifier soll ihn auf der Signaturachse prüfen, wie es der
+CHANGELOG 5.1.0 beschreibt.
+
+**Gemessen 2026-09-13 am Kopf dieses Zweigs, je Datei.** 20 echte Hausquittungen im Baum
+(`receipt|quittung|verdict|readiness` als `.json`, ohne `tests/`, `conformance/`, `fixtures/`,
+`dist_pkgtest*`). Davon **0 mit einem Zeitanker-Feld**. Genau eine hat überhaupt einen
+`.ots`-Beweis daneben, `receipts/agent_review/inspect_ai_5141.r3.receipt.json.ots`, und der trägt
+**`state: pending`**, `selfContained: false`, keine Bitcoin-Höhe — er belegt eine Einreichung
+bei drei Kalendern, keine verankerte Zeit.
+
+**Nicht die Fähigkeit fehlt, sondern ihr Gebrauch.** `tests/test_anchors_rfc3161.py`,
+`test_anchors_ots.py` und `test_anchor_target_trustedtime.py` tragen zusammen 46 Testfunktionen über
+beide Verfahren. Ein erster Lauf über alle 70 Quittungs-Kandidaten meldete „1 mit Ankerfeld" — das
+war eine Test-Fixture. Wer Testmaterial mitzählt, misst die Fähigkeit statt ihren Gebrauch.
+
+**Das Werkzeug kann nachweislich, was hier fehlt.** Mit `proofbundle anchor inspect` über alle zehn
+`.ots` des Baums gemessen: **drei sind `upgraded`, selbst-enthaltend, mit Bitcoin-Höhe**
+(`conformance/…/confirmed-anchor-lifecycle` 957504 mit drei Kalender-Operatoren,
+`conformance/…/schema-conformant` 958761, `tests/fixtures/ots/synthetic-upgraded-sha256` 800000).
+Sechs sind `pending`, eine ist `malformed`. **Alle drei bestätigten sind Fixtures.** Die einzige
+echte Hausquittung darunter — `inspect_ai_5141.r3.receipt.json.ots` — ist `pending`,
+`selfContained: false`, ohne Bitcoin-Höhe, bei drei belegten Kalendern und zwei Operatoren. Damit
+steht die Lücke schärfer da: nicht „wir können es nicht", sondern „wir tun es für unsere eigenen
+Quittungen nicht".
+
+**Wirkung.** Kein Nutzer des Pakets ist betroffen, keine Zusicherung ist falsch: die Quittungen
+behaupten keine belegte Existenzzeit. Es fehlt ein Beleg, der möglich wäre. Deshalb P3 und nicht
+höher — die Einstufung folgt der Wirkung, nicht dem Wunsch, die Zeile wichtig aussehen zu lassen.
+
+**Fertig-Bedingung als Beleg.** Ein Lauf, der eine Hausquittung nimmt, den Token oder Beweis holt,
+ihn daneben legt, und ein Verifier-Aufruf, der beide zusammen prüft — plus ein Fangnachweis mit
+einem manipulierten Token, der rot wird. Herkunft: Auftrag `20260911T2132Z`, Zeile eins.
+
+### S122 · Keine Hausquittung ist im Markovian-Log registriert — Quittung ohne dritten Zeugen (P3, Ziel 6.1)
+
+**Bauart.** Die Vorab-Quittung und die Release-Assets werden über den öffentlichen
+Einreichungspfad im Markovian-Log registriert, der Inklusionsbeweis liegt neben den Assets und
+wird mit eigenständigem RFC 6962 nachgerechnet — wie es die Fixture `submit_7727` für 5.1.0 zeigt.
+
+**Gemessen 2026-09-13, dieselbe Menge.** 0 von 20 echten Hausquittungen tragen ein Feld einer
+Log-Registrierung (`inclusion_proof`, `log_entry`, `log_index`, `tree_size`, `submission`).
+
+**Was das Werkzeug schon kann.** Es liest Beweise aus dem Markovian-Log (Fixture `proof_7271`) und
+hat in 5.1.0 einen eigenen Eintrag eingereicht, den Inklusionspfad mit eigenständigem RFC 6962
+nachgerechnet. Auch hier ist die Lücke der Gebrauch, nicht die Fähigkeit.
+
+**Wirkung.** P3 aus demselben Grund wie S121: eine fehlende Verstärkung, keine falsche Zusicherung.
+
+**Fertig-Bedingung als Beleg.** Ein trockener Lauf gegen die eingefrorene Fixture mit
+nachgerechnetem Inklusionspfad und festgelegter Ablageform neben den Release-Assets. **Die echte
+Einreichung ist Außenwirkung und bleibt eine eigene Owner-Tür je Einreichung** — diese Zeile
+bereitet vor und misst, sie reicht nicht ein. Herkunft: Auftrag `20260911T2132Z`, Zeile zwei.
+
+### S123 · Die zwölf Bedingungen aus Blatt 20 sind nicht auf TRACE abgebildet — kein gemeinsames Feldvokabular (P3, Ziel 6.1)
+
+**Bauart.** Die zwölf Bedingungen werden auf die Felder von TRACE abgebildet (Linux Foundation,
+seit 25.08.2026, Entwicklervorschau): Workload-Identität, Modell-ID, Policy-Hash,
+Werkzeugaufruf-Digests, drei Vertrauensstufen. Die Zeile nennt, welche Felder heute füllbar wären,
+welche eine Hardwareverankerung brauchen, und welche TRACE nicht kennt, die Blatt 20 aber verlangt.
+
+**Unser Stand ist Stufe null** — die Modellangabe stammt aus Antwortdaten, nicht aus einer
+attestierten Quelle.
+
+**Kein Eigenformat, wo TRACE ein Feld hat.** Das ist die Auflage des Auftrags und zugleich der
+Grund, warum diese Zeile eine Abbildung ist und kein Bau: gebaut wird nach Ratifizierung oder nach
+Owner-Wort, nicht vorher.
+
+**Wirkung.** P3. Eine fehlende Abbildung auf einen Standard in Entwicklervorschau; kein
+ausgeliefertes Verhalten hängt daran.
+
+**Fertig-Bedingung als Beleg.** Eine Abbildungstabelle in `docs/`, Blatt-20-Bedingung gegen
+TRACE-Feld, je mit Quelle und **Abrufdatum der TRACE-Fassung** — ohne Abrufdatum ist eine
+Abbildung auf einen bewegten Standard nicht nachprüfbar. Herkunft: Auftrag `20260911T2132Z`,
+Zeile drei.

@@ -1,0 +1,18 @@
+# Ankergebundene / zitierte Belegdateien: feste Bytes, keine Zeilentrenner-Umschrift.
+# Owner-Auflage 20260912T1143Z (verbindend) und Nachtrag 20260912T1242Z Punkt 3.
+docs/register/G1.md -text
+audit_artifacts/600/register_evidence/*.md -text
+
+# DIE QUELLEN SELBST WAREN NICHT GEPINNT (Codex 3999820862). Die Belege waren es, und der Traeger
+# rechnet ihren Digest gegen genau diese Bytes — aber er rechnet AUCH den Digest der beiden
+# QUELLDOKUMENTE nach, aus denen die Belege geschnitten sind. GEMESSEN am 13.09.2026 in einem
+# Checkout mit `core.autocrlf=true`: RESTRISIKO_600.md kommt mit 5202 CRLF-Paaren an,
+# RESTRISIKO_600_OBJEKTKLASSEN.json mit 1473, beide Digests weichen ab, und `pruefe_v2` meldet
+# die Quellen als geaendert, obwohl der Git-Inhalt derselbe ist. Die byte-genaue Herkunft, die
+# dieses Register gerade erst veroeffentlicht hat, war in einem solchen Checkout nicht pruefbar.
+#
+# WER EINEN DIGEST BINDET, PINNT DIE BYTES — dazu gibt es jetzt einen Vertrag, der die Menge der
+# gebundenen Dateien AUS DEM TRAEGER ableitet statt sie hier zu wiederholen:
+# tests/test_jede_digestgebundene_datei_ist_gepinnt.py.
+RESTRISIKO_600.md -text
+RESTRISIKO_600_OBJEKTKLASSEN.json -text
