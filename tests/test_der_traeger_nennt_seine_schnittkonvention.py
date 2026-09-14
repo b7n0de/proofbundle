@@ -16,6 +16,7 @@ diese Zusicherung hier.
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -54,6 +55,8 @@ def _neu_abgeleitet(doc) -> dict:
     gez = {"ends_with_blank_line": 0, "ends_with_one_newline": 0, "ends_without_newline": 0}
     for r in doc["records"]:
         for b in r["evidence"]:
+            if b.get("role") == "sent":
+                continue          # traegt keinen Bytebereich, gehoert nicht in die Verteilung
             roh = (REPO / b["source_path"]).read_bytes()
             von, bis = b["byte_range"]
             gez[_endform(roh[von:bis])] += 1
@@ -118,35 +121,81 @@ def test_eine_fehlende_angabe_ist_kein_fehler():
         "ein Traeger ohne die Angabe wird faelschlich abgewiesen")
 
 
-# ── K2, Owner-Auflage vom 14.09.2026: der Grund steht AM DATENSATZ, nicht in einem Kommentar ──
+# ── K3, Owner-Auflage vom 14.09.2026: Rolle `sent`, zweiter evidence-Eintrag an G1 ───────────
 
-def test_der_datensatz_G1_nennt_seine_gebundene_aussenfassung():
-    g1 = next(r for r in _doc()["records"] if r["id"] == "G1")
-    b = g1.get("bound_external_copy")
-    assert isinstance(b, dict), "der Datensatz G1 nennt seine gebundene Aussenfassung nicht"
-    assert b["path"] == "docs/register/G1.md"
-    assert b["state"] == "VERIFIED", f"Zustand {b.get('state')!r}, erwartet VERIFIED"
-    assert b["declared_sha256"] == b["measured_sha256"]
-    assert b["declared_sha256"].startswith("9cc21817")
-    assert b["bytes"] == 3669
-    assert b.get("declared_reason"), "zwei Digests ohne Grund sind ein Widerspruch, keine Auskunft"
-    assert "plus 1 byte" in b["relation_to_evidence"], b["relation_to_evidence"]
+def _g1():
+    return next(r for r in _doc()["records"] if r["id"] == "G1")
+
+
+def test_die_rolle_sent_steht_im_schema():
+    gen = _gen()
+    assert "sent" in gen.BELEGROLLE, "das role-Enum kennt `sent` nicht"
+
+
+def test_G1_traegt_einen_zweiten_beleg_mit_der_rolle_sent():
+    ev = _g1()["evidence"]
+    assert len(ev) == 2, f"erwartet zwei Belege an G1, gefunden {len(ev)}"
+    assert ev[0]["role"] == "historical_record", "die alte Aussage muss lesbar bleiben"
+    s = ev[1]
+    assert s["role"] == "sent"
+    assert s["path"] == "docs/register/G1.md"
+    assert s["sha256"] == s["measured_sha256"], "deklariert und gemessen weichen ab"
+    assert s["sha256"].startswith("9cc21817")
+    assert s["bytes"] == 3669
+    assert s["sent_at"] == "2026-09-12", "das Datum der Bindung fehlt"
+    assert s.get("reason"), "zwei Digests ohne Grund sind ein Widerspruch, keine Auskunft"
+    assert "byte_range" not in s, "ein `sent`-Beleg zitiert die Quelle nicht"
+
+
+def test_die_revision_des_datensatzes_ist_nicht_die_des_registers():
+    """K3: record_revision plus eins AN G1, register_revision 1 — nicht ueberall."""
+    doc = _doc()
+    assert doc["register_revision"] == 1
+    erhoeht = [r["id"] for r in doc["records"] if r["record_revision"] != 0]
+    assert erhoeht == ["G1"], f"revidiert wurden {erhoeht}, erwartet nur G1"
 
 
 def test_die_kennung_steht_in_den_daten_nicht_im_erzeuger():
     """Ein Erzeuger, der 'G1' kennt, waere eine Punktfixtur."""
-    quelle = (REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8")
-    kopf = quelle.split("def _gebundene_fassung", 1)[1].split("\ndef ", 1)[0]
-    assert "G1" not in kopf, "die Kennung steht im Code statt in der Deklaration"
+    # OHNE KOMMENTARE UND DOCSTRINGS GEMESSEN. Die erste Fassung suchte das Wort im Quelltext
+    # und fand es in meiner eigenen Erklaerung, die K3 zitiert — sie mass die Schreibweise statt
+    # der Eigenschaft. `ast.unparse` wirft Kommentare weg; Docstrings werden geleert. Was dann
+    # bleibt, ist ausfuehrbarer Code samt seiner Zeichenketten.
+    baum = ast.parse((REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8"))
+    for knoten in ast.walk(baum):
+        leib = getattr(knoten, "body", None)
+        if isinstance(leib, list) and leib and isinstance(leib[0], ast.Expr) \
+                and isinstance(getattr(leib[0], "value", None), ast.Constant) \
+                and isinstance(leib[0].value.value, str):
+            leib[0].value.value = ""
+    code = ast.unparse(baum)
+    assert "G1" not in code, "die Kennung steht im ausfuehrbaren Code statt in der Deklaration"
     ok = json.loads((REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json").read_text(encoding="utf-8"))
     erklaert = ok["ausnahmen_von_der_klasse"]["gebundene_aussenfassung"]["kennungen"]
     assert "G1" in erklaert and erklaert["G1"].get("warum")
 
 
+def test_der_alte_traeger_des_zweiten_digests_ist_weg():
+    """Zwei Traeger derselben Angabe driften — es darf nur EINEN Ort geben."""
+    assert "bound_external_copy" not in _g1()
+    # Gemessen wird, ob der Erzeuger das Feld noch SCHREIBT — nicht, ob der Name irgendwo faellt.
+    # Die Erklaerung, warum es weg ist, darf ihn nennen; genau das ist ihr Zweck.
+    quelle = (REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8")
+    assert '"bound_external_copy":' not in quelle, "der Erzeuger schreibt das alte Feld noch"
+
+
 def test_eine_gebrochene_aussenbindung_wird_abgewiesen():
-    """FANGNACHWEIS: der Riegel leitet neu ab statt dem gespeicherten Zustand zu glauben."""
+    """FANGNACHWEIS: neu abgeleitet statt dem gespeicherten Wert geglaubt."""
     gen, doc = _gen(), _doc()
     g1 = next(r for r in doc["records"] if r["id"] == "G1")
-    g1["bound_external_copy"]["declared_sha256"] = "0" * 64   # state bleibt VERIFIED
-    assert [f for f in gen.pruefe_v2(doc, REPO) if "[BA-NEUABLEITUNG]" in f], (
-        "ein verfaelschter Digest kam durch, weil der Zustand geglaubt statt gerechnet wurde")
+    g1["evidence"][1]["sha256"] = "0" * 64
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[SENT-ABWEICHEND]" in f], (
+        "ein verfaelschter Digest der versendeten Fassung kam durch")
+
+
+def test_ein_sent_beleg_ohne_grund_oder_datum_wird_abgewiesen():
+    gen = _gen()
+    for feld, code in (("reason", "[SENT-GRUND]"), ("sent_at", "[SENT-DATUM]")):
+        doc = _doc()
+        next(r for r in doc["records"] if r["id"] == "G1")["evidence"][1].pop(feld)
+        assert [f for f in gen.pruefe_v2(doc, REPO) if code in f], f"{feld} ungeprueft"

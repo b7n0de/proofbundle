@@ -75,7 +75,12 @@ VEX_STATUS = {"affected", "not_affected", "fixed", "under_investigation"}
 QUAL_STATUS = {"open", "fixed", "not_a_defect", "under_investigation"}
 ABHILFE = {"none_available", "vendor_fix", "workaround", "no_fix_planned"}
 PLANUNG = {"planned", "deferred", "undecided", None}
-BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision"}
+# ROLLE `sent` (K3, Owner-Auflage vom 14.09.2026, Karte OA-addc8096b0). Eine Kennung kann zwei
+# Belege haben: den Schnitt aus der Quelle und die nach aussen VERSENDETE Fassung, an die ein
+# Dritter einen Digest gebunden hat. Die zweite ist kein Zitat der Quelle — sie wird gegen ihre
+# EIGENE Datei geprueft, nicht gegen einen Bytebereich. Zwei Rollen, zwei Digests, kein
+# Widerspruch; die alte Aussage bleibt daneben lesbar.
+BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision", "sent"}
 
 _KENNUNG_KOPF = None  # lazy, siehe _kopf_muster()
 
@@ -525,8 +530,14 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
-def _gebundene_fassung(repo, kennung: str, erklaert, stueck: bytes):
-    """Die nach aussen versendete Fassung EINER Kennung — nachgerechnet, nicht uebernommen.
+def _sent_beleg(repo, kennung: str, erklaert, stueck: bytes):
+    """Der Beleg der nach aussen versendeten Fassung — ein evidence-Eintrag mit role `sent`.
+
+    GEFALTET STATT DOPPELT GEFUEHRT. Eine erste Fassung trug dieselbe Auskunft in einem eigenen
+    Feld `bound_external_copy` NEBEN den Belegen. Zwei Traeger derselben Angabe driften — das
+    steht in dieser Datei an mehreren Stellen und gilt auch fuer eigene Zusaetze. Die Owner-
+    Auflage K3 nennt ausserdem die Form ausdruecklich: "zweiter evidence-Eintrag an G1 … role
+    sent". Es gibt deshalb genau einen Ort.
 
     Der Digest wird nicht durchgereicht: die genannte Datei wird GEOEFFNET und gehasht. Ein
     durchgereichter Digest ist eine gruene Herkunftsaussage ueber Bytes, die niemand gesehen
@@ -540,10 +551,12 @@ def _gebundene_fassung(repo, kennung: str, erklaert, stueck: bytes):
     import hashlib  # noqa: PLC0415
     pfad = erklaert.get("pfad")
     soll = erklaert.get("sha256")
-    block = {"path": pfad, "declared_sha256": soll, "declared_reason": erklaert.get("warum"),
-             "bound_since": erklaert.get("gebunden_seit"),
-             "role": ("the copy sent outside, whose digest a third party holds; the evidence file "
-                      "is the byte range of the source and serves the register")}
+    block = {"path": pfad, "sha256": soll, "role": "sent",
+             "sent_at": erklaert.get("gebunden_seit"),
+             "reason": erklaert.get("warum"),
+             "what_this_entry_is": ("the copy sent outside, whose digest a third party holds. It "
+                                    "is NOT a quotation of the source register, so it carries no "
+                                    "byte range; it is checked against its own file")}
     if not pfad or not soll:
         return {**block, "state": "NOT MEASURED",
                 "reason": "the declaration names no path or no digest, so nothing can be recomputed"}
@@ -657,9 +670,16 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                      else "ends_with_one_newline" if stueck.endswith(b"\n")
                      else "ends_without_newline"] += 1
         kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
+        _sent = _sent_beleg(repo, k, _GEBUNDEN.get(k), stueck)
         records.append({
             "id": k,
-            "record_revision": revision,
+            # DIE REVISION DES DATENSATZES IST NICHT DIE DES REGISTERS (K3). Der Eintrag, der die
+            # versendete Fassung hinzufuegt, revidiert DIESEN Datensatz; alle anderen bleiben, wo
+            # sie waren. Die Zahl steht in der DEKLARATION, nicht in diesem Code.
+            # ... und der Rueckfall ist 0, NICHT `revision`. Erste Fassung, gemessen: mit
+            # `--revision 1` trugen ALLE 145 Datensaetze record_revision 1, obwohl nur einer
+            # revidiert wurde. Eine Registerrevision revidiert nicht jeden Eintrag darin.
+            "record_revision": int((_GEBUNDEN.get(k) or {}).get("record_revision") or 0),
             "record_role": "finding" if e.get("zaehlt_als_fund") else "boundary",
             # ZWEI GRUENDE, EIN FELD — und deshalb ein zweites (Codex 4000176743).
             #
@@ -725,8 +745,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 "source_sha256": qd,
                 "byte_range": [von, bis],
                 "fundart": fundart,
-            }],
-            "bound_external_copy": _gebundene_fassung(repo, k, _GEBUNDEN.get(k), stueck),
+            }] + ([_sent] if _sent else []),
             "last_measured": None,
             "last_measured_state": "NOT MEASURED",
             "last_measured_reason": ("the source names the day it was produced, not the time "
@@ -780,7 +799,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
                  "fields": ["records[].objektklasse_begruendung",
                             "records[].not_a_defect.beleg",
-                            "records[].bound_external_copy.declared_reason",
+                            "records[].evidence[].reason",
                             "inventory.coverage_gaps[].reason",
                             "inventory.cross_count._auflage",
                             "inventory.cross_count.warum_zu_viel_je_kennung.*"],
@@ -1147,6 +1166,48 @@ def _signatur_lage(doc) -> tuple[str, str]:
     return "VERIFIZIERT", str(s.get("alg"))
 
 
+def _pruefe_sent(repo, kid: str, b: dict) -> list[str]:
+    """Ein `sent`-Beleg: die versendete Datei, gegen ihren deklarierten Digest NEU gerechnet.
+
+    NEU ABLEITEN, NICHT DAS ETIKETT GLAUBEN. Eine erste Fassung dieses Riegels prueft nur einen
+    gespeicherten Zustand — ein von Hand verfaelschter Digest behielt sein `VERIFIED` und kam mit
+    NULL Fehlern durch, ausgefuehrt gemessen. Das ist woertlich die Klasse, die
+    [GR-NEUABLEITUNG] eine Ebene tiefer schon schliesst: wer das Artefakt liest, das er
+    beglaubigen soll, beglaubigt die Faelschung genauso bereitwillig wie das Echte.
+
+    Drei Zustaende bleiben drei: GEPRUEFT, NICHT MESSBAR (die Datei liegt in diesem Baum nicht
+    vor) und ABWEICHEND — und nur der letzte ist ein Fehler.
+    """
+    import hashlib  # noqa: PLC0415
+    f = []
+    if not b.get("reason"):
+        f.append(f"{kid}, [SENT-GRUND] ein zweiter Digest ohne Grund ist ein Widerspruch, "
+                 f"keine Auskunft")
+    if not b.get("sent_at"):
+        f.append(f"{kid}, [SENT-DATUM] die versendete Fassung nennt kein Datum")
+    pfad = b.get("path")
+    soll = b.get("sha256")
+    if not pfad or not soll:
+        return f + [f"{kid}, [SENT-FORM] `sent`-Beleg ohne Pfad oder ohne Digest"]
+    q = repo / pfad
+    if not q.is_file():
+        if b.get("state") not in LUECKENWOERTER:
+            f.append(f"{kid}, [SENT-FEHLT] {pfad} liegt in diesem Baum nicht vor und der Beleg "
+                     f"traegt kein Lueckenwort")
+        elif not b.get("reason"):
+            f.append(f"{kid}, [SENT-LUECKENWORT] Lueckenwort ohne Grund")
+        return f
+    ist = hashlib.sha256(q.read_bytes()).hexdigest()
+    if b.get("measured_sha256") and b["measured_sha256"] != ist:
+        f.append(f"{kid}, [SENT-NEUABLEITUNG] der Traeger nennt gemessen "
+                 f"{str(b['measured_sha256'])[:12]}, neu gerechnet ist es {ist[:12]}")
+    if ist != soll:
+        f.append(f"{kid}, [SENT-ABWEICHEND] die versendete Fassung {pfad!r} ist da und traegt "
+                 f"{ist[:12]}, deklariert ist {str(soll)[:12]} — eine nach aussen gebundene "
+                 f"Fassung, die sich geaendert hat, bricht die Bindung")
+    return f
+
+
 def pruefe_v2(doc, repo) -> list[str]:
     """STABILE CODES statt Prosa fuer die Gegenrechnungs-Meldungen (`[GR-...]`).
 
@@ -1181,6 +1242,16 @@ def pruefe_v2(doc, repo) -> list[str]:
         for b in r.get("evidence", []):
             if b.get("role") not in BELEGROLLE:
                 fehler.append(f"{kid}, Belegrolle unbekannt: {b.get('role')!r}")
+            # EIN `sent`-BELEG ZITIERT DIE QUELLE NICHT. Er traegt die nach aussen versendete
+            # Fassung und wird gegen SEINE EIGENE Datei gerechnet; ein Bytebereich waere hier
+            # sinnlos, und die Quellpruefungen darunter wuerden mit einem KeyError enden statt
+            # mit einem Urteil.
+            if b.get("role") == "sent":
+                fehler.extend(_pruefe_sent(repo, kid, b))
+                continue
+            if "source_path" not in b:
+                fehler.append(f"{kid}, Beleg ohne `source_path` und ohne Rolle `sent`")
+                continue
             q = repo / b["source_path"]
             if not q.is_file():
                 fehler.append(f"{kid}, Quelle fehlt: {b['source_path']}")
@@ -1359,51 +1430,6 @@ def pruefe_v2(doc, repo) -> list[str]:
     # Dass der ECHTE Bestand sie fuehrt, ist eine eigene Zusicherung und steht in
     # tests/test_der_traeger_nennt_seine_schnittkonvention.py; so kann sie weder hier still
     # verschwinden noch dort unbemerkt falsch werden.
-    # EIN GESCHRIEBENER WIDERSPRUCH IST KEINE ERLEDIGTE PRUEFUNG — dieselbe Lehre wie bei
-    # [GR-HERKUNFT]. Eine gebundene Aussenfassung, die messbar andere Bytes traegt, faehrt nicht
-    # als Randnotiz in einer erfolgreichen Veroeffentlichung mit.
-    for r in doc["records"]:
-        _bx = r.get("bound_external_copy")
-        if _bx is None:
-            continue
-        if not isinstance(_bx, dict):
-            fehler.append(f"{r['id']}, [BA-FORM] bound_external_copy ist kein Objekt")
-            continue
-        _bz = _bx.get("state")
-        # NEU ABLEITEN, NICHT DEN ZUSTAND GLAUBEN. Die erste Fassung dieses Riegels pruefte nur
-        # das gespeicherte `state` — und ein von Hand auf einen falschen `declared_sha256`
-        # gesetzter Block behielt `VERIFIED` und kam mit NULL Fehlern durch (ausgefuehrt
-        # gemessen). Das ist woertlich die Klasse, die [GR-NEUABLEITUNG] eine Ebene tiefer schon
-        # schliesst: wer das Artefakt liest, das er beglaubigen soll, beglaubigt die Faelschung
-        # genauso bereitwillig wie das Echte. Was neu abgeleitet werden kann, wird nicht geglaubt.
-        _bp = repo / str(_bx.get("path") or "")
-        if _bx.get("path") and _bp.is_file():
-            _bist = hashlib.sha256(_bp.read_bytes()).hexdigest()
-            if _bx.get("measured_sha256") != _bist:
-                fehler.append(
-                    f"{r['id']}, [BA-NEUABLEITUNG] der Traeger nennt gemessen "
-                    f"{str(_bx.get('measured_sha256'))[:12]}, neu gerechnet ist es "
-                    f"{_bist[:12]} — ein gespeicherter Messwert, der sich nicht nachrechnen laesst")
-            _bsoll = "VERIFIED" if _bist == _bx.get("declared_sha256") else "DEVIATING"
-            if _bz != _bsoll:
-                fehler.append(
-                    f"{r['id']}, [BA-NEUABLEITUNG] der Traeger meldet {_bz!r}, neu abgeleitet ist "
-                    f"der Zustand {_bsoll!r} — ein Etikett ohne Ableitungspfad")
-                _bz = _bsoll
-        if _bz == "DEVIATING":
-            fehler.append(
-                f"{r['id']}, [BA-ABWEICHEND] die gebundene Aussenfassung {_bx.get('path')!r} ist "
-                f"da und traegt {str(_bx.get('measured_sha256'))[:12]}, deklariert ist "
-                f"{str(_bx.get('declared_sha256'))[:12]} — eine nach aussen gebundene Fassung, "
-                f"die sich geaendert hat, bricht die Bindung")
-        elif _bz == "NOT MEASURED":
-            if not _bx.get("reason"):
-                fehler.append(f"{r['id']}, [BA-LUECKENWORT] NOT MEASURED ohne Grund")
-        elif _bz != "VERIFIED":
-            fehler.append(f"{r['id']}, [BA-ZUSTAND] unbekannter Zustand ({_bz!r})")
-        if not _bx.get("declared_reason"):
-            fehler.append(f"{r['id']}, [BA-GRUND] die gebundene Fassung steht ohne Grund da")
-
     _sk = inv.get("evidence_cut")
     if _sk is None:
         pass                              # keine Angabe, also keine widerspruechliche
@@ -1414,6 +1440,11 @@ def pruefe_v2(doc, repo) -> list[str]:
         _cache, _ableitbar = {}, True
         for r in doc["records"]:
             for b in r.get("evidence", []):
+                # Die Schnittkonvention spricht ueber ZITATE der Quelle. Ein `sent`-Beleg ist
+                # keines — er traegt die versendete Datei und hat keinen Bytebereich, den man
+                # nachschneiden koennte. Er gehoert nicht in diese Verteilung.
+                if b.get("role") == "sent":
+                    continue
                 _sp = b.get("source_path")
                 if _sp not in _cache:
                     _q = repo / str(_sp)

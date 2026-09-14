@@ -23,7 +23,26 @@ Satz ohne eines davon faellt durch. Das ist eine Untergrenze der Messung, keine 
 """
 from __future__ import annotations
 
-import fnmatch
+import fnmatch  # noqa: F401 — siehe _trifft, bewusst NICHT mehr direkt benutzt
+import re as _re
+
+
+def _trifft(pfad: str, muster: str) -> bool:
+    """Feldpfad gegen Muster — mit `[]` als LITERAL, nicht als Zeichenklasse.
+
+    GEMESSEN: `fnmatch` liest `[` als Beginn einer Zeichenklasse. Ein Muster mit EINEM `[]`
+    hat keine schliessende Klammer mehr, faellt auf literal zurueck und trifft zufaellig;
+    eines mit ZWEI (`records[].evidence[].reason`) wird zu `records<ein Zeichen>.reason` und
+    trifft SICH SELBST NICHT — ausgefuehrt geprueft:
+        fnmatch("records[].title", "records[].title")                 -> True
+        fnmatch("records[].evidence[].reason", <dasselbe>)            -> False
+    Ein Matcher, unter dem ein Muster sich selbst verfehlt, ist kaputt; dass es bisher hielt,
+    lag an der Form der Pfade, nicht an der Pruefung. Hier wird nur `*` und `?` als Platzhalter
+    gelesen, alles andere ist woertlich.
+    """
+    teile = _re.split(r"([*?])", muster)
+    rx = "".join(".*" if x == "*" else "." if x == "?" else _re.escape(x) for x in teile)
+    return _re.fullmatch(rx, pfad) is not None
 import json
 import pathlib
 import re
@@ -121,7 +140,7 @@ def nicht_woertlich(doc, repo: pathlib.Path) -> list[str]:
         for pfad, wert in _alle_strings(doc):
             if "language_scope" in pfad or not wert.strip():
                 continue
-            if not any(fnmatch.fnmatch(pfad.lstrip("."), m) for m in muster):
+            if not any(_trifft(pfad.lstrip("."), m) for m in muster):
                 continue
             drin = wert.strip() in vorrat if isinstance(vorrat, set) else wert.strip() in vorrat
             if not drin:
@@ -147,7 +166,7 @@ def test_jedes_deutsche_feld_liegt_im_geltungsbereich():
     muster = [m for g in _gruppen(doc) for m in (g.get("fields") or [])]
     offen = [p for p in _deutsche_felder(doc)
              if "language_scope" not in p
-             and not any(fnmatch.fnmatch(p.lstrip("."), m) for m in muster)]
+             and not any(_trifft(p.lstrip("."), m) for m in muster)]
     assert not offen, (
         f"{len(offen)} Feld(er) tragen deutsche Prosa ausserhalb des deklarierten "
         f"Geltungsbereichs: {sorted(offen)}")

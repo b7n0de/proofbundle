@@ -90,6 +90,8 @@ def test_belegdatei_traegt_genau_die_quellbytes():
             if not p.is_file():
                 abweichend.append(f"{r['id']}: Datei fehlt")
                 continue
+            if b.get("role") == "sent":
+                continue          # versendete Fassung, kein Zitat der Quelle, kein Bereich
             von, bis = b["byte_range"]
             hier = p.read_bytes()
             dort = quelle[von:bis]
@@ -166,6 +168,8 @@ def test_gegenprobe_der_digest_haelt_gegen_die_quelle():
     assert hashlib.sha256(quelle).hexdigest() == doc["records"][0]["evidence"][0]["source_sha256"]
     for r in doc["records"]:
         for b in r["evidence"]:
+            if b.get("role") == "sent":
+                continue
             von, bis = b["byte_range"]
             assert hashlib.sha256(quelle[von:bis]).hexdigest(), r["id"]
 
