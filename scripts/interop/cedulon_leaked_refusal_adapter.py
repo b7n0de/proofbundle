@@ -412,7 +412,6 @@ def run(fixture_dir: pathlib.Path, out_dir: pathlib.Path) -> dict[str, Any]:
 def verify_pair(report: dict[str, Any]) -> dict[str, Any]:
     from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     """Hand the pair to our own verifier, with the decision binding and role separation pinned."""
-    import base64
 
     from proofbundle.decision import verify_decision_receipt
     from proofbundle.outcome import verify_outcome_receipt
