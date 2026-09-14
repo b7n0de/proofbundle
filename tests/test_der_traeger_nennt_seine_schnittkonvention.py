@@ -271,3 +271,51 @@ def test_ein_messzustand_ohne_grund_wird_abgewiesen():
     gen, doc = _gen(), _doc()
     doc["records"][0]["measurement"].pop("reason")
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[MS-GRUND]" in f]
+
+
+# ── un-Gegenlesung Punkt A: eine Groesse, die ein schreibender Lauf nicht herstellen kann ─────
+
+def test_jeder_eintrag_hat_einen_zweiten_leser_aus_dem_commit():
+    for r in _doc()["records"]:
+        z = (r["measurement"] or {}).get("second_reader")
+        assert isinstance(z, dict), f"{r['id']} ohne zweiten Leser"
+        assert z["state"] in ("VERIFIED", "NOT MEASURABLE", "DEVIATING"), z["state"]
+        assert z.get("reason")
+
+
+def test_der_zweite_leser_oeffnet_keine_arbeitskopie():
+    """Punkt A: der erste Leser vergleicht mit einer Datei, die derselbe Lauf schreibt.
+
+    Der zweite liest Objekt-IDs aus dem Commit. Ein Lauf kann diese Gleichheit nicht durch
+    SCHREIBEN herstellen, nur durch COMMITTEN — und genau das macht ihn unabhaengig.
+    """
+    quelle = (REPO / "scripts/gen_findings_register.py").read_text(encoding="utf-8")
+    kopf = quelle.split("def _zweiter_leser", 1)[1].split("\ndef ", 1)[0]
+    for verboten in ("read_bytes", "is_file", "open("):
+        assert verboten not in kopf, f"der zweite Leser greift auf die Arbeitskopie zu: {verboten}"
+
+
+def test_die_beiden_leser_widersprechen_sich_wenn_die_arbeitskopie_driftet():
+    """FANGNACHWEIS der Unabhaengigkeit, an einem Eintrag der WIRKLICH ein Fund ist."""
+    gen = _gen()
+    doc = _doc()
+    kand = next((r for r in doc["records"]
+                 if r["measurement"]["state"] == "INTEGRITY_VERIFIED"), None)
+    if kand is None:
+        pytest.skip("kein Eintrag im Zustand INTEGRITY_VERIFIED vorhanden")
+    p = REPO / kand["evidence"][0]["path"]
+    orig = p.read_bytes()
+    try:
+        p.write_bytes(orig + b"X")
+        neu = gen.baue_v2(REPO, "2026-01-01T00:00:00Z", 1)
+        m = next(r for r in neu["records"] if r["id"] == kand["id"])["measurement"]
+        assert m["state"] == "NOT MEASURABLE", m["state"]
+        assert m["second_reader"]["state"] == "VERIFIED", m["second_reader"]["state"]
+    finally:
+        p.write_bytes(orig)
+
+
+def test_ein_abweichender_zweiter_leser_ist_ein_fehler():
+    gen, doc = _gen(), _doc()
+    doc["records"][0]["measurement"]["second_reader"]["state"] = "DEVIATING"
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[ZL-ABWEICHEND]" in f]

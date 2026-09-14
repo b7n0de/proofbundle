@@ -530,6 +530,76 @@ def _status(kennung: str, aus_tabelle: str | None = None,
                        "setting a state here would be a guess")}
 
 
+def _commitlage(repo) -> dict:
+    """Quelle und Belegbaum AUS DEM OBJEKTSPEICHER — die Arbeitskopie wird nicht geoeffnet.
+
+    WOZU, un-Gegenlesung 15.09.2026, Punkt A: `beleg_traegt` vergleicht die Belegdatei mit dem
+    Quellbereich — aber die Belegdatei schreibt DERSELBE Lauf gleich darauf selbst. Nach dem
+    ersten Lauf ist die Gleichheit trivial erfuellt, und ein Erzeuger, der sein eigenes Ergebnis
+    liest, bestaetigt sich selbst. Die Gegenlesung nannte das zu Recht eine selbsterfuellende
+    Schleife.
+
+    DIE UNABHAENGIGE GROESSE IST DER COMMIT. Gelesen werden die Objekt-IDs: die des committeten
+    Belegs gegen die, die der committete Quellbereich haette. Kein Lauf kann diese Gleichheit
+    durch Schreiben herstellen — dafuer muesste er committen. Zwei Aufrufe, einmal je Bau.
+
+    DREI ZUSTAENDE, und die Grenze wird genannt: das Urteil spricht ueber den Commit, der beim
+    Bauen HEAD war, nicht ueber die Aenderung, die gerade entsteht. Der Kopf steht deshalb dabei.
+    """
+    import subprocess  # noqa: PLC0415
+    def _git(*a):
+        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, timeout=120)
+    try:
+        k = _git("rev-parse", "HEAD")
+        if k.returncode != 0:
+            return {"ok": False, "grund": "no git HEAD is reachable from this tree"}
+        kopf = k.stdout.decode().strip()
+        q = _git("cat-file", "blob", f"HEAD:{RESTRISIKO_REL}")
+        if q.returncode != 0:
+            return {"ok": False, "head": kopf,
+                    "grund": f"{RESTRISIKO_REL} is not committed at this head"}
+        b = _git("ls-tree", "-r", "HEAD", EVIDENZ_REL)
+        blobs = {}
+        for zeile in b.stdout.decode("utf-8", "replace").splitlines():
+            if "\t" not in zeile:
+                continue
+            vorn, pfad = zeile.split("\t", 1)
+            teile = vorn.split()
+            if len(teile) >= 3:
+                blobs[pfad] = teile[2]
+        return {"ok": True, "head": kopf, "quelle": q.stdout, "blobs": blobs}
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"ok": False, "grund": f"git is not usable here ({type(e).__name__})"}
+
+
+def _zweiter_leser(lage: dict, pfad: str, von: int, bis: int) -> dict:
+    """Objekt-ID des committeten Belegs gegen die des committeten Quellbereichs."""
+    import hashlib  # noqa: PLC0415
+    if not lage.get("ok"):
+        return {"state": "NOT MEASURABLE", "reason": lage.get("grund", "no commit state available")}
+    quelle = lage["quelle"]
+    if not (0 <= von < bis <= len(quelle)):
+        return {"state": "NOT MEASURABLE",
+                "reason": (f"the byte range [{von}, {bis}] does not lie inside the committed "
+                           f"source of {len(quelle)} B")}
+    roh = quelle[von:bis]
+    soll = hashlib.sha1(b"blob %d\0" % len(roh) + roh).hexdigest()  # noqa: S324 — git object id
+    ist = (lage.get("blobs") or {}).get(pfad)
+    if ist is None:
+        return {"state": "NOT MEASURABLE", "expected_oid": soll,
+                "reason": f"{pfad} is not committed at {lage['head'][:12]}, so there is nothing "
+                          f"to hold the range against"}
+    if ist != soll:
+        return {"state": "DEVIATING", "expected_oid": soll, "committed_oid": ist,
+                "reason": ("the committed evidence file is not the committed byte range of the "
+                           "source — one of the two moved without the other")}
+    return {"state": "VERIFIED", "expected_oid": soll, "committed_oid": ist,
+            "at_commit": lage["head"],
+            "reason": ("object id of the committed evidence file equals the object id the "
+                       "committed byte range would have. This reader opens no working copy, so "
+                       "a run cannot establish it by writing — only by committing")}
+
+
 def _messung(kennung: str, zaehlt_als_fund: bool, beleg_traegt: bool, klasse) -> dict:
     """Der Messzustand EINES Eintrags — abgeleitet, nie von Hand gesetzt.
 
@@ -693,12 +763,19 @@ def _messsumme(records: list, repo) -> dict:
     """
     from collections import Counter  # noqa: PLC0415
     c = Counter((r.get("measurement") or {}).get("state") for r in records)
+    z = Counter(((r.get("measurement") or {}).get("second_reader") or {}).get("state")
+                for r in records)
     je_klasse = {}
     for r in records:
         m = r.get("measurement") or {}
         je_klasse.setdefault(str(m.get("objektklasse")), Counter())[m.get("state")] += 1
     return {
         "states": dict(c),
+        "second_reader_states": dict(z),
+        "second_reader_is": ("object id of the committed evidence file against the object id of "
+                             "the committed byte range — it opens no working copy, so this run "
+                             "cannot establish it by writing. It speaks about the commit that was "
+                             "HEAD while building, not about the change being made now"),
         "population": len(records),
         "by_object_class": {k: dict(v) for k, v in sorted(je_klasse.items())},
         "derivation": ("per entry: NOT APPLICABLE when the class card says it does not count as "
@@ -791,6 +868,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     _gb = (ok.get("ausnahmen_von_der_klasse") or {}).get("gebundene_aussenfassung") or {}
     _GEBUNDEN = _gb.get("kennungen") or {}
 
+    _commitlage_ = _commitlage(repo)
+
     records, ohne_fundstelle = [], []
     schnittenden = {"ends_with_blank_line": 0, "ends_with_one_newline": 0,
                     "ends_without_newline": 0}
@@ -809,6 +888,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         # TRAEGT DER BELEG? Gerechnet gegen die Bytes, die gleich geschrieben werden.
         _bd = repo / f"{EVIDENZ_REL}/{k}.md"
         _traegt = _bd.is_file() and _bd.read_bytes() == stueck
+        _zweit = _zweiter_leser(_commitlage_, f"{EVIDENZ_REL}/{k}.md", von, bis)
         _sent = _sent_beleg(repo, k, _GEBUNDEN.get(k), stueck)
         records.append({
             "id": k,
@@ -868,7 +948,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "class_id": None,
             "class_state": "NOT MEASURED",
             "class_reason": "the source carries no class identifiers",
-            "measurement": _messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
+            "measurement": {**_messung(k, bool(e.get("zaehlt_als_fund")), _traegt, e.get("klasse")),
+                            "second_reader": _zweit},
             "objektklasse": e.get("klasse"),
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
@@ -1620,6 +1701,14 @@ def pruefe_v2(doc, repo) -> list[str]:
                     f"und Belegdatei abgeleitet ist es {_soll!r} — ein Messzustand ohne "
                     f"Ableitungspfad ist ein Etikett")
             _z = _soll
+        _zw = _m.get("second_reader") or {}
+        if _zw.get("state") == "DEVIATING":
+            fehler.append(f"{r['id']}, [ZL-ABWEICHEND] {_zw.get('reason')}")
+        elif _zw.get("state") not in ("VERIFIED", "NOT MEASURABLE"):
+            fehler.append(f"{r['id']}, [ZL-ZUSTAND] zweiter Leser ohne bekannten Zustand "
+                          f"({_zw.get('state')!r})")
+        elif not _zw.get("reason"):
+            fehler.append(f"{r['id']}, [ZL-GRUND] zweiter Leser ohne Grund")
         _gez_m[_z] = _gez_m.get(_z, 0) + 1
     _ms = inv.get("measurement_summary")
     if not isinstance(_ms, dict):
@@ -1932,6 +2021,9 @@ def ansicht_uebersicht(doc) -> str:
               *[f"| {k} | {v} |" for k, v in sorted(st.items())],
               f"| **total** | **{ms.get('population')}** |", "",
               f"Derivation: {ms.get('derivation')}",
+              f"Second reader (commit object ids): "
+              + ", ".join(f"{v} {k}" for k, v in sorted((ms.get('second_reader_states') or {}).items()))
+              + f". {ms.get('second_reader_is')}",
               f"Limit: {ms.get('what_this_is_not')}"]
         w3 = ms.get("wall_3_class_rule") or {}
         z += [f"Wall 3 class rule: {w3.get('decision')}. {w3.get('consequence')}. "
@@ -2046,7 +2138,12 @@ def ansicht_html(doc) -> str:
                    + "".join(f"<tr><td>{_h.escape(str(k))}</td><td class=n>{v}</td></tr>"
                              for k, v in sorted(st.items()))
                    + f"<tr><td><b>total</b></td><td class=n><b>{ms.get('population')}</b></td></tr>"
-                   + f"</tbody></table><p class=sub>{_h.escape(str(ms.get('derivation')))}</p>"
+                   + "</tbody></table>"
+                   + "<p>Second reader (commit object ids): "
+                   + ", ".join(f"<b>{v}</b> {_h.escape(str(k))}"
+                               for k, v in sorted((ms.get("second_reader_states") or {}).items()))
+                   + f". {_h.escape(str(ms.get('second_reader_is')))}</p>"
+                   + f"<p class=sub>{_h.escape(str(ms.get('derivation')))}</p>"
                    + f"<p class=warn>{_h.escape(str(ms.get('what_this_is_not')))}</p>"
                    + f"<p>Wall 3 class rule: {_h.escape(str(w3.get('decision')))}. "
                    + f"{_h.escape(str(w3.get('consequence')))}. Reach in this tree: "

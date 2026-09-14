@@ -16,6 +16,7 @@ Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vo
 | **total** | **145** |
 
 Derivation: per entry: NOT APPLICABLE when the class card says it does not count as a finding, NOT MEASURABLE when the evidence file is missing or differs from its byte range, MEASURED otherwise
+Second reader (commit object ids): 145 VERIFIED. object id of the committed evidence file against the object id of the committed byte range — it opens no working copy, so this run cannot establish it by writing. It speaks about the commit that was HEAD while building, not about the change being made now
 Limit: a falling NOT MEASURED count is progress only with a substantiated statement behind it; byte equality proves the integrity of the quotation, never that it describes the matter correctly
 Wall 3 class rule: wall 3 is NO — the witness does not read the checking mechanism from a tree other than the one being judged. every env_blocked line is NOT MEASURABLE with a reason; none counts as passed. PARTIAL over a proofbundle commit is the permanently correct answer and a named state, not a gap. Reach in this tree: None records (NOT APPLICABLE — env_blocked is a property of a gate receipt component, so no record of this register can carry it. The receipts live in the 2bedone repository; reading them from here is exactly the cross tree read the decision forbids, so this generator does not read them and reports no number it has not measured).
 
