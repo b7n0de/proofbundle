@@ -14,9 +14,37 @@ name: demo-reproducible
 on:
   push:
     branches: [main]
+    # B5 (Nachtrag 1 zu 20260913T2012Z): ein Push, der nur Prosa, Register oder Archivartefakte
+    # anfasst, zieht diesen Workflow nicht mehr. Ein .mailmap-Push soll keine sechs Workflows ziehen.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'audit_artifacts/**'
+      - 'receipts/**'
+      - '.mailmap'
   pull_request:
+    # B5 (Nachtrag 1 zu 20260913T2012Z): ein Push, der nur Prosa, Register oder Archivartefakte
+    # anfasst, zieht diesen Workflow nicht mehr. Ein .mailmap-Push soll keine sechs Workflows ziehen.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'audit_artifacts/**'
+      - 'receipts/**'
+      - '.mailmap'
   schedule:
     - cron: "23 5 * * *"
+
+# NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
+# auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
+# liefen 65 bis 255 Minuten mit 28 Mutations-Shards, waehrend test und coverage darin laengst rot
+# waren. Ursache war Saettigung durch eigene Last, kein Ausfall.
+#
+# cancel-in-progress ist BEDINGT, nicht pauschal: ein spaeterer Push auf denselben Zweig macht das
+# Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
+# dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
   contents: read
