@@ -363,7 +363,24 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: Eine abgebrochene Pflichtpruefung ist unter dem stehenden GO weder gruen noch messbar, der
 #: Landekandidat des Schnitts blockierte sich also an seiner eigenen Zeile. Die drei beendeten
 #: coverage-Laeufe davor brauchten 34, 40 und 41 Minuten: das Limit lag UNTER dem Minimum.
-GEMESSENE_MAXIMA_MIN = {"test": 30, "coverage": 40}
+#:
+#: NACHTRAG 14.09.2026 00:19Z, AM LANDELAUF DES SCHNITTS SELBST GEMESSEN — und zwei eigene Fehler
+#: darin. Die Landung von PR 202 lief mit den NEUEN Budgets durch, und ihre Endzahlen waren:
+#:
+#:     coverage      40.0 min      test (3.10)   32.3 min      test (3.11)   29.1 min
+#:     test (3.12)   27.4 min      test (3.13)   26.9 min      test (3.14)   21.2 min
+#:
+#: Erstens: `test` stand hier auf 30, die Hoechstdauer ist gemessen 32.3. Der Schnitt hat also nicht
+#: EINEN Job gerettet, sondern ZWEI — unter dem alten 30-Minuten-Budget waeren `coverage` (40.0) und
+#: `test (3.10)` (32.3) beide abgeschnitten worden, und dieser PR haette nie landen koennen.
+#: Zweitens, und das ist der peinlichere: der Absatz darueber nennt selbst 41 Minuten als gemessene
+#: coverage-Dauer, waehrend die Konstante 40 sagte. Eine Zahl, die ihrem eigenen Beleg zwei Zeilen
+#: weiter oben widerspricht, ist keine Messung, sondern eine Erinnerung an eine.
+#:
+#: Beide Budgets tragen die korrigierten Werte weiterhin: coverage braucht ceil(41*1.25)=52 bei 60,
+#: `test` braucht ceil(33*1.25)=42 bei 50. Die Workflows aendern sich dadurch NICHT — korrigiert wird
+#: die Behauptung, nicht die Verdrahtung.
+GEMESSENE_MAXIMA_MIN = {"test": 33, "coverage": 41}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.
