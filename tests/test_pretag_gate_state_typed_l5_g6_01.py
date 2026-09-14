@@ -34,6 +34,7 @@ import json
 import os
 import pathlib
 import sys
+import subprocess
 import tempfile
 import unittest
 
@@ -53,9 +54,31 @@ def _load(name: str, rel: str):
     return mod
 
 
-def _tree(version: str = "6.0.0") -> pathlib.Path:
+def _tree(version: str = "6.0.0", anker: str | None = None) -> pathlib.Path:
+    """Ein MESSBARER Baum: ein echtes git-Repo mit einem Commit, nicht nur ein Ordner.
+
+    WARUM DAS SEIT 2026-09-07 NOETIG IST, und es ist eine Entwertung, die ICH verursacht habe.
+    `verify_receipt` weist seit `1d124e0` jede ERWARTETE Digest-Angabe ab, die keine sha256-Form hat
+    — der Riegel gegen den bindbaren Ersatzwert. In einem Ordner OHNE git kann das Tor den Baum
+    nicht messen, setzt `"unknown"` ein, und diese Formpruefung zuendet dann VOR Schema, Version und
+    Bindung. Gemessen von einer Gegenlesung: der Fall `wrong_version` starb danach am Formgrund
+    statt am Versionsvergleich, und mit stillgelegtem Versionsvergleich blieb dieselbe Testmethode
+    GRUEN — sie war fuer die entfernte Pruefung blind geworden.
+
+    Die Zusicherung dieser Datei (der Zustand ist `rejected`, nicht `absent`) galt weiterhin; die
+    UNTERSCHEIDUNGSKRAFT der einzelnen Formen war weg. Ein Riegel, dessen Faelle alle aus demselben
+    Grund rot sind, prueft eine Form, nicht vier. Ein echtes Repo stellt den Zustand von vorher her,
+    ohne die Formpruefung aufzuweichen.
+    """
     d = pathlib.Path(tempfile.mkdtemp(prefix="l5g601_"))
     (d / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n', encoding="utf-8")
+    if anker is not None:
+        (d / "audit_artifacts").mkdir(parents=True, exist_ok=True)
+        (d / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(anker + "\n",
+                                                                          encoding="utf-8")
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "basis"]):
+        subprocess.run(["git", "-C", str(d), *args], check=True, capture_output=True, timeout=60)
     return d
 
 
@@ -65,12 +88,20 @@ def _plant(repo: pathlib.Path, token: str, name: str, content: str) -> None:
     (scoped / name).write_text(content, encoding="utf-8")
 
 
-def _signed_receipt(**over) -> str:
-    """A structurally well-formed, validly self-signed receipt — REJECTED because the tmp tree pins no
-    trusted key. That is the 'untrusted signer' shape, and it is the honest one to build here."""
+def _keypaar():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    priv = Ed25519PrivateKey.generate()
+    return priv, base64.b64encode(priv.public_key().public_bytes_raw()).decode()
+
+
+def _signed_receipt(priv=None, **over) -> str:
+    """Eine formal gueltige, signierte Quittung. OHNE `priv` ein frischer Schluessel (die
+    'untrusted signer'-Form); MIT `priv` der Schluessel, den der Baum als Anker fuehrt — dann faellt
+    die Quittung an der Eigenschaft, die der Fall im Namen traegt, und an keiner davor."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes
-    priv = Ed25519PrivateKey.generate()
+    if priv is None:
+        priv = Ed25519PrivateKey.generate()
     rc = {"schema": RECEIPT_SCHEMA, "version": "6.0.0", "subject_tree_digest": "x" * 64,
           "gate_source_digest": "y" * 64, "audit_command": "pytest", "audit_exit_code": 0,
           "audit_output_digest": "z" * 64, "runner_identity": "test",
@@ -93,16 +124,51 @@ class TheGateReportsATypedState(unittest.TestCase):
         self.assertFalse(r["ok"])
 
     def test_every_rejected_shape_reports_rejected(self):
-        """The four shapes the gate measured as NOT_APPLICABLE. Each must now be `rejected`."""
+        """The four shapes the gate measured as NOT_APPLICABLE. Each must now be `rejected` — UND JEDE
+        AUS IHREM EIGENEN GRUND.
+
+        DIE ZWEITE ZUSICHERUNG IST NEU (2026-09-07) und sie repariert eine Blindheit, die aelter ist
+        als der Anlass, aus dem sie gefunden wurde. Gemessen: mit stillgelegtem Versionsvergleich,
+        stillgelegtem Schema-Vergleich und stillgelegter Vertrauensanker-Pruefung blieb diese Methode
+        DREIMAL gruen — `assertEqual(state, "rejected")` ist erfuellt, sobald IRGENDEINE Pruefung
+        zuschlaegt, und in einem Baum ohne Anker schlug immer dieselbe zuerst zu. Vier Faelle, ein
+        Grund: der Riegel prueft eine Form, nicht vier.
+
+        Damit jeder Fall an SEINER Eigenschaft faellt, fuehrt der Baum jetzt den Vertrauensanker, und
+        die Quittung von `wrong_version` ist mit genau diesem Schluessel signiert. Ohne das kaeme sie
+        nie bis zum Versionsvergleich.
+        """
+        import hashlib
+
+        from pre_tag_receipt_lib import subject_tree_digest
+        priv, pub = _keypaar()
+        # Reihenfolge in `verify_receipt`: Form -> Schema -> Version -> Baum -> Gate-Quelle ->
+        # audit_exit -> Anker -> Signierer -> Signatur. Damit ein Fall an SEINER Eigenschaft faellt,
+        # muss alles DAVOR stimmen. `untrusted_signer` braucht deshalb den echten Baum- und
+        # Gate-Digest; `wrong_version` nicht, weil die Version vor beiden geprueft wird.
+        gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
         shapes = {
-            "unreadable_json": "{ this is not json",
-            "not_an_object": "[1, 2, 3]",
-            "untrusted_signer": _signed_receipt(),
-            "wrong_version": _signed_receipt(version="5.0.0"),
+            "unreadable_json": ("{ this is not json", "unreadable", None, False),
+            "not_an_object": ("[1, 2, 3]", "not a JSON object", None, False),
+            "untrusted_signer": (None, "not in the trusted set", pub, True),
+            "wrong_version": (None, "version", pub, False),
+            # FUENFTER FALL, nachgetragen 2026-09-07: ohne ihn ueberlebt die Mutation, die die
+            # Vertrauensanker-Pruefung ganz stilllegt — gemessen. `untrusted_signer` faellt am
+            # SIGNIERER, und der wird NACH dem Anker geprueft; ein Baum mit Anker erreicht die
+            # Ankerpruefung also nie im Fehlerfall. Der Fall ohne Anker schliesst die Luecke.
+            "kein_vertrauensanker": (None, "no trusted signing key pinned", None, True),
         }
-        for label, content in shapes.items():
+        for label, (content, grundstueck, anker, echte_digests) in shapes.items():
             with self.subTest(shape=label):
-                d = _tree()
+                d = _tree(anker=anker)
+                if content is None:
+                    ueber = {"version": "5.0.0"} if label == "wrong_version" else {}
+                    if echte_digests:
+                        ueber["subject_tree_digest"] = subject_tree_digest(d)
+                        ueber["gate_source_digest"] = gate_src
+                    # untrusted_signer: FREMDER Schluessel bei gesetztem Anker; wrong_version: der
+                    # Ankerschluessel selbst, damit die Version der erste Fehlschlag ist.
+                    content = _signed_receipt(None if echte_digests else priv, **ueber)
                 _plant(d, "600", "receipt.json", content)
                 r = self.pta.evaluate(d, "6.0.0")
                 self.assertEqual(r["state"], "rejected",
@@ -110,6 +176,10 @@ class TheGateReportsATypedState(unittest.TestCase):
                 self.assertFalse(r["ok"])
                 self.assertTrue(r["rejected_receipts"],
                                 f"{label}: the candidate was skipped instead of rejected")
+                gruende = " | ".join(x.get("reason", "") for x in r["rejected_receipts"])
+                self.assertIn(grundstueck, gruende,
+                              f"{label}: abgelehnt, aber NICHT an der eigenen Eigenschaft — "
+                              f"erwartet ein Grund mit {grundstueck!r}, bekommen: {gruende[:200]}")
 
     def test_an_unreadable_candidate_is_named_not_skipped(self):
         """The specific hole: `continue` past an unparseable file left `rejected_receipts` EMPTY, so the

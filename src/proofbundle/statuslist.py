@@ -206,7 +206,11 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         if _dobj.unconsumed_tail:
             result["detail"] = "status_list lst exceeds the maximum decompressed size"
             return result
-    except (ValueError, TypeError, zlib.error):
+    except (ValueError, TypeError, zlib.error, ProofBundleError):
+        # LAUF 14 L2 F1, Nachbar (11.09.2026): _b64url_decode wirft bei einem Segment ueber dem
+        # input_bytes-Deckel BundleFormatError — heute unerreichbar (lst stammt aus einem Payload,
+        # dessen string_len-Budget enger ist), aber dieselbe except-Klasse wie in sdjwt: die Klausel
+        # folgt dem Vertrag des Dekoders, nicht der Fehlerquelle von damals.
         result["detail"] = "status_list lst is not valid base64url(zlib(...))"
         return result
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:

@@ -14,6 +14,33 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # B5 (Nachtrag 1 zu 20260913T2012Z): ein Push, der nur Prosa, Register oder Archivartefakte
+    # anfasst, zieht diesen Workflow nicht mehr. Ein .mailmap-Push soll keine sechs Workflows ziehen.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'audit_artifacts/**'
+      - 'receipts/**'
+      - '.mailmap'
+
+# NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
+# auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
+# liefen 65 bis 255 Minuten mit 28 Mutations-Shards, waehrend test und coverage darin laengst rot
+# waren. Ursache war Saettigung durch eigene Last, kein Ausfall.
+#
+# cancel-in-progress ist BEDINGT, nicht pauschal: ein spaeterer Push auf denselben Zweig macht das
+# Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
+# dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # FALSE, und das ist eine AUFLAGE aus dem eigenen Restrisiko-Blatt, nicht eine Meinung:
+  # RESTRISIKO_600.md, Abschnitt "Die Ausnahme: release.yml darf NICHT abgebrochen werden",
+  # sagt woertlich "release.yml bekommt cancel-in-progress: false". Der bedingte Ausdruck, den
+  # der Schnitt zuerst ueberall einsetzte, ist HIER IMMER WAHR: dieser Workflow hat genau einen
+  # Trigger, `push` auf Tags. Ein zweimal gepushter gleicher Tag haette damit den laufenden
+  # Release abgebrochen — im schlimmsten Fall zwischen Entwurf, PyPI-Upload und Veroeffentlichung.
+  # Gefunden von der Codex-Runde zwei an PR 202; die Auflage stand da schon geschrieben.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -43,6 +70,7 @@ defaults:
 jobs:
   build-and-attest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write        # create the GitHub Release
       id-token: write        # keyless OIDC (build-provenance attestation)
@@ -75,6 +103,60 @@ jobs:
         # audit_artifacts file names the version — enforcing the discipline the project already follows.
         run: python scripts/pre_tag_audit_gate.py --repo . --version "${GITHUB_REF_NAME#v}" --strict
 
+      - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
+        # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und
+        # Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN am 2026-09-07: es gab keinen.
+        # `claims_hygiene_check.py` scannt 49 Dokumente und laeuft in ci.yml — aber der Tag-Text ist
+        # keine Datei im Baum, und die Release-Notiz entsteht weiter unten per
+        # `generate_release_notes: true`, also erst bei GitHub aus PR-Titeln. Beide Texte gingen
+        # ungeprueft nach draussen, waehrend jede README-Zeile durch 37 verbotene Wendungen (gemessen: len(claims_hygiene_check._FORBIDDEN_RE)) muss.
+        #
+        # DIESELBE REGELMENGE, kein zweiter Pruefer: `release_text_hygiene.py` ruft
+        # `claims_hygiene_check.scan_text`. Zwei Listen wuerden auseinanderdriften.
+        #
+        # VOR DEM BAU UND VOR JEDER AUSSENWIRKUNG. Ein Formfehler im Text soll den Zug hier anhalten,
+        # nicht nachdem ein Entwurf steht.
+        #
+        # WAS ER PRUEFT UND WAS NICHT: die Notiz wird hier VORAB erzeugt (`generate-notes`) und
+        # geprueft. Der Entwurf weiter unten laesst GitHub sie ein zweites Mal erzeugen — bei
+        # identischem Bereich ist das derselbe Text, aber es ist NICHT bytegleich garantiert. Der
+        # Schritt ist damit eine Pruefung des Textes, den GitHub aus demselben Bereich komponiert,
+        # keine Bindung an genau die Bytes des Entwurfs. Ehrlicher Rest, aufgeschrieben statt
+        # geglaettet.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # DER TAG MUSS ANNOTIERT SEIN, und das wird geprueft statt vorausgesetzt. GEMESSEN
+          # 2026-09-07 von einer Gegenlesung: `git tag -l --format='%(contents)'` liefert bei einem
+          # LEICHTGEWICHTIGEN Tag nicht etwa nichts, sondern die COMMIT-Nachricht des Zielobjekts —
+          # git faellt auf das gepeelte Objekt zurueck. Der Ausloeser `tags: ["v*"]` fasst jeden
+          # Tag-Typ, und die Commit-Texte dieses Repos ZITIEREN staendig genau die verbotenen
+          # Wendungen als Beispiele. Ohne diese Pruefung waere die Folge ein irrefuehrendes Rot oder
+          # ein bedeutungsloses Gruen — beides schlimmer als ein klarer Abbruch.
+          # Gemessen 2026-09-07 ueber ALLE v-Tags dieses Repos, nicht nur die letzten fuenf:
+          # 48 Stueck, davon 30 annotiert und 18 LEICHTGEWICHTIG (v0.1.0 bis v1.1.0, v2.0.0b2,
+          # v3.1.0, v3.2.2, v3.2.3). Die letzten fuenf Release-Tags sind annotiert — aber der
+          # Ausloeser `tags: ["v*"]` fasst die anderen 18 genauso, und genau deshalb steht diese
+          # Pruefung hier. Die vorige Fassung dieser Zeile nannte nur die fuenf und klang wie eine
+          # Aussage ueber die ganze Menge.
+          typ="$(git cat-file -t "$GITHUB_REF_NAME")"
+          if [ "$typ" != "tag" ]; then
+            echo "release-text-hygiene: $GITHUB_REF_NAME ist ein $typ, kein annotierter Tag." >&2
+            echo "  Ein Release-Tag traegt einen eigenen Text; ohne ihn wuerde hier die" >&2
+            echo "  Commit-Nachricht geprueft und das Ergebnis saehe wie eine Aussage ueber den" >&2
+            echo "  Tag-Text aus. Mit 'git tag -a' neu setzen." >&2
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/tag_text.txt
+          python scripts/release_text_hygiene.py --text-file /tmp/tag_text.txt \
+            --label "tag $GITHUB_REF_NAME"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > /tmp/release_notes.txt
+          # LEER IST KEIN BESTEHEN — das Werkzeug bricht bei leerem Text selbst ab, und `-eo pipefail`
+          # (defaults-Block oben) laesst einen fehlgeschlagenen `gh`-Aufruf nicht durchrutschen.
+          python scripts/release_text_hygiene.py --text-file /tmp/release_notes.txt \
+            --label "release-notes $GITHUB_REF_NAME"
+
       - name: Build sdist and wheel (the ONLY build in this workflow)
         run: |
           python -m pip install --upgrade build
@@ -85,8 +167,13 @@ jobs:
           # WHEEL is byte-reproducible too — a bare `python -m build --wheel` embeds the current
           # wall-clock mtime and is NOT reproducible across two clean builds.
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          python scripts/build_reproducible.py --outdir dist
-          python -m build --wheel --outdir dist
+          # OA-402ef6f4e9 / OA-7af1e29036 (Owner 2026-09-07, Option 1 "im Bauweg kanonisieren"):
+          # das wheel laeuft jetzt durch DENSELBEN Weg wie das sdist. Vorher stand hier ein blankes
+          # `python -m build --wheel`, dessen ZIP-Eintraege den Modus ihrer Quelldatei uebernehmen —
+          # 0o664 aus dem Arbeitsbaum, 0o644 aus dem normalisierten sdist. Das machte Bedingung 4
+          # des Release-Standards ROT: 11 von 82 Eintraegen unterschieden sich ALLEIN im Modus, bei
+          # null inhaltlichen Unterschieden. Der Bauhost stand damit im ausgelieferten Artefakt.
+          python scripts/build_reproducible.py --outdir dist --with-wheel
 
       - name: Record artifact digests (the attested subjects)
         id: digests
@@ -239,6 +326,7 @@ jobs:
     # beruhigenden von beiden.
     needs: build-and-attest
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment:
       name: pypi
       url: https://pypi.org/project/proofbundle/
@@ -316,6 +404,7 @@ jobs:
       always() && needs.build-and-attest.result == 'success'
       && (needs.publish-pypi.result != 'success' || needs.publish-release.result != 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Sag klar, dass ein Entwurf liegenbleibt
         env:
@@ -349,6 +438,7 @@ jobs:
     # gewollt — es ist EINE Entscheidung an EINER Stelle statt zwei an verschiedenen.
     needs: [build-and-attest, publish-pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

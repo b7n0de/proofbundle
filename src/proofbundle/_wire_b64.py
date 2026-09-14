@@ -139,5 +139,29 @@ def decode_b64_c2sp(s: "str | bytes") -> bytes:
     alphabet refused -- but NON-ZERO PAD BITS TOLERATED, because Go's ``encoding/base64``
     StdEncoding (the reference verifier of the note format) tolerates them unless ``Strict()`` is
     used. The leniency is the format's, named here once; every other helper in this module refuses
-    it. Do not use this for any field that is not a C2SP note field."""
-    return base64.b64decode(_as_bytes(s), validate=True)
+    it. Do not use this for any field that is not a C2SP note field.
+
+    UEBERZAEHLIGES PADDING IST NICHT TEIL DER AUSNAHME (deep gate Lauf 8, Fund L1-C2SPPAD-01).
+    Der Absatz darueber nennt GENAU EINE geduldete Abweichung, die Pad-Bits. Der Aufruf darunter
+    duldete stillschweigend eine ZWEITE: `base64.b64decode(..., validate=True)` nimmt auch
+    ueberzaehlige Pad-Zeichen an. Gemessen am Kopf 434e3a3: `QUI=`, `QUJ=` und `QUI==` ergeben
+    alle drei b"AB", `QUJD` und `QUJD=` beide b"ABC" — ein signiertes Artefakt, vier Schreibweisen.
+    Go's `encoding/base64` StdEncoding, das in der Begruendung oben als Massstab genannt ist,
+    WEIST ueberzaehliges Padding ab; die genannte Go-Paritaet deckt diese Achse also nicht.
+
+    Geprueft wird deshalb die EIGENSCHAFT statt der Aufzaehlung: Laenge und Pad-Struktur muessen
+    die kanonischen sein, und abweichen darf ausschliesslich das letzte Datenzeichen, weil genau
+    dort die geduldeten Pad-Bits sitzen. Ohne Padding gibt es keine Pad-Bits, dann muss die
+    Schreibweise exakt die kanonische sein."""
+    raw = _as_bytes(s)
+    out = base64.b64decode(raw, validate=True)
+    canon = base64.b64encode(out)
+    npad = canon.count(b"=")
+    ende_ok = raw.endswith(b"=" * npad) if npad else not raw.endswith(b"=")
+    kopf = len(canon) - npad - 1 if npad else len(canon)
+    if (len(raw) != len(canon) or not ende_ok
+            or b"=" in raw[:len(raw) - npad] or raw[:kopf] != canon[:kopf]):
+        raise binascii.Error(
+            "non-canonical base64 padding: one C2SP note field, one wire form "
+            "(non-zero pad bits are tolerated, surplus or misplaced padding is not)")
+    return out

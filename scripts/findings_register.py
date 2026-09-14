@@ -20,7 +20,6 @@ structured, fail-closed replacement:
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import sys
@@ -33,15 +32,40 @@ if str(REPO / "src") not in sys.path:
 
 REGISTER_REL = "audit_artifacts/findings_register_361.json"
 
-# Pinned root of trust (committed): the ed25519 public key the register MUST be signed by. Rotating the key
-# is a deliberate, reviewed change to THIS constant — a register signed by any other key fails closed.
-PINNED_PUBKEY_B64 = "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o="
+# KEIN GEPINNTER SCHLUESSEL MEHR IN DIESER DATEI (Teil F, 2026-09-06).
+#
+# WAS HIER STAND UND WARUM ES FALSCH WAR. Bis hierher hielt dieses Modul eine eigene Konstante
+# ``PINNED_PUBKEY_B64`` — einen Schluessel, dessen private Haelfte auf dem BAUHOST lag und der mit
+# ``scripts/gen_findings_register.py`` im selben Prozess erzeugt und verwendet wurde, der das
+# Register baute. Daneben fuehrt das Repositorium seit Teil A5 einen Owner-autorisierten
+# Vertrauensanker (``audit_artifacts/readiness_trusted_pubkeys.txt``), und die Owner-Entscheidung
+# dazu (Karte OA-e10ba2ba39, 2026-09-06) sagt woertlich: der Ankerschluessel signiert „ausschliesslich
+# Bereitschaftsartefakte C6.2, C6.3, C8.2 und den Registerkoerper … Private Haelfte bleibt beim Owner
+# am Mac, nichts davon auf dem Farmer."
+#
+# Zwei Quellen fuer dieselbe Frage „wer darf das Register beglaubigen" — und sie sagten
+# Verschiedenes: der Anker nannte den Owner-Schluessel, die Konstante hier einen anderen. Gemessen
+# am 2026-09-06 auf Kandidat a62d8cb liefen beide nebeneinander, ohne dass irgendetwas sie
+# verglich. Deshalb gibt es hier keine zweite Quelle mehr: die autorisierten Schluessel REIST der
+# Aufrufer an, und der Aufrufer ist das Tor, das den Anker ohnehin schon streng liest.
+#
+# ``authorised_pubkeys=None`` heisst NICHT „nimm irgendeinen" — es heisst „der Aufrufer hat nicht
+# gebunden", und das ist fail-closed. Ein Register ohne benannte Autorisierung entscheidet nichts.
+CODE_REGISTER_UNAUTHORISED_KEY = "REGISTER_UNAUTHORISED_KEY"
 
 _GATING_SEVERITIES = {"P0", "P1"}
 # 6-lens gate L5-01: severity is DENY-by-default (like status) — a string severity whose normalized form is
 # not a KNOWN token is an anomaly, never silently non-gating. So an open P0 cannot hide behind an invisible
 # zero-width (U+200B) or confusable/fullwidth severity char that renders as "P0" to a human reviewer.
 _KNOWN_SEVERITIES = {"P0", "P1", "P2", "P3", "INFO"}
+#: Rangordnung derselben Marken. Sie steht hier, weil eine Abloesung nur dann eine Abloesung ist,
+#: wenn der Nachfolger die VERPFLICHTUNG mittraegt (deep gate Lauf 9, Fund L5-600-REG-SUPERSEDE-01).
+#: Abgeleitet aus _KNOWN_SEVERITIES statt zweitgeschrieben: kaeme eine Marke dazu und fehlte hier,
+#: waere sie rangfrei und jede Abloesung auf sie hin waere ungeprueft — deshalb der Gleichheitstest
+#: direkt darunter, der genau das zum Startfehler macht statt zum stillen Loch.
+_SEVERITY_RANG = {"P0": 4, "P1": 3, "P2": 2, "P3": 1, "INFO": 0}
+assert set(_SEVERITY_RANG) == _KNOWN_SEVERITIES, (
+    "jede bekannte Severity braucht einen Rang, sonst ist eine Abloesung auf sie hin ungeprueft")
 
 
 def _norm(s: str) -> str:
@@ -57,18 +81,32 @@ def _canonical_bytes(body: dict) -> bytes:
     return canonical.canonicalize_statement(body)
 
 
-def _signature_ok(register: dict) -> tuple[bool, str]:
+def _signature_ok(register: dict, authorised_pubkeys: set[str] | None) -> tuple[bool, str]:
     sig = register.get("signature")
     if not isinstance(sig, dict):
         return False, "register carries no signature block"
     if sig.get("alg") != "ed25519":
         return False, f"unexpected signature alg {sig.get('alg')!r}"
     pub_b64 = sig.get("public_key_b64")
-    if pub_b64 != PINNED_PUBKEY_B64:
-        return False, "register public key does not match the pinned root of trust"
+    # DIE AUTORISIERUNG KOMMT VON AUSSEN, und ihr Fehlen ist ein Nein. Ein leeres Set und None
+    # bedeuten dasselbe Ergebnis (fail-closed), aber NICHT dasselbe: None heisst „nicht gebunden",
+    # ein leeres Set heisst „gebunden, und der Anker autorisiert niemanden fuer diese Zeile". Beide
+    # Gruende stehen ausgeschrieben, damit ein Leser sie unterscheiden kann.
+    if authorised_pubkeys is None:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the caller passed no authorised key set — "
+                       "an unbound caller does not decide a release (fail-closed)")
+    if not authorised_pubkeys:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the trust anchor authorises no key for this "
+                       "check — nobody may sign the register (fail-closed)")
+    if not isinstance(pub_b64, str) or pub_b64 not in authorised_pubkeys:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the register is signed by "
+                       f"{str(pub_b64)[:16]}…, which the trust anchor does not authorise for this "
+                       "check")
     try:
-        pub = base64.b64decode(pub_b64)
-        raw_sig = base64.b64decode(sig.get("sig_b64", ""))
+        # LAUF11-L2: strikt und kanonisch statt stdlib-lax.
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        pub = decode_b64(pub_b64)
+        raw_sig = decode_b64(sig.get("sig_b64", ""))
     except (ValueError, TypeError) as exc:
         return False, f"signature fields are not valid base64: {exc}"
     body = {k: register[k] for k in register if k != "signature"}
@@ -122,6 +160,8 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     anomalies: list[str] = []
     legit_superseded: set[str] = set()
     sby_map: dict[str, str] = {}
+    rang_by_id: dict[str, int] = {}
+    status_by_id: dict[str, str] = {}
     # KEINE Sammel-Menge fuer die Kollisionen. Die erste Fassung fuehrte hier ein `_kollision`-Set,
     # das befuellt und nie gelesen wurde — eine Variable, die wie ein Riegel aussieht und keiner ist.
     # Das ist die Form des Nachbarbefunds L1-03 ("die Klasse ist per Konstruktion geschlossen"), und
@@ -176,14 +216,33 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
             else:
                 legit_superseded.add(fid)
                 sby_map[fid] = sby
+        # Rang und Status je Kennung fuer die Abloesungspruefung unten. Beide Felder sind an dieser
+        # Stelle schon als String und als bekannte Marke geprueft.
+        rang_by_id[fid] = _SEVERITY_RANG[_norm(f["severity"]).upper()]
+        status_by_id[fid] = _norm(f["status"]).lower()
     # 6-lens gate L5-01: a supersession CYCLE (a ring A->B->A, or a longer loop) makes EVERY member point to
     # a present+different id, so all members drop as "legitimately superseded", accounted==population holds,
     # and open P0s hidden inside the ring are never counted (ok=True, 0 open — the exact fail-open this module
     # exists to close). A legit chain must TERMINATE at a present, non-superseded node; walk each chain with a
     # visited-set and treat any cycle as an anomaly -> fail-closed (no ring member stays legitimately dropped).
+    #
+    # UND DIE VERPFLICHTUNG MUSS WEITERGETRAGEN WERDEN (deep gate Lauf 9, L5-600-REG-SUPERSEDE-01,
+    # P1). Bis hierher genuegte der LINKFORM: ein Ziel, das vorhanden und verschieden ist. Gemessen:
+    # ein OFFENER P0 mit `superseded_by` auf einen beliebigen GESCHLOSSENEN P3 fiel aus der Zaehlung,
+    # ohne eine einzige Anomalie — ein gueltig signiertes Register meldete 0 offene P0/P1, und die
+    # Bilanz `accounted == population` hielt dabei, weil der Befund als "rechtmaessig abgeloest"
+    # gezaehlt wurde. Genau diese Bilanz maskiert den Verlust, statt ihn zu zeigen.
+    #
+    # Eine Abloesung ist deshalb nur dann eine, wenn die KETTE zwei Dinge erfuellt:
+    #   * jedes Glied traegt mindestens den Rang des Ausgangsbefunds — ein P0 wird nicht dadurch
+    #     erledigt, dass ihn ein P3 beerbt;
+    #   * sie endet an einem GESCHLOSSENEN Knoten — ein Befund, der auf einen offenen zeigt, ist
+    #     nicht erledigt, sondern verschoben, und Verschieben ist keine Erledigung.
+    # Beides faellt fail-closed in `anomalies`, also in denselben Kanal wie Zyklus und Sackgasse.
     for fid in list(legit_superseded):
         seen_chain: set[str] = set()
         cur = fid
+        eigener_rang = rang_by_id.get(fid, 0)
         while cur in sby_map:
             if cur in seen_chain:
                 anomalies.append(f"{fid}:supersession-cycle")
@@ -191,6 +250,18 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
                 break
             seen_chain.add(cur)
             cur = sby_map[cur]
+            if rang_by_id.get(cur, -1) < eigener_rang:
+                anomalies.append(
+                    f"{fid}:supersession-downgrades-severity="
+                    f"{cur}@rang{rang_by_id.get(cur, -1)}<rang{eigener_rang}")
+                legit_superseded.discard(fid)
+                break
+        else:
+            # Die Kette hat regulaer geendet: `cur` ist der letzte, selbst nicht abgeloeste Knoten.
+            if status_by_id.get(cur) != "closed":
+                anomalies.append(
+                    f"{fid}:supersession-ends-open={cur}@{status_by_id.get(cur)!r}")
+                legit_superseded.discard(fid)
     for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
@@ -242,7 +313,55 @@ def _version_binding_error(register: dict, expected_version: str | None) -> str 
     return None
 
 
-def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None) -> dict:
+#: Wie alt ein Registerkoerper hoechstens sein darf, gemessen an seinem eigenen ``generated_at``.
+#: DIESELBE ZAHL wie das Evidenzfenster der Bereitschaftsartefakte (audit_candidate_matrix
+#: ``_EVIDENCE_MAX_AGE_DAYS``), und das ist kein Zufall: die zwei Pruefungen sind EIN Mechanismus.
+#:
+#: WARUM ES SIE UEBERHAUPT BRAUCHT (Owner-Karte OA-89f05b70cd, Auflage 1, 2026-09-06). Die
+#: Gueltigkeitsfrist ``not_after`` eines Ankerschluessels wird gegen den MESSZEITPUNKT der Evidenz
+#: verglichen, nicht gegen "jetzt" — sonst wuerde Evidenz von gestern unzulaessig, bloss weil die
+#: Matrix heute laeuft. Genau daraus entsteht aber eine Rueckdatierungs-Luecke: wer einen
+#: widerrufenen Schluessel haelt, koennte ein Register mit einem alten ``generated_at`` signieren und
+#: damit in das Fenster zurueckreichen, in dem der Schluessel noch galt. Das Fenster hier begrenzt,
+#: wie weit dieses Zurueckreichen ueberhaupt tragen kann. Ohne die Frische waere die Fristpruefung
+#: eine Zusicherung, die nur teilweise gilt — und eine halb geltende Zusicherung ist die Klasse, die
+#: dieses Repository durchgehend als Fehler behandelt.
+_REGISTER_MAX_AGE_DAYS = 180
+#: Uhren laufen auseinander; eine Minute Vorlauf ist kein Betrug, eine Stunde waere einer.
+_REGISTER_FUTURE_SKEW_MINUTES = 5
+
+CODE_REGISTER_STALE = "REGISTER_STALE"
+
+
+def _freshness_error(register: dict, *, jetzt=None) -> str | None:
+    """``None`` wenn der Registerkoerper frisch genug ist, sonst der Grund.
+
+    Drei Zustaende, wie ueberall in dieser Datei: fehlend/unlesbar ist NICHT dasselbe wie alt, und
+    beides ist nicht dasselbe wie frisch. Ein ``generated_at``, das gar nicht lesbar ist, faellt
+    fail-closed — eine unmessbare Frische ist nie eine erfuellte."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    zeit = register.get("generated_at")
+    if not isinstance(zeit, str) or not zeit:
+        return (f"{CODE_REGISTER_STALE}: the register names no generated_at, so its age cannot be "
+                "measured — an unmeasurable freshness is never a satisfied one")
+    form = "%Y-%m-%dT%H:%M:%S.%f%z" if "." in zeit else "%Y-%m-%dT%H:%M:%S%z"
+    try:
+        erzeugt = datetime.strptime(zeit.replace("Z", "+0000"), form)
+    except ValueError as exc:
+        return f"{CODE_REGISTER_STALE}: generated_at={zeit!r} is not a usable timestamp: {exc}"
+    jetzt = jetzt or datetime.now(timezone.utc)
+    if erzeugt > jetzt + timedelta(minutes=_REGISTER_FUTURE_SKEW_MINUTES):
+        return (f"{CODE_REGISTER_STALE}: generated_at={zeit} lies in the future — a register cannot "
+                "predate its own run")
+    if erzeugt < jetzt - timedelta(days=_REGISTER_MAX_AGE_DAYS):
+        alter = (jetzt - erzeugt).days
+        return (f"{CODE_REGISTER_STALE}: generated_at={zeit} is {alter} days old, past the declared "
+                f"{_REGISTER_MAX_AGE_DAYS}-day window")
+    return None
+
+
+def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None,
+                     authorised_pubkeys: set[str] | None = None) -> dict:
     """Fail-closed verify + count. Returns a verdict dict; never raises on a bad register.
 
     ``expected_version`` binds the register's SIGNED ``version`` field to the version under test
@@ -266,7 +385,7 @@ def verify_and_count(repo: Path | str = REPO, expected_version: str | None = Non
     if not isinstance(register, dict) or register.get("schema") != "proofbundle.findings_register.v1":
         return {"ok": False, "reason": "register has the wrong schema (fail-closed)",
                 "open_ids": [], **triple, "source_digest": source_digest}
-    sig_ok, sig_detail = _signature_ok(register)
+    sig_ok, sig_detail = _signature_ok(register, authorised_pubkeys)
     if not sig_ok:
         return {"ok": False, "reason": f"register signature invalid: {sig_detail} (fail-closed)",
                 "open_ids": [], **triple, "source_digest": source_digest}
@@ -276,6 +395,14 @@ def verify_and_count(repo: Path | str = REPO, expected_version: str | None = Non
     version_err = _version_binding_error(register, expected_version)
     if version_err is not None:
         return {"ok": False, "reason": version_err, "open_ids": [], **triple,
+                "register_version": register.get("version"), "source_digest": source_digest}
+    # NACH der Versionsbindung, VOR der Zaehlung: ein Register, das ueber die richtige Fassung
+    # spricht, aber aus dem Vorleben stammt, ist so wenig eine Aussage ueber heute wie eines ueber
+    # die falsche Fassung. Siehe die Herleitung bei _REGISTER_MAX_AGE_DAYS — diese Pruefung ist die
+    # zweite Haelfte der Fristpruefung, nicht ein zusaetzlicher Einfall.
+    frische_err = _freshness_error(register)
+    if frische_err is not None:
+        return {"ok": False, "reason": frische_err, "open_ids": [], **triple,
                 "register_version": register.get("version"), "source_digest": source_digest}
     findings = register.get("findings")
     if not isinstance(findings, list) or not findings:
@@ -331,9 +458,44 @@ def _pyproject_version(repo: Path) -> str | None:
     return m.group(1) if m else None
 
 
+def _autorisierte_schluessel_vom_tor(repo: Path, check_id: str = "C12.2") -> set[str] | None:
+    """Die fuer ``check_id`` autorisierten Schluessel — aus DEM Anker-Leser des Tors, nicht aus einem zweiten.
+
+    WARUM DER IMPORT HIER DRIN STEHT und nicht oben: ``audit_candidate_matrix`` importiert dieses
+    Modul (``import findings_register as fr``). Ein Import in der Gegenrichtung auf Modulebene waere
+    ein Zyklus. Die CLI ist der einzige Ort, der ihn braucht — sie wird von niemandem importiert —,
+    und sie holt ihn erst, wenn sie laeuft. Der Bibliothekspfad bleibt damit azyklisch: wer
+    ``verify_and_count`` aufruft, REICHT die Schluessel an, und das ist das Tor.
+
+    Rueckgabe ``None`` heisst NICHT MESSBAR (die Matrix ist hier nicht importierbar, der Anker nicht
+    lesbar) — der Aufrufer macht daraus fail-closed, nie ein Bestehen.
+    """
+    import sys as _sys  # noqa: PLC0415
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import audit_candidate_matrix as m  # noqa: PLC0415
+    except Exception:                        # noqa: BLE001 - kein Importfehler darf hier ein Urteil faellen
+        return None
+    try:
+        # `_trust_anchor` liefert (Schluessel, Zustand) und liest den COMMITTETEN Blob — nicht den
+        # Arbeitsbaum. Genau diese Wahl ist der Grund, den Leser des Tors zu nehmen statt einen
+        # eigenen: ein schmutziger Checkout koennte sonst einen Schluessel einlegen und sich selbst
+        # beglaubigen. `zustand` != "ok" heisst NICHT MESSBAR beziehungsweise LEER, und beides ist
+        # hier dasselbe Ergebnis wie ein leeres Set: niemand ist autorisiert.
+        schluessel, zustand = m._trust_anchor(repo)
+    except Exception:                        # noqa: BLE001
+        return None
+    if zustand == "unmeasurable":
+        return None
+    return {pub for pub, feld in schluessel.items()
+            if check_id in m._ANKER_ROLLEN.get(feld.get("role", ""), frozenset())}
+
+
 def main(argv=None) -> int:
-    # Die CLI bindet gegen die ausgeliefernde Identitaet, sonst misst sie etwas anderes als das Tor.
-    r = verify_and_count(REPO, expected_version=_pyproject_version(REPO))
+    # Die CLI bindet gegen die ausgeliefernde Identitaet, sonst misst sie etwas anderes als das Tor —
+    # und sie bindet gegen den ANKER, sonst misst sie eine andere Vertrauensbasis als das Tor.
+    r = verify_and_count(REPO, expected_version=_pyproject_version(REPO),
+                         authorised_pubkeys=_autorisierte_schluessel_vom_tor(REPO))
     print(json.dumps(r, indent=2, ensure_ascii=False))
     return 0 if r["ok"] else 1
 

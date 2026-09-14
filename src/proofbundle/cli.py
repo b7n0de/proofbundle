@@ -45,7 +45,21 @@ def _open_input(path, *, binary: bool = False):
     ``os.stat`` reads metadata only and never blocks, so refuse anything that is not a regular file up front.
     The raised ``BundleFormatError`` is mapped to a clean exit 2 by ``main()``'s backstop. Use this for every
     untrusted verify INPUT read; operator OUTPUT files (``--out``) and the operator's own emit payloads do not
-    need it (they are the operator's own destination/data, not hostile input)."""
+    need it (they are the operator's own destination/data, not hostile input).
+
+    Review Runde 2, Framing Auflage A3 (2026-09-05): der Text-Zweig oeffnete bisher mit
+    ``open(path, encoding="utf-8")`` — ``newline=None`` (der Vorgabewert) schaltet Pythons universelle
+    Zeilenumwandlung EIN, die JEDES ``\\r\\n``/``\\r`` beim Lesen STILL zu ``\\n`` macht, und der fehlende
+    ``errors=`` liess ein ungueltiges UTF-8-Byte mit einer rohen ``UnicodeDecodeError`` AN DIESER Stelle
+    scheitern — BEVOR ``_split_signed_note`` je eine Zeile sieht. Beides ist genau die Klasse, die diese
+    Lane schliesst: eine zweite, STILLE Drahtform derselben Datei, erzeugt an der DEKODIERSTELLE, nicht am
+    Parser. Jetzt: ``newline=""`` erhaelt jedes ``\\r``/``\\r\\n`` byte-genau (JSON behandelt ``\\r`` ohnehin
+    als unwesentlichen Zwischenraum, RFC 8259 — kein bestehender JSON-Verbraucher aendert sein Verhalten),
+    und ``errors="surrogateescape"`` (der Python-eigene, verlustfreie Weg, beliebige Bytes durch einen
+    ``str`` zu reichen, PEP 383) laesst ein ungueltiges Byte zu GENAU EINEM einsamen Surrogaten werden.
+    ``_split_signed_note`` hat diesen Fall LAENGST typisiert vorgesehen (``_SURROGAT_RE``): das typisierte
+    ``BundleFormatError`` des Parsers entscheidet jetzt, nicht mehr die Dekodierstelle davor. Roh-Bytes,
+    nicht Zeichenketten, durch BEIDE CLI-Wege gemessen: ``tests/test_note_cli_transport_bytegenau.py``."""
     import os  # noqa: PLC0415
     import stat as _stat  # noqa: PLC0415
     if not isinstance(path, (str, bytes, os.PathLike)):
@@ -53,7 +67,9 @@ def _open_input(path, *, binary: bool = False):
     st = os.stat(path)   # metadata only — does not block on a FIFO, does not read a device
     if not _stat.S_ISREG(st.st_mode):
         raise BundleFormatError("input path is not a regular file (fail-closed: FIFO/device/socket refused)")
-    return open(path, "rb") if binary else open(path, encoding="utf-8")
+    if binary:
+        return open(path, "rb")
+    return open(path, encoding="utf-8", errors="surrogateescape", newline="")
 
 
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
@@ -1760,6 +1776,36 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Die Praedikattypen, deren Inhalt DIESES Paket liest. Nur fuer sie ist "predicate ist kein
+#: Objekt" ein Formfehler; bei einer fremden Attestation waere dieselbe Aussage eine Anmassung,
+#: und ihr Praedikat traegt ohnehin keine Kanten, die dieser Aufloeser lesen wuerde.
+_EIGENE_PRAEDIKATTYPEN = (
+    "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1",
+)
+
+
+def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
+    """Traegt ein Statement EINES UNSERER Typen ein `predicate`, das ein positiv falscher Typ ist?
+
+    ENG GEFASST, und die Enge ist der Punkt (deep gate Lauf 8, Jury zu L4-800-01): meine erste
+    Fassung fragte nur `"predicate" in stmt` und wies damit auch `predicate: null` ab. in-toto v1
+    erlaubt ein fehlendes oder leeres Praedikat, und `relationships: null` ist hier eine bewusst
+    gezogene Python/Rust-Paritaetslinie — die Jury hat den breiten Arm deshalb widerlegt, und sie
+    hat recht. Ein FEHLENDES und ein NULL-Praedikat bleiben also unberuehrt.
+
+    Positiv falsch heisst: vorhanden, nicht null, und kein Objekt — eine Liste, eine Zeichenkette,
+    eine Zahl. Dann ist das Ziel nicht lesbar, und nicht lesbar ist nie Schweigen.
+    """
+    if str(stmt.get("predicateType") or "") not in _EIGENE_PRAEDIKATTYPEN:
+        return False
+    if "predicate" not in stmt:
+        return False
+    wert = stmt["predicate"]
+    return wert is not None and not isinstance(wert, dict)
+
+
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
     STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
@@ -1776,6 +1822,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     from ._statement_payload import load_statement_strict  # noqa: PLC0415
     from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
+    #: Alle gelesenen Kopien je content root — die Zusammenfuehrung passiert NACH der
+    #: Schleife, damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
+    roh: dict[str, list[dict]] = {}
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
@@ -1824,6 +1873,28 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
         if stmt is not None:
             if isinstance(stmt.get("predicate"), dict):
                 rels = stmt["predicate"].get("relationships")
+            elif _praedikat_ist_positiv_falsch(stmt):
+                # DER SONST-ARM (deep gate Lauf 8, Fund L4-800-01, P1). Der Zweig darueber zaehlte
+                # EINEN Typ auf und hatte kein Sonst — dieselbe Klasse, die der Absatz oben eine
+                # Ebene hoeher am 2026-09-05 geschlossen hat, hier eine Ebene tiefer wieder offen.
+                # GEMESSEN am Kopf 434e3a3: ein kanonisches, DSSE-gueltiges Statement mit
+                # `predicate` als LISTE oder ZEICHENKETTE kam als `verified=True` mit
+                # `relationships=None` durch — also stumm. Dieselben Bytes enden standalone mit
+                # exit 2. Eine angehaengte Ruecknahme in so einem Statement war damit unsichtbar,
+                # waehrend die identische Ruecknahme in einem lesbaren Nachbarn blockt.
+                #
+                # `predicate` ist im in-toto-Statement ein OBJEKT. Vorhanden und kein Objekt ist
+                # deshalb dasselbe wie ein Parse-Fehler: das Ziel ist NICHT lesbar, und
+                # "nicht lesbar" ist nie Schweigen. FEHLENDES `predicate` bleibt unberuehrt — das
+                # ist ein Statement ohne Kanten und kein Formfehler.
+                payload_malformed = (
+                    "statement predicate is "
+                    f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
+                    "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
             subj = stmt.get("subject")
@@ -1838,13 +1909,70 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 subject_digest_state = "present"
             else:
                 subject_digest_state = "malformed"   # single subject but no well-formed sha-256
-        related[root_hex] = {
+        roh.setdefault(root_hex, []).append({
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
             "subject_digest_state": subject_digest_state,
             "payload_malformed": payload_malformed,
-        }
+        })
+    # ---- Zusammenfuehrung statt last-wins (deep gate Lauf 9, Fund L4-900-01, P0) ----
+    #
+    # VORHER stand hier `related[root_hex] = {...}` direkt in der Schleife. Der Schluessel ist der
+    # content root des SIGNIERTEN PAYLOADS — er wird also aus dem angehaengten Material ABGELEITET,
+    # und der Wert traegt ein VERIFIKATIONSURTEIL. Zwei Anhaenge mit demselben Payload und
+    # verschiedenen Umschlaegen kollidieren damit, und die zuletzt gelesene Kopie ersetzte die
+    # fruehere still.
+    #
+    # GEMESSEN am Kopf 8626618: eine angehaengte Kopie mit VERFAELSCHTER SIGNATUR loeschte eine
+    # gueltige, verifizierte Ruecknahme. `decision verify --with-related good.json` endet mit exit 3
+    # und safeForAutomation=False; dieselbe Aufrufung mit zusaetzlich `--with-related bad.json`
+    # endet mit exit 0, safeForAutomation=TRUE und lineage.supersededByAttached=None. Wer eine Datei
+    # ANHAENGEN kann, hebt damit eine Ruecknahme auf, ohne einen einzigen Schluessel zu brechen.
+    #
+    # WARUM `verified` HIER EIN ODER IST und kein UND. Der naheliegende Vorschlag lautet "verified
+    # nur, wenn ALLE Kopien verifizieren". Das waere ein Scheinfix: der Angreifer haengt dieselbe
+    # kaputte Kopie an, `verified` faellt auf False, die Ruecknahme zaehlt wieder nicht, und der
+    # Schaden ist derselbe unter anderem Namen. `verified` beantwortet die Frage "existiert eine
+    # gueltige Signatur ueber DIESE Bytes" — und eine verfaelschte Kopie derselben Bytes beantwortet
+    # sie nicht mit Nein. Sie beweist nur, dass jemand Bytes veraendern kann.
+    #
+    # DIE PAYLOAD-FELDER sind bei gleichem root_hex identisch, weil root_hex genau ueber diesen
+    # Payload gebildet wird. Weichen sie doch ab, ist eine Annahme dieses Codes verletzt — dann
+    # bricht die Aufloesung ab, statt eine der beiden Lesarten zu waehlen.
+    #
+    # `verified_under` wird DETERMINISTISCH gewaehlt (kleinster Schluessel unter den verifizierenden,
+    # sonst kleinster ueberhaupt), damit das Urteil nicht von der Reihenfolge der --with-related
+    # Argumente abhaengt. Die same-key-Regel in relation.py:720 vergleicht dieses Feld byte-genau;
+    # eine reihenfolgeabhaengige Wahl waere dort eine reihenfolgeabhaengige Autorisierung.
+    for root_hex, kopien in roh.items():
+        erste = kopien[0]
+        if len(kopien) == 1:
+            related[root_hex] = erste
+            continue
+        for feld in ("relationships", "subject_digest", "subject_digest_state", "payload_malformed"):
+            if any(k[feld] != erste[feld] for k in kopien):
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but disagree on {feld!r} — the content root is derived from exactly these "
+                    "bytes, so this cannot happen without a broken assumption; refusing to pick one")
+                break
+        else:
+            schluessel = sorted(k["verified_under"] for k in kopien)
+            verifizierende = sorted(k["verified_under"] for k in kopien if k["verified"])
+            if len({k["verified"] for k in kopien}) > 1 or len(set(schluessel)) > 1:
+                # Widerspruch NENNEN statt still aufloesen: der Aufrufer hat zwei Kopien desselben
+                # Statements uebergeben, die verschieden ausgehen. Der CLI-Pfad macht daraus exit 2.
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but verify differently (verified={sorted({k['verified'] for k in kopien})}, "
+                    f"keys={len(set(schluessel))}) — a duplicate that disagrees is a contradiction, "
+                    "not a tie to be broken silently")
+            related[root_hex] = {
+                **erste,
+                "verified": any(k["verified"] for k in kopien),
+                "verified_under": (verifizierende or schluessel)[0],
+            }
     return related, errs
 
 

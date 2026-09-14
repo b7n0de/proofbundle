@@ -27,8 +27,13 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
-from ._wire_b64 import decode_b64, decode_b64url
+from ._wire_b64 import decode_b64
 from ._membership import is_member
+# LAUF 14 L2 F1 (11.09.2026): dieses Modul trug eine DRITTE Kopie von `_b64url_decode` — ohne den
+# Vor-Deckel, den `sdjwt` und `kbjwt` seit "adversarial re-audit round 7" tragen. Gemessen: ein
+# 40-MiB-Segment wurde hier in 0,30 s voll zu 30 MiB dekodiert, bevor irgendeine Schranke griff;
+# `sdjwt._b64url_decode` weist es in 0,0000 s ab. Eine Quelle, keine Kopie.
+from .sdjwt import _b64url_decode  # noqa: F401 - bewusst re-exportiert: die Tests messen die Identitaet
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
 _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding",
@@ -46,10 +51,6 @@ def _as_list(v):
 
 class SdjwtVcError(ProofBundleError):
     """An SD-JWT VC profile policy is malformed, or a required profile check could not be enforced."""
-
-
-def _b64url_decode(s: str) -> bytes:
-    return decode_b64url(s)
 
 
 def validate_vc_policy(policy: Any) -> list[str]:
@@ -197,7 +198,13 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
                                 "verified without it, so the credential is not authenticated (fail-closed)"}
             issuer_ok = False
         else:
-            issuer = sdjwt.verify_sd_jwt(compact, issuer_pubkey)
+            try:
+                issuer = sdjwt.verify_sd_jwt(compact, issuer_pubkey)
+            except ProofBundleError as exc:
+                # LAUF 14 L2 F1: verify_sd_jwt liefert Verdikte; sollte je eine typisierte
+                # Ausnahme entkommen, bleibt DIESE Flaeche trotzdem ein Verdikt (fail-closed).
+                issuer = {"structure_ok": False, "sig_checked": True, "sig_ok": False, "alg": None,
+                          "detail": f"issuer SD-JWT rejected: {exc}"}
             # structure_ok is the DISCLOSURE-COMMITMENT check (RFC 9901, the core of selective disclosure):
             # every PRESENTED disclosure must hash to a digest committed inside the issuer-signed payload.
             # Without it this path accepts a FORGED, never-committed disclosure (a critical FALSE-ACCEPT —

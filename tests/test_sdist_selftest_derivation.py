@@ -86,6 +86,21 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         p = self._modul("test_rein.py", "import json\n\ndef test_x():\n    assert json.dumps({}) == '{}'\n")
         self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp))
 
+    def test_eine_IMPORTIERTE_wurzelkonstante_wird_am_namen_erkannt(self):
+        """``_ROOT_NAMEN`` hatte keinen einzigen Test (Gegenlesung 07.09.2026, Linse 3, Mutant M6).
+
+        Die vier Formen im ersten Test dieser Klasse leiten ihre Wurzel alle LOKAL aus ``__file__``
+        ab — das fuellt ``_gebunden`` und funktioniert unabhaengig vom Namen. Die Allowlist leeren
+        liess die Datei deshalb bei 16 passed stehen, obwohl damit jedes Modul unsichtbar wird, das
+        seine Wurzel IMPORTIERT statt sie selbst zu bilden. Genau dafuer ist die Liste da, und genau
+        das misst dieser Test.
+        """
+        p = self._modul("test_importiert.py",
+                        'from irgendwo import REPO\nX = REPO / "docs/FEHLT.md"\n')
+        self.assertTrue(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                        "eine importierte Wurzelkonstante wurde nicht erkannt — die Namens-Allowlist "
+                        "ist wirkungslos, und importierende Module laufen ausserhalb des Checkouts blind")
+
     def test_ein_unlesbares_modul_gilt_als_repo_kontext(self):
         """Nicht bestimmbar ist keine Freigabe: wer nicht zeigen kann, dass er paketrein ist, wird
         ausserhalb des Checkouts uebersprungen statt blind ausgefuehrt."""
@@ -111,9 +126,75 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
 
         Die Gleichheit steht hier bewusst in BEIDE Richtungen: waechst die Liste, hat jemand wieder
         aufgezaehlt statt abzuleiten; schrumpft sie, faellt aus dem sdist wieder etwas durch.
+
+        EIN DRITTER GRUND FUER WACHSTUM, seit 06.09.2026, und er ist keiner der beiden oben: das
+        Paket kann ABSICHTLICH etwas verlieren. Die Owner-Auflage zur Karte OA-8b1a31cc4f nimmt
+        ``scripts/pre_tag_receipt.py`` aus dem sdist, weil es den Inline-Signierweg traegt.
+        ``test_pre_tag_receipt_commit_flow`` faehrt genau dieses Skript als Prozess und hat im
+        Paket damit keinen Gegenstand mehr. Gemessen, bevor der Eintrag gesetzt wurde: die
+        Ableitung ``modul_ist_repo_kontext`` faengt den Fall NICHT — sie sieht in dem Modul nur die
+        Verzeichnisse ``scripts`` und ``src``, und die existieren im sdist beide; die einzelne
+        fehlende Datei steht hinter einer Schleifenvariablen ueber ``SCRIPTS / s``. Der Rueckfall
+        ist hier also nicht Bequemlichkeit, sondern die Stelle, an der die Ableitung nachweislich
+        endet — und genau dafuer ist er da.
+
+        DER VIERTE GRUND, 07.09.2026, und er ist der, den ``conftest`` seit jeher als Zweck der
+        Liste nennt: die Repo-Abhaengigkeit steht nicht im Testmodul, sondern eine Ebene tiefer im
+        Skript, das es faehrt. GEMESSEN mit ``_wurzel_relative_pfade`` an beiden Modulen, nicht
+        vermutet. ``test_not_after_gilt_auch_auf_dem_registerpfad`` nennt genau ``scripts``, ``src``
+        und ``scripts/audit_candidate_matrix.py`` — alle drei liegen im sdist (MANIFEST.in Zeile 88),
+        die Ableitung sieht also nichts fehlen und liefert ``False``. Der Anker
+        ``audit_artifacts/readiness_trusted_pubkeys.txt`` steht in
+        ``scripts/audit_candidate_matrix.py`` Zeile 273 — und er wird dort ueber
+        ``git show HEAD:…`` gelesen (:352-357), nicht von der Platte. Das ist der TRAGENDE Grund,
+        und meine erste Fassung nannte nur die schwaechere Haelfte: der Anker waere auch dann
+        unlesbar, wenn das Paket ihn MITLIEFERTE, weil kein sdist ein ``.git`` mitbringt (gemessen
+        im entpackten Baum, in dem die Datei noch physisch lag: ``zustand='unmeasurable'``, Ursache
+        ``fatal: not a git repository``). Dass ``audit_artifacts`` zusaetzlich geprunt ist
+        (MANIFEST.in Zeile 119), ist die zweite Absicherung, nicht der Grund.
+        ``test_release_text_hygiene`` nennt nur
+        ``scripts`` und faehrt ``betreffs_seit("HEAD")``, also git ueber den Baum; im entpackten sdist
+        gibt es kein Repository, und ein leerer Commitbereich ist dort der Normalzustand statt des
+        Fehlerfalls, den der Test misst. Beides ist woertlich der in ``conftest`` beschriebene Fall:
+        "modules whose repo dependency is not visible as a path literal (an env probe, a subprocess
+        into the tree)". Kein Wachstum durch Aufzaehlung, sondern die Stelle, an der eine statische
+        Messung AM MODUL endet.
+
+        Die Gegenprobe dazu liefert nicht diese Datei, sondern der Job ``hermetic-cleanroom``: er
+        faehrt die Suite aus dem entpackten sdist. Auf VIER der fuenf Koepfe (7c9826d, 733a8c4,
+        83a25e6, 5e9aa66) waren dort genau diese neun Tests rot — acht mit
+        ``'unmeasurable' != 'ok'``, der neunte (``test_release_text_hygiene``) mit einem eigenen
+        git-Fehlerbild. Auf dem fuenften, aelteren Kopf 37eab91 existierte
+        ``tests/test_release_text_hygiene.py`` noch nicht (Erstcommit 38fa7937 am 07.09.), dort
+        waren es die acht vorhandenen, alle acht rot. Keiner stammt aus der Arbeit dieses Tages.
+        ENTSCHAERFT nach der Gegenlesung 07.09.2026 (Linse 4): die erste Fassung schrieb "auf fuenf
+        Koepfen genau diese neun" und behauptete damit mehr, als die Messung traegt — die Substanz
+        blieb, die Ueberpraezisierung ist weg.
+
+        DER FUENFTE GRUND, 08.09.2026, und er ist eine FOLGE des Fixes zu L6-600-01: seit dem wird
+        ein Modul, dessen Import an einer nicht ausgelieferten Datei scheitert, in einer Verteilung
+        uebersprungen statt das Sammeln abzubrechen. `tests/test_budget_axis_measurement.py` liefert
+        aus dem sdist damit NULL Tests — und `test_mutationstor_sammler_sieht_die_freigabeflaeche`
+        verlangt, dass jede Testdatei dem Sammler des Mutationstors mindestens einen liefert.
+
+        DIESER FALL GEHOERT AUS DREI GRUENDEN IN DEN RUECKFALL UND NICHT IN EINE AUSNAHMELISTE DES
+        TORS. Erstens ist sein Gegenstand das MUTATIONSTOR, und das laeuft im Checkout, nie aus
+        einer Verteilung. Zweitens erreicht er den Baum ueber einen UNTERPROZESS
+        (`_gesehene_dateien` faehrt `pytest --collect-only` gegen `tests`) — woertlich der in
+        `conftest` beschriebene Fall, und eine statische Ableitung kann ihn nicht sehen, weil das
+        einzige Literal `tests` ist und das gibt es hier. Drittens waere die naheliegende Loesung
+        falsch: das Tor bietet `_OHNE_TESTS_ERLAUBT` an, aber dort steht "diese Datei darf DAUERHAFT
+        keinen Test liefern" — und im Checkout liefert sie fuenf. Gemessen am 08.09.2026:
+        `pytest tests/test_budget_axis_measurement.py --collect-only` ergibt `5 tests collected`,
+        und der Sammelaufruf des Tors selbst zaehlt fuer diese Datei ebenfalls genau 5. Ein Eintrag
+        dort haette echte Abdeckung stillgelegt, um eine Messung an der falschen Flaeche gruen zu
+        bekommen.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
-                     "test_roadmap_frontload_foundations", "test_rust_parity_gate"}
+                     "test_roadmap_frontload_foundations", "test_rust_parity_gate",
+                     "test_pre_tag_receipt_commit_flow",
+                     "test_not_after_gilt_auch_auf_dem_registerpfad", "test_release_text_hygiene",
+                     "test_mutationstor_sammler_sieht_die_freigabeflaeche"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
@@ -137,6 +218,75 @@ def _in_git_checkout() -> bool:
     ueberspringen, und `_ist_bauartefakt` beantwortete seine Frage aus den Ignore-Regeln des fremden
     Baums. Dieselbe Verwechslung, gegen die diese Datei steht, eine Ebene hoeher."""
     return cf._dieser_baum_ist_das_repo(REPO)
+
+
+class DerHookWendetDieAbleitungAUCH_AN(unittest.TestCase):
+    """DIE ABLEITUNG KANN RICHTIG SEIN UND TROTZDEM NICHT ANGEWANDT WERDEN.
+
+    SCHWERSTER FUND der Gegenlesung 07.09.2026 (Linse 3, Mutant M5): ``pytest_collection_modifyitems``
+    — die Stelle, die die Ableitung tatsaechlich in Skip-Marker uebersetzt — hatte in dieser Datei
+    KEINEN EINZIGEN Aufruf. Ihr ``or`` zu einem ``and`` zu machen schaltet den kompletten
+    Ableitungspfad ab, sodass wieder ALLEIN die Liste entscheidet — exakt die Klasse, gegen die diese
+    Datei laut ihrem eigenen Kopf steht. Die Datei blieb dabei bei ``16 passed``: drei Mutationen an
+    der Ableitungsfunktion wurden gefangen, die eine an ihrer ANWENDUNG nicht.
+
+    Die Lehre ist allgemeiner als der eine Operator: eine Funktion zu pruefen und ihren einzigen
+    Aufrufer nicht, prueft die Haelfte, die nicht wirkt. Deshalb misst diese Klasse den Hook selbst,
+    und zwar in beide Richtungen — er muss ueberspringen, wenn er soll, und NICHT ueberspringen,
+    wenn er nicht soll.
+    """
+
+    class _Posten:
+        """Das Minimum, das der Hook von einem pytest-Item liest: Datei, Name, add_marker."""
+
+        def __init__(self, datei, name):
+            self.fspath = datei
+            self.name = name
+            self.originalname = name
+            self.marker = []
+
+        def add_marker(self, m):
+            self.marker.append(m)
+
+    def _marker(self, *, abgeleitet, liste, im_checkout=False,
+                stem="test_irgendwas", methode="test_x"):
+        """Faehrt den echten Hook mit gesetzten Antworten seiner beiden Quellen."""
+        alt = (cf.running_in_repo_checkout, cf.modul_ist_repo_kontext, cf._REPO_CONTEXT_TESTS)
+        cf.running_in_repo_checkout = lambda: im_checkout
+        cf.modul_ist_repo_kontext = lambda pfad, wurzel=None: abgeleitet
+        cf._REPO_CONTEXT_TESTS = frozenset(liste)
+        try:
+            posten = self._Posten(f"/nirgends/tests/{stem}.py", methode)
+            cf.pytest_collection_modifyitems(None, [posten])
+            return posten.marker
+        finally:
+            (cf.running_in_repo_checkout, cf.modul_ist_repo_kontext,
+             cf._REPO_CONTEXT_TESTS) = alt
+
+    def test_die_ABLEITUNG_allein_genuegt_fuer_den_skip(self):
+        """DER MUTANTENTOETER. Ohne diesen Test ist ``or`` von ``and`` nicht zu unterscheiden."""
+        self.assertEqual(len(self._marker(abgeleitet=True, liste=[])), 1,
+                         "ein Modul, das die Ableitung als repo-kontext erkennt, bekommt keinen Skip "
+                         "— der Ableitungspfad ist abgeschaltet, es entscheidet wieder die Liste allein")
+
+    def test_die_LISTE_allein_genuegt_ebenfalls(self):
+        """Die zweite Haelfte derselben Verknuepfung: der dokumentierte Rueckfall muss wirken."""
+        self.assertEqual(
+            len(self._marker(abgeleitet=False, liste=["test_irgendwas::test_x"])), 1,
+            "ein gelisteter Eintrag bekommt keinen Skip — der Rueckfall ist wirkungslos")
+
+    def test_gegenrichtung_ohne_beides_wird_NICHTS_uebersprungen(self):
+        """Ohne diese Richtung waere ein Hook, der ALLES markiert, von einem richtigen nicht zu
+        unterscheiden — und aus dem sdist liefe nichts mehr, was wie 'gruen' aussaehe."""
+        self.assertEqual(self._marker(abgeleitet=False, liste=[]), [],
+                         "ein Modul ohne jeden Grund wurde uebersprungen")
+
+    def test_im_checkout_bleibt_der_hook_ein_no_op(self):
+        """Im echten Checkout darf NICHTS uebersprungen werden, egal was die Quellen sagen —
+        sonst faellt in CI stillschweigend Deckung weg."""
+        self.assertEqual(
+            self._marker(abgeleitet=True, liste=["test_irgendwas::test_x"], im_checkout=True), [],
+            "im Checkout wurde uebersprungen — die Deckung faellt still weg")
 
 
 class BauartefakteZaehlenNicht(unittest.TestCase):
@@ -170,13 +320,56 @@ class BauartefakteZaehlenNicht(unittest.TestCase):
         Skip sagt das. Die Eigenschaft selbst haelt der Cleanroom-Job ueber
         `test_ohne_git_bleibt_das_strengere_alte_verhalten` weiter, nur von der anderen Seite.
         """
-        if not _in_git_checkout():
-            self.skipTest("kein git-Checkout (entpacktes sdist) — die Ignore-Regel ist hier nicht "
-                          "messbar, und nicht messbar ist keine Freigabe")
+        # ZWEITE BEDINGUNG (deep gate Lauf 8, Fund L6-600-04): `_in_git_checkout` fragt, ob HIER
+        # ein Repositorium wurzelt — eine FORM. Ein Paketierer, der im entpackten sdist `git init`
+        # ausfuehrt (dpkg-source, gbp, Nix/Guix, oder wer lokale Patches verfolgt), macht die Form
+        # wahr, waehrend die EIGENSCHAFT falsch bleibt: das sdist liefert weder `tools/` noch
+        # `.gitignore`, und ohne Ignore-Datei kann `_ist_bauartefakt` gar nicht antworten. Gemessen:
+        # in dieser Lage FIEL der Fall, statt zu ueberspringen. `running_in_repo_checkout` fragt
+        # genau die Eigenschaft (Marker .github/tools/SPEC.md) und liegt eine Datei weiter.
+        if not (_in_git_checkout() and cf.running_in_repo_checkout()):
+            self.skipTest("kein Quell-Checkout dieses Projekts (entpacktes sdist, ggf. mit eigenem "
+                          "git init) — die Ignore-Regel ist hier nicht messbar, und nicht messbar "
+                          "ist keine Freigabe")
         self.assertFalse(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/crosscheck.py"),
                          "eine echte Quelldatei gilt als Bauartefakt — die Ableitung wuerde blind")
         self.assertTrue(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/target/release/pb_verify_rs"),
                         "das Rust-Binary gilt nicht als Bauartefakt — der Fall kehrt zurueck")
+
+    @unittest.skipUnless(shutil.which("git"), "ohne git ist die Frage nicht messbar")
+    def test_ein_unterverzeichnis_eines_FREMDEN_repos_ist_nicht_dieser_baum(self):
+        """DIE REGRESSIONSPROBE ZU L6-600-01, die bis 07.09.2026 fehlte.
+
+        Gefunden von der Gegenlesung (Linse 3, Mutant M4): ``_dieser_baum_ist_das_repo`` auf
+        ``--is-inside-work-tree`` zurueckzudrehen — also exakt der Fehler, den der Docstring dieser
+        Funktion als behoben beschreibt — liess die Datei bei 16 passed. Kein Test rief die Funktion
+        je mit einer Wurzel auf, die Unterverzeichnis eines FREMDEN Repositoriums ist; alle nutzten
+        entweder das echte Toplevel oder ein Tempverzeichnis ganz ohne git. Der behobene Fall hatte
+        keinen Waechter, und ein Fix ohne Waechter faellt beim naechsten Umbau still zurueck.
+
+        Nachgestellt wird die reale Lage: ein Konsument entpackt das sdist unter ``vendor/`` SEINES
+        Checkouts, dessen ``.gitignore`` ``target/`` ignoriert. Unter dem alten Verhalten meldete
+        ``check-ignore`` dort fuer jeden Pfad "ignoriert", die Ableitung las alles als ungebautes
+        Bauartefakt und schaltete sich selbst ab.
+        """
+        import subprocess  # noqa: PLC0415
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        fremd = tmp / "fremd"
+        (fremd / "vendor" / "entpacktes_sdist").mkdir(parents=True)
+        (fremd / ".gitignore").write_text("target/\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(fremd)], check=True, capture_output=True)
+
+        self.assertTrue(cf._dieser_baum_ist_das_repo(fremd),
+                        "die Wurzel des fremden Baums wurde nicht als Baum erkannt — dann misst der "
+                        "Test die falsche Sache")
+        self.assertFalse(cf._dieser_baum_ist_das_repo(fremd / "vendor" / "entpacktes_sdist"),
+                         "ein Unterverzeichnis eines FREMDEN Repositoriums gilt als dieser Baum — "
+                         "die Verwechslung aus L6-600-01 ist zurueck")
+        self.assertFalse(cf._ist_bauartefakt(fremd / "vendor" / "entpacktes_sdist",
+                                             "tools/pb_verify_rs/target/release/pb_verify_rs"),
+                         "die Ignore-Regel des FREMDEN Baums wurde befragt — damit liest jeder "
+                         "geprunte Pfad als ungebautes Artefakt und die Ableitung schaltet sich ab")
 
     def test_der_geprunte_blattfall_bleibt_ein_signal(self):
         """Die Gegenrichtung. Ohne sie waere ein Fix, der ALLES entschaerft, ebenfalls gruen —
@@ -273,6 +466,25 @@ class LokaleWurzelUndSchleifenwerte(unittest.TestCase):
                         '        (root / rel).read_text()\n')
         self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
                          "eine ueberschriebene Schleifenvariable wurde weiter gebunden")
+
+    def test_eine_GEMISCHTE_schleife_bleibt_unbestimmbar(self):
+        """Die Schranke "ALLE Elemente konstant" hatte keinen Test (Linse 3, Mutant M7).
+
+        Sie auf "mindestens eines konstant" abzuschwaechen liess die Datei bei 16 passed. Die
+        Schranke ist aber die Grenze zwischen Aufloesen und Raten: bei ``(konstant, variabel)``
+        nimmt die Variable auch Werte an, die hier nirgends stehen, und ein daraus gebauter Pfad
+        waere erfunden. Erfundene fehlende Pfade lassen ein Modul ausserhalb eines Checkouts STILL
+        ausfallen — die schaedliche Richtung. Unbestimmbar heisst deshalb: nicht binden.
+        """
+        p = self._modul("test_gemischt.py",
+                        'from pathlib import Path\n'
+                        'def test_x(fall):\n'
+                        '    root = Path(__file__).resolve().parent.parent\n'
+                        '    for rel in ("docs/FEHLT.md", fall):\n'
+                        '        (root / rel).read_text()\n')
+        self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                         "eine gemischte Schleife wurde aufgeloest — die Ableitung raet jetzt, statt "
+                         "unbestimmbar zu bleiben")
 
     def test_zwei_schleifen_mit_demselben_namen_lecken_nicht(self):
         """Gemeint ist nie 'der Name', immer 'diese Schleife'."""

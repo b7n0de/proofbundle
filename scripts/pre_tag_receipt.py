@@ -67,7 +67,8 @@ def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
 def build_and_sign(repo: Path, version: str, audit_command: str, audit_exit: int,
                    audit_output: str, runner_identity: str, produced_at: str, privkey_b64: str) -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    priv = Ed25519PrivateKey.from_private_bytes(base64.b64decode(privkey_b64))
+    from proofbundle._wire_b64 import decode_b64
+    priv = Ed25519PrivateKey.from_private_bytes(decode_b64(privkey_b64))
     pub_b64 = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
     receipt = build_context(repo, version, audit_command, audit_exit, audit_output, runner_identity, produced_at)
     sig = priv.sign(canonical_bytes(receipt))
@@ -81,11 +82,19 @@ def assemble_receipt(context: dict, sig_b64: str, signer_pubkey_b64: str) -> dic
     ``canonical_bytes(context)`` into a receipt. Self-checks the signature under signer_pubkey — a mismatch
     REFUSES (fail-closed), so a bad sig/context pair never becomes a receipt on disk. The bytes signed here
     are byte-identical to what verify_receipt reconstructs, so the assembled receipt verifies at the gate."""
+    import binascii
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(signer_pubkey_b64))
+    from proofbundle._wire_b64 import decode_b64
+    # LAUF11-L2: eine nicht-kanonische Schreibweise ist ein URTEIL (refusing), kein Absturz —
+    # ein Werkzeug der Freigabekette darf nicht sterben, wo es abweisen kann.
     try:
-        pub.verify(base64.b64decode(sig_b64), canonical_bytes(context))
+        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
+        roh_sig = decode_b64(sig_b64)
+    except (binascii.Error, ValueError) as e:
+        raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}")
+    try:
+        pub.verify(roh_sig, canonical_bytes(context))
     except InvalidSignature:
         raise SystemExit("assemble: signature does not verify over canonical_bytes(context) — refusing (fail-closed)")
     receipt = dict(context)
@@ -98,6 +107,56 @@ def _need(args, names: list[str], mode: str) -> None:
     missing = [n for n in names if getattr(args, n.replace("-", "_")) is None]
     if missing:
         raise SystemExit(f"{mode} mode needs: {', '.join('--' + m for m in missing)}")
+
+
+#: Die ausdrueckliche Freigabe fuer den Inline-Signierweg. Sie wird auf der Maschine des
+#: Schluesselhalters gesetzt und nirgends sonst — insbesondere nicht auf dem Bau- und Pruefhost.
+INLINE_FREIGABE_ENV = "PB_INLINE_SIGNING"
+
+#: Merkmale eines automatisierten Bau-/Pruefhosts. Auf einem solchen darf der Inline-Weg auch dann
+#: nicht laufen, wenn jemand die Freigabe oben gesetzt hat: die Freigabe ist eine Erlaubnis des
+#: Menschen an seiner eigenen Maschine, kein Schalter fuer eine Pipeline.
+_BAUHOST_MERKMALE = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL")
+
+
+def _inline_erlaubt_oder_stop() -> None:
+    """Fail-closed vor dem Inline-Signierweg (Owner-Entscheid 2026-09-06, Karte OA-8b1a31cc4f).
+
+    WARUM ES DIESE SPERRE GIBT. Der Inline-Modus BLEIBT — er ist der Weg, auf dem der Owner an
+    seiner eigenen Maschine unterschreibt, und ihn zu entfernen hiesse, den Signierweg abzuschaffen
+    statt ihn einzugrenzen. Was nicht bleiben darf, ist seine Erreichbarkeit auf dem Bau- und
+    Pruefhost: dort laeuft der messende Agent, und ein Werkzeug, das dort einen privaten Schluessel
+    laden KANN, liefert die Faehigkeit zur Selbstbeglaubigung mit — unabhaengig davon, ob sie je
+    gerufen wird. Genau diese Trennung beschreibt der Docstring oben schon als die zwei Haelften
+    (emit hier, signieren dort, assemble wieder hier); die Sperre macht aus der Beschreibung eine
+    Regel.
+
+    WARUM POSITIV UND NAMENLOS. Die Sperre fragt nicht "bin ich auf einem bestimmten Konto" — ein
+    Kontoname im Quelltext waere sowohl sproede als auch eine Preisgabe in einem oeffentlichen
+    Repository. Sie verlangt stattdessen eine ausdrueckliche Freigabe, die auf der Signiermaschine
+    gesetzt ist und sonst nirgends. Ohne sie gibt es keinen Inline-Lauf, und der Weg, der ueberall
+    funktioniert, ist der keyless: ``--emit-payload`` hier, Signatur beim Schluesselhalter,
+    ``--assemble`` wieder hier.
+    """
+    import os  # noqa: PLC0415
+    # ANWESENHEIT, NICHT WAHRHEITSWERT (08.09.2026, ausgefuehrter Fund einer Gegenlesung an
+    # der Schwesterstelle in tests/test_budget_kostenkurve.py): ein gesetztes `CI=""` ist
+    # falsy und haette diesen Schluesselriegel auf einem echten Bauhost NICHT greifen lassen.
+    # Fuer eine Kostenmessung ist das ein falscher Rotlauf; HIER ist es der Unterschied
+    # zwischen "der private Schluessel bleibt draussen" und "er darf geladen werden".
+    # Die Richtung ist bewusst fail-closed: eine Marke IST das Signal, ihr Wert ist keiner.
+    bauhost = [n for n in _BAUHOST_MERKMALE if n in os.environ]
+    if bauhost:
+        raise SystemExit(
+            f"inline signing is refused on an automated build host ({', '.join(bauhost)} set). "
+            "Use the keyless two-half path: --emit-payload here, sign the payload where the key "
+            "lives, then --assemble here.")
+    if os.environ.get(INLINE_FREIGABE_ENV) != "1":
+        raise SystemExit(
+            f"inline signing is refused unless {INLINE_FREIGABE_ENV}=1 is set — it marks the "
+            "machine that holds the release key, and it is deliberately unset everywhere else "
+            "(owner decision 2026-09-06). Use the keyless two-half path instead: --emit-payload "
+            "here, sign the payload where the key lives, then --assemble here.")
 
 
 def main(argv=None) -> int:
@@ -154,7 +213,8 @@ def main(argv=None) -> int:
         print(f"emitted payload -> {args.emit_payload}  context -> {args.context_out}")
         return 0
 
-    # ── inline mode (default, unchanged) ─────────────────────────────────────────────────────────
+    # ── inline mode (the OWNER's signing path, gated) ────────────────────────────────────────────
+    _inline_erlaubt_oder_stop()
     _need(args, ["privkey-file"], "inline")
     receipt = build_and_sign(
         repo, args.version, args.audit_command, args.audit_exit,

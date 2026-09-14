@@ -31,11 +31,21 @@ rejected at ANY depth.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Union
 
 from .errors import BundleFormatError
 
 __all__ = ["loads_strict", "enforce_structural_budget"]
+
+#: Ein einsames Surrogat (U+D800..U+DFFF ohne Partner). RFC 7493 (I-JSON) §2.1: ein Dokument DARF es
+#: nicht enthalten; RFC 8785 kann es nicht kanonisieren; serde_json weist es beim Parsen ab. Python
+#: `json` nimmt es an — und damit verifizierte ein DSSE-Umschlag mit `keyid = "\\ud800"` in Python
+#: (`verify_envelope -> True`), waehrend der Rust-Zweitverifizierer exit 2 meldete: dieselbe Datei,
+#: zwei Urteile (Gegenlesung un_turbov1 zu Lauf 13, 11.09.2026, Stelle 6; P1 der L1-Klasse). Ein
+#: gueltiges Paar dekodiert `json` zu EINEM Nicht-Surrogat-Codepoint, also ist jedes Surrogat, das
+#: nach dem Parsen noch in einem str steht, einsam.
+_EINSAMES_SURROGAT = re.compile("[\ud800-\udfff]")
 
 
 def _reject_duplicate_keys(pairs: list) -> dict:
@@ -82,25 +92,48 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             if cur.bit_length() > int_bits:
                 raise BudgetExceeded("int_bits", cur.bit_length(), int_bits)
             continue
-        if isinstance(cur, str):
+        if isinstance(cur, (str, bytes, bytearray, memoryview)):
             # RT-BDOS-01 / RT09-STRINGLEN-INERT: cap a single oversized string VALUE. On the direct-dict
             # path input_bytes is inert (no bytes to measure), so without this a ~13 MB payload_b64 string
             # is processed uncapped (memory-amplification DoS) while the identical content on the str/file
             # path is rejected by input_bytes. This restores rejection parity between both paths.
+            #
+            # BYTES ZAEHLEN WIE STRINGS (deep gate Lauf 7, Fund L2-600-BYTES-01, P2) — der ungefegte
+            # Zwilling des Tupel-Fixes aus Lauf 3. `bytes` ist auf genau diesen Flaechen eine
+            # UNTERSTUETZTE Form (`_wire_b64.decode_b64` ist als `str | bytes` typisiert), traegt eine
+            # Laenge wie ein String, fiel aber auf keinen Zweig und wurde weder begrenzt noch betreten.
+            # Gemessen: 16/64/256/512 MB als bytes liefen 0,099/0,312/1,248/2,509 s bei RSS
+            # +5/107/427/671 MB durch, waehrend derselbe Inhalt als str in 0,007/0,033/0,133/0,254 s
+            # abgewiesen wurde. Die Achse ist dieselbe, also ist es dieselbe Schranke.
             if len(cur) > string_len:
                 raise BudgetExceeded("string_len", len(cur), string_len)
+            if isinstance(cur, str) and _EINSAMES_SURROGAT.search(cur) is not None:
+                raise BundleFormatError(
+                    "JSON string contains a lone surrogate code point (not I-JSON, RFC 7493 section 2.1; "
+                    "not canonicalizable under RFC 8785) — rejected fail-closed so both verifiers agree")
         elif isinstance(cur, dict):
             count += len(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
             for key, value in cur.items():
-                if isinstance(key, str) and len(key) > string_len:
-                    raise BudgetExceeded("string_len", len(key), string_len)
-                # a dict KEY is a JSON string on the file path; on the direct-dict path it can be anything —
-                # bound an integer key like a value, so a huge int key cannot reach a message either
-                if (int_bits is not None and isinstance(key, int) and not isinstance(key, bool)
-                        and key.bit_length() > int_bits):
-                    raise BudgetExceeded("int_bits", key.bit_length(), int_bits)
+                # DER SCHLUESSEL LAEUFT DURCH DIESELBE SCHRANKE WIE DER WERT (deep gate Lauf 8,
+                # Fund L2-600-KEYS-01). Die zwei Zeilen, die hier vorher standen, zaehlten GENAU
+                # ZWEI Typen auf — `str` und `int` — und waren damit derselbe Fehler eine Ebene
+                # tiefer als der, den der Schluss-Arm unten gerade geschlossen hat: eine
+                # Aufzaehlung statt einer Eigenschaft. Gemessen am Kopf 434e3a3: ein bytes-,
+                # bytearray-, tupel- oder frozenset-SCHLUESSEL bekam WEDER eine Schranke NOCH eine
+                # Abweisung, waehrend derselbe Inhalt als WERT abgewiesen wurde (3 von 7 Faellen
+                # abgewiesen, angesagt 3 von 7).
+                #
+                # Der Schluessel wird deshalb auf denselben Stapel gelegt statt eigen behandelt.
+                # Damit gilt fuer ihn Zeichen fuer Zeichen dieselbe geschlossene Fallunterscheidung
+                # wie fuer jeden Wert, und der naechste eingefuehrte Typ ist automatisch mit
+                # abgedeckt. MONOTON: ein `str`-Schluessel faellt weiter unter `string_len`, ein
+                # `int`-Schluessel weiter unter `int_bits`, ein gewoehnlicher JSON-Schluessel
+                # kommt weiter durch. Die Zaehlung bleibt unveraendert, weil `count` bereits oben
+                # um `len(cur)` erhoeht wurde und ein Container-Schluessel jetzt seine eigenen
+                # Elemente beitraegt — genau wie ein Container-Wert.
+                stack.append((key, depth + 1))
                 stack.append((value, depth + 1))
         elif isinstance(cur, (list, tuple)):
             # TUPEL ZAEHLEN WIE LISTEN (Deep-Gate 6.0.0, Lauf 3, Nachbar-Fund beim Schliessen der
@@ -115,6 +148,32 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
                 raise BudgetExceeded("json_nodes", count, json_nodes)
             for value in cur:
                 stack.append((value, depth + 1))
+        elif isinstance(cur, (set, frozenset)):
+            # Dieselbe Achse wie Liste und Tupel: eine Elementzahl. Ein JSON-Parser erzeugt keine Menge,
+            # ein Aufrufer auf dem Direkt-Dict-Weg kann eine uebergeben.
+            count += len(cur)
+            if count > json_nodes:
+                raise BudgetExceeded("json_nodes", count, json_nodes)
+            for value in cur:
+                stack.append((value, depth + 1))
+        elif cur is None or isinstance(cur, (bool, int, float)):
+            # JSON-Skalare. Keine Laenge, keine Elementzahl, nichts zu begrenzen. `int` steht hier auch
+            # fuer den Fall int_bits=None, in dem der Zweig ganz oben nicht greift.
+            continue
+        else:
+            # DER SCHLUSS-ARM, damit die Klasse nicht mit dem naechsten Typ wieder aufgeht.
+            #
+            # Bis hierher war der Walk eine AUFZAEHLUNG: str, dict, list, tuple — und alles andere fiel
+            # lautlos hindurch. Genau daran ist der Tupel-Fix aus Lauf 3 gescheitert: er nahm das Tupel
+            # dazu und liess `bytes`, `bytearray`, `memoryview` und `set` offen. Eine Aufzaehlung ist
+            # immer nur so vollstaendig wie der Tag, an dem sie geschrieben wurde.
+            #
+            # Ab hier ist der Lauf GESCHLOSSEN statt aufgezaehlt: ein Wert, der auf keinen Zweig passt,
+            # wird abgewiesen, nicht uebersprungen. Das faengt auch den Typ, den morgen jemand einfuehrt,
+            # und es ist die einzige Form, in der diese Zusicherung ueber die Zeit traegt.
+            raise BundleFormatError(
+                f"value of type {type(cur).__name__!r} is not a JSON value — the structural budget "
+                "cannot bound it, so it is rejected fail-closed (never silently skipped)")
 
 
 def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
@@ -159,9 +218,28 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
     to test the guard."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
-    if len(text) > b.input_bytes:
-        from .budget import BudgetExceeded  # noqa: PLC0415
-        raise BudgetExceeded("input_bytes", len(text), b.input_bytes)
+    # DIE GRENZE HEISST input_bytes UND MASS ZEICHEN (deep gate Lauf 8, Fund L3-600-BYTESUNIT-01).
+    # `len(text)` auf einem `str` zaehlt Codepoints, nicht Bytes. Gemessen am Kopf 434e3a3: ein
+    # Dokument aus 8.100.007 Zeichen wird angenommen — als ASCII sind das 8.100.007 Bytes (0,97x
+    # der Grenze), mit vierbyteigen Zeichen 31.050.007 Bytes, also das 3,70-fache. Die Schranke
+    # gegen den Vor-Parse-DoS war damit je nach Zeichenvorrat bis zu viermal zu weit.
+    #
+    # Gemessen wird jetzt die EIGENSCHAFT (Bytes), aber ohne jedes Dokument zu kodieren:
+    #   * Zeichen > Grenze  -> sicher abweisen, denn Bytes >= Zeichen.
+    #   * Zeichen * 4 <= Grenze -> sicher annehmen, denn UTF-8 braucht hoechstens 4 Byte je Zeichen.
+    #   * nur das schmale Band dazwischen wird wirklich kodiert.
+    # Ein `bytes`-Eingang wird direkt gemessen; dort ist len() bereits die Bytezahl.
+    from .budget import BudgetExceeded  # noqa: PLC0415
+    if isinstance(text, (bytes, bytearray, memoryview)):
+        _n_bytes = len(text)
+    elif len(text) > b.input_bytes:
+        _n_bytes = len(text)              # untere Schranke reicht zum Abweisen
+    elif len(text) * 4 <= b.input_bytes:
+        _n_bytes = 0                      # obere Schranke reicht zum Annehmen
+    else:
+        _n_bytes = len(text.encode("utf-8", "surrogatepass"))
+    if _n_bytes > b.input_bytes:
+        raise BudgetExceeded("input_bytes", _n_bytes, b.input_bytes)
     try:
         obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     except RecursionError as exc:

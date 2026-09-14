@@ -32,6 +32,7 @@ from proofbundle import checkpoint, tlogproof
 from proofbundle.budget import DEFAULT_BUDGET, VerificationBudget
 from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.errors import BundleFormatError
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 NAME = "log.example/x"
 WNAME = "w.example/w"
@@ -134,7 +135,7 @@ class DieKappeGreiftVorDerErstenVerifikation(unittest.TestCase):
         self.assertEqual(z.n, 0)
 
     def test_ein_roster_ueber_dem_witnesses_budget_faellt_vor_dem_scan(self):
-        roster = [self.f.wvkey] * (DEFAULT_BUDGET.witnesses + 1)
+        roster = [self.f.wvkey] * (gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=2048) + 1)
         with _Zaehler() as z:
             with self.assertRaises(BundleFormatError):
                 checkpoint.verify_witnessed_checkpoint(self.f.note, self.f.vkey, roster, threshold=1)
@@ -151,7 +152,7 @@ class DerBeweisParserDekodiertNichtVorDerKappe(unittest.TestCase):
         return f"{tlogproof.MAGIC}\nindex 0\n" + (self.line + "\n") * n + "\n" + self.f.note
 
     def test_zu_viele_beweiszeilen_typisiert_vor_dem_dekodieren(self):
-        n = DEFAULT_BUDGET.merkle_path + 44
+        n = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64) + 44
         with mock.patch.object(tlogproof, "_b64d", wraps=tlogproof._b64d) as dec:
             with self.assertRaises(BundleFormatError) as cm:
                 tlogproof.parse_tlog_proof(self._proof(n))
@@ -159,7 +160,7 @@ class DerBeweisParserDekodiertNichtVorDerKappe(unittest.TestCase):
         self.assertIn("refused before decoding", str(cm.exception))
 
     def test_verify_tlog_proof_liefert_verdikt_ohne_dekodieren(self):
-        n = DEFAULT_BUDGET.merkle_path + 44
+        n = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64) + 44
         with mock.patch.object(tlogproof, "_b64d", wraps=tlogproof._b64d) as dec:
             r = tlogproof.verify_tlog_proof(self._proof(n), self.f.payload, self.f.vkey)
         self.assertIs(r["ok"], False)
@@ -180,7 +181,7 @@ class DieVerdikteAendernSichNicht(unittest.TestCase):
         self.f = _Fixture()
 
     def test_genau_an_der_kappe_wird_die_echte_zeile_noch_gefunden(self):
-        n = DEFAULT_BUDGET.signatures - 1
+        n = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256) - 1
         note = self.f.note_text + "\n" + "".join(self.f.log_line() for _ in range(n)) + self.f.real_line
         with _Zaehler() as z:
             r = checkpoint.verify_checkpoint(note, self.f.vkey)
@@ -221,7 +222,7 @@ class DasOrakelHaengtAnDerKappe(unittest.TestCase):
 
     def test_ohne_kappe_wird_wieder_dekodiert(self):
         f = _Fixture()
-        n = DEFAULT_BUDGET.merkle_path + 44
+        n = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64) + 44
         line = base64.b64encode(b"\1" * 32).decode()
         text = f"{tlogproof.MAGIC}\nindex 0\n" + (line + "\n") * n + "\n" + f.note
         ohne_kappe = VerificationBudget(merkle_path=10 ** 9)

@@ -25,8 +25,9 @@ import proofbundle.bundle as bundle_modul
 from proofbundle import bundle as B
 from proofbundle import persample as P
 from proofbundle.budget import DEFAULT_BUDGET
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
-_UEBER_DER_KAPPE = DEFAULT_BUDGET.merkle_path + 44   # deutlich darüber, aber schnell zu bauen
+_UEBER_DER_KAPPE = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64) + 44   # deutlich darüber, aber schnell zu bauen
 _ROOT_B64 = base64.b64encode(b"r" * 32).decode()
 
 

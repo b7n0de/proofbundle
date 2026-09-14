@@ -112,10 +112,14 @@ class DreiLayoutsEineAntwort(unittest.TestCase):
         The property has no object outside a checkout, so it announces that instead of failing. The
         sibling in `test_sdist_selftest_derivation.py` already carries the same guard; mine did not.
         """
-        if not cf._dieser_baum_ist_das_repo(REPO):
-            self.skipTest("kein git-Checkout (entpacktes sdist) — 'erkennt sich das Repositorium "
-                          "selbst' hat hier keinen Gegenstand; nicht messbar ist keine Freigabe, "
-                          "aber auch kein Fehlschlag")
+        # ZWEITE BEDINGUNG, gleiche Klasse wie beim Geschwister (deep gate Lauf 8, L6-600-04):
+        # `_dieser_baum_ist_das_repo` ist wahr, sobald hier ein git-Baum wurzelt — auch in einem
+        # entpackten sdist, in dem jemand `git init` gerufen hat. Die Zusicherungen darunter
+        # brauchen aber `tools/` und die Ignore-Datei, und beide liefert das sdist nicht.
+        if not (cf._dieser_baum_ist_das_repo(REPO) and cf.running_in_repo_checkout()):
+            self.skipTest("kein Quell-Checkout dieses Projekts (entpacktes sdist, ggf. mit eigenem "
+                          "git init) — 'erkennt sich das Repositorium selbst' hat hier keinen "
+                          "Gegenstand; nicht messbar ist keine Freigabe, aber auch kein Fehlschlag")
         self.assertTrue(cf._dieser_baum_ist_das_repo(REPO),
                         "the repository no longer recognises itself — the derivation goes blind")
         self.assertTrue(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/target/release/pb_verify_rs"),

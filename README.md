@@ -45,6 +45,15 @@ decides (`POLICY_NOT_EVALUABLE`), never read as a permissive one. Non-fatal note
 a valid receipt. The six published v0.1 receipts verify as before; the full list is in the
 [CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md).
 
+> **Release status**
+>
+> The closing audit verdict for 6.0.0 was `FIX_FIRST`, not `WITHSTANDS_DEEPGATE`. Three findings
+> were confirmed and stay open; they are published in [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md),
+> together with the scope each statement of that round holds over: the mutation gate ran over a
+> measured subset of the suite, the parity gate over all 68 source files. Both figures are stated
+> in RESTRISIKO_600.md with the definition of what they count — this page deliberately carries no
+> test count, because one here goes stale with the next added test (`tests/test_docs_truth.py`).
+
 ## New in 5.1.0
 
 [proofbundle 5.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0) adds a new receipt kind for disclosing AI agent involvement and review in pull requests and issues.
@@ -59,7 +68,7 @@ One behaviour change deserves attention before upgrading. `automation_summary` n
 
 > **Release status**
 >
-> The closing audit verdict for 5.1.0 was `PARTIAL_GATE_NO_WITHSTANDS`, not `WITHSTANDS_DEEPGATE`. The declared residual risks are published in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md).
+> For 6.0.0 the residual-risk record was frozen BEFORE the closing audit round, by owner decision: [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md) lists what was known to be open when the tree was frozen, with class and funnel ruling, and its sha256 is bound inside the pre-tag receipt. The verdict of the closing round itself is recorded next to that receipt in [audit_artifacts/600/](https://github.com/b7n0de/proofbundle/tree/main/audit_artifacts/600) once the round has run; a round that had to be written down would have meant a new freeze, not an edit. The 5.1.0 verdict was `PARTIAL_GATE_NO_WITHSTANDS` with its risks in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md) and [RESTRISIKO_510_NACHTRAG_20260903.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510_NACHTRAG_20260903.md).
 
 ## Quick start
 
@@ -165,6 +174,7 @@ proofbundle is a **beta project**. Shipped does not mean that every profile has 
 | Decision receipts | A gate's verdict over named evidence, bound to the receipts it judged, never a claim that the verdict was correct | Shipped |
 | Outcome, relation, run ledger, trust pack, and verification summary predicates | Typed evidence graphs and relying party policy inputs | Experimental |
 | TEE attestation bridge | RATS and EAT based enclave evidence | Preview, experimental |
+| Independent Rust cross-verifier (`tools/pb_verify_rs`) | A second implementation that cross-checks the conformance corpus differentially; not part of the wheel or the sdist | Experimental in 6.0.0 and advisory only: agreement on recorded vectors, no conformance promise; own milestone 6.1 |
 
 The full predicate inventory and maturity labels live in [docs/predicates/README.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/README.md).
 
@@ -175,6 +185,7 @@ The full predicate inventory and maturity labels live in [docs/predicates/README
 - The test suite sits behind a mutation gate and property based parser fuzzing.
 - The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 - Releases are built once, carry SLSA build provenance, and are published through PyPI Trusted Publishing, where PyPI records PEP 740 attestations for the same bytes.
+- A second, independent verifier written in Rust cross-checks the conformance corpus. It is advisory: differential agreement on the recorded vectors, not a correctness proof of either implementation, and it does not ship in the package.
 - The conformance corpus includes positive controls and counter proofs. Read what it does and does not establish in [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md).
 - The 30 minute adversarial adoption path is in [docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md).
 - Security reports follow [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
@@ -192,6 +203,7 @@ proofbundle is a small offline receipt layer that complements, rather than repla
 
 - [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) compares the boundaries tool by tool.
 - [docs/RECEIPT_ENVELOPE_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RECEIPT_ENVELOPE_PROFILE.md) defines the portable envelope profile.
+- A second implementation, [CSOAI-ORG/inspect-receipts](https://github.com/CSOAI-ORG/inspect-receipts), was measured against R1 to R4 of that profile in [issue #147](https://github.com/b7n0de/proofbundle/issues/147) on 2026-09-05 at commit `cc8d6219`; the result is recorded in the profile.
 - [docs/IN_TOTO_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/IN_TOTO_PROFILE.md) describes the in-toto mapping.
 - [docs/SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md) records the SCITT mapping.
 - [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md) holds the research neighbourhood.
@@ -220,7 +232,7 @@ Roadmap, stated as not yet built. A post quantum payload signature, and a CLI fl
 
 Machine readable citation metadata is in [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff).
 
-The archival software record uses concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note uses concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466).
+The archival software record uses concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note uses concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466); its latest published revision is 6.0.0, version DOI [10.5281/zenodo.22730162](https://doi.org/10.5281/zenodo.22730162), deposited 2026-09-12. The preceding revision 5.0.0 has version DOI [10.5281/zenodo.22209091](https://doi.org/10.5281/zenodo.22209091).
 
 ## Contributing
 

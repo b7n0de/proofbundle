@@ -41,7 +41,7 @@ from typing import Optional, Sequence
 
 from . import merkle
 from .budget import DEFAULT_BUDGET
-from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
+from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64
@@ -73,8 +73,12 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     if not signed_checkpoint.endswith("\n"):
         raise BundleFormatError("signed checkpoint must end with a newline")
-    if "\n\n" not in signed_checkpoint:
-        raise BundleFormatError("signed checkpoint is missing its note/signature separator")
+    # Der Emitter darf nichts bauen, was sein eigener Verifizierer malformed nennt (dieselbe Regel,
+    # die checkpoint_note fuer die leere Wurzel traegt): kanonische Rahmung, nicht nur "irgendwo eine
+    # Leerzeile" (L1-600-NOTE-FRAMING-01).
+    # apply_budget_cap=False: die Zeilenkappe ist ein Verifikations-Budget gegen FREMDE Dateien, keine
+    # Formatregel — ein Betreiber mit mehr Zeugen als dem Budget muss seine eigene Note verpacken koennen.
+    _split_signed_note(signed_checkpoint, "signed checkpoint", apply_budget_cap=False)
     if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
         raise BundleFormatError("tlog-proof extra must be bytes or None")
     # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
@@ -143,8 +147,13 @@ def parse_tlog_proof(text: str) -> dict:
         if len(h) != 32:
             raise BundleFormatError("inclusion proof hashes must decode to 32 bytes")
         proof.append(h)
-    if not checkpoint.endswith("\n") or "\n\n" not in checkpoint:
-        raise BundleFormatError("embedded checkpoint is malformed")
+    # DIESELBE Frage, DERSELBE Helfer (L1-600-NOTE-FRAMING-01, Inventar-Auflage A2). Vorher stand hier
+    # eine SCHWAECHERE Rahmungspruefung ("endet auf \n und enthaelt irgendwo eine Leerzeile") als in
+    # verify_checkpoint eine Zeile weiter — zwei Antworten auf dieselbe Frage sind die naechste Drift,
+    # und der oeffentliche Parser haette eine nicht-kanonische Note an seinen Aufrufer weitergereicht.
+    # Die AEUSSERE Trennung oben bleibt die ERSTE Leerzeile: das ist die Regel des tlog-proof-Formats
+    # selbst (Modul-Docstring), nicht die der Note.
+    _split_signed_note(checkpoint, "embedded checkpoint")
     return {"extra": extra, "index": int(index_s), "proof": proof, "checkpoint": checkpoint}
 
 
@@ -161,7 +170,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     mk = bundle.get("merkle")
     if not isinstance(mk, dict):
         raise BundleFormatError("bundle has no merkle object")
-    note_text = signed_checkpoint.split("\n\n", 1)[0].split("\n")
+    # Dieselbe kanonische Rahmung wie der Verifizierer (L1-600-NOTE-FRAMING-01); frueher las diese
+    # Zeile das ERSTE Tripel einer Note, deren signierter Text ein anderer sein konnte.
+    note_text = _split_signed_note(signed_checkpoint, "signed checkpoint",
+                                   apply_budget_cap=False)[0].split("\n")
     if len(note_text) < 3:
         raise BundleFormatError("signed checkpoint note must have at least 3 lines")
     if note_text[1] != str(mk.get("tree_size")):
