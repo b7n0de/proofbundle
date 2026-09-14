@@ -30,6 +30,45 @@ GEBUNDEN_SHA = "9cc2181744900fbb535666873356968cb486c08c0982512da1e8651229941830
 GEBUNDEN_BYTES = 3669
 
 
+#: Die EINE begruendete Abweichung, Owner-Entscheid im Nachtrag 3 zu 2155Z. Jede andere ist rot.
+#: Der Schluessel ist der Dateiname, weil am Ziel ohnehin nur er zaehlt.
+BEGRUENDETE_ABWEICHUNG = {"G1.md"}
+
+
+def _paare() -> list:
+    """Alle Namen, die unter BEIDEN Praefixen liegen. Die Menge ist gemessen, nicht gepflegt."""
+    if not AUSSEN.parent.is_dir() or not ZITAT.parent.is_dir():
+        return []
+    return [(k, ZITAT.parent / k.name) for k in sorted(AUSSEN.parent.glob("*.md"))
+            if (ZITAT.parent / k.name).is_file()]
+
+
+def test_jede_NICHT_begruendete_abweichung_ist_rot():
+    """[ZAEHLT] K2: die Probe kennt EINE Abweichung und meldet jede andere.
+
+    Die fruehere Fassung prueffte nur G1 namentlich. Ein zweites Paar mit einer stillen
+    Abweichung waere ihr entgangen — eine Probe, die nur ihren Anlassfall kennt, waechst nicht
+    mit dem Bestand.
+    """
+    abweichend = [k.name for k, z in _paare() if k.read_bytes() != z.read_bytes()]
+    unerlaubt = sorted(set(abweichend) - BEGRUENDETE_ABWEICHUNG)
+    assert not unerlaubt, (
+        f"diese Paare weichen ab, ohne dass die Abweichung begruendet waere: {unerlaubt}. "
+        f"Begruendet ist ausschliesslich {sorted(BEGRUENDETE_ABWEICHUNG)} — dort ist die "
+        f"aeussere Fassung seit 12.09.2026 per Mail gebunden. Fuer jedes andere Paar gilt: die "
+        f"Kopie gibt nach, nie das Zitat.")
+
+
+def test_die_begruendete_abweichung_besteht_noch():
+    """[ZAEHLT] Gegenrichtung. Waere sie weg, haette jemand eine Seite angeglichen."""
+    namen = {k.name for k, z in _paare() if k.read_bytes() != z.read_bytes()}
+    fehlend = sorted(BEGRUENDETE_ABWEICHUNG - namen)
+    assert not fehlend, (
+        f"die begruendete Abweichung ist verschwunden: {fehlend}. Entweder wurde die aeussere "
+        f"Fassung an das Zitat angeglichen — dann ist eine Aussenbindung gebrochen — oder das "
+        f"Zitat an die Kopie, dann ist ein Beleg verfaelscht.")
+
+
 def test_die_aeussere_fassung_traegt_ihren_versendeten_digest():
     """[ZAEHLT] Der Digest ist beim Empfaenger — er darf sich hier nicht bewegen."""
     roh = AUSSEN.read_bytes()
