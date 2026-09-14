@@ -93,6 +93,20 @@ def _gesamtausgang(rufe: list[tuple[str, object]]) -> tuple[str, str]:
     schwerste Urteil gewinnt, ABGEBROCHEN vor GERISSEN vor UEBERSPRUNGEN vor BESTANDEN, und die
     Meldung nennt JEDE Zusicherung, die nicht bestanden hat, mit ihrem Namen.
     """
+    # ZWEI WEITERE EINWAENDE DERSELBEN GEGENLESUNG, beide gemessen:
+    #
+    # NEBENWIRKUNGEN durch den Sammelaufruf (gemeinsamer Zustand, Reihenfolge, doppelte Messung).
+    # WIDERLEGT ueber den Syntaxbaum: KEINE der sechs Zusicherungen schreibt fremden Zustand,
+    # weder per Attributzuweisung noch per global. Sie koennen einander in keiner Reihenfolge
+    # beeinflussen. Die Linse hatte das ausdruecklich als Vermutung formuliert ("wahrscheinlich",
+    # "wenn", "angenommen"), weil sie nur den Diff sah und nicht die aufgerufenen Zusicherungen.
+    #
+    # LAUFZEIT: der Einwand ist arithmetisch richtig, je Achse laufen jetzt SECHS statt einer
+    # Zusicherung und je Kombi DREI statt einer. Fuer CI ist er trotzdem gegenstandslos, und aus
+    # einem Grund, den weder die Linse noch ich auf dem Schirm hatte: budget_axis_measurement wird
+    # in KEINEM Workflow unter .github/ aufgerufen. Es gibt hier keinen Zeitdeckel zu reissen.
+    # Wer das Modul spaeter in CI haengt, hat die Vervielfachung ab dann zu messen.
+    #
     # GEGENGELESEN VON EINER FREMDEN FAMILIE (14.09.2026, qwen3.8:27b). Ihr Einwand: eine
     # Nebenpruefung koenne mit ABGEBROCHEN fallen waehrend die Kostenmessung bestand, und das
     # Sammelurteil behaupte dann faelschlich, die MESSUNG sei ausgefallen.
