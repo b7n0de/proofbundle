@@ -136,8 +136,8 @@ the argument for it, and used it in one place out of several.
 | | |
 |---|---|
 | **Our side** | measured across all nine schemas under `schemas/`: no `population_size`, no `evaluated_count`, no `unresolved_count`. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined — same spirit, different level, and it does not answer the question about the examined set. |
-| **CPB draft** | coverage does not appear anywhere in it. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. Absence, not an explicit exclusion. |
-| **Verdict** | **Absent on both sides — and it stays absent on ours for now.** |
+| **CPB draft** | **evaluation** coverage does not appear in it. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. Absence, not an explicit exclusion. **Narrowed on 2026-09-13 against `-05`, because the unqualified form stopped being true:** the word `coverage` does occur twice there, as *"signature coverage"* (8.3) and *"neither kind of coverage"* about hash binding (6.2), and `Unresolved` occurs twelve times as a processing state of a typed reference (8.1). None of those is an examined-set quantity. The claims table below carries the count. |
+| **Verdict** | **Evaluation coverage is absent on both sides — and it stays absent on ours for now.** The qualifier is load-bearing and was added on 2026-09-13: an unqualified "absent" is refutable by a single word search against `-05`, and a reader who runs that search before reading this row would be right to stop trusting the page. |
 
 **This entry was rewritten on 2026-08-30, and the reason matters more than the conclusion.** An
 earlier version of it recorded that we had closed the gap additively with three fields
