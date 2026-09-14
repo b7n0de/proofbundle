@@ -65,15 +65,37 @@ def _falschmodul(urteil_je_achse: dict, marke: str = "", kombi_urteil: str = "BE
                 raise Skipped("UEBERSPRUNGEN (referenzmaschinengebunden, Owner-Karte OA-dc37e26295)")
         return ruf
 
+    # DIE ATTRAPPE MUSS MITWACHSEN. Sie trug je Klasse EINE Methode, und das war genau der
+    # Zuschnitt des Defekts, den messe() hatte: ein Urteil aus einer von sechs Zusicherungen.
+    # Nachdem messe() alle faehrt, prueft eine Attrappe mit einer Methode eine Welt, die es nicht
+    # mehr gibt, und faellt mit AttributeError statt mit einer Aussage. Alle Zusicherungen tragen
+    # DASSELBE Urteil, damit diese Tests weiterhin genau eine Sache messen, naemlich was der
+    # Schreiber aus einem gegebenen Ausgang macht.
+    def _alle(urteil_fuer):
+        def m_(self, *a, **k):
+            _mach(urteil_fuer(*a, **k))()
+        return m_
+
+    _je_achse = lambda dim, *a, **k: urteil_je_achse[dim.name]
+    _je_kombi = lambda *a, **k: kombi_urteil
+
     class _Einzel:
-        def test_kosten_am_limit_unter_der_obergrenze(self, dim):
-            _mach(urteil_je_achse[dim.name])()
+        test_die_last_erreicht_das_limit_wirklich = _alle(_je_achse)
+        test_l_minus_eins_l_und_l_plus_eins = _alle(_je_achse)
+        test_kosten_am_limit_unter_der_obergrenze = _alle(_je_achse)
+        test_speicher_am_limit_unter_der_grenze = _alle(_je_achse)
+        test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt = _alle(_je_achse)
+
+    class _Kurve:
+        test_die_kurve_ist_nicht_ueberlinear = _alle(_je_achse)
 
     class _Kombi:
-        def test_kombi_bleibt_unter_der_summe_der_obergrenzen(self, name, achsen, bau):
-            _mach(kombi_urteil)()
+        test_kombi_erreicht_jede_benannte_dimension = _alle(_je_kombi)
+        test_kombi_bleibt_unter_der_summe_der_obergrenzen = _alle(_je_kombi)
+        test_kombi_speicher_bleibt_unter_der_grenze = _alle(_je_kombi)
 
     m.TestObergrenzeAmGroesstenZugelassenenWert = _Einzel
+    m.TestKostenkurve = _Kurve
     m.TestKombinierteAchsen = _Kombi
     return m
 
