@@ -217,7 +217,29 @@ def _r8_supports_bounds_citation(doc: dict, f) -> None:
     """R8: ein von einer Abwesenheitsaussage zitiertes Stratum nennt, welche Klassen von Aussagen es
     stuetzt."""
     aa = doc.get("absence_assertions")
-    zitiert = {a.get("stratum") for a in aa if isinstance(a, dict)} if isinstance(aa, list) else set()
+    # DIE VIERTE STELLE DERSELBEN KLASSE, und sie sitzt eine Ebene frueher als die drei, die
+    # 7bdfb31 geschlossen hat. Dort wurde beim TEST gehasht (`x in KONSTANTE`), hier schon beim
+    # AUFBAU der Menge: eine Set-Comprehension hasht jedes Element, und `a.get("stratum")` kommt
+    # ungeprueft aus dem Dokument. Ein Angreifer, der `{"stratum": []}` schickt, loeste hier ein
+    # rohes TypeError aus, das `check_cap1_document` in "Regel konnte nicht ausgewertet werden"
+    # verwandelte — genau die Verdikt-Degradation, gegen die die drei anderen Fixes stehen.
+    #
+    # `is_member` hilft an dieser Stelle NICHT: es schuetzt den linken Operanden eines
+    # Mitgliedschaftstests, nicht den Aufbau des Behaelters. Deshalb wird hier gefiltert statt
+    # umgeleitet.
+    #
+    # WARUM `isinstance(..., str)` UND NICHT `Hashable`: `_sid` gibt immer eine Zeichenkette
+    # zurueck, ein Nicht-String kann also niemals gleich einer Stratum-Kennung sein. Gefiltert
+    # wird damit genau die Menge, die ohnehin nie treffen koennte — das Verhalten fuer jedes
+    # WOHLGEFORMTE Dokument bleibt unveraendert, und ein `("a", [])`-Tupel, das `Hashable` faelsch-
+    # lich durchliesse, kommt hier gar nicht erst in Frage.
+    #
+    # EHRLICHE GRENZE: eine Abwesenheitsaussage mit nicht-textlichem `stratum` zitiert nach diesem
+    # Fix KEIN Stratum mehr, statt die Regel abstuerzen zu lassen. Dass ihre Form falsch ist, ist
+    # Sache von R0; R8 urteilt ueber `supports`, nicht ueber die Form der Zitierung.
+    zitiert = ({a.get("stratum") for a in aa
+                if isinstance(a, dict) and isinstance(a.get("stratum"), str)}
+               if isinstance(aa, list) else set())
     for s in _strata(doc):
         if _sid(s) in zitiert:
             sup = s.get("supports")

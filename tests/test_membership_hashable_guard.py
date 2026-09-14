@@ -88,6 +88,83 @@ def unguarded_membership_sites(quelle: str, name: str = "<quelle>") -> list[tupl
     return treffer
 
 
+def _liest_aus_geparsten_daten(knoten: ast.AST) -> bool:
+    """Heuristik, und sie wird hier als solche benannt: kommt dieser Ausdruck aus geparsten Daten?
+
+    Gemessen wird ausschliesslich der ``.get(...)``-Aufruf, also genau das Idiom, mit dem dieses
+    Repository geparstes JSON liest.
+
+    WARUM NICHT AUCH DER INDEX ``x["k"]``, gemessen beim Bauen am 14.09.2026: die erste Fassung
+    zaehlte ihn mit und meldete sofort ``relation_statement.py:340``,
+    ``sorted({v["code"] for v in _viol})``. Das ist ein FEHLALARM — ``_viol`` wird sieben Zeilen
+    darueber im Haus selbst gebaut, mit den Literalen ``"code"`` und ``"message"``. Der Index sagt
+    nichts ueber die HERKUNFT des Werts, und ein Riegel, der bei hauseigenen Daten schreit, wird
+    abgeschaltet; genau davor warnt der Kommentar zu ``_ERSATZ_STAEMME`` in diesem Haus seit Wochen.
+
+    EHRLICHE UNTERGRENZE, als Vertrag festgehalten statt als Fussnote: ein Index auf wirklich
+    fremde Daten (``doc["x"]``) entgeht diesem Detektor, und wer den Wert vorher in eine Variable
+    legt, ebenfalls. Wer das schaerfen will, braucht eine Herkunftsverfolgung (ist die Basis ein
+    Parameter oder aus einem Parameter abgeleitet?) — das ist eine eigene Arbeit und keine
+    Nebenbei-Verschaerfung.
+    """
+    for k in ast.walk(knoten):
+        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
+                and k.func.attr == "get"):
+            return True
+    return False
+
+
+def _durch_isinstance_gedeckt(ausdruck: ast.AST, generatoren: list) -> bool:
+    """Steht in den ``if``-Klauseln der Comprehension ein ``isinstance`` GENAU auf diesen Ausdruck?"""
+    ziel = ast.unparse(ausdruck)
+    for g in generatoren:
+        for bed in g.ifs:
+            for k in ast.walk(bed):
+                if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name)
+                        and k.func.id == "isinstance" and k.args
+                        and ast.unparse(k.args[0]) == ziel):
+                    return True
+    return False
+
+
+def unguarded_hashing_constructions(quelle: str, name: str = "<quelle>") -> list[tuple[int, str]]:
+    """(Zeile, gehashter Ausdruck) je Stelle, die beim AUFBAU eines Hash-Behaelters ungepruefte
+    Daten hasht.
+
+    WARUM ES DIESEN ZWEITEN DETEKTOR GIBT, gemessen am 14.09.2026. ``unguarded_membership_sites``
+    besucht ausschliesslich ``ast.Compare`` mit ``in``/``not in`` und verlangt ausserdem, dass der
+    Behaelter ein MODULWEITER Name ist. Beide Bedingungen verfehlten dieselbe echte Stelle:
+
+        zitiert = {a.get("stratum") for a in aa if isinstance(a, dict)}   # cap1.py:220
+
+    Der Behaelter entsteht LOKAL, und gehasht wird nicht im Test, sondern schon in der
+    Comprehension — ein unhashbarer ``stratum``-Wert loeste dort ein rohes ``TypeError`` aus. Gegen
+    den vollen Quelltext von ``cap1.py`` lieferte der alte Scanner NULL Treffer, waehrend der
+    Defekt ausfuehrbar reproduzierbar war. Ein Scanner, der eine Klasse nur in EINER ihrer Formen
+    kennt, meldet gruen und meint "diese Form kommt nicht vor".
+
+    Der Modulkopf von ``_membership.py`` sagt "with a scanner that fails on any new unguarded
+    site". Dieser Detektor ist der Teil dieser Zusage, der gefehlt hat.
+    """
+    tree = ast.parse(quelle, filename=name)
+    treffer: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.SetComp):
+            gehasht, gen = node.elt, node.generators
+        elif isinstance(node, ast.DictComp):
+            gehasht, gen = node.key, node.generators
+        else:
+            continue
+        if isinstance(gehasht, ast.Constant):
+            continue
+        if not _liest_aus_geparsten_daten(gehasht):
+            continue
+        if _durch_isinstance_gedeckt(gehasht, gen):
+            continue
+        treffer.append((node.lineno, ast.unparse(gehasht)))
+    return treffer
+
+
 class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
     def test_no_source_file_hashes_attacker_data_in_a_membership_test(self):
         befunde = []
@@ -101,6 +178,83 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
             befunde, [],
             "unguarded membership test(s) on a hashing container — route through "
             "proofbundle._membership.is_member:\n  " + "\n  ".join(befunde))
+
+    def test_no_source_file_builds_a_hash_container_from_unchecked_data(self):
+        """DER LIVE-GUARD FUER DIE ZWEITE FORM. Er faengt, was der Mitgliedstest-Scanner nicht sieht.
+
+        Gemessen 14.09.2026: `cap1.py:220` baute `{a.get("stratum") for a in aa ...}` aus
+        ungeprueften Dokumentwerten. Der aeltere Scanner lieferte gegen dieselbe Datei NULL
+        Treffer, weil er nur `in`/`not in` gegen MODULWEITE Behaelter kennt. Der Defekt war
+        gleichzeitig ausfuehrbar reproduzierbar. Gruen hiess dort nicht "kommt nicht vor",
+        sondern "diese Form wird nicht gemessen".
+        """
+        import json
+        grundlinie = json.loads(
+            (REPO / "conformance" / "unguarded_hashing_constructions_baseline.json")
+            .read_text(encoding="utf-8"))
+        getragen = {e["site"] for e in grundlinie["carried"]}
+        funde: list[str] = []
+        for datei in sorted(SRC.rglob("*.py")):
+            for zeile, ausdruck in unguarded_hashing_constructions(
+                    datei.read_text(encoding="utf-8"), str(datei)):
+                stelle = f"{datei.relative_to(SRC.parent)}:{zeile}"
+                if stelle in getragen:
+                    continue
+                funde.append(f"{stelle}  {ausdruck}")
+        self.assertEqual(funde, [], "\n".join(
+            ["ein Hash-Behaelter wird aus ungeprueften Daten gebaut — das hasht beim AUFBAU, "
+             "bevor irgendein Mitgliedstest laeuft. Die sieben Bestandsstellen stehen namentlich "
+             "in conformance/unguarded_hashing_constructions_baseline.json; NEU ist:"] + funde))
+
+    def test_die_grundlinie_weist_sich_als_luecke_aus_nicht_als_erlaubnis(self):
+        """Eine Grundlinie, die sich als Erlaubnis liest, wird zur Erlaubnis.
+
+        Sie muss (a) sagen, WARUM es sie gibt, (b) je Stelle die Exponiertheit benennen oder sie
+        ehrlich als NICHT GEMESSEN markieren, und (c) ihre eigene Untergrenze tragen.
+        """
+        import json
+        g = json.loads((REPO / "conformance" / "unguarded_hashing_constructions_baseline.json")
+                       .read_text(encoding="utf-8"))
+        self.assertIn("NAMED GAP, not permission", g["why_this_file_exists"])
+        self.assertTrue(g["honest_limit"], "die Untergrenze fehlt")
+        for e in g["carried"]:
+            self.assertTrue(e.get("exposure"), f"{e['site']}: keine Aussage zur Exponiertheit")
+            if not e.get("exposure_measured"):
+                self.assertIn("NICHT GEMESSEN", e["exposure"],
+                              f"{e['site']}: ungemessen, sagt es aber nicht")
+
+    def test_a_planted_unguarded_construction_is_found(self):
+        """PLANT-AND-MUST-CATCH fuer die zweite Form, woertlich die historische Zeile."""
+        quelle = ('def r8(doc, aa):\n'
+                  '    zitiert = {a.get("stratum") for a in aa if isinstance(a, dict)}\n'
+                  '    return zitiert\n')
+        self.assertEqual(len(unguarded_hashing_constructions(quelle)), 1,
+                         "die historische Form muss gefangen werden")
+
+    def test_anti_parity_a_guarded_construction_is_not_flagged(self):
+        """DIE GEGENRICHTUNG. Wer den Wert vorher auf str prueft, hasht nichts Unhashbares."""
+        quelle = ('def r8(aa):\n'
+                  '    z = {a.get("stratum") for a in aa if isinstance(a.get("stratum"), str)}\n'
+                  '    return z\n')
+        self.assertEqual(unguarded_hashing_constructions(quelle), [])
+
+    def test_anti_parity_a_literal_set_is_not_flagged(self):
+        """Ein Mengenliteral hasht nur, was im Quelltext steht — nie fremde Daten."""
+        self.assertEqual(unguarded_hashing_constructions('X = {"a", "b"}\n'), [])
+
+    def test_UNTERGRENZE_ein_index_auf_fremde_daten_entgeht_dem_detektor(self):
+        """DIE GRENZE ALS VERTRAG, absichtlich GRUEN obwohl der Fall echt waere.
+
+        ``{doc["x"] for doc in docs}`` hasht fremde Daten genauso — der Detektor sieht es nicht,
+        weil ein Index nichts ueber die Herkunft sagt und die erste, weitere Fassung dadurch einen
+        nachgemessenen Fehlalarm erzeugte (``relation_statement.py:340``, hauseigene Liste).
+        Wer diesen Vertrag spaeter ROT bekommt, hat den Detektor um eine Herkunftsverfolgung
+        erweitert und darf ihn neu schreiben; wer ihn LOESCHT, weil er unbequem ist, hat die
+        Grenze verloren und merkt es nicht mehr.
+        """
+        quelle = 'def f(docs):\n    return {doc["x"] for doc in docs}\n'
+        self.assertEqual(unguarded_hashing_constructions(quelle), [],
+                         "die Untergrenze hat sich verschoben — Vertrag neu schreiben, nicht loeschen")
 
     def test_the_guard_is_actually_imported_where_it_is_used(self):
         # A call to a name that was never imported is a NameError at runtime, i.e. a crash in the

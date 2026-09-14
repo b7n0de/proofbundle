@@ -1,0 +1,52 @@
+{
+  "schema": "proofbundle.unguarded_hashing_constructions_baseline.v1",
+  "measured_at": "2026-09-14",
+  "measured_by": "un_deltaXX, lane proofbundle, at head 7bdfb31 plus the R8 fix",
+  "why_this_file_exists": "The scanner in tests/test_membership_hashable_guard.py gained a second detector on 2026-09-14: it now measures the CONSTRUCTION of a hash container from parsed data, not only the membership test. The first sharp run found seven pre-existing sites. They are carried by name so the gate can be sharp for anything NEW without blocking every landing on day one. This is a NAMED GAP, not permission: each entry still has to be closed.",
+  "why_the_detector_was_missing": "The older detector visits ast.Compare with in/not in and requires the container to be a MODULE-LEVEL name. Both conditions missed cap1.py:220, where the container is built locally and the hashing happens inside the comprehension. Measured: zero hits against the full source of cap1.py while the defect was executably reproducible. A scanner that knows a class in only one of its shapes reports green and means 'this shape is not measured'.",
+  "honest_limit": "The detector matches the .get(...) idiom only. A subscript on genuinely foreign data (doc['x']) escapes it, and so does a value bound to a variable first. Narrowing to .get was itself measured: including subscripts produced a false positive at relation_statement.py:340, where the list is built in-house a few lines above. Contract: test_UNTERGRENZE_ein_index_auf_fremde_daten_entgeht_dem_detektor.",
+  "carried": [
+    {
+      "site": "proofbundle/agent_review.py:626",
+      "expr": "i.get('assurance')",
+      "exposure": "attacker-supplied: the predicate under validation. A list-valued 'assurance' raises TypeError inside the comprehension.",
+      "exposure_measured": true
+    },
+    {
+      "site": "proofbundle/agent_review.py:1090",
+      "expr": "i.get('assurance')",
+      "exposure": "NICHT GEMESSEN",
+      "exposure_measured": false
+    },
+    {
+      "site": "proofbundle/agent_review.py:1130",
+      "expr": "i.get('assurance')",
+      "exposure": "NICHT GEMESSEN",
+      "exposure_measured": false
+    },
+    {
+      "site": "proofbundle/agent_review.py:1096",
+      "expr": "str(a.get('assertedBy'))",
+      "exposure": "NICHT GEMESSEN. Note: str(...) makes the value hashable, so this one may be safe by construction — to be judged, not assumed.",
+      "exposure_measured": false
+    },
+    {
+      "site": "proofbundle/agent_review.py:1954",
+      "expr": "tc.get('value')",
+      "exposure": "NICHT GEMESSEN",
+      "exposure_measured": false
+    },
+    {
+      "site": "proofbundle/policy.py:782",
+      "expr": "i.get('public_key_b64')",
+      "exposure": "operator-configured (allowed_issuers from the policy dict), not attacker-supplied; a partial guard _pinned_key_forgeable already runs on the same value. Lower severity than the agent_review sites.",
+      "exposure_measured": true
+    },
+    {
+      "site": "proofbundle/policy.py:631",
+      "expr": "r.get('relation')",
+      "exposure": "NICHT GEMESSEN",
+      "exposure_measured": false
+    }
+  ]
+}
