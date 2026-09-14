@@ -22,8 +22,10 @@ exactly what its signer meant. The gap is that no check reads the two together.
 When `verify_outcome_receipt` verifies an outcome whose status records an execution, and the cited
 decision receipt is available to it, the decision's verdict decides a new field:
 
-- The cited decision is available and its verdict is a refusal (`DENY` or `REFUSE`): the aggregate
-  verdict is failure with the reason code `outcome-against-refusal`, fail closed.
+- The cited decision is available and its verdict is a refusal (`DENY` or `REFUSE`): the new field
+  records `outcome-against-refusal`. Whether that reason reaches the aggregate `ok` is decided by
+  the policy switch below and NOT by this rule, and the switch is off by default. With the switch
+  on, the aggregate verdict is failure, fail closed.
 - The cited decision is available and its verdict allows (`ALLOW`): unchanged, as today.
 - The cited decision is available and its verdict is neither (`ESCALATE`, `DEFER`, `OBSERVE`): a
   typed reason of its own, never silence and never a refusal verdict; the proposal recommends
@@ -35,6 +37,24 @@ decision receipt is available to it, the decision's verdict decides a new field:
 handed over through the `related` channel that the relation path already uses, or resolved by a
 caller-supplied resolver. A content root alone is not availability. A root is a name, not a document,
 and a rule that read a verdict out of a name would be inventing one.
+
+### Where the default lives, and why it is stated here
+
+This section describes what the new field RECORDS. It does not set the default for `ok`. That
+separation is the correction of a real defect in the first draft, found by the Codex review on
+thread 4001144681 at `6536daa9368e2c680743eeb64ed473e425222893`.
+
+The first draft said here that a refusal makes the aggregate verdict fail closed, unconditionally,
+while the recommendation below says `ok` stays unchanged and the policy switch defaults off. The
+smallest case that separates them is an executed outcome with an attached `DENY` and no policy
+configured. Under the first sentence the verifier must return failure. Under the recommendation it
+must return a clean `ok`. No implementation can satisfy both, and a reader who implemented from
+either half alone would have been certain they had followed the document.
+
+A proposal is a contract with whoever implements it. Two defaults for one case is not an ambiguity
+that an implementer resolves with judgement, it is a specification that cannot be satisfied. The
+semantics and the default now live in two places that cannot disagree, because only one of them
+states a default at all.
 
 ## What changes for what exists today, measured
 
@@ -71,8 +91,21 @@ Decisions built by the test suite carry `ALLOW`; no test binds an executing outc
 
 - Pairs in this repository that turn from clean into a refusal verdict: **0**.
 - Pairs in this repository that turn from clean into `NOT_APPLICABLE`: **0** if the new field is
-  additive, **49** call sites if `NOT_APPLICABLE` were ever wired into the aggregate `ok` (52 minus
-  the 3 that pass an object today, none of which is a decision).
+  additive, **52** call sites if `NOT_APPLICABLE` were ever wired into the aggregate `ok`. That is
+  ALL of them, not 52 minus 3.
+
+  The first draft wrote 49 and subtracted the three call sites that hand the verifier an object
+  through `related`. That subtraction is wrong against this document's own definition of
+  availability. Availability requires the decision STATEMENT to reach the verifier, and the
+  paragraph four lines above records that of those three, the number attaching a decision receipt
+  is zero. All three attach a relation target for the lineage checks. Passing something through the
+  channel is not passing a decision through it, so none of the three is available and none of them
+  may be subtracted.
+
+  The error subtracted the presence of a CONTAINER where the required OBJECT TYPE was the question,
+  and it moved the number in the comfortable direction, understating the blast radius that the
+  version decision below rests on. Found by the Codex review on thread 4001144684 at
+  `6536daa9368e2c680743eeb64ed473e425222893`.
 
 Two pairs outside the repository do change, and both are ours: the pair measured on 2026-09-04 that
 this document exists because of, and the pair the Cedulon adapter builds from a frozen third-party
