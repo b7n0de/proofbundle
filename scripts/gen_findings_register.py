@@ -535,18 +535,101 @@ def _status(kennung: str, aus_tabelle: str | None = None,
 #: Baum nicht auffindbar ist (gemessen 15.09.2026 auf drei Wegen, Owner-Karte
 #: `substanz61_punkt2a_sechs_bedingungen`). Was ausgeschrieben ist, wird gebaut; was nur als
 #: Etikett vorliegt, wird nicht erfunden.
+#: WOERTLICH NACHGEZOGEN, Owner-Antwort OA-34798a68c3 vom 15.09.2026. Meine erste Fassung war
+#: eine Kurzform aus dem Nachtrag; die Aufarbeitung nennt je Weg, WAS ihn traegt.
 BELEGWEGE = {
-    "executable_product_defect": "a defect in the shipped product, demonstrated by something that "
-                                 "runs",
-    "mechanically_checkable_doc_error": "a documentation error a machine can decide",
-    "substantive_doc_error": "a documentation error only a reader can decide",
-    "decision_or_boundary": "a decision or a named boundary of the subject — NEVER counts as "
-                            "repaired",
+    "executable_product_defect": "a defect in the shipped product, carried by a FROZEN property "
+                                 "test",
+    "mechanically_checkable_doc_error": "a documentation error carried by the document bytes plus "
+                                        "a target value, and by the rejection of the old version",
+    "substantive_doc_error": "a documentation error carried by a signed expert assessment that "
+                             "makes NO test claim",
+    "decision_or_boundary": "a decision or a named boundary, itself evidenced — and it NEVER "
+                            "counts as repaired",
 }
 
 #: Der vierte Weg zaehlt nie als repariert. Das steht als DATEN neben dem Weg, nicht als
 #: Bedingung in einem `if`, damit ein Riegel es pruefen kann statt es zu wiederholen.
 NIE_REPARIERT = "decision_or_boundary"
+
+
+#: DER ABSCHLUSSVERTRAG, sechs Bedingungen. Quelle: Aufarbeitung
+#: kraxo/02_proofbundle_berichte/AUFARBEITUNG_review_fundregister_beleg_je_fund_20260913.md,
+#: 7296 B, sha256 84f0787c96136b6c…, geliefert in der Owner-Antwort OA-34798a68c3 vom 15.09.2026.
+#:
+#: WARUM DIE DATEI HIER NICHT LIEGT, und es ist eine Klasse, keine Panne: Cowork schreibt nach
+#: kraxo AM MAC, und eine Farmer-Sitzung sieht das erst nach Commit und Push. Meine Messung
+#: ("auf drei Wegen nicht auffindbar") war richtig und die Schlussfolgerung ueber die WELT
+#: trotzdem falsch — nicht auffindbar in DIESEM Baum heisst nicht: existiert nicht.
+#:
+#: Die Bedingungen stehen hier als erzeugte englische Prosa, nicht als Zitat: der Traeger fuehrt
+#: `language: en`, und ein Zitat muesste seine Quelle IM Repository nachweisen koennen, was diese
+#: Datei hier gerade nicht kann. Der Digest steht daneben, damit ein Leser das Original holen
+#: und vergleichen kann.
+ABSCHLUSSVERTRAG = [
+    {"nr": 1, "name": "finding_revision",
+     "requires": "the finding revision names the VIOLATED PROPERTY and the SUBJECT"},
+    {"nr": 2, "name": "test_profile_before_assessment",
+     "requires": "a test profile fixes BEFORE the assessment which kind of evidence may carry the "
+                 "property; profile, instrument and target value are referenced immutably"},
+    {"nr": 3, "name": "evidence_bytes_and_issuer",
+     "requires": "the evidence bytes are available, and digest, signature and an ENTITLED issuer "
+                 "are checked under a fixed trust rule"},
+    {"nr": 4, "name": "signed_content_binds",
+     "requires": "the signed content binds finding or test criterion, subject, method, result and "
+                 "scope"},
+    {"nr": 5, "name": "evidence_carries_exactly_the_claim",
+     "requires": "the evidence carries EXACTLY the claim applied for, with no skipped checks"},
+    {"nr": 6, "name": "repair_only_for_the_proven_subject",
+     "requires": "a repair holds only for the subject it was proven on; SHIPPED BYTES need their "
+                 "own proof"},
+]
+
+
+def _vertragslage(doc_teil: dict) -> list:
+    """Der Vertrag GEGEN DEN EIGENEN TRAEGER gerechnet — nicht nur abgedruckt.
+
+    Ein Vertrag, der nur dasteht, ist eine Absichtserklaerung. Gefragt ist, welche seiner
+    Bedingungen dieser Traeger HEUTE erfuellt — und die ehrliche Antwort ist: die wenigsten. Das
+    ist kein Mangel dieses Commits, sondern die Lage, und sie gehoert sichtbar statt beschoenigt.
+
+    Gerechnet wird aus dem, was der Traeger selbst fuehrt: Signaturzustand, Belegfelder, die
+    Messzustaende und die Bindung der ausgelieferten Bytes. Keine Bedingung wird als erfuellt
+    gemeldet, weil sie erfuellbar WAERE.
+    """
+    sig = (doc_teil.get("signature") or {}).get("state")
+    inhalt = ((doc_teil.get("subject") or {}).get("content") or {}).get("state")
+    records = doc_teil.get("records") or []
+    hat_beleg = all(r.get("evidence") for r in records) if records else False
+    lage = []
+    for b in ABSCHLUSSVERTRAG:
+        if b["nr"] == 3:
+            erfuellt, grund = (False,
+                               ("bytes and digest are checked for every record, but the carrier is "
+                                f"{sig!r}: neither a signature nor an entitled issuer is checked "
+                                "here, so the condition is met only in half")) if hat_beleg else (
+                               False, "not every record carries evidence")
+        elif b["nr"] == 4:
+            erfuellt, grund = False, (f"the carrier is {sig!r}; there is no signed content that "
+                                      f"could bind subject, method, result and scope")
+        elif b["nr"] == 5:
+            erfuellt, grund = False, ("byte equality shows the quotation is intact, never that it "
+                                      "carries exactly the claim applied for; that is a semantic "
+                                      "property no digest can establish")
+        elif b["nr"] == 6:
+            erfuellt, grund = False, (f"`subject.content` is {inhalt!r}: the shipped bytes are not "
+                                      f"bound in this repository, which is precisely the second "
+                                      f"half of this condition")
+        elif b["nr"] == 1:
+            erfuellt, grund = False, ("records carry a title and an object class, but no field "
+                                      "names the violated property separately from the subject")
+        else:
+            erfuellt, grund = False, ("no test profile is fixed before the assessment; the kind of "
+                                      "evidence is decided per finding and is NOT MEASURED for 143 "
+                                      "of them")
+        lage.append({**b, "met": erfuellt, "state": "MET" if erfuellt else "NOT MET",
+                     "reason": grund})
+    return lage
 
 
 def _artefakt_kandidaten(text: str) -> list:
@@ -1109,7 +1192,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         luecken.append({"range": name.replace("_bis_", " bis "), "count": g.get("anzahl"),
                         "state": g.get("marke"), "reason": g.get("grund")})
 
-    return {
+    doc = {
         "schema": "proofbundle.findings_register.v2",
         "profile_version": "0.1",
         "document_id": f"urn:b7n0de:findings-register:{VERSION.replace('.', '')}",
@@ -1189,6 +1272,18 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "assurance_checks": _zusicherungen(text, records),
             "evidence_cut": _schnittkonvention(schnittenden, len(records)),
             "measurement_summary": _messsumme(records, repo),
+            "closing_contract": {
+                "source": ("kraxo/02_proofbundle_berichte/"
+                           "AUFARBEITUNG_review_fundregister_beleg_je_fund_20260913.md"),
+                "source_sha256_prefix": "84f0787c96136b6c",
+                "source_state": "NOT MEASURABLE",
+                "source_reason": ("the document lives in the kraxo tree on the Mac and reaches a "
+                                  "farmer session only after commit and push; the conditions below "
+                                  "were delivered verbatim in owner answer OA-34798a68c3 and are "
+                                  "rendered here as generated English prose, with the digest so a "
+                                  "reader can fetch and compare the original"),
+                "conditions": None,
+            },
             "evidence_paths": {
                 "paths": dict(BELEGWEGE),
                 "never_counts_as_repaired": NIE_REPARIERT,
@@ -1226,6 +1321,11 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                                                      "coordinated change of register and evidence "
                                                      "cannot be detected from the document alone")},
     }
+    # DER VERTRAG WIRD GEGEN DEN FERTIGEN TRAEGER GERECHNET, nicht neben ihm abgedruckt. Er
+    # braucht den Signaturzustand, `subject.content` und die Datensaetze — also alles, was erst
+    # jetzt dasteht.
+    doc["inventory"]["closing_contract"]["conditions"] = _vertragslage(doc)
+    return doc
 
 
 def _zusicherungen(text: str, records: list) -> list:
@@ -1749,6 +1849,29 @@ def pruefe_v2(doc, repo) -> list[str]:
         if _sig.get("state") == "UNSIGNED" and not _sig.get("consequence_for_the_reader"):
             fehler.append("Signatur: UNSIGNED ohne die Folge fuer den Leser — wer die Einschraenkung "
                           "nicht nennt, veroeffentlicht sie auch nicht")
+    _cc = (inv.get("closing_contract") or {})
+    _bed = _cc.get("conditions")
+    if not isinstance(_bed, list) or len(_bed) != 6:
+        fehler.append(f"[AV-FEHLT] der Abschlussvertrag fuehrt nicht sechs Bedingungen "
+                      f"({len(_bed) if isinstance(_bed, list) else _bed!r})")
+    else:
+        for b in _bed:
+            if b.get("state") not in ("MET", "NOT MET"):
+                fehler.append(f"[AV-ZUSTAND] Bedingung {b.get('nr')}: {b.get('state')!r}")
+            if not b.get("reason"):
+                fehler.append(f"[AV-GRUND] Bedingung {b.get('nr')} ohne Grund")
+            if not b.get("requires"):
+                fehler.append(f"[AV-TEXT] Bedingung {b.get('nr')} ohne Wortlaut")
+        # EIN VERTRAG, DER SICH SELBST GRUEN MELDET, WAEHREND DER TRAEGER UNSIGNIERT IST.
+        _sigz = (doc.get("signature") or {}).get("state")
+        if _sigz != "VERIFIED":
+            for b in _bed:
+                if b["nr"] in (3, 4) and b.get("met"):
+                    fehler.append(f"[AV-SIGNATUR] Bedingung {b['nr']} meldet MET, der Traeger ist "
+                                  f"aber {_sigz!r} — sie verlangt eine gepruefte Signatur")
+    if not _cc.get("source_sha256_prefix"):
+        fehler.append("[AV-QUELLE] der Abschlussvertrag nennt keinen Digest seiner Quelle")
+
     _su = doc.get("subject")
     if not isinstance(_su, dict):
         fehler.append("[SU-FEHLT] der Traeger fuehrt kein `subject`")

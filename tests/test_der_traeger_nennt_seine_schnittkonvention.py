@@ -434,3 +434,57 @@ def test_ein_subject_ohne_grund_wird_abgewiesen():
     gen, doc = _gen(), _doc()
     doc["subject"]["content"].pop("reason")
     assert [f for f in gen.pruefe_v2(doc, REPO) if "[SU-GRUND]" in f]
+
+
+# ── Punkt 2a: der Abschlussvertrag, sechs Bedingungen (Owner-Antwort OA-34798a68c3) ──────────
+
+def test_der_abschlussvertrag_fuehrt_sechs_bedingungen_mit_wortlaut():
+    c = _doc()["inventory"]["closing_contract"]
+    b = c["conditions"]
+    assert len(b) == 6, len(b)
+    assert [x["nr"] for x in b] == [1, 2, 3, 4, 5, 6]
+    for x in b:
+        assert x.get("requires") and x.get("name")
+        assert x["state"] in ("MET", "NOT MET")
+        assert x.get("reason"), f"Bedingung {x['nr']} ohne Grund"
+
+
+def test_die_quelle_des_vertrags_ist_benannt_und_als_unerreichbar_markiert():
+    """Die Aufarbeitung liegt im kraxo-Baum am Mac; eine Farmer-Sitzung sieht sie erst nach Push."""
+    c = _doc()["inventory"]["closing_contract"]
+    assert c["source"].endswith("AUFARBEITUNG_review_fundregister_beleg_je_fund_20260913.md")
+    assert c["source_sha256_prefix"].startswith("84f0787c")
+    assert c["source_state"] == "NOT MEASURABLE"
+    assert "commit and push" in c["source_reason"]
+
+
+def test_der_vertrag_meldet_sich_nicht_gruen_solange_der_traeger_unsigniert_ist():
+    """Bedingung 3 und 4 verlangen eine gepruefte Signatur; der Traeger ist UNSIGNED."""
+    doc = _doc()
+    assert doc["signature"]["state"] == "UNSIGNED"
+    b = {x["nr"]: x for x in doc["inventory"]["closing_contract"]["conditions"]}
+    assert b[3]["state"] == "NOT MET" and b[4]["state"] == "NOT MET"
+
+
+def test_ein_gruen_gemeldeter_vertrag_ohne_signatur_wird_abgewiesen():
+    """FANGNACHWEIS: genau der Selbstbetrug, gegen den der Vertrag gebaut ist."""
+    gen, doc = _gen(), _doc()
+    for x in doc["inventory"]["closing_contract"]["conditions"]:
+        if x["nr"] == 4:
+            x["met"], x["state"] = True, "MET"
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[AV-SIGNATUR]" in f]
+
+
+def test_eine_bedingung_ohne_grund_wird_abgewiesen():
+    gen, doc = _gen(), _doc()
+    doc["inventory"]["closing_contract"]["conditions"][0].pop("reason")
+    assert [f for f in gen.pruefe_v2(doc, REPO) if "[AV-GRUND]" in f]
+
+
+def test_die_vier_belegwege_tragen_ihre_woertliche_fassung():
+    """Owner-Antwort OA-34798a68c3: je Weg steht, WAS ihn traegt."""
+    gen = _gen()
+    assert "FROZEN property test" in gen.BELEGWEGE["executable_product_defect"]
+    assert "rejection of the old version" in gen.BELEGWEGE["mechanically_checkable_doc_error"]
+    assert "NO test claim" in gen.BELEGWEGE["substantive_doc_error"]
+    assert "NEVER counts as repaired" in gen.BELEGWEGE["decision_or_boundary"]
