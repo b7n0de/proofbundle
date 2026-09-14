@@ -76,8 +76,11 @@ def _falschmodul(urteil_je_achse: dict, marke: str = "", kombi_urteil: str = "BE
             _mach(urteil_fuer(*a, **k))()
         return m_
 
-    _je_achse = lambda dim, *a, **k: urteil_je_achse[dim.name]
-    _je_kombi = lambda *a, **k: kombi_urteil
+    def _je_achse(dim, *a, **k):
+        return urteil_je_achse[dim.name]
+
+    def _je_kombi(*a, **k):
+        return kombi_urteil
 
     class _Einzel:
         test_die_last_erreicht_das_limit_wirklich = _alle(_je_achse)
