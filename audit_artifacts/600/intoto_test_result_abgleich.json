@@ -1,0 +1,54 @@
+{
+  "_was_das_ist": "Punkt 2e der Fuenferliste: die vorhandenen proofbundle-Receipts gegen das in-toto Test Result v0.1 abgeglichen. 'Ergebnis als Tafel, Feld, vorhanden, fehlt, Entscheidung.' KEIN Wechsel des Signiersystems — der native Bund bleibt die Wahrheit, das Praedikat ist ein Interop-Export.",
+  "gemessen_utc": "2026-09-14T23:53:05Z",
+  "praedikat": "https://in-toto.io/attestation/test-result/v0.1",
+  "erzeuger": "src/proofbundle/intoto.py, export_intoto_dsse / die Statement-Bauzeile bei 258",
+  "lage_im_bestand": {
+    "receipt_dateien_geprueft": 69,
+    "davon_mit_test_result_feldern": 0,
+    "state": "VERIFIED",
+    "reason": "die FAEHIGKEIT besteht — der Erzeuger schreibt das Praedikat und ein Vertrag (tests/test_predicate_type_enforcement.py) haelt den Typ fest. Der committete KORPUS enthaelt keine solche Attestierung. Faehigkeit und Bestand sind zwei Fragen, und die erste Fassung dieser Messung hat sie beinahe vermengt"
+  },
+  "tafel": [
+    {
+      "feld": "result",
+      "vorhanden": true,
+      "fehlt": null,
+      "entscheidung": "PASSED/FAILED aus `claim['passed']`; WARNED wird nie erzeugt"
+    },
+    {
+      "feld": "configuration",
+      "vorhanden": true,
+      "fehlt": null,
+      "entscheidung": "Modellbeschreibung plus optionale Datensatz-Verpflichtung — beides als ResourceDescriptor, wie das Praedikat es verlangt"
+    },
+    {
+      "feld": "passedTests / failedTests",
+      "vorhanden": true,
+      "fehlt": "die einzelnen Testnamen",
+      "entscheidung": "der Erzeuger legt GENAU EINEN Eintrag hinein, den SUITE-Namen. Das Praedikat erwartet dort Testbezeichner. Benannt statt stillschweigend: wer die Liste als Testnamen liest, liest einen Suitenamen"
+    },
+    {
+      "feld": "warnedTests",
+      "vorhanden": false,
+      "fehlt": "vollstaendig",
+      "entscheidung": "keine Quelle dieses Hauses fuehrt den Zustand WARNED; ein leeres Feld zu schreiben waere eine Aussage ueber etwas, das nicht gemessen wird"
+    },
+    {
+      "feld": "url",
+      "vorhanden": true,
+      "fehlt": null,
+      "entscheidung": "optional, nur wenn der Aufrufer eine nennt"
+    },
+    {
+      "feld": "subject = Quellartefakte",
+      "vorhanden": false,
+      "fehlt": "die Quellartefakte als Subjekt",
+      "entscheidung": "BEWUSST anders: das Subjekt ist ein BINDER ueber Modell- und Datensatz-Verpflichtungen plus Wurzel und Zeit. Er bindet die Attestierung an das Receipt, OHNE das Modell preiszugeben. Quellartefakte als Subjekt waere ein anderer Schutzgedanke, nicht eine fehlende Zeile — deshalb Entscheidung und nicht Luecke"
+    }
+  ],
+  "was_nicht_geaendert_wird": "das Signiersystem. DSSE ueber den kanonischen Statement-Rumpf bleibt; die fehlenden Beziehungen sind eine ZUORDNUNG, kein Umbau.",
+  "offene_zuordnung": [
+    "die einzelnen Testnamen statt des Suitenamens in passedTests/failedTests"
+  ]
+}
