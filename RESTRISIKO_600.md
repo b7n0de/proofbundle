@@ -16,9 +16,13 @@ byte-freeze standard of 2026-07-31: freeze first, publish later, never reload mi
 closing gate round — DEEP, six lenses, refute-to-kill jury — runs on exactly that frozen head. The
 pre-tag receipt that the tag depends on binds the tree digest at the tag, not this path for all
 time. This file may be continued afterwards, and earlier receipts stay valid for the tree they
-were written against. What may be continued is bounded by the paragraph below and does not
-touch it: a finding of the closing round is still never written into this file. A continuation
-is a correction of what the file says about itself, or a later note that is not such a finding.
+were written against. What may be continued is bounded by one property, not by a list: a
+continuation is any change that does NOT record a finding of the closing round. Correcting what
+this file says about itself, replacing a statement that has been measured wrong, and adding a
+later note all pass that test; they are examples and not the whole set. A finding of the closing
+round is never written here and stays what the paragraph below says it is. The rule is a
+property rather than an enumeration on purpose, because an enumeration is incomplete the first
+time a case appears that nobody listed, and the first such case was this file's own diff.
 
 What follows from that order is stated plainly: a finding of the closing round that must be fixed
 or must be written down is a **new iteration with a new freeze** (standard, rule 2), never an edit
