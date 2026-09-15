@@ -1,0 +1,303 @@
+{
+ "digest_gegenprobe": {
+  "ergebnis": "alle vier lokalen Entwurfskopien stimmen in bytes UND sha256 mit den hier fixierten Werten",
+  "gemessen_utc": "2026-09-15T15:29:40Z",
+  "grenze": "Diese Gegenprobe braucht die Entwurfsdateien. Sie liegen NICHT im Repo (kein fremder Text im Baum), also kann kein Test im Baum sie wiederholen. Nachholbar ist sie jederzeit ueber die `quelle`-URL und die hier stehenden Digests — genau dafuer stehen sie da."
+ },
+ "gemessen_utc": "2026-09-15T12:05:00Z",
+ "hinweis": "Messbeleg, kein Ersatz fuer den Entwurfstext. Der Vertrag daneben prueft die INNERE Stimmigkeit zwischen docs/SCITT_CPB_MAPPING.md und diesem Beleg. Ob der Beleg die Entwuerfe richtig wiedergibt, prueft er NICHT — dafuer stehen bytes und sha256 hier, damit jeder nachholen kann. Ein Pruefer, der nur sein eigenes Artefakt liest, beglaubigt auch dessen Fehler.",
+ "neue_abschnitte_gegen_02": {
+  "davon_umgezogen": 2,
+  "davon_wirklich_neu": 29,
+  "nummern": [
+   "6.1",
+   "6.2",
+   "8.3",
+   "8.4",
+   "14.1.1",
+   "14.2"
+  ],
+  "pflichtwoerter_je_abschnitt": {
+   "14.1.1": 4,
+   "14.2": 1,
+   "6.1": 2,
+   "6.2": 13,
+   "8.3": 11,
+   "8.4": 0
+  },
+  "pflichtwoerter_summe": 31
+ },
+ "quelle": "https://www.ietf.org/archive/id/draft-mih-sokolov-scitt-payload-binding-<rev>.txt",
+ "revisionen": {
+  "-02": {
+   "abschnitte": {
+    "1": "Introduction",
+    "1.1": "Out of Scope",
+    "10": "Discovery Mirror",
+    "11": "Extensibility and Cross-Cutting Facilities",
+    "12": "Security Considerations",
+    "12.1": "Preimages Are Bytes, Not Renderings",
+    "12.2": "Low-Entropy Fields",
+    "12.3": "Float Values and Digest Reproducibility",
+    "12.4": "Immutable Coordinates",
+    "12.5": "Tamper Evidence and Runtime Honesty",
+    "12.6": "Long-Term Verifiability Considerations",
+    "13": "Privacy Considerations",
+    "14": "IANA Considerations",
+    "14.1": "Canonicalization Algorithm Registry",
+    "15": "Related Work",
+    "16": "References",
+    "16.1": "Normative References",
+    "16.2": "Informative References",
+    "2": "Changes from -01",
+    "3": "Conventions and Definitions",
+    "4": "Payload Canonicalization Algorithms",
+    "4.1": "Algorithm jcs",
+    "4.2": "Algorithm jcs-n (Withdrawn)",
+    "4.3": "Algorithm cde-n (Withdrawn)",
+    "4.4": "Algorithm as-transmitted",
+    "5": "The Derived Identifier",
+    "5.1": "Representation",
+    "6": "Envelope Conventions",
+    "7": "Statement-to-Receipt Binding",
+    "7.1": "Leaf Construction",
+    "8": "Typed Digest References",
+    "8.1": "Cross-Profile Comparability",
+    "8.2": "Verification Scope",
+    "9": "Profile Independence"
+   },
+   "bytes": 92428,
+   "pflichtwoerter": {
+    "MUST": 40,
+    "MUST_NOT": 28,
+    "REQUIRED": 6,
+    "SHALL": 2,
+    "summe_must_familie": 68
+   },
+   "sha256": "47ab675797d7edfe905c13b8482735239d9c5ceb318accbc33e4a5a51e5ec875"
+  },
+  "-03": {
+   "abschnitte": {
+    "1": "Introduction",
+    "1.1": "Out of Scope",
+    "10": "Discovery Mirror",
+    "11": "Extensibility and Cross-Cutting Facilities",
+    "12": "Security Considerations",
+    "12.1": "Preimages Are Bytes, Not Renderings",
+    "12.2": "Low-Entropy Fields",
+    "12.3": "Float Values and Digest Reproducibility",
+    "12.4": "Immutable Coordinates",
+    "12.5": "Tamper Evidence and Runtime Honesty",
+    "12.6": "Long-Term Verifiability Considerations",
+    "13": "Privacy Considerations",
+    "14": "IANA Considerations",
+    "14.1": "Canonicalization Algorithm Registry",
+    "14.1.1": "Test Vector Locations",
+    "14.2": "COSE Header Parameters Registration",
+    "15": "Related Work",
+    "16": "References",
+    "16.1": "Normative References",
+    "16.2": "Informative References",
+    "2": "Changes from -02",
+    "3": "Conventions and Definitions",
+    "4": "Payload Canonicalization Algorithms",
+    "4.1": "Algorithm jcs",
+    "4.2": "Algorithm jcs-n (Withdrawn)",
+    "4.3": "Algorithm cde-n (Withdrawn)",
+    "4.4": "Algorithm as-transmitted",
+    "5": "The Derived Identifier",
+    "5.1": "Representation",
+    "6": "Envelope Conventions",
+    "6.1": "Full-Content Mode",
+    "6.2": "Hash Envelope Mode",
+    "7": "Statement-to-Receipt Binding",
+    "7.1": "Leaf Construction",
+    "8": "Typed Digest References (Information Model)",
+    "8.1": "Cross-Profile Comparability",
+    "8.2": "Carriage Selection",
+    "8.3": "Envelope Carriage",
+    "8.4": "Payload Carriage",
+    "8.5": "Verification Scope",
+    "9": "Profile Independence"
+   },
+   "bytes": 108056,
+   "pflichtwoerter": {
+    "MUST": 63,
+    "MUST_NOT": 50,
+    "REQUIRED": 6,
+    "SHALL": 2,
+    "summe_must_familie": 113
+   },
+   "sha256": "d303e6e4ec4c4bf3b9c483bcabbd720309f952a5e77d912968bef39c1f245d13"
+  },
+  "-04": {
+   "abschnitte": {
+    "1": "Introduction",
+    "1.1": "Out of Scope",
+    "10": "Discovery Mirror",
+    "11": "Extensibility and Cross-Cutting Facilities",
+    "12": "Security Considerations",
+    "12.1": "Preimages Are Bytes, Not Renderings",
+    "12.2": "Low-Entropy Fields",
+    "12.3": "Float Values and Digest Reproducibility",
+    "12.4": "Immutable Coordinates",
+    "12.5": "Tamper Evidence and Runtime Honesty",
+    "12.6": "Long-Term Verifiability Considerations",
+    "13": "Privacy Considerations",
+    "14": "IANA Considerations",
+    "14.1": "Canonicalization Algorithm Registry",
+    "14.1.1": "Test Vector Locations",
+    "14.2": "COSE Header Parameters Registration",
+    "15": "Related Work",
+    "16": "References",
+    "16.1": "Normative References",
+    "16.2": "Informative References",
+    "2": "Changes from -03",
+    "3": "Conventions and Definitions",
+    "4": "Payload Canonicalization Algorithms",
+    "4.1": "Algorithm jcs",
+    "4.2": "Algorithm jcs-n (Withdrawn)",
+    "4.3": "Algorithm cde-n (Withdrawn)",
+    "4.4": "Algorithm as-transmitted",
+    "5": "The Derived Identifier",
+    "5.1": "Representation",
+    "6": "Envelope Conventions",
+    "6.1": "Full-Content Mode",
+    "6.2": "Hash Envelope Mode",
+    "7": "Statement-to-Receipt Binding",
+    "7.1": "Leaf Construction",
+    "8": "Typed Digest References (Information Model)",
+    "8.1": "Cross-Profile Comparability",
+    "8.2": "Carriage Selection",
+    "8.3": "Envelope Carriage",
+    "8.4": "Payload Carriage",
+    "8.5": "Verification Scope",
+    "9": "Profile Independence"
+   },
+   "bytes": 109494,
+   "pflichtwoerter": {
+    "MUST": 63,
+    "MUST_NOT": 50,
+    "REQUIRED": 6,
+    "SHALL": 2,
+    "summe_must_familie": 113
+   },
+   "sha256": "de06a6eade0306c46b2c1d0f1987a1a7d2d544909a1299e9af9053959cedb376"
+  },
+  "-05": {
+   "abschnitte": {
+    "1": "Introduction",
+    "1.1": "Out of Scope",
+    "10": "Discovery Mirror",
+    "11": "Extensibility and Cross-Cutting Facilities",
+    "12": "Security Considerations",
+    "12.1": "Preimages Are Bytes, Not Renderings",
+    "12.2": "Low-Entropy Fields",
+    "12.3": "Float Values and Digest Reproducibility",
+    "12.4": "Immutable Coordinates",
+    "12.5": "Tamper Evidence and Runtime Honesty",
+    "12.6": "Long-Term Verifiability Considerations",
+    "13": "Privacy Considerations",
+    "14": "IANA Considerations",
+    "14.1": "Canonicalization Algorithm Registry",
+    "14.1.1": "Test Vector Locations",
+    "14.2": "COSE Header Parameters Registration",
+    "15": "Related Work",
+    "16": "References",
+    "16.1": "Normative References",
+    "16.2": "Informative References",
+    "2": "Changes from -04",
+    "3": "Conventions and Definitions",
+    "4": "Canonicalization Algorithm Registrations",
+    "4.1": "Algorithm jcs",
+    "4.2": "Algorithm jcs-n (Withdrawn)",
+    "4.3": "Algorithm cde-n (Withdrawn)",
+    "4.4": "Algorithm as-transmitted",
+    "5": "The Derived Identifier",
+    "5.1": "Representation",
+    "6": "Envelope Conventions",
+    "6.1": "Full-Content Mode",
+    "6.2": "Hash Envelope Mode",
+    "7": "Statement-to-Receipt Binding",
+    "7.1": "Leaf Construction",
+    "8": "Typed Digest References (Information Model)",
+    "8.1": "Cross-Profile Comparability",
+    "8.2": "Carriage Selection",
+    "8.3": "Envelope Carriage",
+    "8.4": "Payload Carriage",
+    "8.5": "Verification Scope",
+    "9": "Profile Independence"
+   },
+   "bytes": 115389,
+   "pflichtwoerter": {
+    "MUST": 63,
+    "MUST_NOT": 50,
+    "REQUIRED": 6,
+    "SHALL": 2,
+    "summe_must_familie": 113
+   },
+   "sha256": "938073e7ce4f4289ca6d45bebac0b319f2a701804eac5c32203124e65f2fb4fa"
+  }
+ },
+ "saetze": {
+  "ausschlussmenge_4_1": {
+   "-02": "The exclusion set is matched against the top-level member names of P only; a member of the same name nested inside a member's value is not removed.",
+   "-05": "The exclusion set is matched against the top-level member names of the payload only; a member of the same name nested inside a member's value is not removed.",
+   "urteil": "gleiche Regel, ein Token getauscht (P -> the payload). KEINE Verschaerfung."
+  },
+  "editorial_zusage_04": {
+   "-04": "This revision is editorial and changes no normative text.",
+   "fundort": "-04, Abschnitt 2 'Changes from -03'",
+   "urteil": "Die Zusage steht in -04 und spricht ueber den Schritt -03 -> -04. GEMESSEN stimmt sie fuer genau diesen Schritt: die Pflichtwortzahlen sind in -03 und -04 identisch (MUST 63, MUST NOT 50, REQUIRED 6, SHALL 2). Sie ist KEINE Aussage ueber die Spanne -02 bis -05 — alle 45 zusaetzlichen Pflichtwoerter dieser Spanne kamen im Schritt -02 -> -03, und das steht in -03, nicht in -04."
+  },
+  "leaf_bedingung_7_1": {
+   "-02": "Where a Transparency Service's VDS keys its log on the derived identifier",
+   "-05": "keys its log on a digest associated with the derived identifier",
+   "urteil": "in -05 geweitet, und -05 fuegt die Pflicht 'MUST state which one is its leaf input' hinzu."
+  }
+ },
+ "schema": "proofbundle.cpb_revision_record.v1",
+ "spanne_03_04": {
+  "aenderungen": [
+   "Boilerplate: Entwurfsnummer, Datum, Ablaufdatum, Seitenzahlen im Inhaltsverzeichnis.",
+   "Abschnitt 2 neu geschrieben ('Changes from -02' -> 'Changes from -03') mit der Zusage, die Revision sei editorial und aendere keinen normativen Text.",
+   "EINE informative Referenz hinzugefuegt: [I-D.schrock-ep-authorization-receipts], zitiert in Abschnitt 15, zusammen mit einer ausdruecklichen Nicht-Behauptung ('CPB defines no approver enrolment and no authorization semantics').",
+   "Tabelle 6 neu umbrochen (Spaltenbreiten), und in der EP-Zeile der oeffentliche Nachweis gewechselt: 'EMILIA/EP hackathon record' -> 'agent-action-capsule PR #40'.",
+   "Neuer Absatz nach Tabelle 6, der die Kompositionsvektoren per gemergtem Commit festnagelt und ausdruecklich sagt, was der Satz NICHT traegt ('It does not carry a third computation of that digest').",
+   "Danksagung ENGER gezogen: aus 'the three-computation single-digest instance ... across three independent codebases' wird 'the single-digest composition instance ... two computations'."
+  ],
+  "gemessen_utc": "2026-09-15T15:29:40Z",
+  "methode": "Beide Entwuerfe entpaginiert (Seitenumbrueche, 'Internet-Draft'-Kopfzeilen und '[Page N]'-Fusszeilen entfernt, Leerzeilenlaeufe zusammengefasst), dann zeilenweise verglichen. OHNE das Entpaginieren ist ein Diff hier wertlos: eine eingefuegte Zeile verschiebt jede folgende Seite und damit jede Kopf- und Fusszeile bis zum Dateiende.",
+  "pflichtwortunterschied": 0,
+  "roher_byteunterschied": 1438,
+  "urteil": "Die Zusage 'editorial, kein normativer Text' haelt fuer diesen Schritt — nachgemessen an identischen Pflichtwortzahlen. Zwei der sechs Aenderungen ziehen eine bestehende Aussage des Entwurfs ENGER (die Danksagung und der neue Absatz), sie fuegen also Genauigkeit hinzu statt Norm."
+ },
+ "verschiebungen": [
+  {
+   "art": "vollstaendig",
+   "hinweis": "8.2 traegt in -05 'Carriage Selection'. Die alte Nummer loest weiter auf, auf anderen Inhalt.",
+   "nach": {
+    "nummer": "8.5",
+    "revision": "-05"
+   },
+   "titel": "Verification Scope",
+   "von": {
+    "nummer": "8.2",
+    "revision": "-02"
+   }
+  },
+  {
+   "art": "teilweise",
+   "hinweis": "14.1.1 ist eine neue NUMMER mit teils altem Text. Von seinen vier Pflichtwoertern stehen zwei (die MUST NOT zu jcs-n und zu as-transmitted) wortgleich am Ende von -02 14.1; die zwei im Block ueber die Vektor-Fundorte kommen in -02 nirgends vor. Damit sind 29 der 31 Pflichtwoerter in neuen Abschnitten wirklich neu, nicht 31.",
+   "nach": {
+    "nummer": "14.1.1",
+    "revision": "-05"
+   },
+   "titel": "Schlussabsaetze zu jcs-n und as-transmitted",
+   "von": {
+    "nummer": "14.1",
+    "revision": "-02"
+   }
+  }
+ ]
+}
