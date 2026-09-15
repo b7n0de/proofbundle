@@ -26,8 +26,18 @@ this page actually bridges, `-02` to `-05`: requirement words rise from **68 to 
 MUST NOT 28→50, SHALL and REQUIRED unchanged), and **31 of them sit in six sections that do not
 exist in `-02`** — 6.1 Full-Content Mode, 6.2 Hash Envelope Mode, 8.3 Envelope Carriage, 8.4 Payload
 Carriage, 14.1.1 Test Vector Locations, 14.2 COSE Header Parameters Registration. The last of those
-requests an IANA registration of the COSE header parameter `cpb-refs` with its own `MUST NOT`. Where
-inside the span those requirements arrived is **NOT MEASURED**: `-03` and `-04` were not fetched.
+requests an IANA registration of the COSE header parameter `cpb-refs` with its own `MUST NOT`.
+
+**Where inside the span they arrived is now measured too: all of it in one revision, `-02` to
+`-03`.** `-03`, `-04` and `-05` are identical at 113 requirement words; every one of the new
+sections appeared in `-03`, and so did the move of `Verification Scope` to 8.5. `-03` says so in
+its own change log, which lists the new Section 6 split into Full-Content and Hash Envelope Mode,
+the four reference-processing outcomes, and the `cpb-refs` CDDL, and states that these "are now
+normative". So the quotation this page carried is not merely narrow: it points at the two
+revisions in which nothing normative happened, while the one that carried all of it goes
+unmentioned. Fetched 2026-09-15 from the same source: `-03` **108056 bytes**, sha256
+`d303e6e4ec4c4bf3…`; `-04` **109494 bytes**, sha256 `de06a6eade0306c4…`.
+
 **Whether any of the six reaches our construction is measured, and none of them does today.** All
 six govern the COSE envelope: 6.1 and 6.2 are Full-Content and Hash Envelope Mode under RFC 9995,
 8.3 carries `cpb-refs` in a COSE protected header, and 14.2 registers that header parameter.
@@ -37,7 +47,8 @@ CBOR in the tree is a standalone cross-check reader under `tools/scitt_ccf_datah
 own docstring states it uses no COSE package; it reads someone else's vectors and signs nothing of
 ours. We sign DSSE, so a rule about the COSE envelope has no object here. That is a fact about
 today, not an argument against adopting Hash Envelope Mode. Section 4 is retitled
-**"Canonicalization Algorithm Registrations"**, and `jcs` and `as-transmitted` are restated as **registrations** (identifier,
+**"Canonicalization Algorithm Registrations"**, and `jcs` and `as-transmitted` are restated as
+**registrations** (identifier,
 normative reference, digest context, declaration rule) rather than as procedures; the withdrawn
 entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page that exists in `-02`
 carries the same section number in `-05`** — twelve of the fifteen cited; the other three (6.2, 8.3,
