@@ -1,0 +1,80 @@
+# .mailmap — one identity for display, without touching a single commit
+#
+# Owner order OA-dc47a6f71c, 2026-09-13, verbatim: "Form B, Zielidentitaet b7n0de
+# <kontakt@b7n0de.com>, kein Realname in der Datei, alle alten Adressen und kraxo@b7n0de.com nur
+# ueber die Adresse dorthin abbilden, crissi.jane damit vollstaendig abgebildet."
+#
+# WHY NO REWRITE (order OA-517479ff38, verbatim): history is not rewritten because tags, receipts,
+# provenance and archives are bound to the object names. A .mailmap only changes what `git log`,
+# `git shortlog` and `git blame` DISPLAY. Every commit stays byte for byte as it is, and every
+# signature, digest and anchoring keeps its validity.
+#
+# WHY BY ADDRESS AND NOT BY NAME. Mapping by name plus address would keep the owner's real name in
+# this file, which the order rules out. Mapping by address alone carries one accepted consequence,
+# and the order names it: the entry that wrote under `raponchen@me.com` with a different display
+# name is folded in as well. That is a decision, not an oversight.
+#
+# MEASURED over origin/main, 1139 commits, before this file existed:
+#   662  kraxo@b7n0de.com                              173  45888075+b7n0de@users.noreply.github.com
+#   132  support@zudiroderzumir.de                      99  kontakt@b7n0de.com
+#    28  raponchen@me.com                               17  b7n0de@users.noreply.github.com
+#     3  security@b7n0de.com
+#   plus dependabot, one outside contribution and one foreign account, none of them this owner.
+#
+# THE IDENTITY BOUNDARY, for the register, CORRECTED after Codex round one measured it against the
+# graph rather than against the dates. The earlier wording claimed that
+# d4558036a04032a3747d9f72de7213e9d5c34dcb of 2026-09-07T12:52:11+02:00 is "the first point after
+# which no older address follows", with 117 commits behind it. Both numbers were wrong, and the
+# error is worth naming because it is a whole class: the sentence is a statement about the DAG, and
+# it was derived from a list sorted by DATE.
+#
+# Measured at a7510d2: d4558036 has 128 descendants, not 117, and FOUR of them carry
+# support@zudiroderzumir.de — 25c23fa3, cebbdf9d, 167eba39, f023a590, authored on 2026-09-07 between
+# 06:57 and 08:12, therefore EARLIER than d4558036 by the clock and LATER than it in the graph,
+# because they were integrated afterwards. `git log A..B` answers a question about reachability; a
+# date answers a different one.
+#
+# What holds, stated separately because the two orders disagree:
+#   by DATE   the last commit carrying an older address is b9d35d492db87267ae197d882126c12fea9eeb14
+#             of 2026-09-07T12:15:53+02:00. That half of the earlier sentence was correct.
+#   by GRAPH  the first point after which no older address follows is
+#             7616293c247be82063603955e76770e6849ad781 of 2026-09-13T11:17:04+02:00, with exactly
+#             two descendants, both of them this identity work. It sits that late because the merge
+#             at that commit brought in a whole branch whose commits are topologically after every
+#             earlier candidate while carrying older addresses: the candidate one step older,
+#             3dfea31e, still has 80 of them behind it.
+#   by SCOPE at b96b961e1c6bd40b40c7139925564d08a3e0e22f the branch carries 1163 commits. 779 were
+#             authored under one of the two house addresses, so 384 were not. Of those 384, twenty
+#             four are third party and not this owner at all, twenty from Dependabot, three from an
+#             outside contributor and one from a foreign account. That leaves 360 authored under an
+#             older address OF THIS OWNER.
+#
+#             The earlier line gave a single number, 376, and called all of it older addresses of
+#             this owner. It was the complement of the two house addresses, and a complement is not
+#             a membership test. Everything that is not us was counted as an older us, which put
+#             twenty two third party commits inside this identity. The fix is the separation, not a
+#             smaller number.
+#
+#             Reproduce with `git log <head> --no-use-mailmap --format='%ae' | sort | uniq -c`. Each
+#             count names the head it was measured at, because a count without one cannot be checked
+#             and goes stale in silence.
+#
+# The house identity first appears in d602802c5bb3daeb76439c99651d84220a894306 of 2026-07-09 and
+# does not hold from there. None of this rewrites anything: the mapping below normalises the
+# DISPLAY, and every commit keeps the sha its receipts, tags and provenance are bound to.
+
+# Die ZIELADRESSE braucht eine eigene Zeile, und das ist nicht Zierde. GEMESSEN ohne sie:
+# 101 Commits, die kontakt@b7n0de.com bereits benutzten, blieben unter ihren alten
+# Anzeigenamen stehen, darunter zweimal der Realname. Eine Abbildung ueber die Adresse
+# normalisiert den NAMEN einer Adresse nur, wenn die Adresse selbst eine Zeile hat.
+b7n0de <kontakt@b7n0de.com> <kontakt@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <kraxo@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <support@zudiroderzumir.de>
+b7n0de <kontakt@b7n0de.com> <raponchen@me.com>
+b7n0de <kontakt@b7n0de.com> <security@b7n0de.com>
+b7n0de <kontakt@b7n0de.com> <45888075+b7n0de@users.noreply.github.com>
+b7n0de <kontakt@b7n0de.com> <b7n0de@users.noreply.github.com>
+
+# NOT MAPPED, and each for a reason that is not convenience: dependabot[bot], the outside
+# contribution under 158809980+tuodijihua@users.noreply.github.com, and hello@quantsynth.net. None
+# of them is this owner, and folding a third party into an identity would be a false claim.

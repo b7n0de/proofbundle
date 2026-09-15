@@ -25,7 +25,11 @@ from typing import Any
 
 from .errors import ProofBundleError
 
-SUBJECT_MODES = ("DERIVED", "EXTERNAL_ATTESTED")
+# AMBIGUOUS (deep gate 2026-09-05, finding L4-02): a Statement with MORE THAN ONE subject never binds silently
+# to subject[0]. Which object the statement speaks about is open, on the statement-under-verification side
+# exactly as on the resolver side (cli._load_related already reported such a target as "ambiguous"); the
+# verdict is order-invariant, so [derived, foreign] and [foreign, derived] classify identically.
+SUBJECT_MODES = ("DERIVED", "EXTERNAL_ATTESTED", "AMBIGUOUS")
 
 
 class SubjectBindingError(ProofBundleError):
@@ -46,11 +50,26 @@ def derive_subject_digest(predicate: Any) -> str:
     return hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
 
 
-def _declared_subject_sha256(statement: Any) -> str | None:
+def subject_cardinality(statement: Any) -> int | None:
+    """How many entries the Statement's ``subject`` array carries; ``None`` when there is no array at all.
+
+    The ONE place the count is read (L4-02 sweep of every ``subject[0]`` site): a statement binds exactly
+    one object or it binds none unambiguously — a second entry makes the binding AMBIGUOUS, and no caller
+    may silently take the first."""
     if not isinstance(statement, dict):
         return None
     subj = statement.get("subject")
-    if not isinstance(subj, list) or not subj or not isinstance(subj[0], dict):
+    if not isinstance(subj, list):
+        return None
+    return len(subj)
+
+
+def _declared_subject_sha256(statement: Any) -> str | None:
+    """The declared digest of the SINGLE subject — ``None`` for absent, empty, AMBIGUOUS (>1) or malformed."""
+    if subject_cardinality(statement) != 1:
+        return None
+    subj = statement["subject"]
+    if not isinstance(subj[0], dict):
         return None
     dig = subj[0].get("digest")
     sha = dig.get("sha256") if isinstance(dig, dict) else None
@@ -62,11 +81,18 @@ def classify_subject(statement: Any) -> dict:
 
     Returns ``{mode, matches, derived_sha256, declared_sha256}``:
       - ``mode`` is ``DERIVED`` when the declared subject digest equals the re-derived predicate digest,
+        ``AMBIGUOUS`` when the subject array carries more than one entry (deep gate 2026-09-05, L4-02: the
+        first entry is never silently taken, and the verdict does not depend on the order of the entries),
         else ``EXTERNAL_ATTESTED`` (the subject points at something other than these predicate bytes).
       - ``matches`` mirrors ``mode == 'DERIVED'`` for a quick boolean gate.
     A malformed statement (no predicate / no subject digest) is ``EXTERNAL_ATTESTED`` with ``matches`` False —
     fail-closed: we never call an unresolvable subject a genuine commitment."""
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    n = subject_cardinality(statement)
+    if n is not None and n > 1:
+        # Order-invariant by construction: the count decides before any entry is read.
+        return {"mode": "AMBIGUOUS", "matches": False, "derived_sha256": None, "declared_sha256": None,
+                "subject_count": n}
     declared = _declared_subject_sha256(statement)
     if predicate is None or declared is None:
         return {"mode": "EXTERNAL_ATTESTED", "matches": False,
@@ -82,6 +108,10 @@ def require_derived_subject(statement: Any) -> None:
     to the predicate. Use this when a relying party requires the subject to bind the predicate (an
     EXTERNAL_ATTESTED subject is only trustable via a policy that pins the external attester)."""
     c = classify_subject(statement)
+    if c["mode"] == "AMBIGUOUS":
+        raise SubjectBindingError(
+            f"subject is AMBIGUOUS — the statement carries {c.get('subject_count')} subjects and never binds "
+            "silently to the first one; a DERIVED commitment needs exactly one subject")
     if not c["matches"]:
         raise SubjectBindingError(
             "subject is not a DERIVED commitment to the predicate "

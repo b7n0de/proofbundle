@@ -113,6 +113,7 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     independent_attestation_resolver: Optional[Callable[[Any], bool]] = None,
                                     executor_key_id: Optional[str] = None,
                                     receiver_key_id: Optional[str] = None,
+                                    expected_receiver_public_key: Optional[bytes] = None,
                                     ) -> dict:
     """Classify a receiver/observer corroboration ref (Finding 16, additive) ONE STEP BEYOND
     :func:`classify_digest_evidence` — reaches ``EvidenceLevel.INDEPENDENTLY_ATTESTED`` when
@@ -162,10 +163,33 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
         return {**base, "detail": base["detail"] + " (independence not provable: executor and receiver key "
                 "ids must both be present and differ; an absent/equal key id is self-corroboration — "
                 "principal-level independence for two distinct keys needs the outcomeReceivers trust role)"}
+    # KEY BINDING (deep gate 2026-09-05, L1-600-02, receiver half): a `receiverKeyId` is a LABEL the
+    # executor wrote into its own predicate. When the caller can name the key the pack holds for that
+    # label (``expected_receiver_public_key``, from a Trust Pack's ``keys[receiverKeyId].publicKey``),
+    # independence is asserted only if the resolver returns THE SIGNING KEY of the referenced statement
+    # (32 raw Ed25519 bytes) and it equals the expectation. A resolver that answers a bare ``True``
+    # cannot bind a label to a key, so with an expectation in hand it earns no promotion — the base level
+    # is kept and the detail says why. Without an expectation the contract is unchanged (additive).
     try:
-        attested = bool(independent_attestation_resolver(digest_obj))
+        res = independent_attestation_resolver(digest_obj)
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
-        attested = False
+        res = False
+    if isinstance(res, (bytes, bytearray)):
+        signer_key = bytes(res) if len(res) == 32 else None
+        if signer_key is None:
+            return {**base, "detail": base["detail"] + " (attestation resolver returned key material that is "
+                    "not a 32-byte Ed25519 key — not attested)"}
+        if expected_receiver_public_key is not None and signer_key != bytes(expected_receiver_public_key):
+            return {**base, "detail": base["detail"] + " (KEY_ID_NOT_BOUND_TO_SIGNER: the referenced statement "
+                    "is signed by a key that is not the trust pack's key for receiverKeyId — the label names "
+                    "a party that did not sign)"}
+        attested = True
+    elif expected_receiver_public_key is not None:
+        return {**base, "detail": base["detail"] + " (receiverKeyId has key material in the trust pack, but "
+                "the attestation resolver did not return the signing key, so the label cannot be bound to "
+                "the signer — no promotion; return the 32-byte signer key from the resolver to bind it)"}
+    else:
+        attested = bool(res)
     if not attested:
         return base
     return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,

@@ -80,8 +80,17 @@ MUTATIONS = [
      "recomputed_b64 = stated_b64",
      "cli --verbose: fake recomputed root", True),
     # v1.3 — tlog-proof / ML-DSA / status list
+    # 2026-09-05: die Zielzeile auf den heutigen Quelltext gezogen. Das deep gate ersetzte am
+    # selben Tag den direkten `hmac.compare_digest(computed, log_res["root"])`-Vergleich durch
+    # `merkle.verify_inclusion(...)` (ein Orakel, das zusaetzlich die merkle_path-Kappe, die
+    # int_bits-Schranke und die Typboeden traegt, siehe tlogproof.py); der Operator nannte
+    # weiter den alten Wortlaut und war damit STALE — er meldete eine Luecke im PRUEFER, nicht
+    # im Code (`GAP [tlogproof: inclusion check disabled] pattern not found`). Ersatz
+    # mitgezogen; das Verdikt bleibt dasselbe (Inklusion komplett deaktiviert) — belegt in
+    # einem Wegwerfbaum als KILLED gegen die Baseline, nicht nur behauptet.
     ("src/proofbundle/tlogproof.py",
-     'inclusion_ok = hmac.compare_digest(computed, log_res["root"])',
+     'inclusion_ok = merkle.verify_inclusion(\n'
+     '                leaf_data, parsed["index"], log_res["tree_size"], parsed["proof"], log_res["root"])',
      "inclusion_ok = True",
      "tlogproof: inclusion check disabled", True),
     ("src/proofbundle/tlogproof.py",
@@ -279,8 +288,13 @@ MUTATIONS = [
     # 3.2.0 anchor-longevity (ADR 0006) — the new fail-closed defenses. Killed by the unittest property
     # tests in tests/test_anchor_longevity_property.py (which run under unittest discover).
     # B2 — a dual-hash leg that never actually compares the digest lets forged bytes verify.
+    # 2026-09-10: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Lauf 9
+    # (L1-600-HEXCASE-01) nahm das `.lower()` von der ERWARTETEN Seite weg, damit ein signiertes
+    # Artefakt genau eine gueltige Drahtform hat; der Operator nannte weiter den alten Wortlaut
+    # und war damit STALE (`GAP [...] pattern not found`, CI-Lauf 34383833738, Job mutation (6)).
+    # Ersatz mitgezogen, Verdikt unveraendert: der Vergleich faellt ganz weg, jeder Digest gilt.
     ("src/proofbundle/hashalg.py",
-     "        match = isinstance(expected, str) and actual == expected.lower()",
+     "        match = isinstance(expected, str) and actual == expected",
      "        match = True",
      "hashalg: B2 dual-hash digest comparison disabled (forged bytes verify)", True),
     # B2 — a deprecated hash must never resolve by default (algorithm-confusion / RFC 7696).
@@ -396,8 +410,22 @@ MUTATIONS = [
     # Crypto-review 2026-07-15 refuter residuals — each new fail-closed guard killed by its own test.
     # C1.1: removing the raw-size cap re-opens the pre-parse DoS (a 50 MB envelope parses fully before the
     # signatures loop cap runs) — killed by tests/test_budget.py's test_rejects_oversized_raw_input_before_parse.
+    # 2026-09-10: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Lauf 8
+    # (L3-600-BYTESUNIT-01) ersetzte das einzelne `if len(text) > b.input_bytes:` durch eine
+    # Kaskade, die BYTES statt Codepoints misst; die alte Zeile heisst dort jetzt `elif` und die
+    # Abweisung sitzt eine Ebene tiefer. Der Operator nannte weiter den alten Wortlaut und war
+    # damit STALE — er meldete eine Luecke im PRUEFER, nicht im Code (`GAP [...] pattern not
+    # found`, CI-Lauf 34383833738, Job mutation (4), 2026-09-09T21:44:29Z).
+    #
+    # ER ZIELT JETZT AUF DIE ABWEISUNG, NICHT AUF DIE ABKUERZUNG. Der naheliegende Nachzug waere
+    # `elif len(text) > b.input_bytes:` -> `elif False:` gewesen; das ist ein AEQUIVALENTER Mutant
+    # und haette die Luecke nur umbenannt: faellt dieser Zweig weg, traegt der else-Zweig
+    # (`len(text.encode(...))`) dieselbe Byte-Zahl bei und `if _n_bytes > b.input_bytes` weist
+    # unveraendert ab. Die Eigenschaft, die das Label beschreibt ("pre-parse cap removed"), haengt
+    # an der Abweisung — dort greift der Operator, und dort toetet ihn
+    # tests/test_budget.py::test_rejects_oversized_raw_input_before_parse.
     ("src/proofbundle/_strict_json.py",
-     "    if len(text) > b.input_bytes:",
+     "    if _n_bytes > b.input_bytes:",
      "    if False:",
      "_strict_json: C1.1 raw input_bytes pre-parse cap removed (oversized envelope parsed unbounded)", True),
     # json_nodes: disabling the node walk lets a wide-but-small-bytes structure (many nodes under the byte
@@ -499,6 +527,87 @@ MUTATIONS = [
      "        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None",
      "        pinned = target_pin.get(_rel)",
      "relation: R7-2b unhashable relation target-lookup guard disabled (dict-key TypeError)", True),
+
+    # ------------------------------------------------------------------------------------------
+    # DIE ZWOELF OPERATOREN DER STUFE 6 FUER 6.0.0 (Nachtrag 3, Teil D2, 2026-09-06).
+    #
+    # WARUM SIE HIER FEHLTEN, und das ist der eigentliche Befund: die 88 Operatoren darueber liegen
+    # samtlich auf `src/proofbundle/*`. Auf `scripts/audit_candidate_matrix.py` — der Matrix, die
+    # ueber die FREIGABE entscheidet und die vier der sieben D2-Auflagen adressieren — lag KEINER.
+    # Ebenso keiner auf `budget.py`, `MANIFEST.in` und `sign_readiness_artifact.py`. Ein Mutationslauf
+    # ueber 88 Operatoren sah damit vollstaendig aus und liess die gesamte Release-Entscheidungsflaeche
+    # ungeprueft. Gemessen 2026-09-06 mit einem Inventar-Abgleich der sieben Pflichtflaechen gegen die
+    # Liste: 0 von 7 hatten einen Operator, alle 7 Flaechen sind im Baum vorhanden, also baubar.
+    #
+    # JEDES ZIEL-LITERAL IST VOR DER AUFNAHME AUF EINDEUTIGKEIT GEPRUEFT (genau ein Vorkommen im Baum).
+    # Bei D2-4 war das nicht akademisch: die naheliegende Zeile
+    # `return None, f"git is not usable here ({type(exc).__name__})"` kommt ZWEIMAL vor, in
+    # `_anchor_last_touched_at_head` und in `_evidenz_relation_erlaubt`. Ein Operator darauf haette
+    # je nach Reihenfolge das falsche Ziel getroffen oder als stale gegolten.
+
+    # D2-1 · der bytegenaue CLI-Eingang. Ohne `newline=""` normalisiert Python CRLF still, ohne
+    # `surrogateescape` wirft ein ungueltiges Byte, statt bis zur typisierten Parserablehnung zu tragen.
+    ("src/proofbundle/cli.py",
+     '    return open(path, encoding="utf-8", errors="surrogateescape", newline="")',
+     '    return open(path, encoding="utf-8", errors="surrogateescape")',
+     "cli: newline='' am Eingang entfernt — CRLF wird still normalisiert", True),
+    ("src/proofbundle/cli.py",
+     '    return open(path, encoding="utf-8", errors="surrogateescape", newline="")',
+     '    return open(path, encoding="utf-8", newline="")',
+     "cli: surrogateescape am Eingang entfernt — ungueltige Bytes werfen statt zu tragen", True),
+
+    # D2-2 · die drei Achsen der Erneuerungskette und der Zeitpunkt ihrer Pruefung.
+    ("src/proofbundle/budget.py",
+     "    data_digests: int = 2_000",
+     "    data_digests: int = 2_000_000_000",
+     "budget: data_digests-Schranke praktisch entfernt", True),
+    ("src/proofbundle/budget.py",
+     "    renewal_work: int = 40_000_000",
+     "    renewal_work: int = 40_000_000_000_000",
+     "budget: renewal_work-Riegel praktisch entfernt", True),
+    ("src/proofbundle/renewal.py",
+     "    _arbeit = len(flat) * max(1, len(data_digests)) * max(1, len(_start_algs))",
+     "    _arbeit = len(flat) * max(1, len(data_digests))",
+     "renewal: Faktor fuer Kettenanfangsalgorithmen aus dem Produkt entfernt", True),
+    ("src/proofbundle/renewal.py",
+     '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     "renewal: data_digests-Pruefung VOR der Deckungsarbeit abgeschaltet", True),
+
+    # D2-3 · die Evidenzcommit-Relation. Ohne die Pfadeinschraenkung genuegt ein beliebiger Nachfahr.
+    ("scripts/audit_candidate_matrix.py",
+     "    fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))",
+     "    fremd = []",
+     "matrix: Evidenzrelation auf beliebige Pfade aufgeweicht", True),
+
+    # D2-4 · DATA_BLOCKED gegen fail-open. Der dritte Zustand ist der ganze Sinn der Auflage.
+    ("scripts/audit_candidate_matrix.py",
+     '        return None, f"git log failed here (exit {r.returncode})"',
+     '        return False, f"git log failed here (exit {r.returncode})"',
+     "matrix: Anker-Historie bei Git-Fehler fail-open statt DATA_BLOCKED", True),
+
+    # D2-5 · Distributionsidentitaet und die Freigabestaerke von C10.2.
+    ("scripts/audit_candidate_matrix.py",
+     "    if len(sdists) > 1 or len(wheels) > 1:",
+     "    if False and (len(sdists) > 1 or len(wheels) > 1):",
+     "matrix: Mehrdeutigkeit in dist/ wird nicht mehr abgewiesen", True),
+    ("scripts/audit_candidate_matrix.py",
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     "matrix: C10.2 wieder freigabeentscheidend hochgestuft", True),
+
+    # D2-6 · das ausgeschlossene Signierskript zurueck in den sdist.
+    ("MANIFEST.in",
+     "include scripts/pre_tag_receipt_lib.py",
+     "include scripts/pre_tag_receipt_lib.py\ninclude scripts/pre_tag_receipt.py",
+     "packaging: pre_tag_receipt.py wieder in den sdist aufgenommen", True),
+
+    # D2-7 · Artefaktfluss gegen Koexistenz. `kette` statt `kette[i + 1:]` heisst: die Benutzung darf
+    # wieder VOR dem Bau liegen — genau die Attrappe, die Review Runde 3 vorgefuehrt hat.
+    ("scripts/audit_candidate_matrix.py",
+     "            for art_j, ordner_j in kette[i + 1:]:",
+     "            for art_j, ordner_j in kette:",
+     "matrix: Reihenfolge im Artefaktfluss fallen gelassen — Koexistenz genuegt wieder", True),
 ]
 
 
@@ -509,10 +618,17 @@ MUTATIONS = [
 # (baut zwei sdists und vergleicht sie byteweise, sweept den Baum auf verbotene Muster), nicht
 # den mutierten Quelltext. Achtundachtzig Mal dieselbe Antwort auf dieselbe Frage.
 #
-# WAS DER AUSSCHLUSS NICHT DARF. Er gilt AUSSCHLIESSLICH fuer die Laeufe je Mutante. Baseline
-# und Schlusslauf fahren die volle Suite, damit die Leftover-Pruefung und der differentielle
-# Bezug unveraendert bleiben. Ein Ausschluss, der auch die Baseline betraefe, verschoebe den
-# Bezugspunkt und machte das Tor blind statt schnell.
+# WAS DER AUSSCHLUSS NICHT DARF — UND WAS DIESER KOMMENTAR BIS 2026-09-07 FALSCH BEHAUPTETE.
+# Hier stand: "Er gilt AUSSCHLIESSLICH fuer die Laeufe je Mutante. Baseline und Schlusslauf fahren
+# die volle Suite." GEMESSEN am eigenen Code stimmte das nicht: alle drei Aufrufstellen (Baseline,
+# Mutant, Schlusslauf) uebergaben `ausschluss=True`. Der Parameter hatte nie einen zweiten Wert.
+#
+# DER CODE WAR DABEI RICHTIG UND DER KOMMENTAR FALSCH, nicht umgekehrt. Ein differentielles Urteil
+# `red > baseline` ist nur dann eines, wenn beide Seiten DIESELBE Menge fahren; eine Baseline ueber
+# eine groessere Menge als der Mutant verschoebe genau den Bezugspunkt, den der Satz zu schuetzen
+# vorgab. Deshalb ist der Parameter jetzt weg statt korrigiert: eine Stellschraube, die nur einen
+# Wert annehmen darf, ist keine Stellschraube, sondern eine Behauptung ueber Variabilitaet, die es
+# nicht gibt — und sie hat hier vier Tage lang einen falschen Kommentar getragen.
 #
 # WIE ES BELEGT WIRD. Abnahme ist NICHT Zeit, sondern Verdikt: alle 88 Operatoren laufen einmal
 # mit Ausschluss und werden Operator fuer Operator gegen den kanonischen Lauf vom 30.08.
@@ -526,29 +642,78 @@ _AUSSCHLUSS_JE_MUTANTE: dict[str, str] = {
         "Quelltext, deshalb sagt sie je Mutante nichts."),
 }
 
-# Der Lauf je Mutante als Programm: `unittest discover` kennt keinen Ausschluss, und ein
-# handgebauter Modulnamen-Aufruf haette andere Fehlersemantik (ein Importfehler wuerde hart
-# abbrechen statt als _FailedTest zu zaehlen). Deshalb wird discover UNVERAENDERT gefahren und
-# erst danach gefiltert — die Population bleibt dieselbe minus der benannten Dateien.
-_FILTER_PROGRAMM = """
-import sys, unittest
-ausschluss = set(sys.argv[1:])
-lader = unittest.TestLoader()
-suite = lader.discover("tests", top_level_dir="tests")
-def sieben(s):
-    raus = unittest.TestSuite()
-    for t in s:
-        if isinstance(t, unittest.TestSuite):
-            raus.addTest(sieben(t))
-        elif t.__class__.__module__ not in ausschluss:
-            raus.addTest(t)
-    return raus
-ergebnis = unittest.TextTestRunner(verbosity=1).run(sieben(suite))
-sys.exit(0 if ergebnis.wasSuccessful() else 1)
-"""
+# Der Lauf je Mutante als Programm.
+#
+# WARUM HIER PYTEST STEHT UND NICHT MEHR `unittest discover`. GEMESSEN 2026-09-07 auf dem
+# 6.0.0-Kandidaten: `unittest.TestLoader().discover("tests")` sammelt 2565 Tests aus 197 Dateien,
+# `pytest --collect-only` sammelt 3728 aus 254. 57 Dateien (22 Prozent) liefern dem alten Sammler
+# NICHTS, weil sie ausschliesslich pytest-Funktionen und -Klassen tragen — er sieht nur Methoden von
+# `unittest.TestCase`.
+#
+# DIE VERTEILUNG IST DAS EIGENTLICHE PROBLEM, nicht die Zahl. Die blinde Menge ist nicht zufaellig
+# gestreut: sie enthaelt VOLLSTAENDIG die Dateien, die die Release-Entscheidungsflaeche pruefen —
+# test_freigabe_evidenz_provenienz_l5_g7_02, test_ausfuehrung_aus_quelltext_l5_g7_04,
+# test_audit_candidate_ready_logic, test_audit_matrix_version_pin_binding, test_budget_kostenkurve,
+# test_renewal* und weitere. Genau die zwoelf Operatoren, die am 2026-09-06 fuer diese Flaeche
+# hinzukamen, wurden damit gegen einen Sammler gemessen, der ihre Tests nicht kennt: der Lauf
+# meldete acht SURVIVED, darunter Mutanten, die ein Test GEZIELT angreift (Beispiel:
+# test_freigabe_evidenz_provenienz_l5_g7_02.py::test_ein_commit_der_sonst_etwas_anfasst_ist_nicht_
+# erlaubt prueft mit `assert erlaubt is False` genau die Mutation `fremd = []`).
+#
+# PYTEST IST EINE ECHTE OBERMENGE, nicht ein Tausch: es sammelt `unittest.TestCase`-Klassen
+# ebenso (gemessen an tests/test_budget.py: 22 Tests, darunter TestInputBytesBudgetEnforced, eine
+# unittest.TestCase-Klasse). Kein Test faellt weg, 1163 kommen hinzu.
+#
+# DER WAECHTER ERLAUBT ES AUSDRUECKLICH. tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py
+# ::_startet_suite ueberspringt Laeufer, deren subprocess-Knoten "pytest" enthaelt ("ein Laeufer
+# UEBER pytest traegt die Regel, der conftest-Haken laeuft mit"); er schlaegt nur bei einem Laeufer
+# an, der die Suite OHNE pytest startet. Derselbe conftest-Haken behebt nebenbei eine zweite Klasse:
+# Modul-Skips, die unter `unittest discover` zu ERRORS werden, sind unter pytest Skips.
+def _ausschluss_args(work: Path) -> list[str]:
+    """Die Ausschlussmenge als pytest-Argumente — mit GEPRUEFTEM Ziel, nicht mit geglaubtem.
+
+    WARUM HIER EINE PRUEFUNG STEHT. Die Gegenlesung dieses Diffs hat gemessen, dass
+    `pytest --ignore=tests/gibt_es_nicht.py` NICHT abbricht: kein Fehler, rc=0, und alle Tests
+    laufen trotzdem. Ein Eintrag mit falschem Namen — Tippfehler, Umbenennung, ein Modul in einem
+    Unterordner — schloesse also STILL nichts aus, waehrend der Kommentar oben eine Garantie
+    behauptet ("--ignore ist exakt dieselbe Semantik"). Die Richtung waere hier zwar harmlos (es
+    liefe MEHR statt weniger), aber das Tor mieße dann eine andere Menge als die dokumentierte,
+    und genau diese Sorte stiller Mengendifferenz ist der Grund fuer diesen ganzen Diff.
+
+    Eine unbelegte Zusage im Kommentar ist keine Zusage.
+
+    WO DIE PRUEFUNG STEHT — UND WO SIE ZUERST FALSCH STAND. Der erste Versuch liess diese Funktion
+    bei fehlendem Ziel den ganzen Lauf abbrechen. GEMESSEN: damit fielen sofort zwei Faelle in
+    `tests/test_mutation_isolation.py`, die `main()` gegen ein winziges Fixture-Repo fahren — das
+    hat eine eigene Suite und kennt die Datei natuerlich nicht. Der Riegel war richtig gemeint und
+    am falschen Ort: `_AUSSCHLUSS_JE_MUTANTE` ist eine Aussage ueber DIESES Repo, nicht ueber jeden
+    Baum, den der Laeufer je faehrt. Zur Laufzeit ist ein fehlendes Ziel schlicht nichts, was man
+    ausschliessen koennte — kein Fehler.
+
+    Die Zusage ("jeder Eintrag trifft wirklich eine Datei") ist deshalb eine ZUSICHERUNG geworden:
+    `tests/test_mutationstor_sammler_sieht_die_freigabeflaeche.py::
+    test_jeder_ausschlusseintrag_zeigt_auf_eine_existierende_datei`. Sie prueft gegen das Repo, wo
+    die Frage hingehoert, und faellt deterministisch in CI — statt einen fremden Baum anzuhalten.
+    """
+    args = []
+    for name in sorted(_AUSSCHLUSS_JE_MUTANTE):
+        if not (work / "tests" / f"{name}.py").is_file():
+            if name not in _AUSSCHLUSS_OHNE_ZIEL_GEMELDET:
+                _AUSSCHLUSS_OHNE_ZIEL_GEMELDET.add(name)
+                print(f"  ! Ausschlusseintrag {name!r} hat in diesem Baum kein Ziel — er wirkt "
+                      f"hier NICHT (in einem fremden Baum normal, in diesem Repo ein Fehler; "
+                      f"die Zusicherung dazu steht in tests/)")
+            continue
+        args.append(f"--ignore=tests/{name}.py")
+    return args
 
 
-def _red_count(work: Path, *, ausschluss: bool = False) -> int:
+#: Einmal je Prozess melden statt hundertmal — eine Notiz, die bei jedem Operator wiederkommt,
+#: liest niemand mehr.
+_AUSSCHLUSS_OHNE_ZIEL_GEMELDET: set[str] = set()
+
+
+def _red_count(work: Path) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -566,16 +731,229 @@ def _red_count(work: Path, *, ausschluss: bool = False) -> int:
     # subprocess-Knotens stehen. Eine Zwischenvariable macht diese Datei fuer den Waechter
     # unsichtbar, obwohl sie die Suite unveraendert startet — beim ersten Versuch am 02.09.2026
     # genau so gemessen: der Waechter meldete den Laeufer als VERSCHWUNDEN.
-    proc = subprocess.run(
-        ([sys.executable, "-B", "-c", _FILTER_PROGRAMM, *sorted(_AUSSCHLUSS_JE_MUTANTE)]
-         if ausschluss else
-         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]),
-        cwd=work, capture_output=True, text=True,
+    try:
+        with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
+            bericht = Path(_b) / "bilanz.xml"
+            proc = _lauf_der_suite(work, bericht)
+            return _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
+    except (subprocess.TimeoutExpired, OSError) as fehler:
+        # NICHT NUR DER TIMEOUT. Die erste Fassung fing ausschliesslich `TimeoutExpired`; jede
+        # andere Stoerung (fehlender Interpreter im schmalen PATH, Ressourcenfehler beim fork)
+        # riss den GESAMTEN Shard-Lauf mit rohem Traceback ab, statt diesen einen Operator als
+        # NICHT MESSBAR zu fuehren und weiterzugehen. Das war zwar kein falsches Gruen, aber es
+        # widersprach dem Muster, das dieser Diff sonst durchhaelt. Gefunden von der Gegenlesung.
+        print(f"  ! Lauf nicht zu Ende gekommen ({type(fehler).__name__}): NICHT MESSBAR")
+        return None
+
+
+def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.CompletedProcess:
+    # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
+    # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
+    # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
+    # "pytest", gilt er als Laeufer, der die Repo-Kontext-Regel traegt. Eine Liste, die erst eine
+    # Hilfsfunktion baut, macht diese Datei fuer den Waechter zu einem Knoten OHNE Laeufer — sie
+    # faellt dann nicht auf, weder richtig noch falsch. Am 02.09.2026 wurde derselbe Effekt mit
+    # einer Zwischenvariablen schon einmal gemessen: der Waechter meldete den Laeufer VERSCHWUNDEN.
+    return subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+         # `-p no:randomly` IST NICHT KOSMETIK. Dieses Repo aktiviert pytest-randomly; zwei
+         # aufeinander folgende Laeufe liefern verschiedene Reihenfolgen (gemessen 2026-09-07).
+         # Das Tor vergleicht `red` zwischen Basislinie und Mutant — bei zufaelliger Reihenfolge
+         # vergleicht es zwei verschieden gefahrene Suiten, und eine ordnungsabhaengige Roete
+         # kippt das Urteil, ohne dass am Code etwas anders waere. Gegenlesung K6, nicht Autor.
+         "-p", "no:randomly",
+         # `--continue-on-collection-errors` IST DER FIX GEGEN EIN FALSCHES GRUEN, nicht Bequem-
+         # lichkeit. OHNE das Flag bricht pytest die GESAMTE Sitzung ab, sobald irgendwo ein
+         # Sammelfehler auftritt ("Interrupted: 1 error during collection"), und schreibt dann
+         # `1 error` — eine kleine, plausible, zaehlbare Zahl fuer einen Lauf, in dem von 3728
+         # Tests KEINER lief. Die gemessene Basislinie dieses Baums ist 0; bei `killed = red >
+         # baseline` haette `1 > 0` diese Mutante als GETOETET verbucht. Ein Mutant, der den
+         # Import EINER Testdatei bricht, haette sich damit selbst als gefangen gemeldet.
+         # Mit dem Flag laeuft die Suite zu Ende und der Sammelfehler zaehlt als das, was er ist.
+         # `--junitxml` IST DER EIGENTLICHE FIX GEGEN DAS KILL-SIGNAL AUS FREIEM TEXT (deep gate
+         # Lauf 5, Linse 5, REJECT mit ausgefuehrtem Gate-Meta-Test). Die Rote-Zahl entschied
+         # ueber KILLED/SURVIVED und kam aus `re.search(r"(\d+) failed", blob)` — dem ERSTEN
+         # Treffer im gesamten stdout+stderr. pytest kippt bei einem Fehlschlag den Testkoerper
+         # samt Docstring in die FAILURES-Sektion VOR die Bilanz, und dieses Korpus traegt
+         # summary-foermige Zahlen in Docstrings. Gemessen mit dem ECHTEN Skript: ein gepflanzter
+         # Defekt hob die WAHRE Roete von 1 auf 2, der Parser meldete beide Male 0, Urteil
+         # SURVIVED. Die Zahl kommt jetzt aus einer MASCHINENSCHNITTSTELLE statt aus Prosa;
+         # der Textpfad bleibt als Rueckfall und ist eigens gehaertet (siehe `_rote_aus_text`).
+         *([f"--junitxml={bericht}"] if bericht is not None else []),
+         "--continue-on-collection-errors", "tests", *_ausschluss_args(work)],
+        # `errors="replace"`: `text=True` dekodiert sonst strikt, und ein Kindprozess, der ein
+        # einzelnes Nicht-UTF8-Byte ausgibt, wuerde den Lauf mit UnicodeDecodeError abreissen.
+        cwd=work, capture_output=True, text=True, errors="replace",
+        # TIMEOUT, und er hat einen Grund: `budget: data_digests-Schranke praktisch entfernt`
+        # entfernt die Ressourcendecke, unter der dieser Lauf steht. Am 2026-09-07 beendete der
+        # Kernel den Prozess nach 393 s; ohne Decke haette er haengen koennen. Ein Tor, dessen
+        # Unterprozess haengt, meldet gar nichts — es haelt den ganzen Lauf an. Der Ausfall wird
+        # zu einem fehlenden Bilanztext und damit zu NICHT MESSBAR, nicht zu einem stillen Halt.
+        # Gefunden von der un-Gegenlesung dieses Diffs (K5), nicht vom Autor.
+        timeout=1800,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
-    f = re.search(r"failures=(\d+)", proc.stderr)
-    e = re.search(r"errors=(\d+)", proc.stderr)
-    return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+
+
+def _rote_aus_bericht(bericht: Path) -> int | None:
+    """Die rote Zahl aus dem JUnit-Bericht — `failures` + `errors` der Testsuite.
+
+    KEIN TEXT, KEINE SUCHE, KEINE REIHENFOLGE. Der Bericht ist eine Schnittstelle mit Feldern;
+    ein Docstring in einem Traceback kann darin nichts bewegen. `None` heisst hier ausschliesslich
+    "diese Quelle traegt nichts" (Datei fehlt, unparsbar, kein testsuite-Element, null Tests) —
+    der Aufrufer faellt dann sichtbar auf den Textpfad zurueck, statt still eine 0 zu erfinden.
+    """
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+    if not bericht.is_file():
+        return None
+    try:
+        wurzel = ET.parse(bericht).getroot()
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"  ! JUnit-Bericht unlesbar ({type(exc).__name__}) — Rueckfall auf den Textpfad")
+        return None
+    # pytest schreibt <testsuites><testsuite .../></testsuites>; aeltere Fassungen auch nur
+    # <testsuite>. Beide Formen werden gelesen, damit die Quelle nicht an einer Version haengt.
+    # NUR DIREKTE KINDER, NICHT `iter()` (Gegenlesung 2026-09-07). `iter("testsuite")` steigt
+    # rekursiv ab. Ein Plugin, das verschachtelte `<testsuite>`-Knoten schreibt, wuerde die inneren
+    # Zahlen ZUSAETZLICH zu den aeusseren zaehlen, und die rote Zahl entscheidet hier ueber
+    # KILLED/SURVIVED. Gemessen mit dem Laeufer dieses Tors (pytest + subtests): heute genau EIN
+    # Knoten, `iter()` und direkte Kinder liefern dasselbe — der Fund ist also latent und nicht
+    # wirkend. Er wird trotzdem geschlossen, weil die Absicherung nichts kostet und die Annahme
+    # "es gibt nur eine Ebene" sonst unausgesprochen bliebe.
+    knoten = [wurzel] if wurzel.tag == "testsuite" else [k for k in wurzel if k.tag == "testsuite"]
+    if not knoten:
+        print("  ! JUnit-Bericht ohne testsuite-Element — Rueckfall auf den Textpfad")
+        return None
+    try:
+        tests = sum(int(k.get("tests", 0)) for k in knoten)
+        rot = sum(int(k.get("failures", 0)) + int(k.get("errors", 0)) for k in knoten)
+    except (TypeError, ValueError) as exc:
+        print(f"  ! JUnit-Zahlen unbrauchbar ({exc}) — Rueckfall auf den Textpfad")
+        return None
+    if tests == 0:
+        # NULL TESTS IST KEINE NULL ROTE. Ein Lauf, der nichts gefahren hat, ist nicht gruen —
+        # er ist nicht gelaufen. Dieselbe Unterscheidung wie im Textpfad, an der zweiten Quelle.
+        return None
+    return rot
+
+
+def _bilanzzeile(text: str) -> str | None:
+    """Die LETZTE Bilanzzeile des Laufs — nicht der erste summary-foermige Treffer im Blob.
+
+    HIER SASS DER FUND VON LINSE 5. `re.search` liest von vorn, und vor der Bilanz steht bei
+    jedem Fehlschlag die FAILURES-Sektion mit dem Testkoerper — Docstrings eingeschlossen. Eine
+    Zahl, die in einem Docstring steht, entschied damit ueber ein Freigabe-Urteil.
+
+    Eine Bilanzzeile erkennt man an ZWEI Dingen zugleich: einer Zaehlung (`N failed`, `N passed`,
+    …) UND der Laufzeitangabe (`in 12.34s`), die pytest nur an die Bilanz haengt. Der Rahmen aus
+    `=` ist optional — unter `-q` fehlt er. Gelesen wird von HINTEN, weil die letzte Bilanz die
+    des abgeschlossenen Laufs ist.
+    """
+    zaehlung = re.compile(
+        r"\b\d+\s+(?:failed|errors?|passed|skipped|xfailed|xpassed|deselected|warnings?)\b")
+    laufzeit = re.compile(r"\bin\s+\d+(?:\.\d+)?s\b")
+    for zeile in reversed(text.splitlines()):
+        z = zeile.strip().strip("=").strip()
+        if not z or not laufzeit.search(z):
+            continue
+        if zaehlung.search(z) or "no tests ran" in z:
+            return z
+    return None
+
+
+#: Die BANNERFORM eines pytest-Abbruchs: Ausrufezeichen, Text, wieder Ausrufezeichen. Die erste
+#: Fassung verlangte je FUENF — und genau das war wieder die Klasse dieses Tages: die Fuellbreite
+#: ist keine Eigenschaft des Abbruchs, sondern eine Funktion der Titel-LAENGE.
+#: `TerminalWriter.sep` rechnet `N = max((breite - len(titel) - 2) // 2, 1)`; bei 80 Spalten faellt
+#: N unter fuenf, sobald der Titel laenger als 68 Zeichen ist, und `session.shouldstop` traegt einen
+#: BELIEBIGEN Text. AUSGEFUEHRT GEMESSEN 07.09.2026 mit echtem pytest im Laufpfad dieses Tors: ein
+#: Abbruch mit langem Grund schrieb `! Interrupted: abgebrochen, weil der Mutant ... !` mit EINEM
+#: Ausrufezeichen je Seite, das Muster griff nicht, die Bilanzzeile `1 failed, 1 passed` wurde
+#: gelesen — und bei Basislinie 0 haette `1 > 0` die Mutante als GETOETET verbucht, obwohl der Lauf
+#: abbrach. Die Grenze zu einem Traceback, der Ausrufezeichen ausgibt, traegt jetzt der
+#: Rueckgabewert, nicht die Fuelllaenge.
+_ABBRUCH_BANNER = re.compile(r"^!+ .* !+$", re.M)
+
+#: Die Rueckgabewerte von pytest, die "der Lauf ist nicht zu Ende gekommen" heissen — eine
+#: MASCHINENSCHNITTSTELLE statt einer Zeichenkette (dieselbe Lehre wie `--junitxml` gegen den
+#: Textparser und wie der Tab-Anker in `pre_tag_receipt_lib`). 2 = Interrupted (Abbruch),
+#: 3 = interner Fehler, 4 = Aufruffehler. 1 (Tests rot) und 0 (gruen) sind gemessene Laeufe;
+#: 5 (nichts gesammelt) faengt der Bilanzpfad, weil dort eine Zahl stehen kann.
+_RC_NICHT_MESSBAR = frozenset({2, 3, 4})
+
+
+def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | None:
+    """Das Urteil ueber einen Lauf: RUECKGABEWERT zuerst, dann die strukturierte Quelle, dann Text.
+
+    `rc` ist der Rueckgabewert des pytest-Prozesses. Er ist die einzige Quelle hier, die nicht
+    davon abhaengt, wie breit ein Terminal ist oder welchen Wortlaut eine Fremdbibliothek waehlt.
+    `None` heisst ausschliesslich "nicht uebergeben" (alte Aufrufer, Tests) — dann bleibt es bei
+    den zwei Textriegeln darunter, die dieselbe Sache schwaecher pruefen.
+    """
+    if rc is not None and rc in _RC_NICHT_MESSBAR:
+        return None
+    # DER ABBRUCH-RIEGEL KANNTE ZWEI WORTLAUTE UND NICHT DIE FORM (adversariale Gegenlesung
+    # 2026-09-07, mit echtem pytest ausgefuehrt). Er prueft `^!+ Interrupted` und `^INTERNALERROR`.
+    # `pytest.exit()` schreibt aber ein Banner mit ANDEREM Wortlaut:
+    # `!!!!!! _pytest.outcomes.Exit: <grund> !!!!!!`. Gemessen mit drei Tests, von denen der zweite
+    # `pytest.exit` ruft und der dritte gefallen waere: die Bilanz sagt `1 passed in 0.22s`, die
+    # JUnit-XML sagt `tests=1 failures=0 errors=0`, BEIDE Quellen melden also einen sauberen,
+    # vollstaendigen Lauf — waehrend der Test, der die Mutante haette toeten sollen, nie lief.
+    # Beide Riegel-Muster trafen nicht (gemessen: False und False).
+    #
+    # Deshalb jetzt die FORM statt des Wortlauts. Eine Aufzaehlung von Abbruchgruenden waere beim
+    # naechsten stillschweigend zu kurz — dieselbe Lehre wie beim Ersatzwert in
+    # `pre_tag_receipt_lib.verify_receipt`, wo eine Blockliste durch eine Formpruefung ersetzt wurde.
+    # Die fuenf Ausrufezeichen halten die Grenze zu einem Test, der das Wort in einem Traceback
+    # ausgibt: pytest rahmt seine Banner, gewoehnlicher Text tut das nicht.
+    if _ABBRUCH_BANNER.search(text) or re.search(r"^INTERNALERROR", text, re.M):
+        return None
+    aus_bericht = _rote_aus_bericht(bericht)
+    return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
+
+
+def _rote_aus_text(text: str) -> int | None:
+    # PYTEST SCHREIBT SEINE BILANZ AUF STDOUT, unittest schrieb sie auf stderr. Beide werden
+    # gelesen: ein Lauf, der vor der Bilanz abbricht (Sammelfehler, Speicher), hinterlaesst auf
+    # stdout nichts Zaehlbares, und dann darf hier keine 0 herauskommen — das waere ein stiller
+    # "nichts ist rot" fuer einen Lauf, der gar nicht stattfand.
+    # ABGEBROCHEN IST NICHT GEMESSEN, auch wenn eine Zahl dasteht. Das ist der Fund, den die
+    # Gegenlesung als staerksten Einwand gegen diesen Diff gefunden hat, und der Kommentar direkt
+    # darueber behauptete das Gegenteil: er nennt "Sammelfehler" als abgedeckten Fall. Er war es
+    # nicht. pytest bricht bei einem Sammelfehler die ganze Sitzung ab und schreibt `1 error` —
+    # der None-Zweig unten greift aber nur bei `rot == 0`. Bei der gemessenen Basislinie 0 dieses
+    # Baums haette `1 > 0` den Mutanten als GETOETET gelesen, obwohl kein einziger Test lief.
+    #
+    # `--continue-on-collection-errors` (siehe `_lauf_der_suite`) verhindert genau diesen Abbruch.
+    # Diese Pruefung hier ist der zweite Riegel dahinter, fuer jeden ANDEREN Abbruch: `-x`, ein
+    # Signal, ein interner Fehler. Sie ist an die BANNERFORM gebunden ("!!!! Interrupted: ... !!!!"
+    # am Zeilenanfang), nicht an das blosse Wort — sonst faerbte ein Test, der "Interrupted" in
+    # einem Traceback ausgibt, den Lauf faelschlich NICHT MESSBAR.
+    if re.search(r"^!+ Interrupted", text, re.M) or re.search(r"^INTERNALERROR", text, re.M):
+        return None
+    # DER RUECKFALLPFAD, UND ER IST GEHAERTET STATT GEERBT (deep gate Lauf 5, Linse 5). Gesucht
+    # wird in der BILANZZEILE, nicht im ganzen Blob: `re.search` auf stdout+stderr nahm den ersten
+    # Treffer, und der stand bei jedem Fehlschlag in der FAILURES-Sektion — im Testkoerper, im
+    # Docstring, im Traceback. Ein Fix nur an der strukturierten Quelle haette diese Stelle als
+    # unbemerkten Zweitpfad stehen lassen, den jeder Bericht-Ausfall wieder scharf macht.
+    zeile = _bilanzzeile(text)
+    if zeile is None:
+        return None
+    f = re.search(r"(\d+) failed", zeile)
+    e = re.search(r"(\d+) error", zeile)
+    rot = (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+    if rot == 0 and not re.search(r"\d+ passed", zeile):
+        # KEIN "N passed" UND KEIN "N failed": die Bilanzzeile fehlt ganz. Der Lauf ist nicht
+        # gruen — er ist nicht zu Ende gekommen (Sammelfehler, OOM-Kill, Timeout).
+        #
+        # WARUM HIER `None` STEHT UND NICHT 1. Die erste Fassung dieses Riegels gab 1 zurueck,
+        # "fail-closed als ein Fehler". GEMESSEN am eigenen Code: das Urteil lautet
+        # `killed = red > baseline`, und die Baseline dieses Repos ist 14. `1 > 14` ist falsch —
+        # der abgestuerzte Lauf haette sich WEITERHIN als SURVIVED gelesen. Ein Riegel, dessen
+        # Wert unter der Schwelle bleibt, gegen die er antritt, wirkt nicht; er beruhigt nur den,
+        # der ihn geschrieben hat. Deshalb ein eigener Zustand statt einer Zahl.
+        return None
+    return rot
 
 
 def _tracked_files(repo: Path) -> list[str]:
@@ -679,13 +1057,48 @@ def partition_gewichtet(labels: list[str], i: int, k: int,
     return sorted(koerbe[i - 1])
 
 
+def _indizes_des_laufs(shard: tuple[int, int] | None,
+                       _gewichte: dict[str, float] | None = None) -> list[int]:
+    """Die Operatorenmenge dieses Laufs — EINE Quelle fuer den Lauf UND fuer seine Schlusszeile.
+
+    WARUM DAS EINE FUNKTION IST. Die Schlusszeile nannte ihre Zahl aus `partition(...)`, also
+    IMMER round-robin, waehrend der Lauf seit der gewichteten Partition `partition_gewichtet(...)`
+    faehrt. Zwei Berechnungen derselben Groesse, und nur eine davon war die gemessene. Heute faellt
+    es nicht auf: 100 Operatoren auf 10 Shards gehen in beiden Verfahren glatt auf, gemessen
+    2026-09-07 ueber alle zehn Shards (10/10 in beiden). Sobald die Zahl der Operatoren nicht mehr
+    durch die Shardzahl teilbar ist ODER die Gewichte ungleich verteilen, meldet die Schlusszeile
+    eine Menge, die dieser Shard nie gefahren hat — und die Summenpruefung des Sammel-Jobs geht
+    trotzdem auf, weil sie dieselbe falsche Zahl addiert. Der Kommentar an der Schlusszeile warnt
+    woertlich vor genau diesem Fall ("ein Shard, der 88 operators meldet, obwohl er elf gefahren
+    hat"); die Rechnung darunter konnte ihn nicht einhalten.
+
+    Gefunden beim Volllesen fuer den Fix an `_rote_aus_text` — dieselbe Klasse, eine Stufe weiter:
+    eine Groesse wird NEU BERECHNET statt GEMESSEN, und die zweite Rechnung driftet von der ersten.
+    """
+    if shard is None:
+        return list(range(len(MUTATIONS)))
+    i, k = shard
+    # DIE GEWICHTE WERDEN UEBERGEBEN, WENN DER AUFRUFER SIE SCHON HAT (Gegenlesung 2026-09-07).
+    # Sonst laedt diese Funktion die Datei ein zweites Mal — einmal fuer den Lauf, einmal fuer die
+    # Schlusszeile. Aendert sie sich dazwischen, meldet die Schlusszeile eine andere Menge als der
+    # Lauf gefahren hat, und die Summenpruefung addiert auf beiden Seiten dieselbe falsche Zahl.
+    # Genau die Klasse, gegen die diese Funktion angetreten ist: zwei Berechnungen derselben Groesse.
+    gewichte = _gewichte if _gewichte is not None else lade_gewichte()[0]
+    # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin.
+    return (partition_gewichtet([m[3] for m in MUTATIONS], i, k, gewichte) if gewichte
+            else partition(len(MUTATIONS), i, k))
+
+
 def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     dauern: dict[str, float] = {}
     # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
     # MUTATIONSTOR-BASELINE-UND-MUTANT-MESSEN-VERSCHIEDENE-SUITEN-01).
     #
     # `killed = red > baseline` vergleicht zwei Zahlen. Bis 2026-09-02 kamen sie aus
-    # VERSCHIEDENEN Testmengen: die Baseline lief ohne `ausschluss`, der Mutantenlauf mit. Traegt
+    # VERSCHIEDENEN Testmengen: die Baseline lief OHNE die Ausschlussmenge, der Mutantenlauf MIT.
+    # (Der Schalter, ueber den das damals lief, ist seit dem 2026-09-07 entfernt — er hatte nach
+    # dem Fix nur noch einen einzigen zulaessigen Wert und trug vier Tage lang einen Kommentar,
+    # der das Gegenteil des Codes behauptete. Siehe `_ausschluss_args`.) Traegt
     # das ausgeschlossene Modul rot bei, steigt nur die eine Seite — und ein echter Kill wird
     # still zu SURVIVED, also zu einem uebersehenen Defekt.
     #
@@ -698,24 +1111,24 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # Die Gesundheit des ausgeschlossenen Moduls wird NICHT aufgegeben: sie haengt an den
     # bindenden `test`-Jobs derselben CI, die die volle Suite fahren, und am kanonischen
     # Volllauf vor jedem Tag. Siehe docs/PRE_TAG_AUDIT.md.
-    baseline = _red_count(work, ausschluss=True)
+    baseline = _red_count(work)
+    if baseline is None:
+        raise SystemExit("mutation_check: der Baseline-Lauf hat keine Bilanzzeile hinterlassen — "
+                         "ohne Baseline ist KEIN Operator beurteilbar, und ein Lauf ohne Urteil "
+                         "darf nicht wie ein Lauf ohne Befund aussehen")
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
-    gewichte, gewicht_grund = lade_gewichte()
+    _gewichte, gewicht_grund = lade_gewichte()
     print(f"partition: {gewicht_grund}")
-    if shard is None:
-        indizes = list(range(len(MUTATIONS)))
-    else:
+    # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
+    # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
+    # eine gewichtete Partition aus und waere keine.
+    indizes = _indizes_des_laufs(shard, _gewichte)
+    if shard is not None:
         i, k = shard
-        # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
-        # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
-        # eine gewichtete Partition aus und waere keine.
-        labels = [m[3] for m in MUTATIONS]
-        indizes = (partition_gewichtet(labels, i, k, gewichte) if gewichte
-                   else partition(len(MUTATIONS), i, k))
         # Die Partition wird AUSGEGEBEN (Index und Label), damit der Sammel-Job und ein Mensch
         # nachrechnen koennen, welche Operatoren dieser Shard getragen hat. Ein Shard, der seine
-        # Menge nicht nennt, laesst sich nicht gegen 88 aufaddieren.
+        # Menge nicht nennt, laesst sich nicht gegen die Gesamtzahl aufaddieren.
         print(f"shard {i}/{k}: {len(indizes)} von {len(MUTATIONS)} Operatoren")
         for idx in indizes:
             print(f"  shard-item {idx} [{MUTATIONS[idx][3]}]")
@@ -748,9 +1161,25 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         try:
             path.write_text(mutated, encoding="utf-8")
             _t0 = time.monotonic()
-            red = _red_count(work, ausschluss=True)
+            red = _red_count(work)
             _dauer = time.monotonic() - _t0
             dauern[label] = round(_dauer, 1)
+            if red is None:
+                # DER DRITTE ZUSTAND, und N20 in RESTRISIKO_600.md benennt ihn bereits:
+                # "Not measurable is its own state — not a kill, not a survivor." Genau hierher
+                # gehoert `budget: data_digests-Schranke praktisch entfernt`: die Mutation entfernt
+                # die Ressourcendecke, unter der der Lauf steht, und der Prozess wird vom Kernel
+                # beendet (gemessen 2026-09-07: 393,4 s gegen ~65 s, dann Killed). Bis dahin las
+                # sich das als "SURVIVED (red=0)" — ein Ueberlebender, den nie jemand gemessen hat.
+                #
+                # ER ZAEHLT ALS LUECKE, aber er heisst nicht so. "Konnte nicht gemessen werden" ist
+                # nicht "gemessen und in Ordnung"; wer ihn nicht zaehlt, macht aus einer Unbekannten
+                # ein Bestehen. Der Name daneben verhindert, dass ein Leser ihn fuer einen echten
+                # ueberlebenden Defekt haelt.
+                print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
+                      f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
+                gaps += 1
+                continue
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
@@ -769,8 +1198,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # Leser sie ohne Parser-Heuristik aus dem Log holen kann.
     if dauern:
         print("MUTATION_DURATIONS " + json.dumps(dauern, sort_keys=True))
-    final = _red_count(work, ausschluss=True)   # dieselbe Menge wie Baseline und Mutant
-    if final != baseline:
+    final = _red_count(work)   # dieselbe Menge wie Baseline und Mutant
+    if final is None:
+        print("GAP: der Schluss-Lauf hinterliess keine Bilanzzeile — die Wiederherstellung des "
+              "Baums ist damit NICHT belegt")
+        gaps += 1
+    elif final != baseline:
         print(f"GAP: baseline not restored ({final} != {baseline})")
         gaps += 1
     return gaps
@@ -818,12 +1251,21 @@ def main(argv: list[str] | None = None) -> int:
         for line in sorted(before - after):
             print(f"  - {line}")
         gaps += 1
-    n_gefahren = len(MUTATIONS) if shard is None else len(partition(len(MUTATIONS), *shard))
+    # DIESELBE QUELLE WIE DER LAUF, nicht eine zweite Rechnung ueber dieselbe Frage.
+    n_gefahren = len(_indizes_des_laufs(shard))
     # Die Schlusszeile nennt die GEFAHRENE Zahl, nicht die Gesamtzahl. Ein Shard, der "88
     # operators" meldet, obwohl er elf gefahren hat, macht die Summenpruefung des Sammel-Jobs
     # wertlos — sie wuerde jedes Mal aufgehen.
     _shard_txt = "" if shard is None else f" shard={shard[0]}/{shard[1]}"
-    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({n_gefahren} operators, {gaps} gap(s)){_shard_txt}")
+    # `total=` STEHT HIER, DAMIT ES NIRGENDWO SONST GETIPPT WERDEN MUSS (2026-09-07). Der
+    # Sammel-Job der CI prueft, ob die Shards zusammen die ganze Liste gefahren haben, und hielt
+    # seine Erwartung als Konstante `ERWARTET=88`. Am 2026-09-06 kamen zwoelf Operatoren dazu
+    # (`15d05ab`), die Liste steht seither auf 100 — die Konstante nicht. Der Riegel, der eine
+    # Luecke in der Partition finden soll, haette bei JEDEM vollstaendigen Lauf eine gemeldet, die
+    # es nicht gibt. Die Zahl kommt jetzt aus dem Lauf selbst; eine Erwartung, die man tippt, ist
+    # eine zweite Wahrheit ueber dieselbe Groesse.
+    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({n_gefahren} operators, {gaps} gap(s))"
+          f"{_shard_txt} total={len(MUTATIONS)}")
     return 0 if gaps == 0 else 1
 
 

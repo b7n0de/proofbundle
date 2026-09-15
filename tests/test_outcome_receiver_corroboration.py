@@ -72,17 +72,23 @@ def _jsonschema_valid(instance: dict) -> bool:
         return False
 
 
-def _trust_pack(*, receiver_key_id="kid-recv", revoked=None):
+def _trust_pack(*, receiver_key_id="kid-recv", revoked=None, executor_pub=None):
     # Also trusts _pred()'s default executor keyId ("kid-exec") as an outcomeExecutors member, so passing
     # this pack to verify_outcome_receipt does not ALSO trip the (pre-existing, Finding 01) executor_role_
     # trusted hard-gate — these tests isolate the receiver-role concern, not the executor-role one.
+    # Deep gate 2026-09-05 (L1-600-02): the executor's key MATERIAL must be in `keys` for the role to bind
+    # to the signer, so callers pass the verifying key as executor_pub.
+    import base64
+    keys = {"root-0": {"publicKey": "A" * 43 + "="}}
+    if executor_pub is not None:
+        keys["kid-exec"] = {"publicKey": base64.b64encode(executor_pub).decode("ascii")}
     return {
         "schemaVersion": "0.1.0", "trustPackId": "tp-1", "version": 1,
         "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
         "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
                  "outcomeExecutors": {"keyIds": ["kid-exec"], "threshold": 1},
                  "outcomeReceivers": {"keyIds": [receiver_key_id], "threshold": 1}},
-        "keys": {"root-0": {"publicKey": "A" * 43 + "="}},
+        "keys": keys,
         "nonClaims": ["names which keys hold which role, not that the holders are honest"],
         **({"revoked": revoked} if revoked else {}),
     }
@@ -365,7 +371,7 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv"))
+        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
         self.assertTrue(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)
 
@@ -376,7 +382,7 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-unknown"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv"))
+        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
         self.assertFalse(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)   # deliberately NOT gated — see docstring
 

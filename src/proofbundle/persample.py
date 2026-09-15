@@ -49,7 +49,7 @@ from typing import List, Optional, Sequence
 from . import merkle
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
-from ._wire_b64 import decode_b64url
+from ._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["LEAF_ALG", "derive_leaf_salt", "make_disclosure", "build_sample_tree",
            "sample_opening", "verify_sample_opening", "audit_challenge"]
@@ -246,8 +246,8 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
                             f"{DEFAULT_BUDGET.merkle_path}) — refused before decoding")
         return result
     try:
-        proof = [base64.b64decode(p, validate=True) for p in proof_list]
-        root = base64.b64decode(root_b64, validate=True)
+        proof = [decode_b64(p) for p in proof_list]
+        root = decode_b64(root_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("opening proof/root is not valid base64") from exc
 
@@ -305,7 +305,7 @@ def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     # n.to_bytes(8) (OverflowError), or a non-bytes nonce (TypeError on the concatenation).
     if isinstance(root, str):
         try:
-            root = base64.b64decode(root, validate=True)
+            root = decode_b64(root)
         except (ValueError, TypeError) as exc:   # binascii.Error is a ValueError subclass
             raise BundleFormatError("root must be valid base64 (or the raw 32-byte samples root)") from exc
     if not isinstance(root, bytes) or len(root) != 32:

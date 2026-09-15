@@ -37,13 +37,14 @@ Verification (spec steps, all offline):
 from __future__ import annotations
 
 import base64
-import hmac
 from typing import Optional, Sequence
 
 from . import merkle
-from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
+from .budget import DEFAULT_BUDGET
+from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
            "verify_tlog_proof"]
@@ -57,7 +58,7 @@ def _b64(data: bytes) -> str:
 
 def _b64d(value: str, what: str) -> bytes:
     try:
-        return base64.b64decode(value, validate=True)
+        return decode_b64(value)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError(f"{what} is not valid standard base64") from exc
 
@@ -72,8 +73,12 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     if not signed_checkpoint.endswith("\n"):
         raise BundleFormatError("signed checkpoint must end with a newline")
-    if "\n\n" not in signed_checkpoint:
-        raise BundleFormatError("signed checkpoint is missing its note/signature separator")
+    # Der Emitter darf nichts bauen, was sein eigener Verifizierer malformed nennt (dieselbe Regel,
+    # die checkpoint_note fuer die leere Wurzel traegt): kanonische Rahmung, nicht nur "irgendwo eine
+    # Leerzeile" (L1-600-NOTE-FRAMING-01).
+    # apply_budget_cap=False: die Zeilenkappe ist ein Verifikations-Budget gegen FREMDE Dateien, keine
+    # Formatregel — ein Betreiber mit mehr Zeugen als dem Budget muss seine eigene Note verpacken koennen.
+    _split_signed_note(signed_checkpoint, "signed checkpoint", apply_budget_cap=False)
     if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
         raise BundleFormatError("tlog-proof extra must be bytes or None")
     # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
@@ -123,6 +128,17 @@ def parse_tlog_proof(text: str) -> dict:
     if len(index_s) > 20:
         raise BundleFormatError("tlog-proof index is implausibly large (fail-closed)")
     pos += 1
+    # DIE KAPPE VOR DER ARBEIT, vierte Geschwisterflaeche (deep gate 2026-09-05, L2-BDOS-TLOGPROOF-MERKLEPATH-
+    # INERT-01; Owner-Entscheid 2026-08-18, 2c52596-Familie): verify_bundle, recompute_merkle_root_b64 und
+    # verify_sample_opening zaehlen die Beweisschritte, BEVOR sie dekodieren — dieser Parser dekodierte jede
+    # Zeile zuerst (gemessen: 186408 Schritte bei 8 MiB, alle dekodiert, bevor root_from_inclusion 'too long'
+    # sagte). `len(lines) - pos` ist ohne das Dekodieren berechenbar und exakt die Schrittzahl, also greift
+    # die Owner-Ausnahme nicht. Ein Beweis ueber der Kappe kann per Konstruktion nie verifizieren.
+    n_steps = len(lines) - pos
+    if n_steps > DEFAULT_BUDGET.merkle_path:
+        raise BundleFormatError(
+            f"inclusion proof has {n_steps} steps (> merkle_path={DEFAULT_BUDGET.merkle_path}) "
+            "— refused before decoding (DoS guard, cap before work)")
     proof = []
     for line in lines[pos:]:
         if not line:
@@ -131,8 +147,13 @@ def parse_tlog_proof(text: str) -> dict:
         if len(h) != 32:
             raise BundleFormatError("inclusion proof hashes must decode to 32 bytes")
         proof.append(h)
-    if not checkpoint.endswith("\n") or "\n\n" not in checkpoint:
-        raise BundleFormatError("embedded checkpoint is malformed")
+    # DIESELBE Frage, DERSELBE Helfer (L1-600-NOTE-FRAMING-01, Inventar-Auflage A2). Vorher stand hier
+    # eine SCHWAECHERE Rahmungspruefung ("endet auf \n und enthaelt irgendwo eine Leerzeile") als in
+    # verify_checkpoint eine Zeile weiter — zwei Antworten auf dieselbe Frage sind die naechste Drift,
+    # und der oeffentliche Parser haette eine nicht-kanonische Note an seinen Aufrufer weitergereicht.
+    # Die AEUSSERE Trennung oben bleibt die ERSTE Leerzeile: das ist die Regel des tlog-proof-Formats
+    # selbst (Modul-Docstring), nicht die der Note.
+    _split_signed_note(checkpoint, "embedded checkpoint")
     return {"extra": extra, "index": int(index_s), "proof": proof, "checkpoint": checkpoint}
 
 
@@ -149,7 +170,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     mk = bundle.get("merkle")
     if not isinstance(mk, dict):
         raise BundleFormatError("bundle has no merkle object")
-    note_text = signed_checkpoint.split("\n\n", 1)[0].split("\n")
+    # Dieselbe kanonische Rahmung wie der Verifizierer (L1-600-NOTE-FRAMING-01); frueher las diese
+    # Zeile das ERSTE Tripel einer Note, deren signierter Text ein anderer sein konnte.
+    note_text = _split_signed_note(signed_checkpoint, "signed checkpoint",
+                                   apply_budget_cap=False)[0].split("\n")
     if len(note_text) < 3:
         raise BundleFormatError("signed checkpoint note must have at least 3 lines")
     if note_text[1] != str(mk.get("tree_size")):
@@ -233,12 +257,12 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
 
         inclusion_ok = False                                     # steps 1 + 4
         if 0 <= parsed["index"] < log_res["tree_size"]:
-            try:
-                computed = merkle.root_from_inclusion(
-                    parsed["index"], log_res["tree_size"], merkle.leaf_hash(leaf_data), parsed["proof"])
-                inclusion_ok = hmac.compare_digest(computed, log_res["root"])
-            except ValueError:
-                inclusion_ok = False
+            # EIN Orakel fuer die Inklusion (deep gate 2026-09-05): `merkle.verify_inclusion` traegt die
+            # merkle_path-Kappe, die int_bits-Schranke und die Typboeden; der direkte Aufruf von
+            # root_from_inclusion umging alle drei. Die Kappe im Parser oben ist die erste Linie, diese die
+            # zweite — dieselbe Zahl aus demselben Budget, damit die zwei Flaechen nicht auseinanderdriften.
+            inclusion_ok = merkle.verify_inclusion(
+                leaf_data, parsed["index"], log_res["tree_size"], parsed["proof"], log_res["root"])
     except (ProofBundleError, ValueError, TypeError, KeyError) as exc:
         return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}", expected_origin)
 

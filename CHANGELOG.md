@@ -8,8 +8,29 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
+not bumped: nothing here changes the published package, and a bump without a release would claim a
+delivery that did not happen.
+
+This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
+Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
+work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
+rather than before, which is itself the finding.
+
 ### Added
 
+- Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
+  producer emits `findings_register_v2.json` plus two generated views, every record carries the
+  byte range of its own evidence, and the three 6.1 register lines are written directly in the new
+  form with their measured starting position.
+- The 6.0.0 register body now carries the signature of the anchor key, and the written target value
+  carries its provenance — a chain is appended rather than the previous value overwritten.
+- A guard that no shipped test module imports a non-shipped module by bare name. The
+  `published-artifact-gate / hermetic-cleanroom` job aborted at collection because
+  `tests/test_belegdatei_traegt_ihren_eigenen_digest.py` put `scripts/` on `sys.path` and then wrote
+  `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
+  ran, not one of the other tests. The guard decides in the checkout, where both the file and the
+  distribution listing are present, and leaves the cleanroom unchanged.
 - **Coverage in the language of CAP-1, target 6.1.0 (not part of 6.0.0).** A `proofbundle.cap1` module
   checks a coverage-attestation document of `draft-hillier-coverage-attestation-00` (profile `cap/1`)
   against the draft's rules R0 to R8, never raises, and reads strictly (a duplicate JSON name is a read
@@ -26,10 +47,285 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   aliases with a stated decay (COMPATIBILITY.md); a v0.2 receipt without strata carries the advisory
   code `COVERAGE_LEGACY_FIELDS`. v0.1 rejects the three fields as unknown.
 
+### Fixed
+
+- Evidence digests: a record named a `path` and a `sha256` that described different objects, the
+  digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
+  file. The checker also never opened the file it named, so a deleted or altered piece of evidence
+  stayed green.
+- Gaps in the register numbering were silent; they are now named and gated.
+- The producer is read against the signed register rather than against its own in-memory list.
+
+### Changed
+
+- Identifiers transcribed, internal codename and account names.
+- The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
+
+### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
+
+- **A concurrency group coalesces a queue, it does not serialize one.** `cancel-in-progress` is
+  evaluated on the *arriving* run, but the *group* decides which run dies. The eight workflow groups
+  now carry `github.event_name`, so a pull-request run and a push run of the same ref no longer
+  displace each other.
+- **A called workflow cancelled its caller.** In a `workflow_call` workflow `github.workflow` is the
+  *caller's* name, so `reusable-build-attest.yml` shared a concurrency group with whatever invoked
+  it. Its `concurrency` block is removed; a reusable workflow does not own the group.
+- **A running release could be cancelled.** `release.yml` now carries `cancel-in-progress: false`,
+  which `RESTRISIKO_600.md` had required verbatim and which had never been implemented. Between
+  draft, upload and publication there is no safe interruption point.
+- **Two time budgets sat below the duration they were meant to bound.** `test` was capped at 30
+  minutes against a measured 32.3, `coverage` at 30 against a measured 40.0. A timeout reports as
+  `cancelled`, not `failure`, so both would have read as somebody's cancellation rather than as too
+  small a budget — and under the standing merge rule an unmeasurable required check halts a landing.
+  Now 50 and 60.
+
+The matrix expression that drives the cut was also a string where a list was meant, and
+`tests/test_der_ci_schnitt_haelt.py` (27 cases) now binds each of these properties with a
+counter-example that fails against the pre-fix shape.
+
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 
 **The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.
 
+
+### Fixed — after the freeze of 2026-09-05, before the tag
+
+The freeze head of 2026-09-05 was not the tagged head. Twelve more deep-gate rounds ran on the
+candidate between the freeze and the tag (rounds 3 to 14, six lenses each, a cross-family
+reader on every fix head), and what they found in the shipped package is closed here — each entry
+names its measurement. From round 12 on the severity rule was sharpened by the owner (2026-09-11):
+P0/P1 is reserved for the wheel on PyPI — a verdict, exit code, bound or security property of the
+shipped verifier — and everything found in test riegel, measurement scripts, the Rust cross-verifier
+or documentation is a register row for 6.0.1 or 6.1 (see *Known issues at the tag* below).
+
+- **A lone UTF-16 surrogate in any JSON string is refused, on the file path and the dict path**
+  (2026-09-11, round 13, found by the cross-family reader, not by the six lenses). Python's `json`
+  accepts `"\ud800"`, `serde_json` does not, and RFC 8785 cannot canonicalize it — so a DSSE
+  envelope carrying a lone surrogate in `keyid` verified in Python (`verify_envelope -> True`) and
+  was refused by the Rust verifier: the same file, two verdicts. `_strict_json` now rejects it
+  fail-closed as `BundleFormatError` (not I-JSON, RFC 7493 §2.1) wherever the structural budget is
+  enforced, so both verifiers agree, and the crosscheck carries the negative vector.
+- **The receipt-chain resolver reads the payload with the same strict parser as the verifiers**
+  (2026-09-11, round 14, L1). `agent_review.resolve_receipt_chain` parsed the DSSE payload with a raw
+  `json.loads` while every `verify_agent_review*` reads the same bytes with `loads_strict`. Measured
+  on the candidate: a 3000-deep `supersession` let a raw `RecursionError` out of the resolver, a lone
+  surrogate in `priorDigest.sha256` ordered the chain, and a duplicated `sha256` key was read
+  last-wins — three forms the verifier refuses that nevertheless decided which receipt is *current*.
+  An envelope whose payload the strict parser refuses no longer orders anything; it is named under
+  `unaddressable` and counts against `integrity_ok`, exactly like a non-addressable envelope.
+- **`verify_sd_jwt` returns a verdict when the SIGNATURE segment exceeds the input budget**
+  (2026-09-11, round 14, L2). `_b64url_decode` refuses a segment above `input_bytes` before decoding
+  it, raising `BundleFormatError` — a `ProofBundleError`, not a `ValueError` — and the signature call
+  site caught only `ValueError`, so the documented never-crash surface crashed; header and payload
+  two blocks above had caught `ProofBundleError` for months. The same exception ran through
+  `sdjwt_vc.verify_sdjwt_vc`, and `sdjwt_vc` carried a third copy of `_b64url_decode` without the
+  pre-decode cap (a 40 MiB segment was fully decoded before any bound applied). Now one decoder, one
+  except clause per its contract, and a fail-closed verdict; the sibling in `statuslist` is widened
+  the same way although it is unreachable today.
+- **`evaluate_policy`, `evaluate_decision_policy` and `relation.evaluate_relations_policy` check the
+  policy's shape themselves** (2026-09-11, round 14, L4). `load_policy` promised that "a typo that
+  silently weakens a policy is impossible" — and kept it only for the caller that goes through
+  `load_policy`. The three evaluators every `verify_*` surface calls read their switches with
+  `.get(name)`; measured: `{"signature": {"require_expected_signerr": true}}` (one `r` too many)
+  produced `policy_ok: True, checks: []` for a bundle whose signer is the literal text
+  `any-attacker-key-at-all`, and `{"reject_superseeded": true}` left an attached supersession
+  unenforced. The CLI was never affected (it calls `load_policy` first at all seven sites); the
+  library was. One shape check, `_huelle_pruefen`, now serves `load_policy` and the three evaluators —
+  no second key list to drift. **Behaviour change for library callers:** a policy dict handed
+  directly to an evaluator with an unknown key at any level is now a fail-closed verdict
+  (`policy_ok: False`, reason `unknown field(s) in …`), not a silent pass; required fields and types
+  remain `load_policy`'s business, so partial policies stay accepted.
+
+- **A placeholder the subject can carry is not a comparison** (2026-09-07). The pre-tag gate
+  replaces an unmeasurable tree with `"unknown"` and an unreadable gate source with `"unreadable"`
+  so that it can RULE instead of crashing. Both placeholders then went into an equality comparison
+  against a field the subject itself writes. Measured: a receipt signed with the LEGITIMATE key
+  carrying the literal `subject_tree_digest: "unknown"` verified every time, regardless of the tree
+  — `ok=true, state=verified`. `verify_receipt` now checks the FORM of the EXPECTED value (a
+  lowercase 64-hex sha256, for both digest fields) before comparing, so every present and future
+  placeholder is unbindable without anyone having to enumerate them; an enumeration would be
+  silently short at the next one. The neighbouring surface has done it this way since Auflage C3
+  (`audit_candidate_matrix` tests `if not gebunden` / `if not heute` before comparing) — this
+  function was the straggler. Side effect that confirms the finding: the fixtures in
+  `tests/test_pre_tag_receipt_gate.py` and `scripts/gate_qualification_harness.py` carried 40-char
+  values — the length of a git SHA-1, never a valid sha256 — and now carry 64.
+
+- **A library under a gate does not raise `SystemExit`** (2026-09-07). `subject_tree_digest` aborted
+  the process on an unreadable tree. `SystemExit` is a `BaseException`, and the gate's own backstop
+  catches `except Exception`, so the abort flew straight past it: five negative tests that run the
+  gate against an evidence-free non-git directory DIED instead of receiving `ok=false` — a guard
+  that no longer rejects but expires. It now raises a typed `BaumNichtLesbar`, which the existing
+  backstop catches. The sibling `sign_readiness_artifact.tree_digest` keeps `SystemExit` because it
+  only runs from a CLI, where the abort IS the verdict. The difference is the caller, not the error.
+
+- **The verdict allowlist has a near-miss case** (2026-09-07). Mutating `not in _GATE_VERDICTS_PASS`
+  into a prefix comparison survived the whole matrix unchanged — measured on `b9d35d4` with
+  `pytest -k "freigabe_evidenz or commit_flow"`, identical before and after. (The bare number that
+  stood here named no head and no command, and a gegenlesung measuring a different head with a
+  different selection got a different one. A count without its command is not reproducible.) It
+  would have made `WITHSTANDS_DEEPGATE_PARTIALLY` a pass. The three existing cases test absence, a
+  known fail value and a foreign word; none tested a value carrying the allowed constant as a
+  prefix. A "partially withstood" is not a withstanding.
+
+- **The receipt exclusion applies to version tokens, not to any folder name** (2026-09-07). The
+  pattern read the directory as an arbitrary word, so `audit_artifacts/anything/pre_tag_receipt_
+  v9.9.9.json` also fell out of the binding. No consumer exploited it, but an exception that
+  excludes more than it must is the start of the very class this round closes. A NEW ORDERING
+  CONSTRAINT follows from the narrowing and is recorded in `RESTRISIKO_600.md`: everything else
+  under `audit_artifacts/<token>/` must be committed BEFORE the receipt context is produced.
+
+- **The wheel is canonicalised in the build path, so the second half of the byte freeze holds**
+  (2026-09-07). The release standard requires two byte-identical sdists AND a wheel built from the
+  shipped sdist that equals the directly built one. The second half was red: 82 entries per side,
+  zero content differences, 11 entries differing in file mode alone (`0o100664` against `0o100644`).
+  The cause is measured, not guessed: `normalize_sdist` sets every file in the sdist to `0o644`, the
+  same files carry `0o664` in the working tree, and the packer copies the source file's mode into
+  the ZIP entry. `normalize_wheel` now rewrites the finished archive with fixed modes and fixed
+  timestamps, entry order untouched because `RECORD` sits last by convention; `release.yml` runs the
+  same path via `--with-wheel`. Measured with isolation, the way the workflow builds:
+  `identical: true`. **The digest is deliberately not repeated here any more.** It read
+  `a009a968…` until 2026-09-07 and a gegenlesung could not reproduce it on any head of this
+  line (`68aa6f3` gives `deaedb1a…`, `c335b26` `062188c9…`, `0aca175` `bc806f89…`). The number
+  was not wrong when it was written; it was written without the two things that make a build
+  digest checkable — WHICH head and WHICH toolchain, and `build-system.requires` pins neither
+  setuptools nor wheel. A digest without those is a number, not evidence. The verdict
+  `identical: true` is the claim that carries, and it was confirmed on four heads.
+  An earlier counter-check had ruled out `umask` as the cause: at `umask 022` both digests changed
+  and stayed different.
+
+- **The second half of the byte freeze has a measuring point at all** (2026-09-07). It stood in the
+  fail-closed sentence of the release standard and nothing measured it: this script built no wheels,
+  no other tool under `scripts/` did either, and the audit matrix reads `candidate.wheel_sha256`
+  without recomputing it. A condition inside a fail-closed sentence with no measuring point counts
+  as green without ever having been measured. `build_reproducible.py --check-wheel` now measures it,
+  and it found a real defect on its first run.
+
+- **The skip decision of the Go differential comes from exit codes, not from a message text**
+  (2026-09-07). The test decided whether a failure was a network problem by looking for three
+  substrings in Go's stderr. That is fragile — a foreign tool's message is not a contract — and a
+  scanner read the host substring as a weak host check. Availability is now determined up front by
+  commands whose exit codes ARE the class, in three outcomes: obtained (offline, else over the
+  network), not obtainable (skip), tooling broken (hard failure). The third exists because a first
+  attempt turned EVERY failure of `go mod download` into a skip, which would have swallowed a
+  checksum mismatch against `go.sum` — an integrity signal — in a tool whose purpose is verifying
+  signatures. A named limit remains and is not fixed: with a cold cache Go discards a mismatching
+  download, the module directory never appears, and that case is indistinguishable from "no network"
+  without reading text.
+
+- **Tag text and release note pass through the same claim hygiene as the documents** (2026-09-07).
+  `claims_hygiene_check.py` scans 49 documents in CI, but the tag text is not a file in the tree and
+  the release note is composed by GitHub from pull request titles — both went out unchecked while
+  every README line had to pass forty forbidden phrases. `release_text_hygiene.py` calls
+  `claims_hygiene_check.scan_text`, the same rule set rather than a second list, and `release.yml`
+  runs it before the build.
+
+- **One signed artefact, ONE accepted wire form, and both shipped verifiers agree on it** (deep gate run
+  3 on 049b3195, 2026-09-05, findings L1-600-01 and L1-600-03, class
+  `canonicity_preserving_perturbation_accepted` / RT-08). `validate=True` alone refused foreign characters
+  and a missing pad character but not NON-ZERO PAD BITS (`b64decode(b"QUJ=", validate=True) == b"AB"`),
+  the url-safe arm re-padded an unpadded string, and the Rust verifier trimmed whitespace Python refuses —
+  so Python and Rust returned different verdicts for the same file, in both directions. `_wire_b64` v1.1
+  decodes strictly and then re-encodes: a spelling that does not round-trip byte-for-byte is refused
+  (pad bits, padding, alphabet, whitespace). `decode_b64` (standard, padded), `decode_b64url` (JWS,
+  unpadded), `decode_b64_either` (DSSE: standard OR url-safe, each padded — RFC 4648 §3.2 applies because
+  the DSSE envelope specification says nothing about padding) and `decode_b64_c2sp` (C2SP signed notes:
+  non-zero pad bits tolerated for parity with Go's reference decoder, named in one place). Every stdlib
+  base64 decode in the package (51 sites) now goes through these helpers; `tests/test_wire_bytes_strict.py`
+  refuses any direct stdlib decode outside the wrapper, enumerates the canonicity-preserving population
+  (pad bits, unpadded, surplus padding, other alphabet, whitespace) over DSSE envelopes and native bundles,
+  and its Rust arm now MEASURES agreement over that population instead of skipping itself. Rust:
+  `b64_strict` (bundle fields, keys) and `b64_dsse` (envelopes) without `.trim()`, `b64url_nopad` without
+  padding tolerance. **Behaviour change:** an UNPADDED DSSE `payload`/`sig` is now refused by Python as it
+  already was by Rust; the padded url-safe spelling the spec mandates still verifies.
+- **A Trust Pack role applies to the key that signed, never to a self-declared keyId** (finding
+  L1-600-02, P2 fail-open). `verify_outcome_receipt(..., trust_pack=)` reported `executor_role_trusted=True`
+  and `safeForAutomation=True` for an outcome signed by a fresh key whose predicate merely claimed
+  `executor.keyId = root-0`. It now binds the keyId to the verifying key against `keys[keyId].publicKey`
+  (`outcome.pack_key_binds_signer`; `executor_trusted_by_role(..., public_key=)`), reports
+  `executor_key_bound` and the blocker `KEY_ID_NOT_BOUND_TO_SIGNER`. On the receiver side a
+  `receiver_attestation_resolver` may return the referenced statement's 32-byte signer key; when the pack
+  names key material for a `receiverKeyId`, promotion to `INDEPENDENTLY_ATTESTED` and
+  `receiver_role_trusted` require that key to match (`receiver_key_bound`); a bare `True` no longer binds a
+  label the pack names. Callers without a trust pack are unchanged.
+- **A rejection must not fail harder than the check it explains.** The messages of `verify_bundle`,
+  `recompute_merkle_root_b64`, `anchors.verify_anchor(s)`, `hashalg.verify_dual_hash` and every
+  `_reject_unknown` interpolated a caller-supplied value directly, so an implausibly large integer in an
+  enum-typed field (`schema`, `signature.alg`, `merkle.hash_alg`, `anchors[].target`) or a mixed-type key
+  set raised a raw `ValueError` / `TypeError` out of a typed-raise surface — and through
+  `decision.verify_decision_receipt(anchors=…)` out of a documented never-raise one. The class is closed at
+  two chokepoints rather than at nine sites: integer magnitude is now a dimension of the structural budget
+  (`enforce_structural_budget`, which also walks tuples), and `budget.render_safe` / `render_keys_safe` are
+  the one bounded renderer that never raises. Ordinary values render byte-identically to before.
+- **Every relying-party expectation argument is type-floored at entry.** `verify_status_snapshot(now=…)`
+  compared the caller's clock raw once the token carried `exp`/`ttl`; a string, list, float or huge integer
+  raised a raw `TypeError` on a surface that declares it never crashes. It is now a fail-closed verdict that
+  names the reason.
+- **The cap runs before the work it bounds, on the C2SP note family and the tlog-proof parser.** A signed
+  note carried no count cap on its signature lines: an 8 MiB note with 74,234 lines for the vkey's own key id
+  drove ~74k Ed25519 verifications (measured 9.9 s) through the attacker-supplied `verify-proof` file.
+  `verify_checkpoint`, `verify_cosignature` and the witness roster now refuse above the `signatures` /
+  `witnesses` budget before the first verification, and `parse_tlog_proof` refuses above `merkle_path`
+  before decoding a single step; `verify_tlog_proof` routes its inclusion check through
+  `merkle.verify_inclusion` so one oracle carries the caps.
+
+- **CLI consumer surfaces never raise (class RT-06, deep gate 2026-09-05, findings L3-600-05/06/07/08).**
+  One writer discipline for every untrusted string on the human path: `_safe_line` renders a lone
+  UTF-16 surrogate in its escaped form (`\ud800`) instead of dying in `print()` under a strict
+  utf-8 stdout, and neutralises control characters in Check rows, `show-eval` fields, `svr --verify`
+  property rows, `anchor` calendar lines and every `ERROR:` line on stderr — an embedded newline can
+  no longer forge an extra `[PASS] …` / `=> OK` row. `verify_svr_dsse` now carries the SVR predicate
+  shape in its verdict (`predicate_shape_ok`): a validly signed SVR whose predicate is not an object,
+  or whose `properties` is not a list of strings, is `ok=False`, and `svr --verify` exits 2 without
+  printing a PASS line first. `policy._parse_iso_utc` maps the whole stdlib failure family of a
+  timestamp parse (`ValueError`, `OverflowError` from `astimezone` on `0001-01-01T00:00:00+23:00`) to
+  "unparseable", so `policy lint/explain`, `verify --policy`, `--verification-time` and every
+  `<verb> verify --policy` exit 2 with the typed PolicyError instead of a raw OverflowError; the
+  sibling datetime sites (`check_freshness`, agent-review time axis) carry the same guard. `main()`
+  gains a documented backstop: an `UnicodeEncodeError` or a member of the named type-confusion family
+  that escapes a per-command handler ends in exit 2 with an ASCII-safe message (traceback on
+  `PROOFBUNDLE_DEBUG=1`), never a raw traceback on a consumer surface.
+- **An attached target is VERIFIED only if it verifies standalone (deep gate finding L4-01, P1).** The
+  `--with-related` resolver verified a target's SIGNATURE and then parsed its payload leniently, so a
+  strict-parser refusal (duplicate JSON key, NaN, BOM, non-canonical, not an object) was swallowed into
+  "verified, no edges, subject absent". A chain hidden behind a duplicate `predicate` key therefore came
+  out `lineage=VERIFIED` / exit 0 in **both** shipped verifiers, while the same bytes failed standalone.
+  Loader and standalone verifier now share ONE payload oracle (`_statement_payload.load_statement_strict`);
+  a refused payload is `RELATION_TARGET_MALFORMED` and FAILs at every hop, in Python and in Rust.
+- **A retraction is silently suppressed when the attached successor is itself malformed (L4-600-01, P1).**
+  `relation.successor_warning` skipped an attached, standalone-verified receipt whose OWN
+  `relationships` block failed validation — and with it any `retracts`/`supersedes` edge declared
+  inside. One deliberately malformed edge next to the retraction was enough: `supersededByAttached`
+  stayed empty, `reject_superseded` found nothing, `safeForAutomation` flipped false→true and the
+  CLI exit 3→0. Python and Rust made the SAME mistake, so the differential between them was blind.
+  An unreadable block now reports `RELATION_MALFORMED_SUCCESSOR` (a receipt with NO `relationships`
+  field still stays silent); a READABLE retraction still wins over the unreadable report, so the
+  verdict does not depend on attachment order. Closed on Owner instruction rather than carried as
+  a named residual risk.
+- **A statement with more than one subject binds to none of them silently (L4-02, P2).**
+  `classify_subject` read `subject[0]`, so `[derived, foreign]` classified as `DERIVED` and reached
+  `safeForAutomation: true`, while `[foreign, derived]` failed — the verdict depended on the order the
+  issuer wrote. `len(subject) != 1` is now its own mode, `AMBIGUOUS`, on the decision, outcome and
+  relation-statement paths; `require_derived_subject` fails closed (exit 2). The resolver already
+  reported such a target as `ambiguous`; both sides of the invariant now agree.
+- **A release gate distinguishes ABSENT from REJECTED by a typed field, never by prose (L5-G6-01, P2).**
+  C12.1 narrowed "no receipt binds this tree" to NOT_APPLICABLE on a pull request by matching a substring
+  of the gate's reason — a sentence that opens the reason for rejection too. An untrusted signer, a
+  tampered signature, a copied v5.0.0 receipt and an unreadable file all inherited that leniency and the
+  matrix exited 0. `pre_tag_audit_gate.evaluate` now reports `state` ∈ {absent, rejected, verified,
+  not_determinable}, an unreadable candidate is rejected rather than skipped, and C12.1 narrows only on
+  `absent`. Neighbour swept with it: `pyproject_version` no longer raises a raw `FileNotFoundError` out
+  of a gate whose contract is to rule.
+- **A version-scoped signed artefact binds its version to the version under test (L5-G6-02, P1).**
+  The release-deciding C12.2 reported PASS for 6.0.0 out of a signed findings register scoped to `3.6.1`;
+  a register carrying `0.0.1` or no version at all was accepted just as readily. `verify_and_count` now
+  takes `expected_version`, fails closed with `REGISTER_VERSION_MISMATCH` on mismatch, absence or an
+  unmeasurable `generated_at`, and reports `version_bound` so an unbound caller is visible as unbound.
+  This is the L6-01 lesson applied to the artefact rather than to the matrix pin.
+- **An extracted sdist behaves the same wherever it is unpacked (L6-600-01, P2).** The repo-context
+  derivation asked `git check-ignore` of whatever repository CONTAINED the tree, so the same sdist bytes
+  produced 40 failures under a gitignored `vendor/`, 1 under a non-ignored sibling and 0 in a plain
+  directory. git is now consulted only when this tree is itself the repository (`--show-toplevel`
+  equality); otherwise the stricter no-git behaviour applies.
 
 ### Changed
 
@@ -134,6 +430,48 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   sha256 that the pre-tag receipt pins as `audit_output_digest`, so an edit there would have
   broken the attestation for the sake of a paragraph.
 
+- **A trust anchor's `not_after` now actually expires, on the register path too — and the register
+  body has an age.** Two halves of one mechanism, landed together because either alone is a promise
+  that only half holds. Measured on 2026-09-06: `_autorisierte_schluessel` read `not_after` from the
+  anchor and never evaluated it, filtering on `role` alone. With `not_after=2000-01-01` the key
+  stayed authorised and `C12.2` reported PASS — while the shipped anchor says, in its own words,
+  that the field is "the last day this key may produce evidence, compared against the artifact's
+  `produced_at`", and the role `readiness_und_register_signierer_600` covers `C12.2` explicitly. A
+  revocation by lowering `not_after` would have been inert and looked effective; that is the
+  direction in which an error costs most. The deadline is now compared against the evidence's own
+  measurement time — `produced_at` for the readiness artifacts, `generated_at` for the register —
+  never against "now", because evidence from yesterday does not become inadmissible just because the
+  matrix runs today. **The second half closes the way around the first:** the signature covers
+  `generated_at`, so a holder of a revoked key could have back-dated a register into the window
+  where the key was still valid. The register body therefore now carries the same 180-day window and
+  future-skew guard the readiness artifacts already had, and a `generated_at` that cannot be read at
+  all is `REGISTER_STALE`, fail-closed — an unmeasurable freshness is never a satisfied one.
+  Catch-proof, both directions and both halves: without the fix `not_after=2000-01-01` yields 1
+  authorised key and PASS, with it 0 and FAIL; `not_after=2099-12-31` still yields 1, so the filter
+  is not simply always-reject; `generated_at` at 2020-01-01, absent, or in the future each become
+  `REGISTER_STALE`; and the real tree with the real register stays PASS, 20 of 20 evaluated. Reading
+  `generated_at` from the not-yet-verified register to pick the key set is safe by direction: it can
+  only SHRINK the authorised set, so tampering with it locks the tamperer out rather than in.
+
+  **Where this commit sits in the order of measurement, stated because it matters.** The mutation
+  run and the closing deep-gate round (verdict `FIX_FIRST`) both ran on `a62d8cb4`. This change
+  landed afterwards, on the owner's decision of 2026-09-06 (card `OA-89f05b70cd`, option A with four
+  conditions). **No gate round has seen it.** It is guarded by its own catch-proof and by the suite,
+  not by a round — a named gap in the evidence is better than an unnamed one in the guard.
+
+- **The findings register decides a release only if the trust anchor authorises its signer, and only
+  for the version it names.** Two holes closed together. The register verifier used to carry its own
+  pinned key inside the module, so the artefact and the thing that authorised it lived in the same
+  place; the authorised set now travels in from the caller, read from
+  `audit_artifacts/readiness_trusted_pubkeys.txt` with the anchor's `role=` field deciding which
+  check a key may speak for. A caller that passes no set is refused with
+  `REGISTER_UNAUTHORISED_KEY` — an unbound caller does not decide a release — rather than falling
+  back on a module default. And the signed `version` of the register is bound to the version under
+  test: measured on 049b3195, a register signed `3.6.1` and generated 2026-07-18 reported PASS for
+  6.0.0, as did one signed `0.0.1` and one with no version field at all; the signature was valid in
+  every case, because nothing compared the two numbers. The generator gained the same emit/assemble
+  split the pre-tag receipt already had, so the release signature is produced where the private key
+  lives and never on the build host.
 - **The mutation gate now compares two numbers from the same test set.** `baseline` and the
   closing run used the full suite while each mutant ran without the excluded module, so
   `red > baseline` weighed two different sets against each other. The bias ran toward false
@@ -148,6 +486,250 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
   by a witnessed checkpoint (SPEC 7d).
+
+### Known issues at the tag
+
+Stated here so a reader of the release notes does not have to open the residual-risk register to
+learn them; each has its row in [`RESTRISIKO_600.md`](RESTRISIKO_600.md).
+
+- **The Rust cross-verifier is experimental and advisory.** `tools/pb_verify_rs` is not part of the
+  wheel or the sdist (measured: 82 wheel entries, all under `proofbundle/`; 0 of 1107 sdist entries
+  under `tools/`). For 6.0.0 it carries no conformance promise: `tools/pb_verify_rs/crosscheck.py`
+  and the parity registry are differential-agreement instruments over the recorded vectors, not a
+  correctness proof of either implementation (SPEC, "Independent Rust cross-verification";
+  `docs/readiness_pack/rust_parity_scope.md`). On the tagged head the crosscheck reports
+  `CROSS-IMPL OK` and reproduces 61 of the 110 conformance-corpus cases independently (45 relation
+  vectors differentially); the other 49 are Python-only predicates with no Rust counterpart. Rust
+  conformance is its own milestone, 6.1; the Rust findings of rounds 12 to 14 (an empty
+  `signatures` list classified as malformed by Python and as not-verified by Rust; five `Err(_)`
+  sites that print no reason) are 6.1 register rows. The policy-shape check on the Rust side
+  (a typo made Rust ignore the whole policy with exit 0 where Python refuses with exit 2) landed in
+  the candidate in round 13 with a crosscheck vector, without a conformance claim.
+- **`C8.2` (Python↔Rust differential) is a signed, candidate-bound artefact.** The candidate matrix
+  reads it from `audit_artifacts/`; it is produced over the tagged tree and signed by the owner on
+  the key-holding machine together with the other readiness artefacts, so on any head before that
+  signature the check reports the artefact as absent. What is measured on the tagged head without a
+  signature is the crosscheck run above. **A constraint on the way to that signature, stated rather
+  than discovered later:** emitting the canonical bytes of the readiness artefacts (`C6.2`, `C6.3`,
+  `C8.2`) requires the gate line of a deep-gate *workflow* verdict over the tagged head
+  (`scripts/sign_readiness_artifact.py --gate-zeile-aus-verdikt`, copied verbatim, never invented),
+  and the candidate matrix accepts only `WITHSTANDS_DEEPGATE` there. Rounds 10 to 14 ran as
+  lens-and-jury rounds outside that workflow, and the owner closed the round series after round 14;
+  at the time of writing no workflow verdict over this head exists, so those three rows stay red
+  as known, signature-bound rows (register row S120; owner decision `OA-d29083cead`, 2026-09-11, option A).
+  The closing path is decided, not open: after the tag, the classes of the ordered ledger correction get real
+  replayable proof nodes (the owner's decision named two; the pre-sweep of 2026-09-11 15:24Z measures six
+  non-monotone classes, and the measured number is the one that counts), then the deep-gate v4 *workflow*
+  runs over the tagged head. Green: `C6.2`,
+  `C6.3` and `C8.2` are emitted, signed and published as an addendum to this release and S120 is closed by
+  measurement. Red: a 6.0.1 finding. No round 15 before the signature.
+- **One mutation operator is recorded as NOT MEASURABLE, not as killed (N20).** On the round-11
+  fix head `e8a7f8e`, the sharded mutation run `mutation (6)` killed 9 of its 10 operators; operator
+  90 (`budget: data_digests` ceiling practically removed, `2_000 -> 2_000_000_000`) left no balance
+  line inside its window (915.5 s): the mutated tree's own load-building tests explode before any
+  test can go red, so the tool reports the third state rather than a kill or a survivor. The
+  operator is bounded in the follow-up release. The mutation run on the tagged head, and the
+  `git diff --numstat` between the last measured head and the tagged head (N11), are recorded in
+  the signature card rather than here.
+- **Register rows for 6.0.1 from rounds 12 to 14** (found in the shipped tree, not changing a
+  verdict, exit code, bound or security property of the verifier): eight emit-side CLI paths open a
+  writer-less FIFO without the stat guard the verify side has (`decision emit <fifo>` hangs, no
+  verdict; `decision verify <fifo>` refuses with exit 2); `--json` prints no error object on the
+  exit-2 path of nine subcommands (exit code and stderr are correct, stdout is empty, so an
+  integrator parsing stdout stops rather than misreads); `rfc8785` has been a core dependency since
+  3.6.1 while a dozen messages still say "install proofbundle[eval]"; `SUPPORT.md` says "the current
+  line is 3.x"; the sd-jwt structure gate folds every parser refusal into the "duplicate JSON key"
+  text (the verdict is right, the sentence is not); the artefact reader of the candidate matrix
+  maps `EACCES`/`ELOOP` to "malformed" although they are the machine's state; the AST riegel that
+  scan for lax decoders and uncapped test load cannot see dynamically computed imports or
+  budget values read from files; the L2 riegel's scan roots omit `conformance/`.
+- **`C12.2` turns red on 2027-09-07 by design (N21):** the only anchor key carries
+  `not_after=2027-09-06`; rotate it before that date or accept the red.
+- **Operator-side gate instrumentation, named because it sits in this tag's evidence chain and
+  not because it concerns the package:** the release-side gate replay reports a `regression` on a
+  ledger-monotonicity check since 2026-09-09 that is an ordered correction (owner card
+  `OA-dcf17fc652`, register row `DAS-LIVE-LEDGER-IST-SEIT-DEM-09-09-NICHT-MONOTON-01`), and its
+  witness ran 96 of 192 evidence nodes (the other 96 ran once by hand on 2026-09-11, green). Both
+  are fixed after the tag, on the operator's side.
+
+### Known limitation of the 6.0.0 artefacts (N15)
+
+Both distributions of 6.0.0 are **bit-reproducible as shipped**, and this section states the
+property with the path to recompute it rather than a digest, because a digest written inside the
+tree that produces the artefact is a fixed point nobody can hold: changing the number changes the
+tree, the tree changes the artefact, the artefact changes the number. The digests of what is
+actually delivered belong in the `SHA256SUMS` of the GitHub Release, outside the tree — the same
+place 5.1.0 publishes them.
+
+**How a reader checks it.** Export `SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"`, then run
+`python scripts/build_reproducible.py --outdir dist --with-wheel` — exactly the one line
+`.github/workflows/release.yml` runs. Do it twice into two separate directories and compare with
+`sha256sum`. Measured on this candidate: both runs byte-identical, for the wheel and for the sdist.
+
+**This instruction changed on 2026-09-07, and following the old one would mislead you.** It used to
+name two lines, the second of them a bare `python -m build --wheel`. Since the wheel is canonicalised
+in the build path, that bare invocation produces an archive whose ZIP entries carry the mode of their
+source files — not what is shipped. A reader following the old wording would compute a digest that
+differs from the delivered wheel and could reasonably conclude the artefacts do not reproduce. The
+single line above is what the workflow runs and what produces the delivered bytes. Note that `SOURCE_DATE_EPOCH` is bound to the HEAD commit time, so a
+checkout at a different commit legitimately yields different digests; reproducibility here means
+"the same tree twice", not "the same number forever".
+
+**About the sdist, in four statements, because the earlier wording accused this release of something
+it does not do.** First: the sdist that ships is the NORMALISED one — `release.yml` builds it with
+`scripts/build_reproducible.py`, never the raw `python -m build --sdist` output — and it came out
+byte-identical across two independent runs. Second: the RAW setuptools output is genuinely not
+bit-reproducible, and the cause is measured to the byte — the sdist path of setuptools 84.0.0
+(`setuptools/_distutils/archive_util.py::make_tarball`, which calls `tar.add(base_dir,
+filter=_set_uid_gid)` and normalises uid and gid but not mtime) does not honour
+`SOURCE_DATE_EPOCH`; the variable occurs exactly once in the whole setuptools tree, in the vendored
+wheel writer (`setuptools/_vendor/wheel/wheelfile.py:53`). Each raw archive therefore carries a pax
+header with the wall clock at sub-second precision, and the differing number of decimals changes
+the pax record length by one byte, which cascades into the header checksum and the compressed size.
+Third: whoever builds this project with plain setuptools instead of the shipped path will therefore
+NOT reproduce, and that is said here plainly rather than left for them to discover. Fourth: the
+normalisation exists precisely for this reason, and `tests/test_reproducible_build_361.py` has
+asserted it since 3.3.1.
+
+Owner decision 2026-09-06 (card `OA-b94f677926`, option A): the concrete wheel digest comes out of
+this entry, the property with its recomputation path takes its place, and the delivered digest goes
+where it is not circular. The earlier wording said "the sdist is not [bit-reproducible]" — true of
+the raw intermediate, false of what is delivered. A false self-accusation is as wrong as an
+overclaim, only in the other direction. The build-backend change remains a 6.1 item with its own
+measurement and no time pressure.
+
+It is recorded as `N15` in `RESTRISIKO_600.md` with the same wording, and repeated here so that a
+reader of the release notes does not have to open the residual-risk register to learn it.
+
+### Adversarial pre-tag audit: verdict FIX_FIRST, and the scope each statement holds over
+
+The adversarial deep gate ran a closing round on this candidate (DEEP, six lenses, seven
+iterations). Its verdict is **FIX_FIRST**, and **no `WITHSTANDS_DEEPGATE` is claimed for 6.0.0**.
+Three findings were confirmed. All three are recorded as open entries in `RESTRISIKO_600.md`, and
+all three are closed in the follow-up release rather than here — an owner decision, made with the
+findings in view:
+
+- **N16 (P2)** — `action/action.yml:35-36` interpolates `${{ inputs.version }}` and
+  `${{ inputs.extras }}` directly into a `run:` shell body, while the step one line below routes
+  `inputs.command` through `env:` and says in a comment why it does so. Measured, and it decides
+  the ordering: the file is byte-identical to the version at the public tag `v1.0.0` (`a8aca8cd`,
+  sha256 prefix `91cfcdc4ecbab94c` on both sides), exactly one commit has ever touched it, and that
+  commit is an ancestor of this candidate. 6.0.0 does not introduce the injection, and releasing
+  6.0.0 does not remove it. Measured separately: a fix on `main` alone would not reach the
+  documented users either — `INTEGRATIONS.md` pins `action@v1.0.0`, no moving major tag exists, and
+  the one channel that does update by itself (the composite action's `pip install proofbundle`)
+  does not carry `action.yml` at all; the sdist and the wheel contain zero copies of it.
+- **N17 (P2)** — `scripts/rust_parity_gate.py` swallows an unparseable or unreadable source file
+  and then derives its verdict from the ABSENCE of complaints over the resulting population, so a
+  release-deciding check can report PASS over a population that shrank quietly. On this candidate
+  the population is complete — 68 of 68 files under `src/proofbundle` parse and read, and the gate
+  reports `registry_integrity_ok: true` with `untracked`, `orphaned` and `stale` all empty. What is
+  open is the capability, not its occurrence.
+- **N18 (P2)** — `pip install <sdist> && pytest` WITHOUT the `[test]` extras is RED, not skipped,
+  while the shipped `pyproject.toml` promises that a bare install "degrades to clean skips".
+  Measured: 1 failed, 3075 passed, 482 skipped. Either the promise is kept or the wording in
+  `pyproject.toml` is corrected; that choice belongs to the follow-up release, and until it is made
+  the promise is the thing that is wrong, not the test.
+
+**The scope each of these statements holds over.** Three figures, named here rather than left to be
+inferred, because a verdict that rules over an excerpt without saying so cannot be checked by a
+reader:
+
+- **2537 of 3702 tests, measured at `59d0679`.** The mutation gate collects its population with
+  `unittest discover`, which sees only methods of `unittest.TestCase`; 59 of 252 test files carry
+  pytest functions only and are invisible to that collector. Every mutation statement of this run
+  holds over that subset and not over the suite (`N19`).
+
+  **The commit is part of the figure, and here is why.** The suite kept growing after that
+  measurement: the closing-round fixes added test files, so a re-count on the tagged tree returns a
+  larger denominator (3727 collected at the time of writing, 254 test files). The ratio the mutation
+  gate ruled over is a property of *the tree it ran on*, not of the release, and a bare number here
+  would silently claim otherwise — the same stale-metric failure that `tests/test_docs_truth.py`
+  exists to prevent for `README.md`, just outside that test's scope. The figure therefore names its
+  commit. A reader who wants today's number runs
+  `python -B -m unittest discover -s tests` (the gate's own invocation) against the tagged tree.
+- **The coverage of the class-ledger replay: NOT MEASURABLE, and an earlier draft of this section
+  said otherwise.** That draft carried "94 of 182 classes" here. The pairing is withdrawn because
+  the two numbers do not count the same kind of thing: **94** counts CLASSES whose status is
+  `class_closed`; **182** counts the pytest NODES the replay executes. Measured on 2026-09-06: the
+  ledger holds 183 effective classes, 94 of them closed, and all 94 carry both evidence fields as
+  real in-repo nodes; the node set is 182 rather than 2 x 94 = 188 because six nodes are shared
+  between classes. It read as a ratio only because the effective class count happened to be 182 as
+  well, until this round's own class was written.
+  What is well defined, with its definition beside it: **94 of 183 ledger classes carry in-repo
+  runnable evidence** — a class counts iff its status is `class_closed`, which the validator grants
+  only for two DISTINCT in-repo pytest nodes, a live regression guard and a plant-and-must-catch
+  meta test. The other 89 carry no runnable test, and all 89 state why; none is unexplained. That
+  is a property of the ledger's contents. It is NOT the replay's coverage and must not be read as
+  one: the replay set is DEFINED by the closed status, so the ratio cannot say how much assurance
+  the replay leaves unchecked. Answering that would require knowing the class population is
+  complete, which is exactly what is not measured.
+- **68 of 68 files.** The parity gate's population on this candidate is complete. This is the one
+  figure here that is not a subset, and it is what keeps `N17` below the release-stopping bar.
+
+**The distribution digests in the readiness artifacts are the CANDIDATE BUILD ON `a382eae` — not the
+published package.** Owner decision of 2026-09-06 (card `OA-b92bd4ff84`, option A with three naming
+conditions), after the following measurement, which was made *before* anything was signed:
+
+`SOURCE_DATE_EPOCH` is taken from the HEAD commit's time, and the tag sits on a later commit than
+the build. Measured in a real clone with two worktrees:
+
+| Head | epoch | sdist sha256 | wheel sha256 |
+|---|---|---|---|
+| `a382eae` (candidate build) | 1788709947 | `c4490ac46c80474c…` | `58759ce9add58a95…` |
+| one commit later, touching **only** `audit_artifacts/` | 1788710469 | `168d1e4c351a1695…` | `be66743a1b4dc344…` |
+
+Both differ, at identical byte size (1 958 351 / 540 910): the content is the same, only the
+embedded timestamps move. `audit_artifacts/` is not in the package at all — 0 of 1055 sdist entries,
+0 of 82 wheel entries, `MANIFEST.in` says `prune audit_artifacts` — so a later evidence commit
+changes nothing but the clock. A control build of `a382eae` in the clone reproduced the real build's
+digests exactly, so the measurement measures what it claims to.
+
+Three things follow, and they are stated here rather than left to be inferred:
+
+1. **What the fields name.** `candidate.sdist_sha256` and `candidate.wheel_sha256` in the readiness
+   artifacts identify the **candidate build on `a382eae`**. They are not a statement about the
+   artifact published to PyPI or attached to the GitHub release.
+2. **Where the published digest is.** The digests of the *shipped* artifacts are in the release's
+   `SHA256SUMS`, outside this tree — the same separation `N15` established for the wheel digest.
+3. **What the gate does with them.** Both fields are MANDATORY parts of the candidate binding, and
+   `audit_candidate_matrix` recomputes them from the files present in `dist/` at gate time — never
+   from a fresh build. They are therefore a binding between *evidence and candidate*, not an
+   assurance about the package a user installs. `release.yml` does not invoke the candidate matrix
+   at all; `ci.yml` does.
+
+The cleaner mechanism — pinning `SOURCE_DATE_EPOCH` to the candidate commit instead of HEAD, so the
+published package carries the same digests — is a change to the release path itself and is deferred
+to the 6.1 collection release by the same owner decision.
+
+**What "0 open P0/P1" can and cannot say — and why this sentence is here at all.** The structured,
+signed register `audit_artifacts/findings_register_361.json` holds **20 entries as of its
+`generated_at` = `2026-09-06T10:27:05Z`**: 13 closed, 7 open, 0 open P0/P1. That count is a state
+**at that instant**, not a closure. The register's own preamble calls itself the SINGLE STRUCTURED
+SOURCE for the count without naming the time cut; the wording is right about *what it decides* and
+silent about *when it was taken*, and the signed artifact cannot be changed any more, so the
+correction lives here.
+
+It matters because the review lane kept running after the signature and found four more, one of
+them a **P1**: `not_after` was never evaluated on the register path, so an expired anchor key kept
+the ability to sign the register — a revocation by lowering `not_after` would have looked effective
+and done nothing. It is closed, in `7eba21e` and its two corrections `3385d80` and `2ba939b`, and
+it is a code path changed **after** the mutation run and after the closing round; no gate round saw
+it. The other three are P2/P2/P3 and stay open; each has its own row in
+[`RESTRISIKO_600.md`](RESTRISIKO_600.md).
+
+So, plainly: **zero open P0 and P1 speaks only about the findings already found.** While that P1 was
+open and unknown, the register truthfully said 0 open P0/P1. This is the sixth instance of one class
+on a single day — a verdict over an excerpt phrased as a verdict over the whole — and this time it
+sits in the register itself. The honest form names the excerpt in the same sentence as the verdict,
+which is what this paragraph does. For 6.1 the register gets a field naming its own time cut and
+where later findings are recorded, so a machine reader does not have to take it out of prose.
+
+`N20` records a mutation operator whose outcome is NOT MEASURABLE rather than killed or survived:
+the operator removes the very resource ceiling under test, and the mutated run reached 111 GiB
+resident (88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the
+OOM killer. Not measurable is its own state; it is not counted as a kill and not counted as a
+survivor.
 
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 

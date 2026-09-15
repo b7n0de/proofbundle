@@ -60,8 +60,15 @@ class TestGateHonesty(unittest.TestCase):
         self.assertEqual(rc, 0)
         import json as _json
         out = _json.loads(buf.getvalue())
-        self.assertEqual(out["scanned"], len(ch._DEFAULT_DOCS),
+        # DIESELBE Ableitung wie `main`, nicht nachgebaut: die Vorgabemenge ist die getippte Liste
+        # PLUS die abgeleitete Release-Flaeche. Der Vergleich stand hier gegen `len(_DEFAULT_DOCS)`
+        # und fiel mit `53 != 49`, sobald der Release-Beleg in die Flaeche kam — eine getippte Zahl
+        # neben einer wachsenden Menge, genau die Klasse dieses Zyklus (Riegel-Sweep 2026-09-07).
+        self.assertEqual(out["scanned"], len(ch.standard_scan_set()),
                          "scanned must equal the full default scan set — nothing silently skipped")
+        self.assertGreater(len(ch.standard_scan_set()), len(ch._DEFAULT_DOCS),
+                           "die abgeleitete Release-Flaeche traegt nichts bei — dann ist der Beleg "
+                           "wieder ungescannt und der P1 des Sweeps zurueck")
         self.assertEqual(out["missing"], [])
 
     def test_listed_but_missing_path_fails(self):

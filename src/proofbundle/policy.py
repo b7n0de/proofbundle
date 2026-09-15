@@ -18,7 +18,6 @@ Design invariants:
 
 from __future__ import annotations
 
-import base64
 import copy
 import hmac
 import re
@@ -26,10 +25,11 @@ from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_keys_safe
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
+from ._wire_b64 import decode_b64
 
 __all__ = ["POLICY_SCHEMA", "POLICY_PURPOSES", "PolicyError", "load_policy", "evaluate_policy",
            "explain_policy", "lint_policy", "policy_warnings", "policy_expired",
@@ -86,9 +86,8 @@ def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
     with no private key — forgery of a trusted identity without a secret. Rejects the whole low-order
     class by the y-value (sign-independent) plus the non-canonical (y >= p) class, so no encoding variant
     slips past. Raises PolicyError."""
-    import base64  # noqa: PLC0415
     try:
-        raw = base64.b64decode(b64, validate=True)
+        raw = decode_b64(b64)
     except Exception as exc:  # noqa: BLE001
         raise PolicyError(f"{ctx} public_key_b64 is not valid base64") from exc
     if len(raw) != 32:
@@ -138,13 +137,18 @@ def _parse_iso_utc(s):
     if not isinstance(s, str):
         return None
     norm = s[:-1] + "+00:00" if s.endswith("Z") else s
+    # RT-06 (deep gate 2026-09-05, L3-600-07): ``fromisoformat`` is only half of the parse. A value that
+    # PARSES but whose UTC instant lies before year 1 (``0001-01-01T00:00:00+23:00``) raises OverflowError
+    # from ``astimezone`` — a raw traceback out of ``policy lint``, ``verify --policy``,
+    # ``--verification-time`` and every decision/outcome/relation ``--policy`` path, all of which promise
+    # a typed PolicyError / exit 2. The whole stdlib failure family of the two calls is one "unparseable".
     try:
         dt = datetime.fromisoformat(norm)
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
@@ -190,13 +194,76 @@ _ASSURANCE_KEYS = {"minimum_level", "reject_self_attested_without_prereg"}
 def _reject_unknown(obj: dict, allowed: set, where: str) -> None:
     extra = set(obj) - allowed
     if extra:
-        raise PolicyError(f"unknown field(s) in {where}: {sorted(extra)} (trust policy is fail-closed)")
+        raise PolicyError(f"unknown field(s) in {where}: {render_keys_safe(extra)} (trust policy is fail-closed)")
 
 
 def _require_dict(value, where: str) -> dict:
     if not isinstance(value, dict):
         raise PolicyError(f"{where} must be a JSON object")
     return value
+
+
+def _huelle_relations(rel) -> None:
+    """Die Huelle der ``relations``-Sektion — eigene Funktion, weil
+    :func:`proofbundle.relation.evaluate_relations_policy` NUR diese Sektion bekommt und sie mit
+    derselben Regel pruefen muss wie ``load_policy``. Eine Nicht-dict-Sektion ist hier KEIN Fehler:
+    den Typ meldet ``load_policy`` an seiner Stelle, die Auswerter behandeln sie als leer."""
+    if not isinstance(rel, dict):
+        return
+    _reject_unknown(rel, _RELATIONS_KEYS, "relations")
+    rs = rel.get("relation_signer")
+    if isinstance(rs, dict):
+        for relname, rule in rs.items():
+            if isinstance(rule, dict):
+                _reject_unknown(rule, {"mode", "keys"}, f"relations.relation_signer[{relname}]")
+
+
+def _huelle_pruefen(policy: dict) -> None:
+    """Die HUELLE einer Policy auf JEDER Ebene: kein unbekannter Schluessel, nirgends.
+
+    LAUF 14, LINSE L4, F1 (11.09.2026, P1 am ausgelieferten Wheel). ``load_policy`` warb mit
+    "a typo that silently weakens a policy is impossible" — und hielt das nur fuer den EINEN
+    Aufrufer, der ``load_policy`` ruft. Die drei Auswerter, die jede verify_*-Flaeche tatsaechlich
+    ruft (``evaluate_policy``, ``evaluate_decision_policy``,
+    ``relation.evaluate_relations_policy``), lasen ihre Schalter per ``.get(name)`` und pruefen die
+    Huelle selbst nie. Gemessen: ``{"signature": {"require_expected_signerr": true}}`` (ein r zu
+    viel) ergab ``policy_ok: True, checks: []`` fuer ein Bundle, dessen Signierer der Text
+    "any-attacker-key-at-all" ist; korrekt geschrieben ergab dieselbe Policy ``policy_ok: False``.
+    Die CLI war nie betroffen (sie ruft an allen sieben Stellen ``load_policy`` zuerst), die
+    Bibliothek schon — und ``evaluate_policy``/``evaluate_decision_policy`` stehen in ``__all__``.
+
+    DIE KLASSE: ein ``require_*``/``reject_*``-Schalter, dessen ABWESENHEIT der laxe Pfad ist,
+    verliert bei einem Tippfehler lautlos genau die Bindung, die er herstellen sollte. Lauf 13
+    schloss dieselbe Klasse im Rust-Zweitverifizierer (``policy_huelle_pruefen``, main.rs).
+
+    EINE REGEL, ZWEI AUFRUFER-ARTEN: ``load_policy`` ruft diese Funktion statt seiner frueheren
+    elf einzelnen ``_reject_unknown``-Aufrufe, die Auswerter rufen sie am Eintritt. Eine zweite
+    Schluesselliste im Auswerter waere die naechste Drift. Nur die HUELLE wird hier geprueft
+    (unbekannte Felder); Pflichtfelder und Typen bleiben Sache von ``load_policy`` — die Auswerter
+    nehmen seit jeher auch Teil-Policies ohne ``schema``/``policy_id`` an, und das aendert dieser
+    Fix nicht. Nicht-dict-Sektionen werden uebersprungen: ihren Typ meldet ``load_policy``, die
+    Auswerter behandeln sie als leer (``_as_dict``). Wirft :class:`PolicyError`."""
+    _reject_unknown(policy, _TOP_KEYS, "trust policy")
+    for issuer in _as_list(policy.get("allowed_issuers")):
+        if isinstance(issuer, dict):
+            _reject_unknown(issuer, _ISSUER_KEYS, "allowed_issuers[]")
+    for name, keys in (("signature", _SIG_KEYS), ("merkle", _MERKLE_KEYS), ("sd_jwt", _SDJWT_KEYS),
+                       ("status", _STATUS_KEYS), ("assurance", _ASSURANCE_KEYS),
+                       ("anchors", _ANCHORS_KEYS), ("decision_receipt", _DECISION_KEYS)):
+        sect = policy.get(name)
+        if isinstance(sect, dict):
+            _reject_unknown(sect, keys, name)
+    mk = policy.get("merkle")
+    if isinstance(mk, dict):
+        for i, entry in enumerate(_as_list(mk.get("trusted_checkpoints"))):
+            if isinstance(entry, dict):
+                _reject_unknown(entry, _CHECKPOINT_KEYS, f"merkle.trusted_checkpoints[{i}]")
+    dr = policy.get("decision_receipt")
+    if isinstance(dr, dict):
+        for dm in _as_list(dr.get("trusted_decision_makers")):
+            if isinstance(dm, dict):
+                _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
+    _huelle_relations(policy.get("relations"))
 
 
 def _require_bool(obj: dict, key: str, where: str) -> None:
@@ -229,7 +296,7 @@ def _validate_root_b64(value, where: str) -> None:
     if not isinstance(value, str):
         raise PolicyError(f"{where} must be a base64 string")
     try:
-        raw = base64.b64decode(value, validate=True)
+        raw = decode_b64(value)
     except (ValueError, TypeError) as exc:
         raise PolicyError(f"{where} is not valid standard base64 — a trusted_roots/checkpoint root "
                           "pin must be well-formed (fail-closed, own error, never a silent "
@@ -267,7 +334,7 @@ def _validate_checkpoint_entry(entry, idx: int) -> None:
     if not isinstance(sig, str) or not sig:
         raise PolicyError(f"{where}.signature must be a non-empty base64 string")
     try:
-        base64.b64decode(sig, validate=True)
+        decode_b64(sig)
     except (ValueError, TypeError) as exc:
         raise PolicyError(f"{where}.signature is not valid base64") from exc
     for tkey in ("issuedAt", "validUntil"):
@@ -329,7 +396,7 @@ def load_policy(source: Union[str, dict]) -> dict:
     if policy.get("schema") not in _SUPPORTED_SCHEMAS:
         raise PolicyError(
             f"unsupported trust policy schema {policy.get('schema')!r}, expected one of {list(_SUPPORTED_SCHEMAS)}")
-    _reject_unknown(policy, _TOP_KEYS, "trust policy")
+    _huelle_pruefen(policy)   # EINE Huelle fuer alle Ebenen — dieselbe Regel wie in den Auswertern
     # decision_receipt is a v0.2-only additive section; under v0.1 it is a fail-closed error.
     if "decision_receipt" in policy and policy.get("schema") != POLICY_SCHEMA_V0_2:
         raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
@@ -378,7 +445,6 @@ def load_policy(source: Union[str, dict]) -> dict:
         raise PolicyError("allowed_issuers must be a list")
     for issuer in _as_list(policy.get("allowed_issuers", [])):
         issuer = _require_dict(issuer, "allowed_issuers[]")
-        _reject_unknown(issuer, _ISSUER_KEYS, "allowed_issuers[]")
         if not (isinstance(issuer.get("public_key_b64"), str) and issuer["public_key_b64"]):
             raise PolicyError("each allowed_issuers[] entry needs a non-empty public_key_b64")
         _validate_pinned_ed25519_pubkey(issuer["public_key_b64"], "allowed_issuers[]")
@@ -386,12 +452,10 @@ def load_policy(source: Union[str, dict]) -> dict:
         _require_str_or_null(issuer, "kid", "allowed_issuers[]")
     if "signature" in policy:
         sig = _require_dict(policy["signature"], "signature")
-        _reject_unknown(sig, _SIG_KEYS, "signature")
         _require_list_of_str(sig, "allowed_algs", "signature")
         _require_bool(sig, "require_expected_signer", "signature")
     if "merkle" in policy:
         mk = _require_dict(policy["merkle"], "merkle")
-        _reject_unknown(mk, _MERKLE_KEYS, "merkle")
         _require_str_or_null(mk, "required_hash_alg", "merkle")
         _require_bool(mk, "require_authenticated_root", "merkle")   # P0-A §6.2
         _require_list_of_str(mk, "trusted_roots", "merkle")          # base64 roots the RP trusts, out of band
@@ -406,7 +470,6 @@ def load_policy(source: Union[str, dict]) -> dict:
                 _validate_checkpoint_entry(entry, i)
     if "sd_jwt" in policy:
         sdj = _require_dict(policy["sd_jwt"], "sd_jwt")
-        _reject_unknown(sdj, _SDJWT_KEYS, "sd_jwt")
         _require_bool(sdj, "require_key_binding_when_cnf_present", "sd_jwt")
         _require_str_or_null(sdj, "expected_aud", "sd_jwt")
         _require_bool(sdj, "require_nonce", "sd_jwt")
@@ -422,12 +485,10 @@ def load_policy(source: Union[str, dict]) -> dict:
         _require_str_or_null(sdj, "expected_vct", "sd_jwt")
     if "status" in policy:
         st = _require_dict(policy["status"], "status")
-        _reject_unknown(st, _STATUS_KEYS, "status")
         _require_bool(st, "reject_self_issued", "status")
         _require_list_of_str(st, "allowed_status_authorities", "status")
     if "assurance" in policy:
         asr = _require_dict(policy["assurance"], "assurance")
-        _reject_unknown(asr, _ASSURANCE_KEYS, "assurance")
         lvl = asr.get("minimum_level")
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
@@ -439,7 +500,6 @@ def load_policy(source: Union[str, dict]) -> dict:
         if policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
         anc = _require_dict(policy["anchors"], "anchors")
-        _reject_unknown(anc, _ANCHORS_KEYS, "anchors")
         _require_str_or_null(anc, "require_anchor", "anchors")
         rt = anc.get("require_anchor_target")
         if rt is not None and rt not in _ANCHOR_TARGETS:
@@ -468,7 +528,6 @@ def load_policy(source: Union[str, dict]) -> dict:
         if policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("relations section requires schema proofbundle/trust-policy/v0.2")
         rel = _require_dict(policy["relations"], "relations")
-        _reject_unknown(rel, _RELATIONS_KEYS, "relations")
         if "require_relation_resolution" in rel:
             rr = rel["require_relation_resolution"]
             if (not isinstance(rr, list) or not rr
@@ -486,7 +545,6 @@ def load_policy(source: Union[str, dict]) -> dict:
                     raise PolicyError(f"relations.relation_signer key {relname!r} is not a relation "
                                       f"name out of {list(_RELATION_NAMES)}")
                 rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
-                _reject_unknown(rule, {"mode", "keys"}, f"relations.relation_signer[{relname}]")
                 mode = rule.get("mode")
                 if mode not in _RELATION_SIGNER_MODES:
                     raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
@@ -523,12 +581,10 @@ def load_policy(source: Union[str, dict]) -> dict:
                                           "non-empty list of them")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
-        _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
         if "trusted_decision_makers" in dr and not isinstance(dr["trusted_decision_makers"], list):
             raise PolicyError("decision_receipt.trusted_decision_makers must be a list")
         for dm in _as_list(dr.get("trusted_decision_makers", [])):
             dm = _require_dict(dm, "trusted_decision_makers[]")
-            _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
             if not (isinstance(dm.get("public_key_b64"), str) and dm["public_key_b64"]):
                 raise PolicyError("each trusted_decision_makers[] entry needs a non-empty public_key_b64")
             _validate_pinned_ed25519_pubkey(dm["public_key_b64"], "trusted_decision_makers[]")
@@ -561,6 +617,15 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if not isinstance(policy, dict):
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": ["policy must be a JSON object — malformed policy (fail-closed)"]}
+    # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
+    # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
+    # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
+    try:
+        _huelle_pruefen(policy)
+    except PolicyError as exc:
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
+                           f"load_policy applies): {exc}"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
@@ -717,6 +782,15 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # `.get`/section walks below — a malformed policy is a fail-closed verdict, never a raw AttributeError.
     if not isinstance(policy, dict):
         return {"policy_ok": False, "checks": [], "reason": "policy is not a dict"}
+    # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
+    # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
+    # diese Flaeche liefert Verdikte.
+    try:
+        _huelle_pruefen(policy)
+    except PolicyError as exc:
+        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {exc}"
+        return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
+                "reason": grund}
     checks: list = []
 
     def add(name: str, ok: bool, detail: str = "") -> None:
@@ -815,7 +889,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if trusted_checkpoints:
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
-            stated_root = base64.b64decode(stated_root_b64, validate=True) \
+            stated_root = decode_b64(stated_root_b64) \
                 if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
@@ -828,7 +902,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 reasons.append(f"[{i}] {cp_reason}")
                 continue
             try:
-                entry_root = base64.b64decode(entry["root"], validate=True)
+                entry_root = decode_b64(entry["root"])
             except (ValueError, TypeError):
                 reasons.append(f"[{i}] pinned root is not decodable")   # load_policy prevents this
                 continue
@@ -870,13 +944,13 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         via_expected = ra_check is not None and ra_check.ok
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
-            stated_root = base64.b64decode(stated_root_b64, validate=True) if isinstance(stated_root_b64, str) else b""
+            stated_root = decode_b64(stated_root_b64) if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
         via_trusted = False
         for tr in trusted_roots:
             try:
-                cand = base64.b64decode(tr, validate=True)
+                cand = decode_b64(tr)
             except (ValueError, TypeError):
                 continue   # a malformed trusted_root never matches (fail-closed)
             if stated_root and hmac.compare_digest(stated_root, cand):
@@ -1228,7 +1302,7 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
         if parsed is not None and current > parsed:
             return False, "trusted checkpoint expired (validUntil is in the past)"
     try:
-        root = base64.b64decode(entry["root"], validate=True)
+        root = decode_b64(entry["root"])
         keyname = entry["checkpointSigner"].split("+", 1)[0]
         note = checkpoint_note(entry["origin"], entry["treeSize"], root)
         signed_note = f"{note}\n— {keyname} {entry['signature']}\n"

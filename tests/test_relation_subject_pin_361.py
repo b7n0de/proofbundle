@@ -235,7 +235,9 @@ class AutomationGateProjection(unittest.TestCase):
             "prevVersionDigest": None,
             "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
                       "outcomeExecutors": {"keyIds": ["kid-exec"], "threshold": 1}},
-            "keys": {"root-0": {"publicKey": "A" * 43 + "="}}, "nonClaims": ["role mapping only"],
+            "keys": {"root-0": {"publicKey": "A" * 43 + "="},
+                     "kid-exec": {"publicKey": base64.b64encode(_pub_bytes(self.successor)).decode("ascii")}},
+            "nonClaims": ["role mapping only"],
         }
         pred = {
             "schemaVersion": "0.1.0", "outcomeId": "urn:uuid:o", "decisionRef": {"sha256": "1" * 64},

@@ -29,6 +29,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
+from .budget import render_keys_safe
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -305,7 +306,7 @@ def eval_results_yaml(entries) -> str:
     for entry in entries:
         unknown = set(entry) - set(order)
         if unknown:
-            raise BundleFormatError(f"unknown eval_results entry field(s): {sorted(unknown)}")
+            raise BundleFormatError(f"unknown eval_results entry field(s): {render_keys_safe(unknown)}")
         first = True
         for key in order:
             if key not in entry:

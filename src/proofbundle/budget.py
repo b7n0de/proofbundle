@@ -28,15 +28,50 @@ a ``verify_*`` call is willing to walk before refusing.
 """
 from __future__ import annotations
 
+import reprlib as _reprlib
 from dataclasses import dataclass
 
 from .errors import ProofBundleError
 
 __all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
-           "render_safe"]
+           "render_safe", "render_keys_safe"]
 
 
-def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
+class _BoundedRepr(_reprlib.Repr):
+    """A ``reprlib.Repr`` that also honours the integer-magnitude budget.
+
+    ``reprlib`` bounds DEPTH and WIDTH (a self-referential or 10,000-element container renders as a
+    short elided form), but its ``repr_int`` still calls ``repr()`` on the integer and would trip the
+    CVE-2020-10735 int->str cap from INSIDE the bounded walk. The magnitude rule is applied here, at
+    the one place every integer passes, so a huge int nested three levels deep is described exactly
+    like a top-level one.
+    """
+
+    def __init__(self, budget: "VerificationBudget | None"):
+        super().__init__()
+        self._budget = budget
+        self.maxlevel = 4
+        self.maxdict = 8
+        self.maxlist = self.maxtuple = self.maxset = self.maxfrozenset = self.maxarray = 8
+        self.maxstring = 256
+        self.maxlong = 64
+        self.maxother = 256
+
+    def repr_int(self, x, level):  # noqa: D401 - reprlib protocol name
+        if int_magnitude_ok(x, self._budget):
+            return _reprlib.Repr.repr_int(self, x, level)
+        return f"<int, {x.bit_length()} bits>"
+
+    def repr_bool(self, x, level):  # a bool is an int subclass; keep it literal
+        return repr(x)
+
+
+# Hard ceiling on one rendered value, applied AFTER the bounded walk: no combination of the per-type
+# widths above can produce an unbounded explanation.
+_MAX_RENDER_CHARS = 512
+
+
+def render_safe(value, budget: "VerificationBudget | None" = None, *, quote: bool = True) -> str:
     """Render ONE untrusted value for a diagnostic message without letting it raise.
 
     THE SECOND HALF OF THE MAGNITUDE CLASS, found by the pre-tag deep gate on 2026-08-25
@@ -58,20 +93,60 @@ def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
     Beyond the ceiling the value is described rather than printed: ``<int, 16610 bits>``. That is
     honest (it names what it is and how big) and it is exactly what a reader needs — nobody
     diagnoses anything from 5000 decimal digits.
+
+    THE THIRD HALF, deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01, L3-600-01, L3-600-03): the
+    rejection text of ``verify_bundle``, ``anchors.verify_anchor`` and ``hashalg.verify_dual_hash``
+    rendered an enum-typed field with ``{value!r}`` directly, and ``_reject_unknown`` sorted a set of
+    untrusted dict keys to name them. A huge int in ``schema``, a tuple holding one, or a mixed-type
+    key set made the REJECTION fail harder than the check it explains — a raw ``ValueError`` /
+    ``TypeError`` out of a typed-raise or never-raise surface. The renderer is now bounded in DEPTH
+    and WIDTH too (``reprlib``), never raises for any input (a hostile ``__repr__``, a
+    self-referential container, a nested huge int), and it is the ONE renderer every message site
+    on those paths uses. For the ordinary cases — a string, a small int, a short tuple — the output
+    is byte-identical to ``repr()`` / ``str()``, so existing message assertions keep their meaning.
+
+    ``quote=True`` (default) is the bounded replacement for ``{value!r}``; ``quote=False`` is the
+    bounded replacement for a plain ``{value}`` — a ``str`` renders as itself (clipped), everything
+    else falls back to the bounded repr, because ``str()`` on a hostile object recurses exactly like
+    ``repr()`` does.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
-        # A non-int normally renders via repr. But a CONTAINER holding a giant int (or any object whose
-        # __repr__ interpolates one) re-raises the int->str cap from INSIDE repr() — the deep gate found a
-        # never-raise surface passing a whole container field here (e.g. sig_alg=[1<<100000]). The note
-        # above assumed callers pass container ELEMENTS; the never-raise surfaces pass the whole field, so
-        # the contract ("without letting it raise") is enforced here — one helper, every site.
-        try:
+    try:
+        if isinstance(value, bool):
             return repr(value)
-        except Exception:  # noqa: BLE001 — nested implausible int / hostile __repr__ must not escape
+        if isinstance(value, int):
+            if int_magnitude_ok(value, budget):
+                return str(value)
+            return f"<int, {value.bit_length()} bits>"
+        if not quote and isinstance(value, str):
+            return _clip_render(value)
+        return _clip_render(_BoundedRepr(budget).repr(value))
+    except BaseException:  # noqa: BLE001 — a renderer on a never-raise path must not raise, ever
+        try:
             return f"<unrenderable {type(value).__name__}>"
-    if int_magnitude_ok(value, budget):
-        return str(value)
-    return f"<int, {value.bit_length()} bits>"
+        except BaseException:  # noqa: BLE001 — even type(...).__name__ can be booby-trapped
+            return "<unrenderable>"
+
+
+def _clip_render(text: str) -> str:
+    if len(text) <= _MAX_RENDER_CHARS:
+        return text
+    return text[: _MAX_RENDER_CHARS - 3] + "..."
+
+
+def render_keys_safe(keys) -> "list[str]":
+    """Name a set of UNTRUSTED dict keys in a message: rendered first, sorted second, never raising.
+
+    ``sorted(set(obj) - allowed)`` was the shape at seven sites (bundle, anchors, decision, relation,
+    policy, evalclaim, hf_evals): it orders the RAW keys, and two unknown keys of incomparable types
+    (``{5: 1, "zzz": 1}``, reachable on every direct-dict surface) raise a raw ``TypeError`` before
+    the typed error that was about to name them is even built (deep gate 2026-09-05, L3-600-03).
+    Rendering each key first (bounded, see :func:`render_safe`) turns the ordering into a string
+    sort that cannot fail, and the message still names every key.
+    """
+    try:
+        return sorted(render_safe(k) for k in keys)
+    except BaseException:  # noqa: BLE001 — a hostile __iter__/__hash__ must not escape either
+        return ["<unrenderable keys>"]
 
 
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:
@@ -156,6 +231,94 @@ class VerificationBudget:
                                unbounded cost — which is precisely what a DoS looks like.
 
                                8192 bits is astronomically generous: a real tree size is below ``2**64``.
+    * ``data_digests``      — data objects covered by ONE renewal sequence (``renewal.verify_sequence``'s
+                               ``data_digests`` argument). Found by Review Runde 2 (deep gate 6.0.0,
+                               L2-600-01 follow-up, B1): ``renewal_ats_chain`` bounds the chain-start COUNT,
+                               but every chain-start's covering digest re-appends the FULL (sorted, joined)
+                               data-digest tail (``_PraefixDeckung.deckung``) — unavoidable without changing
+                               the signed wire format (the data tail sits at a fixed position AFTER a
+                               VARYING prefix, so a standard incremental hash cannot skip re-processing it
+                               per chain-start; see ``_PraefixDeckung``'s own docstring). An unbounded
+                               ``data_digests`` therefore multiplies an ALREADY-bounded axis right back into
+                               an unbounded one: measured on this tree 2026-09-05 (Farmer, 24 cores, Python
+                               3.10.12, ``resource.getrusage``), 10,000 chain-starts (the ``renewal_ats_chain``
+                               limit) times 50,000 data digests cost 16.2s CPU, while the SAME 10,000
+                               chain-starts against a single data digest cost 0.04s. 2,000 is comfortably
+                               above any legitimate RFC-4998 archival batch this repo's examples use, and
+                               keeps the worst COMBINED case (``renewal_ats_chain`` x ``data_digests``, both
+                               at their limit) at ~0.63s CPU — under the per-dimension ceiling with margin,
+                               see ``tests/test_budget_kostenkurve.py``.
+                               WOHER DIE ZAHL 2.000 KOMMT (Owner-Auflage 2026-09-05, nachgereicht). Die
+                               erste Fassung begruendete sie mit "comfortably above any legitimate
+                               RFC-4998 archival batch this repo's examples use" — und das war unbelegt.
+                               Gemessen am 2026-09-05 ueber den ganzen Baum: 165 Aufrufstellen von
+                               ``build_initial_sequence``/``renew_hashtree``/``verify_sequence`` in 15
+                               Dateien, und KEINE EINZIGE uebergibt mehr als eine Handvoll Digests (null
+                               Stellen mit ``range(...)`` oder einer Comprehension). Die Nutzung liefert
+                               also gar keine Untergrenze — sie belegt nur, dass jede denkbare Schranke
+                               nichts Bestehendes bricht. Das ist eine Unbedenklichkeitsbescheinigung,
+                               keine Ableitung, und es waere unehrlich, sie als eine auszugeben.
+
+                               Die Ableitung kommt von der anderen Seite, aus den KOSTEN. Gemessen bei
+                               vollen ATS (10.000) und EINEM Kettenanfangs-Algorithmus, Maximum aus drei
+                               Laeufen (Farmer, 24 Kerne, CPython 3.10.12, Lastmittel 70 — pessimistisch):
+                               D=1 -> 0,087 s · D=100 -> 0,129 s · D=500 -> 0,266 s · D=1.000 -> 0,443 s ·
+                               D=2.000 -> 0,773 s · D=4.000 -> 1,468 s. Der Verlauf ist ab D~100 linear
+                               (rund 0,00036 s je Digest); die Zwei-Achsen-Latte des Kostenkurven-Tests
+                               liegt bei 2,0 s, sie waere also erst bei D~5.600 gerissen.
+
+                               2.000 sitzt damit bewusst zwischen beidem: gut zwei Groessenordnungen ueber
+                               allem, was dieses Repo tatsaechlich tut, und mit rund 2,5-facher Reserve
+                               unter der Kostenlatte — Reserve, weil eine Schranke auf einer ruhigen
+                               Maschine gesetzt und auf einer belasteten gehalten werden muss.
+    * ``renewal_work``      — das PRODUKT ``ATS x Datendigests x Kettenanfangs-Algorithmen`` fuer EINEN
+                               ``verify_sequence``-Aufruf. Die DRITTE Achse und die Klassen-Antwort auf
+                               den Fehlermodus, den dieses Modul schon zweimal getragen hat.
+
+                               WARUM DIE ACHSEN ALLEIN NICHT REICHEN. ``renewal_ats_chain`` feuerte bei
+                               10.000 korrekt und begrenzte nichts, weil der Durchlauf dahinter
+                               quadratisch war (L2-600-01). ``data_digests`` schloss die zweite Achse
+                               (Review Runde 2, B1) — und liess die dritte offen: ``_PraefixDeckung``
+                               haelt je DISTINKTEM Kettenanfangs-Algorithmus einen eigenen laufenden
+                               Hash-Zustand, und ``aufnehmen()`` fuettert JEDES ATS-Token in JEDEN
+                               dieser Zustaende. Die Kosten wachsen also LINEAR in der Zahl der
+                               Algorithmen, und keine Schranke sah sie an.
+
+                               GEMESSEN am 2026-09-05 auf dem Farmer (24 Kerne, CPython 3.10.12,
+                               Lastmittel 51 — also pessimistisch), 10.000 ATS x 2.000 Datendigests,
+                               Maximum aus 3 Laeufen: A=1 -> 0,813 s · A=2 -> 1,577 s · A=3 -> 1,944 s ·
+                               A=5 (alle aktuellen Registry-Algorithmen) -> 3,621 s. Die Latte des
+                               Kostenkurven-Tests ist ``achsen * GRENZE_S``, bei drei Achsen also 3,0 s
+                               — der A=5-Fall reisst sie. Die Achsen einzeln melden dabei nichts:
+                               10.000 <= 10.000 und 2.000 <= 2.000.
+
+                               40.000.000 laesst 10.000 x 2.000 x 2 zu (gemessen 1,577 s, mit Reserve
+                               unter der Drei-Achsen-Latte auf einer ruhigeren Maschine) und weist die
+                               Kombination aller Maxima ab. Legitime Nutzung liegt Groessenordnungen
+                               darunter: der groesste Datendigest-Satz im ganzen Repo ist EINER.
+
+    WAS DIESE SCHRANKEN SIND UND WAS SIE NICHT SIND — und diese Unterscheidung ist keine Feinheit,
+    sondern die Auflage A2 aus Nachtrag 3, weil eine falsche Lesart hier einen Verifier zu einer
+    Formatautoritaet macht, die er nicht ist.
+
+    ``data_digests = 2000`` ist eine RESSOURCEN- UND KOMPATIBILITAETSGRENZE DIESES VERIFIERS. Sie
+    sagt: mehr als 2.000 Datendigests in einem ATS lehnt DIESE Implementierung ab, weil die Arbeit
+    dahinter linear waechst und die Kostenlatte sonst reisst. Sie sagt AUSDRUECKLICH NICHT, dass ein
+    ATS mit mehr Datendigests gegen RFC 4998 verstiesse. Das Format kennt diese Grenze nicht; eine
+    Evidence Record mit 5.000 Datendigests ist ein gueltiger Evidence Record, den dieses Werkzeug
+    nicht verarbeitet.
+
+    WARUM DAS HIER STEHT UND NICHT NUR IM BERICHT: eine frueherer Fassung dieser Herleitung behauptete,
+    2.000 liege "ueber jeder legitimen RFC-4998-Nutzung". Das war eine Aussage ueber die NORM, gestuetzt
+    auf eine Stichprobe aus einem einzigen Repository — und der Diff hat sie zu Recht zurueckgenommen.
+    Was gemessen ist, ist die Nutzung HIER (165 Aufrufstellen in 15 Dateien, keine mit mehr als einer
+    Handvoll Digests) und die Kosten DORT (D=1 -> 0,087 s … D=4.000 -> 1,468 s). Aus beidem folgt eine
+    Politik dieses Werkzeugs, keine Eigenschaft des Formats.
+
+    FUER EINEN NUTZER heisst das: wer diese Grenze reisst, hat nicht notwendig ein kaputtes ATS,
+    sondern eines, das ausserhalb der Auslegung dieses Verifiers liegt. Die Ablehnung nennt deshalb
+    die Dimension und ihren Wert, damit erkennbar bleibt, WELCHE Politik gegriffen hat. Dasselbe gilt
+    fuer ``renewal_ats_chain``, ``witnesses`` und ``renewal_work``.
     """
 
     input_bytes: int = 8 * 1024 * 1024
@@ -168,6 +331,8 @@ class VerificationBudget:
     renewal_ats_chain: int = 10_000
     witnesses: int = 256
     int_bits: int = 8192
+    data_digests: int = 2_000
+    renewal_work: int = 40_000_000
 
     def within(self, dimension: str, value: int) -> bool:
         """Non-raising: True iff ``value`` is within the named dimension's limit. Prefer this in a

@@ -152,7 +152,11 @@ def cc07_comment_as_coverage():
 
 
 # ---- pre_tag_audit_gate counter-examples --------------------------------------------------------------
-_TREE, _GATE, _VER = "a" * 40, "b" * 64, "5.0.0"
+# `_TREE` traegt seit 2026-09-07 64 Stellen: `verify_receipt` verlangt fuer den ERWARTETEN
+# Digest die sha256-Form, damit ein Ersatzwert nicht bindbar ist. Mit 40 Stellen haetten ALLE
+# Gegenbeispiele hier ab sofort aus demselben Formgrund abgelehnt — gruen, aber nicht mehr an
+# der Eigenschaft, die sie behaupten zu pruefen.
+_TREE, _GATE, _VER = "a" * 64, "b" * 64, "5.0.0"
 
 
 def _receipt(priv, pub, **over):
@@ -178,7 +182,7 @@ def cc08_bare_or_copied_attestation_line():
 
 def cc09_wrong_subject_digest():
     priv, pub = _kp()
-    r = _receipt(priv, pub, subject_tree_digest="f" * 40)
+    r = _receipt(priv, pub, subject_tree_digest="f" * 64)
     r["signature"] = base64.b64encode(priv.sign(canonical_bytes(r))).decode()
     return not _v(r, [pub]), "a receipt bound to another tree cannot attest this one"
 
@@ -748,6 +752,23 @@ def cc32_pretag_check_coverage():
         "tampered_signature": tampered,             # #10: trusted signer, signature fails to verify
     }
     accepted = [k for k, r in cases.items() if _v(r, [pub])]
+
+    # ROUND 16 (2026-09-07): der ERSATZWERT-Pfad. Er unterscheidet sich von jedem Fall darueber
+    # darin, WO die verletzte Groesse herkommt: nicht aus der Quittung, sondern aus einer EINGABE des
+    # Tors. Kann das Tor den Baum nicht messen, setzt es "unknown" ein (`_gate_tree_digest`) — und
+    # eine mit dem legitimen Schluessel signierte Quittung, die genau diesen Ersatzwert traegt,
+    # verifizierte damit IMMER. Deshalb wird hier mit dem Ersatzwert als ERWARTUNG gefahren, nicht
+    # mit einem veraenderten Receipt-Feld: das ist der Pfad, den `_v` mit seinen festen Konstanten
+    # gar nicht erreichen kann.
+    for feld, ersatz in (("subject_tree_digest", "unknown"), ("gate_source_digest", "unreadable")):
+        r = _receipt(priv, pub, **{feld: ersatz})
+        kw = dict(trusted_pubkeys=[pub], expected_version=_VER,
+                  subject_tree_digest=_TREE, gate_source_digest=_GATE)
+        kw[feld] = ersatz
+        ok_e, _grund = verify_receipt(r, **kw)
+        if ok_e:
+            accepted.append(f"placeholder_{feld}")
+
     return (not accepted), ("all valid-except-one release-deciding receipts rejected"
                             if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
 
