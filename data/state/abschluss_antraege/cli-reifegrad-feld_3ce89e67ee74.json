@@ -1,0 +1,25 @@
+{
+ "schema": "b7n0de.abschluss_antrag.v1",
+ "id": "cli-reifegrad-feld_3ce89e67ee74",
+ "topic": "cli-reifegrad-feld",
+ "sha": "3ce89e67ee749c7077a2c3c9bea423f00cdc05bc",
+ "bahn": "proofbundle",
+ "repo": "/home/konrad/proofbundle",
+ "repo_head": "3ce89e67ee749c7077a2c3c9bea423f00cdc05bc",
+ "zeuge": "/run/b7-runner/sign-pb.sock",
+ "ziel": "origin/main",
+ "behauptung": "Vier Umgehungen des Vertrags wurden gemessen gruen: ein Kommando ohne help= ist in der gerenderten Hilfe unsichtbar und trotzdem aufrufbar; ein Name ab 19 Zeichen klebt seine Beschreibung ans vorherige Kommando; 17 von 19 Aufrufen an der Pflicht vorbei fiel keiner Pruefung auf; eine aus dem Feld gerenderte Prosa mit entmarkten Literalen liess jede Bindung gruen. Neun neue Vertragsfaelle sind fangbereit: je ein gepflanzter Defekt machte sie rot, jedes Mal zurueckgesetzt wieder gruen, gegen den endgueltigen Stand gefahren. Die Zuordnung des einen Suitenfehlschlags ist GEMESSEN, nicht geschlossen: der Vorzustand 3ce89e6 besteht test_no_source_file_hashes_attacker_data_in_a_membership_test, mein Stand fiel mit der Zeile proofbundle/cli.py:2666 name in MATURITY. Eine Sicherung aus vier duennen git-Buendeln meldete is okay und stellte null Commits wieder her, weil git bundle verify gegen das Repo prueft, das die Basis traegt. EINSCHRAENKUNG DIESES ANTRAGS: der genannte Fangnachweis ist der einzige, der im Vorzustand-Baum ueberhaupt EXISTIERT; die neun neuen Faelle sind in 3ce89e6 nicht vorhanden, ihre Fangnachweise liegen als gepflanzte Defekte im Messblatt und nicht als Knoten am Vorzustand-SHA.",
+ "mode": "NORMAL-3L3I",
+ "linsen_ordner": "office/governance/berkeley_gate/runs/lenses/cli-reifegrad-feld",
+ "fangnachweise": [
+  {
+   "knoten": "tests/test_membership_hashable_guard.py::TestNoUnguardedMembershipInTheTree::test_no_source_file_hashes_attacker_data_in_a_membership_test",
+   "vorzustand": "3ce89e67ee749c7077a2c3c9bea423f00cdc05bc"
+  }
+ ],
+ "gestellt_von": "un_echoXX",
+ "deckt_ab": [],
+ "gestellt_utc": "2026-09-15T15:22:44Z",
+ "zustand": "gestellt",
+ "verlauf": []
+}

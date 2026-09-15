@@ -1,0 +1,33 @@
+{
+ "schema": "b7n0de.abschluss_antrag.v1",
+ "id": "pretag_no_prose_20260915_56122ed69cc7",
+ "topic": "pretag_no_prose_20260915",
+ "sha": "56122ed69cc7b5abb67a85f4f011523787f54234",
+ "bahn": "proofbundle",
+ "repo": "/home/konrad/proofbundle",
+ "repo_head": "56122ed69cc7b5abb67a85f4f011523787f54234",
+ "zeuge": "/run/b7-runner/sign-pb.sock",
+ "ziel": "origin/main",
+ "behauptung": "ADR 0008 Entscheidungspunkt 2 ist als EIGENSCHAFT gepinnt statt als vier Beispiele: der Korpus wird aus der im Tor verbliebenen Prosa-Mechanik abgeleitet, jeder Eintrag zuerst gegen sie geprueft und erst dann gegen evaluate() gehalten. Die drei genannten Knoten tragen die Aussage zusammen: der Korpus erteilt nichts, ein gueltiges Receipt erteilt sehr wohl (ohne diese Positivkontrolle bestuende die Datei auch gegen ein Tor, das ALLES ablehnt), und jede Korpusprobe wird von der alten Mechanik ueberhaupt als Attestierung gelesen (ohne das belegte der erste Knoten nichts). EHRLICHE EINORDNUNG DES FANGNACHWEISES: diese drei Knoten laufen am Kopf gruen; der eigentliche Einpflanzungsbeweis lief in einer Wegwerfkopie mit zurueckgepflanztem Prosa-Pfad in evaluate() und ergab 2 failed RC=1 gegen 7 passed ohne Pflanzung — dieser Zustand ist kein Commit und damit vom Takt nicht nachfahrbar. EIGENER DEFEKT AUF DEM WEG: die erste Fassung schrieb die Korpusdateien ohne .md-Endung, das Tor scannt *.md, und derselbe Fangnachweis lief damit gruen durch; der Helfer besteht jetzt auf der Endung.",
+ "mode": "NORMAL-3L3I",
+ "linsen_ordner": "office/governance/berkeley_gate/runs/lenses/pretag_no_prose_20260915",
+ "fangnachweise": [
+  {
+   "knoten": "tests/test_kein_prosa_erteilt_das_vor_tag_tor.py::KeinProsaErteiltDasTor::test_kein_text_des_korpus_erteilt_ohne_receipt",
+   "vorzustand": null
+  },
+  {
+   "knoten": "tests/test_kein_prosa_erteilt_das_vor_tag_tor.py::KeinProsaErteiltDasTor::test_positivkontrolle_ein_gueltiges_receipt_erteilt",
+   "vorzustand": null
+  },
+  {
+   "knoten": "tests/test_kein_prosa_erteilt_das_vor_tag_tor.py::KeinProsaErteiltDasTor::test_jede_probe_wird_von_der_alten_mechanik_akzeptiert",
+   "vorzustand": null
+  }
+ ],
+ "gestellt_von": "un_echoXX",
+ "deckt_ab": [],
+ "gestellt_utc": "2026-09-15T11:29:34Z",
+ "zustand": "gestellt",
+ "verlauf": []
+}

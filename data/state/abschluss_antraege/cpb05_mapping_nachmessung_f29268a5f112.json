@@ -1,0 +1,25 @@
+{
+ "schema": "b7n0de.abschluss_antrag.v1",
+ "id": "cpb05_mapping_nachmessung_f29268a5f112",
+ "topic": "cpb05_mapping_nachmessung",
+ "sha": "f29268a5f112c6c62b273d4f3b8e47d2a0bf86fb",
+ "bahn": "proofbundle",
+ "repo": "/home/konrad/proofbundle",
+ "repo_head": "f29268a5f112c6c62b273d4f3b8e47d2a0bf86fb",
+ "zeuge": "/run/b7-runner/sign-pb.sock",
+ "ziel": "origin/main",
+ "behauptung": "Der CLI-Vertrag haelt die gemessene Verteilung fest: 19 Unterkommandos, davon 4 EXPERIMENTAL, 2 PROPOSED, 13 ohne Marke. Einer von drei Tests faengt den eingepflanzten Defekt; die anderen beiden bleiben gruen und sind als GETRENNT ausgewiesen, nicht als Faenger mitgezaehlt.",
+ "mode": "NORMAL-3L3I",
+ "linsen_ordner": "office/governance/berkeley_gate/runs/lenses/cpb05_mapping_nachmessung",
+ "fangnachweise": [
+  {
+   "knoten": "tests/test_cpb_revision_record.py::test_das_blatt_behauptet_keine_verschaerfung_in_4_1",
+   "vorzustand": "4aeebe38a09fed996660a7dbda5a6a7fb53754f9"
+  }
+ ],
+ "gestellt_von": "un_echoXX",
+ "deckt_ab": [],
+ "gestellt_utc": "2026-09-15T14:13:03Z",
+ "zustand": "gestellt",
+ "verlauf": []
+}

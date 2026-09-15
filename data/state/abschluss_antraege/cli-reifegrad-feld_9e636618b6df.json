@@ -1,0 +1,25 @@
+{
+ "schema": "b7n0de.abschluss_antrag.v1",
+ "id": "cli-reifegrad-feld_9e636618b6df",
+ "topic": "cli-reifegrad-feld",
+ "sha": "9e636618b6df28a758c8c2e23d03f2aa0331f886",
+ "bahn": "proofbundle",
+ "repo": "/home/konrad/proofbundle",
+ "repo_head": "9e636618b6df28a758c8c2e23d03f2aa0331f886",
+ "zeuge": "/run/b7-runner/sign-pb.sock",
+ "ziel": "origin/main",
+ "behauptung": "Die volle Testsuite ueber genau die committeten Bytes endet mit 4444 bestanden, 25 uebersprungen, 1615 Subtests und NULL Fehlschlaegen in 19:35; die Baumklammer vor und nach dem Lauf ist byte-identisch, die Zahl gehoert also zu diesem Stand. Die Hilfeausgabe ist gegenueber dem Vorzustand unveraendert, ueber alle 39 Hilfeflaechen ein Digest in beiden Baeumen. Neun neue Vertragsfaelle sind fangbereit: je ein gepflanzter Defekt machte sie rot, jedes Mal zurueckgesetzt wieder gruen, alle gegen den endgueltigen Stand gefahren. Zwei von drei Linsen aus zwei Familien widerlegten die Zwischenfassung durch Ausfuehren; der Einwand wurde uebernommen, parse_args liegt wieder ausserhalb des Backstops und die Pflicht wirft MaturityNotDeclaredError in einen eigenen engen Arm.",
+ "mode": "NORMAL-3L3I",
+ "linsen_ordner": "office/governance/berkeley_gate/runs/lenses/cli-reifegrad-feld",
+ "fangnachweise": [
+  {
+   "knoten": "tests/test_cli_reifegrad_marken.py::test_jedes_oberste_kommando_geht_wirklich_durch_die_pflicht",
+   "vorzustand": "3ce89e67ee749c7077a2c3c9bea423f00cdc05bc"
+  }
+ ],
+ "gestellt_von": "un_echoXX",
+ "deckt_ab": [],
+ "gestellt_utc": "2026-09-15T15:37:37Z",
+ "zustand": "gestellt",
+ "verlauf": []
+}

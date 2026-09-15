@@ -1,0 +1,29 @@
+{
+ "schema": "b7n0de.abschluss_antrag.v1",
+ "id": "cap1_pr209_20260915_7ff525b4bd27",
+ "topic": "cap1_pr209_20260915",
+ "sha": "7ff525b4bd2725b0b93d45cafd98d1e88e91de8e",
+ "bahn": "proofbundle",
+ "repo": "/home/konrad/proofbundle",
+ "repo_head": "7ff525b4bd2725b0b93d45cafd98d1e88e91de8e",
+ "zeuge": "/run/b7-runner/sign-pb.sock",
+ "ziel": "origin/main",
+ "behauptung": "Der Schluessel (Datei, Ausdruck) mit Anzahl liess sich waschen: eine getragene Stelle schliessen und eine neue mit demselben Ausdruck anderswo in derselben Datei oeffnen hielt die Anzahl gleich und den Riegel gruen, waehrend die alte Zeilenregel sie gefangen haette. Der Schluessel traegt jetzt die umschliessende Definition, und eine neue Definition mit getragenem Ausdruck gilt als neu.",
+ "mode": "NORMAL-3L3I",
+ "linsen_ordner": "office/governance/berkeley_gate/runs/lenses/cap1_pr209_20260915",
+ "fangnachweise": [
+  {
+   "knoten": "tests/test_membership_hashable_guard.py::TestNoUnguardedMembershipInTheTree::test_eine_neue_definition_mit_getragenem_ausdruck_gilt_als_neu",
+   "vorzustand": "24184a8e4b082841fa844be288db804608c7ac0a"
+  },
+  {
+   "knoten": "tests/test_membership_hashable_guard.py::TestNoUnguardedMembershipInTheTree::test_ein_leeres_quelltexte_ist_ein_fehler_kein_sauberer_baum",
+   "vorzustand": "24184a8e4b082841fa844be288db804608c7ac0a"
+  }
+ ],
+ "gestellt_von": "un_echoXX",
+ "deckt_ab": [],
+ "gestellt_utc": "2026-09-15T10:40:51Z",
+ "zustand": "gestellt",
+ "verlauf": []
+}
