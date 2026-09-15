@@ -14,19 +14,40 @@ front-load program exists to prevent.
 
 ## The mechanised gate
 
-`scripts/pre_tag_audit_gate.py` enforces that the audit was actually run for the release being tagged:
-
-- The CHANGELOG section for the version (`## [X.Y.Z]`) must record an adversarial / N-lens audit
-  (the note the project has carried on every release section since v1.3.0), **or**
-- an `audit_artifacts/` file must name the version and carry an audit marker.
-
-It is wired `--strict` into `release.yml` as a pre-build step, so a `v*` tag whose release records no
-adversarial audit fails before it can build or publish. It enforces an EXISTING convention, so real
-releases pass; it only fires when the discipline was genuinely skipped.
+`scripts/pre_tag_audit_gate.py` enforces that the audit was actually run for the release being
+tagged. It is wired `--strict` into `release.yml` as the first blocking step, so a `v*` tag without
+a valid record fails before it can build or publish.
 
 ```bash
 python scripts/pre_tag_audit_gate.py --version X.Y.Z --strict
 ```
+
+**What counts as a record: a signed receipt. Prose does not.** The gate verifies an ed25519-signed
+receipt (`b7n0de.pre_tag_audit_receipt.v1`, produced by `scripts/pre_tag_receipt.py`) that is bound
+to the digest of the tree being tagged. The public half of the signing key is read from the
+**committed** tree (`git show HEAD:audit_artifacts/pre_tag_trusted_pubkeys.txt`), never from the
+working tree — otherwise a checkout could inject a key and self-sign.
+
+**This section used to say something else, and following it would not have worked.** Until
+2026-09-15 it described the original mechanism: a CHANGELOG line, or an `audit_artifacts/` file
+carrying an audit marker. That is what the gate read *until* it was rewritten, and a maintainer
+following the old text would write a CHANGELOG line and find the gate unsatisfied — or, worse,
+assume it was satisfied. The change to a signed receipt landed in the code; this page did not
+follow it.
+
+The reason the mechanism changed is worth carrying here rather than leaving in the ADR: on
+2026-08-16 the gate was satisfied **by a documentation edit**, for a release with no audit record.
+A blocklist of negations over prose is a blocklist over an open alphabet — each round finds the
+next sentence not on the list. A signature is not enumerable that way. The property test
+`tests/test_pre_tag_gate_eigenschaften.py` pins this:
+`test_P4_eine_prosa_zeile_erteilt_keinen_pass_mehr` feeds the exact canonical truthful prose
+line and asserts the gate does **not** grant on it.
+
+**Honest limit, and it is not small.** The trust root is a key committed in this repository, the
+same one whose release the verdict concerns. A third party can verify the signature if they clone
+the repository, but they cannot establish the authority behind it from outside, and the receipt is
+not shipped with the release. See the closing section of `RELEASE.md` for what that means for
+someone verifying a published release.
 
 ## What the audit itself must cover (the checklist the gate cannot read for you)
 
@@ -37,7 +58,9 @@ Each release's adversarial pass should, at minimum:
 2. Attempt to REFUTE the release's new invariants, not only confirm them.
 3. For a release that adds a verifier or a vector kind: confirm F1 (one vocabulary), F3 (a new formal
    obligation if the logic changed), F4 (the new verifier is auto-covered or honestly NEEDS_FIXTURE).
-4. Record named findings + closed fixes in the CHANGELOG section (that is also what the gate reads).
+4. Record named findings + closed fixes in the CHANGELOG section. **That is documentation, not
+   what the gate reads** — the gate reads the signed receipt (see above). Both are expected; only
+   one of them grants the pass.
 
 ## Where each release drops its audit evidence
 
