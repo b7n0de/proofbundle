@@ -252,9 +252,18 @@ recorded per request, because a file's size alone cannot tell an error page from
 | leaf construction rule | 7.1 | **did NOT hold as stated** -- the section imposes no leaf construction, its `MUST` is conditional, and the condition does not apply to us |
 | typed digest reference: `type`, `purpose`, `digest_alg`, `digest` | 8 | **holds exactly**, including which are REQUIRED and which CONDITIONAL |
 | coverage does not appear | whole draft | **against `-02`: held as stated.** **Against `-05` the count no longer holds, the substance does.** Measured 2026-09-13 over the whole `-05` text: `population` 0, `evaluated_count` 0, `sample` 0 — but `coverage` **2** and `unresolved` **12**. Both are a different quantity: `coverage` appears as *"signature coverage"* (8.3) and *"neither kind of coverage"* about hash binding (6.2); `Unresolved` is a named **processing state** of a typed reference (8.1), not a count. **Evaluation coverage still does not appear in `-05`.** The claim is corrected rather than defended: an all-quantified statement about someone else's text has to be re-measured at every revision, and this is the one that moved. |
+| 4.1 states the exclusion-set rule more tightly in `-05` | 4.1 | **did NOT hold.** Measured 2026-09-15 against `-02`: the two sentences are identical but for `P` → `the payload`. There is no tightening. Written after searching `-02` for the `-05` wording and reading the miss as a change |
+| nothing moved between `-02` and `-05` | whole draft | **did NOT hold.** Two content moves: `Verification Scope` 8.2 → 8.5 in full, and two closing paragraphs of 14.1 into the new 14.1.1. The scoped half — every clause cited here that exists in `-02` keeps its number — does hold |
+| `-05` makes no normative change | 2 | **holds for what it says, not for what it was used for.** Section 2 is headed *"Changes from -04"* and covers one revision. Across `-02` to `-05` the MUST family rises 68 → 113, all of it in the step `-02` → `-03` |
+| the six sections new in `-05` are all new text | 6.1, 6.2, 8.3, 8.4, 14.1.1, 14.2 | **did NOT hold as first written.** Two of 14.1.1's four requirement words stand word-identical in `-02` 14.1; 29 of the 31 are genuinely new. Found by an adversarial re-count against this page |
 
-One of six did not survive. That is the reason this table exists: a claim about someone else's normative
-text, carried forward from our own earlier summary, is not a measurement.
+**Four of ten did not survive.** Two of those four were written by the `-05` round of 2026-09-13,
+and the fourth was written by this correction itself, on 2026-09-15, one paragraph after accusing
+that round of exactly this. That is the reason this table exists: a claim about someone else's
+normative text, carried forward from our own summary, is not a measurement — and knowing it does
+not stop you making it. The fix is therefore not another careful sentence. It is
+`conformance/cpb_revision_record.json` with `tests/test_cpb_revision_record.py` beside it, so that
+the next claim of this shape fails a test instead of standing for a month.
 
 ## What is NOT measured
 

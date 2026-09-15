@@ -45,6 +45,46 @@ def _blatt() -> str:
     return re.sub(r"\s+", " ", BLATT.read_text(encoding="utf-8"))
 
 
+# Wortfeld der RUECKNAHME. Eine zurueckgenommene Aussage muss auf dieser Seite zitierbar
+# bleiben — sonst kann das Blatt seinen eigenen Irrtum nicht protokollieren, und der Waechter
+# bestrafte genau die Ehrlichkeit, fuer die er gebaut ist. Gemessen 15.09.2026: die erste Fassung
+# dieses Wortfeldes war so eng, dass sie bei der ersten protokollierten Rueckname rot wurde.
+_RUECKNAHME = (
+    "no tightening",
+    "first version",
+    "earlier version",
+    "withdrawn",
+    "did not hold",
+    "said",
+)
+
+
+def _ist_zuruecknahme(satz: str) -> bool:
+    """Markiert der Satz die Aussage selbst als nicht (mehr) geltend?"""
+    klein = satz.lower()
+    return any(w in klein for w in _RUECKNAHME)
+
+
+def _einheiten() -> list[str]:
+    """Das Blatt in Einheiten, in denen eine Ruecknahme noch beim Zitat steht.
+
+    EINE TABELLENZEILE IST EINE EINHEIT, ein Prosa-Satz ist eine Einheit. Die erste Fassung
+    dieser Tests schnitt am Punkt und uebersah dabei, dass eine Abschnittsnummer wie `4.1`
+    selbst einen Punkt traegt: der Treffer endete mitten in der Tabellenzeile, VOR dem
+    "did NOT hold" in derselben Zelle, und der Waechter wurde rot an einer korrekt
+    protokollierten Ruecknahme. Gemessen 15.09.2026 am eigenen Blatt.
+    """
+    roh = BLATT.read_text(encoding="utf-8")
+    zeilen, prosa = [], []
+    for z in roh.split("\n"):
+        (zeilen if z.lstrip().startswith("|") else prosa).append(z)
+    text = re.sub(r"\s+", " ", " ".join(prosa))
+    # Satzgrenze: Punkt gefolgt von Leerzeichen und Grossbuchstabe/Sternchen — eine
+    # Abschnittsnummer wie 4.1 loest das nicht aus.
+    saetze = re.split(r"(?<=[.!?])\s+(?=[A-Z*`])", text)
+    return [z for z in zeilen if z.strip()] + [s for s in saetze if s.strip()]
+
+
 def test_der_beleg_traegt_alle_vier_revisionen() -> None:
     rev = _beleg()["revisionen"]
     assert set(rev) == {"-02", "-03", "-04", "-05"}, (
@@ -172,9 +212,8 @@ def test_das_blatt_behauptet_keine_verschaerfung_in_4_1() -> None:
     Das ist der einzige Test hier, der Prosa liest, und er ist eng gehalten: er sucht die
     Wendung, mit der die Aussage dastand, im selben Satz wie die Abschnittsnummer.
     """
-    text = _blatt()
-    treffer = re.findall(r"[^.]*\b4\.1\b[^.]*more tightly[^.]*\.", text)
-    erlaubt = [t for t in treffer if "no tightening" in t.lower() or "first version" in t.lower()]
+    treffer = [e for e in _einheiten() if "more tightly" in e and "4.1" in e]
+    erlaubt = [t for t in treffer if _ist_zuruecknahme(t)]
     assert len(treffer) == len(erlaubt), (
         "Das Blatt behauptet wieder, 4.1 sei in -05 schaerfer gefasst. Gemessen sind die "
         f"Saetze identisch bis auf ein Token. Fundstellen: {treffer}"
@@ -187,12 +226,8 @@ def test_das_blatt_behauptet_nicht_unqualifiziert_dass_nichts_sich_verschob() ->
     Gemessen sind ZWEI Inhaltsverschiebungen von `-02` nach `-05`. Die Wendung darf nur
     stehen, wo sie ausdruecklich zurueckgenommen wird.
     """
-    text = _blatt()
-    treffer = re.findall(r"[^.]*nothing moved[^.]*\.", text)
-    erlaubt = [
-        t for t in treffer
-        if "withdrawn" in t.lower() or "earlier version" in t.lower() or "said" in t.lower()
-    ]
+    treffer = [e for e in _einheiten() if "nothing moved" in e]
+    erlaubt = [t for t in treffer if _ist_zuruecknahme(t)]
     assert len(treffer) == len(erlaubt), (
         "Das Blatt behauptet wieder unqualifiziert, nichts habe sich verschoben. Gemessen: "
         "Verification Scope 8.2 -> 8.5, und zwei Absaetze aus 14.1 nach 14.1.1. "
