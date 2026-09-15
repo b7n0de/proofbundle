@@ -22,7 +22,17 @@ is added, removed, or changed in force, no registry entry changes, and the vecto
 in Section 14.1.1 are unchanged."* **That quotation reaches one revision, not three.**
 Section 2 of `-05` is headed *"Changes from
 -04"* and closes by pointing at `-04` for what came before it; `-03` and `-04` lie between our
-previous measurement point and this one. Measured across the span this page actually bridges,
+previous measurement point and this one. **Measured 2026-09-15, so that gap is no longer
+just acknowledged:** the step `-03` → `-04` adds no requirement word at all (MUST 63, MUST NOT
+50, SHALL 2, REQUIRED 6 on both sides), and `-04`'s own Section 2 says so in its own words —
+*"This revision is editorial and changes no normative text."* De-paginated, the 1438-byte
+difference is: one informative reference added ([I-D.schrock-ep-authorization-receipts], cited
+in Section 15 alongside an explicit non-claim that CPB defines no authorization semantics),
+Table 6 re-wrapped with one row's public record changed to a merged pull request, a new
+paragraph pinning that vector set by commit and stating what it does **not** carry, and an
+acknowledgment narrowed from three computations to two at the contributor's request. Every one
+of the 45 additional requirement words on this page's span therefore sits in the single step
+`-02` → `-03`. Measured across the span this page actually bridges,
 `-02` to `-05`: requirement words rise from **68 to 113** (MUST 40→63, MUST NOT 28→50, SHALL and
 REQUIRED unchanged; "requirement words" here means the MUST family, and counting all four
 categories would read 76→121 for the same delta), and **31 of them sit in six sections that do not

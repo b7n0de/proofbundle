@@ -1,4 +1,9 @@
 {
+ "digest_gegenprobe": {
+  "ergebnis": "alle vier lokalen Entwurfskopien stimmen in bytes UND sha256 mit den hier fixierten Werten",
+  "gemessen_utc": "2026-09-15T15:29:40Z",
+  "grenze": "Diese Gegenprobe braucht die Entwurfsdateien. Sie liegen NICHT im Repo (kein fremder Text im Baum), also kann kein Test im Baum sie wiederholen. Nachholbar ist sie jederzeit ueber die `quelle`-URL und die hier stehenden Digests — genau dafuer stehen sie da."
+ },
  "gemessen_utc": "2026-09-15T12:05:00Z",
  "hinweis": "Messbeleg, kein Ersatz fuer den Entwurfstext. Der Vertrag daneben prueft die INNERE Stimmigkeit zwischen docs/SCITT_CPB_MAPPING.md und diesem Beleg. Ob der Beleg die Entwuerfe richtig wiedergibt, prueft er NICHT — dafuer stehen bytes und sha256 hier, damit jeder nachholen kann. Ein Pruefer, der nur sein eigenes Artefakt liest, beglaubigt auch dessen Fehler.",
  "neue_abschnitte_gegen_02": {
@@ -240,6 +245,11 @@
    "-05": "The exclusion set is matched against the top-level member names of the payload only; a member of the same name nested inside a member's value is not removed.",
    "urteil": "gleiche Regel, ein Token getauscht (P -> the payload). KEINE Verschaerfung."
   },
+  "editorial_zusage_04": {
+   "-04": "This revision is editorial and changes no normative text.",
+   "fundort": "-04, Abschnitt 2 'Changes from -03'",
+   "urteil": "Die Zusage steht in -04 und spricht ueber den Schritt -03 -> -04. GEMESSEN stimmt sie fuer genau diesen Schritt: die Pflichtwortzahlen sind in -03 und -04 identisch (MUST 63, MUST NOT 50, REQUIRED 6, SHALL 2). Sie ist KEINE Aussage ueber die Spanne -02 bis -05 — alle 45 zusaetzlichen Pflichtwoerter dieser Spanne kamen im Schritt -02 -> -03, und das steht in -03, nicht in -04."
+  },
   "leaf_bedingung_7_1": {
    "-02": "Where a Transparency Service's VDS keys its log on the derived identifier",
    "-05": "keys its log on a digest associated with the derived identifier",
@@ -247,6 +257,21 @@
   }
  },
  "schema": "proofbundle.cpb_revision_record.v1",
+ "spanne_03_04": {
+  "aenderungen": [
+   "Boilerplate: Entwurfsnummer, Datum, Ablaufdatum, Seitenzahlen im Inhaltsverzeichnis.",
+   "Abschnitt 2 neu geschrieben ('Changes from -02' -> 'Changes from -03') mit der Zusage, die Revision sei editorial und aendere keinen normativen Text.",
+   "EINE informative Referenz hinzugefuegt: [I-D.schrock-ep-authorization-receipts], zitiert in Abschnitt 15, zusammen mit einer ausdruecklichen Nicht-Behauptung ('CPB defines no approver enrolment and no authorization semantics').",
+   "Tabelle 6 neu umbrochen (Spaltenbreiten), und in der EP-Zeile der oeffentliche Nachweis gewechselt: 'EMILIA/EP hackathon record' -> 'agent-action-capsule PR #40'.",
+   "Neuer Absatz nach Tabelle 6, der die Kompositionsvektoren per gemergtem Commit festnagelt und ausdruecklich sagt, was der Satz NICHT traegt ('It does not carry a third computation of that digest').",
+   "Danksagung ENGER gezogen: aus 'the three-computation single-digest instance ... across three independent codebases' wird 'the single-digest composition instance ... two computations'."
+  ],
+  "gemessen_utc": "2026-09-15T15:29:40Z",
+  "methode": "Beide Entwuerfe entpaginiert (Seitenumbrueche, 'Internet-Draft'-Kopfzeilen und '[Page N]'-Fusszeilen entfernt, Leerzeilenlaeufe zusammengefasst), dann zeilenweise verglichen. OHNE das Entpaginieren ist ein Diff hier wertlos: eine eingefuegte Zeile verschiebt jede folgende Seite und damit jede Kopf- und Fusszeile bis zum Dateiende.",
+  "pflichtwortunterschied": 0,
+  "roher_byteunterschied": 1438,
+  "urteil": "Die Zusage 'editorial, kein normativer Text' haelt fuer diesen Schritt — nachgemessen an identischen Pflichtwortzahlen. Zwei der sechs Aenderungen ziehen eine bestehende Aussage des Entwurfs ENGER (die Danksagung und der neue Absatz), sie fuegen also Genauigkeit hinzu statt Norm."
+ },
  "verschiebungen": [
   {
    "art": "vollstaendig",

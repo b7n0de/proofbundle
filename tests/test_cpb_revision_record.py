@@ -256,3 +256,58 @@ def test_wer_das_aenderungsprotokoll_zitiert_nennt_seine_reichweite() -> None:
     assert f"{spanne[0]} to {spanne[1]}" in text, (
         f"Die Einordnung fehlt die gemessene Zahl: erwartet '{spanne[0]} to {spanne[1]}'."
     )
+
+
+def test_die_editorial_zusage_gilt_genau_fuer_den_schritt_in_dem_sie_steht() -> None:
+    """Die feinere Aufloesung der Spanne (nachgeholt 15.09.2026).
+
+    Die Seite zitiert aus `-04` die Zusage, die Revision sei editorial und aendere keinen normativen
+    Text. Die Frage, die dieser Fall festhaelt, ist nicht ob die Zusage STIMMT — sie stimmt —,
+    sondern WIE WEIT sie reicht. Gemessen: in `-03` und `-04` sind alle vier Pflichtwortzahlen
+    identisch, die Zusage traegt also fuer ihren eigenen Schritt. Die 45 zusaetzlichen Pflichtwoerter
+    der Spanne `-02` bis `-05` kamen alle im Schritt davor, und der ist in `-03` beschrieben.
+
+    Der Fall faellt in beide Richtungen: veraendert jemand eine der Zahlen in `-03` oder `-04`,
+    stimmt die Zusage nicht mehr mit dem Beleg ueberein; verschwindet der Satz aus dem Beleg, ist
+    die Aussage der Seite nicht mehr gedeckt.
+    """
+    beleg = _beleg()
+    a = beleg["revisionen"]["-03"]["pflichtwoerter"]
+    b = beleg["revisionen"]["-04"]["pflichtwoerter"]
+    assert a == b, (
+        f"-03 und -04 tragen verschiedene Pflichtwortzahlen ({a} vs {b}) — dann ist die Zusage "
+        "'editorial, kein normativer Text' fuer diesen Schritt NICHT gedeckt.")
+
+    satz = beleg["saetze"]["editorial_zusage_04"]
+    assert "no normative text" in satz["-04"], satz["-04"]
+    assert "Changes from -03" in satz["fundort"], satz["fundort"]
+
+    # Und die Spanne davor traegt den GANZEN Zuwachs — sonst waere die Eingrenzung der Seite falsch.
+    zwei = beleg["revisionen"]["-02"]["pflichtwoerter"]["summe_must_familie"]
+    drei = beleg["revisionen"]["-03"]["pflichtwoerter"]["summe_must_familie"]
+    fuenf = beleg["revisionen"]["-05"]["pflichtwoerter"]["summe_must_familie"]
+    assert drei - zwei == fuenf - zwei, (
+        f"Der Zuwachs der Spanne (-02 -> -05: {fuenf - zwei}) kommt NICHT vollstaendig aus dem "
+        f"Schritt -02 -> -03 ({drei - zwei}) — dann reicht die Zusage aus -04 weiter oder weniger "
+        "weit als die Seite sagt, und der Satz dort gehoert nachgezogen.")
+
+
+def test_die_spanne_03_04_ist_charakterisiert_und_nicht_nur_gezaehlt() -> None:
+    """Eine Zahl ohne Inhalt beantwortet die Frage nicht, die jemand stellt.
+
+    `-04` ist 1438 Byte groesser als `-03` und traegt kein zusaetzliches Pflichtwort. Ohne die
+    Aufzaehlung daneben bleibt offen, WAS diese 1438 Byte sind — und die naheliegende Vermutung
+    (Neupaginierung) ist nachweislich falsch, weil der Beleg entpaginiert gemessen wurde.
+    """
+    sp = _beleg()["spanne_03_04"]
+    assert sp["pflichtwortunterschied"] == 0
+    assert sp["roher_byteunterschied"] > 0
+    assert "entpaginiert" in sp["methode"], "die Methode muss nennen, dass entpaginiert wurde"
+    assert len(sp["aenderungen"]) >= 5, (
+        f"nur {len(sp['aenderungen'])} Aenderungen aufgezaehlt — eine Charakterisierung, die die "
+        "Haelfte weglaesst, liest sich wie eine vollstaendige.")
+    # Die beiden Stellen, an denen der Entwurf seine EIGENE Aussage enger zieht, sind der
+    # interessante Teil und duerfen nicht aus der Liste fallen.
+    text = " ".join(sp["aenderungen"])
+    assert "ENGER" in text, "die Eingrenzungen des Entwurfs fehlen in der Aufzaehlung"
+    assert "third computation" in text, "der ausdrueckliche Nicht-Traegt-Satz fehlt"
