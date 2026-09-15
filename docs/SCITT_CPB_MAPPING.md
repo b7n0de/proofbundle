@@ -19,12 +19,29 @@ the **title** is now *"Canonicalization Declaration for SCITT Signed Statements"
 payload binding). Section 2 of `-05` states the scope of the change in its own words: *"This
 revision changes framing, placement, and wording only. It makes no normative change: no requirement
 is added, removed, or changed in force, no registry entry changes, and the vectors at the locations
-in Section 14.1.1 are unchanged."* Section 4 is retitled **"Canonicalization Algorithm
-Registrations"**, and `jcs` and `as-transmitted` are restated as **registrations** (identifier,
+in Section 14.1.1 are unchanged."* **That quotation reaches one revision, not three.** Section 2
+of `-05` is headed *"Changes from -04"* and closes by pointing at `-04` for what came before it;
+`-03` and `-04` lie between our previous measurement point and this one. Measured across the span
+this page actually bridges, `-02` to `-05`: requirement words rise from **68 to 113** (MUST 40→63,
+MUST NOT 28→50, SHALL and REQUIRED unchanged), and **31 of them sit in six sections that do not
+exist in `-02`** — 6.1 Full-Content Mode, 6.2 Hash Envelope Mode, 8.3 Envelope Carriage, 8.4 Payload
+Carriage, 14.1.1 Test Vector Locations, 14.2 COSE Header Parameters Registration. The last of those
+requests an IANA registration of the COSE header parameter `cpb-refs` with its own `MUST NOT`. Where
+inside the span those requirements arrived is **NOT MEASURED**: `-03` and `-04` were not fetched.
+Whether any of the six reaches our construction is **NOT MEASURED** too; 6.2 and 8.3 carry the most
+requirement text and are where such a measurement would start. Section 4 is retitled
+**"Canonicalization Algorithm Registrations"**, and `jcs` and `as-transmitted` are restated as **registrations** (identifier,
 normative reference, digest context, declaration rule) rather than as procedures; the withdrawn
-entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page carries the same
-section number in `-05` as it did in `-02`** — nothing moved, one wording widened (see G2) and one
-of our own claims stopped holding as written (see the claims table). **Re-measured the same day** after G3 and G4 were closed
+entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page that exists in `-02`
+carries the same section number in `-05`** — twelve of the fifteen cited; the other three (6.2, 8.3,
+14.1.1) are new in `-05` and had no number in `-02`. **Something did move, and it is not one of
+ours.** `Verification Scope` is 8.2 in `-02` and **8.5** in `-05`, unchanged in content, while 8.2
+now carries `Carriage Selection` — the old number still resolves, to a different clause. A citation
+of 8.2 carried forward from `-02` lands on the wrong section with no error. We do not cite 8.2
+anywhere on this page (measured: zero hits), so nothing here is wrong because of it; the earlier
+version of this sentence said "nothing moved", which was an unqualified claim about the draft and is
+withdrawn. One wording widened (see G2) and one of our own claims stopped holding as written (see
+the claims table). **Re-measured the same day** after G3 and G4 were closed
 additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
 in the IETF process, sitting on top of [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) — the
@@ -70,11 +87,24 @@ exclusion set. We do not declare one either way, so this is the same duty sectio
 rather than leave it to be inferred. Named here; the declaration itself is a profile decision, not a code
 change.
 
-**What `-05` adds here, measured 2026-09-13.** Section 4.1 now states the exclusion-set rule more
-tightly than `-02` did: the exclusion set *"is matched against the top-level member names of the
-payload only; a member of the same name nested inside a member's value is not removed."* That
-sharpens the consequence recorded above rather than changing it — we declare no exclusion set either
-way. And `-05` carries a **second active registration**, `as-transmitted` (4.4), beside `jcs`; the
+**What `-05` adds here, measured 2026-09-13, corrected 2026-09-15.** The first version of this
+paragraph said 4.1 "now states the exclusion-set rule more tightly than `-02` did" and quoted the
+`-05` sentence as the tightening. **Re-measured against `-02`, there is no tightening.** The two
+sentences are identical but for one substituted token:
+
+```
+-02  The exclusion set is matched against the top-level member names of P only;
+     a member of the same name nested inside a member's value is not removed.
+-05  The exclusion set is matched against the top-level member names of the payload only;
+     a member of the same name nested inside a member's value is not removed.
+```
+
+`P` became `the payload`. The rule is unchanged, and the consequence recorded above is neither
+sharpened nor altered — we declare no exclusion set either way, under both revisions. The error came
+from searching `-02` for the `-05` wording and reading the miss as a change; the check that would
+have caught it is to search for the *older* sentence.
+
+And `-05` carries a **second active registration**, `as-transmitted` (4.4), beside `jcs`; the
 withdrawn `jcs-n` (4.2) and `cde-n` (4.3) are unchanged. **We name `jcs` and nothing else**, so
 `as-transmitted` does not reach us today; whether any of our export paths would be better described
 by it is **NOT MEASURED**.
