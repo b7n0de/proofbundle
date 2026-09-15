@@ -7,6 +7,7 @@ import json
 import sys
 
 from . import SPEC_REVISION, __version__
+from ._membership import is_member
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
@@ -2605,6 +2606,98 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── Reifegrad der obersten Unterkommandos: ein FELD, nicht Prosa ────────────────────────────────────
+#
+# WARUM ES DIESES FELD GIBT. Der Reifegrad stand bis hierher AUSSCHLIESSLICH im Hilfetext, und zwar in
+# drei Schreibweisen: ``[PROPOSED]`` fuehrend, ``[EXPERIMENTAL v2.0]`` fuehrend mit Version, und
+# ``(EXPERIMENTAL)`` mitten im Satz. Gemessen 15.09.2026: ein Zaehler, der die Marke am Anfang in
+# eckigen Klammern suchte, meldete ZWEI experimentelle Kommandos. Nach der Eigenschaft gemessen sind
+# es VIER. Solange die Marke Prosa ist, ist jede Gruppierung, jede Zaehlung und jede Filterung eine
+# Regex-Uebung mit genau dieser Fehlerklasse — und die Klasse faellt still aus, weil ein uebersehenes
+# experimentelles Kommando sich wie ein stabiles liest.
+#
+# WAS DIESES FELD IST UND WAS NICHT. Es ist die maschinenlesbare Zwillingsaussage zum Hilfetext, NICHT
+# sein Ersatz: die Hilfeausgabe bleibt Byte fuer Byte unveraendert, weil die Marke dort an drei
+# verschiedenen Stellen im Satz steht und ein Umbau der Texte eine Aenderung an der ausgelieferten
+# Oberflaeche waere, die dieser Zug nicht traegt. Die beiden koennen deshalb auseinanderlaufen — genau
+# dagegen steht der Vertrag ``tests/test_cli_reifegrad_marken.py``, der das Feld gegen den TATSAECHLICH
+# gerenderten Hilfetext prueft, nicht gegen eine zweite Kopie seiner selbst.
+#
+# WARUM DIE DRITTE KLASSE ``unmarked`` HEISST und nicht ``stable``. Das Fehlen einer Marke ist eine
+# Messung, keine Zusage. Ein Kommando, das sich nicht experimentell nennt, hat damit nicht erklaert,
+# stabil zu sein — und dieses Feld darf aus einem Schweigen keine Behauptung machen.
+MATURITY_EXPERIMENTAL = "EXPERIMENTAL"
+MATURITY_PROPOSED = "PROPOSED"
+MATURITY_UNMARKED = "unmarked"
+
+#: Reifegrad je Unterkommando der obersten Ebene. Gemessen 15.09.2026 an origin/main 4aeebe38 gegen
+#: den gerenderten Hilfetext; die Aufnahme hier ist eine DEKLARATION, die der Vertrag gegen genau
+#: diesen Hilfetext gegenprueft.
+MATURITY: dict[str, str] = {
+    "verify": MATURITY_UNMARKED,
+    "emit": MATURITY_UNMARKED,
+    "emit-eval": MATURITY_UNMARKED,
+    "show-eval": MATURITY_UNMARKED,
+    "verify-proof": MATURITY_UNMARKED,
+    "hf-token": MATURITY_UNMARKED,
+    "audit-challenge": MATURITY_UNMARKED,
+    "verify-opening": MATURITY_UNMARKED,
+    "verify-enclave": MATURITY_EXPERIMENTAL,
+    "demo": MATURITY_UNMARKED,
+    "intoto": MATURITY_PROPOSED,
+    "svr": MATURITY_PROPOSED,
+    "policy": MATURITY_UNMARKED,
+    "prereg": MATURITY_UNMARKED,
+    "evalcard": MATURITY_UNMARKED,
+    "decision": MATURITY_UNMARKED,
+    "outcome": MATURITY_EXPERIMENTAL,
+    "relation-statement": MATURITY_EXPERIMENTAL,
+    "anchor": MATURITY_EXPERIMENTAL,
+}
+
+
+class MaturityNotDeclaredError(Exception):
+    """Ein oberstes Unterkommando ohne erklaerten Reifegrad — ein ENTWICKLERfehler, kein Eingabefehler.
+
+    EIGENER TYP, und der Grund steht in einer Messung. Die erste Fassung warf `KeyError` und zog
+    dafuer `build_parser()` in den never-raise-Boden von `main()`. Zwei unabhaengige Gegenlesungen
+    haben das am 15.09.2026 widerlegt, beide durch Ausfuehren: (a) mit `PYTHONIOENCODING=latin-1`
+    wandert der UnicodeEncodeError, den argparse beim Rendern der paketeigenen Hilfe wirft, dann
+    ebenfalls in den Boden — gemessen auf 14 von 39 Hilfeflaechen, Ausgang 1 wird 2, und die Meldung
+    nennt „a lone UTF-16 surrogate in an untrusted string", wo weder ein Surrogat noch ein fremder
+    String vorliegt. (b) Ein Entwicklerfehler las sich damit wie „malformed input" und verlor seinen
+    Traceback. Beides ist dieselbe Klasse: ein Boden, der fuer FREMDE Eingaben gebaut ist, wurde
+    ueber EIGENE Konstruktion gezogen.
+
+    Jetzt hat die Pflicht ihren eigenen, engen Ausgang in `main()`, und `parse_args` liegt wieder
+    ausserhalb — argparse verhaelt sich damit exakt wie vor diesem Increment.
+    """
+
+
+def _oberbefehl(sub, name: str, **kw):
+    """``sub.add_parser`` fuer ein Unterkommando der OBERSTEN Ebene, mit Reifegrad-Pflicht.
+
+    Der einzige Unterschied zum direkten Aufruf: ein Name, der in :data:`MATURITY` fehlt, bricht
+    hier LAUT ab, statt still als unklassifiziert durchzulaufen. Das ist der Punkt des Feldes — ein
+    neues Kommando soll nicht vergessen werden koennen. Der Hilfetext wird unveraendert
+    durchgereicht; dieses Wrapper aendert an der Ausgabe nichts.
+    """
+    # UEBER `is_member`, NICHT ueber `in`. MATURITY ist ein dict, und dict-Mitgliedschaft HASHT
+    # den linken Operanden — genau die Annahme, die tests/test_membership_hashable_guard.py im
+    # ganzen Quellbaum verbietet. GEMESSEN 15.09.2026: mein erster Einbau schrieb `name not in
+    # MATURITY` und der Scanner wurde rot, mit genau einer Zeile (`proofbundle/cli.py:2666`). Hier
+    # ist `name` immer ein Literal aus `build_parser` und kann nie unhashbar sein — und das ist
+    # eine Eigenschaft der AUFRUFER, nicht dieser Zeile. Der Scanner sagt in seinem eigenen
+    # Docstring, warum das nicht reicht: eine handgepflegte Ausnahmeliste muesste der pflegen, der
+    # es vergessen hat.
+    if not is_member(name, MATURITY):
+        raise MaturityNotDeclaredError(
+            f"Unterkommando {name!r} hat keinen erklaerten Reifegrad. Trage es in MATURITY ein "
+            f"(MATURITY_UNMARKED, wenn der Hilfetext keine Marke fuehrt) — ein unklassifiziertes "
+            f"Kommando liest sich in jeder Gruppierung und jeder Zaehlung wie ein stabiles.")
+    return sub.add_parser(name, **kw)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -2613,7 +2706,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action=_VersionAction)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    verify = sub.add_parser(
+    verify = _oberbefehl(sub,
         "verify", help="verify an evidence bundle JSON file",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Exit codes (verify contract):\n"
@@ -2713,21 +2806,21 @@ def build_parser() -> argparse.ArgumentParser:
                              "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
     verify.set_defaults(func=_cmd_verify)
 
-    emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
+    emit = _oberbefehl(sub, "emit", help="sign and anchor a payload into a bundle")
     emit.add_argument("--payload-file", required=True, help="file whose bytes become the payload")
     emit.add_argument("--out", required=True, help="path to write the bundle JSON")
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit.add_argument("--new-key", help="generate a signing key and save it to this file")
     emit.set_defaults(func=_cmd_emit)
 
-    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON")
+    emit_eval = _oberbefehl(sub, "emit-eval", help="emit a signed eval receipt from a claim JSON")
     emit_eval.add_argument("--claim", required=True, help="path to the eval-claim JSON")
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
-    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
+    show_eval = _oberbefehl(sub, "show-eval", help="verify an eval receipt and print the claim")
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
     show_eval.add_argument("--context", dest="context", default=None,
                            help="require the receipt's signed context_binding to equal this (cross-context replay guard)")
@@ -2747,7 +2840,7 @@ def build_parser() -> argparse.ArgumentParser:
                                 "pass; with it, an issuer mismatch fails with exit 1")
     show_eval.set_defaults(func=_cmd_show_eval)
 
-    verify_proof = sub.add_parser(
+    verify_proof = _oberbefehl(sub,
         "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")
     verify_proof.add_argument("proof", help="path to the .tlog-proof file")
     verify_proof.add_argument("--payload-file", required=True,
@@ -2764,7 +2857,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_proof.add_argument("--json", action="store_true", help="machine readable output")
     verify_proof.set_defaults(func=_cmd_verify_proof)
 
-    hf_token = sub.add_parser(
+    hf_token = _oberbefehl(sub,
         "hf-token",
         help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)")
     hf_token.add_argument("bundle_or_token",
@@ -2773,7 +2866,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="verify a pb1. token instead of emitting one")
     hf_token.set_defaults(func=_cmd_hf_token)
 
-    challenge = sub.add_parser(
+    challenge = _oberbefehl(sub,
         "audit-challenge",
         help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)")
     challenge.add_argument("root", help="the receipt's samples root (base64)")
@@ -2788,7 +2881,7 @@ def build_parser() -> argparse.ArgumentParser:
     challenge.add_argument("--json", action="store_true", help="machine readable output")
     challenge.set_defaults(func=_cmd_audit_challenge)
 
-    verify_opening = sub.add_parser(
+    verify_opening = _oberbefehl(sub,
         "verify-opening", help="verify one sample opening against a samples root (v1.5)")
     verify_opening.add_argument("opening", help="opening JSON file (index/disclosure/proof_b64)")
     verify_opening.add_argument("--root", required=True, help="the receipt's samples root (base64)")
@@ -2796,7 +2889,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_opening.add_argument("--json", action="store_true", help="machine readable output")
     verify_opening.set_defaults(func=_cmd_verify_opening)
 
-    verify_enclave = sub.add_parser(
+    verify_enclave = _oberbefehl(sub,
         "verify-enclave",
         help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt")
     verify_enclave.add_argument("eat", help="path to the EAT (compact JWS) file")
@@ -2807,14 +2900,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify_enclave.add_argument("--json", action="store_true", help="machine readable output")
     verify_enclave.set_defaults(func=_cmd_verify_enclave)
 
-    demo = sub.add_parser(
+    demo = _oberbefehl(sub,
         "demo",
         help="run the whole trust story in memory (pip-only, offline): honest receipt verifies, "
              "six tampers fail, a swapped sample is caught")
     demo.add_argument("--json", action="store_true", help="machine readable output")
     demo.set_defaults(func=_cmd_demo)
 
-    intoto = sub.add_parser(
+    intoto = _oberbefehl(sub,
         "intoto",
         help="[PROPOSED] export an eval receipt as a DSSE-signed in-toto eval-result attestation "
              "(in-toto/attestation#565), or verify one with --verify")
@@ -2833,7 +2926,7 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
-    svr = sub.add_parser(
+    svr = _oberbefehl(sub,
         "svr",
         help="[PROPOSED] emit an in-toto Summary Verification Result (svr/v0.1) for a PASSING receipt, "
              "or verify one with --verify")
@@ -2847,7 +2940,7 @@ def build_parser() -> argparse.ArgumentParser:
     svr.add_argument("--pub", help="verifier Ed25519 public key (base64) to verify against")
     svr.set_defaults(func=_cmd_svr)
 
-    policy_cmd = sub.add_parser(
+    policy_cmd = _oberbefehl(sub,
         "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
     psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
     _profile_help = ("path to a trust-policy JSON, OR the name of a packaged profile (WP3, "
@@ -2901,7 +2994,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="on error, emit a JSON error object instead of a stderr line")
     p_inst.set_defaults(func=_cmd_policy_instantiate)
 
-    prereg = sub.add_parser(
+    prereg = _oberbefehl(sub,
         "prereg",
         help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)")
     prereg.add_argument("protocol", help="path to the protocol/plan file to hash")
@@ -2910,7 +3003,7 @@ def build_parser() -> argparse.ArgumentParser:
     prereg.add_argument("--json", action="store_true", help="machine readable output")
     prereg.set_defaults(func=_cmd_prereg)
 
-    evalcard = sub.add_parser(
+    evalcard = _oberbefehl(sub,
         "evalcard",
         help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)")
     evalcard.add_argument("card", help="path to the Eval Card document to hash")
@@ -2920,7 +3013,7 @@ def build_parser() -> argparse.ArgumentParser:
     evalcard.set_defaults(func=_cmd_evalcard)
 
     # decision-receipt/v0.1 predicate (vendored). Nested group: init / emit / verify / inspect.
-    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")
+    decision = _oberbefehl(sub, "decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")
     dsub = decision.add_subparsers(dest="decision_command", required=True)
 
     d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')")
@@ -2984,7 +3077,7 @@ def build_parser() -> argparse.ArgumentParser:
     d_inspect.set_defaults(func=_cmd_decision_inspect)
 
     # ── Action Outcome Receipt (3.2.0, action-outcome/v0.1, EXPERIMENTAL) ──
-    outcome = sub.add_parser("outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome")
+    outcome = _oberbefehl(sub, "outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome")
     osub = outcome.add_subparsers(dest="outcome_command", required=True)
 
     o_init = osub.add_parser("init", help="print a template outcome predicate (fill in and sign with 'outcome emit')")
@@ -3038,7 +3131,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # relation-statement/v0.1 (3.5.0, EXPERIMENTAL): a standalone signed statement OVER a target
     # receipt (retroactive retraction/supersession without touching the original).
-    relstmt = sub.add_parser(
+    relstmt = _oberbefehl(sub,
         "relation-statement",
         help="relation-statement/v0.1 (EXPERIMENTAL): init/emit/verify/inspect a standalone signed "
              "relation OVER a target receipt (retract/supersede without touching the original)")
@@ -3088,7 +3181,7 @@ def build_parser() -> argparse.ArgumentParser:
     rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
 
     # ── anchor operations (OTS hardening + calendar-risk, EXPERIMENTAL, the [anchors] extra) ──
-    anchor = sub.add_parser(
+    anchor = _oberbefehl(sub,
         "anchor",
         help="external time-anchor operations (EXPERIMENTAL): package an UPGRADED OpenTimestamps proof "
              "into a self-contained, calendar-independent evidence pack; verify one OFFLINE; inspect "
@@ -3166,7 +3259,26 @@ _CLI_BACKSTOP_FAMILY = (OverflowError, ValueError, TypeError, KeyError, Attribut
 
 
 def main(argv=None) -> int:
-    parser = build_parser()
+    # EIN ENGER ARM FUER DIE EIGENE KONSTRUKTION, und NICHT der Boden fuer fremde Eingaben.
+    #
+    # Die Zwischenfassung dieses Increments zog `build_parser()` UND `parse_args` in den grossen
+    # `try` darunter, mit der Begruendung, SystemExit werde von keinem Arm gefangen, also bleibe das
+    # Verhalten gleich. Zwei unabhaengige Gegenlesungen haben das am 15.09.2026 durch AUSFUEHREN
+    # widerlegt: unter `PYTHONIOENCODING=latin-1` wirft argparse beim Rendern der paketeigenen Hilfe
+    # einen UnicodeEncodeError (die Hilfetexte fuehren — und →), und der wanderte dann in den Boden.
+    # Gemessen auf 14 von 39 Hilfeflaechen: Ausgang 1 wurde 2, und die Meldung nannte ein Surrogat in
+    # einem fremden String, wo keines von beidem vorlag. Bei geschlossenem stderr dasselbe eine
+    # Ebene weiter: argparses eigener Fehlerweg endete als AttributeError im Boden, und die
+    # ERROR-Zeile landete auf STDOUT.
+    #
+    # `parse_args` liegt deshalb wieder DRAUSSEN — argparse verhaelt sich exakt wie vorher. Nur die
+    # Reifegrad-Pflicht, die diese Datei selbst eingefuehrt hat, wird hier abgefangen, mit ihrem
+    # eigenen Typ und einer Meldung, die ihre WIRKLICHE Ursache nennt statt „malformed input".
+    try:
+        parser = build_parser()
+    except MaturityNotDeclaredError as exc:
+        _err(exc)
+        return 2
     args = parser.parse_args(argv)
     try:
         return args.func(args)

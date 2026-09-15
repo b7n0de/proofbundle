@@ -31,6 +31,21 @@ rather than before, which is itself the finding.
   `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
   ran, not one of the other tests. The guard decides in the checkout, where both the file and the
   distribution listing are present, and leaves the cleanroom unchanged.
+- `MATURITY`: the maturity of every top-level CLI subcommand as a declared field, and a build-time
+  duty that refuses a subcommand which declares none. It lived only in the help prose before, in
+  three different places in the sentence — `[PROPOSED]` leading, `[EXPERIMENTAL v2.0]` leading with
+  a version, `(EXPERIMENTAL)` mid-sentence. A counter looking for a leading bracketed marker found
+  two experimental commands; four carry the property. The rendered help is unchanged byte for byte,
+  so field and prose can drift. The contract therefore reads three sources that have no rendering
+  between them and itself: the parser's own `choices` (a command with no `help=`, or one whose name
+  is long enough to push argparse's description onto a continuation line, is invisible in the
+  rendered help but callable), the `help=` string literals in the source (so the day someone renders
+  the prose FROM the field, the check does not become a writer and its echo), and the routing itself
+  (rerouting 17 of 19 call sites back to a bare `add_parser` used to leave every check green). A
+  help text that NEGATES a marker — "no longer EXPERIMENTAL as of 3.9" — is reported rather than
+  read as an affirmation. Each of those four is catch-proven against the defect that a review
+  actually measured. The third class is called `unmarked`, not `stable`: a missing marker is a
+  measurement, not a promise.
 
 ### Fixed
 
@@ -40,6 +55,18 @@ rather than before, which is itself the finding.
   stayed green.
 - Gaps in the register numbering were silent; they are now named and gated.
 - The producer is read against the signed register rather than against its own in-memory list.
+- The maturity duty has its own narrow exit in `main()` (`MaturityNotDeclaredError`), so a developer
+  error no longer escapes as a raw traceback AND no longer masquerades as malformed input.
+  `parse_args()` stays OUTSIDE the backstop, where it always was. An intermediate version of this
+  work pulled both `build_parser()` and `parse_args()` into the big `try`, arguing that `SystemExit`
+  is caught by none of the arms so nothing observable changes. Two independent reviews refuted that
+  by execution on the same day: under `PYTHONIOENCODING=latin-1`, argparse raises
+  `UnicodeEncodeError` while rendering this package's own help text (14 of the 39 help surfaces
+  carry non-ASCII), and it then landed in the backstop — exit 1 became exit 2, and the message named
+  "a lone UTF-16 surrogate in an untrusted string" where there was neither a surrogate nor an
+  untrusted string. With stderr closed, argparse's own error path ended as an `AttributeError` in
+  the backstop and put an ERROR line on stdout. Both are the same class: a floor built for HOSTILE
+  INPUT was stretched over OUR OWN construction.
 
 ### Changed
 
