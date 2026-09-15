@@ -158,3 +158,27 @@ sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
 #   pip download proofbundle==X.Y.Z --no-deps --no-binary :all: -d /tmp/pb
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```
+
+### What these commands establish, and what they do not
+
+They establish two things and leave a third open. Stated here rather than in a footnote, because
+this is the page where a reader decides they have checked the release.
+
+**Established.** The bytes you downloaded are the bytes listed in `SHA256SUMS`, and
+`gh attestation verify` shows that this wheel was built by this repository's release workflow from
+a specific commit, signed through Sigstore with a short-lived keyless certificate. The publish step
+additionally refuses to upload anything whose digest differs from the attested subject, so the
+artifact on PyPI is the artifact that was attested.
+
+**Not established: that an adversarial audit holds a verdict for that commit.** The release workflow
+does gate on one — `scripts/pre_tag_audit_gate.py --strict` is its first blocking check, and it
+verifies an ed25519-signed receipt bound to the tree digest, not a prose line. But that receipt is
+**not something you receive**. It lives in `audit_artifacts/` in the repository, which `MANIFEST.in`
+deliberately prunes from the sdist, and it is not among the release assets. Its trust root is a
+public key committed in the same repository whose release you are assessing.
+
+So the audit gate is a control **we** run on ourselves, and the receipt is evidence **for us**. For
+you it is currently a claim, not a checkable fact. This is the same boundary the project states
+about its own gate: provenance-shaped, not provenance. It is written here so that "I verified the
+release" means what it actually means — the artifact's origin and bytes are verifiable by you
+today; the audit verdict behind it is not.
