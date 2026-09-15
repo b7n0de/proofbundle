@@ -171,32 +171,73 @@ def _grundlinie() -> dict:
                       .read_text(encoding="utf-8"))
 
 
-def _gesehene_stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str], list[int]]:
-    """(Datei, Ausdruck) -> Zeilen, ueber den ganzen Quellbaum oder ueber gestellte Quelltexte.
+def _umschliessende_definition(quelle: str) -> dict[int, str]:
+    """Zeile -> qualifizierter Name der umschliessenden def/class, sonst '<modulebene>'.
+
+    WARUM DIESER SCHLUESSELTEIL EXISTIERT, gemessen am 15.09.2026 von einer adversarialen Linse.
+    Eine Fassung dieses Riegels band auf (Datei, Ausdruck) mit Anzahl. Damit liess sich das Budget
+    WASCHEN: die getragene, angreiferexponierte Stelle in ``derive_limitation_codes`` schliessen und
+    anderswo in derselben Datei eine NEUE ungeschuetzte Konstruktion mit DEMSELBEN Ausdruck
+    aufmachen — die Anzahl blieb drei, der Riegel blieb gruen, und der neue Code warf nachweislich
+    ``TypeError: unhashable type: 'list'``. Die alte, zeilengebundene Regel HAETTE ihn gefangen.
+    Der Name der umschliessenden Definition ueberlebt eine Zeilenverschiebung und unterscheidet
+    trotzdem zwei Stellen: eine neue Stelle landet in einer anderen Definition und ist damit neu.
+    """
+    baum = ast.parse(quelle)
+    karte: dict[int, str] = {}
+
+    def geh(knoten: ast.AST, praefix: str) -> None:
+        for k in ast.iter_child_nodes(knoten):
+            if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = f"{praefix}.{k.name}" if praefix else k.name
+                for tief in ast.walk(k):
+                    if hasattr(tief, "lineno"):
+                        karte.setdefault(tief.lineno, name)
+                geh(k, name)
+            else:
+                geh(k, praefix)
+
+    geh(baum, "")
+    return karte
+
+
+def _gesehene_stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str, str], list[int]]:
+    """(Datei, umschliessende Definition, Ausdruck) -> Zeilen.
 
     Die Zeilen werden MITGEFUEHRT, damit eine Meldung einen Menschen hinschickt — aber sie sind
     NICHT der Schluessel. Wer sie zum Schluessel macht, baut ein Tor, das jeder Merge neu scharf
     stellt, ohne dass sich eine einzige Stelle geaendert haette.
+
+    EIN LEERES quelltexte IST EIN FEHLER, kein leerer Baum (Linsenfund P3 vom 15.09.2026): die
+    Pruefung lautete ``is not None``, und ein leeres dict uebersprang damit still den GANZEN
+    Plattenlauf und meldete sauber. Ein kuenftiger Aufrufer, der nur geaenderte Dateien reicht,
+    waere genau so in ein stilles Gruen gelaufen.
     """
-    gesehen: dict[tuple[str, str], list[int]] = {}
+    if quelltexte is not None and not quelltexte:
+        raise ValueError(
+            "leeres quelltexte: das waere ein stiller Freispruch ueber einen ungeprueften Baum. "
+            "Fuer den vollen Baum None uebergeben, nicht {}")
+    gesehen: dict[tuple[str, str, str], list[int]] = {}
     paare = (quelltexte.items() if quelltexte is not None
              else ((str(d.relative_to(SRC.parent)), d.read_text(encoding="utf-8"))
                    for d in sorted(SRC.rglob("*.py"))))
     for name, quelle in paare:
+        wo = _umschliessende_definition(quelle)
         for zeile, ausdruck in unguarded_hashing_constructions(quelle, name):
-            gesehen.setdefault((name, ausdruck), []).append(zeile)
+            gesehen.setdefault((name, wo.get(zeile, "<modulebene>"), ausdruck), []).append(zeile)
     return gesehen
 
 
 def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str]:
     """Was die Grundlinie NICHT deckt — je (Datei, Ausdruck) die Anzahl ueber dem getragenen Stand."""
     import collections  # noqa: PLC0415
-    getragen = collections.Counter((e["file"], e["expr"]) for e in _grundlinie()["carried"])
+    getragen = collections.Counter(
+        (e["file"], e["qualname"], e["expr"]) for e in _grundlinie()["carried"])
     funde: list[str] = []
     for schluessel, zeilen in sorted(_gesehene_stellen(quelltexte).items()):
         ueberzaehlig = len(zeilen) - getragen.get(schluessel, 0)
         if ueberzaehlig > 0:
-            funde.append(f"{schluessel[0]}  {schluessel[1]}  "
+            funde.append(f"{schluessel[0]}  in {schluessel[1]}()  {schluessel[2]}  "
                          f"{ueberzaehlig} von {len(zeilen)} nicht getragen, Zeilen {sorted(zeilen)}")
     return funde
 
@@ -247,6 +288,9 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
             self.assertTrue(e.get("file"), f"{e}: kein Feld file")
             self.assertTrue(e.get("expr"), f"{marke}: kein Feld expr — ohne Ausdruck ist der "
                                            "Eintrag nicht zuordenbar, sobald Zeilen wandern")
+            self.assertTrue(e.get("qualname"), f"{marke}: kein Feld qualname — ohne die "
+                                               "umschliessende Definition laesst sich das Budget "
+                                               "waschen (Linsenfund 15.09.2026)")
             self.assertTrue(e.get("exposure"), f"{marke}: keine Aussage zur Exponiertheit")
             if not e.get("exposure_measured"):
                 self.assertIn("NICHT GEMESSEN", e["exposure"],
@@ -274,20 +318,50 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
     def test_eine_vierte_stelle_derselben_form_gilt_als_neu(self):
         """DIE GEGENRICHTUNG ZUR ANZAHL. Ohne sie waere der Klassenfix eine Erlaubnis.
 
-        Der Schluessel ist (Datei, Ausdruck) — waere er das ALLEIN, deckte ein getragener Eintrag
-        beliebig viele weitere Vorkommen derselben Form in derselben Datei. Die Anzahl ist, was die
-        Regel scharf haelt: drei getragene ``i.get('assurance')`` in ``agent_review.py`` erlauben
-        genau drei, das vierte ist NEU.
+        Der Schluessel ist (Datei, Definition, Ausdruck) — waere die Anzahl nicht dabei, deckte ein
+        getragener Eintrag beliebig viele weitere Vorkommen derselben Form in DERSELBEN Definition.
+        ``derive_limitation_codes`` traegt genau EIN ``i.get('assurance')``; ein zweites dort ist neu.
         """
-        quelle = ("def f(xs):\n"
+        quelle = ("def derive_limitation_codes(xs):\n"
                   "    a = {i.get('assurance') for i in xs}\n"
                   "    b = {i.get('assurance') for i in xs}\n"
-                  "    c = {i.get('assurance') for i in xs}\n"
-                  "    d = {i.get('assurance') for i in xs}\n"
-                  "    return a, b, c, d\n")
+                  "    return a, b\n")
         funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
         self.assertEqual(len(funde), 1, funde)
-        self.assertIn("1 von 4 nicht getragen", funde[0])
+        self.assertIn("1 von 2 nicht getragen", funde[0])
+
+    def test_eine_neue_definition_mit_getragenem_ausdruck_gilt_als_neu(self):
+        """DER WASCHGANG, den eine adversariale Linse am 15.09.2026 ausgefuehrt hat.
+
+        Sie schloss die getragene, angreiferexponierte Stelle in ``derive_limitation_codes`` und
+        machte anderswo in derselben Datei eine NEUE ungeschuetzte Konstruktion mit DEMSELBEN
+        Ausdruck auf. Bei einem Schluessel aus (Datei, Ausdruck) blieb die Anzahl gleich und der
+        Riegel gruen — im neuen Code lief nachweislich ``TypeError: unhashable type: 'list'``. Die
+        vorherige, zeilengebundene Regel haette ihn gefangen; die Reparatur war also auf DIESER
+        Achse schwaecher als das, was sie ersetzte.
+
+        Genau diese Bewegung wird hier nachgestellt: dieselbe Datei, derselbe Ausdruck, dieselbe
+        Gesamtzahl — nur eine andere umschliessende Definition. Bleibt dieser Test gruen, ist das
+        Budget wieder waschbar.
+        """
+        quelle = ("def derive_limitation_codes(xs):\n"
+                  "    return set()\n"
+                  "\n"
+                  "def _neu_und_ungeprueft(xs):\n"
+                  "    return {i.get('assurance') for i in xs}\n")
+        funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
+        self.assertEqual(
+            len(funde), 1,
+            "eine neue Definition mit einem getragenen Ausdruck gilt nicht als neu — das Budget "
+            f"laesst sich waschen: {funde}")
+        self.assertIn("_neu_und_ungeprueft", funde[0])
+
+    def test_ein_leeres_quelltexte_ist_ein_fehler_kein_sauberer_baum(self):
+        """Linsenfund P3: ``is not None`` liess ein leeres dict den ganzen Plattenlauf still
+        ueberspringen und sauber melden. Ein Aufrufer, der nur geaenderte Dateien reicht und einmal
+        keine hat, haette damit einen ungeprueften Baum freigesprochen."""
+        with self.assertRaises(ValueError):
+            _ueberzaehlige_stellen({})
 
     def test_die_grundlinie_traegt_keine_stelle_die_es_nicht_mehr_gibt(self):
         """Eine Grundlinie, die eine geschlossene Stelle weiter traegt, ist eine Erlaubnis auf Vorrat.
@@ -298,10 +372,11 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         Rot heisst hier: Eintrag entfernen, nicht Test entfernen.
         """
         import collections  # noqa: PLC0415
-        getragen = collections.Counter((e["file"], e["expr"]) for e in _grundlinie()["carried"])
+        getragen = collections.Counter(
+            (e["file"], e["qualname"], e["expr"]) for e in _grundlinie()["carried"])
         gesehen = {k: len(v) for k, v in _gesehene_stellen().items()}
-        tot = [f"{f}  {x}: getragen {n}, im Baum {gesehen.get((f, x), 0)}"
-               for (f, x), n in sorted(getragen.items()) if gesehen.get((f, x), 0) < n]
+        tot = [f"{f}  in {q}()  {x}: getragen {n}, im Baum {gesehen.get((f, q, x), 0)}"
+               for (f, q, x), n in sorted(getragen.items()) if gesehen.get((f, q, x), 0) < n]
         self.assertEqual(tot, [], "\n".join(
             ["die Grundlinie traegt Stellen, die im Baum nicht mehr vorkommen — entfernen:"] + tot))
 

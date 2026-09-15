@@ -102,12 +102,22 @@ _NICHT_DIFFERENTIELL = {
                                "Entsprechung; es wird vom Python-Konformanzlauf gefahren"),
     "provenance_version_status": ("der Provenance-/Versionsstatus ist eine Python-seitige "
                                   "Ableitung ohne Rust-Unterbefehl"),
-    "cap1_document": ("der cap/1-Leser ist neu und Python-only (proofbundle.cap1, Ziel 6.1.0); "
-                      "pb_verify_rs hat keinen cap/1-Unterbefehl — GEMESSEN 15.09.2026: null "
-                      "Treffer fuer 'cap1' und 'cap/1' im gesamten Rust-Quellbaum. Die fuenfzehn "
-                      "Faelle werden vom Python-Konformanzlauf gefahren (122/122). Sie gelten hier "
-                      "als benannte Luecke und NICHT als gedeckt: sobald der Rust-Verifizierer "
-                      "einen cap/1-Zweig bekommt, gehoert dieser Eintrag geloescht statt erweitert"),
+    "cap1_document": ("DIESES Differential faehrt pb_verify_rs, und pb_verify_rs hat keinen "
+                      "cap/1-Unterbefehl — gemessen 15.09.2026 an seiner eigenen Auskunft "
+                      "(coverage-report nennt verify-dsse, verify-bundle, "
+                      "verify-trust-pack-threshold, verify-relation, verify-relation-statement) "
+                      "und an null Treffern fuer 'cap1' unter tools/pb_verify_rs/. "
+                      "WAS DIESER EINTRAG NICHT SAGT, und eine erste Fassung sagte es faelschlich: "
+                      "'kein cap/1-Leser in Rust'. Den gibt es sehr wohl, im selben Repo und seit "
+                      "870a4c2 (31.08.2026): tools/cap1_unabhaengige_umsetzung/rs/, Binaer "
+                      "cap1_verify_rs, dieselben neun Regeln desselben Entwurfs. Er ist der "
+                      "unabhaengige Gegenleser, den 6.1.0 ueberhaupt erst mitbringt. Die Luecke "
+                      "ist also NICHT 'es fehlt eine Rust-Seite', sondern 'die vorhandene Rust-"
+                      "Seite ist an dieses Differential nicht angeschlossen'. Der echte Abschluss "
+                      "ist der Anschluss von cap1_verify_rs, nicht ein zweiter Zweig in "
+                      "pb_verify_rs; bis dahin fahren die fuenfzehn Faelle im Python-"
+                      "Konformanzlauf (122/122). Nicht gedeckt heisst hier: nicht differentiell "
+                      "gefahren"),
 }
 
 
