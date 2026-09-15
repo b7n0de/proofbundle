@@ -26,7 +26,6 @@ werden beim LESEN abgewiesen, nicht hier — dieses Modul bekommt ein bereits ge
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from ._membership import is_member
