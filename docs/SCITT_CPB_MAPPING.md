@@ -48,9 +48,22 @@ revisions in which nothing normative happened, while the one that carried all of
 unmentioned. Fetched 2026-09-15 from the same source: `-03` **108056 bytes**, sha256
 `d303e6e4ec4c4bf3…`; `-04` **109494 bytes**, sha256 `de06a6eade0306c4…`.
 
-**Whether any of the six reaches our construction is measured, and none of them does today.** All
-six govern the COSE envelope: 6.1 and 6.2 are Full-Content and Hash Envelope Mode under RFC 9995,
-8.3 carries `cpb-refs` in a COSE protected header, and 14.2 registers that header parameter.
+**Whether any of the six reaches our construction is measured, and none of them does today — but
+the first version of this paragraph gave the wrong reason, and an adversarial reader from a
+different model family caught it.** That version said "all six govern the COSE envelope" and rested
+on the absence of the token COSE from `src/`. That measures the spelling, not the property. Read
+clause by clause instead:
+
+| section | requirement words | names COSE or RFC 9995 | reaches us, and why not |
+|---|---|---|---|
+| 6.1 Full-Content Mode | 2 | yes | no — it governs the payload supplied to COSE signing |
+| 6.2 Hash Envelope Mode | 13 | yes | no — it requires conformance to RFC 9995 and the labels 258–260 |
+| 8.3 Envelope Carriage | 11 | yes | no — `cpb-refs` is a COSE protected header parameter |
+| 8.4 Payload Carriage | 0 | yes | **it is marked informative and imposes nothing on anyone** |
+| 14.1.1 Test Vector Locations | 4 | **no** | **not a COSE rule at all.** It forbids newly declaring `jcs-n`, and forbids declaring `as-transmitted` without a byte-boundary selector. It does not reach us because **we declare neither algorithm** — we name `jcs` and nothing else — not because we avoid COSE |
+| 14.2 COSE Header Parameters | 1 | yes | no — it registers `cpb-refs` for the COSE registry |
+
+The conclusion survives; one of its six reasons did not.
 Measured over `src/`: **zero** occurrences of COSE, `Sign1`, RFC 9995, the labels 258 to 260 or
 `cpb-refs`, no COSE or CBOR dependency in `pyproject.toml`, and **22 files carrying DSSE**. The only
 CBOR in the tree is under `tools/scitt_ccf_datahash_vector/`, and the first version of this
