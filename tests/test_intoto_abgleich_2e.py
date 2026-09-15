@@ -41,10 +41,23 @@ def test_warnedtests_wird_nirgends_erzeugt(tafel):
     assert '"warnedTests"' not in src
 
 
-def test_das_subjekt_ist_ein_binder_und_sagt_es(tafel):
+def test_das_subjekt_ist_als_SPEC_ABWEICHUNG_ausgewiesen(tafel):
+    """un-Gegenlesung 15.09.: 'Entscheidung' stellte den Grund ueber die Folge.
+
+    Ein guter Grund macht eine Abweichung nicht zur Konformitaet. Die Tafel muss BEIDES tragen.
+    """
     z = next(x for x in tafel["tafel"] if x["feld"].startswith("subject"))
     assert z["vorhanden"] is False
-    assert "BINDER" in z["entscheidung"] and "Entscheidung und nicht Luecke" in z["entscheidung"]
+    assert z.get("abweichung_von_der_spec") is True
+    assert "Inkompatibilitaet" in z["entscheidung"]
+    assert "GRUND BLEIBT RICHTIG" in z["entscheidung"]
+
+
+def test_die_null_wurde_MIT_dekodierung_gemessen(tafel):
+    """Eine Textsuche ueber base64 ist eine Aussage ueber die Kodierung."""
+    l = tafel["lage_im_bestand"]
+    assert "rekursiver Dekodierung" in l["wie_gemessen"]
+    assert l["davon_mit_test_result_feldern"] == 0
     src = (REPO / "src/proofbundle/intoto.py").read_text(encoding="utf-8")
     assert "binder = json.dumps(" in src
 

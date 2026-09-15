@@ -7,7 +7,9 @@
     "receipt_dateien_geprueft": 69,
     "davon_mit_test_result_feldern": 0,
     "state": "VERIFIED",
-    "reason": "die FAEHIGKEIT besteht — der Erzeuger schreibt das Praedikat und ein Vertrag (tests/test_predicate_type_enforcement.py) haelt den Typ fest. Der committete KORPUS enthaelt keine solche Attestierung. Faehigkeit und Bestand sind zwei Fragen, und die erste Fassung dieser Messung hat sie beinahe vermengt"
+    "reason": "die FAEHIGKEIT besteht — der Erzeuger schreibt das Praedikat und ein Vertrag (tests/test_predicate_type_enforcement.py) haelt den Typ fest. Der committete KORPUS enthaelt keine solche Attestierung. Faehigkeit und Bestand sind zwei Fragen, und die erste Fassung dieser Messung hat sie beinahe vermengt",
+    "wie_gemessen": "zweimal. ERST als Textsuche ueber die Dateien — und das ist eine Aussage ueber die KODIERUNG, nicht ueber den Inhalt: ein Feld in einer base64-Nutzlast steht dort nicht im Klartext. DANN mit rekursiver Dekodierung jeder base64-Zeichenkette, die sich als JSON lesen laesst, bis Tiefe 3. Beide Male null. Die erste Zahl stimmte zufaellig, die zweite haelt einer Gegenprobe stand.",
+    "_warum_die_methode_hier_steht": "derselbe Fehler ist mir am selben Tag schon einmal unterlaufen: eine Suche ueber die aeussere Huelle eines Abschluss-Belegs fand null env_blocked-Zeilen, waehrend drei in der Nutzlast lagen. Eine Textsuche beantwortet, ob das Wort DASTEHT — bei kodierten Traegern nicht einmal das."
   },
   "tafel": [
     {
@@ -43,12 +45,14 @@
     {
       "feld": "subject = Quellartefakte",
       "vorhanden": false,
-      "fehlt": "die Quellartefakte als Subjekt",
-      "entscheidung": "BEWUSST anders: das Subjekt ist ein BINDER ueber Modell- und Datensatz-Verpflichtungen plus Wurzel und Zeit. Er bindet die Attestierung an das Receipt, OHNE das Modell preiszugeben. Quellartefakte als Subjekt waere ein anderer Schutzgedanke, nicht eine fehlende Zeile — deshalb Entscheidung und nicht Luecke"
+      "fehlt": "die Quellartefakte als Subjekt, wie die Spezifikation sie verlangt",
+      "entscheidung": "SPEC-ABWEICHUNG MIT GRUND, und die erste Fassung nannte das nur 'Entscheidung' — das stellte den Grund ueber die Folge. Die Folge ist Inkompatibilitaet: wer das Praedikat nach Spezifikation liest, erwartet unter `subject` die GETESTETEN ARTEFAKTE und bekommt hier einen Digest ueber Modell- und Datensatz-Verpflichtungen plus Wurzel und Zeit. DER GRUND BLEIBT RICHTIG: der Binder bindet die Attestierung an das Receipt, ohne das Modell preiszugeben. Beides gehoert nebeneinander — ein guter Grund macht eine Abweichung nicht zur Konformitaet.",
+      "abweichung_von_der_spec": true
     }
   ],
   "was_nicht_geaendert_wird": "das Signiersystem. DSSE ueber den kanonischen Statement-Rumpf bleibt; die fehlenden Beziehungen sind eine ZUORDNUNG, kein Umbau.",
   "offene_zuordnung": [
-    "die einzelnen Testnamen statt des Suitenamens in passedTests/failedTests"
+    "die einzelnen Testnamen statt des Suitenamens in passedTests/failedTests",
+    "die Spec-Abweichung bei `subject` dokumentieren, wo ein fremder Verifizierer sie liest, nicht nur in dieser Tafel"
   ]
 }
