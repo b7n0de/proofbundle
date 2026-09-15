@@ -80,6 +80,14 @@ cannot tell from it what arrives instead. `legacy_v01=True` names the thing it s
 at once is an error rather than a silent precedence — two versions cannot both be the answer, and a
 quiet winner would swallow one of the two intents without the caller ever learning.
 
+**Coverage aliases (from the release that carries CAP-1 coverage).** In `agent-review/v0.2` the
+fields `observedRuns`, `expectedRuns`, `knownGaps` and `collectionMethod` under `coverage` are
+aliases for the accounting that `strata`, `integrity` and `absenceAssertions` carry in the language
+of `draft-hillier-coverage-attestation-00`. They stay readable, keep their meaning, and a predicate
+that carries only them verifies as before (with the advisory code `COVERAGE_LEGACY_FIELDS`). Their
+removal is not before the next MAJOR and will be named here; nothing in this line changes their
+behaviour.
+
 **What is NOT deprecated:** `agent-review/v0.1` itself. It stays readable and verifiable, its verifier
 is byte-pinned to the 5.1.0 source (a test resolves `git show v5.1.0:` and compares), and six published
 receipts depend on exactly that. Emitting it is now a deliberate act; reading it is not.
