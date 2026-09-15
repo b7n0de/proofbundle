@@ -165,6 +165,42 @@ def unguarded_hashing_constructions(quelle: str, name: str = "<quelle>") -> list
     return treffer
 
 
+def _grundlinie() -> dict:
+    import json  # noqa: PLC0415
+    return json.loads((REPO / "conformance" / "unguarded_hashing_constructions_baseline.json")
+                      .read_text(encoding="utf-8"))
+
+
+def _gesehene_stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str], list[int]]:
+    """(Datei, Ausdruck) -> Zeilen, ueber den ganzen Quellbaum oder ueber gestellte Quelltexte.
+
+    Die Zeilen werden MITGEFUEHRT, damit eine Meldung einen Menschen hinschickt — aber sie sind
+    NICHT der Schluessel. Wer sie zum Schluessel macht, baut ein Tor, das jeder Merge neu scharf
+    stellt, ohne dass sich eine einzige Stelle geaendert haette.
+    """
+    gesehen: dict[tuple[str, str], list[int]] = {}
+    paare = (quelltexte.items() if quelltexte is not None
+             else ((str(d.relative_to(SRC.parent)), d.read_text(encoding="utf-8"))
+                   for d in sorted(SRC.rglob("*.py"))))
+    for name, quelle in paare:
+        for zeile, ausdruck in unguarded_hashing_constructions(quelle, name):
+            gesehen.setdefault((name, ausdruck), []).append(zeile)
+    return gesehen
+
+
+def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str]:
+    """Was die Grundlinie NICHT deckt — je (Datei, Ausdruck) die Anzahl ueber dem getragenen Stand."""
+    import collections  # noqa: PLC0415
+    getragen = collections.Counter((e["file"], e["expr"]) for e in _grundlinie()["carried"])
+    funde: list[str] = []
+    for schluessel, zeilen in sorted(_gesehene_stellen(quelltexte).items()):
+        ueberzaehlig = len(zeilen) - getragen.get(schluessel, 0)
+        if ueberzaehlig > 0:
+            funde.append(f"{schluessel[0]}  {schluessel[1]}  "
+                         f"{ueberzaehlig} von {len(zeilen)} nicht getragen, Zeilen {sorted(zeilen)}")
+    return funde
+
+
 class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
     def test_no_source_file_hashes_attacker_data_in_a_membership_test(self):
         befunde = []
@@ -188,23 +224,12 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         gleichzeitig ausfuehrbar reproduzierbar. Gruen hiess dort nicht "kommt nicht vor",
         sondern "diese Form wird nicht gemessen".
         """
-        import json
-        grundlinie = json.loads(
-            (REPO / "conformance" / "unguarded_hashing_constructions_baseline.json")
-            .read_text(encoding="utf-8"))
-        getragen = {e["site"] for e in grundlinie["carried"]}
-        funde: list[str] = []
-        for datei in sorted(SRC.rglob("*.py")):
-            for zeile, ausdruck in unguarded_hashing_constructions(
-                    datei.read_text(encoding="utf-8"), str(datei)):
-                stelle = f"{datei.relative_to(SRC.parent)}:{zeile}"
-                if stelle in getragen:
-                    continue
-                funde.append(f"{stelle}  {ausdruck}")
+        funde = _ueberzaehlige_stellen()
         self.assertEqual(funde, [], "\n".join(
             ["ein Hash-Behaelter wird aus ungeprueften Daten gebaut — das hasht beim AUFBAU, "
              "bevor irgendein Mitgliedstest laeuft. Die sieben Bestandsstellen stehen namentlich "
-             "in conformance/unguarded_hashing_constructions_baseline.json; NEU ist:"] + funde))
+             "in conformance/unguarded_hashing_constructions_baseline.json, gefuehrt als "
+             "(Datei, Ausdruck) mit Anzahl; UEBERZAEHLIG ist:"] + funde))
 
     def test_die_grundlinie_weist_sich_als_luecke_aus_nicht_als_erlaubnis(self):
         """Eine Grundlinie, die sich als Erlaubnis liest, wird zur Erlaubnis.
@@ -218,10 +243,67 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         self.assertIn("NAMED GAP, not permission", g["why_this_file_exists"])
         self.assertTrue(g["honest_limit"], "die Untergrenze fehlt")
         for e in g["carried"]:
-            self.assertTrue(e.get("exposure"), f"{e['site']}: keine Aussage zur Exponiertheit")
+            marke = f"{e.get('file')}  {e.get('expr')}"
+            self.assertTrue(e.get("file"), f"{e}: kein Feld file")
+            self.assertTrue(e.get("expr"), f"{marke}: kein Feld expr — ohne Ausdruck ist der "
+                                           "Eintrag nicht zuordenbar, sobald Zeilen wandern")
+            self.assertTrue(e.get("exposure"), f"{marke}: keine Aussage zur Exponiertheit")
             if not e.get("exposure_measured"):
                 self.assertIn("NICHT GEMESSEN", e["exposure"],
-                              f"{e['site']}: ungemessen, sagt es aber nicht")
+                              f"{marke}: ungemessen, sagt es aber nicht")
+
+    def test_die_grundlinie_ueberlebt_eine_zeilenverschiebung(self):
+        """DER FALL, DER AM 15.09.2026 ROT WAR — und der vor dem Klassenfix rot werden KONNTE.
+
+        Gemessen an diesem Tag: der Merge von origin/main in diesen Zweig fuegte
+        ``agent_review.py`` 19 Zeilen hinzu. Keine einzige der sieben getragenen Stellen aenderte
+        sich, aber alle sieben wanderten — und der Riegel meldete seine EIGENE Grundlinie als
+        sieben neue Funde. Die alte Regel verglich ``datei:zeile``; eine Zeilennummer ist eine
+        Eigenschaft der umgebenden Datei, nicht der Stelle.
+
+        Dieser Fall haette mit der alten Regel sieben Funde ergeben und ist damit ein echter
+        Anti-Fall, kein gruener Zeuge: er kann fallen, sobald jemand wieder an die Zeile bindet.
+        """
+        verschoben = {str(d.relative_to(SRC.parent)): "\n" * 40 + d.read_text(encoding="utf-8")
+                      for d in sorted(SRC.rglob("*.py"))}
+        self.assertEqual(
+            _ueberzaehlige_stellen(verschoben), [],
+            "die Grundlinie haengt wieder an Zeilennummern — jeder Merge stellt das Tor neu scharf, "
+            "ohne dass sich eine Stelle geaendert haette")
+
+    def test_eine_vierte_stelle_derselben_form_gilt_als_neu(self):
+        """DIE GEGENRICHTUNG ZUR ANZAHL. Ohne sie waere der Klassenfix eine Erlaubnis.
+
+        Der Schluessel ist (Datei, Ausdruck) — waere er das ALLEIN, deckte ein getragener Eintrag
+        beliebig viele weitere Vorkommen derselben Form in derselben Datei. Die Anzahl ist, was die
+        Regel scharf haelt: drei getragene ``i.get('assurance')`` in ``agent_review.py`` erlauben
+        genau drei, das vierte ist NEU.
+        """
+        quelle = ("def f(xs):\n"
+                  "    a = {i.get('assurance') for i in xs}\n"
+                  "    b = {i.get('assurance') for i in xs}\n"
+                  "    c = {i.get('assurance') for i in xs}\n"
+                  "    d = {i.get('assurance') for i in xs}\n"
+                  "    return a, b, c, d\n")
+        funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
+        self.assertEqual(len(funde), 1, funde)
+        self.assertIn("1 von 4 nicht getragen", funde[0])
+
+    def test_die_grundlinie_traegt_keine_stelle_die_es_nicht_mehr_gibt(self):
+        """Eine Grundlinie, die eine geschlossene Stelle weiter traegt, ist eine Erlaubnis auf Vorrat.
+
+        Die Datei sagt von sich: *jeder Eintrag muss noch geschlossen werden*. Wird einer
+        geschlossen und der Eintrag bleibt stehen, deckt er ab da eine Stelle, die es nicht mehr
+        gibt — und die naechste, die dieselbe Form wieder einfuehrt, faellt lautlos darunter.
+        Rot heisst hier: Eintrag entfernen, nicht Test entfernen.
+        """
+        import collections  # noqa: PLC0415
+        getragen = collections.Counter((e["file"], e["expr"]) for e in _grundlinie()["carried"])
+        gesehen = {k: len(v) for k, v in _gesehene_stellen().items()}
+        tot = [f"{f}  {x}: getragen {n}, im Baum {gesehen.get((f, x), 0)}"
+               for (f, x), n in sorted(getragen.items()) if gesehen.get((f, x), 0) < n]
+        self.assertEqual(tot, [], "\n".join(
+            ["die Grundlinie traegt Stellen, die im Baum nicht mehr vorkommen — entfernen:"] + tot))
 
     def test_a_planted_unguarded_construction_is_found(self):
         """PLANT-AND-MUST-CATCH fuer die zweite Form, woertlich die historische Zeile."""
