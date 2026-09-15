@@ -102,6 +102,12 @@ _NICHT_DIFFERENTIELL = {
                                "Entsprechung; es wird vom Python-Konformanzlauf gefahren"),
     "provenance_version_status": ("der Provenance-/Versionsstatus ist eine Python-seitige "
                                   "Ableitung ohne Rust-Unterbefehl"),
+    "cap1_document": ("der cap/1-Leser ist neu und Python-only (proofbundle.cap1, Ziel 6.1.0); "
+                      "pb_verify_rs hat keinen cap/1-Unterbefehl — GEMESSEN 15.09.2026: null "
+                      "Treffer fuer 'cap1' und 'cap/1' im gesamten Rust-Quellbaum. Die fuenfzehn "
+                      "Faelle werden vom Python-Konformanzlauf gefahren (122/122). Sie gelten hier "
+                      "als benannte Luecke und NICHT als gedeckt: sobald der Rust-Verifizierer "
+                      "einen cap/1-Zweig bekommt, gehoert dieser Eintrag geloescht statt erweitert"),
 }
 
 
