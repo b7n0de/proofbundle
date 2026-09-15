@@ -39,7 +39,6 @@ import hashlib
 import importlib.util
 import json
 import pathlib
-import re
 import shutil
 import subprocess
 import tempfile
