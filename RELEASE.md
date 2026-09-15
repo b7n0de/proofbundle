@@ -177,8 +177,16 @@ verifies an ed25519-signed receipt bound to the tree digest, not a prose line. B
 deliberately prunes from the sdist, and it is not among the release assets. Its trust root is a
 public key committed in the same repository whose release you are assessing.
 
-So the audit gate is a control **we** run on ourselves, and the receipt is evidence **for us**. For
-you it is currently a claim, not a checkable fact. This is the same boundary the project states
-about its own gate: provenance-shaped, not provenance. It is written here so that "I verified the
-release" means what it actually means — the artifact's origin and bytes are verifiable by you
-today; the audit verdict behind it is not.
+So the audit gate is a control **we** run on ourselves, and the receipt is evidence **for us**.
+
+Be precise about what is missing, because it is not the arithmetic. If you clone the repository you
+*can* check the signature — it is an ordinary ed25519 verification against a key in the tree. What
+you cannot do from outside is establish the **authority** behind it: the key that vouches for the
+verdict is published by the same party whose release the verdict concerns, so verifying it tells you
+the statement was made by whoever controls that repository, and nothing further. And if you only
+installed from PyPI, you never received the receipt at all.
+
+This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
+It is written here so that "I verified the release" means what it actually means — the artifact's
+origin and bytes are verifiable by you today; the audit verdict behind it rests on trusting this
+repository.
