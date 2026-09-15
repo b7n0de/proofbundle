@@ -26,7 +26,7 @@ werden beim LESEN abgewiesen, nicht hier — dieses Modul bekommt ein bereits ge
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._membership import is_member
 
@@ -52,8 +52,16 @@ HARD_DISPOSITIONS = frozenset({"failed", "resource_exhausted", "unavailable"})
 _HEX = frozenset("0123456789abcdef")
 
 
-def _is_int(x: object) -> bool:
-    """Eine echte Ganzzahl. `bool` ist in Python eine int-Unterklasse und hier keine Zahl."""
+def _is_int(x: object) -> TypeGuard[int]:
+    """Eine echte Ganzzahl. `bool` ist in Python eine int-Unterklasse und hier keine Zahl.
+
+    WARUM TypeGuard UND NICHT bool, gemessen 2026-09-15: `mypy src` meldete sechs Fehler in diesem
+    Modul, alle derselben Klasse — ein aus geparstem JSON gelesener Wert ist `Any | None`, und der
+    Pruefer sah nicht, dass `_is_int(el)` ihn bereits auf `int` einengt. Zur LAUFZEIT war jede
+    dieser Stellen korrekt bewacht; falsch war nur, dass die Zusicherung im Rueckgabetyp nicht
+    stand. Mit `TypeGuard[int]` verengt der Pruefer durch JEDE Aufrufstelle, auch durch die, die es
+    noch nicht gibt — sechs `# type: ignore` haetten dagegen genau sechs Stellen stumm gestellt und
+    die siebte wieder rot werden lassen."""
     return isinstance(x, int) and not isinstance(x, bool)
 
 
@@ -199,7 +207,8 @@ def _r6_absence_is_scoped(doc: dict, f) -> None:
 def _r7_incomplete_not_clean(doc: dict, f) -> None:
     """R7: eine Einheit mit failed / resource_exhausted / unavailable schliesst complete=true aus;
     bei complete=false nennt capped_to den Verdikt, auf den ein Leser sich stuetzen darf."""
-    integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
+    _integrity = doc.get("integrity")
+    integrity: dict = _integrity if isinstance(_integrity, dict) else {}
     hart = any(is_member(u.get("disposition"), HARD_DISPOSITIONS)
                for s in _strata(doc) for u in _unexamined(s))
     complete = integrity.get("complete")
