@@ -50,3 +50,8 @@ dist_pkgtest5/
 dist_final/
 dist_pkgtest6/
 dist_rc/
+
+# Der Marker, den --verify-declaration ablegt und der Offline-Lauf liest. Er gehoert zu EINEM
+# Lauf in EINER Umgebung; committet waere er die Behauptung, die Drift-Pruefung sei in jedem
+# fremden Checkout gelaufen — genau die Sorte Aussage, gegen die dieses Tor gebaut ist.
+.required-checks-drift.json

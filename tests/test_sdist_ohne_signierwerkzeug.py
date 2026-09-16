@@ -329,6 +329,12 @@ AUSGESCHLOSSEN = {
     "gen_findings_register.py": "liest denselben Weg aus Umgebung oder Datei",
     # Kein sdist-Verbraucher: der git-Hook des Checkouts und der CI-Kanal, beides gibt es dort nicht.
     "install_git_hooks.sh": "Verbraucher sind der Checkout-Hook und CI, nicht das Paket",
+    # 16.09.2026: liest `.github/workflows/*.yml` und `.github/required_status_checks.json`. Beides
+    # liegt hinter `prune .github` (MANIFEST.in:139) und ist im Paket NICHT vorhanden. Das Skript
+    # koennte dort also nur eines tun: nichts finden und das fuer ein Ergebnis halten — genau die
+    # Klasse, gegen die es gebaut ist. Draussen, damit es nicht in einer Umgebung laeuft, in der
+    # seine Eingabe fehlt.
+    "required_check_reachability_gate.py": "liest .github/, das die sdist prunt — im Paket ohne Eingabe",
     # 16.09.2026: liest `docs/release_scope/<version>.md`, und MANIFEST.in liefert weder `graft docs`
     # noch diese Dateien einzeln aus. Im Paket faende das Skript keine Umfangsdatei und muesste aus
     # ihrer Abwesenheit ein Urteil bilden. Sein Gegenstand ist ausserdem der ZWEIG eines Pull

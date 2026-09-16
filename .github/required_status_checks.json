@@ -1,0 +1,99 @@
+{
+  "_comment": [
+    "The status checks the branch ruleset 'protect-main' requires on main, declared here so a",
+    "workflow change can be checked against them WITHOUT a network call. This file is a DECLARATION,",
+    "not the truth: the truth lives in the ruleset. scripts/required_check_reachability_gate.py",
+    "--verify-declaration compares the two and reports drift; the offline gate only asks whether the",
+    "workflows can produce what is declared.",
+    "Why this file exists: three times in this repository a required context could not be produced,",
+    "and every time a human reading found it, never a mechanism. See the class note below."
+  ],
+  "_class": [
+    "A required status check has TWO failure modes, red and ABSENT, and only the first is visible.",
+    "An absent context produces no line, no colour and no message; the pull request simply stays",
+    "BLOCKED with nothing red on it. GitHub has no API field that separates 'still running' from",
+    "'will never be reported' (measured 2026-09-16; mergeStateStatus=BLOCKED covers both).",
+    "Known instances in this repository:",
+    "  1. ci.yml lacked the 'labeled' trigger, so adding the landung label to a resting PR started",
+    "     no run at all. Closed 2026-09-14 in commit 89301253.",
+    "  2. fork-pr-isolation.yml lacked the 'merge_group' trigger. It is the SECOND of two files that",
+    "     carry required contexts; the assumption had been that all seven lived in one file.",
+    "  3. The test matrix produces five Python versions only under a condition, so four of the seven",
+    "     required contexts are never created for an ordinary pull request. Measured 2026-09-16 on",
+    "     PRs 209, 210, 211 and 212, all four BLOCKED with no required check red."
+  ],
+  "ruleset": "protect-main",
+  "ruleset_id": 18386496,
+  "branch": "main",
+  "declared_on": "2026-09-16",
+  "required_contexts": [
+    "coverage",
+    "guard",
+    "test (3.10)",
+    "test (3.11)",
+    "test (3.12)",
+    "test (3.13)",
+    "test (3.14)"
+  ],
+  "_ratchet": [
+    "accepted_gated names the contexts whose CONDITIONAL production is knowingly accepted today, and",
+    "binds each one to the sha256 of the exact condition that was accepted. A name alone is not",
+    "enough and is rejected as an unbound acceptance: a name that is once on the list would otherwise",
+    "be immune forever, so a context that runs unconditionally today and disappears behind an `if:`",
+    "tomorrow would slip through, and a condition could be narrowed at will while the name stayed put.",
+    "Two independent reviewers found that same hole on 2026-09-16, one of them by building the case",
+    "and measuring exit 0 on it.",
+    "Why the ratchet exists at all: an advisory job that is red from its very first run teaches people",
+    "to look away, and a gate that is habitually stepped over checks nothing any more.",
+    "The list is a RATCHET, not an exemption: the report still names every conditional context with",
+    "its condition and its digest. Only the exit code follows the ratchet.",
+    "It turns RED as soon as something gets WORSE: a context that is not produced at all, a dead",
+    "condition, something not measurable, a newly conditional context, or a changed condition.",
+    "accepted_unreadable works symmetrically, and since 2026-09-16 that is true of the BINDING too:",
+    "each entry names its context and the sha256 of the exact REASON it was accepted for. The",
+    "same job can be unmeasurable tomorrow for a DIFFERENT reason, and that reason is not",
+    "accepted. A third reviewer measured exactly that on 2026-09-16: same prefix, reason changed",
+    "from 'calls a reusable workflow' to 'matrix values not readable literally', exit 0, nothing",
+    "reported. A name-only entry is rejected as an unbound acceptance, like its gated sibling.",
+    "Without it the",
+    "gate would be red forever because of ONE permanent limit, which would move the permanent red",
+    "rather than remove it. A NEW unmeasurable case still fails -- and since 2026-09-16 it fails",
+    "even when every required context is produced unconditionally. That check used to sit BELOW",
+    "the shortcut for the all-produced verdict, so it only ever ran when something was already",
+    "conditional; measured while writing the case for the bound limit, the report printed the new",
+    "unmeasurable line and the gate still exited 0. An unmeasurable spot can hide a required",
+    "context, and that is true regardless of how the others stand.",
+    "KNOWN LIMIT of this file, named rather than hidden: the declaration is its own input.",
+    "Removing a context from a workflow AND from required_contexts in the same change is",
+    "invisible to the offline gate. Two reviewers named this the main weakness on 2026-09-16.",
+    "It is not left as prose: the ci.yml job now runs --verify-declaration against the live",
+    "ruleset BEFORE the offline gate, so a red offline result cannot skip it. That check needs",
+    "the network and a token; when it cannot run it reports not-measurable, never a pass."
+  ],
+  "accepted_gated": [
+    {
+      "context": "test (3.10)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.11)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.13)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.14)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    }
+  ],
+  "accepted_gated_reason": "These four are produced only when the full test matrix runs. That matrix sits behind ONE shared five-branch condition, and the 'landung' label is only one of the branches: a workflow_dispatch run, a same-repo head branch starting with release/, a ref name starting with release/, the 'landung' label, or a merge_group event. An earlier draft of this line said 'only under the landung label', which was measurably wrong and contradicted this repository's own comment on the same condition. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
+  "accepted_unreadable": [
+    {
+      "context": "published-artifact-gate.yml:reusable-attest-dryrun",
+      "reason_sha256": "1f97f78054bc2a7226ffffe0003d74708d174a5e12f9b0768be10d901d7bae98"
+    }
+  ],
+  "accepted_unreadable_reason": "A reusable workflow reports as '<caller job id> / <called job name>'. The gate deliberately does not derive that name instead of guessing it. This is a permanent limit of the design, not a regression."
+}
