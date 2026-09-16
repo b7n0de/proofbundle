@@ -60,7 +60,7 @@ const DOMAIN_MELDUNG: &str =
      Python's rfc8785 raises IntegerDomainError for the same value";
 
 fn pruefe_ganzzahl_domain(v: i128) -> Result<(), &'static str> {
-    if v > IJSON_INT_MAX || v < IJSON_INT_MIN {
+    if !(IJSON_INT_MIN..=IJSON_INT_MAX).contains(&v) {
         return Err(DOMAIN_MELDUNG);
     }
     Ok(())
@@ -114,8 +114,7 @@ impl<'de> Deserialize<'de> for StrictValue {
             where
                 E: de::Error,
             {
-                let n = i128::try_from(v)
-                    .map_err(|_| de::Error::custom(DOMAIN_MELDUNG))?;
+                let n = i128::try_from(v).map_err(|_| de::Error::custom(DOMAIN_MELDUNG))?;
                 pruefe_ganzzahl_domain(n).map_err(de::Error::custom)?;
                 u64::try_from(v)
                     .map(|u| serde_json::Value::Number(u.into()))
@@ -240,7 +239,8 @@ fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
         if ist_float {
             continue;
         }
-        let text = std::str::from_utf8(&bytes[start..i]).map_err(|_| "invalid utf-8".to_string())?;
+        let text =
+            std::str::from_utf8(&bytes[start..i]).map_err(|_| "invalid utf-8".to_string())?;
         match text.parse::<i128>() {
             Ok(v) => pruefe_ganzzahl_domain(v).map_err(|e| e.to_string())?,
             // Mehr Stellen als i128 traegt: erst recht ausserhalb der I-JSON-Domain.
@@ -321,7 +321,11 @@ fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
     let mut knoten: usize = 0;
     while let Some((v, tiefe)) = stapel.pop() {
         if tiefe > BUDGET_JSON_DEPTH {
-            return Err(budget_ueberschritten("json_depth", tiefe, BUDGET_JSON_DEPTH));
+            return Err(budget_ueberschritten(
+                "json_depth",
+                tiefe,
+                BUDGET_JSON_DEPTH,
+            ));
         }
         match v {
             serde_json::Value::String(s) => {
@@ -333,7 +337,11 @@ fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
             serde_json::Value::Array(items) => {
                 knoten += items.len();
                 if knoten > BUDGET_JSON_NODES {
-                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                    return Err(budget_ueberschritten(
+                        "json_nodes",
+                        knoten,
+                        BUDGET_JSON_NODES,
+                    ));
                 }
                 for it in items {
                     stapel.push((it, tiefe + 1));
@@ -342,7 +350,11 @@ fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
             serde_json::Value::Object(map) => {
                 knoten += map.len();
                 if knoten > BUDGET_JSON_NODES {
-                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                    return Err(budget_ueberschritten(
+                        "json_nodes",
+                        knoten,
+                        BUDGET_JSON_NODES,
+                    ));
                 }
                 for (k, val) in map {
                     // DER SCHLUESSEL ZAEHLT MIT. Python schloss genau diese Achse am 2026-09-09
@@ -476,7 +488,11 @@ fn verify_dsse(
         .and_then(|v| v.as_array())
         .ok_or("envelope has no signatures array")?;
     if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
     }
 
     let pk_bytes = b64_strict(pubkey_b64)?;
@@ -853,7 +869,11 @@ fn verify_trust_pack_threshold(
     // Rolle mit mehr als `witnesses` Eintraegen ab, BEVOR es Schluesselmaterial anfasst. Hier
     // zaehlte niemand — 300 Root-Schluessel bestaetigten eine Schwelle von 2.
     if keys.len() > BUDGET_WITNESSES {
-        return Err(budget_ueberschritten("witnesses", keys.len(), BUDGET_WITNESSES));
+        return Err(budget_ueberschritten(
+            "witnesses",
+            keys.len(),
+            BUDGET_WITNESSES,
+        ));
     }
     let revoked: HashSet<String> = predicate
         .get("revoked")
@@ -875,7 +895,11 @@ fn verify_trust_pack_threshold(
     // Die ROHE Laenge, vor dem Widerruf-Filter — so zaehlt Python (`len(kids)`), und ein Angreifer
     // waehlt die Liste, nicht der Verifizierer.
     if root_kids.len() > BUDGET_WITNESSES {
-        return Err(budget_ueberschritten("witnesses", root_kids.len(), BUDGET_WITNESSES));
+        return Err(budget_ueberschritten(
+            "witnesses",
+            root_kids.len(),
+            BUDGET_WITNESSES,
+        ));
     }
     let root_ids: HashSet<String> = root_kids
         .iter()
@@ -897,7 +921,11 @@ fn verify_trust_pack_threshold(
     // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
     // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
     if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
     }
     for entry in sigs {
         let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else {
@@ -1994,7 +2022,8 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         }
     };
     let policy = policy_path.as_ref().map(|p| {
-        let pol = strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
+        let pol =
+            strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
         // Lauf 13 (Linse L4, F1, P0): bis hierher wurde die Policy nur GEPARST und dann nach dem
         // hartkodierten Schluessel "relations" befragt — ein Tippfehler ("relatoins") liess Rust die
         // ganze Policy still ignorieren (exit 0), waehrend Python fail-closed exit 2 meldet. Dieselben
@@ -2054,7 +2083,11 @@ fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read {path}: {e}"))?;
     if buf.len() > BUDGET_INPUT_BYTES {
-        return Err(budget_ueberschritten("input_bytes", buf.len(), BUDGET_INPUT_BYTES));
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            buf.len(),
+            BUDGET_INPUT_BYTES,
+        ));
     }
     Ok(buf)
 }
@@ -2063,13 +2096,31 @@ const POLICY_SCHEMA_V01: &str = "proofbundle/trust-policy/v0.1";
 const POLICY_SCHEMA_V02: &str = "proofbundle/trust-policy/v0.2";
 /// Spiegel von policy._TOP_KEYS — jedes andere Feld auf oberster Ebene ist fail-closed ein Fehler.
 const POLICY_TOP_KEYS: &[&str] = &[
-    "schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature", "merkle",
-    "sd_jwt", "status", "assurance", "decision_receipt", "anchors", "relations", "deploymentReady",
-    "requiresIdentityOverlay", "valid_until", "valid_from", "policyPurpose", "generatedFromTemplate",
+    "schema",
+    "policy_id",
+    "allowed_schema_versions",
+    "allowed_issuers",
+    "signature",
+    "merkle",
+    "sd_jwt",
+    "status",
+    "assurance",
+    "decision_receipt",
+    "anchors",
+    "relations",
+    "deploymentReady",
+    "requiresIdentityOverlay",
+    "valid_until",
+    "valid_from",
+    "policyPurpose",
+    "generatedFromTemplate",
 ];
 /// Spiegel von policy._RELATIONS_KEYS.
 const POLICY_RELATIONS_KEYS: &[&str] = &[
-    "require_relation_resolution", "reject_superseded", "reject_retracted", "relation_signer",
+    "require_relation_resolution",
+    "reject_superseded",
+    "reject_retracted",
+    "relation_signer",
     "require_relation_target",
 ];
 
@@ -2079,7 +2130,9 @@ const POLICY_RELATIONS_KEYS: &[&str] = &[
 /// hinaus je Sektion tief prueft (merkle, sd_jwt, anchors, ...), liest dieser Verifizierer nicht —
 /// die Huelle und die Sektion, die er auswertet, muessen aber dasselbe Urteil bekommen.
 fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
-    let obj = pol.as_object().ok_or("trust policy must be a JSON object")?;
+    let obj = pol
+        .as_object()
+        .ok_or("trust policy must be a JSON object")?;
     let schema = obj.get("schema").and_then(|v| v.as_str()).unwrap_or("");
     if schema != POLICY_SCHEMA_V01 && schema != POLICY_SCHEMA_V02 {
         return Err(format!(
@@ -2087,28 +2140,43 @@ fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
             obj.get("schema")
         ));
     }
-    let mut fremd: Vec<&str> = obj.keys().map(|k| k.as_str()).filter(|k| !POLICY_TOP_KEYS.contains(k)).collect();
+    let mut fremd: Vec<&str> = obj
+        .keys()
+        .map(|k| k.as_str())
+        .filter(|k| !POLICY_TOP_KEYS.contains(k))
+        .collect();
     if !fremd.is_empty() {
         fremd.sort_unstable();
-        return Err(format!("unknown field(s) in trust policy: {fremd:?} (trust policy is fail-closed)"));
+        return Err(format!(
+            "unknown field(s) in trust policy: {fremd:?} (trust policy is fail-closed)"
+        ));
     }
     match obj.get("policy_id").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => {}
         _ => return Err("trust policy requires a non-empty string policy_id".to_string()),
     }
     if obj.contains_key("decision_receipt") && schema != POLICY_SCHEMA_V02 {
-        return Err(format!("decision_receipt section requires schema {POLICY_SCHEMA_V02}"));
+        return Err(format!(
+            "decision_receipt section requires schema {POLICY_SCHEMA_V02}"
+        ));
     }
     if let Some(rel) = obj.get("relations") {
         if schema != POLICY_SCHEMA_V02 {
-            return Err(format!("relations section requires schema {POLICY_SCHEMA_V02}"));
+            return Err(format!(
+                "relations section requires schema {POLICY_SCHEMA_V02}"
+            ));
         }
         let rel = rel.as_object().ok_or("relations must be a JSON object")?;
-        let mut fremd: Vec<&str> =
-            rel.keys().map(|k| k.as_str()).filter(|k| !POLICY_RELATIONS_KEYS.contains(k)).collect();
+        let mut fremd: Vec<&str> = rel
+            .keys()
+            .map(|k| k.as_str())
+            .filter(|k| !POLICY_RELATIONS_KEYS.contains(k))
+            .collect();
         if !fremd.is_empty() {
             fremd.sort_unstable();
-            return Err(format!("unknown field(s) in relations: {fremd:?} (trust policy is fail-closed)"));
+            return Err(format!(
+                "unknown field(s) in relations: {fremd:?} (trust policy is fail-closed)"
+            ));
         }
     }
     Ok(())
@@ -2314,7 +2382,6 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
     }
 }
 
-
 // ===========================================================================
 // TESTS IM VERIFIZIERER SELBST (LAUF11-L1).
 //
@@ -2337,7 +2404,8 @@ mod tests {
     fn anti_paritaet_ein_gewoehnliches_dokument_geht_durch() {
         // ZUERST und nicht verhandelbar: ohne diese Zusicherung bestuende ein Parser, der ALLES
         // abweist, jede Probe darunter.
-        let v = wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
+        let v =
+            wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
         assert_eq!(v["a"], serde_json::json!(1));
     }
 
@@ -2346,9 +2414,18 @@ mod tests {
         // Lauf 13, Gegenlesung Stelle 6: Python nahm `"\ud800"` an, serde_json weist es ab. Python
         // weist jetzt ebenfalls ab; dieser Test pinnt die Rust-Seite, damit ein Parserwechsel die
         // Paritaet nicht still kippt.
-        assert!(strict_parse(br#"{"a":"\ud800"}"#).is_err(), "einsames Surrogat angenommen");
-        assert!(strict_parse(br#"{"\udfff":1}"#).is_err(), "einsames Surrogat als Schluessel angenommen");
-        assert!(strict_parse(br#"{"a":"\ud83d\ude00"}"#).is_ok(), "gueltiges Paar abgewiesen");
+        assert!(
+            strict_parse(br#"{"a":"\ud800"}"#).is_err(),
+            "einsames Surrogat angenommen"
+        );
+        assert!(
+            strict_parse(br#"{"\udfff":1}"#).is_err(),
+            "einsames Surrogat als Schluessel angenommen"
+        );
+        assert!(
+            strict_parse(br#"{"a":"\ud83d\ude00"}"#).is_ok(),
+            "gueltiges Paar abgewiesen"
+        );
     }
 
     #[test]
@@ -2357,7 +2434,10 @@ mod tests {
         let roh = format!("{{\"a\":\"{lang}\"}}");
         let e = wert(&roh).expect_err("eine Zeichenkette ueber der Schranke wurde angenommen");
         assert!(e.contains("string_len"), "falsche Dimension gemeldet: {e}");
-        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+        assert!(
+            e.contains("budget"),
+            "die Meldung nennt das Budget nicht: {e}"
+        );
     }
 
     #[test]
@@ -2376,7 +2456,10 @@ mod tests {
         let n = BUDGET_JSON_DEPTH + 5;
         let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
         let e = wert(&roh).expect_err("eine zu tiefe Verschachtelung wurde angenommen");
-        assert!(e.contains("json_depth") || e.contains("recursion"), "unerwartete Meldung: {e}");
+        assert!(
+            e.contains("json_depth") || e.contains("recursion"),
+            "unerwartete Meldung: {e}"
+        );
     }
 
     #[test]
@@ -2385,7 +2468,10 @@ mod tests {
         // sonst weist er zulaessige Dokumente ab und die Probe oben sagt nichts ueber die Grenze.
         let n = BUDGET_JSON_DEPTH - 2;
         let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
-        assert!(wert(&roh).is_ok(), "ein Dokument unter der Tiefenschranke wurde abgewiesen");
+        assert!(
+            wert(&roh).is_ok(),
+            "ein Dokument unter der Tiefenschranke wurde abgewiesen"
+        );
     }
 
     #[test]
@@ -2406,8 +2492,12 @@ mod tests {
     #[test]
     fn eine_zu_grosse_eingabe_wird_vor_dem_parsen_abgewiesen() {
         let roh = format!("[{}]", "1,".repeat(BUDGET_INPUT_BYTES / 2 + 10));
-        let e = strict_parse(roh.as_bytes()).expect_err("eine Eingabe ueber der Schranke ging durch");
-        assert!(e.contains("input_bytes"), "die Eingangsschranke meldete etwas anderes: {e}");
+        let e =
+            strict_parse(roh.as_bytes()).expect_err("eine Eingabe ueber der Schranke ging durch");
+        assert!(
+            e.contains("input_bytes"),
+            "die Eingangsschranke meldete etwas anderes: {e}"
+        );
     }
 
     #[test]
@@ -2427,12 +2517,24 @@ mod tests {
     #[test]
     fn eine_policy_mit_tippfehler_wird_abgewiesen_statt_still_ignoriert() {
         // Lauf 13 L4 F1 (P0): "relatoins" statt "relations" — Python exit 2, Rust verifizierte mit exit 0.
-        let ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_superseded":true}}"#);
-        assert!(policy_huelle_pruefen(&ok).is_ok(), "gueltige Policy abgewiesen");
-        let typo = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relatoins":{"reject_superseded":true}}"#);
+        let ok = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_superseded":true}}"#,
+        );
+        assert!(
+            policy_huelle_pruefen(&ok).is_ok(),
+            "gueltige Policy abgewiesen"
+        );
+        let typo = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relatoins":{"reject_superseded":true}}"#,
+        );
         let e = policy_huelle_pruefen(&typo).expect_err("Tippfehler angenommen");
-        assert!(e.contains("unknown field") && e.contains("relatoins"), "{e}");
-        let typo_innen = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_supersede":true}}"#);
+        assert!(
+            e.contains("unknown field") && e.contains("relatoins"),
+            "{e}"
+        );
+        let typo_innen = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_supersede":true}}"#,
+        );
         let e = policy_huelle_pruefen(&typo_innen).expect_err("Tippfehler in relations angenommen");
         assert!(e.contains("unknown field(s) in relations"), "{e}");
     }
@@ -2440,15 +2542,28 @@ mod tests {
     #[test]
     fn schema_und_policy_id_sind_pflicht_relations_nur_unter_v02() {
         let ohne_schema = _policy(r#"{"policy_id":"p","relations":{}}"#);
-        assert!(policy_huelle_pruefen(&ohne_schema).expect_err("ohne schema").contains("unsupported trust policy schema"));
-        let v01_rel = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p","relations":{}}"#);
-        assert!(policy_huelle_pruefen(&v01_rel).expect_err("relations unter v0.1").contains("requires schema"));
+        assert!(policy_huelle_pruefen(&ohne_schema)
+            .expect_err("ohne schema")
+            .contains("unsupported trust policy schema"));
+        let v01_rel =
+            _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p","relations":{}}"#);
+        assert!(policy_huelle_pruefen(&v01_rel)
+            .expect_err("relations unter v0.1")
+            .contains("requires schema"));
         let v01_ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p"}"#);
-        assert!(policy_huelle_pruefen(&v01_ok).is_ok(), "v0.1 ohne relations ist gueltig");
+        assert!(
+            policy_huelle_pruefen(&v01_ok).is_ok(),
+            "v0.1 ohne relations ist gueltig"
+        );
         let ohne_id = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2"}"#);
-        assert!(policy_huelle_pruefen(&ohne_id).expect_err("ohne policy_id").contains("policy_id"));
+        assert!(policy_huelle_pruefen(&ohne_id)
+            .expect_err("ohne policy_id")
+            .contains("policy_id"));
         let kein_objekt = serde_json::json!([1, 2]);
-        assert!(policy_huelle_pruefen(&kein_objekt).is_err(), "Liste als Policy angenommen");
+        assert!(
+            policy_huelle_pruefen(&kein_objekt).is_err(),
+            "Liste als Policy angenommen"
+        );
     }
 
     #[test]
@@ -2470,10 +2585,24 @@ mod tests {
         // vier, Lauf 12 fand die fuenfte und sechste — ein Bericht, der nur die bekannten nennt,
         // haette beide verschwiegen.
         let j = budget_json();
-        for name in ["input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"] {
-            assert!(j.contains(&format!("\"{name}\":")), "Achse {name} fehlt im Bericht: {j}");
+        for name in [
+            "input_bytes",
+            "json_nodes",
+            "json_depth",
+            "string_len",
+            "signatures",
+            "witnesses",
+        ] {
+            assert!(
+                j.contains(&format!("\"{name}\":")),
+                "Achse {name} fehlt im Bericht: {j}"
+            );
         }
-        assert_eq!(BUDGET_ACHSEN.len(), 6, "eine Achse kam dazu oder fiel weg — bewusst?");
+        assert_eq!(
+            BUDGET_ACHSEN.len(),
+            6,
+            "eine Achse kam dazu oder fiel weg — bewusst?"
+        );
     }
 
     // RFC 8032 Abschnitt 7.1, Testvektor 1: ein GUELTIGER Ed25519-Schluessel, damit die Proben
@@ -2485,7 +2614,8 @@ mod tests {
     }
 
     fn umschlag_mit_signaturen(n: usize) -> serde_json::Value {
-        let sigs: Vec<serde_json::Value> = (0..n).map(|_| serde_json::json!({"sig": "AA=="})).collect();
+        let sigs: Vec<serde_json::Value> =
+            (0..n).map(|_| serde_json::json!({"sig": "AA=="})).collect();
         serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=", "signatures": sigs})
     }
 
@@ -2496,7 +2626,10 @@ mod tests {
         let e = verify_dsse(&env, &gueltiger_pubkey_b64(), None)
             .expect_err("ein Umschlag ueber der Signaturschranke wurde geprueft");
         assert!(e.contains("signatures"), "falsche Dimension: {e}");
-        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+        assert!(
+            e.contains("budget"),
+            "die Meldung nennt das Budget nicht: {e}"
+        );
     }
 
     #[test]
@@ -2505,14 +2638,23 @@ mod tests {
         // nicht am Budget verweigert.
         let env = umschlag_mit_signaturen(BUDGET_SIGNATURES);
         let r = verify_dsse(&env, &gueltiger_pubkey_b64(), None);
-        assert_eq!(r, Ok(false), "an der Schranke muss geprueft werden, nicht verweigert: {r:?}");
+        assert_eq!(
+            r,
+            Ok(false),
+            "an der Schranke muss geprueft werden, nicht verweigert: {r:?}"
+        );
     }
 
     fn trust_pack_mit_root_keyids(n: usize) -> serde_json::Value {
         let kids: Vec<String> = (0..n).map(|i| format!("k{i}")).collect();
         let keys: serde_json::Map<String, serde_json::Value> = kids
             .iter()
-            .map(|k| (k.clone(), serde_json::json!({"publicKey": gueltiger_pubkey_b64()})))
+            .map(|k| {
+                (
+                    k.clone(),
+                    serde_json::json!({"publicKey": gueltiger_pubkey_b64()}),
+                )
+            })
             .collect();
         let statement = serde_json::json!({
             "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
@@ -2546,12 +2688,17 @@ mod tests {
         // LAUF12-L1 F3 (P1): 1.000.000 Codepoints eines Zwei-Byte-Zeichens sind 2.000.000 Bytes und
         // genau EIN Zeichen unter der Grenze plus eins. Python zaehlt Zeichen; hier ebenso.
         let an_der_grenze = "\u{e9}".repeat(BUDGET_STRING_LEN);
-        assert!(wert(&format!("{{\"a\":\"{an_der_grenze}\"}}")).is_ok(),
-                "ein Feld mit genau string_len Zeichen (aber mehr Bytes) wurde abgewiesen");
+        assert!(
+            wert(&format!("{{\"a\":\"{an_der_grenze}\"}}")).is_ok(),
+            "ein Feld mit genau string_len Zeichen (aber mehr Bytes) wurde abgewiesen"
+        );
         let drueber = "\u{e9}".repeat(BUDGET_STRING_LEN + 1);
-        let e = wert(&format!("{{\"a\":\"{drueber}\"}}")).expect_err("ein Zeichen zu viel ging durch");
-        assert!(e.contains(&format!("string_len = {}", BUDGET_STRING_LEN + 1)),
-                "die Meldung zaehlt nicht in Zeichen: {e}");
+        let e =
+            wert(&format!("{{\"a\":\"{drueber}\"}}")).expect_err("ein Zeichen zu viel ging durch");
+        assert!(
+            e.contains(&format!("string_len = {}", BUDGET_STRING_LEN + 1)),
+            "die Meldung zaehlt nicht in Zeichen: {e}"
+        );
     }
 
     #[test]
@@ -2560,7 +2707,8 @@ mod tests {
         // Vorpruefung. Ein Verzeichnis ist die naechste Nicht-Regulaerdatei, die ein Test ohne
         // Sonderrechte anlegen kann; die Eigenschaft (`is_file`) ist dieselbe.
         let d = std::env::temp_dir();
-        let e = read_file_begrenzt(d.to_str().expect("utf-8")).expect_err("ein Verzeichnis wurde gelesen");
+        let e = read_file_begrenzt(d.to_str().expect("utf-8"))
+            .expect_err("ein Verzeichnis wurde gelesen");
         assert!(e.contains("not a regular file"), "unerwartete Meldung: {e}");
     }
 
@@ -2570,17 +2718,24 @@ mod tests {
         std::fs::create_dir_all(&d).expect("tmp");
         let gross = d.join("gross.json");
         std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
-        let e = read_file_begrenzt(gross.to_str().expect("utf-8")).expect_err("ueber der Schranke gelesen");
+        let e = read_file_begrenzt(gross.to_str().expect("utf-8"))
+            .expect_err("ueber der Schranke gelesen");
         assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
         let klein = d.join("klein.json");
         std::fs::write(&klein, b"{\"a\":1}").expect("write");
-        assert_eq!(read_file_begrenzt(klein.to_str().expect("utf-8")).expect("klein"), b"{\"a\":1}");
+        assert_eq!(
+            read_file_begrenzt(klein.to_str().expect("utf-8")).expect("klein"),
+            b"{\"a\":1}"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn ein_doppelter_schluessel_wird_weiter_abgewiesen() {
         // Eine bestehende Eigenschaft, die das neue Budget nicht beschaedigt haben darf.
-        assert!(wert(r#"{"a":1,"a":2}"#).is_err(), "der Duplikat-Schluessel geht jetzt durch");
+        assert!(
+            wert(r#"{"a":1,"a":2}"#).is_err(),
+            "der Duplikat-Schluessel geht jetzt durch"
+        );
     }
 }
