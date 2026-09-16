@@ -10,12 +10,17 @@ because a test that cannot fall proves nothing about the gate.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _deutsche_prosa as _dp  # noqa: E402  (Helfer neben dieser Datei, wie _beinahe_treffer)
 
 # PFADFORM STATT BLANKEM IMPORT, und das ist nicht Geschmack. Das Skript steht mit Begruendung
 # NICHT in der Verteilung (es liest `.github/`, das MANIFEST.in prunt), `scripts/` liegt im
@@ -463,6 +468,358 @@ class TestRatchetNotPermanentRed(unittest.TestCase):
                          "der Digest im Bericht ist der, an den die Zusage bindet")
 
 
+class TestTheOfflineRunSaysWhetherTheDriftCheckRan(unittest.TestCase):
+    """Ein Urteil, das nicht weiss, worauf es ruht, sagt mehr als es prueft.
+
+    Eine Gegenlesung des gelandeten Standes fand es: das Offline-Tor konnte gruen melden, ohne zu
+    wissen, ob `--verify-declaration` jemals gegen den echten Regelsatz gelaufen war. Die
+    Erklaerung ist eine KOPIE, und eine Kopie driftet; ein gruenes Offline-Urteil ueber eine
+    gedriftete Kopie misst die falsche Pflichtmenge.
+
+    Der Netz-Lauf legt darum seinen Marker ab, der Offline-Lauf liest ihn und NENNT ihn. Er blockt
+    NICHT darauf, und das ist Absicht: ein fehlender Token oder ein totes Netz wuerden den
+    beratenden Job sonst aus Umweltgruenden rot faerben, also genau das Dauerrot herstellen, gegen
+    das die Sohle gebaut ist. Gesagt wird es trotzdem — eine Pruefung, die nicht lief, ist keine
+    bestandene, und ihre ABWESENHEIT muss im Bericht stehen, nicht nur ihr Rot.
+    """
+
+    def _marker(self, inhalt=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        p = Path(tmp.name) / "m.json"
+        if inhalt is not None:
+            p.write_text(inhalt, encoding="utf-8")
+        return str(p)
+
+    def _paar(self, **felder):
+        """Ein Marker MIT der Erklaerung, auf die er sich beruft — korrekt aneinander gebunden.
+
+        Alle Faelle unten laufen ueber dieses Paar, weil ein ungebundener Marker seit der
+        Zustandsbindung gar nicht mehr zu seinem Urteil kommt: er ist STALE, egal was drinsteht.
+        Wer hier `declaration_sha256` selbst setzt, loest die Bindung absichtlich — das tun genau
+        die Angriffsfaelle.
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        erklaerung = Path(tmp.name) / "required_status_checks.json"
+        erklaerung.write_bytes(b'{"ruleset": "t", "required_contexts": ["coverage"]}')
+        felder.setdefault("declaration_sha256",
+                          hashlib.sha256(erklaerung.read_bytes()).hexdigest())
+        if felder["declaration_sha256"] is None:
+            del felder["declaration_sha256"]
+        m = Path(tmp.name) / "m.json"
+        m.write_text(json.dumps(felder), encoding="utf-8")
+        return str(m), erklaerung
+
+    def test_no_marker_is_reported_as_not_run(self):
+        lage = G.drift_lage(self._marker())
+        self.assertEqual(lage["state"], "absent")
+        self.assertIn("NOT RUN", G._drift_zeile(self._marker()))
+
+    def test_an_empty_marker_path_is_also_not_run(self):
+        """Wer den Marker abschaltet, bekommt keine stille Zustimmung."""
+        self.assertEqual(G.drift_lage("")["state"], "absent")
+        self.assertEqual(G.drift_lage(None)["state"], "absent")
+
+    def test_a_readable_marker_is_reported_with_its_verdict(self):
+        """Die Gegenkontrolle zu allem, was unten rot wird: ein sauber gebundener Marker MUSS
+        durchkommen. Ein Waechter, der jeden Marker verwirft, prueft nichts, er schweigt nur
+        lauter."""
+        p, decl = self._paar(verdict="produced", ruleset="protect-main",
+                             at="2026-09-16T04:59:53Z")
+        lage = G.drift_lage(p, decl)
+        self.assertEqual(lage["state"], "ran")
+        self.assertEqual(lage["verdict"], "produced")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("checked at 2026-09-16T04:59:53Z", zeile)
+        self.assertIn("protect-main", zeile)
+
+    def test_a_run_that_measured_nothing_is_not_called_checked(self):
+        """GELAUFEN IST NICHT GEMESSEN — und die erste Fassung sagte trotzdem 'ran'.
+
+        Gemessen 2026-09-16 ohne Token: der Netz-Lauf legte einen Marker mit dem Urteil
+        `not-measurable` ab, und die Zeile begann mit 'ran at ...'. Wer den Zeilenanfang liest und
+        weitergeht, haelt die Drift-Pruefung fuer erledigt. Genau diese Verwechslung ist der Grund,
+        aus dem dieses Tor ueberhaupt existiert; sie steckte in dem Werkzeug, das sie bekaempfen
+        soll."""
+        p, decl = self._paar(verdict=G.UNKNOWN, ruleset=None,
+                             reason="gh api exited 4", at="2026-09-16T05:09:07Z")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("NOT MEASURABLE", zeile)
+        self.assertNotIn("checked at", zeile, "ein Lauf ohne Messung darf nicht gepruefte heissen")
+        self.assertIn("2026-09-16T05:09:07Z", zeile, "der Versuch bleibt sichtbar")
+
+    def test_a_measured_drift_is_called_drift_not_checked(self):
+        """Die dritte Lage: gemessen UND abweichend. Sie darf nicht wie ein Treffer klingen."""
+        p, decl = self._paar(verdict=G.ABSENT, ruleset="protect-main",
+                             reason="required but NOT declared: test (3.15)",
+                             at="2026-09-16T05:00:00Z")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("DRIFT", zeile)
+        self.assertIn("test (3.15)", zeile)
+        self.assertNotIn("matches the live ruleset", zeile)
+
+    def test_a_reason_that_spans_lines_does_not_cut_the_report(self):
+        """Ein mehrzeiliger Grund zerschnitt die Zeile mitten im Satz.
+
+        Gemessen an der echten Meldung von `gh`, die einen Zeilenumbruch traegt: der Leser sah die
+        halbe Begruendung und hielt sie fuer die ganze. Gefaltet und gekappt, mit Kappmarke."""
+        p, decl = self._paar(verdict=G.UNKNOWN, at="x",
+                             reason="erste Zeile\nzweite Zeile\ndritte Zeile")
+        zeile = G._drift_zeile(p, decl)
+        self.assertEqual(zeile.count("\n"), 0, "die Berichtszeile ist mehrzeilig geworden")
+        self.assertIn("erste Zeile zweite Zeile dritte Zeile", zeile)
+
+    def test_a_very_long_reason_is_capped_with_a_visible_mark(self):
+        p, decl = self._paar(verdict=G.UNKNOWN, at="x", reason="x" * 500)
+        zeile = G._drift_zeile(p, decl)
+        self.assertLess(len(zeile), 260, "die Zeile ist unbegrenzt gewachsen")
+        self.assertIn("\u2026", zeile, "gekappt, aber ohne sichtbare Marke")
+
+    def test_a_drifted_verdict_is_carried_into_the_line_not_swallowed(self):
+        """Der interessante Fall: der Netz-Lauf fand eine Drift. Sie muss im Bericht stehen."""
+        p, decl = self._paar(verdict="never-produced", ruleset="protect-main",
+                             reason="required but NOT declared: test (3.15)",
+                             at="2026-09-16T05:00:00Z")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("never-produced", zeile)
+        self.assertIn("test (3.15)", zeile)
+
+    def test_a_broken_marker_is_not_measurable_and_not_silently_absent(self):
+        """NICHT MESSBAR und NICHT GELAUFEN sind zwei Lagen mit zwei Gegenmassnahmen."""
+        for kaputt in ("kein json", "[]", '{"ohne": "verdict"}', "null"):
+            with self.subTest(kaputt):
+                lage = G.drift_lage(self._marker(kaputt))
+                self.assertEqual(lage["state"], "unreadable", kaputt)
+                self.assertIn("NOT MEASURABLE", G._drift_zeile(self._marker(kaputt)))
+
+    # --- die Zustandsbindung: WORAN das Urteil haengt, nicht DASS es existiert ---------------
+    #
+    # Drei Angriffe gegen die erste Fassung gingen am 2026-09-16 alle drei durch. Sie stehen
+    # einzeln darunter, weil sie einzeln fallen muessen: ein Sammelfall verdeckt, welcher Weg
+    # wieder offen ist, sobald einer davon zurueckkommt.
+
+    def test_a_marker_that_names_no_declaration_is_stale(self):
+        """ANGRIFF 1: ein Marker von 2020 meldete `checked ... matches the live ruleset`.
+
+        Er war lesbar, hatte ein Urteil und einen Zeitpunkt - und sagte nirgends, WORUEBER er
+        geurteilt hatte. Gebunden war die Existenz der Datei, nicht der gepruefte Zustand. Wer
+        keinen Gegenstand nennt, hat nichts geprueft, das hier noch gilt."""
+        p, decl = self._paar(verdict="produced", ruleset="protect-main",
+                             at="2020-01-01T00:00:00Z", declaration_sha256=None)
+        lage = G.drift_lage(p, decl)
+        self.assertEqual(lage["state"], "stale")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("STALE", zeile)
+        self.assertNotIn("checked at", zeile, "ein Urteil ohne Gegenstand heisst nicht geprueft")
+        self.assertIn("2020-01-01T00:00:00Z", zeile, "wann behauptet wurde, bleibt sichtbar")
+        # DER WORTLAUT GEHOERT DAZU, und zwar aus einem gemessenen Grund: ohne ihn faellt die
+        # Lage mit der naechsten zusammen. Ein Marker ohne Digest wird auch dann `stale`, wenn
+        # man diese Verzweigung ganz entfernt (None ist nie gleich einem Digest) -- nur die
+        # Begruendung waere dann falsch und spraeche von einer Aenderung, die niemand gemacht hat.
+        self.assertIn("does not say WHICH declaration", zeile)
+        self.assertNotIn("changed after the check", zeile,
+                         "ein Marker ohne Gegenstand ist kein geaenderter Gegenstand")
+
+    def test_a_declaration_changed_after_the_check_is_stale_and_names_both_digests(self):
+        """ANGRIFF 3 in seiner scharfen Form: erst pruefen lassen, dann die Erklaerung aendern.
+
+        Das ist der Normalfall im Betrieb, nicht nur der Angriff - eine Pflichtmenge wird
+        erweitert, der Marker von vorhin bleibt liegen. Die Zeile muss BEIDE Digests nennen,
+        sonst kann der Leser nicht sehen, ob der Marker alt ist oder die Erklaerung neu."""
+        p, decl = self._paar(verdict="produced", ruleset="protect-main",
+                             at="2026-09-16T05:00:00Z")
+        gemessen = hashlib.sha256(decl.read_bytes()).hexdigest()
+        decl.write_bytes(b'{"ruleset": "t", "required_contexts": ["coverage", "neu"]}')
+        jetzt = hashlib.sha256(decl.read_bytes()).hexdigest()
+        self.assertNotEqual(gemessen, jetzt)
+        self.assertEqual(G.drift_lage(p, decl)["state"], "stale")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn(gemessen[:12], zeile, "der gepruefte Stand fehlt in der Zeile")
+        self.assertIn(jetzt[:12], zeile, "der jetzige Stand fehlt in der Zeile")
+        self.assertNotIn("matches the live ruleset", zeile)
+
+    def test_a_marker_without_a_timestamp_is_not_measurable(self):
+        """ANGRIFF 2: ohne Zeitpunkt las sich die Zeile als `checked at None`.
+
+        Ein Urteil ohne Zeitpunkt ist von einem nie gelaufenen nicht unterscheidbar, und `None`
+        im Bericht sah aus wie ein Formatierungsfehler, nicht wie ein fehlender Beleg."""
+        p, decl = self._paar(verdict="produced", ruleset="protect-main")
+        self.assertEqual(G.drift_lage(p, decl)["state"], "unreadable")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("NOT MEASURABLE", zeile)
+        self.assertNotIn("None", zeile, "ein fehlender Beleg darf nicht als Wert auftreten")
+
+    def test_an_unreadable_declaration_does_not_pass_the_binding(self):
+        """Die unmessbare Seite der Bindung darf nicht die bestandene sein.
+
+        Fiele die Bindung aus, sobald der Digest der Erklaerung nicht zu holen ist, liesse sie
+        sich abschalten, indem man die Erklaerung wegnimmt - der Marker wuerde wieder unbesehen
+        zitiert. Das ist dieselbe Klasse wie der Marker selbst, eine Ebene tiefer.
+
+        Der Fall pinnt auch die BEGRUENDUNG, und nicht aus Ordnungsliebe: das Urteil `stale`
+        faellt hier ohnehin, weil ein 64-stelliger Digest nie gleich dem leeren ist. Ohne die
+        eigene Lage haette der Leser stattdessen `checked was abc..., present here is ...` gesehen,
+        mit nichts hinter `present here is` - eine fehlende Erklaerung als geaenderte.
+        Gemessen am 2026-09-16: der Mutant, der diese Lage entfernt, ueberlebte alle Vertraege."""
+        p, decl = self._paar(verdict="produced", ruleset="protect-main",
+                             at="2026-09-16T05:00:00Z")
+        self.assertEqual(G.drift_lage(p, decl)["state"], "ran", "Gegenkontrolle vor dem Entzug")
+        decl.unlink()
+        self.assertEqual(G.drift_lage(p, decl)["state"], "stale")
+        zeile = G._drift_zeile(p, decl)
+        self.assertIn("STALE", zeile)
+        self.assertIn("not readable", zeile)
+        self.assertNotIn("changed after the check", zeile,
+                         "eine fehlende Erklaerung ist keine geaenderte")
+
+    def test_a_stale_marker_still_does_not_change_the_exit_code(self):
+        """Die Sohle gilt auch fuer den neuen Zustand: lauter berichten, nicht strenger urteilen.
+
+        Sonst waere mit `stale` genau das Dauerrot zurueck, gegen das die Sohle gebaut ist - und
+        zwar aus einem Umweltgrund, denn eine geaenderte Erklaerung ist im Betrieb normal."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(
+            "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+            '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+            encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                    "required_contexts": ["coverage"]}), encoding="utf-8")
+        veraltet, _ = self._paar(verdict="produced", at="2026-09-16T05:00:00Z",
+                                 declaration_sha256="0" * 64)
+        self.assertEqual(G.drift_lage(veraltet, decl)["state"], "stale")
+        self.assertEqual(
+            G.main(["--declaration", str(decl), "--workflows", str(wf),
+                    "--drift-marker", veraltet]), 0)
+
+    def test_the_marker_never_changes_the_exit_code(self):
+        """Der Bericht wird lauter, das Urteil nicht strenger — sonst waere das Dauerrot zurueck."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(
+            "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+            '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+            encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                    "required_contexts": ["coverage"]}), encoding="utf-8")
+        ohne = G.main(["--declaration", str(decl), "--workflows", str(wf),
+                       "--drift-marker", str(wurzel / "fehlt.json")])
+        mit = G.main(["--declaration", str(decl), "--workflows", str(wf),
+                      "--drift-marker", self._marker(json.dumps({"verdict": "produced"}))])
+        self.assertEqual(ohne, 0)
+        self.assertEqual(mit, ohne, "der Marker hat den Exit-Code bewegt — das war nicht der Auftrag")
+
+
+class TestTheReportGoesOutInEnglish(unittest.TestCase):
+    """Was dieses Werkzeug druckt, steht im GitHub-Actions-Protokoll eines oeffentlichen Repos.
+
+    Der Standard dazu ist nicht Geschmack: ein Text ist GANZ englisch oder er geht nicht hinaus.
+    Gemischt ist er fuer den Leser schlechter als in jeder der beiden Sprachen, und er faellt
+    ausgerechnet dort auf, wo Fremde zusehen.
+
+    Gemessen 2026-09-16 an genau diesem Tor: ELF Ausgabe-Zeichenketten waren deutsch, darunter die
+    komplette Begruendung der Drift-Zeile ("die Erklaerung hat sich seit der Pruefung geaendert")
+    und die Warnung ueber einen Job mit `if: false`. Die Kommentare und Docstrings der Datei sind
+    deutsch und sollen es bleiben - die gehen nicht hinaus. Der Unterschied zwischen beidem war
+    nirgends geprueft, und deshalb ist er hier geprueft.
+
+    KLASSE, nicht Instanz: der Fall liest die GERENDERTE Ausgabe aller Lagen, nicht die Quelle.
+    Eine neue Lage mit einem neuen deutschen Satz faellt hier auf, ohne dass jemand daran denkt.
+    """
+
+    # DIE WORTLISTE STEHT NICHT HIER, und das ist der Punkt. Der erste Entwurf dieses Falls trug
+    # eine eigene Liste mit Teilzeichenketten statt Wortgrenzen; gemessen traf `"und "` darin
+    # `"background "` und `"refund "`. Den Pruefer dafuer gab es im Repo laengst
+    # (test_aussenflaeche_des_registers_ist_englisch, 2026-09-12), samt der Grenze, die
+    # Bezeichner und Backtick-Zitate ausnimmt. Zwei Listen fuer eine Frage driften; jetzt ist es
+    # eine, in tests/_deutsche_prosa.py, und beide Vertraege lesen sie.
+    def _pruefe(self, text: str, wo: str):
+        gefunden = _dp.treffer(text)
+        self.assertFalse(gefunden, f"deutsche Funktionswoerter {gefunden} in {wo}: {text!r}")
+
+    def _paar(self, **felder):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        erklaerung = Path(tmp.name) / "required_status_checks.json"
+        erklaerung.write_bytes(b'{"ruleset": "t"}')
+        felder.setdefault("declaration_sha256",
+                          hashlib.sha256(erklaerung.read_bytes()).hexdigest())
+        if felder["declaration_sha256"] is None:
+            del felder["declaration_sha256"]
+        m = Path(tmp.name) / "m.json"
+        m.write_text(json.dumps(felder), encoding="utf-8")
+        return str(m), erklaerung
+
+    def test_every_state_of_the_drift_line_is_english(self):
+        fehlt = str(Path(tempfile.mkdtemp()) / "weg.json")
+        faelle = {
+            "absent": (fehlt, None),
+            "unreadable ohne Urteil": self._paar(at="2026-09-16T05:00:00Z"),
+            "unreadable ohne Zeitpunkt": self._paar(verdict="produced"),
+            "stale ohne Bindung": self._paar(verdict="produced", at="x",
+                                             declaration_sha256=None),
+            "ran": self._paar(verdict=G.ALWAYS, ruleset="protect-main", at="x"),
+            "ran not-measurable": self._paar(verdict=G.UNKNOWN, at="x", reason="gh api exited 4"),
+            "ran drift": self._paar(verdict=G.ABSENT, ruleset="protect-main", at="x",
+                                    reason="required but NOT declared: test (3.15)"),
+        }
+        m, decl = self._paar(verdict="produced", at="x")
+        Path(decl).write_bytes(b"anders")           # Bindung bricht -> stale mit beiden Digests
+        faelle["stale geaendert"] = (m, decl)
+        for name, (marker, decl2) in faelle.items():
+            with self.subTest(name):
+                self._pruefe(G._drift_zeile(marker, decl2), f"drift-Zeile ({name})")
+
+    def test_the_whole_report_is_english(self):
+        """Nicht nur die Drift-Zeile: der ganze Bericht, inklusive der Hinweise ueber Jobs.
+
+        Der Lauf enthaelt absichtlich einen Job mit `if: false` - genau die Zeile, die am
+        2026-09-16 deutsch war und in der Quelle niemandem auffiel."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(
+            "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+            '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n'
+            '  tot:\n    if: false\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+            encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                    "required_contexts": ["coverage", "tot"]}), encoding="utf-8")
+        alt = sys.stdout
+        sys.stdout = puffer = io.StringIO()
+        try:
+            G.main(["--declaration", str(decl), "--workflows", str(wf),
+                    "--drift-marker", str(wurzel / "fehlt.json")])
+        finally:
+            sys.stdout = alt
+        bericht = puffer.getvalue()
+        self.assertIn("tot", bericht, "der Fall misst den Bericht, der den toten Job nennt")
+        self._pruefe(bericht, "Gesamtbericht")
+
+    def test_the_help_text_is_english(self):
+        """`--help` landet im CI-Protokoll, sobald ein Aufruf falsch ist."""
+        alt = sys.stdout
+        sys.stdout = puffer = io.StringIO()
+        try:
+            with self.assertRaises(SystemExit):
+                G.main(["--help"])
+        finally:
+            sys.stdout = alt
+        self._pruefe(puffer.getvalue(), "--help")
+
+
 class TestTheDigestSurvivesReformatting(unittest.TestCase):
     """Eine Zusage darf an der SACHE haengen, nicht an der Schreibweise der Bedingung.
 
@@ -583,6 +940,328 @@ class TestDeclarationAgainstRuleset(unittest.TestCase):
                          "das Offline-Urteil haengt an den Workflows, nicht am Regelsatz")
 
 
+class TestTheAcceptedLimitIsBoundToItsReason(unittest.TestCase):
+    """Der Nachbar, den der Instanz-Fix stehen liess.
+
+    `accepted_gated` wurde am 2026-09-16 von der Namensbindung auf den Digest der Bedingung
+    umgestellt, nachdem zwei unabhaengige Gegenleser dieselbe Luecke fanden. `accepted_unreadable`
+    blieb dabei eine nackte Praefixliste — dieselbe Klasse, anderer Ort, im selben Durchgang
+    uebersehen. Eine dritte Linse baute den Fall am selben Tag und mass ihn: derselbe Job wechselte
+    von „ruft einen wiederverwendbaren Workflow" auf „Matrix nicht woertlich lesbar", zwei
+    verschiedene Unmessbarkeiten unter demselben Praefix, und das Tor blieb still gruen.
+
+    Wer eine Unmessbarkeit hinnimmt, nimmt GENAU EINE hin: die, die er gelesen hat.
+    """
+
+    def _baum(self, unlesbar_grund: str, zusage) -> tuple[Path, Path]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        # `coverage` laeuft unbedingt; `tot` ist der Job, dessen Unmessbarkeit zugesagt wird.
+        (wf / "ci.yml").write_text(
+            "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+            '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+            encoding="utf-8")
+        decl = wurzel / "d.json"
+        inhalt = {"ruleset": "t", "branch": "main", "required_contexts": ["coverage"]}
+        if zusage is not None:
+            inhalt["accepted_unreadable"] = [zusage]
+        decl.write_text(json.dumps(inhalt), encoding="utf-8")
+        return decl, wf
+
+    def _mit_unlesbarem(self, grund: str, zusage):
+        """Der Lauf mit EINEM unlesbaren Eintrag, den wir selbst setzen.
+
+        Der Eintrag wird ueber `erhebe` untergeschoben statt ueber eine echte Workflow-Datei:
+        so ist der GRUND exakt der, den der Fall meint, und der Fall misst die Bindung, nicht die
+        Kunst, eine Datei unlesbar zu machen.
+        """
+        decl, wf = self._baum(grund, zusage)
+        echt = G.erhebe
+
+        def gefaelscht(verzeichnis=None):
+            e = echt(verzeichnis)
+            e["unlesbar"] = [f"ci.yml:tot: {grund}"]
+            return e
+
+        G.erhebe = gefaelscht
+        self.addCleanup(lambda: setattr(G, "erhebe", echt))
+        return G.pruefe(decl, wf), decl, wf
+
+    GRUND_A = "calls a reusable workflow; its context is not derived here"
+    GRUND_B = "matrix values not readable literally"
+
+    def test_the_accepted_reason_carries_when_it_is_still_the_same(self):
+        """Die Gegenkontrolle: ohne sie waere jede Strenge unten auch mit einem blinden Tor
+        vereinbar."""
+        zusage = {"context": "ci.yml:tot", "reason_sha256": G.bedingungs_digest(self.GRUND_A)}
+        r, decl, wf = self._mit_unlesbarem(self.GRUND_A, zusage)
+        self.assertEqual(r["newly_unreadable"], [], r)
+        self.assertEqual(r["unbound_unreadable_acceptances"], [])
+        self.assertEqual(G.main(["--declaration", str(decl), "--workflows", str(wf),
+                                 "--drift-marker", ""]), 0)
+
+    def test_a_different_reason_under_the_same_prefix_does_not_carry(self):
+        """DER GEMESSENE FALL. Gleicher Job, andere Unmessbarkeit — die Zusage gilt nicht."""
+        zusage = {"context": "ci.yml:tot", "reason_sha256": G.bedingungs_digest(self.GRUND_A)}
+        r, decl, wf = self._mit_unlesbarem(self.GRUND_B, zusage)
+        self.assertEqual(len(r["newly_unreadable"]), 1, r)
+        self.assertEqual(len(r["changed_reasons"]), 1, r)
+        g = r["changed_reasons"][0]
+        self.assertEqual(g["declared"], G.bedingungs_digest(self.GRUND_A))
+        self.assertEqual(g["measured"], G.bedingungs_digest(self.GRUND_B))
+        self.assertEqual(G.main(["--declaration", str(decl), "--workflows", str(wf),
+                                 "--drift-marker", ""]), 1)
+
+    def test_a_prefix_only_entry_is_an_unbound_acceptance_and_does_not_carry(self):
+        """Die alte Form lebt nicht als stiller Freibrief weiter: fail closed, und sie wird
+        beim Namen genannt, damit ihr Weiterleben auffaellt."""
+        r, decl, wf = self._mit_unlesbarem(self.GRUND_A, "ci.yml:tot")
+        self.assertEqual(r["unbound_unreadable_acceptances"], ["ci.yml:tot"])
+        self.assertEqual(len(r["newly_unreadable"]), 1)
+        self.assertEqual(G.main(["--declaration", str(decl), "--workflows", str(wf),
+                                 "--drift-marker", ""]), 1)
+
+    def test_a_stale_prefix_only_entry_is_red_even_when_it_covers_nothing(self):
+        """Die Zusage muss den AUSGANG beruehren, nicht nur den Bericht.
+
+        Deckt die alte Namensform zufaellig eine Stelle ab, die ohnehin gemeldet wird, faellt das
+        Tor schon aus dem anderen Grund rot -- und das Glied im Ausgang sieht gebunden aus, ohne
+        es zu sein. Dieser Fall nimmt ihm den zweiten Grund weg: der Eintrag passt auf gar nichts,
+        `newly_unreadable` ist leer, und rot muss es trotzdem werden. Derselbe Fall existiert seit
+        heute Nacht fuer die bedingte Zusage; hier ist sein Nachbar."""
+        decl, wf = self._baum("egal", "es-gibt-keinen-job-dieses-namens")
+        r = G.pruefe(decl, wf)
+        self.assertEqual(r["newly_unreadable"], [], "der Eintrag darf nichts abdecken")
+        self.assertEqual(r["unbound_unreadable_acceptances"], ["es-gibt-keinen-job-dieses-namens"])
+        self.assertEqual(G.main(["--declaration", str(decl), "--workflows", str(wf),
+                                 "--drift-marker", ""]), 1)
+
+    def test_the_report_names_both_digests_of_a_changed_reason(self):
+        """Ohne beide Werte kann der Leser nicht sehen, ob die Zusage alt ist oder der Grund neu —
+        und er kann den neuen Wert nicht eintragen, ohne ihn zu erfinden."""
+        zusage = {"context": "ci.yml:tot", "reason_sha256": G.bedingungs_digest(self.GRUND_A)}
+        _, decl, wf = self._mit_unlesbarem(self.GRUND_B, zusage)
+        alt_aus = sys.stdout
+        sys.stdout = puffer = io.StringIO()
+        try:
+            G.main(["--declaration", str(decl), "--workflows", str(wf), "--drift-marker", ""])
+        finally:
+            sys.stdout = alt_aus
+        bericht = puffer.getvalue()
+        self.assertIn("reason-changed", bericht)
+        self.assertIn(G.bedingungs_digest(self.GRUND_A)[:16], bericht)
+        self.assertIn(G.bedingungs_digest(self.GRUND_B)[:16], bericht)
+
+
+class TestNoFieldIsPrintedRaw(unittest.TestCase):
+    """Ein Feld aus einer fremden Datei ist ein EINGABEWERT, kein Text.
+
+    GEMESSEN 2026-09-16 von einer adversarialen Linse: ein Marker, dessen `ruleset` einen
+    Zeilenumbruch trug, erzeugte im Bericht ZWEI zusaetzliche Zeilen, die exakt wie echte Ausgabe
+    des Werkzeugs aussahen — eine gefaelschte Kontextzeile und eine zweite, erfundene Kopfzeile mit
+    dem Urteil `produced`. Exit-Code 0, nichts rot, und wer den Bericht liest, sieht ein zweites
+    bestandenes Urteil ueber einen Regelsatz, den niemand geprueft hat.
+
+    Die erste Fassung faltete NUR den Grund — die Instanz, die an dem Tag aufgefallen war. Jeder
+    andere Wert ging roh hinaus. Das ist dieselbe Klasse, nur an den Feldern, an die niemand
+    gedacht hatte, und deshalb steht hier eine EIGENSCHAFT ueber alle Felder, keine Liste von
+    Einzelfaellen.
+    """
+
+    def _baum(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(
+            "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+            '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+            encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                    "required_contexts": ["coverage"]}), encoding="utf-8")
+        return wurzel, decl, wf
+
+    def _bericht(self, decl, wf, marker) -> tuple[str, int]:
+        alt = sys.stdout
+        sys.stdout = puffer = io.StringIO()
+        try:
+            rc = G.main(["--declaration", str(decl), "--workflows", str(wf),
+                         "--drift-marker", str(marker)])
+        finally:
+            sys.stdout = alt
+        return puffer.getvalue(), rc
+
+    EINSCHLEUSUNG = ("protect-main\n"
+                     "  never-produced     ein-frei-erfundener-pflichtcheck\n"
+                     "[required-checks] ruleset FAKE on main: produced")
+
+    def test_a_newline_in_a_marker_field_adds_no_line_to_the_report(self):
+        """Der Exploit im Wortlaut, als Fall. Gezaehlt werden ZEILEN, nicht Woerter: die
+        Einschleusung faellt nur auf, wenn der Bericht laenger wird."""
+        wurzel, decl, wf = self._baum()
+        digest = hashlib.sha256(decl.read_bytes()).hexdigest()
+        sauber = wurzel / "sauber.json"
+        sauber.write_text(json.dumps({"verdict": G.ALWAYS, "ruleset": "protect-main",
+                                      "at": "2026-09-16T05:00:00Z",
+                                      "declaration_sha256": digest}), encoding="utf-8")
+        ohne, _ = self._bericht(decl, wf, sauber)
+        for feld in ("ruleset", "at", "verdict"):
+            with self.subTest(feld):
+                m = wurzel / f"m_{feld}.json"
+                inhalt = {"verdict": G.ALWAYS, "ruleset": "protect-main",
+                          "at": "2026-09-16T05:00:00Z", "declaration_sha256": digest}
+                inhalt[feld] = self.EINSCHLEUSUNG
+                m.write_text(json.dumps(inhalt), encoding="utf-8")
+                mit, _ = self._bericht(decl, wf, m)
+                self.assertEqual(mit.count("\n"), ohne.count("\n"),
+                                 f"ein Zeilenumbruch in {feld} hat den Bericht verlaengert:\n{mit}")
+                # DIE EIGENSCHAFT, NICHT DAS WORT: der eingeschleuste Text DARF in einer Zeile
+                # auftauchen (er ist ja Inhalt eines Feldes). Was nicht passieren darf, ist eine
+                # eigene ZEILE in der Form des Werkzeugs -- genau daran erkennt ein Leser echte
+                # Ausgabe. Eine Pruefung auf das Wort waere hier zufaellig gruen geworden, weil
+                # die Kappung bei 64 Zeichen die Faelschung abschneidet; das ist Glueck, keine
+                # Zusicherung.
+                kopfzeilen = [z for z in mit.split("\n") if z.startswith("[required-checks]")]
+                self.assertEqual(len(kopfzeilen), 1, f"zweite Kopfzeile im Bericht:\n{mit}")
+
+    def test_a_newline_in_a_context_name_adds_no_line_to_the_report(self):
+        """Dieselbe Klasse an der ANDEREN Eingabe: die Erklaerung ist auch nur eine Datei, und in
+        einem Fork-PR ist sie eine, die jemand anders geschrieben hat."""
+        wurzel, decl, wf = self._baum()
+        ohne, _ = self._bericht(decl, wf, wurzel / "fehlt.json")
+        decl.write_text(json.dumps({
+            "ruleset": "t", "branch": "main",
+            "required_contexts": ["coverage", "x\n[required-checks] ruleset FAKE on main: produced"],
+        }), encoding="utf-8")
+        mit, _ = self._bericht(decl, wf, wurzel / "fehlt.json")
+        kopfzeilen = [z for z in mit.split("\n") if z.startswith("[required-checks]")]
+        self.assertEqual(len(kopfzeilen), 1, f"zweite Kopfzeile im Bericht:\n{mit}")
+        self.assertEqual(mit.count("\n"), ohne.count("\n") + 1,
+                         f"ein Kontext mehr darf GENAU eine Zeile mehr ergeben:\n{mit}")
+
+    def test_a_control_character_is_folded_too(self):
+        """`str.split()` faengt Zeilenumbruch und Tabulator, aber kein NUL."""
+        self.assertEqual(G._einzeilig("a\x00b"), "a b")
+        self.assertEqual(G._einzeilig("a\rb\nc\td"), "a b c d")
+
+    def test_a_field_of_the_wrong_type_is_a_state_not_a_crash(self):
+        """GEMESSEN: `"declaration_sha256": 123456` warf `TypeError` mitten im Bericht — die
+        Zeilen davor standen da, alles danach fehlte, und der Ausgang war ein Traceback."""
+        wurzel, decl, wf = self._baum()
+        # JEDER FALL NENNT SEINE LAGE. Ein `assertIn(state, ("unreadable", "stale"))` sieht wie
+        # Abdeckung aus und ist keine: ein Digest vom falschen Typ wird auch OHNE Formpruefung
+        # `stale`, weil eine Zahl nie gleich einem Digest ist. Der Unterschied steckt in der
+        # Begruendung -- Formfehler oder geaenderte Erklaerung -- und nur die benannte Lage
+        # unterscheidet beides.
+        for feld, wert, lage_soll, wort in (
+            ("declaration_sha256", 123456, "unreadable", "not text"),
+            ("declaration_sha256", ["a" * 64], "unreadable", "not text"),
+            ("verdict", 7, "unreadable", "no verdict"),
+            ("verdict", True, "unreadable", "no verdict"),
+            ("verdict", "   ", "unreadable", "no verdict"),
+            ("at", ["x"], "unreadable", "no timestamp"),
+            ("at", 0, "unreadable", "no timestamp"),
+        ):
+            with self.subTest(f"{feld}={wert!r}"):
+                m = wurzel / "m.json"
+                inhalt = {"verdict": G.ALWAYS, "ruleset": "protect-main", "at": "t",
+                          "declaration_sha256": hashlib.sha256(decl.read_bytes()).hexdigest()}
+                inhalt[feld] = wert
+                m.write_text(json.dumps(inhalt), encoding="utf-8")
+                lage = G.drift_lage(str(m), decl)
+                self.assertEqual(lage["state"], lage_soll, lage)
+                self.assertIn(wort, lage["why"], lage)
+                bericht, rc = self._bericht(decl, wf, m)
+                self.assertIn("drift-check", bericht)
+                self.assertEqual(rc, 0, "der Marker hat den Ausgang bewegt")
+
+
+class TestTheSmallHelpersAreBoundToo(unittest.TestCase):
+    """Fuenf Stellen, die eine Mutationspruefung als UNGEBUNDEN meldete — und sie hatte recht.
+
+    Eine Linse fuhr am 2026-09-16 einundvierzig Mutanten gegen dieses Werkzeug. Neunundzwanzig
+    fielen, zwoelf ueberlebten, und KEINER der Ueberlebenden sass in einem toten Zweig: es waren
+    durchweg Stellen, die sehr wohl entscheiden koennen, ueber die nur kein Fall etwas sagte. Das
+    ist der teurere der beiden Befunde, weil er wie Abdeckung aussieht.
+    """
+
+    def test_a_match_says_it_matches_and_does_not_read_like_a_drift(self):
+        """Der Treffer-Zweig war nur ueber Teilzeichenketten gebunden, die auch im DRIFT-Satz
+        stehen ('checked at', der Regelsatzname). Ein Mutant, der ALWAYS durch GATED ersetzte,
+        ueberlebte deshalb alle Faelle."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        decl = Path(tmp.name) / "d.json"
+        decl.write_bytes(b'{"ruleset": "t"}')
+        m = Path(tmp.name) / "m.json"
+        m.write_text(json.dumps({
+            "verdict": G.ALWAYS, "ruleset": "protect-main", "at": "2026-09-16T05:00:00Z",
+            "declaration_sha256": hashlib.sha256(decl.read_bytes()).hexdigest()}), encoding="utf-8")
+        zeile = G._drift_zeile(str(m), decl)
+        self.assertIn("declaration matches the live ruleset", zeile)
+        self.assertNotIn("DRIFT", zeile)
+        self.assertNotIn("NOT MEASURABLE", zeile)
+
+    def test_the_cap_is_bound_at_its_own_boundary(self):
+        """159, 160, 161 — die einzige Stelle, an der die Grenze etwas entscheidet.
+
+        Der vorhandene Fall benutzte 500 Zeichen, also weit jenseits jeder Grenzumgebung; vier
+        Mutanten an der Grenze (160 auf 159, 160 auf 161, `<=` auf `<`, `grenze-1` auf `grenze`)
+        ueberlebten ihn alle."""
+        self.assertEqual(G._einzeilig("x" * 159), "x" * 159, "unterhalb der Grenze: unveraendert")
+        self.assertEqual(G._einzeilig("x" * 160), "x" * 160, "AUF der Grenze: unveraendert")
+        gekappt = G._einzeilig("x" * 161)
+        self.assertEqual(len(gekappt), 160, "ueber der Grenze: hoechstens grenze Zeichen")
+        self.assertTrue(gekappt.endswith("\u2026"), "gekappt, aber ohne sichtbare Marke")
+        self.assertEqual(len(G._einzeilig("y" * 500, 40)), 40)
+
+    def test_the_default_declaration_path_is_the_one_of_this_repository(self):
+        """`_erklaerungs_digest(None)` war von keinem Fall beruehrt — der ganze Standardpfad lief
+        im Testlauf nie. Genau ueber ihn laeuft aber der Marker im CI, wo niemand `--declaration`
+        setzt."""
+        echt = Path(G.__file__).resolve().parents[1] / ".github" / "required_status_checks.json"
+        if not echt.is_file():
+            self.skipTest("declaration not present here")
+        self.assertEqual(G._erklaerungs_digest(None),
+                         hashlib.sha256(echt.read_bytes()).hexdigest())
+        self.assertNotEqual(G._erklaerungs_digest(None), "")
+
+    def test_the_digest_of_an_absent_condition_is_not_a_crash(self):
+        """Der `or ""`-Schutz in `bedingungs_digest` war ungebunden; ohne ihn wirft `None` ein
+        `AttributeError` an einer Stelle, die ein Urteil liefern soll."""
+        self.assertEqual(G.bedingungs_digest(None), G.bedingungs_digest(""))
+        self.assertEqual(len(G.bedingungs_digest(None)), 64)
+
+    def test_an_acceptance_of_the_wrong_shape_never_binds(self):
+        """Drei Teilbedingungen der Formpruefung waren einzeln entfernbar, ohne dass ein Fall
+        fiel. Jede bekommt hier ihren eigenen Fall, denn jede laesst etwas anderes durch: einen
+        Eintrag OHNE Namen (der sonst unter dem Schluessel None bindet), einen Digest, der kein
+        Text ist, und einen, der Text aber kein Hex ist."""
+        gut = "a" * 64
+        for name, eintrag in (
+            ("ohne Namen", {"condition_sha256": gut}),
+            ("Name leer", {"context": "", "condition_sha256": gut}),
+            ("Digest ist eine Zahl", {"context": "c", "condition_sha256": 123}),
+            ("Digest ist None", {"context": "c", "condition_sha256": None}),
+            ("Digest ist kein Hex", {"context": "c", "condition_sha256": "kein-hex"}),
+            ("Digest zu kurz", {"context": "c", "condition_sha256": "a" * 63}),
+            ("Digest zu lang", {"context": "c", "condition_sha256": "a" * 65}),
+            ("Digest in Grossbuchstaben", {"context": "c", "condition_sha256": "A" * 64}),
+        ):
+            with self.subTest(name):
+                bindend, lose = G._zusagen([eintrag])
+                self.assertEqual(bindend, {}, f"{name} hat gebunden: {bindend}")
+                self.assertEqual(len(lose), 1, f"{name} wurde nicht einmal genannt")
+        bindend, lose = G._zusagen([{"context": "c", "condition_sha256": gut}])
+        self.assertEqual(bindend, {"c": gut}, "die Gegenkontrolle: eine gueltige Zusage bindet")
+        self.assertEqual(lose, [])
+
+
 class TestAgainstThisRepository(unittest.TestCase):
 
     def test_the_real_declaration_matches_what_was_measured_by_hand(self):
@@ -598,6 +1277,20 @@ class TestAgainstThisRepository(unittest.TestCase):
         for v in ("3.10", "3.11", "3.13", "3.14"):
             self.assertEqual(zustand.get(f"test ({v})"), G.GATED,
                              f"test ({v}) was measured as produced only under the landung label")
+
+    def test_the_gate_is_green_on_this_repository(self):
+        """DER BODEN, und er fehlte. Die Fassung darueber prueft die Zustaende der Kontexte und
+        sagt nichts ueber den AUSGANG — als die Zusage fuer eine unlesbare Stelle auf die
+        gebundene Form umgestellt wurde, war das Tor auf dem eigenen Repo rot, und keiner der
+        achtundfuenfzig Faelle merkte es. Gemessen wurde es von Hand, was genau der Zustand ist,
+        den eine Vertragsdatei abschaffen soll.
+
+        Der Marker wird ausdruecklich abgeschaltet: in einem frischen Checkout gibt es ihn nicht,
+        und er darf den Ausgang ohnehin nie bewegen."""
+        if G.pruefe()["verdict"] == G.UNKNOWN:
+            self.skipTest("declaration not readable here")
+        self.assertEqual(G.main(["--drift-marker", ""]), 0,
+                         "das Tor ist auf seinem eigenen Repo rot")
 
 
 if __name__ == "__main__":

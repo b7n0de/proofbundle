@@ -49,9 +49,20 @@
     "its condition and its digest. Only the exit code follows the ratchet.",
     "It turns RED as soon as something gets WORSE: a context that is not produced at all, a dead",
     "condition, something not measurable, a newly conditional context, or a changed condition.",
-    "accepted_unreadable works symmetrically for known, named limits of measurement. Without it the",
+    "accepted_unreadable works symmetrically, and since 2026-09-16 that is true of the BINDING too:",
+    "each entry names its context and the sha256 of the exact REASON it was accepted for. The",
+    "same job can be unmeasurable tomorrow for a DIFFERENT reason, and that reason is not",
+    "accepted. A third reviewer measured exactly that on 2026-09-16: same prefix, reason changed",
+    "from 'calls a reusable workflow' to 'matrix values not readable literally', exit 0, nothing",
+    "reported. A name-only entry is rejected as an unbound acceptance, like its gated sibling.",
+    "Without it the",
     "gate would be red forever because of ONE permanent limit, which would move the permanent red",
-    "rather than remove it. A NEW unmeasurable case still fails.",
+    "rather than remove it. A NEW unmeasurable case still fails -- and since 2026-09-16 it fails",
+    "even when every required context is produced unconditionally. That check used to sit BELOW",
+    "the shortcut for the all-produced verdict, so it only ever ran when something was already",
+    "conditional; measured while writing the case for the bound limit, the report printed the new",
+    "unmeasurable line and the gate still exited 0. An unmeasurable spot can hide a required",
+    "context, and that is true regardless of how the others stand.",
     "KNOWN LIMIT of this file, named rather than hidden: the declaration is its own input.",
     "Removing a context from a workflow AND from required_contexts in the same change is",
     "invisible to the offline gate. Two reviewers named this the main weakness on 2026-09-16.",
@@ -79,7 +90,10 @@
   ],
   "accepted_gated_reason": "These four are produced only when the full test matrix runs. That matrix sits behind ONE shared five-branch condition, and the 'landung' label is only one of the branches: a workflow_dispatch run, a same-repo head branch starting with release/, a ref name starting with release/, the 'landung' label, or a merge_group event. An earlier draft of this line said 'only under the landung label', which was measurably wrong and contradicted this repository's own comment on the same condition. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
   "accepted_unreadable": [
-    "published-artifact-gate.yml:reusable-attest-dryrun"
+    {
+      "context": "published-artifact-gate.yml:reusable-attest-dryrun",
+      "reason_sha256": "1f97f78054bc2a7226ffffe0003d74708d174a5e12f9b0768be10d901d7bae98"
+    }
   ],
   "accepted_unreadable_reason": "A reusable workflow reports as '<caller job id> / <called job name>'. The gate deliberately does not derive that name instead of guessing it. This is a permanent limit of the design, not a regression."
 }

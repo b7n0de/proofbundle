@@ -103,6 +103,13 @@ jobs:
           --repo ${{ github.repository }}
       # NOT continue-on-error, on purpose: this step's red IS the job's signal. The job as a whole
       # is advisory, so it blocks no merge, but the check must still show red when it is red.
+      #
+      # It reads the marker the step above leaves behind and SAYS whether that check ran. Without
+      # it, a green line here would rest on a declaration that may have drifted from the live
+      # ruleset, and say nothing about it. Raised by review of the landed commit on 2026-09-16.
+      # It does not block on a missing marker: a dead network would otherwise paint this job red
+      # for a reason that has nothing to do with the code, which is the permanent red the floor
+      # exists to remove. Said out loud, not acted on -- a check that did not run is never a pass.
       - name: Required-check reachability
         run: python scripts/required_check_reachability_gate.py
 
