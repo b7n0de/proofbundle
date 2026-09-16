@@ -220,6 +220,91 @@ class TestUnknownIsNotFine(unittest.TestCase):
         self.assertEqual(b.urteil()["verdict"], G.UNKNOWN)
 
 
+class TestDeclarationAgainstRuleset(unittest.TestCase):
+    """Die Erklaerung ist eine KOPIE des Regelsatzes, und eine Kopie driftet.
+
+    Wer den Regelsatz aendert und die Datei vergisst, bekommt vom Offline-Tor weiter ein Urteil,
+    das sich auf gestrige Pflichten bezieht: alles gruen, gemessen an der falschen Menge. Diese
+    Faelle brauchen KEIN Netz — sie legen ein falsches `gh` auf den PATH und pruefen damit den
+    echten Unterprozess-Pfad statt einer nachgebauten Kulisse.
+    """
+
+    def _mit_gh(self, ausgabe: str, rc: int = 0):
+        """Ein `gh` auf dem PATH, das genau diese Ausgabe liefert."""
+        import os
+        import stat
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        p = Path(tmp.name) / "gh"
+        p.write_text("#!/bin/sh\ncat <<'JSON'\n" + ausgabe + "\nJSON\nexit " + str(rc) + "\n",
+                     encoding="utf-8")
+        p.chmod(p.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        alt = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{tmp.name}:{alt}"
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", alt))
+        return Path(tmp.name)
+
+    def _erklaerung(self, kontexte, *, rs_id=1) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        p = Path(tmp.name) / "required_status_checks.json"
+        d = {"ruleset": "t", "branch": "main", "required_contexts": kontexte}
+        if rs_id is not None:
+            d["ruleset_id"] = rs_id
+        p.write_text(json.dumps(d), encoding="utf-8")
+        return p
+
+    @staticmethod
+    def _regelsatz(kontexte) -> str:
+        return json.dumps({"name": "protect-main", "rules": [
+            {"type": "required_status_checks",
+             "parameters": {"required_status_checks": [{"context": c} for c in kontexte]}}]})
+
+    def test_no_drift_is_a_pass(self):
+        self._mit_gh(self._regelsatz(["a", "b"]))
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a", "b"]), "o/r")
+        self.assertEqual(d["verdict"], G.ALWAYS)
+        self.assertEqual(d["declared_only"], [])
+        self.assertEqual(d["ruleset_only"], [])
+
+    def test_a_context_the_ruleset_requires_but_nobody_declared_is_caught(self):
+        """Die gefaehrliche Richtung: der Regelsatz verlangt mehr, als die Datei kennt. Das
+        Offline-Tor wuerde die neue Pflicht gar nicht pruefen und trotzdem gruen melden."""
+        self._mit_gh(self._regelsatz(["a", "b", "neu"]))
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a", "b"]), "o/r")
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["ruleset_only"], ["neu"])
+
+    def test_a_context_declared_but_no_longer_required_is_caught(self):
+        self._mit_gh(self._regelsatz(["a"]))
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a", "alt"]), "o/r")
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["declared_only"], ["alt"])
+
+    def test_a_failing_gh_is_not_measurable_and_never_a_pass(self):
+        self._mit_gh("nichts", rc=1)
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a"]), "o/r")
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertIn("gh api exited", d["reason"])
+
+    def test_output_that_is_not_json_is_not_measurable(self):
+        self._mit_gh("kein json")
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a"]), "o/r")
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+
+    def test_a_declaration_without_a_ruleset_id_cannot_be_compared(self):
+        d = G.erklaerung_gegen_regelsatz(self._erklaerung(["a"], rs_id=None), "o/r")
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertIn("ruleset_id", d["reason"])
+
+    def test_the_drift_check_never_touches_the_offline_verdict(self):
+        """Zwei Wege, ein Werkzeug. Der Netzweg darf das Offline-Urteil nicht faerben."""
+        self._mit_gh(self._regelsatz(["gibt-es-nicht"]))
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "test (3.12)"])
+        self.assertEqual(b.urteil()["verdict"], G.ALWAYS,
+                         "das Offline-Urteil haengt an den Workflows, nicht am Regelsatz")
+
+
 class TestAgainstThisRepository(unittest.TestCase):
 
     def test_the_real_declaration_matches_what_was_measured_by_hand(self):

@@ -233,15 +233,81 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
             "ruleset": erklaert.get("ruleset"), "branch": erklaert.get("branch")}
 
 
+def erklaerung_gegen_regelsatz(declaration: Path | None = None, repo: str | None = None) -> dict:
+    """Stimmt die ERKLAERUNG mit dem Regelsatz ueberein, den GitHub wirklich fuehrt?
+
+    Die Erklaerung in `.github/required_status_checks.json` ist eine Kopie, und eine Kopie driftet.
+    Wer den Regelsatz aendert und die Datei vergisst, bekommt vom Offline-Tor weiter ein Urteil, das
+    sich auf gestrige Pflichten bezieht: alles gruen, gemessen an der falschen Menge. Diese Funktion
+    holt die Wahrheit und vergleicht.
+
+    SIE BRAUCHT DAS NETZ und ist deshalb ausdruecklich KEIN Teil des Offline-Tors. Ein Aufruf ohne
+    Netz gibt `not-measurable` mit Grund zurueck, nie ein stilles Bestehen: ein Vergleich, der nicht
+    stattfand, ist kein Vergleich.
+    """
+    d = declaration or DECLARATION
+    if not d.is_file():
+        return {"verdict": UNKNOWN, "reason": f"{d} is missing; there is nothing to compare"}
+    erklaert = json.loads(d.read_text(encoding="utf-8"))
+    rs_id = erklaert.get("ruleset_id")
+    ziel = repo or erklaert.get("repo") or "b7n0de/proofbundle"
+    if not rs_id:
+        return {"verdict": UNKNOWN, "reason": f"{d.name} names no ruleset_id to compare against"}
+    import subprocess  # noqa: PLC0415 - nur auf diesem, netzabhaengigen Pfad
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{ziel}/rulesets/{rs_id}"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"verdict": UNKNOWN, "reason": f"gh could not be run ({type(e).__name__})"}
+    if r.returncode != 0:
+        return {"verdict": UNKNOWN,
+                "reason": f"gh api exited {r.returncode}: {r.stderr.strip()[:200]}"}
+    try:
+        doc = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        return {"verdict": UNKNOWN, "reason": f"the ruleset did not parse as JSON ({e})"}
+    echt: list[str] = []
+    for regel in doc.get("rules") or []:
+        if regel.get("type") == "required_status_checks":
+            echt = [c.get("context") for c
+                    in (regel.get("parameters") or {}).get("required_status_checks") or []]
+    erklaert_menge = set(erklaert.get("required_contexts") or [])
+    echt_menge = set(echt)
+    return {
+        "verdict": ALWAYS if erklaert_menge == echt_menge else ABSENT,
+        "ruleset": doc.get("name"), "ruleset_id": rs_id, "repo": ziel,
+        "declared_only": sorted(erklaert_menge - echt_menge),
+        "ruleset_only": sorted(echt_menge - erklaert_menge),
+        "in_both": sorted(erklaert_menge & echt_menge),
+    }
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--declaration", type=Path, default=None)
     ap.add_argument("--workflows", type=Path, default=None)
+    ap.add_argument("--verify-declaration", action="store_true",
+                    help="NETZ: die Erklaerung gegen den echten Regelsatz halten und Drift melden. "
+                         "Nicht Teil des Offline-Tors; ohne Netz lautet das Urteil not-measurable.")
+    ap.add_argument("--repo", default=None, help="owner/name fuer --verify-declaration")
     ap.add_argument("--allow-gated", action="store_true",
                     help="treat a context that is only produced under a NAMED condition as a pass. "
                          "Off by default: a condition nobody sets is a pull request nobody can merge.")
     a = ap.parse_args(argv)
+    if a.verify_declaration:
+        d = erklaerung_gegen_regelsatz(a.declaration, a.repo)
+        if a.json:
+            print(json.dumps(d, ensure_ascii=False, indent=2))
+        else:
+            print(f"[declaration] {d.get('repo')} ruleset {d.get('ruleset')}: {d['verdict']}")
+            if d.get("reason"):
+                print(f"  reason: {d['reason']}")
+            for k, wort in (("declared_only", "declared but NOT required"),
+                            ("ruleset_only", "required but NOT declared")):
+                for c in d.get(k) or []:
+                    print(f"  {wort}: {c}")
+        return 0 if d["verdict"] == ALWAYS else 1
     r = pruefe(a.declaration, a.workflows)
     if a.json:
         print(json.dumps(r, ensure_ascii=False, indent=2))
