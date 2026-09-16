@@ -34,7 +34,7 @@ Darum steht unten ein Test, der die Reichweite AUSGIBT, und keiner, der Vollstae
 from __future__ import annotations
 
 import json
-import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,19 +42,17 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 REGISTER = REPO / "audit_artifacts" / "findings_register_361.json"
 
-#: Haeufige deutsche FUNKTIONSWOERTER. Bewusst keine Fachwoerter und keine Namen: Funktionswoerter
-#: kommen in jeder deutschen Prosa vor und fast nie in englischer. Die Liste ist klein und steht
-#: hier im Test — wo eine groessere Liste gefuehrt wuerde, ist eine offene Entscheidung.
-_DEUTSCHE_FUNKTIONSWOERTER = (
-    "aber", "auch", "damit", "dass", "der", "die", "das", "denn", "durch", "eine", "einen",
-    "einer", "fuer", "ist", "sind", "kein", "keine", "nicht", "noch", "oder", "schon", "sondern",
-    "ueber", "und", "weil", "werden", "wird", "wurde", "wurden",
-)
-#: DIE GRENZE SCHLIESST DEN UNTERSTRICH EIN. Ohne ihn ist `_nicht_` in einem Bezeichner ein Wort.
-_MUSTER = re.compile(
-    r"(?<![0-9a-zA-Z_])(" + "|".join(_DEUTSCHE_FUNKTIONSWOERTER) + r")(?![0-9a-zA-Z_])", re.I)
-#: Code in Backticks ist Zitat, keine Prosa — dieselbe Unterscheidung wie im Office-Root-Riegel.
-_CODESPANNE = re.compile(r"`[^`]*`")
+# DIE LISTE UND DIE GRENZE STEHEN SEIT 2026-09-16 NEBENAN, in tests/_deutsche_prosa.py, weil ein
+# zweiter Vertrag dieselbe Frage stellte und sich beinahe eine eigene, schwaechere Liste geschrieben
+# haette (Teilzeichenketten statt Wortgrenzen: `"und "` traf dort `"background "`). Zwei Listen fuer
+# eine Frage driften, und die schwaechere entscheidet dort, wo sie steht. Die Ueberlegung zur
+# Unterstrich-Grenze ist mit umgezogen; hier aendert sich nichts am Verhalten.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _deutsche_prosa as _dp  # noqa: E402
+
+_DEUTSCHE_FUNKTIONSWOERTER = _dp.FUNKTIONSWOERTER
+_MUSTER = _dp.MUSTER
+_CODESPANNE = _dp.CODESPANNE
 
 
 def _notizen() -> list[str]:

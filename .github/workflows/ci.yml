@@ -55,6 +55,64 @@ jobs:
           BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python scripts/branch_base_check.py
 
+  required-check-reachability:
+    # ADVISORY (2026-09-16). Asks the question no red line ever answers: can the workflows in this
+    # repository actually PRODUCE every status check the ruleset protect-main requires? A required
+    # context has two failure modes, red and ABSENT, and only the first is visible. An absent one
+    # leaves the pull request BLOCKED with nothing red on it, and GitHub has no field that tells
+    # "still running" apart from "will never be reported".
+    #
+    # Measured the day this job was added: pull requests 209, 210, 211 and 212 all stood BLOCKED
+    # with no required check red, because four of the seven required contexts are produced only
+    # under the landung label. It was the THIRD instance of this class here -- the first was a
+    # missing `labeled` trigger (commit 89301253), the second a missing `merge_group` trigger in
+    # fork-pr-isolation.yml -- and all three were found by a person reading, never by a mechanism.
+    #
+    # Advisory on purpose: today the honest answer for this repository is "produced-only-if", and a
+    # blocking job would be red from its first run. What it buys is that the gap is NAMED on every
+    # pull request instead of being discovered by whoever happens to read the workflow next. The
+    # structural cure is a single always-running aggregator job as the one required check; that
+    # changes the ruleset, which is an owner decision, and is not done here.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML (the gate reads workflow files; without it it declines, never passes)
+        run: python -m pip install "PyYAML>=6"
+      # THE STRONGEST REMAINING OBJECTION, answered here rather than argued away. The declaration
+      # is its own input: removing a context from a workflow AND from required_contexts in one
+      # change is invisible to the offline gate, which then reports a clean result measured
+      # against yesterday's obligations. Only the live ruleset settles it. Raised independently by
+      # two reviewers on 2026-09-16, both naming it the main weakness.
+      #
+      # IT RUNS FIRST, AND THAT ORDER IS THE POINT. A failing step stops the ones behind it, so
+      # with the offline gate in front, a red offline result would have silently skipped this
+      # check -- one guard's failure suppressing another guard's report, which is the same class of
+      # defect this whole job exists to name. Its own continue-on-error keeps a missing token or a
+      # dead network from deciding the job; the gate itself reports not-measurable, never a pass.
+      - name: Declaration against the live ruleset (network; not-measurable is not a pass)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/required_check_reachability_gate.py --verify-declaration
+          --repo ${{ github.repository }}
+      # NOT continue-on-error, on purpose: this step's red IS the job's signal. The job as a whole
+      # is advisory, so it blocks no merge, but the check must still show red when it is red.
+      #
+      # It reads the marker the step above leaves behind and SAYS whether that check ran. Without
+      # it, a green line here would rest on a declaration that may have drifted from the live
+      # ruleset, and say nothing about it. Raised by review of the landed commit on 2026-09-16.
+      # It does not block on a missing marker: a dead network would otherwise paint this job red
+      # for a reason that has nothing to do with the code, which is the permanent red the floor
+      # exists to remove. Said out loud, not acted on -- a check that did not run is never a pass.
+      - name: Required-check reachability
+        run: python scripts/required_check_reachability_gate.py
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —
