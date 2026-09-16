@@ -89,6 +89,15 @@ jobs:
         run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py
       - name: Rust parity report (advisory — PENDING is the expected, honest majority state)
         run: python scripts/rust_parity_gate.py --strict --json
+      # THE CONTRACTS FOR THE TWO GUARDS ABOVE RUN HERE, and the job is the reason why. They need a
+      # BUILT Rust tree, and measured 2026-09-16 no job had both: `test` and `coverage` run pytest
+      # and build no Rust, `rust-parity` and `audit-candidate-matrix` build Rust and run no pytest.
+      # The clippy case therefore skipped in the whole pipeline and measured nothing, while looking
+      # careful doing it — found by an adversarial lens, not by reading. This job already builds the
+      # tree, so the cases belong here. `tests/test_rust_formatierung_ist_ein_vertrag.py` pins that
+      # this step exists; removing it turns that contract red rather than quietly disarming these.
+      - name: Contracts for the pinned toolchain (need the built tree, so they run in THIS job)
+        run: PYTHONPATH=src python -m pytest tests/test_rust_formatierung_ist_ein_vertrag.py -q -rs
 
   test:
     runs-on: ubuntu-latest
