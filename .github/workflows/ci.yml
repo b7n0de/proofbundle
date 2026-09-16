@@ -619,7 +619,7 @@ jobs:
       - name: Anchor tests (generic + rfc3161-tsa + opentimestamps, run not skipped)
         run: python -m unittest tests.test_anchors_generic tests.test_anchors_rfc3161 tests.test_anchors_ots tests.test_conformance -v
       - name: Conformance corpus with anchors required (confirmed anchor verified offline against its frozen block header)
-        run: python conformance/run_conformance.py --require-anchors
+        run: python conformance/run_conformance.py --require-anchors --require-full-schema
 
   dependency-audit:
     # pip-audit (audit hygiene, 2026-07-12): scan installed dependencies against the PyPA/OSV advisory DB.
