@@ -25,8 +25,11 @@ Exit: 0 clean, 1 German prose in added lines, 2 the range is not measurable.
 from __future__ import annotations
 
 import argparse
+import ast
+import io
 import re
 import subprocess
+import tokenize
 import sys
 from pathlib import Path
 
@@ -41,7 +44,6 @@ SCHWELLE = 2
 
 #: A comment, or a line inside a docstring. Everything else is code.
 _KOMMENTAR = re.compile(r"^\s*#")
-_DREIFACH = re.compile(r'"""|\'\'\'')
 
 
 def _git(*args: str) -> tuple[int, str]:
@@ -78,25 +80,72 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     return je_datei, "measured"
 
 
+def _prosazeilen(datei: str) -> set[int] | None:
+    """Every line of the file that is a comment or part of a string literal, by TOKEN.
+
+    THE FIRST VERSION COUNTED QUOTE CHARACTERS, and an adversarial read caught it the same day.
+    It walked the lines before the one in question and flipped a flag on every odd count of a
+    triple quote. A single triple quote inside an ordinary one-line string sets that flag, so the
+    real docstring opener that follows CLOSES it, and the whole docstring then counts as code.
+
+    Measured on a four-line file: the identical German docstring line is checked when nothing
+    precedes it and skipped when one such code line does. The check did not become wrong about
+    the line, it stopped looking at it, which is the more expensive of the two, because the
+    report stays green either way.
+
+    The tokenizer already answers exactly this question, so the shape of the fix is to stop
+    re-deriving it. Returns None when the file cannot be read or does not tokenize, and the
+    caller treats that as not-prose rather than as a pass.
+    """
+    p = REPO / datei
+    try:
+        quelle = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    aus: set[int] = set()
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(quelle).readline):
+            if tok.type == tokenize.COMMENT:
+                aus.add(tok.start[0])
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        return None
+    # DOCSTRINGS ARE A POSITION, NOT A STRING TYPE, and the first tokenizer version missed that.
+    # Taking every tokenize.STRING swept in the message texts the program prints, which are not
+    # source comments at all. Measured on this very branch, it reported the gate's own German
+    # error messages, and those are a separate question about who reads the output.
+    #
+    # The syntax tree says which string is a docstring: the first statement of a module, class or
+    # function. Nothing else qualifies, whatever its quoting.
+    try:
+        baum = ast.parse(quelle)
+    except (SyntaxError, ValueError):
+        return None
+    for knoten in ast.walk(baum):
+        if not isinstance(knoten, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                   ast.AsyncFunctionDef)):
+            continue
+        koerper = getattr(knoten, "body", None) or []
+        if not koerper:
+            continue
+        erstes = koerper[0]
+        if not (isinstance(erstes, ast.Expr) and isinstance(erstes.value, ast.Constant)
+                and isinstance(erstes.value.value, str)):
+            continue
+        for n in range(erstes.lineno, (erstes.end_lineno or erstes.lineno) + 1):
+            aus.add(n)
+    return aus
+
+
 def _ist_prosa(datei: str, nr: int, text: str) -> bool:
-    """Comment, or inside a docstring. The docstring test reads the FILE, not the diff.
+    """Comment, or inside a string literal. The answer comes from the FILE, not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file at HEAD does say.
     """
     if _KOMMENTAR.search(text):
         return True
-    p = REPO / datei
-    try:
-        zeilen = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return False
-    if not (1 <= nr <= len(zeilen)):
-        return False
-    offen = False
-    for z in zeilen[: nr - 1]:
-        offen ^= (len(_DREIFACH.findall(z)) % 2 == 1)
-    return offen
+    zeilen = _prosazeilen(datei)
+    return bool(zeilen and nr in zeilen)
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
