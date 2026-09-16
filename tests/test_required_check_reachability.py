@@ -188,6 +188,50 @@ class TestKnownExpressionTraps(unittest.TestCase):
         self.assertEqual(b.urteil()["verdict"], G.ALWAYS)
 
 
+class TestJobLevelIf(unittest.TestCase):
+    """Ein Job hinter einem `if:` laeuft nicht immer, seine Kontexte sind also nicht unbedingt da.
+
+    Gefunden 2026-09-16 von einer fremden Modellfamilie in der Gegenlesung, auf die Frage, wo der
+    Waechter STILL falsch urteilen wuerde statt not-measurable zu sagen. Die Antwort war genau
+    hier: ein Pflicht-Job mit `if: false` wurde als `produced` gemeldet. Kein Fehlschlag, kein
+    Hinweis, ein glattes Falschurteil.
+
+    Die Haerte dahinter, aus der Recherche desselben Tages: ein durch `if:` uebersprungener Job
+    meldet GitHub ein SUCCESS. Ein Pflichtkontext auf einem solchen Job blockiert also nie und
+    beweist auch nichts — er sieht nur so aus, als wuerde er etwas sichern.
+    """
+
+    def _baum(self, joblines, verlangt):
+        return Baum(self, {"ci.yml": "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+                           + joblines}, verlangt)
+
+    def test_a_required_job_that_can_never_run_is_not_produced(self):
+        b = self._baum('  coverage:\n    if: false\n    runs-on: ubuntu-latest\n'
+                       '    steps: [{run: "true"}]\n', ["coverage"])
+        r = b.urteil()
+        self.assertEqual(r["verdict"], G.ABSENT,
+                         "`if: false` heisst: dieser Job laeuft NIE, also entsteht sein Kontext nie")
+        self.assertTrue(r["dead_conditions"], "und das muss in Worten dastehen, nicht nur im Zustand")
+        self.assertEqual(b.rc(), 1)
+
+    def test_a_conditional_job_names_its_condition_instead_of_claiming_produced(self):
+        b = self._baum("  coverage:\n    if: github.event_name == 'push'\n"
+                       '    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n', ["coverage"])
+        r = b.urteil()
+        self.assertEqual(r["verdict"], G.GATED)
+        self.assertIn("github.event_name", r["per_context"][0]["condition"],
+                      "die Bedingung muss BENANNT sein, nicht nur als bedingt markiert")
+
+    def test_without_an_if_nothing_changes(self):
+        """Fangnachweis fuer die zwei Faelle darueber: ohne `if:` bleibt es bei produced. Ohne
+        diesen Fall koennte die neue Logik jeden Job herabstufen und die zwei oben waeren trotzdem
+        gruen."""
+        b = self._baum('  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n',
+                       ["coverage"])
+        self.assertEqual(b.urteil()["verdict"], G.ALWAYS)
+        self.assertEqual(b.rc(), 0)
+
+
 class TestUnknownIsNotFine(unittest.TestCase):
 
     def test_a_matrix_that_is_not_literal_is_unreadable_not_reachable(self):

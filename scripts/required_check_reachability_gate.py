@@ -191,6 +191,25 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             gew, geg, bedingung, hinweis = matrix_werte(job, pfad.read_text(encoding="utf-8"))
             if hinweis:
                 hinweise.append(f"{pfad.name}:{job_id}: {hinweis}")
+            # DIE `if:`-BEDINGUNG DES JOBS, und sie war bis 2026-09-16 ein blinder Fleck. Ein Job
+            # hinter einem `if:` laeuft nicht immer, seine Kontexte sind also nicht unbedingt
+            # erzeugt. Gefunden von einer fremden Modellfamilie in der Gegenlesung: ein
+            # Pflicht-Job mit `if: false` wurde als `produced` gemeldet — ein STILLES
+            # Falschurteil, nicht ein `not-measurable`. Dazu die Haerte dahinter: ein durch `if:`
+            # uebersprungener Job meldet GitHub ein Success, ein Pflichtkontext auf ihm blockiert
+            # also nie und beweist auch nichts.
+            job_if = job.get("if")
+            if job_if is not None:
+                als_text = " ".join(str(job_if).split())
+                if als_text.lower() in ("false", "${{ false }}"):
+                    hinweise.append(
+                        f"{pfad.name}:{job_id}: `if: {als_text}` — dieser Job laeuft NIE, seine "
+                        f"Kontexte entstehen unter keiner Bedingung")
+                    continue
+                for name in kontextnamen(job_id, job, gew or geg):
+                    if name not in gewoehnlich:
+                        gegated.setdefault(name, (pfad.name, f"job `if: {als_text}`"))
+                continue
             hat_matrix = bool((job.get("strategy") or {}).get("matrix"))
             if hat_matrix and not any(gew.values()) and not any(geg.values()):
                 unlesbar.append(f"{pfad.name}:{job_id}: matrix values not readable literally")
