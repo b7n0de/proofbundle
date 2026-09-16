@@ -17,9 +17,11 @@ ergibt unter zwei Versionen zwei verschiedene Urteile, und genau dieser Drift ha
 gemessene Version mit der gepinnten und faellt lieber in ein ehrliches SKIP als in ein Gruen, das
 eine andere Flaeche beschreibt.
 
-NICHT GEMESSEN und ausdruecklich so benannt: `cargo clippy`. Es haengt an derselben Toolchain und
-verdient denselben Knoten, aber clippy laeuft Minuten statt Sekunden; das gehoert in einen eigenen
-Fall mit eigener Laufzeitentscheidung, nicht als stiller Anhang hier.
+`cargo clippy` steht seit dem 2026-09-16 daneben, in einer eigenen Klasse mit eigener
+Laufzeitentscheidung. Gemessen wurde vorher, was es kostet: 3,5 s auf einem GEBAUTEN Baum, Minuten
+auf einem kalten. Der Fall laeuft deshalb nur, wenn der Baum schon gebaut ist, und sagt sonst
+warum nicht — ein Vertrag, der eine Vollkompilierung in die Testsuite zieht, wird abgeschaltet und
+schuetzt danach nichts mehr.
 """
 from __future__ import annotations
 
@@ -137,3 +139,73 @@ def test_der_rust_baum_ist_unter_der_gepinnten_toolchain_formatiert():
         f"`cargo fmt --check` unter {toolchain} / {komponente} endete mit {r.returncode}. Das ist "
         f"derselbe Befehl, den der CI-Schritt faehrt.\n--- stdout ---\n{r.stdout[:4000]}\n"
         f"--- stderr ---\n{r.stderr[:1000]}")
+
+# --- der zweite Waechter an derselben Pinnung: `cargo clippy -D warnings` ---------------------
+#
+# Er gehoert aus demselben Grund gebunden wie die Formatierung: clippy urteilt
+# versionsabhaengig, und ein `-D warnings` unter einer anderen Version ist eine andere Zusage.
+# Der Unterschied ist die LAUFZEIT — gemessen 3,5 s auf einem gebauten Baum, Minuten auf einem
+# kalten. Deshalb ZWEI Faelle statt einem: die Form des CI-Schritts wird IMMER geprueft, der Lauf
+# selbst nur dort, wo der Baum schon steht.
+
+
+def _schritt_wechselt_ins_verzeichnis(text: str, zeile: str) -> bool:
+    """Wechselt der Schritt, zu dem diese Zeile gehoert, in das Verzeichnis der Pinnung?
+
+    Beide Formen, die GitHub Actions dafuer kennt: `cd <verzeichnis> &&` in der Zeile, oder
+    `working-directory:` irgendwo im selben Schritt. Ein Pfadname IM Befehl reicht nicht — siehe
+    die Begruendung bei `test_der_ci_schritt_misst_im_verzeichnis_der_pinnung`.
+    """
+    if re.search(r"cd\s+tools/pb_verify_rs\s*&&", zeile):
+        return True
+    i = text.index(zeile)
+    anfang = text.rfind("\n      - ", 0, i)
+    ende = text.find("\n      - ", i)
+    block = text[anfang if anfang >= 0 else 0: ende if ende >= 0 else len(text)]
+    return "working-directory: tools/pb_verify_rs" in block
+
+
+def test_der_ci_schritt_des_linters_verweigert_warnungen_im_verzeichnis_der_pinnung():
+    """Die Form, und die kostet nichts.
+
+    `-D warnings` macht aus einer Warnung einen Fehler; ohne das Flag ist der Schritt eine
+    Meinung, keine Zusage. Und ohne den Verzeichniswechsel urteilt eine beliebige clippy-Version
+    darueber."""
+    ci = REPO / ".github" / "workflows" / "ci.yml"
+    if not ci.is_file():
+        pytest.skip(".github/workflows/ci.yml liegt hier nicht")
+    text = ci.read_text(encoding="utf-8")
+    zeilen = [z.strip() for z in text.splitlines() if "cargo clippy" in z]
+    assert zeilen, "kein Schritt im CI fuehrt `cargo clippy` aus"
+    for z in zeilen:
+        assert _schritt_wechselt_ins_verzeichnis(text, z), (
+            f"der clippy-Schritt wechselt nicht in das Verzeichnis der Pinnung: {z!r}. rustup "
+            "waehlt die Toolchain nach dem Arbeitsverzeichnis.")
+        assert "-D warnings" in z, (
+            f"der clippy-Schritt macht aus Warnungen keine Fehler: {z!r}. Ohne `-D warnings` ist "
+            "er eine Meinung, keine Zusage.")
+
+
+def test_der_linter_ist_gruen_wo_der_baum_schon_steht():
+    """Der Lauf selbst, und er zieht KEINE Vollkompilierung in die Suite.
+
+    Laeuft nur auf einem bereits gebauten Baum; sonst ein SKIP, das die fehlende Vorbedingung
+    benennt. Ein Vertrag, der jede Suite um Minuten verlaengert, wird abgeschaltet, und ein
+    abgeschalteter Vertrag schuetzt nichts."""
+    kanal = _gepinnter_kanal()
+    if not RUST.is_dir():
+        pytest.skip("tools/pb_verify_rs liegt hier nicht (Paketlauf statt Checkout)")
+    if shutil.which("cargo") is None:
+        pytest.skip("NICHT GEMESSEN: kein `cargo` im PATH — das ist kein bestandener Lauf")
+    if not (RUST / "target").is_dir():
+        pytest.skip("NICHT GEMESSEN: der Rust-Baum ist hier nicht gebaut — eine Vollkompilierung "
+                    "gehoert nicht in diese Suite, sie laeuft im Rust-Job")
+    rustc = _lauf("rustc", "--version")
+    if rustc.returncode != 0 or kanal not in rustc.stdout:
+        pytest.skip(f"NICHT GEMESSEN auf der gepinnten Flaeche: die Pinnung nennt {kanal}, hier "
+                    f"laeuft {rustc.stdout.strip()!r}")
+    r = _lauf("cargo", "clippy", "--all-targets", "--", "-D", "warnings")
+    assert r.returncode == 0, (
+        f"`cargo clippy --all-targets -- -D warnings` unter {rustc.stdout.strip()} endete mit "
+        f"{r.returncode}. Das ist derselbe Befehl, den der CI-Schritt faehrt.\n"
+        f"--- stderr ---\n{r.stderr[-4000:]}")
