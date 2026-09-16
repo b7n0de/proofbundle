@@ -166,6 +166,28 @@ def kontextnamen(job_id: str, job: dict, werte: dict[str, list]) -> list[str]:
     return namen
 
 
+#: `if:`-Ausdruecke, die NICHT einschraenken. Sie sehen aus wie eine Bedingung und sind keine.
+#:
+#: WARUM DAS EINE EIGENE MENGE IST. Die erste Fassung las jedes `if:` als Einschraenkung und
+#: meldete den Job als `produced-only-if`. Fuer `if: false` war das schon gesondert behandelt --
+#: die andere Richtung fehlte. Gemessen 2026-09-16 beim Bau des Sammel-Jobs: `if: always()` ist
+#: die STAERKSTE Zusage, die ein Job geben kann (er laeuft auch, wenn seine Vorgaenger fallen oder
+#: der Lauf abgebrochen wird), und genau dieser Job wurde als bedingt gefuehrt. Der Kontext, der
+#: die Klasse heilen soll, waere damit selbst als Instanz der Klasse gemeldet worden.
+#:
+#: DIE MENGE BLEIBT KLEIN UND WOERTLICH. `always() && X` schraenkt sehr wohl ein und steht
+#: deshalb NICHT hier; `mutation-summary` in ci.yml ist genau dieser Fall und muss bedingt
+#: bleiben. Geprueft wird der normalisierte Text, nicht ein Teilstring -- ein Vergleich auf
+#: "enthaelt always()" wuerde `always() && <Landebedingung>` mitnehmen und die Landebedingung
+#: unsichtbar machen.
+_IMMER_WAHR = frozenset({"always()", "${{ always() }}", "true", "${{ true }}"})
+
+
+def _schraenkt_ein(bedingung: object) -> bool:
+    """Schraenkt dieses `if:` die Erzeugung des Kontexts wirklich ein?"""
+    return " ".join(str(bedingung).split()).lower() not in _IMMER_WAHR
+
+
 def erhebe(verzeichnis: Path | None = None) -> dict:
     """Every context the workflows can report, with how it arises."""
     wf = verzeichnis or WORKFLOWS
@@ -200,7 +222,7 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             # uebersprungener Job meldet GitHub ein Success, ein Pflichtkontext auf ihm blockiert
             # also nie und beweist auch nichts.
             job_if = job.get("if")
-            if job_if is not None:
+            if job_if is not None and _schraenkt_ein(job_if):
                 als_text = " ".join(str(job_if).split())
                 if als_text.lower() in ("false", "${{ false }}"):
                     hinweise.append(

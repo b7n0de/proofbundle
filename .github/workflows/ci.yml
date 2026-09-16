@@ -240,6 +240,23 @@ jobs:
         run: |
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
+      - name: Record which Python version this leg actually ran
+        # THE LEG REPORTS WHAT IT RAN; the aggregate job counts. Deriving the set of versions from
+        # the matrix expression instead would be a THIRD copy of the landing condition -- it
+        # already exists twice, held identical by a contract -- and an invariant in three places is
+        # three promises that hold until somebody edits one of them. Same shape as the mutation
+        # shards below, which report their own operator counts rather than being trusted.
+        # `if: always()` so a red leg still says it ran: the aggregate job must be able to tell
+        # "3.13 failed" from "3.13 never started", and those are different repairs.
+        if: always()
+        run: echo "python-version=${{ matrix.python-version }}" > "$RUNNER_TEMP/test-leg-${{ matrix.python-version }}.txt"
+      - name: Upload the leg marker
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-leg-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/test-leg-${{ matrix.python-version }}.txt
+          retention-days: 7
 
   audit-candidate-matrix:
     # The NAME is what a person reads beside the cross; the job id stays the stable handle for
@@ -704,3 +721,70 @@ jobs:
         # ignore keeps the job blocking for a REAL finding in `cryptography` (the one dependency that
         # matters for this project's trust model). Re-evaluate when inspect_ai relaxes its click cap.
         run: pip-audit --desc --ignore-vuln PYSEC-2026-2132
+
+  all-checks-passed:
+    # THE ONE REQUIRED CONTEXT THIS WORKFLOW PRODUCES (owner card OA-3c67b06ad6, option A,
+    # 2026-09-16). It waits on every other job in this file and always runs, so it can never be
+    # the absent context that leaves a pull request BLOCKED with nothing red on it.
+    #
+    # WHAT THE SOURCE ACTUALLY SAYS, quoted rather than upgraded. GitHub's documentation does NOT
+    # recommend this pattern. It recommends the rule underneath -- "Avoid requiring workflows that
+    # can be skipped" -- and states that a job skipped by a conditional "reports 'Success'". The
+    # aggregate job is community practice that obeys that rule; it is not a documented
+    # recommendation, and nothing here calls it more than that.
+    #
+    # IT REPLACES SIX CONTEXTS, NOT SEVEN. `guard` lives in fork-pr-isolation.yml and `needs`
+    # never reaches across workflow files, so the required set goes to TWO: this job and `guard`.
+    # `guard` is unconditional, carries no matrix and has the merge_group trigger, so it is not
+    # exposed to this class. Saying "one required context" would simply be false.
+    #
+    # THE ADVISORY REACHABILITY GATE STAYS WIRED (owner condition, same card). Delete this job and
+    # the class is invisible again with nothing to say so; the advisory job is what says so.
+    #
+    # IT IS NOT A RUBBER STAMP. A skipped job is red unless the accepted-skip list in
+    # scripts/aggregate_check_gate.py names it, because GitHub reports a skip as success -- and
+    # that list is pinned against this file in BOTH directions by the contracts. It also counts
+    # the Python versions the matrix legs recorded for themselves: the ruleset carries no
+    # merge-queue rule (measured on ruleset 18386496), so without that count a pull request could
+    # merge with the suite run on ONE version once the five test contexts leave the required set.
+    # The five contexts were the thing enforcing the promise; this job now measures it instead.
+    needs:
+      - branch-base
+      - required-check-reachability
+      - rust-parity
+      - test
+      - audit-candidate-matrix
+      - gate-qualification
+      - coverage
+      - crypto-floor
+      - mutation
+      - mutation-summary
+      - mutant-signature-guard
+      - anchors
+      - dependency-audit
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Download the test-leg markers
+        # NOT continue-on-error and NOT `if: always()` beyond the job's own: if the legs cannot be
+        # read, the matrix is NOT MEASURED, and an unmeasured matrix is not a complete one. The
+        # judging step below turns an empty set into a named red, not into a pass.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: test-leg-*
+          path: legs
+          merge-multiple: true
+      - name: Every needed job reported, none red, matrix complete
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$NEEDS_JSON" > "$RUNNER_TEMP/needs.json"
+          python scripts/aggregate_check_gate.py --judge \
+            --needs-json "$RUNNER_TEMP/needs.json" --legs-dir legs

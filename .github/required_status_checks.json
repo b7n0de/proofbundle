@@ -27,13 +27,8 @@
   "branch": "main",
   "declared_on": "2026-09-16",
   "required_contexts": [
-    "coverage",
-    "guard",
-    "test (3.10)",
-    "test (3.11)",
-    "test (3.12)",
-    "test (3.13)",
-    "test (3.14)"
+    "all-checks-passed",
+    "guard"
   ],
   "_ratchet": [
     "accepted_gated names the contexts whose CONDITIONAL production is knowingly accepted today, and",
@@ -70,30 +65,42 @@
     "ruleset BEFORE the offline gate, so a red offline result cannot skip it. That check needs",
     "the network and a token; when it cannot run it reports not-measurable, never a pass."
   ],
-  "accepted_gated": [
-    {
-      "context": "test (3.10)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
-    },
-    {
-      "context": "test (3.11)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
-    },
-    {
-      "context": "test (3.13)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
-    },
-    {
-      "context": "test (3.14)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
-    }
-  ],
-  "accepted_gated_reason": "These four are produced only when the full test matrix runs. That matrix sits behind ONE shared five-branch condition, and the 'landung' label is only one of the branches: a workflow_dispatch run, a same-repo head branch starting with release/, a ref name starting with release/, the 'landung' label, or a merge_group event. An earlier draft of this line said 'only under the landung label', which was measurably wrong and contradicted this repository's own comment on the same condition. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
+  "accepted_gated": [],
+  "accepted_gated_reason": "Empty since 2026-09-16. The four conditional contexts (test 3.10, 3.11, 3.13, 3.14) left the required set when the aggregate job took their place, so there is nothing left to accept. The previous entry said it stood 'until the owner decides on the aggregator job (card OA-3c67b06ad6)'; the owner decided, option A. An empty list is not a weakening: it means no required context is produced under a condition, which is the state this ratchet was counting down to.",
   "accepted_unreadable": [
     {
       "context": "published-artifact-gate.yml:reusable-attest-dryrun",
       "reason_sha256": "1f97f78054bc2a7226ffffe0003d74708d174a5e12f9b0768be10d901d7bae98"
     }
   ],
-  "accepted_unreadable_reason": "A reusable workflow reports as '<caller job id> / <called job name>'. The gate deliberately does not derive that name instead of guessing it. This is a permanent limit of the design, not a regression."
+  "accepted_unreadable_reason": "A reusable workflow reports as '<caller job id> / <called job name>'. The gate deliberately does not derive that name instead of guessing it. This is a permanent limit of the design, not a regression.",
+  "required_python_versions": [
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "required_python_versions_reason": "The five versions the project promises to support, and the set the aggregate job counts against. Until 2026-09-16 the promise was carried by the five `test (3.x)` required contexts themselves. Reducing the required set to the aggregate job alone would have dropped it: the ruleset carries NO merge-queue rule (measured on ruleset 18386496), so required checks are judged on the pull request head, where the matrix runs one version unless the landing condition holds. The legs now record what they ran and scripts/aggregate_check_gate.py compares the set against this list. The number lives here and not in the script because it is a promise of the project, not an implementation detail.",
+  "_switchover": [
+    "THE ORDER OF THE TWO CHANGES IS NOT COSMETIC. The aggregate job must exist on main and have",
+    "reported once BEFORE the ruleset asks for it. Requiring a context that no run has produced",
+    "yet blocks every pull request on exactly the failure mode this file exists to name, and it",
+    "would do so on the day the cure lands.",
+    "So this declaration is deliberately AHEAD of the live ruleset for a while. The drift check",
+    "(--verify-declaration) will say so on every run, by name, and that line is the marker that",
+    "the ruleset switch is still owed. It is advisory and blocks nothing.",
+    "TWO CONTEXTS, NOT ONE, and the difference is measured rather than rounded off. `guard` lives",
+    "in fork-pr-isolation.yml, and `needs` never reaches across workflow files, so no aggregate",
+    "job in ci.yml can cover it. `guard` is unconditional, carries no matrix and has the",
+    "merge_group trigger, so it is not exposed to this class -- but the owner card said 'one',",
+    "and the honest count is two.",
+    "THE ADVISORY REACHABILITY GATE STAYS WIRED (owner condition to card OA-3c67b06ad6,",
+    "2026-09-16): remove the aggregate job and the class is invisible again, with nothing left to",
+    "say so. tests/test_aggregate_check_gate.py holds the catch proof for exactly that.",
+    "WHAT THE SOURCE SAYS, quoted rather than upgraded: GitHub's documentation does not recommend",
+    "the aggregate-job pattern. It recommends the rule underneath -- 'Avoid requiring workflows",
+    "that can be skipped' -- and states that a job skipped by a conditional reports 'Success'.",
+    "The aggregate job is community practice obeying that rule, and is not described as more."
+  ]
 }
