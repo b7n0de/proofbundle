@@ -243,13 +243,38 @@ class TestExecutedScopeIsDisclosed(unittest.TestCase):
                          "a case whose anchor sub-check skipped must not carry a PASS label")
 
     def test_with_anchors_present_nothing_is_partial_or_unrun(self):
+        """Mit den Ankern nichts Teilweises und nichts Ungelaufenes.
+
+        DAS FLAG IST NICHT DIE FAEHIGKEIT, und daran ist dieser Fall am 16.09.2026 gefallen. Er
+        erzwang `_HAS_OTS = True` und schloss daraus, die Bibliothek stehe zur Verfuegung. Der
+        Laeufer liest das Flag, die Ankerpruefung ruft aber die ECHTE Bibliothek — und im
+        hermetischen Reinraum, der aus der sdist baut, ist sie nicht installiert. Drei
+        `decision-crossimpl`-Faelle meldeten dort `anchor status 'no_lib'`, der Kopf sagte
+        107 von 110 vollstaendig geprueft und 3 gefallen, und dieser Vertrag fiel.
+
+        Gefallen ist er zu RECHT: das Verhalten des Laeufers war richtig, die ANNAHME des Falls
+        war falsch. Wer `--require-anchors` sagt und die Anker nicht hat, bekommt einen
+        Fehlschlag, und genau das ist der Zweck des Schalters. Der Fall misst deshalb jetzt die
+        Faehigkeit statt den Stellvertreter und behauptet in jeder Umgebung das Richtige.
+        """
+        import importlib.util
+        anker_da = importlib.util.find_spec("opentimestamps") is not None
         rc, ausgabe, _ = self._lauf(has_ots=True, require_anchors=True)
         zahlen, kopf = self._zahlen(ausgabe)
-        self.assertEqual(rc, 0, ausgabe)
+        if anker_da:
+            self.assertEqual(rc, 0, ausgabe)
+            self.assertEqual(zahlen["fully checked"], zahlen["cases"], kopf)
+            self.assertNotIn("did NOT run in this environment", ausgabe)
+        else:
+            # Ohne die Bibliothek MUSS es fallen, und der Grund muss die Bibliothek nennen.
+            self.assertEqual(rc, 1, kopf)
+            self.assertGreater(zahlen["failed"], 0, kopf)
+            self.assertIn("opentimestamps", ausgabe,
+                          "ein Fehlschlag wegen fehlender Anker muss die Bibliothek benennen")
+        # In BEIDEN Umgebungen gilt: unter --require-anchors gibt es kein Teilweise und kein
+        # Ungelaufenes mehr. Ein uebersprungener Anker ist dann ein Fehlschlag, kein stiller Rest.
         self.assertEqual(zahlen["partially checked"], 0, kopf)
         self.assertEqual(zahlen["not run"], 0, kopf)
-        self.assertEqual(zahlen["fully checked"], zahlen["cases"], kopf)
-        self.assertNotIn("did NOT run in this environment", ausgabe)
 
     def test_require_anchors_turns_every_skip_into_a_failure(self):
         rc, ausgabe, _ = self._lauf(has_ots=False, require_anchors=True)
