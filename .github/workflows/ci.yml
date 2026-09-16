@@ -55,6 +55,38 @@ jobs:
           BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python scripts/branch_base_check.py
 
+  required-check-reachability:
+    # ADVISORY (2026-09-16). Asks the question no red line ever answers: can the workflows in this
+    # repository actually PRODUCE every status check the ruleset protect-main requires? A required
+    # context has two failure modes, red and ABSENT, and only the first is visible. An absent one
+    # leaves the pull request BLOCKED with nothing red on it, and GitHub has no field that tells
+    # "still running" apart from "will never be reported".
+    #
+    # Measured the day this job was added: pull requests 209, 210, 211 and 212 all stood BLOCKED
+    # with no required check red, because four of the seven required contexts are produced only
+    # under the landung label. It was the THIRD instance of this class here -- the first was a
+    # missing `labeled` trigger (commit 89301253), the second a missing `merge_group` trigger in
+    # fork-pr-isolation.yml -- and all three were found by a person reading, never by a mechanism.
+    #
+    # Advisory on purpose: today the honest answer for this repository is "produced-only-if", and a
+    # blocking job would be red from its first run. What it buys is that the gap is NAMED on every
+    # pull request instead of being discovered by whoever happens to read the workflow next. The
+    # structural cure is a single always-running aggregator job as the one required check; that
+    # changes the ruleset, which is an owner decision, and is not done here.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML (the gate reads workflow files; without it it declines, never passes)
+        run: python -m pip install "PyYAML>=6"
+      - name: Required-check reachability
+        run: python scripts/required_check_reachability_gate.py
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —

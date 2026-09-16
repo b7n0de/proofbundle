@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "The status checks the branch ruleset 'protect-main' requires on main, declared here so a",
+    "workflow change can be checked against them WITHOUT a network call. This file is a DECLARATION,",
+    "not the truth: the truth lives in the ruleset. scripts/required_check_reachability_gate.py",
+    "--verify-declaration compares the two and reports drift; the offline gate only asks whether the",
+    "workflows can produce what is declared.",
+    "Why this file exists: three times in this repository a required context could not be produced,",
+    "and every time a human reading found it, never a mechanism. See the class note below."
+  ],
+  "_class": [
+    "A required status check has TWO failure modes, red and ABSENT, and only the first is visible.",
+    "An absent context produces no line, no colour and no message; the pull request simply stays",
+    "BLOCKED with nothing red on it. GitHub has no API field that separates 'still running' from",
+    "'will never be reported' (measured 2026-09-16; mergeStateStatus=BLOCKED covers both).",
+    "Known instances in this repository:",
+    "  1. ci.yml lacked the 'labeled' trigger, so adding the landung label to a resting PR started",
+    "     no run at all. Closed 2026-09-14 in commit 89301253.",
+    "  2. fork-pr-isolation.yml lacked the 'merge_group' trigger. It is the SECOND of two files that",
+    "     carry required contexts; the assumption had been that all seven lived in one file.",
+    "  3. The test matrix produces five Python versions only under a condition, so four of the seven",
+    "     required contexts are never created for an ordinary pull request. Measured 2026-09-16 on",
+    "     PRs 209, 210, 211 and 212, all four BLOCKED with no required check red."
+  ],
+  "ruleset": "protect-main",
+  "ruleset_id": 18386496,
+  "branch": "main",
+  "declared_on": "2026-09-16",
+  "required_contexts": [
+    "coverage",
+    "guard",
+    "test (3.10)",
+    "test (3.11)",
+    "test (3.12)",
+    "test (3.13)",
+    "test (3.14)"
+  ]
+}

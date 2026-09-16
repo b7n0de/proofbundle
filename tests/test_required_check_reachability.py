@@ -1,0 +1,231 @@
+"""Contracts for the required-check reachability gate.
+
+The defect these guard against is not a red check. It is an ABSENT one: a context the ruleset
+demands and no workflow ever produces. It shows up as a pull request that stays BLOCKED with
+nothing red on it, which reads like "nothing is wrong". Measured in this repository on
+2026-09-16 across four open pull requests at once.
+
+Every case below can go red. Several plant the defect explicitly and assert the gate catches it,
+because a test that cannot fall proves nothing about the gate.
+"""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import required_check_reachability_gate as G  # noqa: E402
+
+CI = """
+name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+  test:
+    strategy:
+      matrix:
+        python-version: >-
+          ${{ fromJSON(
+            ( github.event_name == 'workflow_dispatch'
+              || contains(github.event.pull_request.labels.*.name, 'landung') )
+            && '["3.10","3.11","3.12"]'
+            || '["3.12"]' ) }}
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+
+
+class Baum:
+    """A throwaway workflow directory plus its declaration."""
+
+    def __init__(self, fall: unittest.TestCase, workflows: dict[str, str], verlangt: list[str]):
+        tmp = tempfile.TemporaryDirectory()
+        fall.addCleanup(tmp.cleanup)
+        self.wurzel = Path(tmp.name)
+        self.wf = self.wurzel / "workflows"
+        self.wf.mkdir()
+        for name, inhalt in workflows.items():
+            (self.wf / name).write_text(inhalt, encoding="utf-8")
+        self.decl = self.wurzel / "required_status_checks.json"
+        self.decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                         "required_contexts": verlangt}), encoding="utf-8")
+
+    def urteil(self) -> dict:
+        return G.pruefe(self.decl, self.wf)
+
+    def rc(self, *argv: str) -> int:
+        return G.main(["--declaration", str(self.decl), "--workflows", str(self.wf), *argv])
+
+
+class TestAbsentIsNotGreen(unittest.TestCase):
+
+    def test_a_required_context_no_job_produces_is_caught(self):
+        """THE defect. Before the gate existed this was invisible: no check red, PR blocked forever."""
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "test (3.12)", "gibt-es-nicht"])
+        r = b.urteil()
+        self.assertEqual(r["verdict"], G.ABSENT)
+        fehlend = [e["context"] for e in r["per_context"] if e["state"] == G.ABSENT]
+        self.assertEqual(fehlend, ["gibt-es-nicht"])
+        self.assertEqual(b.rc(), 1, "an unreachable required context must not exit 0")
+
+    def test_the_planted_absence_is_the_only_difference(self):
+        """Catch proof: the same tree WITHOUT the planted context passes. Otherwise the case above
+        could be green for an unrelated reason."""
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "test (3.12)"])
+        self.assertEqual(b.urteil()["verdict"], G.ALWAYS)
+        self.assertEqual(b.rc(), 0)
+
+    def test_allow_gated_never_rescues_an_absent_context(self):
+        """--allow-gated softens the CONDITIONAL case. It must not soften the absent one."""
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "fehlt-ganz"])
+        self.assertEqual(b.rc("--allow-gated"), 1)
+
+
+class TestConditionalIsNamed(unittest.TestCase):
+
+    def test_a_context_only_under_a_condition_is_reported_with_that_condition(self):
+        b = Baum(self, {"ci.yml": CI}, ["test (3.10)"])
+        r = b.urteil()
+        self.assertEqual(r["verdict"], G.GATED)
+        e = r["per_context"][0]
+        self.assertEqual(e["state"], G.GATED)
+        self.assertIn("landung", e["condition"],
+                      "the condition must be NAMED, not merely flagged as conditional")
+
+    def test_gated_is_not_a_pass_by_default(self):
+        """A condition nobody sets is a pull request nobody can merge."""
+        b = Baum(self, {"ci.yml": CI}, ["test (3.10)"])
+        self.assertEqual(b.rc(), 1)
+        self.assertEqual(b.rc("--allow-gated"), 0)
+
+    def test_the_ordinary_arm_is_the_else_arm(self):
+        """3.12 is in both arms and therefore unconditional; 3.10 only in the gated one."""
+        b = Baum(self, {"ci.yml": CI}, ["test (3.12)", "test (3.10)"])
+        zustand = {e["context"]: e["state"] for e in b.urteil()["per_context"]}
+        self.assertEqual(zustand["test (3.12)"], G.ALWAYS)
+        self.assertEqual(zustand["test (3.10)"], G.GATED)
+
+
+class TestKnownExpressionTraps(unittest.TestCase):
+
+    def test_an_empty_true_arm_is_named_as_a_dead_condition(self):
+        """`cond && A || B` falls through to B whenever A is falsy. Emptying the true arm disables
+        the condition completely -- and the produced context set then looks EXACTLY as it would
+        without the condition, so counting contexts can never reveal it. Only a note in words can.
+
+        This case was written first as an assertion on the context states alone, and a mutant that
+        deleted the guard survived it: both paths yielded the same states. Measured 2026-09-16.
+        The assertion now binds to the thing the guard actually produces."""
+        leer = CI.replace("""&& '["3.10","3.11","3.12"]'""", """&& '[]'""")
+        b = Baum(self, {"ci.yml": leer}, ["test (3.12)", "test (3.10)"])
+        r = b.urteil()
+        zustand = {e["context"]: e["state"] for e in r["per_context"]}
+        self.assertEqual(zustand["test (3.12)"], G.ALWAYS)
+        self.assertEqual(zustand["test (3.10)"], G.ABSENT,
+                         "with an empty true arm 3.10 can never be produced, under any condition")
+        self.assertTrue(r["dead_conditions"],
+                        "a condition that can never take effect must be named, not merely implied "
+                        "by the context set it leaves behind")
+        self.assertIn("dead code", r["dead_conditions"][0])
+        self.assertEqual(b.rc(), 1, "a dead condition must not exit 0")
+
+    def test_a_dead_condition_alone_fails_even_when_every_context_is_produced(self):
+        """The dead-condition branch must be the DECIDING one somewhere, or it is decoration.
+
+        The case above asserts exit 1 for a tree whose true arm is empty -- but that tree also has
+        an absent required context, and the absent one already forces exit 1. A mutant deleting the
+        dead-condition branch therefore survived it: the assertion held for a different reason than
+        the one it names. Measured 2026-09-16, the same class as the finding this whole gate is
+        about. Here only `test (3.12)` is required, it IS produced, the verdict is 'produced', and
+        the exit code can only come from the dead condition."""
+        leer = CI.replace("""&& '["3.10","3.11","3.12"]'""", """&& '[]'""")
+        b = Baum(self, {"ci.yml": leer}, ["coverage", "test (3.12)"])
+        r = b.urteil()
+        self.assertEqual(r["verdict"], G.ALWAYS,
+                         "every declared context is produced, so the verdict itself is clean")
+        self.assertTrue(r["dead_conditions"])
+        self.assertEqual(b.rc(), 1, "the dead condition alone must fail the gate")
+        self.assertEqual(b.rc("--allow-gated"), 1,
+                         "--allow-gated softens a NAMED condition, never a dead one")
+
+    def test_a_live_condition_produces_no_dead_condition_note(self):
+        """Catch proof for the case above: the unmodified tree must NOT raise the note, otherwise
+        the assertion would hold for every input and test nothing."""
+        b = Baum(self, {"ci.yml": CI}, ["test (3.12)"])
+        self.assertEqual(b.urteil()["dead_conditions"], [])
+
+    def test_a_reusable_workflow_is_declared_unreadable_not_skipped(self):
+        """Its context is '<caller job id> / <called job name>'. Reading only the called file gives
+        the wrong name, so the gate must decline rather than guess."""
+        ruf = ("name: X\non:\n  pull_request:\n    branches: [main]\n"
+               "jobs:\n  aufruf:\n    uses: ./.github/workflows/andere.yml\n")
+        b = Baum(self, {"ci.yml": CI, "ruf.yml": ruf}, ["coverage"])
+        r = b.urteil()
+        self.assertTrue(any("reusable" in u for u in r["unreadable"]),
+                        "a reusable-workflow job must appear in the unreadable list")
+
+    def test_a_job_name_interpolating_the_matrix_is_expanded(self):
+        benannt = CI.replace("  test:\n", "  test:\n    name: py ${{ matrix.python-version }}\n")
+        b = Baum(self, {"ci.yml": benannt}, ["py 3.12"])
+        self.assertEqual(b.urteil()["verdict"], G.ALWAYS)
+
+
+class TestUnknownIsNotFine(unittest.TestCase):
+
+    def test_a_matrix_that_is_not_literal_is_unreadable_not_reachable(self):
+        dyn = CI.replace("""python-version: >-
+          ${{ fromJSON(
+            ( github.event_name == 'workflow_dispatch'
+              || contains(github.event.pull_request.labels.*.name, 'landung') )
+            && '["3.10","3.11","3.12"]'
+            || '["3.12"]' ) }}""", "python-version: ${{ fromJSON(needs.vorher.outputs.liste) }}")
+        b = Baum(self, {"ci.yml": dyn}, ["coverage", "test (3.12)"])
+        r = b.urteil()
+        self.assertTrue(any("matrix values not readable" in u for u in r["unreadable"]))
+        self.assertEqual(r["verdict"], G.ABSENT,
+                         "an unreadable matrix must not make its contexts count as produced")
+
+    def test_broken_yaml_is_reported_not_treated_as_an_empty_file(self):
+        b = Baum(self, {"ci.yml": CI, "kaputt.yml": "jobs: [this: is: not: a: mapping\n"},
+                 ["coverage"])
+        r = b.urteil()
+        self.assertTrue(r["unreadable"], "a file that does not parse must be named, not ignored")
+
+    def test_a_missing_declaration_is_not_measurable_and_not_a_pass(self):
+        b = Baum(self, {"ci.yml": CI}, ["coverage"])
+        b.decl.unlink()
+        self.assertEqual(b.urteil()["verdict"], G.UNKNOWN)
+        self.assertEqual(b.rc(), 1)
+
+    def test_an_empty_required_list_is_not_measurable(self):
+        b = Baum(self, {"ci.yml": CI}, [])
+        self.assertEqual(b.urteil()["verdict"], G.UNKNOWN)
+
+
+class TestAgainstThisRepository(unittest.TestCase):
+
+    def test_the_real_declaration_matches_what_was_measured_by_hand(self):
+        """Not a fixture: the gate is run against this repository's own files and must reproduce
+        the measurement of 2026-09-16 -- three contexts unconditional, four behind the label."""
+        r = G.pruefe()
+        if r["verdict"] == G.UNKNOWN:
+            self.skipTest(f"declaration not readable here: {r.get('reason')}")
+        zustand = {e["context"]: e["state"] for e in r["per_context"]}
+        self.assertEqual(zustand.get("coverage"), G.ALWAYS)
+        self.assertEqual(zustand.get("guard"), G.ALWAYS)
+        self.assertEqual(zustand.get("test (3.12)"), G.ALWAYS)
+        for v in ("3.10", "3.11", "3.13", "3.14"):
+            self.assertEqual(zustand.get(f"test ({v})"), G.GATED,
+                             f"test ({v}) was measured as produced only under the landung label")
+
+
+if __name__ == "__main__":
+    unittest.main()
