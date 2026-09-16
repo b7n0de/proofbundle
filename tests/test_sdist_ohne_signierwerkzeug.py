@@ -329,6 +329,11 @@ AUSGESCHLOSSEN = {
     "gen_findings_register.py": "liest denselben Weg aus Umgebung oder Datei",
     # Kein sdist-Verbraucher: der git-Hook des Checkouts und der CI-Kanal, beides gibt es dort nicht.
     "install_git_hooks.sh": "Verbraucher sind der Checkout-Hook und CI, nicht das Paket",
+    # 16.09.2026: liest `docs/release_scope/<version>.md`, und MANIFEST.in liefert weder `graft docs`
+    # noch diese Dateien einzeln aus. Im Paket faende das Skript keine Umfangsdatei und muesste aus
+    # ihrer Abwesenheit ein Urteil bilden. Sein Gegenstand ist ausserdem der ZWEIG eines Pull
+    # Requests, den es in einem installierten Paket gar nicht gibt.
+    "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
     # Rekursion, gefunden 2026-09-06 von einer Review-Linse gegen den Fix, der die Ebene darueber
     # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
     # BEIDER Fassungen der Liste.
