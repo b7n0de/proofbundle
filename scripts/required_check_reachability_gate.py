@@ -39,6 +39,7 @@ condition. Exit 1 when one is unreachable or not measurable.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -224,6 +225,43 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             "hinweise": hinweise}
 
 
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+
+
+def bedingungs_digest(text: str) -> str:
+    """Der Digest EINER Bedingung, ueber genau der Form, die auch im Bericht steht.
+
+    Normalisiert wird nur der Weissraum -- dieselbe Faltung, mit der die Bedingung gelesen und
+    gedruckt wird. Waere hier eine zweite Normalisierung, haetten Bericht und Zusage zwei
+    verschiedene Gegenstaende, und die Zusage bezoege sich auf etwas, das niemand sieht.
+    """
+    return hashlib.sha256(" ".join((text or "").split()).encode("utf-8")).hexdigest()
+
+
+def _zusagen(roh) -> tuple[dict[str, str], list[str]]:
+    """Liest `accepted_gated`. Gibt die BINDENDEN Zusagen und die unverbindlichen Eintraege.
+
+    Bindend ist nur ein Eintrag der Form {"context": ..., "condition_sha256": <64 hex>}. Eine
+    nackte Zeichenkette ist die alte, namensgebundene Form; sie wird NICHT als Zusage gezaehlt,
+    sondern beim Namen genannt, damit ihr Weiterleben auffaellt statt zu wirken.
+    """
+    bindend: dict[str, str] = {}
+    lose: list[str] = []
+    for eintrag in roh or []:
+        if isinstance(eintrag, str):
+            lose.append(eintrag)
+            continue
+        if not isinstance(eintrag, dict):
+            lose.append(repr(eintrag))
+            continue
+        name, digest = eintrag.get("context"), eintrag.get("condition_sha256")
+        if not name or not isinstance(digest, str) or not _HEX64.fullmatch(digest):
+            lose.append(str(name or eintrag))
+            continue
+        bindend[name] = digest
+    return bindend, lose
+
+
 def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> dict:
     d = declaration or DECLARATION
     if not d.is_file():
@@ -246,7 +284,37 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
     for e in je:
         zahl[e["state"]] += 1
     verdict = ABSENT if zahl[ABSENT] else (GATED if zahl[GATED] else ALWAYS)
+    # DIE ZUSAGE HAENGT AN DER BEDINGUNG, NICHT AM NAMEN. Die erste Fassung fuehrte
+    # `accepted_gated` als blosse Namensliste, und zwei unabhaengige Gegenleser fanden am
+    # 2026-09-16 dieselbe Luecke: ein Name, der einmal dort steht, ist dauerhaft immun. Ein
+    # Kontext, der heute UNBEDINGT laeuft und morgen hinter einem `if:` verschwindet, rutschte
+    # durch, solange sein Name schon gelistet war; und eine Bedingung durfte beliebig ENGER
+    # werden -- von "Label landung" auf "Label landung UND ein nie gesetztes zweites Label" --
+    # ohne dass sich etwas am Urteil aenderte. Beides ist genau die Verschlechterung, die diese
+    # Sohle fangen soll, also bindet die Zusage jetzt an den Digest der normalisierten Bedingung.
+    # Ein Eintrag ohne diesen Digest zaehlt NICHT als Zusage: fail closed, damit eine veraltete
+    # Erklaerungsform nicht als Freibrief weiterlebt.
+    hingenommen, unverbindlich = _zusagen(erklaert.get("accepted_gated"))
+    hingenommen_unlesbar = set(erklaert.get("accepted_unreadable") or [])
+    neu_gegated, geaenderte_bedingung = [], []
+    for e in je:
+        if e["state"] != GATED:
+            continue
+        ist = bedingungs_digest(e.get("condition") or "")
+        e["condition_sha256"] = ist
+        soll = hingenommen.get(e["context"])
+        if soll == ist:
+            continue
+        neu_gegated.append(e["context"])
+        if soll is not None:
+            geaenderte_bedingung.append({"context": e["context"], "declared": soll, "measured": ist})
+    neu_gegated.sort()
     return {"verdict": verdict, "per_context": je, "counts": zahl,
+            "accepted_gated": sorted(hingenommen), "newly_gated": neu_gegated,
+            "changed_conditions": geaenderte_bedingung,
+            "unbound_acceptances": sorted(unverbindlich),
+            "newly_unreadable": [u for u in erhoben["unlesbar"]
+                                 if not any(u.startswith(h) for h in hingenommen_unlesbar)],
             "unreadable": erhoben["unlesbar"], "dead_conditions": erhoben["hinweise"],
             "produced_contexts": sorted(erhoben["gewoehnlich"]),
             "ruleset": erklaert.get("ruleset"), "branch": erklaert.get("branch")}
@@ -335,14 +403,26 @@ def main(argv=None) -> int:
         for e in r.get("per_context", []):
             zeile = f"  {e['state']:18} {e['context']}"
             if e.get("condition"):
-                zeile += f"   only if: {e['condition']}"
+                # Der Digest steht IM BERICHT, weil die Zusage genau ihn nennen muss. Es gibt
+                # bewusst kein `--accept-current`: ein Ein-Befehl-Freibrief waere keine Sohle,
+                # sondern eine Selbstsegnung. Wer zusagt, kopiert den Wert und traegt ihn ein.
+                zeile += f"   [{e.get('condition_sha256', '?')[:16]}…] only if: {e['condition']}"
             elif e.get("from"):
                 zeile += f"   from {e['from']}"
             print(zeile)
+        for g in r.get("changed_conditions", []):
+            print(f"  condition-changed   {g['context']}: declared {g['declared'][:16]}…, "
+                  f"measured {g['measured'][:16]}… — the acceptance was made for a DIFFERENT "
+                  f"condition, so it does not carry")
+        for u in r.get("unbound_acceptances", []):
+            print(f"  unbound-acceptance  {u}: listed by name only, without condition_sha256 — "
+                  f"a name alone cannot say WHICH state was accepted, so it does not carry")
         for h in r.get("dead_conditions", []):
             print(f"  dead-condition     {h}")
+        neu_u = set(r.get("newly_unreadable") or [])
         for u in r.get("unreadable", []):
-            print(f"  not-measurable     {u}")
+            marke = "not-measurable" if u in neu_u else "known-limit   "
+            print(f"  {marke}     {u}")
     if r.get("dead_conditions"):
         # A condition that can never take effect is a silent lie in the workflow, even when the
         # produced contexts happen to be right today.
@@ -350,6 +430,20 @@ def main(argv=None) -> int:
     if r["verdict"] == ALWAYS:
         return 0
     if r["verdict"] == GATED and a.allow_gated:
+        return 0
+    # THE RATCHET. An advisory job that is red from its first run teaches people to look away, and
+    # a gate that is habitually stepped over checks nothing any more. The REPORT above still names
+    # every conditional context together with its condition; only the exit code follows what the
+    # declaration accepts today. It turns red as soon as things get WORSE: a context nobody
+    # produces, something not measurable, or a NEWLY conditional one that is not declared.
+    # `accepted_gated` is deliberately NOT tested again here. The first draft did test it, and it
+    # was a dead condition: verdict GATED means at least one conditional context exists, so if
+    # `newly_gated` is empty that context is in the list and the list cannot be empty. A condition
+    # that can never decide anything makes mutants unkillable -- which is exactly what this tool
+    # reports as `dead-condition` in other people's workflows. A mutant that pinned `newly_gated`
+    # to empty survived the first contract because of it.
+    if (r["verdict"] == GATED and not r.get("newly_gated")
+            and not r.get("newly_unreadable") and not r.get("unbound_acceptances")):
         return 0
     return 1
 

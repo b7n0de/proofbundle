@@ -264,6 +264,240 @@ class TestUnknownIsNotFine(unittest.TestCase):
         self.assertEqual(b.urteil()["verdict"], G.UNKNOWN)
 
 
+class TestRatchetNotPermanentRed(unittest.TestCase):
+    """The ratchet: what is known today is the floor, every REGRESSION turns red.
+
+    Why it exists: an advisory job that is red from its first run teaches people to look away, and
+    a gate that is habitually stepped over checks nothing any more.
+
+    The ratchet is NOT an exemption. The report still names every conditional context with its
+    condition and every limit with its reason; only the exit code follows the floor. Two earlier
+    drafts were weaker and both were found by review rather than by the tests here:
+
+      - The floor applied to conditional contexts alone and stayed red forever anyway because of
+        ONE permanent unmeasurable case. That moved the permanent red instead of removing it.
+      - The floor bound to the context NAME. A name once on the list was immune for good: a
+        context that ran unconditionally could disappear behind an `if:`, and a condition could be
+        narrowed from "one label" to "that label AND a second one nobody ever sets", both with no
+        change in the verdict. The acceptance now carries the sha256 of the accepted condition.
+    """
+
+    KOPF = "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+    COVERAGE_IMMER = '  coverage:\n    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n'
+    COVERAGE_GEGATED = ('  coverage:\n    if: contains(github.event.pull_request.labels.*.name, '
+                        "'landung')\n    runs-on: ubuntu-latest\n    steps: [{run: \"true\"}]\n")
+
+    @staticmethod
+    def _matrix(bedingung: str, wahr: str) -> str:
+        return ("  test:\n    strategy:\n      matrix:\n        python-version: >-\n"
+                f"          ${{{{ fromJSON( {bedingung}\n"
+                f"            && '{wahr}' || '[\"3.12\"]' ) }}}}\n"
+                '    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n')
+
+    LABEL = "contains(github.event.pull_request.labels.*.name, 'landung')"
+    ENGER = ("( contains(github.event.pull_request.labels.*.name, 'landung')\n"
+             "            && contains(github.event.pull_request.labels.*.name, 'nie-gesetzt') )")
+
+    def _lauf(self, workflow: str, verlangt, akzeptiert=None, akzeptiert_unlesbar=None):
+        """Baut einen Miniaturbaum und gibt den Exit-Code zurueck.
+
+        `akzeptiert` nimmt Paare (Kontext, Bedingungstext). Der Digest wird aus dem TEXT gerechnet,
+        den der Test selbst in den Workflow geschrieben hat -- nicht aus dem, was das Tor gerade
+        misst. Andernfalls sagte die Erklaerung nur "akzeptiere, was du siehst", und der Vertrag
+        waere eine Tautologie.
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(workflow, encoding="utf-8")
+        d = {"ruleset": "t", "branch": "main", "required_contexts": verlangt}
+        if akzeptiert is not None:
+            d["accepted_gated"] = [
+                e if isinstance(e, str)
+                else {"context": e[0], "condition_sha256": G.bedingungs_digest(e[1])}
+                for e in akzeptiert]
+        if akzeptiert_unlesbar is not None:
+            d["accepted_unreadable"] = akzeptiert_unlesbar
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps(d), encoding="utf-8")
+        return G.main(["--declaration", str(decl), "--workflows", str(wf)])
+
+    VERLANGT = ["coverage", "test (3.12)", "test (3.10)"]
+
+    def _mit_matrix(self, bedingung, wahr='["3.10","3.12"]', coverage=None):
+        return self.KOPF + (coverage or self.COVERAGE_IMMER) + self._matrix(bedingung, wahr)
+
+    def test_the_known_state_is_not_red(self):
+        rc = self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT,
+                        [("test (3.10)", self.LABEL)])
+        self.assertEqual(rc, 0)
+
+    def test_a_newly_gated_context_turns_it_red(self):
+        """Ein bedingter Kontext, der NICHT auf der Sohle steht, MUSS fallen.
+
+        Die Liste ist ABSICHTLICH nicht leer. Ein frueherer Anlauf uebergab `[]` und zog sein Rot
+        aus der leeren Liste statt aus dem neu bedingten Kontext; ein Mutant, der `newly_gated`
+        fest auf leer setzte, ueberlebte ihn deshalb."""
+        wf = self._mit_matrix(self.LABEL, '["3.10","3.11","3.12"]')
+        verlangt = ["coverage", "test (3.12)", "test (3.10)", "test (3.11)"]
+        self.assertEqual(self._lauf(wf, verlangt, [("test (3.10)", self.LABEL),
+                                                   ("test (3.11)", self.LABEL)]), 0,
+                         "beide bedingten Kontexte zugesagt -- das ist die Sohle")
+        self.assertEqual(self._lauf(wf, verlangt, [("test (3.10)", self.LABEL)]), 1,
+                         "test (3.11) ist neu bedingt und steht nicht auf der Sohle")
+
+    def test_an_always_produced_context_that_becomes_gated_is_red(self):
+        """DER FUND DER GEGENLESUNG, ausfuehrbar: Vorabfreigabe eines Namens darf nicht immun machen.
+
+        `coverage` laeuft im ersten Baum UNBEDINGT und steht trotzdem schon in der Zusage. Im
+        zweiten Baum verschwindet es hinter einem `if:`. Bei Namensbindung blieb das gruen. Die
+        Zusage nennt hier die Bedingung des ANDEREN Kontexts, also genau das, was eine
+        vorsorgliche Freigabe in der Praxis enthaelt: einen Namen ohne den passenden Zustand."""
+        zusage = [("coverage", self.LABEL), ("test (3.10)", self.LABEL)]
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT, zusage), 0,
+                         "coverage laeuft unbedingt, die Vorabzeile schadet nicht")
+        rc = self._lauf(self._mit_matrix(self.LABEL, coverage=self.COVERAGE_GEGATED),
+                        self.VERLANGT, zusage)
+        self.assertEqual(rc, 1, "coverage ist hinter ein `if:` gewandert -- das ist die Regression")
+
+    def test_a_narrowed_condition_under_the_same_name_is_red(self):
+        """DER ZWEITE FUND: dieselbe Kennung, engere Bedingung, unveraenderte Zusage.
+
+        Aus "das Label" wird "das Label UND ein zweites, das nie gesetzt wird". Die Erreichbarkeit
+        faellt praktisch auf null, der Name bleibt gleich. Bei Namensbindung blieb das gruen."""
+        zusage = [("test (3.10)", self.LABEL)]
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT, zusage), 0)
+        self.assertEqual(self._lauf(self._mit_matrix(self.ENGER), self.VERLANGT, zusage), 1,
+                         "die zugesagte Bedingung ist nicht mehr die gemessene")
+
+    def test_a_name_without_a_digest_does_not_carry(self):
+        """Fail closed: die alte, namensgebundene Form ist keine Zusage mehr, sondern ein Mangel."""
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT,
+                                    ["test (3.10)"]), 1)
+
+    def test_a_stale_name_only_entry_is_red_even_when_it_gates_nothing(self):
+        """Der Ausgang prueft `unbound_acceptances` EIGENSTAENDIG, und dieser Fall laesst ihn entscheiden.
+
+        Die Zeile nennt einen Kontext, der gar nicht bedingt ist. Ueber `newly_gated` kommt also
+        kein Rot: der einzige wirklich bedingte Kontext ist ordentlich zugesagt. Rot kommt allein
+        daher, dass die Erklaerung noch eine nackte Kennung mitfuehrt. Ohne diesen Fall waere das
+        UND-Glied `not unbound_acceptances` im Ausgang ungebunden -- ein Mutant, der es entfernte,
+        ueberlebte am 2026-09-16 alle damaligen Vertraege, weil jeder andere Fall sein Rot schon
+        aus `newly_gated` zog. Eine veraltete Form still weiterleben zu lassen ist genau der Weg,
+        auf dem aus einer Zusage ein Freibrief wird."""
+        zusage = [("test (3.10)", self.LABEL), "coverage"]
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT, zusage), 1,
+                         "die nackte Kennung `coverage` ist der einzige Mangel -- und sie zaehlt")
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT,
+                                    [("test (3.10)", self.LABEL)]), 0,
+                         "ohne sie ist derselbe Baum gruen: das Rot kam wirklich von ihr")
+
+    def test_a_wrong_entry_of_the_right_length_is_still_red(self):
+        """Die IDENTITAET der Zusage zaehlt, nicht ihre ANZAHL.
+
+        Gefunden von der Vertrags-Gegenlesung am 2026-09-16: ein Mutant, der `newly_gated` ueber
+        `len(gegated) <= len(zusagen)` statt ueber die Mengendifferenz bildete, ueberlebte ALLE
+        damaligen Vertraege. Grund: jede Fixture waehlte Anzahl und Inhalt so, dass sie
+        zusammenfielen. Ein veralteter oder vertippter Eintrag bei zufaellig gleicher Anzahl ist
+        der wahrscheinlichste Pflegefehler an einer handgefuehrten Liste, und genau er blieb
+        unsichtbar. Dieselbe Zahl-statt-Menge-Falle ist in diesem Tor schon einmal aufgetreten."""
+        rc = self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT,
+                        [("test (3.99)-gibt-es-nicht-mehr", self.LABEL)])
+        self.assertEqual(rc, 1, "eine Zusage auf einen fremden Namen deckt test (3.10) nicht")
+
+    def test_a_right_name_with_a_foreign_digest_is_still_red(self):
+        """Der Gegenfall dazu auf der anderen Achse: richtiger Name, fremder Digest."""
+        rc = self._lauf(self._mit_matrix(self.LABEL), self.VERLANGT,
+                        [("test (3.10)", "irgendeine ganz andere Bedingung")])
+        self.assertEqual(rc, 1)
+
+    def test_the_unbound_form_is_named_in_the_report(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(self._mit_matrix(self.LABEL), encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+                                    "required_contexts": self.VERLANGT,
+                                    "accepted_gated": ["test (3.10)"]}), encoding="utf-8")
+        r = G.pruefe(decl, wf)
+        self.assertEqual(r["unbound_acceptances"], ["test (3.10)"])
+        self.assertEqual(r["accepted_gated"], [], "eine nackte Kennung ist keine Zusage")
+
+    def test_a_context_nobody_produces_is_red_despite_the_ratchet(self):
+        self.assertEqual(self._lauf(self._mit_matrix(self.LABEL),
+                                    ["coverage", "gibt-es-nicht"],
+                                    [("test (3.10)", self.LABEL)]), 1)
+
+    def test_a_new_unreadable_is_red_even_when_another_one_is_accepted(self):
+        """Symmetry: a KNOWN limit lowers the floor, a NEW one still fails."""
+        wf = self._mit_matrix(self.LABEL) + "  aufruf:\n    uses: ./.github/workflows/andere.yml\n"
+        self.assertEqual(self._lauf(wf, self.VERLANGT, [("test (3.10)", self.LABEL)],
+                                    ["ci.yml:gibt-es-nicht"]), 1)
+
+    def test_the_report_still_names_every_gated_context(self):
+        """The ratchet may quieten the exit code, never the REPORT."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        wurzel = Path(tmp.name)
+        wf = wurzel / "workflows"
+        wf.mkdir()
+        (wf / "ci.yml").write_text(self._mit_matrix(self.LABEL), encoding="utf-8")
+        decl = wurzel / "d.json"
+        decl.write_text(json.dumps({"ruleset": "t", "branch": "main",
+            "required_contexts": self.VERLANGT,
+            "accepted_gated": [{"context": "test (3.10)",
+                                "condition_sha256": G.bedingungs_digest(self.LABEL)}]}),
+            encoding="utf-8")
+        r = G.pruefe(decl, wf)
+        zustand = {e["context"]: e["state"] for e in r["per_context"]}
+        self.assertEqual(zustand["test (3.10)"], G.GATED, "accepted does not mean relabelled")
+        self.assertEqual(r["newly_gated"], [])
+        digest = [e.get("condition_sha256") for e in r["per_context"]
+                  if e["context"] == "test (3.10)"][0]
+        self.assertEqual(digest, G.bedingungs_digest(self.LABEL),
+                         "der Digest im Bericht ist der, an den die Zusage bindet")
+
+
+class TestTheDigestSurvivesReformatting(unittest.TestCase):
+    """Eine Zusage darf an der SACHE haengen, nicht an der Schreibweise der Bedingung.
+
+    Die Gegenlesung auf der fremden Familie nannte genau das als neue Bruchstelle der
+    Digest-Bindung: eine harmlose Umformatierung des Bedingungstexts erzeuge ein falsches Rot,
+    das die Namensbindung nicht gehabt haette. Gemessen ist das nicht so, und diese Faelle halten
+    die Antwort fest, damit sie nicht beim naechsten Umbau still verlorengeht. Der Digest laeuft
+    ueber `" ".join(text.split())`, also ueber dieselbe Faltung, mit der die Bedingung auch
+    gedruckt wird.
+
+    Die Kehrseite steht als eigener Fall daneben: eine ECHTE Aenderung MUSS den Digest bewegen,
+    sonst waere die Unempfindlichkeit gegen Weissraum eine Unempfindlichkeit gegen alles.
+    """
+
+    GRUND = "contains(github.event.pull_request.labels.*.name, 'landung')"
+
+    def test_whitespace_does_not_move_the_digest(self):
+        basis = G.bedingungs_digest(self.GRUND)
+        for name, text in [
+            ("Zeilenumbruch", "contains(github.event.pull_request.labels.*.name,\n   'landung')"),
+            ("doppelte Leerzeichen",
+             "contains(github.event.pull_request.labels.*.name,  'landung')"),
+            ("fuehrend und abschliessend", f"   {self.GRUND}  "),
+            ("Tabulator", "contains(github.event.pull_request.labels.*.name,\t'landung')"),
+        ]:
+            with self.subTest(name):
+                self.assertEqual(G.bedingungs_digest(text), basis)
+
+    def test_a_real_change_does_move_the_digest(self):
+        self.assertNotEqual(G.bedingungs_digest(self.GRUND + " && false"),
+                            G.bedingungs_digest(self.GRUND))
+        self.assertNotEqual(G.bedingungs_digest(self.GRUND.replace("landung", "andere")),
+                            G.bedingungs_digest(self.GRUND))
+
+
 class TestDeclarationAgainstRuleset(unittest.TestCase):
     """Die Erklaerung ist eine KOPIE des Regelsatzes, und eine Kopie driftet.
 

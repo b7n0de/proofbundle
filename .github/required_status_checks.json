@@ -34,5 +34,52 @@
     "test (3.12)",
     "test (3.13)",
     "test (3.14)"
-  ]
+  ],
+  "_ratchet": [
+    "accepted_gated names the contexts whose CONDITIONAL production is knowingly accepted today, and",
+    "binds each one to the sha256 of the exact condition that was accepted. A name alone is not",
+    "enough and is rejected as an unbound acceptance: a name that is once on the list would otherwise",
+    "be immune forever, so a context that runs unconditionally today and disappears behind an `if:`",
+    "tomorrow would slip through, and a condition could be narrowed at will while the name stayed put.",
+    "Two independent reviewers found that same hole on 2026-09-16, one of them by building the case",
+    "and measuring exit 0 on it.",
+    "Why the ratchet exists at all: an advisory job that is red from its very first run teaches people",
+    "to look away, and a gate that is habitually stepped over checks nothing any more.",
+    "The list is a RATCHET, not an exemption: the report still names every conditional context with",
+    "its condition and its digest. Only the exit code follows the ratchet.",
+    "It turns RED as soon as something gets WORSE: a context that is not produced at all, a dead",
+    "condition, something not measurable, a newly conditional context, or a changed condition.",
+    "accepted_unreadable works symmetrically for known, named limits of measurement. Without it the",
+    "gate would be red forever because of ONE permanent limit, which would move the permanent red",
+    "rather than remove it. A NEW unmeasurable case still fails.",
+    "KNOWN LIMIT of this file, named rather than hidden: the declaration is its own input.",
+    "Removing a context from a workflow AND from required_contexts in the same change is",
+    "invisible to the offline gate. Two reviewers named this the main weakness on 2026-09-16.",
+    "It is not left as prose: the ci.yml job now runs --verify-declaration against the live",
+    "ruleset BEFORE the offline gate, so a red offline result cannot skip it. That check needs",
+    "the network and a token; when it cannot run it reports not-measurable, never a pass."
+  ],
+  "accepted_gated": [
+    {
+      "context": "test (3.10)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.11)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.13)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    },
+    {
+      "context": "test (3.14)",
+      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+    }
+  ],
+  "accepted_gated_reason": "These four are produced only when the full test matrix runs. That matrix sits behind ONE shared five-branch condition, and the 'landung' label is only one of the branches: a workflow_dispatch run, a same-repo head branch starting with release/, a ref name starting with release/, the 'landung' label, or a merge_group event. An earlier draft of this line said 'only under the landung label', which was measurably wrong and contradicted this repository's own comment on the same condition. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
+  "accepted_unreadable": [
+    "published-artifact-gate.yml:reusable-attest-dryrun"
+  ],
+  "accepted_unreadable_reason": "A reusable workflow reports as '<caller job id> / <called job name>'. The gate deliberately does not derive that name instead of guessing it. This is a permanent limit of the design, not a regression."
 }
