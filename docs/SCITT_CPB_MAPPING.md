@@ -19,12 +19,89 @@ the **title** is now *"Canonicalization Declaration for SCITT Signed Statements"
 payload binding). Section 2 of `-05` states the scope of the change in its own words: *"This
 revision changes framing, placement, and wording only. It makes no normative change: no requirement
 is added, removed, or changed in force, no registry entry changes, and the vectors at the locations
-in Section 14.1.1 are unchanged."* Section 4 is retitled **"Canonicalization Algorithm
-Registrations"**, and `jcs` and `as-transmitted` are restated as **registrations** (identifier,
+in Section 14.1.1 are unchanged."* **That quotation reaches one revision, not three.**
+Section 2 of `-05` is headed *"Changes from
+-04"* and closes by pointing at `-04` for what came before it; `-03` and `-04` lie between our
+previous measurement point and this one. **Measured 2026-09-15, so that gap is no longer
+just acknowledged:** the step `-03` → `-04` adds no requirement word at all (MUST 63, MUST NOT
+50, SHALL 2, REQUIRED 6 on both sides), and `-04`'s own Section 2 says so in its own words —
+*"This revision is editorial and changes no normative text."* De-paginated, the 1438-byte
+difference is: one informative reference added ([I-D.schrock-ep-authorization-receipts], cited
+in Section 15 alongside an explicit non-claim that CPB defines no authorization semantics),
+Table 6 re-wrapped with one row's public record changed to a merged pull request, a new
+paragraph pinning that vector set by commit and stating what it does **not** carry, and an
+acknowledgment narrowed from three computations to two at the contributor's request. Every one
+of the 45 additional requirement words on this page's span therefore sits in the single step
+`-02` → `-03`. Measured across the span this page actually bridges,
+`-02` to `-05`: requirement words rise from **68 to 113** (MUST 40→63, MUST NOT 28→50, SHALL and
+REQUIRED unchanged; "requirement words" here means the MUST family, and counting all four
+categories would read 76→121 for the same delta), and **31 of them sit in six sections that do not
+exist in `-02`** — 6.1 Full-Content Mode, 6.2 Hash Envelope Mode, 8.3 Envelope Carriage, 8.4
+Payload Carriage, 14.1.1 Test Vector Locations, 14.2 COSE Header Parameters Registration. The last
+of those requests an IANA registration of the COSE header parameter `cpb-refs` with its own
+`MUST NOT`. **Two of those 31 are not new, and finding that was the work of an adversarial re-count
+against this page.** Section 14.1.1 is a new number carrying partly old text: two of its four
+requirement sentences stand word-identical at the end of `-02`'s 14.1 (the `jcs-n` and
+`as-transmitted` `MUST NOT`s), while the two in the vector-locations block appear nowhere in
+`-02`. So **29 of the 31 are genuinely new**, and the count of content moves from `-02` to `-05`
+is **two**, not one: `Verification Scope` in full, and part of 14.1 into 14.1.1. The first version
+of this paragraph made the same mistake it accuses the earlier round of — it booked a new section
+number as new content without checking the predecessor.
+
+**Where inside the span they arrived is now measured too: all of it in one revision, `-02` to
+`-03`.** `-03`, `-04` and `-05` are identical at 113 requirement words; every one of the new
+sections appeared in `-03`, and so did the move of `Verification Scope` to 8.5. `-03` says so in
+its own change log, which lists the new Section 6 split into Full-Content and Hash Envelope Mode,
+the four reference-processing outcomes, and the `cpb-refs` CDDL, and states that these "are now
+normative". So the quotation this page carried is not merely narrow: it points at the two
+revisions in which nothing normative happened, while the one that carried all of it goes
+unmentioned. Fetched 2026-09-15 from the same source: `-03` **108056 bytes**, sha256
+`d303e6e4ec4c4bf3…`; `-04` **109494 bytes**, sha256 `de06a6eade0306c4…`.
+
+**Whether any of the six reaches our construction is measured, and none of them does today — but
+the first version of this paragraph gave the wrong reason, and an adversarial reader from a
+different model family caught it.** That version said "all six govern the COSE envelope" and rested
+on the absence of the token COSE from `src/`. That measures the spelling, not the property. Read
+clause by clause instead:
+
+| section | requirement words | names COSE or RFC 9995 | reaches us, and why not |
+|---|---|---|---|
+| 6.1 Full-Content Mode | 2 | yes | no — it governs the payload supplied to COSE signing |
+| 6.2 Hash Envelope Mode | 13 | yes | no — it requires conformance to RFC 9995 and the labels 258–260 |
+| 8.3 Envelope Carriage | 11 | yes | no — `cpb-refs` is a COSE protected header parameter |
+| 8.4 Payload Carriage | 0 | yes | **it is marked informative and imposes nothing on anyone** |
+| 14.1.1 Test Vector Locations | 4 | **no** | **not a COSE rule at all.** It forbids newly declaring `jcs-n`, and forbids declaring `as-transmitted` without a byte-boundary selector. It does not reach us because **we declare neither algorithm** — we name `jcs` and nothing else — not because we avoid COSE |
+| 14.2 COSE Header Parameters | 1 | yes | no — it registers `cpb-refs` for the COSE registry |
+
+The conclusion survives; one of its six reasons did not.
+Measured over `src/`: **zero** occurrences of COSE, `Sign1`, RFC 9995, the labels 258 to 260 or
+`cpb-refs`, no COSE or CBOR dependency in `pyproject.toml`, and **22 files carrying DSSE**. The only
+CBOR in the tree is under `tools/scitt_ccf_datahash_vector/`, and the first version of this
+sentence called it a "cross-check reader that signs nothing", which understates what it does. An
+adversarial re-measurement found that `mint_indefinite.py` **constructs** COSE_Sign1 bytes (tag 18,
+indefinite-length array framing) and `nachrechnen.py:47` performs a real Ed25519 signature over a
+COSE `Sig_structure` (RFC 9052 section 4.4). It is a reader **and** a writer. What keeps it outside
+this question is not that it signs nothing, but **whose key and whose bytes**: seed, vectors and
+signature all come from a published third-party test vector, the script only reproduces that party's
+own signature to verify it, and the file itself carries `"not_a_transparency_service"`. No
+production signing or verification path is involved. We sign DSSE, so a rule about the COSE
+envelope has no object here. That is a fact about
+today, not an argument against adopting Hash Envelope Mode. Section 4 is retitled
+**"Canonicalization Algorithm Registrations"**, and `jcs` and `as-transmitted` are restated as
+**registrations** (identifier,
 normative reference, digest context, declaration rule) rather than as procedures; the withdrawn
-entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page carries the same
-section number in `-05` as it did in `-02`** — nothing moved, one wording widened (see G2) and one
-of our own claims stopped holding as written (see the claims table). **Re-measured the same day** after G3 and G4 were closed
+entries `jcs-n` and `cde-n` are unchanged. **Every clause cited on this page that exists in `-02`
+carries the same section number in `-05`** — twelve of the fifteen cited; the other three (6.2, 8.3,
+14.1.1) are new in `-05` and had no number in `-02`. **Two things did move, and neither is
+one of ours.** `Verification Scope` is 8.2 in `-02` and **8.5** in `-05`, unchanged in content,
+while 8.2 now carries `Carriage Selection`; separately, two paragraphs at the end of `-02`'s 14.1
+reappear word-identical under the new number 14.1.1 — the old number still resolves, to a
+different clause. A citation
+of 8.2 carried forward from `-02` lands on the wrong section with no error. We do not cite 8.2
+anywhere on this page (measured: zero hits), so nothing here is wrong because of it; the earlier
+version of this sentence said "nothing moved", which was an unqualified claim about the draft and is
+withdrawn. One wording widened (see G2) and one of our own claims stopped holding as written (see
+the claims table). **Re-measured the same day** after G3 and G4 were closed
 additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
 in the IETF process, sitting on top of [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) — the
@@ -70,11 +147,24 @@ exclusion set. We do not declare one either way, so this is the same duty sectio
 rather than leave it to be inferred. Named here; the declaration itself is a profile decision, not a code
 change.
 
-**What `-05` adds here, measured 2026-09-13.** Section 4.1 now states the exclusion-set rule more
-tightly than `-02` did: the exclusion set *"is matched against the top-level member names of the
-payload only; a member of the same name nested inside a member's value is not removed."* That
-sharpens the consequence recorded above rather than changing it — we declare no exclusion set either
-way. And `-05` carries a **second active registration**, `as-transmitted` (4.4), beside `jcs`; the
+**What `-05` adds here, measured 2026-09-13, corrected 2026-09-15.** The first version of this
+paragraph said 4.1 "now states the exclusion-set rule more tightly than `-02` did" and quoted the
+`-05` sentence as the tightening. **Re-measured against `-02`, there is no tightening.** The two
+sentences are identical but for one substituted token:
+
+```
+-02  The exclusion set is matched against the top-level member names of P only;
+     a member of the same name nested inside a member's value is not removed.
+-05  The exclusion set is matched against the top-level member names of the payload only;
+     a member of the same name nested inside a member's value is not removed.
+```
+
+`P` became `the payload`. The rule is unchanged, and the consequence recorded above is neither
+sharpened nor altered — we declare no exclusion set either way, under both revisions. The error came
+from searching `-02` for the `-05` wording and reading the miss as a change; the check that would
+have caught it is to search for the *older* sentence.
+
+And `-05` carries a **second active registration**, `as-transmitted` (4.4), beside `jcs`; the
 withdrawn `jcs-n` (4.2) and `cde-n` (4.3) are unchanged. **We name `jcs` and nothing else**, so
 `as-transmitted` does not reach us today; whether any of our export paths would be better described
 by it is **NOT MEASURED**.
@@ -90,7 +180,7 @@ the migration itself. It is owner-gated and tracked as its own item, not done he
 |---|---|
 | **Our side** | `src/proofbundle/merkle.py:34` computes RFC 6962 correctly, leaf hash `SHA-256(0x00 ‖ data)`. `src/proofbundle/bundle.py:770` passes the **payload** as leaf data: `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT. |
 | **Draft** | section 7.1 opens *"This profile imposes no leaf construction on a Verifiable Data Structure"*, then makes one conditional requirement: **where a Transparency Service's VDS keys its log on the derived identifier**, a 64-character hex `D` MUST enter the tree as `bytes.fromhex(D)` (raw 32 bytes) and never as `D.encode("utf-8")` (64 ASCII bytes). Section 5.1 separately makes representation normative: a payload class **MUST specify which representation it uses** for each field containing or referencing a derived identifier, and a verifier **MUST NOT silently coerce** between them. |
-| **Verdict** | **Section 7.1 does not reach our construction, and saying it does was my own overcorrection.** Read at source on 2026-08-30 (`draft-mih-sokolov-scitt-payload-binding-02.txt`, 92428 B, sha256 `47ab6757...`) and **re-read at source on 2026-09-13 against `-05`** (115389 B, sha256 `938073e7...`), the section opens — in both revisions, verbatim and unchanged: *"This profile imposes no leaf construction on a Verifiable Data Structure."* **The condition on the `MUST` is wider in `-05` and carries a new duty.** `-02` read *"Where a Transparency Service's VDS keys its log on the derived identifier"*; `-05` reads *"Where a Transparency Service's VDS keys its log on **a digest associated with** the derived identifier"*, and adds: *"The VDS or an applicable profile **MUST state which one is its leaf input**, and producer and verifier MUST use that same representation."* **We do not key on the derived identifier, nor on a digest associated with it; we bind the payload** (`bundle.py:770`, `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT — not a digest at all). So we are neither conformant with 7.1 nor in violation of it under either revision: the conditional does not reach us, and there is no defect here to declare. **Honest limit of this re-measurement:** the `-05` text was measured against this page's claims, **not** against our source tree a second time; whether any code path added since 2026-08-30 keys on such a digest is **NOT MEASURED**. |
+| **Verdict** | **Section 7.1 does not reach our construction, and saying it does was my own overcorrection.** Read at source on 2026-08-30 (`draft-mih-sokolov-scitt-payload-binding-02.txt`, 92428 B, sha256 `47ab6757...`) and **re-read at source on 2026-09-13 against `-05`** (115389 B, sha256 `938073e7...`), the section opens — in both revisions, verbatim and unchanged: *"This profile imposes no leaf construction on a Verifiable Data Structure."* **The condition on the `MUST` is wider in `-05` and carries a new duty.** `-02` read *"Where a Transparency Service's VDS keys its log on the derived identifier"*; `-05` reads *"Where a Transparency Service's VDS keys its log on **a digest associated with** the derived identifier"*, and adds: *"The VDS or an applicable profile **MUST state which one is its leaf input**, and producer and verifier MUST use that same representation."* **We do not key on the derived identifier, nor on a digest associated with it; we bind the payload** (`bundle.py:770`, `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT — not a digest at all). So we are neither conformant with 7.1 nor in violation of it under either revision: the conditional does not reach us, and there is no defect here to declare. **Measured again over the source tree on 2026-09-15, closing the limit this row used to state — and corrected the same day after an adversarial re-count.** Inside `src/proofbundle/`, `merkle.leaf_hash` has two callers outside `merkle.py`: `bundle.py:776` and `persample.py:112`, the latter passing the base64url-encoded disclosure string of a salted sample record as ASCII bytes. **There are two leaf constructions here, not one**, and an earlier wording of this row named only the first. Two corrections to that count, both from the re-measurement: repo-wide there are **seven** files with real calls, the other five being tests, so the figure holds only with `src/` named as its scope; and `bundle.py:776` sits in `recompute_merkle_root_b64`, a debug helper for `verify --verbose`, not the primary path — the emit path is `emit.py:121` (`merkle_tree_hash` over `prior_leaves + [payload]`) and the verify path is `bundle.py:367` (`verify_inclusion(payload, …)`). Both feed the payload as well. **The verdict now rests on a cross-check rather than an enumeration:** `statement_content_root()`, the derived-identifier digest primitive (`canonical.py:113`, used at over thirty sites for evidence pinning, subject binding and anchoring), is passed to `merkle.leaf_hash`, `emit_bundle` or `build_sample_tree` at **no site in the repository**. No Merkle tree here is built over a digest instead of content, so `-05`'s widened condition reaches none of them. |
 
 **What does reach us is section 5.1, and it is an obligation to declare rather than to change.** 5.1 makes
 representation *normative*: a payload class **MUST specify which representation it uses for each field
@@ -185,9 +275,18 @@ recorded per request, because a file's size alone cannot tell an error page from
 | leaf construction rule | 7.1 | **did NOT hold as stated** -- the section imposes no leaf construction, its `MUST` is conditional, and the condition does not apply to us |
 | typed digest reference: `type`, `purpose`, `digest_alg`, `digest` | 8 | **holds exactly**, including which are REQUIRED and which CONDITIONAL |
 | coverage does not appear | whole draft | **against `-02`: held as stated.** **Against `-05` the count no longer holds, the substance does.** Measured 2026-09-13 over the whole `-05` text: `population` 0, `evaluated_count` 0, `sample` 0 — but `coverage` **2** and `unresolved` **12**. Both are a different quantity: `coverage` appears as *"signature coverage"* (8.3) and *"neither kind of coverage"* about hash binding (6.2); `Unresolved` is a named **processing state** of a typed reference (8.1), not a count. **Evaluation coverage still does not appear in `-05`.** The claim is corrected rather than defended: an all-quantified statement about someone else's text has to be re-measured at every revision, and this is the one that moved. |
+| 4.1 states the exclusion-set rule more tightly in `-05` | 4.1 | **did NOT hold.** Measured 2026-09-15 against `-02`: the two sentences are identical but for `P` → `the payload`. There is no tightening. Written after searching `-02` for the `-05` wording and reading the miss as a change |
+| nothing moved between `-02` and `-05` | whole draft | **did NOT hold.** Two content moves: `Verification Scope` 8.2 → 8.5 in full, and two closing paragraphs of 14.1 into the new 14.1.1. The scoped half — every clause cited here that exists in `-02` keeps its number — does hold |
+| `-05` makes no normative change | 2 | **holds for what it says, not for what it was used for.** Section 2 is headed *"Changes from -04"* and covers one revision. Across `-02` to `-05` the MUST family rises 68 → 113, all of it in the step `-02` → `-03` |
+| the six sections new in `-05` are all new text | 6.1, 6.2, 8.3, 8.4, 14.1.1, 14.2 | **did NOT hold as first written.** Two of 14.1.1's four requirement words stand word-identical in `-02` 14.1; 29 of the 31 are genuinely new. Found by an adversarial re-count against this page |
 
-One of six did not survive. That is the reason this table exists: a claim about someone else's normative
-text, carried forward from our own earlier summary, is not a measurement.
+**Four of ten did not survive.** Two of those four were written by the `-05` round of 2026-09-13,
+and the fourth was written by this correction itself, on 2026-09-15, one paragraph after accusing
+that round of exactly this. That is the reason this table exists: a claim about someone else's
+normative text, carried forward from our own summary, is not a measurement — and knowing it does
+not stop you making it. The fix is therefore not another careful sentence. It is
+`conformance/cpb_revision_record.json` with `tests/test_cpb_revision_record.py` beside it, so that
+the next claim of this shape fails a test instead of standing for a month.
 
 ## What is NOT measured
 
