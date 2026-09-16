@@ -38,6 +38,25 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 #: Unterteil. Deckt A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278.
 _KENNUNG = r"[A-Z]\.?-?\d+(?:[.\-][0-9a-z]+)*"
 
+#: DIE GANZE TITELFORM, verankert an beiden Enden. Der Vertrag oben im Docstring lautet
+#: `[<version> <ID>] type(scope): subject`, genau eine Kennung, am Anfang.
+#:
+#: BIS ZUM 16.09.2026 STAND HIER NUR EIN `findall` OHNE ANKER, und das pruefte eine andere Frage:
+#: "kommt irgendwo im Titel eine Klammer dieser Version vor". Gemessen am Kopf 1077c3d gingen damit
+#: durch: `WRONG PREFIX [6.1.0 N3-1] nonsense`, `irgendwas [6.1.0 N3-1]` ganz ohne Betreffform, und
+#: `[6.1.0 N3-1] [6.0.1 R1] feat(scope): subject` mit einer zweiten Kennung FREMDER Version — die
+#: zaehlte nicht mit, weil nur Treffer der eigenen Version gezaehlt wurden. Drei Titel, alle gruen,
+#: keiner vertragsgemaess. Der Fund kam von der Codex-Runde eins; nachgerechnet wurde er hier, und
+#: er traegt weiter als gemeldet: die dritte Form stand nicht im Bericht.
+_TITELFORM = re.compile(
+    rf"^\[\s*(?P<version>[0-9]+(?:\.[0-9]+)*)\s+(?P<kennung>{_KENNUNG})\s*\]"
+    r"\s+(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?:\s+\S")
+
+#: JEDE Kennungsklammer im Titel, unabhaengig von der Version. Die alte Fassung zaehlte nur die
+#: eigene, und eine zweite Klammer fremder Version blieb damit unsichtbar — genau die
+#: Mehrdeutigkeit, gegen die "genau eine Kennung" geschrieben wurde.
+_JEDE_KLAMMER = re.compile(rf"\[\s*[0-9]+(?:\.[0-9]+)*\s+{_KENNUNG}\s*\]")
+
 #: Wo der Umfang endet. Alles danach (Out, Begruendungen, Owner-Tueren) ist NICHT die Menge, gegen
 #: die ein Pull Request geprueft wird — dort stehen Zeilen, die ausdruecklich nicht gebaut werden.
 _ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
@@ -195,16 +214,38 @@ def pruefe(*, branch: str, title: str, version: str,
     # Pull Requests aber nicht zur Last: er kann nur die eine Kennung schreiben, die es gibt.
     datei_urteil = pruefe_umfangsdatei(pfad)
     kollision = kennung in (datei_urteil.get("kollisionen") or {})
-    im_titel = re.findall(rf"\[\s*{re.escape(version)}\s+({_KENNUNG})\s*\]", title)
-    if not im_titel:
+    # DIE GANZE FORM, AM ANFANG, GENAU EINE KENNUNG — in dieser Reihenfolge, weil jede Stufe die
+    # naechste erst sinnvoll macht. Zuerst: wie viele Kennungsklammern traegt der Titel ueberhaupt,
+    # gleich welcher Version? Dann: passt der Titel als GANZES auf die Vertragsform? Dann erst:
+    # nennt er die richtige Kennung?
+    alle_klammern = _JEDE_KLAMMER.findall(title)
+    if len(alle_klammern) > 1:
+        gruende.append(f"der Titel nennt {len(alle_klammern)} Kennungen {alle_klammern} — genau "
+                       "eine je Pull Request, sonst ist die Zuordnung zur Umfangszeile mehrdeutig. "
+                       "Gezaehlt werden ALLE Versionen, nicht nur die eigene: eine zweite Klammer "
+                       "fremder Version macht den Titel genauso mehrdeutig")
+    form = _TITELFORM.match(title)
+    if not form and not alle_klammern:
+        # DER HAEUFIGSTE FALL VERDIENT SEINEN EIGENEN SATZ. Ein Titel ganz ohne Klammer und einer
+        # mit Klammer an der falschen Stelle sind fuer den Autor zwei verschiedene Aufgaben; eine
+        # gemeinsame Formmeldung fuer beide laesst ihn raten, welche er hat. Ein Bestandsfall
+        # verlangte genau diesen Wortlaut und fiel bei der Zusammenlegung — zu Recht.
         gruende.append(f"der Titel nennt keine Umfangskennung: erwartet [{version} {kennung}] "
                        f"am Anfang, gelesen {title!r}")
-    elif len(im_titel) > 1:
-        gruende.append(f"der Titel nennt {len(im_titel)} Kennungen {im_titel} — genau eine je "
-                       "Pull Request, sonst ist die Zuordnung zur Umfangszeile mehrdeutig")
-    elif im_titel[0] != kennung:
-        gruende.append(f"der Titel nennt [{version} {im_titel[0]}], der Zweig {branch!r} gehoert "
-                       f"aber zu {kennung} — Titel und Zweig zeigen auf verschiedene Zeilen")
+    elif not form:
+        gruende.append(
+            f"der Titel haelt die Form nicht ein: erwartet [{version} {kennung}] "
+            f"type(scope): subject AM ANFANG, gelesen {title!r}. Geprueft wird der ganze Titel, "
+            "nicht ob die Klammer irgendwo vorkommt")
+    else:
+        if form.group("version") != version:
+            gruende.append(f"der Titel nennt die Version {form.group('version')!r}, geprueft wird "
+                           f"gegen {version!r} — Titel und Umfangsdatei zeigen auf verschiedene "
+                           "Releases")
+        elif form.group("kennung") != kennung:
+            gruende.append(f"der Titel nennt [{version} {form.group('kennung')}], der Zweig "
+                           f"{branch!r} gehoert aber zu {kennung} — Titel und Zweig zeigen auf "
+                           "verschiedene Zeilen")
     if kollision:
         # ROT, und die fremde Modellfamilie hat mich hier umgestimmt (16.09.2026). Meine erste
         # Fassung liess so einen Pull Request gruen durch, mit einem Vermerk: der Autor koenne ja

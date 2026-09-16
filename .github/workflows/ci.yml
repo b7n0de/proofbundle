@@ -113,6 +113,44 @@ jobs:
       - name: Required-check reachability
         run: python scripts/required_check_reachability_gate.py
 
+  release-scope-title:
+    # THE GATE HAD NO CALLER. Measured on this pull request's own head by Codex round one and
+    # reproduced here: a repository-wide search for `release_scope_title_gate` found the module,
+    # its test, and the sdist exclusion entry -- no workflow, no hook, no other script. A gate that
+    # nothing calls is a promise, not a boundary, and the release-scope count it protects stayed
+    # unenforced while the file sat in the tree looking like enforcement.
+    #
+    # This is the third recorded instance of that class in this house: a collector without a
+    # caller (2026-09-10), a comment watcher without a caller (same day), and now this. All three
+    # were found by somebody reading, never by a mechanism.
+    #
+    # BLOCKING, not advisory, and the difference is the point. The gate's own contract is exit 0 or
+    # exit 1 with a reason; an advisory caller for a boundary whose whole purpose is to stop an
+    # unlabelled pull request would be the weaker half of the problem it solves.
+    #
+    # HONEST LIMIT, said here rather than discovered later: this job is not a required context of
+    # the ruleset protect-main, so a red run shows red and does not by itself stop a merge. Making
+    # it required changes the ruleset, which is an owner decision. The job named
+    # required-check-reachability above exists precisely to keep that gap visible.
+    #
+    # pull_request only: a merge_group event carries no pull-request title, so there is nothing to
+    # judge. Skipping is correct there; passing would be a claim about a title nobody read.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      # THE TITLE COMES THROUGH THE ENVIRONMENT, NOT THROUGH THE COMMAND LINE. A pull-request title
+      # is attacker-controlled text; interpolating it into a `run:` line would make it shell input.
+      - name: Release-scope title gate
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: python scripts/b7_release_scope_title_gate.py --branch "$PR_BRANCH" --title "$PR_TITLE"
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —

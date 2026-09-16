@@ -297,3 +297,71 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------------------------
+# CODEX ROUND ONE, 2026-09-16. Two findings on this pull request's own head, each reproduced here
+# before it was fixed. The first has no test, because its subject is the absence of a caller and
+# that lives in the workflow file; it is covered by the wiring case at the bottom.
+# ---------------------------------------------------------------------------------------------
+
+def _gruen(tmp_path, title, branch="feat/a", kennung="A1"):
+    pfad = tmp_path / "scope.md"
+    pfad.write_text(
+        "| Punkt | Zweig |\n|---|---|\n"
+        f"| **{kennung}** etwas | `{branch}` |\n\n## Out\n", encoding="utf-8")
+    return GATE.pruefe(branch=branch, title=title, version="6.1.0", scope_pfad=pfad)["urteil"]
+
+
+def test_ROT_codex_runde_eins_p2_ein_falsches_praefix_faellt(tmp_path):
+    """Gemeldet und nachgerechnet: `WRONG PREFIX [6.1.0 A1] nonsense` war gruen.
+
+    Der alte Ausdruck war ein `findall` ohne Anker und fragte nur, OB die Klammer vorkommt.
+    """
+    assert _gruen(tmp_path, "WRONG PREFIX [6.1.0 A1] nonsense") == "ROT"
+
+
+def test_ROT_codex_runde_eins_p2_eine_zweite_kennung_fremder_version_faellt(tmp_path):
+    """Die alte Fassung zaehlte NUR Treffer der eigenen Version, also blieb die zweite unsichtbar."""
+    assert _gruen(tmp_path, "[6.1.0 A1] [6.0.1 R1] feat(scope): subject") == "ROT"
+
+
+def test_ROT_ein_titel_ohne_betreffform_faellt(tmp_path):
+    """NICHT im Codex-Bericht, beim Nachrechnen gefunden: die Klammer am ENDE war ebenfalls gruen."""
+    assert _gruen(tmp_path, "irgendwas [6.1.0 A1]") == "ROT"
+
+
+def test_ROT_eine_fremde_version_am_anfang_faellt(tmp_path):
+    """Die Form stimmt, die Version nicht — das muss eine eigene Aussage sein, keine Formmeldung."""
+    d_titel = "[6.0.1 A1] feat(scope): subject"
+    assert _gruen(tmp_path, d_titel) == "ROT"
+
+
+def test_GRUEN_die_vertragsform_bleibt_gruen(tmp_path):
+    assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): subject") == "gruen"
+
+
+def test_GRUEN_der_bereich_ist_optional(tmp_path):
+    """`type: subject` ohne Klammer ist gueltige Conventional-Commits-Form und bleibt gruen."""
+    assert _gruen(tmp_path, "[6.1.0 A1] feat: subject") == "gruen"
+
+
+def test_codex_runde_eins_p1_das_tor_hat_einen_aufrufer():
+    """Der erste Fund war: nichts ruft dieses Modul. Dieser Fall ist der Riegel dagegen.
+
+    Er prueft die WIRKUNG, nicht den Dateinamen: ein Schritt in einem Workflow, der das Skript
+    startet. Verschiebt jemand den Job oder benennt ihn um, bleibt der Fall gruen; entfernt jemand
+    den Aufruf, faellt er. Genau die Klasse, die hier schon dreimal zugeschlagen hat — ein
+    Mechanismus ohne Aufrufer ist eine Zusage, keine Schranke.
+    """
+    import pathlib as _p
+    wurzel = _p.Path(__file__).resolve().parents[1]
+    treffer = []
+    for w in sorted((wurzel / ".github" / "workflows").glob("*.yml")):
+        text = w.read_text(encoding="utf-8")
+        for zeile in text.splitlines():
+            if "b7_release_scope_title_gate.py" in zeile and "run:" in zeile:
+                treffer.append(f"{w.name}: {zeile.strip()[:70]}")
+    assert treffer, ("kein Workflow-Schritt startet b7_release_scope_title_gate.py — das Tor "
+                     "haette wieder keinen Aufrufer, und ein Tor ohne Aufrufer ist nur eine Datei")
+
