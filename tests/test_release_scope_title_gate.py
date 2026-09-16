@@ -364,3 +364,55 @@ def test_codex_runde_eins_p1_das_tor_hat_einen_aufrufer():
     assert treffer, ("kein Workflow-Schritt startet b7_release_scope_title_gate.py — das Tor "
                      "haette wieder keinen Aufrufer, und ein Tor ohne Aufrufer ist nur eine Datei")
 
+
+# ---------------------------------------------------------------------------------------------
+# Found by running the first fix rather than by reading it, 2026-09-16. `\s` in Python matches
+# U+00A0 and U+2009 as readily as a space, and it matches a newline, so the anchored expression
+# bound the first line and said nothing about the rest.
+#
+# The first version of these very cases was toothless: the separators were typed as ordinary
+# spaces in the source, so every case passed against BOTH versions of the expression and
+# distinguished nothing. They carry escapes now.
+# ---------------------------------------------------------------------------------------------
+
+def test_ROT_ein_schmales_leerzeichen_ist_kein_trenner(tmp_path):
+    assert _gruen(tmp_path, "[6.1.0\u2009A1] feat(scope): subject") == "ROT"
+
+
+def test_ROT_ein_geschuetztes_leerzeichen_ist_kein_trenner(tmp_path):
+    assert _gruen(tmp_path, "[6.1.0\u00a0A1] feat(scope): subject") == "ROT"
+
+
+def test_ROT_ein_geschuetztes_leerzeichen_nach_der_klammer_faellt(tmp_path):
+    """Every separator of the form, not just the first, or the gap merely moves along."""
+    assert _gruen(tmp_path, "[6.1.0 A1]\u00a0feat(scope): subject") == "ROT"
+
+
+def test_ROT_was_nach_einem_zeilenumbruch_steht_ist_teil_des_titels(tmp_path):
+    """A title is ONE line. A rule that ends at the first break checks a prefix, not a title."""
+    assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): subject\nzweite Zeile") == "ROT"
+
+
+def test_ROT_auch_ein_wagenruecklauf_beendet_den_titel_nicht(tmp_path):
+    assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): subject\r\nzweite") == "ROT"
+
+
+def test_ROT_ein_tabulator_ist_kein_trenner(tmp_path):
+    assert _gruen(tmp_path, "[6.1.0 A1]\tfeat(scope): subject") == "ROT"
+
+
+def test_GRUEN_der_vertragstitel_bleibt_nach_der_verengung_gruen(tmp_path):
+    """The narrowing must not take the intended form with it. This is the counterweight."""
+    assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): subject") == "gruen"
+
+
+def test_die_genannte_grenze_ein_unsichtbares_zeichen_im_BETREFF_faellt_nicht(tmp_path):
+    """Recorded EXPLICITLY as a limit, not as an assurance.
+
+    The narrowing concerns the SEPARATORS of the form. A subject is free text, and a zero-width
+    space inside one stays green. Changing that would change a decision about subjects rather
+    than this expression, and a case that pins the limit is more honest than a claim about
+    characters nobody checked.
+    """
+    assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): sub\u200bject") == "gruen"
+

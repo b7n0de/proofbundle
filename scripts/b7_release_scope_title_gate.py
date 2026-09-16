@@ -49,14 +49,26 @@ _KENNUNG = r"[A-Z]\.?-?\d+(?:[.\-][0-9a-z]+)*"
 #: version, which went uncounted because only matches of the current version were counted. Three
 #: titles, all green, none conforming. Codex round one raised it; it was re-measured here, and it
 #: reaches further than reported, because the third form was not in the report.
+#: THE SEPARATORS ARE PLAIN SPACES, not `\s`, and the title is ONE line. Both were measured on
+#: the first version of this expression, by running it rather than by reading it.
+#:
+#: `\s` in Python matches U+00A0 and U+2009 as well, so `[6.1.0<narrow space>A1] feat(x): y`
+#: passed. The landing card reads identifiers out of titles with its own reader, and two readers
+#: that disagree about what a space is will disagree about which line landed. A separator that
+#: looks like a space and is not one is exactly the kind of difference this gate exists to catch.
+#:
+#: And `\s` matches a newline, so `[6.1.0 A1] feat(x): y\nanything at all` passed as well:
+#: the form bound the first line and said nothing about the rest. A pull-request title is one
+#: line; whatever follows a line break was never judged, and a rule that stops at the first
+#: newline judges a prefix while claiming to judge a title.
 _TITELFORM = re.compile(
-    rf"^\[\s*(?P<version>[0-9]+(?:\.[0-9]+)*)\s+(?P<kennung>{_KENNUNG})\s*\]"
-    r"\s+(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?:\s+\S")
+    rf"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>{_KENNUNG}) *\]"
+    r" +(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?: +\S[^\r\n]*\Z")
 
 #: EVERY identifier bracket in the title, whatever its version. The old expression counted only
 #: the current one, so a second bracket of a foreign version stayed invisible, which is exactly the
 #: ambiguity that "exactly one identifier" was written against.
-_JEDE_KLAMMER = re.compile(rf"\[\s*[0-9]+(?:\.[0-9]+)*\s+{_KENNUNG}\s*\]")
+_JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 
 #: Wo der Umfang endet. Alles danach (Out, Begruendungen, Owner-Tueren) ist NICHT die Menge, gegen
 #: die ein Pull Request geprueft wird — dort stehen Zeilen, die ausdruecklich nicht gebaut werden.
