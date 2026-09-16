@@ -314,25 +314,25 @@ def _gruen(tmp_path, title, branch="feat/a", kennung="A1"):
 
 
 def test_ROT_codex_runde_eins_p2_ein_falsches_praefix_faellt(tmp_path):
-    """Gemeldet und nachgerechnet: `WRONG PREFIX [6.1.0 A1] nonsense` war gruen.
+    """Reported and re-measured: `WRONG PREFIX [6.1.0 A1] nonsense` was green.
 
-    Der alte Ausdruck war ein `findall` ohne Anker und fragte nur, OB die Klammer vorkommt.
+    The old expression was an unanchored `findall` and asked only WHETHER the bracket occurs.
     """
     assert _gruen(tmp_path, "WRONG PREFIX [6.1.0 A1] nonsense") == "ROT"
 
 
 def test_ROT_codex_runde_eins_p2_eine_zweite_kennung_fremder_version_faellt(tmp_path):
-    """Die alte Fassung zaehlte NUR Treffer der eigenen Version, also blieb die zweite unsichtbar."""
+    """The old version counted ONLY matches of the current version, so the second stayed invisible."""
     assert _gruen(tmp_path, "[6.1.0 A1] [6.0.1 R1] feat(scope): subject") == "ROT"
 
 
 def test_ROT_ein_titel_ohne_betreffform_faellt(tmp_path):
-    """NICHT im Codex-Bericht, beim Nachrechnen gefunden: die Klammer am ENDE war ebenfalls gruen."""
+    """NOT in the Codex report, found while re-measuring: a bracket at the END was green as well."""
     assert _gruen(tmp_path, "irgendwas [6.1.0 A1]") == "ROT"
 
 
 def test_ROT_eine_fremde_version_am_anfang_faellt(tmp_path):
-    """Die Form stimmt, die Version nicht — das muss eine eigene Aussage sein, keine Formmeldung."""
+    """The shape holds, the version does not. That needs its own sentence, not a shape message."""
     d_titel = "[6.0.1 A1] feat(scope): subject"
     assert _gruen(tmp_path, d_titel) == "ROT"
 
@@ -342,17 +342,16 @@ def test_GRUEN_die_vertragsform_bleibt_gruen(tmp_path):
 
 
 def test_GRUEN_der_bereich_ist_optional(tmp_path):
-    """`type: subject` ohne Klammer ist gueltige Conventional-Commits-Form und bleibt gruen."""
+    """`type: subject` without a scope is valid Conventional Commits form and stays green."""
     assert _gruen(tmp_path, "[6.1.0 A1] feat: subject") == "gruen"
 
 
 def test_codex_runde_eins_p1_das_tor_hat_einen_aufrufer():
-    """Der erste Fund war: nichts ruft dieses Modul. Dieser Fall ist der Riegel dagegen.
+    """The first finding was that nothing calls this module. This case is the guard against that.
 
-    Er prueft die WIRKUNG, nicht den Dateinamen: ein Schritt in einem Workflow, der das Skript
-    startet. Verschiebt jemand den Job oder benennt ihn um, bleibt der Fall gruen; entfernt jemand
-    den Aufruf, faellt er. Genau die Klasse, die hier schon dreimal zugeschlagen hat — ein
-    Mechanismus ohne Aufrufer ist eine Zusage, keine Schranke.
+    It checks the EFFECT, not a file name: a workflow step that starts the script. Move the job or
+    rename it and this stays green; remove the call and it goes red. Exactly the class that has hit
+    this house three times already, where a mechanism without a caller is a promise, not a bound.
     """
     import pathlib as _p
     wurzel = _p.Path(__file__).resolve().parents[1]

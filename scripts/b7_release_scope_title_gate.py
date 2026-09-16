@@ -38,23 +38,24 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 #: Unterteil. Deckt A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278.
 _KENNUNG = r"[A-Z]\.?-?\d+(?:[.\-][0-9a-z]+)*"
 
-#: DIE GANZE TITELFORM, verankert an beiden Enden. Der Vertrag oben im Docstring lautet
-#: `[<version> <ID>] type(scope): subject`, genau eine Kennung, am Anfang.
+#: THE WHOLE TITLE FORM, anchored at both ends. The contract in the module docstring above reads
+#: `[<version> <ID>] type(scope): subject`, exactly one identifier, at the start.
 #:
-#: BIS ZUM 16.09.2026 STAND HIER NUR EIN `findall` OHNE ANKER, und das pruefte eine andere Frage:
-#: "kommt irgendwo im Titel eine Klammer dieser Version vor". Gemessen am Kopf 1077c3d gingen damit
-#: durch: `WRONG PREFIX [6.1.0 N3-1] nonsense`, `irgendwas [6.1.0 N3-1]` ganz ohne Betreffform, und
-#: `[6.1.0 N3-1] [6.0.1 R1] feat(scope): subject` mit einer zweiten Kennung FREMDER Version — die
-#: zaehlte nicht mit, weil nur Treffer der eigenen Version gezaehlt wurden. Drei Titel, alle gruen,
-#: keiner vertragsgemaess. Der Fund kam von der Codex-Runde eins; nachgerechnet wurde er hier, und
-#: er traegt weiter als gemeldet: die dritte Form stand nicht im Bericht.
+#: UNTIL 2026-09-16 THIS WAS AN UNANCHORED `findall`, which asks a different question altogether,
+#: namely whether a bracket of this version appears anywhere in the title. Measured at head
+#: 1077c3d, three titles passed green: `WRONG PREFIX [6.1.0 N3-1] nonsense`, then
+#: `irgendwas [6.1.0 N3-1]` with no subject form at all, and
+#: `[6.1.0 N3-1] [6.0.1 R1] feat(scope): subject` carrying a second identifier of a FOREIGN
+#: version, which went uncounted because only matches of the current version were counted. Three
+#: titles, all green, none conforming. Codex round one raised it; it was re-measured here, and it
+#: reaches further than reported, because the third form was not in the report.
 _TITELFORM = re.compile(
     rf"^\[\s*(?P<version>[0-9]+(?:\.[0-9]+)*)\s+(?P<kennung>{_KENNUNG})\s*\]"
     r"\s+(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?:\s+\S")
 
-#: JEDE Kennungsklammer im Titel, unabhaengig von der Version. Die alte Fassung zaehlte nur die
-#: eigene, und eine zweite Klammer fremder Version blieb damit unsichtbar — genau die
-#: Mehrdeutigkeit, gegen die "genau eine Kennung" geschrieben wurde.
+#: EVERY identifier bracket in the title, whatever its version. The old expression counted only
+#: the current one, so a second bracket of a foreign version stayed invisible, which is exactly the
+#: ambiguity that "exactly one identifier" was written against.
 _JEDE_KLAMMER = re.compile(rf"\[\s*[0-9]+(?:\.[0-9]+)*\s+{_KENNUNG}\s*\]")
 
 #: Wo der Umfang endet. Alles danach (Out, Begruendungen, Owner-Tueren) ist NICHT die Menge, gegen
@@ -214,10 +215,10 @@ def pruefe(*, branch: str, title: str, version: str,
     # Pull Requests aber nicht zur Last: er kann nur die eine Kennung schreiben, die es gibt.
     datei_urteil = pruefe_umfangsdatei(pfad)
     kollision = kennung in (datei_urteil.get("kollisionen") or {})
-    # DIE GANZE FORM, AM ANFANG, GENAU EINE KENNUNG — in dieser Reihenfolge, weil jede Stufe die
-    # naechste erst sinnvoll macht. Zuerst: wie viele Kennungsklammern traegt der Titel ueberhaupt,
-    # gleich welcher Version? Dann: passt der Titel als GANZES auf die Vertragsform? Dann erst:
-    # nennt er die richtige Kennung?
+    # THE WHOLE FORM, AT THE START, EXACTLY ONE IDENTIFIER, in that order, because each step is
+    # what makes the next one meaningful. First, how many identifier brackets does the title carry
+    # at all, whatever their version. Then, does the title as a WHOLE match the contract form. Only
+    # then, does it name the right identifier.
     alle_klammern = _JEDE_KLAMMER.findall(title)
     if len(alle_klammern) > 1:
         gruende.append(f"der Titel nennt {len(alle_klammern)} Kennungen {alle_klammern} — genau "
@@ -226,10 +227,11 @@ def pruefe(*, branch: str, title: str, version: str,
                        "fremder Version macht den Titel genauso mehrdeutig")
     form = _TITELFORM.match(title)
     if not form and not alle_klammern:
-        # DER HAEUFIGSTE FALL VERDIENT SEINEN EIGENEN SATZ. Ein Titel ganz ohne Klammer und einer
-        # mit Klammer an der falschen Stelle sind fuer den Autor zwei verschiedene Aufgaben; eine
-        # gemeinsame Formmeldung fuer beide laesst ihn raten, welche er hat. Ein Bestandsfall
-        # verlangte genau diesen Wortlaut und fiel bei der Zusammenlegung — zu Recht.
+        # THE MOST COMMON CASE DESERVES ITS OWN SENTENCE. A title with no bracket at all and a
+        # title with a bracket in the wrong place are two different jobs for whoever has to fix
+        # them, and one shared shape message for both leaves the author guessing which one they
+        # have. An existing case asserted exactly this wording and fell when the two were folded
+        # together, and it was right to.
         gruende.append(f"der Titel nennt keine Umfangskennung: erwartet [{version} {kennung}] "
                        f"am Anfang, gelesen {title!r}")
     elif not form:

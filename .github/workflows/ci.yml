@@ -151,6 +151,33 @@ jobs:
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: python scripts/b7_release_scope_title_gate.py --branch "$PR_BRANCH" --title "$PR_TITLE"
 
+  new-lines-english:
+    # OWNER DECISION OA-bba542170c, 2026-09-16: only NEW material is English, the existing body
+    # stays. Measured that day, 159 of 1577 Python files carry German comment or docstring lines,
+    # 2687 lines in total. Those stay, and a tree-wide check would be red on all of them from its
+    # first run, which is the permanent red that teaches people to ignore a check.
+    #
+    # The owner's condition came with the decision: "B without a guard is a statement of intent."
+    # So the guard is scoped to the diff, and the scope IS the decision rather than a shortcut.
+    #
+    # BLOCKING on pull requests, and it proved itself on the change it shipped with: run against
+    # this branch it found eleven German comment lines added the same morning, in the commit that
+    # fixed the Codex findings. They were rewritten before this job existed in a green state.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: New source lines are English
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/neue_zeilen_sind_englisch.py --base "$PR_BASE_SHA"
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —
