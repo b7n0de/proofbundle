@@ -357,13 +357,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/G1.md",
-          "sha256": "9c013e50197f95ab80f8105e011f18304748bd5e2a7998c30077d827218d8989",
+          "sha256": "9cc2181744900fbb535666873356968cb486c08c0982512da1e8651229941830",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
           "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
           "byte_range": [
             357091,
-            360761
+            360760
           ],
           "fundart": "ueberschrift"
         }
