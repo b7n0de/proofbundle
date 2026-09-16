@@ -10,15 +10,25 @@ because a test that cannot fall proves nothing about the gate.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-import required_check_reachability_gate as G  # noqa: E402
+# PFADFORM STATT BLANKEM IMPORT, und das ist nicht Geschmack. Das Skript steht mit Begruendung
+# NICHT in der Verteilung (es liest `.github/`, das MANIFEST.in prunt), `scripts/` liegt im
+# installierten Paket ohnehin nicht auf dem Pfad, und ein blanker `import` braeche dort das
+# SAMMELN — nicht diesen einen Test, sondern die ganze Suite. Ueber die Pfadform meldet conftest
+# stattdessen ein ehrliches SKIP. Gefunden 2026-09-16 vom Riegel
+# tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py, der genau diese Klasse bewacht,
+# als Folge meiner eigenen Ausschluss-Entscheidung eine Datei weiter.
+_PFAD = Path(__file__).resolve().parents[1] / "scripts" / "required_check_reachability_gate.py"
+_spec = importlib.util.spec_from_file_location("_required_check_reachability_gate", str(_PFAD))
+G = importlib.util.module_from_spec(_spec)
+sys.modules["_required_check_reachability_gate"] = G
+_spec.loader.exec_module(G)
 
 CI = """
 name: CI
