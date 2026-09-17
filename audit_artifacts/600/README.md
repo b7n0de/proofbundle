@@ -1,5 +1,77 @@
 # Pre-tag audit artefacts for release 6.0.0
 
+## Register head — Migration 1A, the extraction rule in its own words
+
+Written 2026-09-17, owner decision B on card `OA-77be0a972a` (17 September 2026): the rule that
+classifies the register's own entries lives HERE, in the README beside the register, and not inside
+the register file. The signed register body of 6.0.0 stays byte-identical (owner decision of
+14 September 2026, P19); this section changes no byte of it. Should Migration 1A ever have to change
+the register file itself, the head moves into that same re-signature — not before.
+
+**The register this rule applies to, named by digest so the sentence cannot drift:**
+
+    audit_artifacts/600/findings_register_v2.json   sha256 9f4c0d7a0e401ea3b4d6541729cebf4b703c1630a9ece52197f6dea40c0ebcb8
+                                                    git blob 6b0c762205281610e731de4c27a1b0a550c71d06 · 306943 bytes
+                                                    schema proofbundle.findings_register.v2 · document_id urn:b7n0de:findings-register:600
+                                                    register_revision 0 · issued_at 2026-09-14 · 145 records
+
+**The rule** (owner decision A on `OA-60999a6629`, 16 September 2026: the written-out rule goes into
+the register head verbatim, with the anchors of the target list and the head it was measured on).
+The wording is the German original, quoted as such; the English rendering follows it.
+
+> Ein Eintrag TRAEGT EINEN BELEG, wenn sein Abschnitt in der Quelle mindestens einen in Backticks
+> gesetzten Pfad nennt, der am Kopf `4e32e83` eine DATEI ist. Nennt er nur ein Verzeichnis, zaehlt
+> er getrennt. Loest kein genannter Pfad auf, zaehlt er getrennt. Nennt der Abschnitt gar keinen
+> Pfad, zaehlt er als vierte Klasse. Abschnittsgrenzen kommen aus der Sollliste: jede Zeile im
+> Feld `zeilen` einer Kennung mit fundart `ueberschrift` oeffnet einen Abschnitt, der vor der
+> naechsten solchen Zeile endet.
+
+In English: an entry CARRIES EVIDENCE if its section in the source names at least one backticked
+path that is a FILE at head `4e32e83`. Naming only a directory counts separately. A named path that
+does not resolve counts separately. A section naming no path at all is the fourth class. Section
+boundaries come from the target list: every line in the `zeilen` field of an identifier whose
+`fundart` is `ueberschrift` opens a section that ends before the next such line.
+
+**Anchors and inputs.** 134 identifier/line pairs over 115 identifiers and 122 distinct lines
+(19 identifiers carry two lines; line 4868 belongs to thirteen identifiers at once), from
+`SOLLLISTE_kennungen_register_600_20260912T1316Z.json`. Head `4e32e83b647235bfedf23b55cebe69fdf14fd6f5`
+(tag `v6.0.0`), 1175 files. Source: the neutralised residual-risk record
+`05_QUELLE_RESTRISIKO_600_neutralisiert.md`, sha256
+`c7cbddacd1c9b84e54697d730b4c3c25d1258bb750f6fa561842e927e58cbd88`, 355058 bytes, 5039 lines,
+checked against `quelle.sha256` of the target list before every measurement.
+
+**Result, re-measured 2026-09-17 with the same rule, same head, same source** (first measured
+2026-09-16T14:25Z, identical):
+
+| class | count |
+|---|---|
+| evidence is a file at the head | 39 |
+| only a directory | 7 |
+| path named, does not resolve | 25 |
+| no path named | 69 |
+| **sum** | **140** |
+
+Reproducible with one command in the operator repository (`2bedone`):
+`python3 scripts/b7_migration1a_wortwahl.py --json`. Catch-proof there:
+`tests/test_migration1a_wortwahl_regel.py`, four cases — a second run yields the same numbers, the
+sum equals the identifier count, a DIFFERENT head yields a different result, and the withdrawn split
+below is reported as withdrawn (4 passed, 2026-09-17).
+
+**Withdrawn, and deliberately not carried as a second column.** The earlier split 50/81/5/4 for the
+same 140 identifiers at the same head came from a rule that was never written down; its author
+stated on 16 September 2026 that it cannot be formulated after the fact without fitting a rule to a
+number. A column nobody can recompute does not belong in a register head. The same applies to the
+figure "80 NOT MEASURABLE" from card `OA-eeee4aba08`: measured against this rule on the same source,
+`NOT MEASURABLE` occurs in 2 sections, `NICHT MESSBAR` in 12, both forms together in 14 — nowhere
+near 80, so it does not become a register obligation. And the "ten wall-3 cases" of the same card:
+the number ten was withdrawn by the owner on 16 September 2026; the word criterion finds seven
+sections (S35 S37 S39 S42 S49 S55 S63), the property criterion four (S35 S42 S49 S55), and the span
+between them stands as its own line rather than being averaged.
+
+One divergence in the decision text, named rather than adopted: the owner's answer to
+`OA-60999a6629` expects `39/77/25/69`. Measured is `39/7/25/69`, and only that sum is 140; with 77
+it would be 210. The second class counts 7.
+
 ## Status right now: a receipt exists, and it no longer binds this head
 
 Corrected 2026-09-07. This section used to say "the receipt does not exist yet". It does — a
