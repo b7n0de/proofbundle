@@ -219,9 +219,8 @@ def audit_artifact_for(repo: Path, version: str) -> str | None:
 
 
 def _gate_tree_digest(repo: Path) -> str:
-    from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
     try:
-        return subject_tree_digest(repo)
+        return _lib().subject_tree_digest(repo)
     except Exception:  # noqa: BLE001
         return "unknown"
 
@@ -294,6 +293,47 @@ def _receipt_candidates(repo: Path, version: str) -> list:
     return out
 
 
+#: The receipt library, loaded BY PATH from this gate's own directory (2026-09-17, lens B, P1).
+#: `evaluate` puts the judged repository's `src/` in front of `sys.path` so that `verify_receipt`
+#: can import `proofbundle.signature`. A plain `from pre_tag_receipt_lib import ...` then takes
+#: whatever lies first on that path -- measured: a repository with its own `src/pre_tag_receipt_lib.py`
+#: (verify_receipt forged to `True`) made the UNMODIFIED gate report `ok=true, state=verified` for
+#: `{"garbage": true}`. The neighbour `pre_tag_receipt_lib.subject_tree_digest` already loads
+#: `sign_readiness_artifact` by path for exactly this reason; the three imports of the far more
+#: security-critical verifier had not been swept. Loaded once, cached, one module object.
+_LIB = None
+
+
+def _lib():
+    global _LIB
+    if _LIB is None:
+        import importlib.util as _ilu  # noqa: PLC0415
+        pfad = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
+        spec = _ilu.spec_from_file_location("_pre_tag_receipt_lib_by_path", pfad)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {pfad}")
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _LIB = mod
+    return _LIB
+
+
+def _RECEIPT_SCHEMA_NAME() -> str:
+    """The one receipt schema, read from the library that defines it (no second copy here)."""
+    return _lib().RECEIPT_SCHEMA
+
+
+#: Artefacts of this house that may lie in the receipt folder WITHOUT being receipts. A CLOSED
+#: list, not "any schema but ours": the first form of this exemption let a bad receipt opt out of
+#: judgment by declaring any other schema string (lens B, 2026-09-17, measured: an untrusted-signer
+#: receipt with schema "totally.other.schema.v1" read as `absent` and C12.1 as NOT_APPLICABLE). A
+#: file is foreign only if its schema is on this list AND it carries none of the receipt-shaped
+#: fields; everything else that lies there is judged as a receipt, and a bad one is `rejected`.
+_FOREIGN_SCHEMAS = frozenset({"proofbundle.findings_register.v2", "proofbundle.findings_register.v1"})
+_RECEIPT_SHAPED_FIELDS = ("signature", "signer_pubkey", "subject_tree_digest", "gate_source_digest",
+                          "audit_exit_code")
+
+
 def evaluate(repo: Path, version: str | None = None) -> dict:
     # F6 CLOSED (makellose-500 Phase 3): the verdict source is a SIGNED, TREE-BOUND RECEIPT, not a prose
     # line. A self-written CHANGELOG line can no longer grant ok=true; only a receipt that binds THIS tree
@@ -311,7 +351,7 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     _src = str(Path(repo).resolve() / "src")
     if _src not in _sys.path:
         _sys.path.insert(0, _src)
-    from pre_tag_receipt_lib import load_trusted_pubkeys, verify_receipt  # noqa: PLC0415
+    load_trusted_pubkeys, verify_receipt = _lib().load_trusted_pubkeys, _lib().verify_receipt
     version = version or pyproject_version(repo)
     if not version:
         # NOT "absent": the gate could not even determine WHAT it is judging. Unmeasurable is its own
@@ -321,11 +361,29 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     tree = _gate_tree_digest(repo)
     gate_src = _gate_source_digest()
     trusted = load_trusted_pubkeys(repo)
-    verified, rejected = [], []
+    verified, rejected, other_tree, foreign = [], [], [], []
     for rp, rc, unreadable in _receipt_candidates(repo, version):
         if rc is None:
             # L5-G6-01: a present-but-unreadable candidate is REJECTED, never invisible.
             rejected.append({"path": rp, "reason": unreadable or "receipt file is unreadable"})
+            continue
+        # A FOREIGN ARTEFACT IN THE RECEIPT FOLDER IS NOT A BROKEN RECEIPT (2026-09-17, measured on
+        # pull request 218). `audit_artifacts/600/findings_register_v2.json` declares the schema
+        # `proofbundle.findings_register.v2` -- it is the findings register, a different artefact
+        # of this house that happens to live in the version folder. Judged as a receipt it was
+        # "rejected: unknown schema", and one rejection turns the typed state from `absent` into
+        # `rejected`, which C12.1 then reads as FAIL on every pull request. The leniency reserved
+        # for absence was lost to a file that never claimed to be a receipt.
+        #
+        # TYPED, NOT PROSE: the file's own `schema` field decides. A receipt schema, or no schema
+        # at all, is judged as a receipt (a receipt without a schema IS broken). A different,
+        # non-empty schema string names another artefact; it is listed under `foreign_files` for
+        # the reader and never counted as a rejection. Nothing here can turn into a pass: a foreign
+        # file admits nothing, it only stops poisoning the absence state.
+        schema = rc.get("schema")
+        if (isinstance(schema, str) and schema in _FOREIGN_SCHEMAS
+                and not any(f in rc for f in _RECEIPT_SHAPED_FIELDS)):
+            foreign.append({"path": rp, "schema": schema})
             continue
         # A gate must RULE, never crash (P1-A defense-in-depth): any exception from verify_receipt is a
         # fail-closed REJECT of that candidate, never a false accept and never an uncaught traceback that
@@ -336,7 +394,31 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
                                           subject_tree_digest=tree, gate_source_digest=gate_src)
         except Exception as e:  # noqa: BLE001
             ok_r, reason = False, f"verify_receipt raised {type(e).__name__}: {e} (fail-closed reject)"
-        (verified if ok_r else rejected).append({"path": rp, "reason": reason})
+        if ok_r:
+            verified.append({"path": rp, "reason": reason})
+            continue
+        # A VALID RECEIPT OF ANOTHER TREE IS NOT A BAD ARTEFACT (2026-09-17). The receipt that
+        # attests the tagged tree of main is, on every pull request, "rejected: does not bind THIS
+        # tree" -- and a pull-request tree cannot carry a receipt by construction (owner decision
+        # 2026-08-30, card OA-4a8daddb55). Read as `rejected`, main's own good receipt made C12.1
+        # red on every pull request, which is the always-red this order removes.
+        #
+        # The probe is cryptographic, not textual: the SAME verifier, with the receipt's OWN tree
+        # and gate digests as the expectation. Everything else still has to hold -- schema,
+        # version, exit code 0, a key from the committed anchor, a signature that verifies. A
+        # copied receipt from another release fails at the version (L5-G6-01 case kept); a tampered
+        # or foreign-signed one fails at the signature; only a genuine receipt for a different
+        # candidate lands here. On main and on tags `other_tree` stays FAIL; the consumer decides.
+        eigener_baum, eigene_quelle = rc.get("subject_tree_digest"), rc.get("gate_source_digest")
+        anderer = False
+        if isinstance(eigener_baum, str) and isinstance(eigene_quelle, str):
+            try:
+                anderer, _grund2 = verify_receipt(rc, trusted_pubkeys=trusted, expected_version=version,
+                                                  subject_tree_digest=eigener_baum,
+                                                  gate_source_digest=eigene_quelle)
+            except Exception:  # noqa: BLE001
+                anderer = False
+        (other_tree if anderer else rejected).append({"path": rp, "reason": reason})
     ok = bool(verified)
     # ── THE TYPED STATE, and why a consumer must key on it (deep gate 2026-09-05, L5-G6-01, P2) ────────
     #
@@ -349,7 +431,13 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     #
     # A gate distinguishes ABSENT from REJECTED by a typed field, never by a message string. Prose is for
     # readers; `state` is for consumers, and it cannot drift when someone rewords a sentence.
-    state = "verified" if verified else ("rejected" if rejected else "absent")
+    # FIVE STATES, and the two new ones both fall on the FAIL side outside a pull request:
+    # `other_tree` (a genuine receipt of another candidate, nothing for this tree) and `absent`
+    # (no receipt at all). `rejected` keeps its meaning: a present artefact that claims to be a
+    # receipt for this version and is broken. A rejected candidate outranks other_tree: one known-bad
+    # artefact in the folder is a finding, whatever else lies beside it.
+    state = ("verified" if verified else "rejected" if rejected
+             else "other_tree" if other_tree else "absent")
     # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
     # verdict in either direction (L5-02 kept; the attestation is the receipt's job now).
     section = changelog_section(repo, version)
@@ -363,6 +451,8 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
         "trusted_pubkey_count": len(trusted),
         "verified_receipts": verified,
         "rejected_receipts": rejected,
+        "other_tree_receipts": other_tree,
+        "foreign_files": foreign,
         "changelog_section_found": section is not None,
         "changelog_records_audit": changelog_ok,
         "changelog_is_presentational": True,
@@ -370,6 +460,10 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
             f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. "
             + (f"{len(rejected)} candidate receipt(s) rejected: {[r['reason'] for r in rejected]}"
                if rejected else
+               f"{len(other_tree)} valid receipt(s) bind ANOTHER tree or gate version, none this one: "
+               f"{[r['path'] for r in other_tree]} — a receipt attests one candidate tree; this tree "
+               "has none"
+               if other_tree else
                f"no receipt under audit_artifacts/{_version_token(version)}/*.json — a CHANGELOG line is "
                "presentational and cannot grant this. The RUNNER must produce a signed receipt "
                "(scripts/pre_tag_receipt.py) bound to this tree. Fail-closed by design (reviewer F6).")),
@@ -397,6 +491,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  VERIFIED {r['path']}")
         for r in result.get("rejected_receipts", []):
             print(f"  REJECTED {r['path']}: {r['reason']}")
+        for r in result.get("other_tree_receipts", []):
+            print(f"  OTHER-TREE {r['path']}: {r['reason']}")
+        for r in result.get("foreign_files", []):
+            print(f"  FOREIGN {r['path']}: schema {r['schema']} is not a receipt")
         if not result["ok"]:
             print(f"  {result['reason']}")
     # Fail-closed by default (reviewer F6): no valid receipt -> non-zero, --strict not required.
