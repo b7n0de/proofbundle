@@ -78,22 +78,22 @@
   "accepted_gated": [
     {
       "context": "test (3.10)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+      "condition_sha256": "32cb0a8817b49d5283d8e1f2cba7f32d53c0dca4e0191ed2564e907dfad29026"
     },
     {
       "context": "test (3.11)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+      "condition_sha256": "32cb0a8817b49d5283d8e1f2cba7f32d53c0dca4e0191ed2564e907dfad29026"
     },
     {
       "context": "test (3.13)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+      "condition_sha256": "32cb0a8817b49d5283d8e1f2cba7f32d53c0dca4e0191ed2564e907dfad29026"
     },
     {
       "context": "test (3.14)",
-      "condition_sha256": "e3031648e67e7633d65fa773ef6d020d2120f24e3b810d55c468b2cfd5db7b32"
+      "condition_sha256": "32cb0a8817b49d5283d8e1f2cba7f32d53c0dca4e0191ed2564e907dfad29026"
     }
   ],
-  "accepted_gated_reason": "These four are produced only when the full test matrix runs. That matrix sits behind ONE shared five-branch condition, and the 'landung' label is only one of the branches: a workflow_dispatch run, a same-repo head branch starting with release/, a ref name starting with release/, the 'landung' label, or a merge_group event. An earlier draft of this line said 'only under the landung label', which was measurably wrong and contradicted this repository's own comment on the same condition. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
+  "accepted_gated_reason": "These four are produced only when the full test matrix runs. Since 2026-09-17 (owner directive, velocity) that matrix runs for EVERY pull request from this repository; the shared five-branch condition is: a workflow_dispatch run, a pull request whose head repository is this repository, a ref name starting with release/, the 'landung' label, or a merge_group event. Only a FORK pull request without the label runs the fast layer. The acceptance binds to the sha256 of that condition, not to the context name, so narrowing the condition while keeping the name is a regression and turns the gate red. Stands until the owner decides on the aggregator job (card OA-3c67b06ad6).",
   "accepted_unreadable": [
     {
       "context": "published-artifact-gate.yml:reusable-attest-dryrun",
