@@ -13,6 +13,23 @@ make conformance                       # skips anchor sub-checks if opentimestam
 python conformance/run_conformance.py --require-anchors   # full run (needs the [anchors] extra)
 ```
 
+The summary reports the **executed scope**, not a pass ratio. The shape, with placeholders rather
+than a snapshot of one branch's case count — a number printed here goes stale the moment the corpus
+grows, and a stale example is exactly the quotable half-truth rule 7 exists against:
+
+```
+[conformance] <N> cases · <full> fully checked · <partial> partially checked · <not run> not run · <failed> failed
+  <k> check(s) in <m> case(s) did NOT run in this environment:
+    - <caseId>: <why this check could not run here>
+    to execute them: pip install -e '.[anchors]' && python conformance/run_conformance.py --require-anchors
+```
+
+A case that did not run is labelled `NOT RUN`, one whose anchor sub-check skipped is `PARTIAL`.
+Neither is ever counted as a pass. `scope` and `skipped` bind each other in both directions: only a
+fully checked case may name no skip, and anything else must name what it skipped — which is what
+makes the disclosure hold for any missing optional dependency, not just for `opentimestamps`.
+See CONFORMANCE.md rule 7.
+
 ## Case format
 
 `manifest.json` lists case directories. Each holds a `case.json`:

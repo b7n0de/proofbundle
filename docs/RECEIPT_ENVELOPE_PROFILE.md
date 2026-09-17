@@ -12,10 +12,26 @@ This profile is **a profile to a standard, not a format beside one.** IETF
 [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943), *An Architecture for Trustworthy and Transparent
 Digital Supply Chains*, is the published SCITT architecture — **Standards Track, IETF stream, SCITT
 working group, June 2026**, verified at the RFC Editor on 2026-08-30 — and
-`draft-mih-sokolov-scitt-payload-binding-02` ("Canonical Payload Binding: A Signed Statement
-Construction Profile", revision 02 of 24 Aug 2026, individual submission, no stream and no intended
-RFC status — verified at the IETF datatracker on 2026-08-30) sits on top of it. R1 to R4 are stated
+
+**One reference this page does not make, and says so rather than making it silently.** RFC 9942
+(*COSE Receipts*) was published alongside RFC 9943 and is the document that specifies receipts.
+This page is a receipt envelope profile and cites only the architecture. Whether 9942 is the
+closer reference for the rules below is **NOT MEASURED**: the RFC text has not been read here, and
+a citation added from its title alone would be the kind of claim R6 exists against. Named so a
+reader does not mistake the absence for a judgement.
+
+
+`draft-mih-sokolov-scitt-payload-binding` sits on top of it — an individual submission, no stream
+and no intended RFC status, verified at the IETF datatracker on 2026-08-30. R1 to R4 are stated
 **against** that draft, by reference. R5 and R6 are our addition.
+
+**The revision this page was first written against is not the current one, and the draft has been
+retitled.** R1 to R4 were stated against revision `-02` of 24 Aug 2026, then titled *"Canonical
+Payload Binding: A Signed Statement Construction Profile"*. The draft is now at `-05` of 11 Sep
+2026 and titled *"Canonicalization Declaration for SCITT Signed Statements"*; the draft **name** is
+unchanged. The clause-by-clause re-measurement against `-05` is in
+[SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md),
+including which cited clauses kept their number and which two moved.
 
 **Precisely why, because the weaker wording is the true one.** An earlier draft of this page said the
 draft "says in its own section 1.1 that it does not cover them". Read against the draft itself, that
@@ -212,13 +228,24 @@ that is not measured there:
 | R5 | **stated, not specified here** — the CPB draft does not cover coverage, but `draft-hillier-coverage-attestation-00` (20 Aug 2026) does, and it rules out the shape this page once proposed. R5 names the requirement and points there; proofbundle's field form is undecided. |
 | R6 | **addition** — a governance rule; it appears in neither document. |
 
-**One divergence is declared here rather than changed.** Our bundle passes the *payload* as Merkle
-leaf input (`src/proofbundle/bundle.py`, `merkle.leaf_hash(payload)`), while the draft's section 7.1
-requires `leaf_input = bytes.fromhex(D)` for a 64-character hex identifier `D`, i.e. the raw 32
-bytes. Both are RFC 6962-correct leaf hashing; they are two different constructions. A verifier
-following the draft computes a different leaf over our bundle. **We declare the choice instead of
-rebuilding it:** a rebuild would void every receipt already issued, and the draft's own requirement
-is that a class declares its choice so a verifier does not have to guess.
+**Our leaf construction is declared here, and the reason is narrower than this page used to say.**
+Our bundle passes the *payload* as Merkle leaf input (`src/proofbundle/bundle.py`,
+`merkle.leaf_hash(payload)`).
+
+An earlier version of this paragraph called that a declared **divergence** from section 7.1 of the
+CPB draft, on the grounds that 7.1 *requires* `leaf_input = bytes.fromhex(D)`. **That reading did
+not survive the source, and the correction is recorded in the mapping this page binds itself to.**
+Read at source on 2026-08-30 against `-02` and again on 2026-09-13 against `-05`, the section opens
+in both revisions with the same sentence: *"This profile imposes no leaf construction on a
+Verifiable Data Structure."* The `MUST` that follows is **conditional** — it applies where a
+Transparency Service's VDS keys its log on the derived identifier — and we do not key on it, we
+bind the payload. So there is neither conformance nor violation here, and no divergence to declare.
+
+**What does reach us is section 5.1, and it is a duty to declare rather than to change.** A payload
+class must specify which representation it uses for each field carrying a derived identifier, and a
+verifier must not silently coerce between the listed forms. This paragraph discharges that duty for
+us: our log leaf is the payload, not the derived identifier in any representation. A rebuild is not
+proposed, and the count behind that is in the mapping under G2.
 
 ## Implementations measured against this profile
 

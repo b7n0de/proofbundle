@@ -78,6 +78,12 @@ include Makefile
 # `mutation_check.py:716` die Gewichte), zwei ruft ein AUSGELIEFERTES Makefile-Ziel
 # (`make demo`, `make demo-tamper`). Ein Skript ohne seine Datendatei ist kein Skript.
 #
+# DRAUSSEN und ausdruecklich entschieden: scripts/required_check_reachability_gate.py. Es liest
+# `.github/workflows/*.yml` und `.github/required_status_checks.json`; beides faellt unten unter
+# `prune .github`. Im Paket faende es also kein einziges Workflow-File und muesste daraus ein
+# Urteil bilden — die Abwesenheit einer Eingabe als Ergebnis zu nehmen ist genau der Fehler,
+# gegen den das Skript gebaut ist. Es gehoert in den Checkout und in CI, nicht in die sdist.
+#
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
 #

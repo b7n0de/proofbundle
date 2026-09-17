@@ -39,6 +39,14 @@ have, including expected-fail findings.
 6. **Versioning.** Cases carry stable `caseId`s. A successor case references the case it
    supersedes in `rationale`. The corpus `manifest.json` is the single registry; a case
    directory not in the manifest is not part of the corpus.
+7. **A skipped check is never a passed one.** The runner declares, per case, whether it ran in
+   FULL, ran PARTIALly, or did NOT RUN, and the summary reports those counts — there is deliberately
+   no `N/N cases pass` phrase to quote. An absent optional dependency reduces the *executed* scope,
+   so it must reduce the *reported* one; `--require-anchors` turns that reduction into a failure for
+   the authoritative run. The corpus-integrity precondition names which schema validator judged it,
+   for the same reason. Measured 2026-09-15 by an external reviewer on the documented `[test]`
+   install: the old summary said `122/122 cases pass` while one case had not run at all and three
+   had skipped their anchor sub-check.
 
 ## Honest labelling
 

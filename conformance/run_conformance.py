@@ -15,6 +15,10 @@ Anchors: verifying a confirmed OpenTimestamps proof needs the ``opentimestamps``
 (the ``[anchors]`` extra). Without it the anchor sub-check is SKIPPED and reported;
 pass ``--require-anchors`` (CI does) to turn a missing optional dependency into a failure
 so the anchor line can never be silently skipped in the authoritative run.
+
+Executed scope: every result declares whether the case ran in FULL, ran PARTIALly, or did NOT RUN,
+and the summary reports those three counts instead of a pass ratio. A skipped check is never
+counted as a passed one — see the EXECUTED SCOPE block below for why that needed a field.
 """
 from __future__ import annotations
 
@@ -40,6 +44,46 @@ except Exception:   # pragma: no cover - exercised in the no-extra CI leg
     _HAS_OTS = False
 
 ROOT = pathlib.Path(__file__).resolve().parent
+
+# --- EXECUTED SCOPE ---------------------------------------------------------------------------
+# A run must never count a check that did NOT RUN as one that passed. Until 2026-09-15 the only
+# trace of a skip was a word inside the free-text `detail`, and the headline added everything up to
+# "N/N cases pass". An external review measured exactly that on a base install: `122/122 cases pass`
+# with four SKIPPED lines underneath — one case that never ran, three that ran without their anchor
+# sub-check. So the executed scope is a FIELD, not a word in prose, and the headline carries it.
+# Deliberately there is no "N/N pass" phrase left to quote: a bare pass ratio is what hid the skips.
+FULL = "full"        # every sub-check of this case ran
+PARTIAL = "partial"  # the case ran, at least one sub-check did not
+NONE = "none"        # the case did not run at all
+
+SKIP_ANCHOR = "anchor-subcheck"
+SKIP_WHOLE = "whole-case"
+_SKIP_REASON = {
+    SKIP_ANCHOR: "anchor sub-check skipped (opentimestamps not installed)",
+    SKIP_WHOLE: "case not run (needs the [anchors] extra)",
+}
+
+
+def skips_forced_by_environment(case: dict, *, has_ots: bool) -> list[str]:
+    """What CANNOT run here, derived from the case itself — independently of what the check reports.
+
+    ZWEI LESER DERSELBEN QUELLE. Der Pruefer meldet, was er uebersprungen hat; diese Funktion leitet
+    aus `case.json` und der Umgebung ab, was er ueberspringen MUSSTE.
+
+    EHRLICHE REICHWEITE: dieser zweite Leser kennt NUR die opentimestamps-Klasse. Er faengt einen
+    Pruefer, der einen erzwungenen Anker-Skip verschweigt; er faengt NICHT das Verschweigen einer
+    anderen fehlenden optionalen Abhaengigkeit, denn er weiss von ihr nichts. Was fuer ALLE
+    Abhaengigkeiten greift, ist der Widerspruchs-Boden in `run()`: ein nicht leeres `skipped` mit
+    `scope=FULL` faellt, ohne dass irgendjemand die Bibliothek kennen muss.
+    """
+    if has_ots:
+        return []
+    forced: list[str] = []
+    if case.get("kind") == "native_bundle" and case.get("requiresAnchorsExtra"):
+        forced.append(SKIP_WHOLE)
+    if case.get("kind") == "decision_crossimpl" and (case.get("expected") or {}).get("anchor"):
+        forced.append(SKIP_ANCHOR)
+    return forced
 
 
 def _fail(case_id: str, msg: str) -> dict:
@@ -67,7 +111,8 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     if case.get("requiresAnchorsExtra") and not _HAS_OTS:
         if require_anchors:
             return _fail(cid, "case needs the [anchors] extra but opentimestamps is not installed")
-        return {"caseId": cid, "ok": True, "detail": "SKIPPED (opentimestamps not installed)"}
+        return {"caseId": cid, "ok": True, "scope": NONE, "skipped": [SKIP_WHOLE],
+                "detail": "NOT RUN — needs the [anchors] extra (opentimestamps is not installed)"}
     inp = case.get("input", "bundle.json")
     bundle = (case_dir / inp).resolve()
     # confine the fixture to the case directory: a case.json is a reviewed fixture, but an absolute or
@@ -94,13 +139,14 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     if "rejected" in exp and bool(exp["rejected"]) != (rc != 0):
         return _fail(cid, f"rejected={exp['rejected']} but exit {rc}")
     verdict = {0: "verified", 1: "verification failed", 2: "malformed/rejected", 3: "policy unmet"}.get(rc, str(rc))
-    return {"caseId": cid, "ok": True, "detail": f"verify exit {rc} ({verdict}) as expected"}
+    return {"caseId": cid, "ok": True, "scope": FULL, "detail": f"verify exit {rc} ({verdict}) as expected"}
 
 
 def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anchors: bool) -> dict:
     cid = case["caseId"]
     exp = case["expected"]
     notes: list[str] = []
+    skipped: list[str] = []
 
     # Required-expectations floor (fail-closed): every check below is gated on its key being
     # present in `expected`, so a case that DECLARES nothing would assert nothing and pass green.
@@ -168,6 +214,7 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
             if require_anchors:
                 return _fail(cid, "anchor check required but opentimestamps ([anchors]) is not installed")
             notes.append(f"anchor {want}: SKIPPED (opentimestamps not installed)")
+            skipped.append(SKIP_ANCHOR)
         else:
             jcs = (case_dir / "decision_receipt.jcs").read_bytes()
             root = hashlib.sha256(jcs).digest()
@@ -196,7 +243,9 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
                     return _fail(cid, "anchor confirmed WITHOUT relying-party trust — frozen leaked as trust")
             notes.append(f"anchor {res['status']} (offline, relying-party header)")
 
-    return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
+    return {"caseId": cid, "ok": True,
+            "scope": PARTIAL if skipped else FULL, "skipped": skipped,
+            "detail": " · ".join(notes)}
 
 
 def _check_relation(case: dict, case_dir: pathlib.Path, *, verb: str) -> dict:
@@ -273,7 +322,7 @@ def _check_relation(case: dict, case_dir: pathlib.Path, *, verb: str) -> dict:
         blob = json.dumps(report or {}) + err.getvalue()
         if exp["errorContains"] not in blob:
             return _fail(cid, f"expected error marker {exp['errorContains']!r} not found in report/stderr")
-    return {"caseId": cid, "ok": True, "detail": f"{verb} verify exit {rc}, lineage as declared"}
+    return {"caseId": cid, "ok": True, "scope": FULL, "detail": f"{verb} verify exit {rc}, lineage as declared"}
 
 
 def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
@@ -329,7 +378,7 @@ def _check_provenance_version_status(case: dict, case_dir: pathlib.Path, *,
     want = sorted(str(x) for x in exp["issues"])
     if got != want:
         return _fail(cid, f"issues {got!r} != expected {want!r}")
-    return {"caseId": cid, "ok": True,
+    return {"caseId": cid, "ok": True, "scope": FULL,
             "detail": f"{len(got)} issue(s) as expected"}
 
 
@@ -374,7 +423,7 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
         got = hashlib.sha256(canonicalize(_read(case.get("input") or "object.json"))).hexdigest()
         if got != exp["contentRootHex"]:
             return _fail(cid, f"content root {got} != expected {exp['contentRootHex']}")
-        return {"caseId": cid, "ok": True, "detail": "canonical content root reproduced"}
+        return {"caseId": cid, "ok": True, "scope": FULL, "detail": "canonical content root reproduced"}
 
     if "nonConformantDiffers" in exp:
         obj = _read(case.get("input") or "object.json")
@@ -385,7 +434,7 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
         if differs is not bool(exp["nonConformantDiffers"]):
             return _fail(cid, f"divergence {differs} != expected {exp['nonConformantDiffers']} "
                               f"(conformant {konform[:16]}, legacy {legacy[:16]})")
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": f"serializations differ as expected ({konform[:12]} vs {legacy[:12]})"}
 
     if "canonicalizeRefuses" in exp:
@@ -411,7 +460,7 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
             return _fail(cid, f"refused_all={refuses_all} != expected {exp['canonicalizeRefuses']} "
                               f"(serialized instead of refusing: {durchgelassen!r})")
         zusatz = f", {len(hart)} of them by an UNTYPED crash (RecursionError), not a typed rejection" if hart else ""
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": f"all {len(objs)} object(s) refused, as the counter-proof asserts{zusatz}"}
 
     # R2/R3/R4 — the three-outcome classification.
@@ -419,7 +468,7 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
         got, _claim = classify_eval_claim(_read(case.get("input") or "bundle.json"))
         if got != exp["classification"]:
             return _fail(cid, f"classification {got!r} != expected {exp['classification']!r}")
-        return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+        return {"caseId": cid, "ok": True, "scope": FULL, "detail": f"classified {got}"}
 
     return _fail(cid, "envelope_profile_rule case under-declares its expectations (fail-closed): "
                       "none of contentRootHex / nonConformantDiffers / "
@@ -477,7 +526,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         # schrieb immer "stable across re-render" — auch fuer die Gegenprobe, die INSTABILITAET
         # behauptet und bei der genau das der Befund ist. Ein Protokoll, aus dem der Leser das
         # Gegenteil des Gemessenen schliesst, ist schlimmer als keines.
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": (f"body core digest stable across re-render ({vorher[:12]})" if stable
                            else f"body core digest MOVED, as this case asserts "
                                 f"({vorher[:12]} -> {nachher[:12]})")}
@@ -495,7 +544,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         if got == "not_supplied" and not any("expected_subject_digest" in w for w in r.get("warnings", [])):
             return _fail(cid, "absent expectation was not reported as a warning — a silent limit is "
                               "exactly what this case exists to prevent")
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": f"subject expectation {got}, and the limit is stated"}
 
     if ("currentReceipt" in exp or "chainIntegrity" in exp
@@ -516,7 +565,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                 return _fail(cid, f"current {got!r} != expected {exp['currentReceipt']!r} "
                                   f"(candidates {kette['current_candidates']}, "
                                   f"unverified claims {kette['unverified_supersession_claims']})")
-            return {"caseId": cid, "ok": True,
+            return {"caseId": cid, "ok": True, "scope": FULL,
                     "detail": (f"current receipt {str(got)[:12]}, "
                                f"{len(geprueft)}/{len(umschlaege)} envelope(s) verified")}
         if "unverifiedSupersessionClaim" in exp:
@@ -532,7 +581,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
             if kette["corrected"]:
                 return _fail(cid, f"ein ungepruefter Umschlag hat trotzdem korrigiert: "
                                   f"{kette['corrected_by']!r}")
-            return {"caseId": cid, "ok": True,
+            return {"caseId": cid, "ok": True, "scope": FULL,
                     "detail": (f"unverified supersession claim reported "
                                f"({exp['unverifiedSupersessionClaim'][:12]}), nothing corrected")}
         got_i = kette["integrity_ok"]
@@ -540,7 +589,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
             return _fail(cid, f"integrity_ok={got_i} != expected {exp['chainIntegrity']} "
                               f"(missing {kette['missing_predecessors']}, "
                               f"unaddressable {kette['unaddressable']})")
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": (f"chain integrity {got_i}, as this case asserts"
                            + (f" (missing predecessor {kette['missing_predecessors'][0][:12]})"
                               if kette["missing_predecessors"] else ""))}
@@ -572,7 +621,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                                   or "AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN" not in m["codes"]):
             return _fail(cid, f"an unknown version must be refused with "
                               f"AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN, got ok={m['ok']} codes={m['codes']}")
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": f"predicateVersionStatus {want}, codes {m['codes']}"}
 
     if "policyDecision" in exp:
@@ -598,14 +647,14 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                 return _fail(cid, f"accept, but ok={m['ok']} (errors {m['errors'][:2]})")
             if want in ("reject", "insufficient_evidence") and m["ok"] is not False:
                 return _fail(cid, f"{want}, but ok={m['ok']} — a negative policy answer must not verify")
-        return {"caseId": cid, "ok": True,
+        return {"caseId": cid, "ok": True, "scope": FULL,
                 "detail": f"policy_decision {want}, policy {m['policy_name']!r} {str(m['policy_digest'])[:23]}"}
 
     want = exp["classification"]
     got = klassifiziere_agent_review(case, case_dir)
     if got != want:
         return _fail(cid, f"classification {got!r} != expected {want!r}")
-    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+    return {"caseId": cid, "ok": True, "scope": FULL, "detail": f"classified {got}"}
 
 
 def loese_kette(case: dict, case_dir: pathlib.Path):
@@ -854,15 +903,27 @@ _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _
              "cap1_document": _check_cap1_document}
 
 
-def run(*, require_anchors: bool = False) -> int:
+def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> int:
     manifest = json.loads((ROOT / "manifest.json").read_text())
     cases = manifest.get("cases", [])
     # F1 corpus-integrity precondition (schema-valid + cross-format-consistent) before any case
     # executes: a malformed/under-declared or self-contradictory corpus is a whole-corpus FAIL,
     # not something a green per-case run should mask.
     cf_ok, cf_problems = cross_format.run()
+    if require_full_schema and not cross_format.has_full_schema_check():
+        # THE PRECONDITION NEEDS THE SAME SWITCH THE CASES HAVE. Without it, the very same corpus is
+        # accepted or rejected depending on whether `jsonschema` happens to be importable, and the
+        # accepting branch still counts every case as fully checked — the reduced scope was disclosed
+        # but never enforceable. Measured by the bypass lens, 2026-09-16: a caseId of "" violates the
+        # schema's minLength and is caught with jsonschema (rc 1) and waved through without it (rc 0,
+        # "94 fully checked"). `--require-anchors` closes exactly this shape one level down; this is
+        # its counterpart one level up, and the authoritative CI leg sets both.
+        print(f"[conformance] corpus integrity NOT FULLY CHECKED and --require-full-schema was "
+              f"given: {cross_format.schema_check_name()}")
+        return 1
     if not cf_ok:
-        print(f"[conformance] corpus integrity FAIL ({len(cf_problems)} problem(s)):")
+        print(f"[conformance] corpus integrity FAIL ({len(cf_problems)} problem(s)) "
+              f"[schema checked by: {cross_format.schema_check_name()}]:")
         for pr in cf_problems:
             print("  -", pr)
         return 1
@@ -882,18 +943,79 @@ def run(*, require_anchors: bool = False) -> int:
             if handler is None:
                 results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
                 continue
-            results.append(handler(case, case_dir, require_anchors=require_anchors))
+            r = handler(case, case_dir, require_anchors=require_anchors)
+            if r.get("ok"):
+                cid = r.get("caseId", rel)
+                if r.get("scope") not in (FULL, PARTIAL, NONE):
+                    # Fail-closed floor on the HARNESS itself (not on the corpus): an ok result that
+                    # does not declare its executed scope would be counted as fully checked — the
+                    # exact fold this field exists to prevent.
+                    r = _fail(cid, "check returned ok without declaring its executed scope "
+                                   "(fail-closed): a check that may have skipped work must say so")
+                elif bool(r.get("skipped")) is not (r.get("scope") != FULL):
+                    # scope und skipped binden EINANDER, in BEIDE Richtungen: genau FULL heisst
+                    # "nichts uebersprungen", und PARTIAL wie NONE heissen "etwas uebersprungen, und
+                    # zwar dieses hier". Der Fang braucht KEINE Kenntnis der fehlenden Bibliothek und
+                    # schliesst die Klasse deshalb fuer JEDE optionale Abhaengigkeit, nicht nur fuer
+                    # opentimestamps — die Ableitung unten kann das nicht, sie kennt nur OTS.
+                    #
+                    # Zwei Linsen fanden die Asymmetrie am 16.09.2026 unabhaengig voneinander: die
+                    # fremde Modellfamilie ("schuetzt nur vor Luegen ueber OTS") und die
+                    # Arithmetik-Linse ("scope=FULL neben ehrlich gefuelltem skipped kommt durch").
+                    # Die erste Fassung dieses Riegels band nur EINE Richtung und fiel prompt ueber
+                    # den ganz uebersprungenen Fall, der NONE mit Skips traegt — gemessen, nicht
+                    # ueberlegt.
+                    r = _fail(cid, f"scope={r.get('scope')!r} and skipped="
+                                   f"{sorted(r.get('skipped') or [])} disagree: only {FULL!r} means "
+                                   f"nothing was skipped, and anything else must name what was")
+                else:
+                    forced = set(skips_forced_by_environment(case, has_ots=_HAS_OTS))
+                    undeclared = sorted(forced - set(r.get("skipped") or ()))
+                    if undeclared:
+                        r = _fail(cid, f"this environment cannot run {undeclared}, but the check "
+                                       f"reported {sorted(r.get('skipped') or []) or 'no skip'} — a "
+                                       f"check that did not run must never be counted as one that did")
+            results.append(r)
         except Exception as e:
             results.append(_fail(rel, f"{type(e).__name__}: {e}"))
 
     ok = all(r["ok"] for r in results)
-    print(f"[conformance] {sum(r['ok'] for r in results)}/{len(results)} cases pass"
+    gezaehlt = {k: sum(1 for r in results if r["ok"] and r.get("scope") == k)
+                for k in (FULL, PARTIAL, NONE)}
+    failed = sum(1 for r in results if not r["ok"])
+    # THE FOUR NUMBERS MUST ACCOUNT FOR EVERY CASE. If a future scope value is added and only
+    # registered in one of the two places that read it, the case falls out of the headline while
+    # still showing in the per-case list — an aggregate and a detail view disagreeing about the
+    # same run. Say so instead of letting it vanish.
+    ungezaehlt = len(results) - (gezaehlt[FULL] + gezaehlt[PARTIAL] + gezaehlt[NONE] + failed)
+    # The headline reports the executed scope, never a bare pass ratio. "N/N cases pass" was true and
+    # misleading at the same time: it counted a case that never ran, and three that ran without their
+    # anchor sub-check, as passes. A reader quoting this line now cannot lose the skips.
+    print(f"[conformance] {len(results)} cases · {gezaehlt[FULL]} fully checked · "
+          f"{gezaehlt[PARTIAL]} partially checked · {gezaehlt[NONE]} not run · {failed} failed"
+          f"{f' · {ungezaehlt} UNACCOUNTED' if ungezaehlt else ''}"
           f"{' (anchors required)' if require_anchors else ''}")
+    _LABEL = {FULL: "PASS", PARTIAL: "PARTIAL", NONE: "NOT RUN"}
     for r in results:
-        print(f"  {'PASS' if r['ok'] else 'FAIL'}  {r['caseId']}: {r['detail']}")
-    if not _HAS_OTS and not require_anchors:
-        print("  note: opentimestamps not installed — anchor sub-checks skipped "
-              "(run in the [anchors] CI job or with --require-anchors for the full check)")
+        label = "FAIL" if not r["ok"] else _LABEL.get(r.get("scope"), "?")
+        print(f"  {label:<7}  {r['caseId']}: {r['detail']}")
+    offen = [(r["caseId"], list(r.get("skipped") or ())) for r in results
+             if r["ok"] and r.get("skipped")]
+    if offen:
+        # EINE Zeile je FALL, nicht je Eintrag: ein Fall mit zwei uebersprungenen Teilpruefungen
+        # stand sonst zweimal in dieser Liste, waehrend die Kopfzeile ihn einmal zaehlte. Aggregat
+        # und Detail muessen dieselbe Menge beschreiben, sonst ist eine der beiden Zahlen falsch.
+        pruefungen = sum(len(g) for _, g in offen)
+        print(f"  {pruefungen} check(s) in {len(offen)} case(s) did NOT run in this environment:")
+        for cid, gruende in offen:
+            print(f"    - {cid}: " + "; ".join(_SKIP_REASON.get(g, g) for g in gruende))
+        print("    to execute them: pip install -e '.[anchors]' && "
+              "python conformance/run_conformance.py --require-anchors")
+    if not cross_format.has_full_schema_check():
+        # The F1 precondition above still ran, but on the reduced floor. Same rule as the skips:
+        # a check that ran in a smaller form must say so where its result is read.
+        print(f"  note: case schemas were checked by the {cross_format.schema_check_name()} — "
+              "install the [test] extra for the full validator")
     return 0 if ok else 1
 
 
@@ -901,8 +1023,12 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="proofbundle offline conformance harness")
     p.add_argument("--require-anchors", action="store_true",
                    help="fail (do not skip) if opentimestamps is unavailable for an anchor case")
+    p.add_argument("--require-full-schema", action="store_true",
+                   help="fail (do not fall back to the structural floor) if the full JSON Schema "
+                        "validator did not judge the corpus")
     args = p.parse_args(argv)
-    return run(require_anchors=args.require_anchors)
+    return run(require_anchors=args.require_anchors,
+               require_full_schema=args.require_full_schema)
 
 
 if __name__ == "__main__":

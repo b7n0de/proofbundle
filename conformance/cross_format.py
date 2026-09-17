@@ -37,6 +37,42 @@ from common_vocabulary import AXES, EXIT_CLASSES, LINEAGE_STATES, POLICY_VERDICT
 SCHEMA_PATH = ROOT / "vector_schema.json"
 MANIFEST_PATH = ROOT / "manifest.json"
 
+# WHICH validator judged the corpus is part of the result, not a detail. Both paths below catch a
+# malformed or under-declared case, but they do not catch the SAME set: the structural fallback
+# enforces the fail-closed floor, the full Draft 2020-12 run enforces the whole schema. An "OK" that
+# does not say which one ran lets a reduced check be read as the full one — the same class as the
+# conformance runner's former "N/N cases pass" over four checks that never ran (R4-04).
+try:
+    import jsonschema  # type: ignore # noqa: F401
+    _HAS_JSONSCHEMA = True
+except ImportError:                     # pragma: no cover - exercised in the bare-[eval] install
+    _HAS_JSONSCHEMA = False
+
+SCHEMA_CHECK_FULL = "JSON Schema Draft 2020-12"
+SCHEMA_CHECK_FLOOR = "dependency-free structural floor only (jsonschema not installed)"
+SCHEMA_CHECK_FLOOR_AFTER_ERROR = ("dependency-free structural floor only (jsonschema is installed "
+                                  "but FAILED at runtime: {})")
+
+# Set by validate_schema when the full validator was available but broke mid-run. Absence of a
+# library and a library that breaks are DIFFERENT reasons for the same reduced check, and a reader
+# who is told only "floor" cannot tell them apart — so the reason is carried, not flattened.
+_SCHEMA_RUNTIME_ERROR: str | None = None
+
+
+def has_full_schema_check() -> bool:
+    """True iff the FULL schema validator actually judged the corpus.
+
+    False means the reduced floor did — either because jsonschema is absent, or because it was
+    present and failed while running. `schema_check_name()` says which.
+    """
+    return _HAS_JSONSCHEMA and _SCHEMA_RUNTIME_ERROR is None
+
+
+def schema_check_name() -> str:
+    if _SCHEMA_RUNTIME_ERROR is not None:
+        return SCHEMA_CHECK_FLOOR_AFTER_ERROR.format(_SCHEMA_RUNTIME_ERROR)
+    return SCHEMA_CHECK_FULL if _HAS_JSONSCHEMA else SCHEMA_CHECK_FLOOR
+
 
 def load_cases(manifest_path: pathlib.Path = MANIFEST_PATH) -> list[tuple[str, dict]]:
     """Return ``[(relpath, case_dict)]`` for every case in the manifest. A missing or malformed
@@ -79,15 +115,34 @@ def _structural_validate(case: dict) -> list[str]:
 
 
 def validate_schema(cases: list[tuple[str, dict]]) -> list[str]:
+    global _SCHEMA_RUNTIME_ERROR
+    _SCHEMA_RUNTIME_ERROR = None
     problems: list[str] = []
-    try:
-        import jsonschema  # type: ignore
-        schema = json.loads(SCHEMA_PATH.read_text())
-        validator = jsonschema.Draft202012Validator(schema)
-        for rel, case in cases:
-            for err in validator.iter_errors(case):
-                problems.append(f"{rel}: schema: {err.message}")
-    except ImportError:
+    if _HAS_JSONSCHEMA:
+        import jsonschema  # type: ignore # noqa: PLC0415
+        try:
+            schema = json.loads(SCHEMA_PATH.read_text())
+            validator = jsonschema.Draft202012Validator(schema)
+            voll: list[str] = []
+            for rel, case in cases:
+                for err in validator.iter_errors(case):
+                    voll.append(f"{rel}: schema: {err.message}")
+        except ImportError as e:                # pragma: no cover - partially installed jsonschema
+            # NARROW on purpose: only the three jsonschema calls, and only ImportError. A broken or
+            # partially installed jsonschema must not take the whole run down — but it must also not
+            # quietly look like a full check. The run falls back to the floor AND says why.
+            # (Raised by the cross_format lens, 2026-09-16, with an executable repro: hoisting the
+            # import turned a mid-loop ImportError from a silent demotion into an uncaught crash.)
+            _SCHEMA_RUNTIME_ERROR = f"{type(e).__name__}: {e}"
+            for rel, case in cases:
+                for msg in _structural_validate(case):
+                    problems.append(f"{rel}: {msg}")
+            return problems
+        return voll
+    else:
+        # The import is decided ONCE, at module load. It used to be decided by an `except ImportError`
+        # wrapped around the whole validation loop, so an ImportError raised anywhere INSIDE it would
+        # silently demote the run to the floor and still report the same "OK".
         for rel, case in cases:
             for msg in _structural_validate(case):
                 problems.append(f"{rel}: {msg}")
@@ -145,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         n = len(load_cases())
         print(f"[cross-format] {n} case(s), {len(xids)} cross-format group(s): "
-              f"{'OK' if ok else str(len(problems)) + ' PROBLEM(S)'}")
+              f"{'OK' if ok else str(len(problems)) + ' PROBLEM(S)'} "
+              f"[schema checked by: {schema_check_name()}]")
         for pr in problems:
             print("  -", pr)
     return 0 if ok else 1
