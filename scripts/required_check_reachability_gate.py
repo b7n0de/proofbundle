@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -172,12 +173,20 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
     gewoehnlich: dict[str, str] = {}
     gegated: dict[str, tuple[str, str]] = {}
     unlesbar: list[str] = []
+    dateien_unlesbar: list[str] = []
     hinweise: list[str] = []
     for pfad in sorted(wf.glob("*.yml")) + sorted(wf.glob("*.yaml")):
         try:
             doc = _lade(pfad)
         except Exception as e:                          # noqa: BLE001
             unlesbar.append(f"{pfad.name}: {type(e).__name__}: {e}")
+            # A FILE that could not be read is a different thing from a JOB with a known limit,
+            # and the live judgement needs them apart: a context that is "absent" only because
+            # its workflow file did not parse is NOT MEASURABLE, not "produced by nobody".
+            # Measured 2026-09-17 by two lenses independently: with PyYAML missing, every
+            # required context read as "WILL NOT ARRIVE, no workflow produces it", and the
+            # advice pointed at the ruleset -- the one direction this gate exists to prevent.
+            dateien_unlesbar.append(f"{pfad.name}: {type(e).__name__}: {e}")
             continue
         for job_id, job in (doc.get("jobs") or {}).items():
             if not isinstance(job, dict):
@@ -222,7 +231,7 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
                     if name not in gewoehnlich:
                         gegated.setdefault(name, (pfad.name, bedingung))
     return {"gewoehnlich": gewoehnlich, "gegated": gegated, "unlesbar": unlesbar,
-            "hinweise": hinweise}
+            "dateien_unlesbar": dateien_unlesbar, "hinweise": hinweise}
 
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -342,7 +351,8 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
             "unbound_acceptances": sorted(unverbindlich),
             "newly_unreadable": neu_unlesbar, "changed_reasons": geaenderter_grund,
             "unbound_unreadable_acceptances": sorted(unverbindlich_unlesbar),
-            "unreadable": erhoben["unlesbar"], "dead_conditions": erhoben["hinweise"],
+            "unreadable": erhoben["unlesbar"], "unreadable_files": erhoben["dateien_unlesbar"],
+            "dead_conditions": erhoben["hinweise"],
             "produced_contexts": sorted(erhoben["gewoehnlich"]),
             "ruleset": erklaert.get("ruleset"), "branch": erklaert.get("branch")}
 
@@ -543,16 +553,254 @@ def _drift_zeile(marker: str | None, erklaerung: Path | None = None) -> str:
             f"drifted from the live ruleset ({_einzeilig(lage['why'])})")
 
 
+# --------------------------------------------------------------------------------------------
+# THE LIVE PULL REQUEST. Everything above answers "CAN the workflows produce this context under
+# some named condition?", and the ratchet accepts the four version contexts behind their five-branch
+# condition. On a pull request that is the wrong question. Measured 2026-09-17 on pull request
+# 218: this gate reported green, the `landung` label was absent, and test (3.10), (3.11), (3.13)
+# and (3.14) were never going to arrive -- the pull request stood BLOCKED with nothing red on it,
+# which is the exact picture this file was written against. A guard that judges the structure
+# while the instance in front of it is blocked has not caught its class at the live instance.
+#
+# So the live question is asked separately: does THIS event -- its name, its labels, its head ref,
+# its head repository -- make each condition TRUE? The runner hands all of that over in its own
+# variables (GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GITHUB_HEAD_REF, GITHUB_REF_NAME,
+# GITHUB_REPOSITORY), so no network is needed. The evaluator understands exactly the atoms this
+# repository's conditions use; anything else is NOT MEASURABLE, and NOT MEASURABLE is never a pass.
+# GitHub compares strings case-insensitively in `==`, `contains` and `startsWith`, and so does this.
+# --------------------------------------------------------------------------------------------
+
+ARRIVES = "arrives"
+WILL_NOT_ARRIVE = "will-not-arrive"
+
+
+class NichtAuswertbar(Exception):
+    """A condition fragment this evaluator does not understand. Reported, never guessed."""
+
+
+def ereignis_aus_umgebung(env=None) -> dict | None:
+    """The event of THIS run, from the runner's own variables. None when not under Actions."""
+    env = os.environ if env is None else env
+    name = (env.get("GITHUB_EVENT_NAME") or "").strip()
+    pfad = (env.get("GITHUB_EVENT_PATH") or "").strip()
+    if not name or not pfad:
+        return None
+    ereignis = {"event_name": name, "repository": env.get("GITHUB_REPOSITORY") or "",
+                "head_ref": env.get("GITHUB_HEAD_REF") or "", "ref_name": env.get("GITHUB_REF_NAME") or ""}
+    try:
+        nutzlast = json.loads(Path(pfad).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ereignis["fehler"] = f"{pfad}: {type(exc).__name__}: {exc}"
+        return ereignis
+    ereignis["payload"] = nutzlast if isinstance(nutzlast, dict) else {}
+    return ereignis
+
+
+def _labels(ereignis: dict) -> list[str]:
+    pr = ((ereignis.get("payload") or {}).get("pull_request")) or {}
+    aus = []
+    for e in pr.get("labels") or []:
+        if isinstance(e, dict) and isinstance(e.get("name"), str):
+            aus.append(e["name"])
+    return aus
+
+
+def _head_repo(ereignis: dict) -> str:
+    pr = ((ereignis.get("payload") or {}).get("pull_request")) or {}
+    return str((((pr.get("head") or {}).get("repo")) or {}).get("full_name") or "")
+
+
+_ATOME = [
+    (re.compile(r"github\.event_name\s*(==|!=)\s*'([^']*)'"),
+     lambda m, ev: (ev["event_name"].lower() == m.group(2).lower()) == (m.group(1) == "==")),
+    (re.compile(r"startsWith\(\s*github\.head_ref\s*,\s*'([^']*)'\s*\)"),
+     lambda m, ev: ev.get("head_ref", "").lower().startswith(m.group(1).lower())),
+    (re.compile(r"startsWith\(\s*github\.ref_name\s*,\s*'([^']*)'\s*\)"),
+     lambda m, ev: ev.get("ref_name", "").lower().startswith(m.group(1).lower())),
+    (re.compile(r"contains\(\s*github\.event\.pull_request\.labels\.\*\.name\s*,\s*'([^']*)'\s*\)"),
+     lambda m, ev: m.group(1).lower() in [x.lower() for x in _labels(ev)]),
+    (re.compile(r"github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository"),
+     lambda m, ev: bool(_head_repo(ev)) and _head_repo(ev).lower() == str(ev.get("repository", "")).lower()),
+    (re.compile(r"true\b"), lambda m, ev: True),
+    (re.compile(r"false\b"), lambda m, ev: False),
+]
+_ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\|)")
+
+
+def _tokens(text: str, ereignis: dict) -> list:
+    """Tokens: '(', ')', '&&', '||' and evaluated atoms (True/False). Unknown text raises."""
+    aus: list = []
+    i, n = 0, len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        z = _ZEICHEN.match(text, i)
+        if z:
+            aus.append(z.group(1))
+            i = z.end()
+            continue
+        for muster, wert in _ATOME:
+            m = muster.match(text, i)
+            if m:
+                aus.append(bool(wert(m, ereignis)))
+                i = m.end()
+                break
+        else:
+            raise NichtAuswertbar(f"cannot evaluate: {_einzeilig(text[i:i + 60], 60)}")
+    return aus
+
+
+def bedingung_am_ereignis(text: str, ereignis: dict) -> bool:
+    """Evaluate one workflow condition against a live event. `&&` binds tighter than `||`."""
+    if text.startswith("job `if: ") and text.endswith("`"):
+        text = text[len("job `if: "):-1]
+    t = _tokens(" ".join((text or "").split()), ereignis)
+    pos = 0
+
+    def ausdruck() -> bool:
+        nonlocal pos
+        wert = glied()
+        while pos < len(t) and t[pos] == "||":
+            pos += 1
+            rechts = glied()
+            wert = wert or rechts
+        return wert
+
+    def glied() -> bool:
+        nonlocal pos
+        wert = faktor()
+        while pos < len(t) and t[pos] == "&&":
+            pos += 1
+            rechts = faktor()
+            wert = wert and rechts
+        return wert
+
+    def faktor() -> bool:
+        nonlocal pos
+        if pos >= len(t):
+            raise NichtAuswertbar("condition ends where an operand was expected")
+        tok = t[pos]
+        if tok == "(":
+            pos += 1
+            wert = ausdruck()
+            if pos >= len(t) or t[pos] != ")":
+                raise NichtAuswertbar("unbalanced parenthesis in the condition")
+            pos += 1
+            return wert
+        if isinstance(tok, bool):
+            pos += 1
+            return tok
+        raise NichtAuswertbar(f"unexpected token {tok!r} in the condition")
+
+    if not t:
+        raise NichtAuswertbar("empty condition")
+    wert = ausdruck()
+    if pos != len(t):
+        raise NichtAuswertbar("trailing text in the condition")
+    return wert
+
+
+def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: Path | None = None) -> dict:
+    """Will every required context ARRIVE on this event? Three states per context, never two."""
+    if not ereignis:
+        return {"verdict": UNKNOWN, "reason": "not running under GitHub Actions: GITHUB_EVENT_NAME or "
+                                             "GITHUB_EVENT_PATH is missing, so there is no live event to judge"}
+    if ereignis.get("fehler"):
+        return {"verdict": UNKNOWN, "reason": f"the event payload is not readable ({ereignis['fehler']})"}
+    r = pruefe(declaration, verzeichnis)
+    if r["verdict"] == UNKNOWN:
+        return {"verdict": UNKNOWN, "reason": r.get("reason")}
+    unlesbare_dateien = list(r.get("unreadable_files") or [])
+    je: list[dict] = []
+    for e in r["per_context"]:
+        z = {"context": e["context"], "structure": e["state"]}
+        if e["state"] == ALWAYS:
+            z["live"] = ARRIVES
+        elif e["state"] == GATED:
+            try:
+                wahr = bedingung_am_ereignis(e.get("condition") or "", ereignis)
+            except NichtAuswertbar as exc:
+                z["live"], z["why"] = UNKNOWN, str(exc)
+            else:
+                z["live"] = ARRIVES if wahr else WILL_NOT_ARRIVE
+                z["condition"] = e.get("condition")
+        elif unlesbare_dateien:
+            # "Absent" is only a verdict when every workflow file was READ. With a file that did
+            # not parse, the context may well be produced there, and this run cannot tell.
+            z["live"], z["why"] = UNKNOWN, ("a workflow file could not be read, so absence is not "
+                                           "measurable: " + "; ".join(unlesbare_dateien))
+        else:
+            z["live"], z["why"] = WILL_NOT_ARRIVE, "no workflow produces it"
+        je.append(z)
+    fehlend = [z["context"] for z in je if z["live"] == WILL_NOT_ARRIVE]
+    unklar = [z["context"] for z in je if z["live"] == UNKNOWN]
+    verdict = ABSENT if fehlend else (UNKNOWN if unklar else ALWAYS)
+    rat = None
+    if fehlend:
+        bedingt = [z for z in je if z["live"] == WILL_NOT_ARRIVE and z.get("condition")]
+        # The label advice is for a PULL REQUEST. On a push or a dispatch there is nothing to
+        # label; the generic sentence is the honest one there (lens 1, 2026-09-17).
+        auf_pr = str(ereignis.get("event_name", "")).lower() in ("pull_request", "pull_request_target")
+        if bedingt and auf_pr and any("'landung'" in (z.get("condition") or "") for z in bedingt):
+            rat = ("add the label `landung` to this pull request (gh pr edit <number> --add-label landung); "
+                   "the `labeled` trigger starts the full matrix")
+        elif bedingt:
+            rat = "make one branch of the named condition true on this pull request, or change the ruleset"
+        else:
+            rat = "no workflow produces the missing context under any condition; the ruleset or the workflows must change"
+    return {"verdict": verdict, "per_context": je, "missing": fehlend, "not_measurable": unklar,
+            "unreadable_files": unlesbare_dateien,
+            "event_name": ereignis.get("event_name"), "labels": _labels(ereignis),
+            "head_ref": ereignis.get("head_ref"), "head_repo": _head_repo(ereignis),
+            "repository": ereignis.get("repository"), "advice": rat}
+
+
+def _lebend_bericht(d: dict) -> list[str]:
+    """The live report, one line per context, every field folded (see _einzeilig)."""
+    zeilen = []
+    if d["verdict"] == UNKNOWN and "per_context" not in d:
+        return [f"[live-checks] NOT MEASURABLE — {_einzeilig(d.get('reason'), 200)}"]
+    kopf = (f"[live-checks] event {_einzeilig(d.get('event_name'), 32)}, labels "
+            f"[{_einzeilig(', '.join(d.get('labels') or []), 80)}], head {_einzeilig(d.get('head_ref') or '-', 64)}: ")
+    if d["verdict"] == ALWAYS:
+        kopf += "every required context arrives on this event"
+    elif d["verdict"] == ABSENT:
+        kopf += f"{len(d['missing'])} required context(s) will NOT arrive on this event"
+    else:
+        kopf += f"NOT MEASURABLE for {len(d['not_measurable'])} context(s)"
+    zeilen.append(kopf)
+    for z in d.get("per_context", []):
+        marke = {ARRIVES: "arrives          ", WILL_NOT_ARRIVE: "WILL NOT ARRIVE  ", UNKNOWN: "NOT MEASURABLE   "}[z["live"]]
+        zeile = f"  {marke} {_einzeilig(z['context'], 80)}"
+        if z["live"] == WILL_NOT_ARRIVE and z.get("condition"):
+            zeile += f"   condition is false on this event: {_einzeilig(z['condition'], 200)}"
+        elif z.get("why"):
+            zeile += f"   {_einzeilig(z['why'], 200)}"
+        zeilen.append(zeile)
+    for u in d.get("unreadable_files") or []:
+        zeilen.append(f"  unreadable-file   {_einzeilig(u, 200)}")
+    if d.get("advice"):
+        zeilen.append(f"  action: {_einzeilig(d['advice'], 220)}")
+    return zeilen
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--declaration", type=Path, default=None)
     ap.add_argument("--workflows", type=Path, default=None)
-    ap.add_argument("--verify-declaration", action="store_true",
-                    help="NETWORK: hold the declaration against the live ruleset and report "
-                         "drift. Not part of the offline gate; with no network the verdict is "
-                         "not-measurable, never a pass.")
+    modus = ap.add_mutually_exclusive_group()
+    modus.add_argument("--verify-declaration", action="store_true",
+                       help="NETWORK: hold the declaration against the live ruleset and report "
+                            "drift. Not part of the offline gate; with no network the verdict is "
+                            "not-measurable, never a pass.")
     ap.add_argument("--repo", default=None, help="owner/name for --verify-declaration")
+    modus.add_argument("--verify-live-pr", "--live", dest="verify_live_pr", action="store_true",
+                       help="judge THIS run's event (GITHUB_EVENT_NAME/GITHUB_EVENT_PATH): will every "
+                            "required context arrive on it? Exit 1 when one will not or cannot be "
+                            "measured. The offline verdict answers CAN, this one answers WILL.")
     ap.add_argument("--drift-marker", default=".required-checks-drift.json",
                     help="where --verify-declaration puts its verdict and where the offline "
                          "run reads it. Empty means: no marker.")
@@ -560,6 +808,14 @@ def main(argv=None) -> int:
                     help="treat a context that is only produced under a NAMED condition as a pass. "
                          "Off by default: a condition nobody sets is a pull request nobody can merge.")
     a = ap.parse_args(argv)
+    if a.verify_live_pr:
+        d = lebend(ereignis_aus_umgebung(), a.declaration, a.workflows)
+        if a.json:
+            print(json.dumps(d, ensure_ascii=False, indent=2))
+        else:
+            for zeile in _lebend_bericht(d):
+                print(zeile)
+        return 0 if d["verdict"] == ALWAYS else 1
     if a.verify_declaration:
         d = erklaerung_gegen_regelsatz(a.declaration, a.repo)
         if a.json:

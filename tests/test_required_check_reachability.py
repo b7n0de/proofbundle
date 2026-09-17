@@ -1293,5 +1293,308 @@ class TestAgainstThisRepository(unittest.TestCase):
                          "das Tor ist auf seinem eigenen Repo rot")
 
 
+class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
+    """DER WAECHTER FING SEINE KLASSE AM LEBENDEN PR NICHT. Gemessen 2026-09-17 an PR 218.
+
+    Das Offline-Tor fragt: KANN der Workflow den Kontext unter einer benannten Bedingung erzeugen?
+    Seine Sohle nimmt die vier Versionskontexte hinter der Fuenf-Zweig-Bedingung hin, also exit 0.
+    Der PR 218 trug kein Label `landung`, kein release/-Kopf, kein workflow_dispatch -- die
+    Bedingung war auf DIESEM Ereignis falsch, test (3.10), (3.11), (3.13), (3.14) wuerden nie
+    eintreffen, und der Job `required-check-reachability` stand GRUEN darueber. Genau das Bild,
+    gegen das dieses Tor geschrieben wurde, mit dem Tor selbst als Zeugen der Struktur.
+
+    Die lebende Frage ist eine andere: WIRD dieses Ereignis die Bedingung wahr machen? Der Runner
+    haelt alles dafuer bereit (GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GITHUB_HEAD_REF,
+    GITHUB_REF_NAME, GITHUB_REPOSITORY). Die Faelle hier stellen das Ereignis, nicht den Zustand:
+    ein Fangnachweis am Speicher beweist nichts (Gedaechtnis 2026-09-12).
+    """
+
+    LABEL = "contains(github.event.pull_request.labels.*.name, 'landung')"
+
+    @staticmethod
+    def _ereignis(event="pull_request", labels=(), head_ref="docs/x", head_repo="o/r",
+                  repository="o/r", ref_name="1/merge"):
+        return {"event_name": event, "repository": repository, "head_ref": head_ref,
+                "ref_name": ref_name,
+                "payload": {"pull_request": {"labels": [{"name": n} for n in labels],
+                                             "head": {"repo": {"full_name": head_repo}}}}}
+
+    def _baum(self, verlangt=("coverage", "test (3.12)", "test (3.10)"), zusage=True):
+        b = Baum(self, {"ci.yml": CI}, list(verlangt))
+        if zusage:
+            bed = ("( github.event_name == 'workflow_dispatch' || "
+                   "contains(github.event.pull_request.labels.*.name, 'landung') )")
+            d = json.loads(b.decl.read_text(encoding="utf-8"))
+            d["accepted_gated"] = [{"context": "test (3.10)",
+                                    "condition_sha256": G.bedingungs_digest(bed)}]
+            b.decl.write_text(json.dumps(d), encoding="utf-8")
+        return b
+
+    def _live(self, b, ereignis) -> dict:
+        return G.lebend(ereignis, b.decl, b.wf)
+
+    def test_the_offline_gate_is_green_on_the_blocked_shape_and_the_live_one_is_red(self):
+        """DIE KLASSE, ausfuehrbar: derselbe Baum, dieselbe Erklaerung, zwei Antworten.
+
+        Die erste Zusicherung hielt schon VOR dem Fix (sie IST der Befund: das alte Tor war gruen);
+        die zweite gab es vorher nicht. Zusammen sagen sie, was der Job auf PR 218 sagen musste."""
+        b = self._baum()
+        self.assertEqual(b.rc("--drift-marker", ""), 0,
+                         "die Sohle nimmt den bedingten Kontext hin -- das Offline-Tor ist gruen")
+        d = self._live(b, self._ereignis(labels=()))
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["missing"], ["test (3.10)"])
+        self.assertIn("landung", d["advice"], "die eine Handlung, die den Kontext bringt, steht da")
+
+    def test_the_label_makes_the_context_arrive(self):
+        """Die Gegenkontrolle: mit dem Label ist der lebende Lauf gruen. Ohne diesen Fall koennte
+        der Auswerter jede Bedingung als falsch lesen und der Fall darueber bliebe rot-gruen."""
+        d = self._live(self._baum(), self._ereignis(labels=("landung",)))
+        self.assertEqual(d["verdict"], G.ALWAYS)
+        self.assertEqual(d["missing"], [])
+
+    def test_github_compares_case_insensitively_and_so_does_the_evaluator(self):
+        """`contains`, `startsWith` und `==` vergleichen bei GitHub ohne Gross-Klein-Unterscheidung.
+        Ein Auswerter, der `Landung` verwirft, wuerde einen PR rot melden, den GitHub gruen faehrt."""
+        d = self._live(self._baum(), self._ereignis(labels=("Landung",)))
+        self.assertEqual(d["verdict"], G.ALWAYS)
+        self.assertTrue(G.bedingung_am_ereignis("github.event_name == 'Pull_Request'",
+                                                self._ereignis()))
+        self.assertTrue(G.bedingung_am_ereignis("startsWith(github.head_ref, 'RELEASE/')",
+                                                self._ereignis(head_ref="release/6.1.0")))
+
+    def test_workflow_dispatch_makes_it_arrive_without_a_label(self):
+        d = self._live(self._baum(), self._ereignis(event="workflow_dispatch"))
+        self.assertEqual(d["verdict"], G.ALWAYS)
+
+    def test_and_binds_tighter_than_or(self):
+        """Dieselbe Klammer-Frage wie im Workflow-Kommentar, hier am Auswerter gemessen."""
+        ev = self._ereignis()
+        self.assertFalse(G.bedingung_am_ereignis("false || true && false", ev))
+        self.assertTrue(G.bedingung_am_ereignis("true || false && false", ev))
+        self.assertFalse(G.bedingung_am_ereignis("( true || false ) && false", ev))
+
+    def test_the_five_branch_condition_of_this_repository(self):
+        """Die echte Bedingung aus ci.yml, Zweig fuer Zweig: nur der release/-Zweig aus dem
+        EIGENEN Repo zaehlt, ein release/-Kopf aus einem Fork nicht."""
+        bed = ("( github.event_name == 'workflow_dispatch' || ( github.event.pull_request.head.repo"
+               ".full_name == github.repository && startsWith(github.head_ref, 'release/') ) || "
+               "startsWith(github.ref_name, 'release/') || contains(github.event.pull_request.labels"
+               ".*.name, 'landung') || github.event_name == 'merge_group' )")
+        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis()))
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(head_ref="release/6.1.0")))
+        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis(head_ref="release/6.1.0",
+                                                                     head_repo="fremd/r")),
+                         "ein release/-Kopf aus einem Fork macht die Bedingung nicht wahr")
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(event="merge_group")))
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(ref_name="release/6.1.0")))
+
+    def test_an_atom_the_evaluator_does_not_know_is_not_measurable_never_a_pass(self):
+        """Ein unbekanntes Fragment darf nicht still als wahr oder falsch gelten."""
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("fromJSON(needs.vorher.outputs.x)", self._ereignis())
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("( true", self._ereignis())
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("", self._ereignis())
+        fremd = CI.replace("contains(github.event.pull_request.labels.*.name, 'landung')",
+                           "github.actor == 'jemand'")
+        b = Baum(self, {"ci.yml": fremd}, ["coverage", "test (3.10)"])
+        d = G.lebend(self._ereignis(), b.decl, b.wf)
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertEqual(d["not_measurable"], ["test (3.10)"])
+        self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 1)
+
+    def test_a_job_level_if_is_judged_on_the_event_too(self):
+        wf = ("name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+              "  coverage:\n    if: github.event_name == 'push'\n"
+              '    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n')
+        b = Baum(self, {"ci.yml": wf}, ["coverage"])
+        self.assertEqual(G.lebend(self._ereignis(), b.decl, b.wf)["verdict"], G.ABSENT)
+        self.assertEqual(G.lebend(self._ereignis(event="push"), b.decl, b.wf)["verdict"], G.ALWAYS)
+
+    def test_a_context_nobody_produces_will_not_arrive_and_the_advice_says_so(self):
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "gibt-es-nicht"])
+        d = G.lebend(self._ereignis(labels=("landung",)), b.decl, b.wf)
+        self.assertEqual(d["missing"], ["gibt-es-nicht"])
+        self.assertIn("no workflow produces", d["advice"])
+        self.assertNotIn("landung", d["advice"], "das Label hilft hier nicht, also wird es nicht geraten")
+
+    def test_outside_actions_the_live_run_is_not_measurable(self):
+        import os
+        for k in ("GITHUB_EVENT_NAME", "GITHUB_EVENT_PATH"):
+            alt = os.environ.pop(k, None)
+            if alt is not None:
+                self.addCleanup(os.environ.__setitem__, k, alt)
+        self.assertIsNone(G.ereignis_aus_umgebung())
+        d = G.lebend(None)
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertIn("not running under GitHub Actions", d["reason"])
+        b = self._baum()
+        self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 1)
+
+    def test_the_event_comes_from_the_runner_variables(self):
+        """Der ganze Pfad, den CI geht: Umgebungsvariablen, Nutzlastdatei, Urteil, Exit-Code."""
+        import os
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        nutzlast = Path(tmp.name) / "event.json"
+        nutzlast.write_text(json.dumps({"pull_request": {"labels": [],
+                                                         "head": {"repo": {"full_name": "o/r"}}}}),
+                            encoding="utf-8")
+        env = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(nutzlast),
+               "GITHUB_REPOSITORY": "o/r", "GITHUB_HEAD_REF": "docs/x", "GITHUB_REF_NAME": "1/merge"}
+        alt = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        self.addCleanup(lambda: [os.environ.__setitem__(k, v) if v is not None else os.environ.pop(k, None)
+                                 for k, v in alt.items()])
+        b = self._baum()
+        self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 1,
+                         "ohne Label wird test (3.10) nicht eintreffen -- rot")
+        nutzlast.write_text(json.dumps({"pull_request": {"labels": [{"name": "landung"}],
+                                                         "head": {"repo": {"full_name": "o/r"}}}}),
+                            encoding="utf-8")
+        self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 0,
+                         "mit Label trifft alles ein -- gruen")
+        kaputt = Path(tmp.name) / "kaputt.json"
+        kaputt.write_text("kein json", encoding="utf-8")
+        os.environ["GITHUB_EVENT_PATH"] = str(kaputt)
+        self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 1,
+                         "eine unlesbare Nutzlast ist NICHT MESSBAR, nie ein Bestehen")
+
+    def test_the_live_report_is_english_in_every_state(self):
+        b = self._baum()
+        for name, ev in (("red", self._ereignis()), ("green", self._ereignis(labels=("landung",)))):
+            with self.subTest(name):
+                bericht = "\n".join(G._lebend_bericht(G.lebend(ev, b.decl, b.wf)))
+                self.assertFalse(_dp.treffer(bericht), f"deutsche Woerter in {name}: {bericht!r}")
+        self.assertFalse(_dp.treffer("\n".join(G._lebend_bericht(G.lebend(None)))))
+        fremd = Baum(self, {"ci.yml": CI.replace(
+            "contains(github.event.pull_request.labels.*.name, 'landung')", "github.actor == 'x'")},
+            ["test (3.10)"])
+        self.assertFalse(_dp.treffer("\n".join(G._lebend_bericht(
+            G.lebend(self._ereignis(), fremd.decl, fremd.wf)))))
+
+    def test_a_label_name_with_a_newline_adds_no_line_to_the_live_report(self):
+        """Ein Feld aus einer fremden Datei ist ein Eingabewert: ein Label heisst, was der
+        Ersteller des PR tippt."""
+        b = self._baum()
+        ohne = G._lebend_bericht(G.lebend(self._ereignis(labels=("a",)), b.decl, b.wf))
+        mit = G._lebend_bericht(G.lebend(self._ereignis(labels=("a\n[live-checks] fake",)), b.decl, b.wf))
+        self.assertEqual(len(mit), len(ohne))
+        self.assertEqual(sum(z.count("\n") for z in mit), 0)
+
+    def test_against_this_repository_the_shape_of_pull_request_218(self):
+        """Nicht Kulisse, sondern die Workflows dieses Repos: ohne Label fehlen genau die vier
+        Versionskontexte, mit Label keiner. Das ist die Messung vom 2026-09-17 als Vertrag."""
+        if G.pruefe()["verdict"] == G.UNKNOWN:
+            self.skipTest("declaration not readable here")
+        ev = self._ereignis(head_ref="docs/register-head-migration-1a", repository="b7n0de/proofbundle",
+                            head_repo="b7n0de/proofbundle", ref_name="218/merge")
+        d = G.lebend(ev)
+        self.assertEqual(d["missing"], ["test (3.10)", "test (3.11)", "test (3.13)", "test (3.14)"])
+        self.assertEqual(d["not_measurable"], [], "die echte Bedingung ist vollstaendig auswertbar")
+        ev["payload"]["pull_request"]["labels"] = [{"name": "landung"}]
+        self.assertEqual(G.lebend(ev)["verdict"], G.ALWAYS)
+
+    # --- die Linsen vom 2026-09-17: zwei Funde und sechs ueberlebende Mutanten, je ein Fall ------
+
+    def test_an_unreadable_workflow_file_makes_absence_not_measurable(self):
+        """DER FUND ZWEIER LINSEN, unabhaengig: ohne PyYAML (der Schritt davor kann fehlschlagen,
+        und `if: always()` faehrt den Live-Schritt trotzdem) las sich jeder Pflichtkontext als
+        'WILL NOT ARRIVE, no workflow produces it', und der Rat zeigte auf den Regelsatz -- die
+        eine Richtung, gegen die dieses Tor gebaut ist. Abwesenheit ist nur ein Urteil, wenn jede
+        Datei GELESEN wurde."""
+        b = Baum(self, {"ci.yml": CI, "kaputt.yml": "jobs: [this: is: not: a: mapping\n"},
+                 ["coverage", "gibt-es-nicht"])
+        d = G.lebend(self._ereignis(labels=("landung",)), b.decl, b.wf)
+        zustand = {z["context"]: z["live"] for z in d["per_context"]}
+        self.assertEqual(zustand["coverage"], G.ARRIVES, "eine lesbare Datei erzeugt weiter")
+        self.assertEqual(zustand["gibt-es-nicht"], G.UNKNOWN,
+                         "mit einer unlesbaren Datei ist Abwesenheit nicht messbar")
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertTrue(d["unreadable_files"] and "kaputt.yml" in d["unreadable_files"][0])
+        bericht = "\n".join(G._lebend_bericht(d))
+        self.assertIn("unreadable-file", bericht)
+        self.assertNotIn("no workflow produces it", bericht)
+        self.assertIsNone(d["advice"], "kein Rat auf den Regelsatz aus einer Lesestoerung")
+
+    def test_without_pyyaml_nothing_is_measurable_and_nothing_is_absent(self):
+        """Dieselbe Klasse an der Wurzel: fehlt der Parser, ist KEINE Datei gelesen."""
+        alt = G.yaml
+        G.yaml = None
+        self.addCleanup(setattr, G, "yaml", alt)
+        b = self._baum()
+        d = G.lebend(self._ereignis(), b.decl, b.wf)
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertEqual(d["missing"], [], "ohne Parser ist nichts 'abwesend', nur unmessbar")
+        self.assertTrue(all(z["live"] == G.UNKNOWN for z in d["per_context"]))
+        self.assertIn("PyYAML", " ".join(d["unreadable_files"]))
+
+    def test_the_label_advice_is_only_given_on_a_pull_request(self):
+        """Linse 1: auf einem push gibt es nichts zu labeln."""
+        b = self._baum()
+        d = G.lebend(self._ereignis(event="push"), b.decl, b.wf)
+        self.assertEqual(d["missing"], ["test (3.10)"])
+        self.assertNotIn("landung", d["advice"] or "")
+        d = G.lebend(self._ereignis(event="pull_request"), b.decl, b.wf)
+        self.assertIn("landung", d["advice"])
+
+    def test_the_two_modes_exclude_each_other(self):
+        with self.assertRaises(SystemExit):
+            G.main(["--verify-live-pr", "--verify-declaration"])
+
+    def test_absent_outranks_not_measurable_in_the_verdict(self):
+        """Mutant m7: ein Kontext, den niemand erzeugt, macht das Urteil rot, auch wenn ein
+        anderer nebenan nicht messbar ist."""
+        fremd = CI.replace("contains(github.event.pull_request.labels.*.name, 'landung')",
+                           "github.actor == 'jemand'")
+        b = Baum(self, {"ci.yml": fremd}, ["gibt-es-nicht", "test (3.10)"])
+        d = self._live(b, self._ereignis())
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["missing"], ["gibt-es-nicht"])
+        self.assertEqual(d["not_measurable"], ["test (3.10)"])
+
+    def test_an_unreadable_event_payload_is_named_not_treated_as_empty(self):
+        """Mutant m11: eine unlesbare Nutzlast ist ein Fehler mit Namen, keine leere Nutzlast."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        kaputt = Path(tmp.name) / "event.json"
+        kaputt.write_text("kein json", encoding="utf-8")
+        ereignis = G.ereignis_aus_umgebung({"GITHUB_EVENT_NAME": "pull_request",
+                                           "GITHUB_EVENT_PATH": str(kaputt)})
+        self.assertIn("fehler", ereignis)
+        d = G.lebend(ereignis)
+        self.assertEqual(d["verdict"], G.UNKNOWN)
+        self.assertIn("not readable", d["reason"])
+
+    def test_the_unknown_fragment_is_named_in_the_error(self):
+        """Mutant m12: die Ausnahme sagt WAS sie nicht versteht, nicht nur DASS."""
+        with self.assertRaises(G.NichtAuswertbar) as ctx:
+            G.bedingung_am_ereignis("fromJSON(needs.vorher.outputs.x)", self._ereignis())
+        self.assertIn("cannot evaluate", str(ctx.exception))
+        self.assertIn("fromJSON", str(ctx.exception))
+
+    def test_a_context_name_with_a_newline_adds_no_line_either(self):
+        """Mutant m13: der Kontextname kommt aus der Erklaerung, also aus einer Datei."""
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "test (3.12)\n[live-checks] fake"])
+        bericht = G._lebend_bericht(G.lebend(self._ereignis(labels=("landung",)), b.decl, b.wf))
+        self.assertEqual(sum(z.count("\n") for z in bericht), 0)
+        self.assertEqual(len([z for z in bericht if z.startswith("[live-checks]")]), 1)
+
+    def test_not_equal_is_the_negation_of_equal(self):
+        """Mutant m16: `!=` wurde still wie `==` gelesen; kein Fall benutzte es."""
+        ev = self._ereignis(event="push")
+        self.assertTrue(G.bedingung_am_ereignis("github.event_name != 'pull_request'", ev))
+        self.assertFalse(G.bedingung_am_ereignis("github.event_name != 'push'", ev))
+
+    def test_contains_is_membership_not_substring(self):
+        """Mutant m17: `contains(labels.*.name, 'landung')` ist Mitgliedschaft; ein Label
+        `landung-request` macht die Bedingung NICHT wahr."""
+        d = self._live(self._baum(), self._ereignis(labels=("landung-request",)))
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["missing"], ["test (3.10)"])
+
+
 if __name__ == "__main__":
     unittest.main()
