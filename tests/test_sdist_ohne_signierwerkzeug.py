@@ -340,6 +340,12 @@ AUSGESCHLOSSEN = {
     # ihrer Abwesenheit ein Urteil bilden. Sein Gegenstand ist ausserdem der ZWEIG eines Pull
     # Requests, den es in einem installierten Paket gar nicht gibt.
     "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
+    # and the contract above went red on every required context. The landing card reads
+    # docs/release_scope/ and the pull-request titles on main through gh; the language guard
+    # reads the added lines of a change range. Neither has an input inside an installed package.
+    "b7_release_scope_landing_card.py": "reads docs/release_scope/ and pull-request titles via gh; a landing card of this repo, not a package capability",
+    "neue_zeilen_sind_englisch.py": "reads the added lines of a git change range; its subject is a pull-request diff, which an installed package does not have",
     # Rekursion, gefunden 2026-09-06 von einer Review-Linse gegen den Fix, der die Ebene darueber
     # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
     # BEIDER Fassungen der Liste.
