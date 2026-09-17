@@ -890,7 +890,12 @@ def _check_cap1_document(case: dict, case_dir: pathlib.Path, *,
     erwartet = sorted(set(exp["cap1Rules"]))
     if gefeuert != erwartet:
         return _fail(cid, f"rules fired {gefeuert} != expected {erwartet}")
-    return {"caseId": cid, "ok": True,
+    # EXECUTED SCOPE, DECLARED (main #214 landed while this branch was open): a result that says ok
+    # without saying what ran is counted as FAIL by the runner, fail-closed. This check has no
+    # environment-dependent sub-check -- every rule R0-R8 runs on every document -- so its scope is
+    # FULL and nothing is skipped. Measured on PR 209 after the merge of main: every cap1_document
+    # case fell with "check returned ok without declaring its executed scope".
+    return {"caseId": cid, "ok": True, "scope": FULL, "skipped": [],
             "detail": ("conformant, no rule fires" if not erwartet else f"refused by exactly {erwartet}")}
 
 
