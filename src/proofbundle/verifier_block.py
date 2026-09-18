@@ -164,6 +164,11 @@ def _installed_record_rows(package_dir: Path):
             return None
         try:
             auf_platte = Path(str(dist.locate_file(pfad)))
+            # THE ROW MUST NAME A FILE OF THE PACKAGE (second reviewer, round 3, P2): a RECORD row
+            # `proofbundle/../elsewhere.py` passes the prefix filter and would hash a file outside
+            # the install; a poisoned RECORD could then vouch for bytes that are not the package's.
+            if not _innerhalb(auf_platte, package_dir):
+                return None
             if not auf_platte.is_file() or _record_digest_of(auf_platte) != digest[len("sha256="):]:
                 return None
         except (OSError, ValueError):
@@ -523,6 +528,12 @@ def validate_test_result_statement(statement: Any) -> list[str]:
         failed = list(pred.get("failedTests") or [])
         warned = list(pred.get("warnedTests") or [])
         passed = list(pred.get("passedTests") or [])
+        if not (failed or warned or passed):
+            # A RUN THAT NAMES NO CASE IS NOT A PASSED RUN (second reviewer, round 3, P1). The
+            # builder refuses empty results; a hand-built statement with three empty lists would
+            # have derived PASSED here, evidence of nothing recorded as evidence of success.
+            errs.append("predicate names no case in any of its lists; a statement over zero cases "
+                        "cannot be PASSED, WARNED or FAILED, it is not a test result")
         abgeleitet = "FAILED" if failed else ("WARNED" if warned else "PASSED")
         if is_member(pred.get("result"), TEST_RESULTS) and pred.get("result") != abgeleitet:
             errs.append(f"predicate.result {pred.get('result')!r} contradicts its own case lists, "

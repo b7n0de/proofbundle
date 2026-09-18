@@ -192,6 +192,32 @@ class TestMeasureBuild:
         (pkg / "a.py").unlink()
         assert VB.measure_build(pkg)["source"] == "source-tree"
 
+    def test_a_record_row_that_leaves_the_package_is_not_an_installed_file(self, tmp_path, monkeypatch):
+        """Second reviewer, round 3, P2: `proofbundle/../elsewhere.py` passes the prefix filter and
+        would be hashed outside the install. A row must name a file of the package."""
+        import importlib.metadata as im
+
+        pkg = tmp_path / "site" / "proofbundle"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+        aussen = tmp_path / "site" / "elsewhere.py"
+        aussen.write_text("def verify_ed25519(*a):\n    return True\n")
+        record = (f"proofbundle/__init__.py,sha256={VB._record_digest_of(pkg / '__init__.py')},20\n"
+                  f"proofbundle/../elsewhere.py,sha256={VB._record_digest_of(aussen)},40\n"
+                  "proofbundle-6.1.0.dist-info/RECORD,,\n")
+
+        class Dist:
+            def read_text(self, name):
+                return record if name == "RECORD" else None
+
+            def locate_file(self, rel):
+                return tmp_path / "site" / rel
+
+        monkeypatch.setattr(im, "distribution", lambda name: Dist())
+        b = VB.measure_build(pkg)
+        assert b["source"] == "source-tree", "a RECORD that vouches for bytes outside the package is not the package"
+        assert b["files"] == 1
+
     def test_an_editable_install_is_measured_as_a_source_tree(self, tmp_path, monkeypatch):
         """The distribution says the package is installed at A; the module on disk lives at B.
         That is an editable install or a checkout on PYTHONPATH -- the RECORD describes files
@@ -474,6 +500,21 @@ class TestTestResultStatement:
         assert VB.validate_test_result_statement(s) == []
         p["passedTests"] = ["ran-partially"]
         assert any("more than one outcome" in e for e in VB.validate_test_result_statement(s))
+
+    def test_a_statement_that_names_no_case_is_not_a_test_result(self):
+        """Second reviewer, round 3, P1: three empty lists derived PASSED. Evidence of nothing is
+        not evidence of success; the builder already refuses empty results, the validator now too."""
+        s = self._stmt()
+        p = s["predicate"]
+        p["passedTests"], p["warnedTests"], p["failedTests"] = [], [], []
+        errs = VB.validate_test_result_statement(s)
+        assert any("names no case" in e for e in errs), errs
+        for result in ("WARNED", "FAILED"):
+            p["result"] = result
+            assert any("names no case" in e for e in VB.validate_test_result_statement(s))
+        # anti-parity: one named case makes it a result again
+        p["result"], p["passedTests"] = "PASSED", ["one-case"]
+        assert VB.validate_test_result_statement(s) == []
 
     def test_a_configuration_entry_without_the_case_count_does_not_join(self):
         """un round 2 (2026-09-18, P1): the case count was read with the block's own count as the
