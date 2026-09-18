@@ -186,6 +186,25 @@ verdict is published by the same party whose release the verdict concerns, so ve
 the statement was made by whoever controls that repository, and nothing further. And if you only
 installed from PyPI, you never received the receipt at all.
 
+"You can check the signature" is a command, not a promise. From a clone, at the commit that
+`gh attestation verify` names as the source of the wheel:
+
+```bash
+git clone https://github.com/b7n0de/proofbundle && cd proofbundle
+git checkout <the source commit named by the attestation>
+python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+```
+
+It reads the receipt, the pinned key and the gate source **from the commit**, never from the
+working tree, takes the tree digest over the checked-out commit with the same library the release
+gate uses, and verifies the ed25519 signature. Exit 0 means: the holder of the pinned key signed a
+receipt over exactly this tree and this version, and the receipt records an audit run that exited 0.
+Exit 1 means it did not — no receipt in the commit, a receipt made for another commit, or a receipt
+whose signature is right and whose subject is not this tree; each is a contract with a test that
+plants the defect. Exit 2 means the question could not be measured (the checkout is not at the named
+commit, for one). The limit of the previous paragraph is printed with every verdict, the passing one
+included, because the script and the library it calls are themselves files of the tree they verify.
+
 This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
 It is written here so that "I verified the release" means what it actually means — the artifact's
 origin and bytes are verifiable by you today; the audit verdict behind it rests on trusting this
