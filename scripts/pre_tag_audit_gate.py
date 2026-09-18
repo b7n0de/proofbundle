@@ -330,8 +330,16 @@ def _RECEIPT_SCHEMA_NAME() -> str:
 #: file is foreign only if its schema is on this list AND it carries none of the receipt-shaped
 #: fields; everything else that lies there is judged as a receipt, and a bad one is `rejected`.
 _FOREIGN_SCHEMAS = frozenset({"proofbundle.findings_register.v2", "proofbundle.findings_register.v1"})
-_RECEIPT_SHAPED_FIELDS = ("signature", "signer_pubkey", "subject_tree_digest", "gate_source_digest",
-                          "audit_exit_code")
+#: RECEIPT-SPECIFIC fields, not merely "signed". The first list here began with `signature`, and
+#: that was measured wrong within the hour: the findings register of this house is a SIGNED
+#: artefact (it carries `signature` since 6.0.0), so it read as receipt-shaped, was judged as a
+#: receipt, was rejected for its schema, and C12.1 went FAIL on pull request 221 (CI run
+#: 35285723295) -- the exact always-red this change exists to remove, re-created by its own fix.
+#: A field that other artefacts legitimately carry cannot tell a receipt apart; the fields below
+#: exist in no artefact of this house but the pre-tag receipt. The evasion this list guards
+#: against (a bad receipt declaring a register schema) still carries them and is still judged.
+_RECEIPT_SHAPED_FIELDS = ("subject_tree_digest", "gate_source_digest", "audit_exit_code",
+                          "audit_command", "audit_output_digest")
 
 
 def evaluate(repo: Path, version: str | None = None) -> dict:

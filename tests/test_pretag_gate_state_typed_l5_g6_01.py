@@ -271,6 +271,40 @@ class TheGateReportsATypedState(unittest.TestCase):
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "rejected", r)
 
+    def test_a_signed_register_in_the_receipt_folder_is_foreign_not_rejected(self):
+        """MEASURED RED IN CI, on the very pull request that carried the fix (221, run 35285723295):
+        the findings register of this house is a SIGNED artefact -- it carries `signature` since
+        6.0.0 -- and the first shape list began with `signature`. So the register read as
+        receipt-shaped, was judged as a receipt, was rejected for its schema, and C12.1 went FAIL
+        on the pull request: the always-red re-created by its own fix. Locally it had been
+        measured green BEFORE the shape list was added; the number belonged to another tree.
+        A foreign artefact may be signed. Only receipt-specific fields make a receipt."""
+        d = _tree()
+        _plant(d, "600", "findings_register_v2.json", json.dumps({
+            "schema": "proofbundle.findings_register.v2", "document_id": "x", "issuer": "b7n0de",
+            "records": [], "signature": {"alg": "ed25519", "value": "AAAA"}}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "absent", r)
+        self.assertEqual([f["path"] for f in r["foreign_files"]],
+                         ["audit_artifacts/600/findings_register_v2.json"])
+        self.assertEqual(r["rejected_receipts"], [])
+
+    def test_this_repositorys_own_register_is_foreign_on_this_tree(self):
+        """The instance, against the real file: the register that lives next to the receipt in
+        audit_artifacts/600 of THIS repository is listed as foreign, never as a rejection. A
+        fixture with a made-up register cannot say that; only the real file can."""
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        register = repo / "audit_artifacts" / "600" / "findings_register_v2.json"
+        if not register.is_file():
+            self.skipTest("this tree carries no audit_artifacts/600/findings_register_v2.json")
+        r = self.pta.evaluate(repo)
+        if r["state"] == "not_determinable":
+            self.skipTest(f"not measurable here: {r.get('reason')}")
+        self.assertIn("audit_artifacts/600/findings_register_v2.json",
+                      [f["path"] for f in r["foreign_files"]], r)
+        for eintrag in r.get("rejected_receipts", []) or []:
+            self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
+
     def test_the_receipt_library_comes_from_the_gate_not_from_the_judged_tree(self):
         """LINSE B, P1 auf Vertragsebene (2026-09-17): `evaluate` legt `<repo>/src` vor den Suchpfad,
         damit `proofbundle.signature` importierbar ist -- und ein `src/pre_tag_receipt_lib.py` im
