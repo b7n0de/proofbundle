@@ -335,6 +335,17 @@ AUSGESCHLOSSEN = {
     # Klasse, gegen die es gebaut ist. Draussen, damit es nicht in einer Umgebung laeuft, in der
     # seine Eingabe fehlt.
     "required_check_reachability_gate.py": "liest .github/, das die sdist prunt — im Paket ohne Eingabe",
+    # 2026-09-16: reads `docs/release_scope/<version>.md`, and MANIFEST.in ships neither `graft docs`
+    # nor these files one by one. Inside the package the script would find no scope file and would
+    # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
+    # request, which does not exist in an installed package at all.
+    "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
+    # and the contract above went red on every required context. The landing card reads
+    # docs/release_scope/ and the pull-request titles on main through gh; the language guard
+    # reads the added lines of a change range. Neither has an input inside an installed package.
+    "b7_release_scope_landing_card.py": "reads docs/release_scope/ and pull-request titles via gh; a landing card of this repo, not a package capability",
+    "neue_zeilen_sind_englisch.py": "reads the added lines of a git change range; its subject is a pull-request diff, which an installed package does not have",
     # Rekursion, gefunden 2026-09-06 von einer Review-Linse gegen den Fix, der die Ebene darueber
     # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
     # BEIDER Fassungen der Liste.
