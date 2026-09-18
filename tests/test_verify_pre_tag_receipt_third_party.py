@@ -76,6 +76,11 @@ def welt(tmp_path):
         base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n")
     (repo / "_privkey.b64").write_text(base64.b64encode(priv.private_bytes_raw()).decode())
     (repo / "_audit.txt").write_text("audit ran\n")
+    # The real repository ignores bytecode; without this line the producer's own __pycache__
+    # would show up as an untracked file under scripts/ and the verifier would refuse its own
+    # positive control -- which is exactly the refusal it is built for, so the fixture must be
+    # faithful to the real tree here rather than the verifier being lenient.
+    (repo / ".gitignore").write_text("__pycache__/\n")
     _git(["init", "-q"], repo)
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "candidate"], repo)
@@ -284,6 +289,37 @@ class TestReadFromTheCommitNotTheWorkingTree:
         rc, res, roh = _verify(repo, env, kandidat)
         assert rc == 1, roh
         assert "no receipt" in res["reason"] and "working tree does not count" in res["reason"]
+
+    def test_a_modified_verifier_library_on_disk_refuses_the_measurement(self, welt):
+        """LENS A, 2026-09-18, P0 -- the executed exploit, kept as the contract. The receipt was read
+        from the commit, the CODE that judged it was read from disk: one uncommitted edit to
+        `verify_receipt`, HEAD untouched, and a garbage receipt came back VERIFIED. Now a modified
+        or untracked file under scripts/ or src/ refuses the measurement with exit 2."""
+        repo, env, _priv, _kand, commit = welt
+        lib = repo / "scripts" / "pre_tag_receipt_lib.py"
+        original = lib.read_text(encoding="utf-8")
+        lib.write_text(original.replace(
+            "def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_version: str,",
+            "def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_version: str,  # edited", 1),
+            encoding="utf-8")
+        assert lib.read_text(encoding="utf-8") != original
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2, roh
+        assert res["verdict"] == "NOT_MEASURABLE" and "local modification" in res["reason"], res["reason"]
+        # the same for an UNTRACKED file that could shadow an import
+        lib.write_text(original, encoding="utf-8")
+        (repo / "src" / "proofbundle" / "signature_shadow.py").write_text("x = 1\n")
+        rc2, res2, _ = _verify(repo, env, commit)
+        assert rc2 == 2 and "untracked" in res2["reason"]
+        (repo / "src" / "proofbundle" / "signature_shadow.py").unlink()
+        # ANTI-PARITY: the clean checkout verifies again -- the refusal is about the dirt, not the commit.
+        rc3, res3, roh3 = _verify(repo, env, commit)
+        assert rc3 == 0 and res3["verdict"] == "VERIFIED", roh3
+
+    def test_an_uppercase_commit_id_is_accepted_as_the_same_commit(self, welt):
+        repo, env, _priv, _kand, commit = welt
+        rc, res, roh = _verify(repo, env, commit.upper())
+        assert rc == 0 and res["commit"] == commit, roh
 
     def test_a_checkout_at_another_head_is_refused_not_measured(self, welt):
         repo, env, _priv, kandidat, commit = welt

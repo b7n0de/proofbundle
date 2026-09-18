@@ -492,14 +492,21 @@ schreibe("agent-review-v02-positive-control-fixcommit-full-sha-is-accepted", "po
          attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])
 
 
-# ══ P19 (6.1.0): der Verifier-Block unter producer.verifier ════════════════════════════════════
+# ══ P19 (6.1.0): der Verifier-Block unter producer.verifier — agent-review/v0.3 ═══════════════
 # Gebaut 18.09.2026 zu P19 des Release-Umfangs 6.1.0 (Owner-Entscheid 15.09.2026, Option A). Der
 # Block traegt Build-Digest, Vektorsatz und die Referenz auf ein getrenntes Test-Result-Statement;
 # die Werte hier sind FESTE Platzhalter, weil ein Korpus, dessen Bytes vom messenden Rechner
 # abhaengen, keiner ist. Gemessen wird der Block in tests/test_verifier_block.py; der Korpus
-# haelt die FORM: ein v0.2-Predicate mit Block ist gueltig, drei Verletzungen der Form werden
+# haelt die FORM: ein v0.3-Predicate mit Block ist gueltig, drei Verletzungen der Form werden
 # verweigert, und ein v0.1-Predicate mit Block bleibt verweigert -- die Altfassung kennt ihn nicht.
-_P19_ATTR = ("agent-review/v0.2 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 "
+#
+# WARUM v0.3 UND NICHT v0.2 MIT BLOCK. Die erste Fassung dieses Abschnitts (18.09.2026, vormittags)
+# trug den Block in v0.2. Zwei Gegenleser massen am selben Tag mit dem getaggten 6.0.0-Validator:
+# DIESELBEN Bytes wurden von 6.0.0 abgewiesen und von 6.1.0 angenommen. Die Versionsregel des
+# Predicates sagt: was ein Verifizierer ablehnen muss, ist die Fassung — also ist der Block eine
+# neue, v0.2 bleibt, was 6.0.0 ausgeliefert hat. Die Faelle unten heissen deshalb `v03`, ihr
+# Erzeuger ist derselbe wie fuer v0.2 (`_v02`), weil v0.3 v0.2 plus genau ein Feld ist.
+_P19_ATTR = ("agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 "
              "(docs/VERIFIER_BLOCK.md).")
 _P19_REFS = ["docs/VERIFIER_BLOCK.md", "docs/AGENT_REVIEW_PREDICATE.md", "src/proofbundle/verifier_block.py"]
 VERIFIER_BLOCK = {
@@ -514,7 +521,7 @@ VERIFIER_BLOCK = {
 
 
 def _mit_block(**aenderung):
-    """Grundform v0.2 plus ein Block, plus GENAU EINE benannte Aenderung am Block."""
+    """Grundform v0.2 plus ein Block = ein v0.3-Predicate, plus GENAU EINE benannte Aenderung am Block."""
     b = copy.deepcopy(VERIFIER_BLOCK)
     for k, v in aenderung.items():
         if v is None:
@@ -524,40 +531,40 @@ def _mit_block(**aenderung):
     return _v02(producer={"id": "b7n0de-release-runner", "verifier": b})
 
 
-schreibe("agent-review-v02-positive-control-verifier-block-is-accepted", "positive_control", "P19",
+schreibe("agent-review-v03-positive-control-verifier-block-is-accepted", "positive_control", "P19",
          {"classification": "valid"},
-         "Ein v0.2-Predicate, dessen producer einen Verifier-Block traegt, wird ausgestellt und "
+         "Ein v0.3-Predicate (v0.2 plus producer.verifier) wird ausgestellt und "
          "wieder gelesen. Ohne diese Kontrolle bestuenden die drei Gegenbeweise darunter auch mit "
          "einem Validator, der JEDEN Block ablehnt -- und dann waere der Block ein Feld, das es "
          "nicht gibt.",
          obj=_mit_block(), input_name="predicate.json", attribution=_P19_ATTR,
-         predicate_version="v0.2", spec_refs=_P19_REFS)
+         predicate_version="v0.3", spec_refs=_P19_REFS)
 
-schreibe("agent-review-v02-counter-proof-verifier-block-must-be-self-declared", "counter_proof",
+schreibe("agent-review-v03-counter-proof-verifier-block-must-be-self-declared", "counter_proof",
          "P19", {"classification": "refused"},
          "Der Block ist eine Selbstmessung des erzeugenden Builds. Eine hoehere Sprosse "
          "(runnerObserved, independentlyWitnessed) braucht einen Zeugen ausserhalb des Erzeugers, "
          "den diese Fassung nicht hat -- dieselbe Regel, die das Predicat seit v0.1 fuer jede "
          "Zusicherung traegt. Ein Block, der sich selbst hoeher einstuft, wird verweigert.",
          obj=_mit_block(assurance="independentlyWitnessed"), input_name="predicate.json",
-         attribution=_P19_ATTR, predicate_version="v0.2", spec_refs=_P19_REFS)
+         attribution=_P19_ATTR, predicate_version="v0.3", spec_refs=_P19_REFS)
 
-schreibe("agent-review-v02-counter-proof-verifier-block-build-digest-must-be-sha256", "counter_proof",
+schreibe("agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256", "counter_proof",
          "P19", {"classification": "refused"},
          "Der Build-Digest ist die Groesse, ueber die eine relying party den Block mit dem "
          "Test-Result-Statement verbindet -- per Gleichheit. Ein Wert, der keine sha256-Form hat, "
          "kann nie gleich sein und wuerde als Bindung gelesen, die keine ist. Verweigert.",
          obj=_mit_block(build={"digest": {"sha256": "not-a-digest"}, "source": "source-tree"}),
-         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.2",
+         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.3",
          spec_refs=_P19_REFS)
 
-schreibe("agent-review-v02-counter-proof-verifier-block-refuses-unknown-fields", "counter_proof",
+schreibe("agent-review-v03-counter-proof-verifier-block-refuses-unknown-fields", "counter_proof",
          "P19", {"classification": "refused"},
          "Ein Feld, das niemand validiert, ist ein Feld, in das ein Erzeuger alles schreiben kann "
          "(hier: eine URL, die wie ein Beleg aussieht). Die Feldmenge des Blocks ist geschlossen; "
          "ein unbekanntes Feld wird verweigert, nicht ueberlesen.",
          obj=_mit_block(wheelUrl="https://example.org/proofbundle-6.1.0.whl"),
-         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.2",
+         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.3",
          spec_refs=_P19_REFS)
 
 # v0.1 KENNT DEN BLOCK NICHT, und das bleibt so: die Altfassung wird nicht gelockert. Dieser Fall
@@ -568,9 +575,10 @@ _p_v01["producer"] = {"id": "b7n0de-release-runner", "verifier": copy.deepcopy(V
 schreibe("agent-review-counter-proof-verifier-block-is-not-a-v01-field", "counter_proof", "P19",
          {"classification": "refused"},
          "Die Altfassung v0.1 kennt producer.verifier nicht und verweigert das Predicate. Das ist "
-         "gewollt: v0.2 ERWEITERT die Feldmenge, v0.1 wird nicht gelockert, und ein Verifizierer "
-         "der Fassung 6.0.0 lehnt einen Block laut ab, statt ihn zu ueberlesen. Wer 6.0.0-Lesbarkeit "
-         "braucht, laesst den Block weg.",
+         "gewollt: v0.3 ist eine NEUE Fassung mit dem Block, v0.2 und v0.1 werden nicht gelockert, "
+         "und ein Verifizierer der Fassung 6.0.0 lehnt einen Block laut ab, statt ihn zu ueberlesen "
+         "(fuer v0.2 genauso -- gemessen 18.09.2026, und der Grund, warum der Block eine eigene "
+         "Fassung bekam). Wer 6.0.0-Lesbarkeit braucht, stellt v0.2 ohne Block aus.",
          obj=_p_v01, input_name="predicate.json", attribution=_P19_ATTR, spec_refs=_P19_REFS)
 
 
@@ -608,14 +616,18 @@ schreibe("agent-review-v02-positive-control-current-v02-is-marked-current", "pos
 
 # A2 (3) — Gegenbeweis: eine fremde Fassung wird abgewiesen, nicht geraten.
 _st = json.loads(_b64.b64decode(env_v02["payload"]))
-_st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.3")
+# v0.9, NICHT v0.3: bis 6.1.0 stand hier v0.3 als Beispiel einer fremden Fassung. Seit P19 gibt es
+# v0.3 wirklich (der Verifier-Block), und ein Fall, der eine EXISTIERENDE Fassung als unbekannt
+# fuehrt, misst das Gegenteil von dem, was er behauptet. Die Nummer wurde deshalb weit genug
+# hochgesetzt, dass sie nicht als naechste faellig wird.
+_st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.9")
 env_fremd_fassung = dict(env_v02)
 env_fremd_fassung["payload"] = _b64.b64encode(
     json.dumps(_st, sort_keys=True, separators=(",", ":")).encode()).decode()
 schreibe("agent-review-v02-counter-proof-unknown-predicate-type-is-refused", "counter_proof", "A2",
          {"versionStatus": "unknown"},
-         "Die Weiche kennt v0.1 und v0.2 und weist alles andere ab (A2): ein Umschlag mit "
-         "predicateType .../agent-review/v0.3 bekommt `predicateVersionStatus: unknown`, ok=False "
+         "Die Weiche kennt v0.1, v0.2 und v0.3 und weist alles andere ab (A2): ein Umschlag mit "
+         "predicateType .../agent-review/v0.9 bekommt `predicateVersionStatus: unknown`, ok=False "
          "und den Code AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN — VOR jeder Signaturpruefung, damit eine "
          "unbekannte Fassung nie nach den Regeln einer bekannten gelesen wird. Die Signatur dieses "
          "Umschlags ist absichtlich die alte (sie gilt fuer die v0.2-Bytes): die Abweisung darf nicht "

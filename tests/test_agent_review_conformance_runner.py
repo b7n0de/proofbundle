@@ -291,11 +291,11 @@ _ENTSCHAERFUNG = {
     # Jede Entschaerfung nimmt GENAU den einen Defekt am Block weg. Der v0.1-Fall darunter wird
     # geheilt, indem der Block WEGGENOMMEN wird: die Altfassung kennt ihn nicht, und das ist die
     # Eigenschaft, die der Fall haelt.
-    "agent-review-v02-counter-proof-verifier-block-must-be-self-declared":
+    "agent-review-v03-counter-proof-verifier-block-must-be-self-declared":
         lambda p: p["producer"]["verifier"].update({"assurance": "selfDeclared"}),
-    "agent-review-v02-counter-proof-verifier-block-build-digest-must-be-sha256":
+    "agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256":
         lambda p: p["producer"]["verifier"]["build"].update({"digest": {"sha256": "1" * 64}}),
-    "agent-review-v02-counter-proof-verifier-block-refuses-unknown-fields":
+    "agent-review-v03-counter-proof-verifier-block-refuses-unknown-fields":
         lambda p: p["producer"]["verifier"].pop("wheelUrl"),
     "agent-review-counter-proof-verifier-block-is-not-a-v01-field":
         lambda p: p["producer"].pop("verifier"),
@@ -333,9 +333,9 @@ def test_der_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
     # fixCommit-Pflicht noch disclosureCoreDigest noch limitationCodes, meldete also fuer einen
     # entschaerften v0.2-Fall Fehler, die es nicht gibt — oder schlimmer, fuer den unentschaerften
     # KEINE. Dieselbe Kopplung, die beim Konformitaets-Laeufer selbst schon aufgefallen ist.
-    _pruefer = (AR.validate_agent_review_v02_predicate
-                if fall.get("predicateVersion") == "v0.2"
-                else AR.validate_agent_review_predicate)
+    _pruefer = {"v0.3": AR.validate_agent_review_v03_predicate,
+                "v0.2": AR.validate_agent_review_v02_predicate}.get(
+                    fall.get("predicateVersion"), AR.validate_agent_review_predicate)
     assert _pruefer(p, strict=True), (
         f"{name} wird gar nicht mehr verweigert — der Fall prueft nichts")
     _ENTSCHAERFUNG[name](p)

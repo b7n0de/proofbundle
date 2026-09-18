@@ -112,10 +112,10 @@
     "agent_review/agent-review-v02-counter-proof-without-policy-nothing-is-decided",
     "agent_review/agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence",
     "agent_review/agent-review-v02-counter-proof-blocking-policy-rejects",
-    "agent_review/agent-review-v02-positive-control-verifier-block-is-accepted",
-    "agent_review/agent-review-v02-counter-proof-verifier-block-must-be-self-declared",
-    "agent_review/agent-review-v02-counter-proof-verifier-block-build-digest-must-be-sha256",
-    "agent_review/agent-review-v02-counter-proof-verifier-block-refuses-unknown-fields",
+    "agent_review/agent-review-v03-positive-control-verifier-block-is-accepted",
+    "agent_review/agent-review-v03-counter-proof-verifier-block-must-be-self-declared",
+    "agent_review/agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256",
+    "agent_review/agent-review-v03-counter-proof-verifier-block-refuses-unknown-fields",
     "agent_review/agent-review-counter-proof-verifier-block-is-not-a-v01-field"
   ]
 }

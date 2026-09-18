@@ -19,7 +19,11 @@ rather than before, which is itself the finding.
 
 ### Added
 
-- **The verifier block** (`producer.verifier` in `agent-review/v0.2`, `src/proofbundle/verifier_block.py`,
+- **The verifier block, and `agent-review/v0.3` to carry it** (`producer.verifier`,
+  `src/proofbundle/verifier_block.py`, `verify_agent_review_v03`, `validate_agent_review_v03_predicate`;
+  v0.3 is v0.2 plus this one optional field, and v0.2 stays exactly what 6.0.0 shipped — the same
+  bytes were measured refused by 6.0.0 and accepted by a v0.2-extension draft, which is why the block
+  is a version and not an extension;
   contract in `docs/VERIFIER_BLOCK.md`). A receipt can now say WHICH build produced it: a digest
   over the package's own files with the measurement's source stated (`installed-record` from the
   installer's RECORD, or `source-tree`), the conformance vector set it was held against (digest
@@ -93,6 +97,13 @@ rather than before, which is itself the finding.
 
 ### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
 
+- **Explicit re-pin of one accepted conformance case**
+  (`agent_review/agent-review-v02-counter-proof-unknown-predicate-type-is-refused`): its example of
+  a foreign predicate version was `…/agent-review/v0.3`, which 6.1.0 turns into a real version. A
+  case that files an existing version as unknown measures the opposite of what it says, so the
+  foreign example is now `…/v0.9` and the case is regenerated. Recorded here because the corpus
+  rule (conformance/README.md, "Adding a case") allows an accepted vector to change only as an
+  explicit, reviewed re-pin — this is that record.
 - **A concurrency group coalesces a queue, it does not serialize one.** `cancel-in-progress` is
   evaluated on the *arriving* run, but the *group* decides which run dies. The eight workflow groups
   now carry `github.event_name`, so a pull-request run and a push run of the same ref no longer

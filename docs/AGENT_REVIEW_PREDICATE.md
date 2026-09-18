@@ -238,8 +238,8 @@ What v0.2 adds, each with its conformance case:
   one. A policy may additionally carry a `time` block; it is evaluated with `evaluate_time_policy`,
   reported as `time_policy_decision`, and the stricter decision wins. The standard policy carries
   none.
-- **One dispatcher for both versions.** `verify_agent_review_any` reads the `predicateType` and
-  reports `predicateVersionStatus`: `current` for v0.2, `legacy` for v0.1 (with the advisory code
+- **One dispatcher for all versions.** `verify_agent_review_any` reads the `predicateType` and
+  reports `predicateVersionStatus`: `current` for v0.2 and v0.3, `legacy` for v0.1 (with the advisory code
   `AGENT_REVIEW_LEGACY_V01` added and the v0.1 verdict left untouched), `unknown` for anything else
   (refused with `AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN` before any signature check, so an unknown
   version is never read under the rules of a known one). Keyword arguments are filtered per
@@ -247,15 +247,20 @@ What v0.2 adds, each with its conformance case:
   for both; one that only the other version knows (today `policy=` on a v0.1 envelope) is dropped,
   named in `warnings`, and marked with the advisory code `ARGUMENT_NOT_APPLICABLE_TO_VERSION`.
 
-- **`producer.verifier`, the verifier block (since 6.1.0).** Optional. The producing build names
+- **`producer.verifier`, the verifier block — `agent-review/v0.3` (since 6.1.0).** v0.3 is v0.2
+  plus this one optional field; everything else on this page holds for it unchanged, and
+  `verify_agent_review_v03` is the v0.2 verifier with the block admitted. The producing build names
   itself: implementation, version, a digest over its own files with the measurement's source
   stated, the conformance vector set it was held against, and a reference to a separate signed
   in-toto test-result statement, joinable by digest equality. It answers the question a relying
   party asks at T+n — *which build produced this* — that a version string cannot. The verifier
   reports it as the `verifier_block` axis with `matches_this_verifier` in `MATCH` / `MISMATCH` /
   `NOT_EVALUATED`, and never folds it into `ok`; a malformed block is a structural error like any
-  other. v0.1 does not know the field and refuses it; a 6.0.0 verifier refuses a v0.2 receipt that
-  carries it, loudly. Contract and limits: [VERIFIER_BLOCK.md](VERIFIER_BLOCK.md).
+  other. v0.1 and v0.2 do not know the field and refuse it — v0.2 in 6.0.0 and in 6.1.0 alike,
+  which is the measured reason the block is a new version rather than an extension of v0.2 (the
+  same bytes must not be refused by one release and accepted by the next under one
+  `predicateType`). The emitter picks v0.3 exactly when the predicate carries the block. Contract,
+  the version reasoning and limits: [VERIFIER_BLOCK.md](VERIFIER_BLOCK.md).
 
 Every rule above has a counter-proof and a positive control in `conformance/agent_review/`, and every
 counter-proof has a flip test in `tests/test_agent_review_conformance_runner.py` that removes exactly

@@ -42,6 +42,10 @@ _MODULES = [
     # ones exactly this one carries a matching surface. It ships, it has a documented import path,
     # and it is its own CLI subcommand (`verify-enclave`).
     "experimental.enclave",
+    # 2026-09-18, P19 (6.1.0): the verifier block. Three surfaces in the denominator
+    # (`validate_verifier_block`, `validate_test_result_statement`, `require_valid_verifier_block`);
+    # the producers are listed below as out of scope, each with its reason.
+    "verifier_block",
     # 2026-08-31: agent-review/v0.1. Der Populations-Riegel meldete drei Flaechen ausserhalb der
     # Eigenschaft, und er hatte recht — von Hand gemessen fiel eine ROHE TypeError aus
     # `verify_agent_review`, wenn ein Produzent einen unhashbaren Wert im Feld `assurance`
@@ -176,6 +180,24 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-09-18, P19 (6.1.0), `proofbundle.verifier_block` — ELEVEN producers, one decision each:
+    #   `measure_build`, `measure_vector_set`, `measure_verifier_block` MEASURE the local tree and
+    #       corpus on the producer's side and raise `VerifierBlockError` on a tree they cannot
+    #       measure honestly (a link leaving the tree, a listed case that is absent); a block built
+    #       from a half-measured tree would be a digest that looks like a fact.
+    #   `build_verifier_block`, `build_test_result_statement`, `sign_test_result_statement`,
+    #       `attach` are ERZEUGER in the sense of the family rule above: they take our own values
+    #       and refuse loudly (`require_valid_verifier_block`) rather than emit a malformed block.
+    #   `statement_digest`, `test_result_ref` are digest helpers over a statement we built.
+    #   `join_test_result` and `report` read a block that has ALREADY passed
+    #       `validate_verifier_block` on the consumer side (`_verify_v02_inner` calls `report` only
+    #       after the shape errors are empty); `report` returns a verdict dict for every input and
+    #       `join_test_result` names each of its four equalities as a field, neither raises on a
+    #       malformed statement — but their input has passed the never-raise layer already, so
+    #       they are judgements over validated structure, the third family above.
+    "measure_build", "measure_vector_set", "measure_verifier_block", "build_verifier_block",
+    "build_test_result_statement", "sign_test_result_statement", "attach", "statement_digest",
+    "test_result_ref", "join_test_result", "report",
     # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
     # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
     #

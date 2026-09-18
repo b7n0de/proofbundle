@@ -132,6 +132,15 @@ def _installed_record_rows(package_dir: Path):
         pfad, digest, _size = parts
         if not pfad.startswith(IMPLEMENTATION + "/"):
             continue
+        if "/__pycache__/" in pfad or pfad.endswith((".pyc", ".pyo")):
+            # BYTECODE IS NOT THE BUILD (lens C, 2026-09-18, P0). `pip install` compiles by default
+            # and writes `proofbundle/__pycache__/*.pyc,,` rows WITHOUT a hash into RECORD; the
+            # first draft read such a row as "a package file without a hash" and returned None
+            # for the whole listing -- every default install measured itself as `source-tree`,
+            # and the one property the block exists for, telling an installed wheel apart,
+            # was dead under the default. Same rule as the source-tree walk: what an
+            # interpreter left behind is not the identity of what was shipped.
+            continue
         if not digest.startswith("sha256="):
             # RECORD itself carries an empty hash; a package file without one cannot identify a
             # build, and a listing that silently skipped it would be a listing of the rest.
@@ -140,11 +149,25 @@ def _installed_record_rows(package_dir: Path):
     return rows or None
 
 
+def _innerhalb(p: Path, wurzel: Path) -> bool:
+    """Liegt die AUFGELOESTE Datei unter der Wurzel? Ein Symlink, der hinausfuehrt, zaehlt nicht als
+    Datei des Baums -- sein Ziel kann sich aendern, waehrend jedes Byte des Baums gleich bleibt, und
+    ein Digest, der das mitnimmt, pinnt nichts (lens C, 2026-09-18, P1)."""
+    try:
+        return p.resolve().is_relative_to(wurzel.resolve())
+    except (OSError, ValueError):
+        return False
+
+
 def _source_tree_rows(package_dir: Path) -> list[str]:
     rows: list[str] = []
     for p in sorted(package_dir.rglob("*")):
         if not p.is_file() or "__pycache__" in p.parts or p.suffix not in _SOURCE_TREE_SUFFIXES:
             continue
+        if not _innerhalb(p, package_dir):
+            raise VerifierBlockError(
+                f"{p.relative_to(package_dir).as_posix()} resolves outside the package directory -- a "
+                "link that leaves the tree cannot be part of the tree's identity")
         rel = p.relative_to(package_dir).as_posix()
         rows.append(f"{IMPLEMENTATION}/{rel}\0{_sha256_file(p)}")
     return rows
@@ -185,15 +208,25 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     cases = manifest.get("cases") if isinstance(manifest, dict) else None
     if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
         raise VerifierBlockError(f"conformance manifest names no cases: {manifest_path}")
+    if len(set(cases)) != len(cases):
+        # A CASE LISTED TWICE IS NOT TWO CASES (lens C, P2): `cases` would count the listing, not
+        # the corpus, and the runner would execute the same directory twice under one id.
+        doppelt = sorted({c for c in cases if cases.count(c) > 1})
+        raise VerifierBlockError(f"conformance manifest lists a case more than once: {doppelt}")
     rows = [f"manifest.json\0{_sha256_file(manifest_path)}"]
     for rel in cases:
         d = root / rel
-        if not d.is_dir():
-            raise VerifierBlockError(f"conformance manifest names a case directory that is absent: {rel}")
+        if not d.is_dir() or not _innerhalb(d, root):
+            raise VerifierBlockError(f"conformance manifest names a case directory that is absent or "
+                                     f"outside the corpus: {rel}")
         gefunden = False
         for p in sorted(d.rglob("*")):
             if not p.is_file() or "__pycache__" in p.parts:
                 continue
+            if not _innerhalb(p, root):
+                raise VerifierBlockError(
+                    f"{p.relative_to(root).as_posix()} resolves outside the corpus -- a link that leaves "
+                    "the corpus cannot be part of a digest-pinned vector set (CONFORMANCE.md rule 1)")
             gefunden = True
             rows.append(f"{p.relative_to(root).as_posix()}\0{_sha256_file(p)}")
         if not gefunden:
@@ -265,6 +298,15 @@ def validate_verifier_block(block: Any) -> list[str]:
                             "cases held nothing against the build")
     t = block.get("testResult")
     if "testResult" in block:
+        # A CITED RUN NEEDS ITS VECTOR SET. The statement names the corpus it ran; a block that
+        # cites the statement but names no corpus of its own could not be checked against it,
+        # and `join_test_result` would then compare a result against nothing. Found by the
+        # un-review of 2026-09-18 (P1): the join compared subject, digest and result, and a
+        # statement about corpus A could be cited beside a block declaring corpus B.
+        if "vectorSet" not in block:
+            errs.append("testResult without vectorSet: a block that cites a conformance run must "
+                        "name the vector set that run was held against, or the join has nothing "
+                        "to compare the statement's configuration with")
         if not isinstance(t, dict):
             errs.append("testResult must be an object")
         else:
@@ -453,7 +495,8 @@ def join_test_result(block: dict, statement: dict) -> dict:
     the statement digest and compares digests."""
     fehler: list[str] = []
     r: dict[str, Any] = {"subject_matches_build": False, "digest_matches": False,
-                         "result_matches": False, "ok": False, "errors": fehler}
+                         "result_matches": False, "vector_set_matches": False,
+                         "ok": False, "errors": fehler}
     if validate_verifier_block(block):
         fehler.append("the block is not a valid verifier block")
         return r
@@ -467,13 +510,28 @@ def join_test_result(block: dict, statement: dict) -> dict:
     r["subject_matches_build"] = statement["subject"][0]["digest"] == block["build"]["digest"]
     r["digest_matches"] = statement_digest(statement) == block["testResult"]["statementDigest"]["sha256"]
     r["result_matches"] = statement["predicate"]["result"] == block["testResult"]["result"]
+    # THE FOURTH EQUALITY, and it was missing (un-review 2026-09-18, P1): the statement's
+    # configuration names the vector set the run was held against, and the block declares one.
+    # Without this comparison a statement over corpus A could be cited beside a block declaring
+    # corpus B, and the join would report ok -- a result about the wrong question. Every
+    # configuration entry with a digest must match the block's, and there must be one.
+    konf = statement["predicate"]["configuration"]
+    vs = block["vectorSet"]
+    r["vector_set_matches"] = bool(konf) and all(
+        c.get("digest") == vs["digest"]
+        and (c.get("annotations") or {}).get("cases", vs["cases"]) == vs["cases"]
+        for c in konf)
     if not r["subject_matches_build"]:
         fehler.append("the statement's subject is not this block's build digest")
     if not r["digest_matches"]:
         fehler.append("the statement's canonical digest is not the one the block cites")
     if not r["result_matches"]:
         fehler.append("the statement's result is not the one the block cites")
-    r["ok"] = bool(r["subject_matches_build"] and r["digest_matches"] and r["result_matches"])
+    if not r["vector_set_matches"]:
+        fehler.append("the statement's configuration names a vector set that is not the one "
+                      "the block declares")
+    r["ok"] = bool(r["subject_matches_build"] and r["digest_matches"] and r["result_matches"]
+                   and r["vector_set_matches"])
     return r
 
 

@@ -659,7 +659,11 @@ GRUNDLINIE_CODELOS = {
     "validate_agent_review_v02_predicate": 5,
     "validate_time_claim": 9,
     "verify_agent_review": 1,
-    "verify_agent_review_v02": 1,
+    # 0 seit 18.09.2026 (P19, v0.3): der Ausnahmepfad wohnt jetzt in `_internal_error_ergebnis`,
+    # geteilt mit `verify_agent_review_v03`, und traegt dort den Code `internal_error`. Die
+    # Traegerliste unten war fuer diese Funktion immer leer — die Zahl faellt, weil die Stelle
+    # einen Code bekam, nicht weil der Sweep blind wurde.
+    "verify_agent_review_v02": 0,
 }
 
 

@@ -14,12 +14,18 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
     git checkout <commit named by the attestation>
     python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 
-EVERYTHING IS READ FROM THE COMMIT, NOT FROM THE WORKING TREE. The receipt, the trust anchor and
-the gate source whose digest the receipt binds are read with ``git show <commit>:<path>``, so a
-file placed into a dirty checkout cannot stand in for a committed one. The tree digest is taken
-by the same library function the release gate uses (``pre_tag_receipt_lib.subject_tree_digest``),
-which reads ``HEAD`` -- and that is why the checkout must BE at the named commit: a checkout at
-any other head is refused with exit 2, never silently measured.
+THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
+THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
+read with ``git show <commit>:<path>``, so a file placed into a dirty checkout cannot stand in for
+a committed one. The verifier code -- this script, ``pre_tag_receipt_lib.py``, the package under
+``src/`` whose ed25519 primitive it calls -- is NOT read from the commit: Python runs what lies on
+disk. An adversarial lens measured on 2026-09-18 what that means when nothing checks the two
+against each other: one uncommitted edit to ``verify_receipt`` or to ``proofbundle.signature``,
+HEAD untouched, and a commit with a garbage receipt reported VERIFIED. So two things are refused
+with exit 2, never silently measured: a checkout at any head other than the named commit, and a
+checkout that carries local modifications or untracked files under ``scripts/`` or ``src/``. The
+tree digest itself is taken by the same library function the release gate uses
+(``pre_tag_receipt_lib.subject_tree_digest``), which reads ``HEAD``.
 
 THREE CONTRACTS, each with a test that plants the defect and expects the refusal
 (``tests/test_verify_pre_tag_receipt_third_party.py``):
@@ -60,7 +66,12 @@ _HEX40 = re.compile(r"\A[0-9a-f]{40}\Z")
 LIMIT = ("LIMIT: the trust anchor is a public key committed in this same repository. A pass shows "
          "that whoever controls that key signed a receipt over this tree; it does not establish the "
          "authority of that key from outside, and it does not say the audit was good. This script "
-         "and the library it uses are part of the tree being verified.")
+         "and the library it uses are part of the tree being verified, and they run from your "
+         "checkout: the verdict is only as good as that checkout being exactly the named commit.")
+
+#: The paths whose on-disk state must equal the commit for the verdict to mean anything: the code
+#: that judges. Evidence outside them (the receipt folder, the anchor) is read from the commit.
+_CODE_PFADE = ("scripts", "src")
 
 
 def _lib():
@@ -116,6 +127,8 @@ def measure(repo: Path, commit: str, version: str) -> dict:
                  "trusted_pubkey_count": None, "signer_pubkey": None,
                  "verified": [], "rejected": [], "foreign_files": [],
                  "verdict": "NOT_MEASURABLE", "reason": None, "limit": LIMIT}
+    commit = commit.strip().lower() if isinstance(commit, str) else commit
+    out["commit"] = commit
     if not isinstance(commit, str) or not _HEX40.match(commit):
         out["reason"] = ("--commit must be the full 40-hex commit id named by the attestation; an "
                          "abbreviated id is a search query, not a subject")
@@ -138,6 +151,22 @@ def measure(repo: Path, commit: str, version: str) -> dict:
         out["reason"] = (f"the checkout is at {head_s[:12]}, not at the named commit "
                          f"{commit[:12]} -- run `git checkout {commit}` first; this script measures "
                          "the tree that is checked out and refuses to guess about another")
+        return out
+    # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the
+    # commit says nothing about the files on disk; an uncommitted edit to the receipt library or
+    # to the signature primitive flipped a garbage receipt to VERIFIED with HEAD untouched. A
+    # modified or untracked file under scripts/ or src/ therefore refuses the measurement -- the
+    # honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
+    rc, schmutz, err = _git(repo, "status", "--porcelain", "--untracked-files=all", "--", *_CODE_PFADE)
+    if rc != 0:
+        out["reason"] = f"the working tree could not be inspected: {err or 'git status failed'}"
+        return out
+    zeilen = [ln for ln in schmutz.decode("utf-8", "replace").splitlines() if ln.strip()]
+    if zeilen:
+        out["reason"] = (f"the checkout carries {len(zeilen)} local modification(s) or untracked file(s) under "
+                         f"{'/'.join(_CODE_PFADE)} ({zeilen[0].strip()[:80]}{' …' if len(zeilen) > 1 else ''}); "
+                         "the verifier and the library it calls run from these files, so a modified "
+                         "checkout cannot judge the commit -- `git stash` or clone afresh, then run again")
         return out
 
     lib = _lib()

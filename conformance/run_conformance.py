@@ -762,7 +762,11 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         #
         # ERZEUGER UND PRUEFER TRAGEN DIESELBE FASSUNG. Das war schon vorher der Punkt; jetzt
         # haengen beide an derselben Variablen, und ein v0.2-Fall waehlt beide Seiten zugleich.
-        _legacy = case.get("predicateVersion", "v0.1") != "v0.2"
+        _fassung = case.get("predicateVersion", "v0.1")
+        if _fassung not in ("v0.1", "v0.2", "v0.3"):
+            raise ValueError(f"{case.get('id')!r}: unknown predicateVersion {_fassung!r} — a case "
+                             "names v0.1, v0.2 or v0.3, it does not inherit one")
+        _legacy = _fassung == "v0.1"
         try:
             _env = ar.emit_agent_review(doc, _sk, legacy_v01=_legacy)
         except ar.AgentReviewError:
@@ -784,7 +788,11 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
                     _env, _sk.public_key().public_bytes_raw(),
                     expected_subject_digest=ar._subject_digest(doc))
             else:
-                _r = ar.verify_agent_review_v02(
+                # v0.3 (6.1.0) traegt den Verifier-Block und hat seinen eigenen Verifizierer;
+                # der v0.2-Verifizierer wiese jedes v0.3-Receipt am predicateType ab.
+                _verifier = (ar.verify_agent_review_v03 if _fassung == "v0.3"
+                             else ar.verify_agent_review_v02)
+                _r = _verifier(
                     _env, _sk.public_key().public_bytes_raw(),
                     expected_subject_digest=ar._subject_digest(doc),
                     policy=ar.load_policy())
@@ -839,8 +847,9 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
-    if case.get("predicateVersion") != "v0.2":
-        raise ValueError("a policyDecision case is a v0.2 case and must say so (predicateVersion)")
+    _fassung = case.get("predicateVersion")
+    if _fassung not in ("v0.2", "v0.3"):
+        raise ValueError("a policyDecision case is a v0.2 or v0.3 case and must say so (predicateVersion)")
     params = case.get("params") or {}
     doc = json.loads(_fall_datei(case_dir, case.get("input") or "predicate.json").read_text())
     sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
@@ -852,8 +861,9 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
         policy = ar.load_policy()
     else:
         policy = ar.load_policy(_fall_datei(case_dir, str(wahl)))
-    r = ar.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
-                                   expected_subject_digest=ar._subject_digest(doc), policy=policy)
+    _verifier = ar.verify_agent_review_v03 if _fassung == "v0.3" else ar.verify_agent_review_v02
+    r = _verifier(env, sk.public_key().public_bytes_raw(),
+                  expected_subject_digest=ar._subject_digest(doc), policy=policy)
     return {"decision": r.get("policy_decision"), "ok": r.get("ok"),
             "codes": list(r.get("reason_codes") or []),
             "advisory": list(r.get("advisory_codes") or []), "policy_name": r.get("policy_name"),
@@ -916,6 +926,20 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False,
               f"[schema checked by: {cross_format.schema_check_name()}]:")
         for pr in cf_problems:
             print("  -", pr)
+        if test_result_out is not None:
+            # THE MOST SEVERE FAILURE CLASS MUST NOT BE THE ONE WITHOUT A STATEMENT (lens C,
+            # 2026-09-18, P1): a corpus that fails its integrity precondition ran no case, and the
+            # first draft returned here before the statement was written -- "no statement" and
+            # "the corpus is broken" were the same observation. The statement now says it: one
+            # FAILED entry per problem, no case passed, no case warned.
+            try:
+                schreibe_test_result_statement(
+                    [{"caseId": f"corpus-integrity: {pr}"[:200], "ok": False, "scope": NONE}
+                     for pr in cf_problems] or [{"caseId": "corpus-integrity", "ok": False, "scope": NONE}],
+                    pathlib.Path(test_result_out))
+                print(f"[conformance] test-result statement -> {test_result_out} (result FAILED, corpus integrity)")
+            except Exception as e:  # noqa: BLE001
+                print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
         return 1
     results: list[dict] = []
     for rel in cases:

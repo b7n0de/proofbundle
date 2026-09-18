@@ -11,6 +11,7 @@ against the validator degrading into a constant refusal.
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -117,6 +118,47 @@ class TestMeasureBuild:
         assert b["digest"]["sha256"] == hashlib.sha256(
             "proofbundle/__init__.py\0BBBB".encode()).hexdigest()
 
+    def test_bytecode_rows_in_record_do_not_hide_an_installed_build(self, tmp_path, monkeypatch):
+        """LENS C, 2026-09-18, P0 -- executed against a real wheel: `pip install` compiles by default
+        and writes `proofbundle/__pycache__/x.pyc,,` rows without a hash. The first draft read one
+        such row as a package file without a hash and gave up on the whole listing, so every default
+        install measured as `source-tree` and the block's one distinguishing property was dead."""
+        import importlib.metadata as im
+
+        pkg = tmp_path / "site" / "proofbundle"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+        record = ("proofbundle/__init__.py,sha256=BBBB,20\n"
+                  "proofbundle/__pycache__/__init__.cpython-310.pyc,,\n"
+                  "proofbundle/policies/__pycache__/x.cpython-312.pyc,,\n"
+                  "proofbundle-6.1.0.dist-info/RECORD,,\n")
+
+        class Dist:
+            def read_text(self, name):
+                return record if name == "RECORD" else None
+
+            def locate_file(self, rel):
+                return tmp_path / "site" / rel
+
+        monkeypatch.setattr(im, "distribution", lambda name: Dist())
+        b = VB.measure_build(pkg)
+        assert b["source"] == "installed-record", b
+        assert b["files"] == 1
+        # ANTI-PARITY: a package file (not bytecode) without a hash still refuses the RECORD path.
+        record = "proofbundle/__init__.py,,\n"
+        assert VB.measure_build(pkg)["source"] == "source-tree"
+
+    def test_a_link_leaving_the_package_tree_is_refused_not_hashed(self, tmp_path):
+        """LENS C, P1: a symlink out of the tree made the digest move with bytes outside the tree."""
+        pkg = tmp_path / "proofbundle"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+        aussen = tmp_path / "aussen.py"
+        aussen.write_text("x = 1\n")
+        (pkg / "link.py").symlink_to(aussen)
+        with pytest.raises(VB.VerifierBlockError, match="outside the package"):
+            VB.measure_build(pkg)
+
     def test_an_editable_install_is_measured_as_a_source_tree(self, tmp_path, monkeypatch):
         """The distribution says the package is installed at A; the module on disk lives at B.
         That is an editable install or a checkout on PYTHONPATH -- the RECORD describes files
@@ -174,6 +216,32 @@ class TestMeasureVectorSet:
         root = _mini_corpus(tmp_path / "c")
         (root / "b" / "case.json").unlink()
         with pytest.raises(VB.VerifierBlockError, match="no file"):
+            VB.measure_vector_set(root)
+
+    def test_a_case_listed_twice_is_refused(self, tmp_path):
+        """LENS C, P2: `cases` counted the listing, not the corpus."""
+        root = _mini_corpus(tmp_path / "c", cases=("a", "b"))
+        (root / "manifest.json").write_text(json.dumps(
+            {"schema": "proofbundle.conformance.manifest.v1", "cases": ["a", "b", "a"]}))
+        with pytest.raises(VB.VerifierBlockError, match="more than once"):
+            VB.measure_vector_set(root)
+
+    def test_a_link_leaving_the_corpus_is_refused_not_hashed(self, tmp_path):
+        """LENS C, P1: the digest moved with bytes outside the corpus while every corpus byte stood."""
+        root = _mini_corpus(tmp_path / "c")
+        aussen = tmp_path / "aussen.json"
+        aussen.write_text("{}")
+        (root / "a" / "vector.json").symlink_to(aussen)
+        with pytest.raises(VB.VerifierBlockError, match="outside the corpus"):
+            VB.measure_vector_set(root)
+        # a case DIRECTORY that is a link out of the corpus is refused as well
+        (root / "a" / "vector.json").unlink()
+        (root / "manifest.json").write_text(json.dumps(
+            {"schema": "proofbundle.conformance.manifest.v1", "cases": ["a", "b", "weg"]}))
+        (tmp_path / "anderswo").mkdir()
+        (tmp_path / "anderswo" / "case.json").write_text("{}")
+        (root / "weg").symlink_to(tmp_path / "anderswo")
+        with pytest.raises(VB.VerifierBlockError, match="outside the corpus"):
             VB.measure_vector_set(root)
 
     def test_a_manifest_without_cases_is_refused(self, tmp_path):
@@ -322,6 +390,29 @@ class TestTestResultStatement:
         j3 = VB.join_test_result(b3, s)
         assert not j3["ok"] and not j3["result_matches"]
 
+    def test_the_join_fails_when_the_statement_ran_another_vector_set(self):
+        """un-review 2026-09-18, P1: subject, digest and result agreed, and the statement was
+        about corpus A while the block declared corpus B. The fourth equality closes that."""
+        s = self._stmt()
+        b = VB.build_verifier_block(build=_valid_block()["build"], version="6.1.0",
+                                    vector_set=_valid_block()["vectorSet"],
+                                    test_result=VB.test_result_ref(s))
+        # the block declares another corpus; the reference (digest, result) still matches
+        b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 3}
+        j = VB.join_test_result(b, s)
+        assert not j["ok"] and not j["vector_set_matches"], j
+        assert j["subject_matches_build"] and j["digest_matches"] and j["result_matches"]
+        assert any("vector set" in e for e in j["errors"])
+        # same case count, different digest -- still another corpus
+        b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 110}
+        assert not VB.join_test_result(b, s)["ok"]
+
+    def test_a_block_that_cites_a_run_must_declare_its_vector_set(self):
+        b = _valid_block()
+        del b["vectorSet"]
+        errs = VB.validate_verifier_block(b)
+        assert errs and any("testResult without vectorSet" in e for e in errs)
+
     def test_a_block_without_a_reference_cannot_be_joined(self):
         b = _valid_block()
         del b["testResult"]
@@ -351,10 +442,100 @@ class TestTestResultStatement:
 # ── in the receipt: emit, verify, report ──────────────────────────────────────────────────────
 class TestInTheReceipt:
     def _roundtrip(self, predicate):
+        """Emit, then read through the dispatcher: the version follows the object (v0.3 with a
+        block, v0.2 without), and the dispatcher routes by the predicateType the emitter chose."""
         sk, pk = _key()
         env = AR.emit_agent_review(predicate, sk)
-        return AR.verify_agent_review_v02(env, pk, expected_subject_digest=AR._subject_digest(predicate),
+        return AR.verify_agent_review_any(env, pk, expected_subject_digest=AR._subject_digest(predicate),
                                           policy=AR.load_policy())
+
+    @staticmethod
+    def _predicate_type_of(env):
+        return json.loads(base64.b64decode(env["payload"]))["predicateType"]
+
+    def test_the_emitter_picks_v03_exactly_when_the_block_is_present(self):
+        sk, _pk = _key()
+        mit = AR.emit_agent_review(VB.attach(_v02_predicate(), _valid_block()), sk)
+        ohne = AR.emit_agent_review(_v02_predicate(), sk)
+        assert self._predicate_type_of(mit) == AR.AGENT_REVIEW_PREDICATE_TYPE_V03
+        assert self._predicate_type_of(ohne) == AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+        assert AR.AGENT_REVIEW_PREDICATE_TYPE_V03.endswith("/agent-review/v0.3")
+
+    def test_a_v02_typed_receipt_carrying_the_block_is_refused_by_every_verifier(self):
+        """THE MEASUREMENT THAT MADE THE BLOCK A VERSION. Hand-built past the emitter: v0.2 type,
+        block inside. 6.0.0 refuses it (unknown producer field); so must 6.1.0, under the same
+        type, or the same bytes would carry two verdicts."""
+        p = VB.attach(_v02_predicate(), _valid_block())
+        sk, pk = _key()
+        stmt = {"_type": AR.STATEMENT_TYPE,
+                "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+                "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": p}
+        env = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        kw = {"expected_subject_digest": AR._subject_digest(p), "policy": AR.load_policy()}
+        r02 = AR.verify_agent_review_v02(env, pk, **kw)
+        assert r02["ok"] is False and r02["structure_ok"] is False
+        assert any("producer.verifier is not an allowed field" in e for e in r02["errors"])
+        assert r02["verifier_block"] is None, "a refused block is not reported as if it were read"
+        r03 = AR.verify_agent_review_v03(env, pk, **kw)
+        assert r03["ok"] is False and r03["predicate_type_ok"] is False
+        assert "UNKNOWN_PREDICATE_VERSION" in r03["reason_codes"]
+        assert any("use verify_agent_review_v02" in e for e in r03["errors"])
+        rany = AR.verify_agent_review_any(env, pk, **kw)
+        assert rany["ok"] is False and rany["predicateVersionStatus"] == "current"
+        # ANTI-PARITY: the same predicate under the type the emitter would choose is valid.
+        stmt["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V03
+        env3 = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        assert AR.verify_agent_review_v03(env3, pk, **kw)["ok"] is True
+
+    def test_the_v03_verifier_refuses_a_v02_receipt_with_a_pointer_and_v01_too(self):
+        sk, pk = _key()
+        p = _v02_predicate()
+        env = AR.emit_agent_review(p, sk)
+        r = AR.verify_agent_review_v03(env, pk, expected_subject_digest=AR._subject_digest(p),
+                                       policy=AR.load_policy())
+        assert r["ok"] is False and r["predicate_type_ok"] is False
+        assert "UNKNOWN_PREDICATE_VERSION" in r["reason_codes"]
+        assert any("use verify_agent_review_v03" not in e and "use verify_agent_review_v02" in e
+                   for e in r["errors"])
+        v01 = json.loads((CONFORMANCE / "agent_review"
+                          / "agent-review-counter-proof-verifier-block-is-not-a-v01-field"
+                          / "predicate.json").read_text(encoding="utf-8"))
+        del v01["producer"]["verifier"]
+        env1 = AR.emit_agent_review(v01, sk, legacy_v01=True)
+        r1 = AR.verify_agent_review_v03(env1, pk, expected_subject_digest=AR._subject_digest(v01))
+        assert r1["ok"] is False and "UNKNOWN_PREDICATE_VERSION" in r1["reason_codes"]
+        assert any("this is the v0.3 verifier" in e for e in r1["errors"])
+
+    def test_the_predicate_validator_gives_the_block_errors_one_reason_code(self):
+        p = VB.attach(_v02_predicate(), _valid_block())
+        p["producer"]["verifier"]["assurance"] = "independentlyWitnessed"
+        errs = AR.validate_agent_review_v03_predicate(p, strict=True)
+        assert errs and all(str(e).startswith("producer.verifier: ") for e in errs)
+        assert {getattr(e, "code", None) for e in errs} == {"PRODUCER_VERIFIER_BLOCK_INVALID"}
+        # v0.2 never reaches the block's validator: the field itself is unknown there.
+        errs02 = AR.validate_agent_review_v02_predicate(p, strict=True)
+        assert errs02 == ["producer.verifier is not an allowed field"]
+
+    def test_the_render_switch_reads_a_block_as_v03(self):
+        p = VB.attach(_v02_predicate(), _valid_block())
+        AR.require_valid_agent_review_predicate_any(p)          # v0.3 rules, passes
+        p["producer"]["verifier"]["build"]["digest"]["sha256"] = "nope"
+        with pytest.raises(AR.AgentReviewError, match="agent-review/v0.3"):
+            AR.require_valid_agent_review_predicate_any(p)
+
+    def test_an_internal_error_result_carries_the_same_keys_as_every_other_result(self, monkeypatch):
+        """Lens B, 2026-09-18: the except path built from the bare v0.1 skeleton and lost the v0.2
+        keys -- a consumer reading `event_time_status` on an internal_error result got KeyError."""
+        def _boom(*_a, **_k):
+            raise RuntimeError("planted")
+        monkeypatch.setattr(AR, "_verify_v02_inner", _boom)
+        sk, pk = _key()
+        env = AR.emit_agent_review(_v02_predicate(), sk)
+        for verifier in (AR.verify_agent_review_v02, AR.verify_agent_review_v03):
+            r = verifier(env, pk)
+            assert r["ok"] is False and r["reason_code"] == "internal_error"
+            assert r["event_time_status"] == "NOT_EVALUATED" and r["verifier_block"] is None
+            assert getattr(r["errors"][0], "code", None) == "internal_error"
 
     def test_a_measured_block_travels_through_emit_and_verify_and_names_this_build(self):
         p = VB.attach(_v02_predicate(), VB.measure_verifier_block(conformance_dir=CONFORMANCE))
@@ -374,9 +555,22 @@ class TestInTheReceipt:
         assert r["verifier_block"]["test_result"] == "PASSED"
 
     def test_without_a_block_nothing_is_evaluated_and_ok_is_unaffected(self):
+        """Two shapes of absence, kept apart. A v0.2 receipt has no block axis at all -- the
+        version does not know the field -- so `verifier_block` is None there. A v0.3 receipt
+        without a block (valid: the field is optional) reports absence, and NOT_EVALUATED is
+        not a pass."""
         r = self._roundtrip(_v02_predicate())
-        assert r["ok"] is True
-        assert r["verifier_block"] == {
+        assert r["ok"] is True and r["verifier_block"] is None
+        p = _v02_predicate()
+        sk, pk = _key()
+        stmt = {"_type": AR.STATEMENT_TYPE,
+                "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+                "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V03, "predicate": p}
+        env = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r3 = AR.verify_agent_review_v03(env, pk, expected_subject_digest=AR._subject_digest(p),
+                                        policy=AR.load_policy())
+        assert r3["ok"] is True
+        assert r3["verifier_block"] == {
             "present": False, "valid": None, "implementation": None, "version": None,
             "build_digest": None, "build_source": None, "vector_set_digest": None,
             "vector_set_cases": None, "test_result": None,
@@ -388,15 +582,16 @@ class TestInTheReceipt:
         sk, pk = _key()
         with pytest.raises(AR.AgentReviewError, match="producer.verifier"):
             AR.emit_agent_review(p, sk)
-        # hand-built past the emitter: the verifier still refuses it
+        # hand-built past the emitter: the v0.3 verifier still refuses it, with the code
         stmt = {"_type": AR.STATEMENT_TYPE,
                 "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
-                "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": p}
+                "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V03, "predicate": p}
         env = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
-        r = AR.verify_agent_review_v02(env, pk, expected_subject_digest=AR._subject_digest(p),
+        r = AR.verify_agent_review_v03(env, pk, expected_subject_digest=AR._subject_digest(p),
                                        policy=AR.load_policy())
         assert r["ok"] is False and r["structure_ok"] is False
         assert any("producer.verifier" in e for e in r["errors"])
+        assert "PRODUCER_VERIFIER_BLOCK_INVALID" in r["reason_codes"]
 
     def test_v01_does_not_know_the_block_and_refuses_it(self):
         sk, _pk = _key()
@@ -419,7 +614,7 @@ class TestInTheReceipt:
             VB.attach(p, _valid_block())
 
     def test_the_v01_result_skeleton_is_untouched(self):
-        """`_empty_result` is byte-pinned to 5.1.0; the block's field lives on the v0.2 path only."""
+        """`_empty_result` is byte-pinned to 5.1.0; the block's field lives on the v0.2/v0.3 path only."""
         assert "verifier_block" not in AR._empty_result()
 
 
@@ -452,3 +647,32 @@ class TestRunnerWritesTheStatement:
         # THE RESULT AND THE EXIT CODE AGREE: a failed run is a FAILED statement, never a PASSED
         # one beside a red exit -- and a green exit never sits beside FAILED.
         assert (r.returncode == 0) == (s["predicate"]["result"] != "FAILED"), (r.returncode, s["predicate"]["result"])
+
+    def test_a_broken_corpus_still_writes_a_failed_statement(self, tmp_path):
+        """LENS C, P1: the corpus-integrity precondition returned before the statement was written,
+        so the most severe failure class was the one without a statement. Executed on a scratch copy
+        of the corpus with one caseId emptied."""
+        import shutil
+        import subprocess
+        import sys
+
+        runner = REPO / "conformance" / "run_conformance.py"
+        if not runner.is_file():
+            pytest.skip("conformance/run_conformance.py is not here")
+        kopie = tmp_path / "conformance"
+        shutil.copytree(CONFORMANCE, kopie, ignore=shutil.ignore_patterns("__pycache__"))
+        fall = kopie / "agent_review" / "agent-review-v02-positive-control-emitter-default-is-v02" / "case.json"
+        d = json.loads(fall.read_text(encoding="utf-8"))
+        d["caseId"] = ""
+        fall.write_text(json.dumps(d), encoding="utf-8")
+        ziel = tmp_path / "statement.json"
+        r = subprocess.run([sys.executable, str(kopie / "run_conformance.py"), "--test-result-out", str(ziel)],
+                           cwd=str(REPO), capture_output=True, text=True, timeout=900,
+                           env={**__import__("os").environ, "PYTHONPATH": str(REPO / "src")})
+        assert r.returncode == 1, r.stdout[-600:]
+        assert "corpus integrity FAIL" in r.stdout
+        assert ziel.is_file(), "a broken corpus left no statement -- 'no statement' and 'broken' were one observation"
+        s = json.loads(ziel.read_text(encoding="utf-8"))
+        assert VB.validate_test_result_statement(s) == []
+        assert s["predicate"]["result"] == "FAILED" and not s["predicate"]["passedTests"]
+        assert any(t.startswith("corpus-integrity") for t in s["predicate"]["failedTests"])

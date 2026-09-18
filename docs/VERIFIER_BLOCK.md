@@ -1,7 +1,7 @@
 # The verifier block — which build produced a receipt, and against which vector set it stood
 
 Status: **6.1.0, self-declared.** Implemented in `src/proofbundle/verifier_block.py`, carried by
-`agent-review/v0.2` receipts under `producer.verifier`, produced for a conformance run by
+`agent-review/v0.3` receipts under `producer.verifier`, produced for a conformance run by
 `conformance/run_conformance.py --test-result-out`. The module is the enforced validator; this
 page explains it. Conformance cases live under `conformance/agent_review/` (rule `P19`).
 
@@ -73,9 +73,13 @@ The statement is written unsigned. Signing is the producer's step
 (`verifier_block.sign_test_result_statement`, the same DSSE primitive every receipt of this package
 uses); a runner signing with a key of its own would be one more identity nobody can look up. The
 receipt cites the statement by the digest of its canonical bytes, and a relying party **joins the
-two by equality**: `join_test_result(block, statement)` reports three equalities separately —
+two by equality**: `join_test_result(block, statement)` reports four equalities separately —
 subject equals the block's build digest, canonical digest equals the cited one, result equals the
-cited one — and `ok` only when all three hold. The issuer is not trusted for the join.
+cited one, and the statement's configuration names the vector set the block declares — and
+`ok` only when all four hold. The issuer is not trusted for the join. A block that cites a run
+must declare its vector set; without one the join would have nothing to hold the statement's
+configuration against, and a statement over one corpus could be cited beside a block declaring
+another (found by review on 2026-09-18, before this landed).
 
 ## What the verifier reports
 
@@ -93,12 +97,25 @@ invalidate the receipt: it is a receipt whose producer you can now name.
 
 ## Version rule, stated rather than glossed
 
-`agent-review/v0.2` **extends** its producer field set by `verifier` since 6.1.0; `v0.1` is not
-loosened and refuses the block as it always refused unknown fields. A 6.0.0 verifier refuses a
-v0.2 receipt that carries the block (`producer.verifier is not an allowed field`) — loudly, never by
-misreading it. A producer that needs 6.0.0 readability omits the block. This is the same boundary
-the predicate already states for v0.2 itself: a receipt of that version can be verified with the
-published package only from 6.0.0 on.
+The block lives in a **new predicate version, `agent-review/v0.3`** (6.1.0): v0.2 plus exactly one
+optional field, `producer.verifier`. Nothing else changes — time semantics, observation rules,
+the closed field sets, the policy handling are v0.2's, and `verify_agent_review_v03` is the v0.2
+verifier with the block admitted and reported.
+
+Why a new version and not v0.2 with the block: the first draft of 6.1.0 did exactly that, and two
+reviewers measured the consequence on 2026-09-18 with the tagged 6.0.0 validator. The same bytes —
+`predicateType …/v0.2` carrying `producer.verifier` — were **rejected** by 6.0.0
+(`producer.verifier is not an allowed field`) and **accepted** by 6.1.0. Two verdicts over one
+receipt, distinguished by nothing a reader can see in the receipt. The predicate's own version rule
+says a change to what a verifier must reject is a new version, so the reader can tell from the
+`predicateType` alone which validator judged it. Hence v0.3.
+
+What follows from that, stated rather than glossed: `v0.2` stays exactly what 6.0.0 shipped, and a
+v0.2 receipt carrying the block is refused by **every** verifier, 6.0.0 and 6.1.0 alike. `v0.1`
+refuses it as it always refused unknown fields. `verify_agent_review_any` routes by `predicateType`
+and reports both v0.2 and v0.3 as `current` — v0.3 does not deprecate v0.2. A producer that needs
+6.0.0 readability keeps issuing v0.2 without the block. The emitter picks v0.3 exactly when the
+predicate carries the block; there is no parameter that chooses it, the version follows the object.
 
 ## Honest limits
 
@@ -109,6 +126,10 @@ published package only from 6.0.0 on.
 - **A digest over files, not over a wheel.** `installed-record` identifies the installed file set of
   a wheel; `source-tree` identifies a checkout. Neither is the artifact digest on PyPI. Joining the
   block to a published wheel is a further step and is not claimed here.
+- **A `source-tree` digest is local.** It names the files of one checkout at one moment; another
+  checkout of the same commit reproduces it only if the same files are present, and an editable
+  install moves it with every edit. It serves a local audit trail. For a receipt that is verified
+  elsewhere, produce it from an installed distribution so the block carries `installed-record`.
 - **The vector set digest pins what the manifest names.** A case directory not listed in the
   manifest is not part of the corpus and not part of the digest — which is the corpus's own rule.
 - **It does not make the conformance claim true.** What a relying party gains is a joinable,
@@ -116,7 +137,7 @@ published package only from 6.0.0 on.
 
 ## Every rule brings its counter-proof
 
-`conformance/agent_review/` carries a positive control (a v0.2 predicate with a block is valid) and
+`conformance/agent_review/` carries a positive control (a v0.3 predicate with a block is valid) and
 three counter-proofs (a block that raises its own assurance, a build digest that is not a sha256,
 an unknown field) plus one v0.1 counter-proof (the old version refuses the block). Each
 counter-proof has a flip test in `tests/test_agent_review_conformance_runner.py` that removes
