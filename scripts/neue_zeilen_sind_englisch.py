@@ -83,6 +83,26 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         elif zeile.startswith("+") and not zeile.startswith("+++") and datei:
             je_datei[datei].append((nr, zeile[1:]))
             nr += 1
+    if arbeitsbaum:
+        # UNTRACKED FILES ARE NEW MATERIAL TOO. `git diff` never lists a file git does not know,
+        # so a brand-new .py with German prose read as clean in the working-tree form (un, round 1,
+        # 2026-09-18; measured: an untracked probe file with a German comment, 0 findings). CI
+        # measures committed heads and is not affected; this form is for the person fixing the
+        # findings, and it must not flatter the file they just created. Every line of an
+        # untracked file is an added line.
+        rc2, neu = _git("ls-files", "--others", "--exclude-standard", "--", "*.py")
+        if rc2 != 0:
+            return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
+        for rel in neu.splitlines():
+            rel = rel.strip()
+            if not rel:
+                continue
+            try:
+                text = (REPO / rel).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                return {}, f"NOT MEASURABLE: untracked file {rel!r} is not readable"
+            je_datei.setdefault(rel, [])
+            je_datei[rel].extend((i, z) for i, z in enumerate(text.splitlines(), start=1))
     return je_datei, "measured"
 
 

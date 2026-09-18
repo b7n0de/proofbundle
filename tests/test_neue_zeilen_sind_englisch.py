@@ -111,3 +111,28 @@ def test_the_git_range_is_measurable_on_a_real_repository(tmp_path, monkeypatch)
     je_datei, grund = NZ._neue_zeilen(base, arbeitsbaum=True)
     assert not grund.startswith("NOT MEASURABLE"), grund
     assert any("english" in z for _, z in je_datei.get("m.py", [])), je_datei
+
+
+def test_an_untracked_new_file_is_measured_in_the_working_tree_form(tmp_path, monkeypatch):
+    """un, round 1 (2026-09-18): `git diff` never lists a file git does not know, so a brand-new
+    .py with German prose read as clean in the working-tree form. Measured with a probe file:
+    0 findings. New material is new material whether git has seen it or not."""
+    import subprocess
+    repo = tmp_path / "r"
+    repo.mkdir()
+    def git(*a):
+        subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)
+    git("init", "-q")
+    (repo / "m.py").write_text("x = 1\n", encoding="utf-8")
+    git("add", "m.py")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base")
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
+                          text=True, check=True).stdout.strip()
+    (repo / "neu.py").write_text("# das ist eine neue deutsche Datei und sie ist ungetrackt\n", encoding="utf-8")
+    monkeypatch.setattr(NZ, "REPO", repo)
+    je_datei, grund = NZ._neue_zeilen(base, arbeitsbaum=True)
+    assert not grund.startswith("NOT MEASURABLE"), grund
+    assert "neu.py" in je_datei and any("deutsche" in z for _, z in je_datei["neu.py"]), je_datei
+    # the committed form stays what it is: HEAD knows nothing of the file
+    je_datei, _ = NZ._neue_zeilen(base)
+    assert "neu.py" not in je_datei
