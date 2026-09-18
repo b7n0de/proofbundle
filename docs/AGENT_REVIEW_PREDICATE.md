@@ -91,6 +91,24 @@ time value, not that the value is externally true, and this predicate carries no
 `knownGaps`. Without a stated expectation, "complete" means "I saw everything I happened to see" and
 cannot be falsified. Unobserved work appears as a gap, never as a zero count.
 
+**Coverage in the language of CAP-1 (v0.2).** A v0.2 predicate may carry the accounting of
+`draft-hillier-coverage-attestation-00` under `coverage`: `strata[]` (one denominator each, with its
+`basis`, `eligible`, `examined` and every `unexamined` unit named with a disposition), `integrity`
+(`complete`, `statement`, `capped_to`) and `absenceAssertions[]` (each bound to a stratum). The
+field names inside a stratum are the profile's own (`catalogue_digest`, `withheld_digest`,
+`enumeration_method`); only the top-level keys follow the predicate's camelCase. The rules R0 to R8
+of the draft are checked by `proofbundle.cap1`, the same module that runs the author's fifteen
+conformance vectors, and each rule reports its own reason code (`COVERAGE_CAP1_SHAPE`,
+`COVERAGE_CAP1_SILENT_REMAINDER`, `COVERAGE_CAP1_DISPOSITION_NOT_CLOSED`,
+`COVERAGE_CAP1_WITHHELD_WITHOUT_DIGEST`, `COVERAGE_CAP1_BASIS_MISSING`,
+`COVERAGE_CAP1_COUNTS_MALFORMED`, `COVERAGE_CAP1_ABSENCE_UNSCOPED`,
+`COVERAGE_CAP1_INCOMPLETE_CLAIMED_CLEAN`, `COVERAGE_CAP1_SUPPORTS_MISSING`). With strata present,
+`status` is derived from `integrity.complete` (`COMPLETE` if true, `PARTIAL` otherwise) and a
+stated status that disagrees is rejected (`COVERAGE_CAP1_STATUS_CONTRADICTS_STRATA`); the older
+counters are then aliases, still readable and still type-checked, and a predicate that carries only
+them verifies as before with the advisory code `COVERAGE_LEGACY_FIELDS`. v0.1 does not know the
+three fields and rejects them as unknown.
+
 ## Findings
 
 Aggregates like "3 findings, 2 fixed, 1 dismissed" are not a reviewable record — anyone can rewrite
