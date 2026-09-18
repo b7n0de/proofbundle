@@ -1375,19 +1375,25 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         self.assertFalse(G.bedingung_am_ereignis("( true || false ) && false", ev))
 
     def test_the_five_branch_condition_of_this_repository(self):
-        """Die echte Bedingung aus ci.yml, Zweig fuer Zweig: nur der release/-Zweig aus dem
-        EIGENEN Repo zaehlt, ein release/-Kopf aus einem Fork nicht."""
-        bed = ("( github.event_name == 'workflow_dispatch' || ( github.event.pull_request.head.repo"
-               ".full_name == github.repository && startsWith(github.head_ref, 'release/') ) || "
-               "startsWith(github.ref_name, 'release/') || contains(github.event.pull_request.labels"
-               ".*.name, 'landung') || github.event_name == 'merge_group' )")
-        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis()))
-        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(head_ref="release/6.1.0")))
-        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis(head_ref="release/6.1.0",
-                                                                     head_repo="fremd/r")),
-                         "ein release/-Kopf aus einem Fork macht die Bedingung nicht wahr")
-        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(event="merge_group")))
-        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(ref_name="release/6.1.0")))
+        """Die echte Bedingung aus ci.yml, Zweig fuer Zweig, in der Form seit der Velocity-Regel
+        vom 2026-09-17: jeder PR aus dem EIGENEN Repo, ein release/-Ref, das Label, ein
+        Dispatch, die Merge-Queue. Ein Fork-PR ohne Label bleibt draussen."""
+        bed = ("( github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo"
+               ".full_name == github.repository || startsWith(github.ref_name, 'release/') || "
+               "contains(github.event.pull_request.labels.*.name, 'landung') || "
+               "github.event_name == 'merge_group' )")
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis()),
+                        "ein PR aus dem eigenen Repo faehrt die volle Matrix, auch ohne Label")
+        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis(head_repo="fremd/r")),
+                         "ein Fork-PR ohne Label bleibt an der Schranke")
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(head_repo="fremd/r",
+                                                                    labels=("landung",))))
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(event="merge_group",
+                                                                    head_repo="")))
+        self.assertTrue(G.bedingung_am_ereignis(bed, self._ereignis(ref_name="release/6.1.0",
+                                                                    head_repo="fremd/r")))
+        self.assertFalse(G.bedingung_am_ereignis(bed, self._ereignis(event="push", head_repo="")),
+                         "ein gewoehnlicher Push faehrt die schnelle Schicht")
 
     def test_an_atom_the_evaluator_does_not_know_is_not_measurable_never_a_pass(self):
         """Ein unbekanntes Fragment darf nicht still als wahr oder falsch gelten."""
@@ -1485,17 +1491,26 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         self.assertEqual(sum(z.count("\n") for z in mit), 0)
 
     def test_against_this_repository_the_shape_of_pull_request_218(self):
-        """Nicht Kulisse, sondern die Workflows dieses Repos: ohne Label fehlen genau die vier
-        Versionskontexte, mit Label keiner. Das ist die Messung vom 2026-09-17 als Vertrag."""
+        """Nicht Kulisse, sondern die Workflows dieses Repos. Am 2026-09-17 fehlten auf PR 218 (Kopf
+        aus dem eigenen Repo, kein Label) genau die vier Versionskontexte. Seit der Velocity-Regel
+        desselben Tages (volle Matrix fuer jeden PR aus dem eigenen Repo) TRIFFT auf dieser Form
+        alles ein; die vier fehlen nur noch auf einem FORK-PR ohne Label, und mit Label auch dort
+        nicht. Der Vertrag misst beide Seiten der Regel, sonst waere er nach der Umstellung leer."""
         if G.pruefe()["verdict"] == G.UNKNOWN:
             self.skipTest("declaration not readable here")
-        ev = self._ereignis(head_ref="docs/register-head-migration-1a", repository="b7n0de/proofbundle",
-                            head_repo="b7n0de/proofbundle", ref_name="218/merge")
-        d = G.lebend(ev)
-        self.assertEqual(d["missing"], ["test (3.10)", "test (3.11)", "test (3.13)", "test (3.14)"])
+        eigen = self._ereignis(head_ref="docs/register-head-migration-1a", repository="b7n0de/proofbundle",
+                               head_repo="b7n0de/proofbundle", ref_name="218/merge")
+        d = G.lebend(eigen)
+        self.assertEqual(d["verdict"], G.ALWAYS, "eigenes Repo, kein Label: die volle Matrix laeuft")
         self.assertEqual(d["not_measurable"], [], "die echte Bedingung ist vollstaendig auswertbar")
-        ev["payload"]["pull_request"]["labels"] = [{"name": "landung"}]
-        self.assertEqual(G.lebend(ev)["verdict"], G.ALWAYS)
+        fork = self._ereignis(head_ref="docs/x", repository="b7n0de/proofbundle",
+                              head_repo="fremd/proofbundle", ref_name="999/merge")
+        d = G.lebend(fork)
+        self.assertEqual(d["missing"], ["test (3.10)", "test (3.11)", "test (3.13)", "test (3.14)"],
+                         "ein Fork-PR ohne Label bleibt an der Schranke")
+        self.assertIn("landung", d["advice"])
+        fork["payload"]["pull_request"]["labels"] = [{"name": "landung"}]
+        self.assertEqual(G.lebend(fork)["verdict"], G.ALWAYS, "mit Label auch auf dem Fork")
 
     # --- die Linsen vom 2026-09-17: zwei Funde und sechs ueberlebende Mutanten, je ein Fall ------
 
