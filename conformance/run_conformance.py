@@ -791,8 +791,8 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
                     _env, _sk.public_key().public_bytes_raw(),
                     expected_subject_digest=ar._subject_digest(doc))
             else:
-                # v0.3 (6.1.0) traegt den Verifier-Block und hat seinen eigenen Verifizierer;
-                # der v0.2-Verifizierer wiese jedes v0.3-Receipt am predicateType ab.
+                # v0.3 (6.1.0) carries the verifier block and has its own verifier; the v0.2
+                # verifier would refuse every v0.3 receipt at the predicateType.
                 _verifier = (ar.verify_agent_review_v03 if _fassung == "v0.3"
                              else ar.verify_agent_review_v02)
                 _r = _verifier(

@@ -492,20 +492,20 @@ schreibe("agent-review-v02-positive-control-fixcommit-full-sha-is-accepted", "po
          attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])
 
 
-# ══ P19 (6.1.0): der Verifier-Block unter producer.verifier — agent-review/v0.3 ═══════════════
-# Gebaut 18.09.2026 zu P19 des Release-Umfangs 6.1.0 (Owner-Entscheid 15.09.2026, Option A). Der
-# Block traegt Build-Digest, Vektorsatz und die Referenz auf ein getrenntes Test-Result-Statement;
-# die Werte hier sind FESTE Platzhalter, weil ein Korpus, dessen Bytes vom messenden Rechner
-# abhaengen, keiner ist. Gemessen wird der Block in tests/test_verifier_block.py; der Korpus
-# haelt die FORM: ein v0.3-Predicate mit Block ist gueltig, drei Verletzungen der Form werden
-# verweigert, und ein v0.1-Predicate mit Block bleibt verweigert -- die Altfassung kennt ihn nicht.
+# ══ P19 (6.1.0): the verifier block under producer.verifier, agent-review/v0.3 ═══════════════
+# Built 2026-09-18 for P19 of the 6.1.0 release scope (owner decision 2026-09-15, option A). The
+# block carries the build digest, the vector set and the reference to a separate test-result
+# statement; the values here are FIXED placeholders, because a corpus whose bytes depend on the
+# measuring machine is not a corpus. The block is measured in tests/test_verifier_block.py; the
+# corpus holds the FORM: a v0.3 predicate with a block is valid, three violations of the form are
+# refused, and a v0.1 predicate with a block stays refused, the old version does not know it.
 #
-# WARUM v0.3 UND NICHT v0.2 MIT BLOCK. Die erste Fassung dieses Abschnitts (18.09.2026, vormittags)
-# trug den Block in v0.2. Zwei Gegenleser massen am selben Tag mit dem getaggten 6.0.0-Validator:
-# DIESELBEN Bytes wurden von 6.0.0 abgewiesen und von 6.1.0 angenommen. Die Versionsregel des
-# Predicates sagt: was ein Verifizierer ablehnen muss, ist die Fassung — also ist der Block eine
-# neue, v0.2 bleibt, was 6.0.0 ausgeliefert hat. Die Faelle unten heissen deshalb `v03`, ihr
-# Erzeuger ist derselbe wie fuer v0.2 (`_v02`), weil v0.3 v0.2 plus genau ein Feld ist.
+# WHY v0.3 AND NOT v0.2 WITH THE BLOCK. The first form of this section (2026-09-18, morning)
+# carried the block in v0.2. Two reviewers measured the same day with the tagged 6.0.0 validator:
+# the SAME bytes were rejected by 6.0.0 and accepted by 6.1.0. The predicate's version rule says
+# that what a verifier must reject is the version, so the block is a new one and v0.2 stays what
+# 6.0.0 shipped. The cases below are therefore named `v03`; their producer is the same as for
+# v0.2 (`_v02`), because v0.3 is v0.2 plus exactly one field.
 _P19_ATTR = ("agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 "
              "(docs/VERIFIER_BLOCK.md).")
 _P19_REFS = ["docs/VERIFIER_BLOCK.md", "docs/AGENT_REVIEW_PREDICATE.md", "src/proofbundle/verifier_block.py"]
@@ -567,9 +567,8 @@ schreibe("agent-review-v03-counter-proof-verifier-block-refuses-unknown-fields",
          input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.3",
          spec_refs=_P19_REFS)
 
-# v0.1 KENNT DEN BLOCK NICHT, und das bleibt so: die Altfassung wird nicht gelockert. Dieser Fall
-# haelt die Grenze fest, die ein 6.0.0-Verifizierer zieht -- er lehnt einen Block laut ab, er
-# deutet ihn nie.
+# v0.1 DOES NOT KNOW THE BLOCK, and that stays so: the old version is not loosened. This case
+# pins the boundary a 6.0.0 verifier draws, it refuses a block loudly and never reinterprets it.
 _p_v01 = copy.deepcopy(BASE)
 _p_v01["producer"] = {"id": "b7n0de-release-runner", "verifier": copy.deepcopy(VERIFIER_BLOCK)}
 schreibe("agent-review-counter-proof-verifier-block-is-not-a-v01-field", "counter_proof", "P19",
@@ -616,10 +615,9 @@ schreibe("agent-review-v02-positive-control-current-v02-is-marked-current", "pos
 
 # A2 (3) — Gegenbeweis: eine fremde Fassung wird abgewiesen, nicht geraten.
 _st = json.loads(_b64.b64decode(env_v02["payload"]))
-# v0.9, NICHT v0.3: bis 6.1.0 stand hier v0.3 als Beispiel einer fremden Fassung. Seit P19 gibt es
-# v0.3 wirklich (der Verifier-Block), und ein Fall, der eine EXISTIERENDE Fassung als unbekannt
-# fuehrt, misst das Gegenteil von dem, was er behauptet. Die Nummer wurde deshalb weit genug
-# hochgesetzt, dass sie nicht als naechste faellig wird.
+# v0.9, NOT v0.3: until 6.1.0 this line used v0.3 as the example of a foreign version. Since P19
+# v0.3 exists (the verifier block), and a case that files an EXISTING version as unknown measures
+# the opposite of what it claims. The number was moved far enough that it is not the next one due.
 _st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.9")
 env_fremd_fassung = dict(env_v02)
 env_fremd_fassung["payload"] = _b64.b64encode(

@@ -287,10 +287,10 @@ _ENTSCHAERFUNG = {
         lambda p: p["declaration"]["findings"][0].update({"fixCommit": "f" * 40}),
     "agent-review-v02-counter-proof-disclosure-core-digest-is-required":
         lambda p: p["subjectContext"].update({"disclosureCoreDigest": "e" * 64}),
-    # ── P19 (6.1.0): der Verifier-Block ──────────────────────────────────────────────────────
-    # Jede Entschaerfung nimmt GENAU den einen Defekt am Block weg. Der v0.1-Fall darunter wird
-    # geheilt, indem der Block WEGGENOMMEN wird: die Altfassung kennt ihn nicht, und das ist die
-    # Eigenschaft, die der Fall haelt.
+    # ── P19 (6.1.0): the verifier block ──────────────────────────────────────────────────────
+    # Every flip removes EXACTLY the one defect of the block. The v0.1 case below is healed by
+    # REMOVING the block: the old version does not know it, and that is the property the case
+    # holds.
     "agent-review-v03-counter-proof-verifier-block-must-be-self-declared":
         lambda p: p["producer"]["verifier"].update({"assurance": "selfDeclared"}),
     "agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256":

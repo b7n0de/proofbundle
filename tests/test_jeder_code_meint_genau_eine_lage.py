@@ -193,11 +193,11 @@ NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT",
                     "CAP1_WITHHELD_WITHOUT_DIGEST", "CAP1_BASIS_MISSING", "CAP1_COUNTS_MALFORMED",
                     "CAP1_ABSENCE_UNSCOPED", "CAP1_INCOMPLETE_CLAIMED_CLEAN", "CAP1_SUPPORTS_MISSING",
                     "CAP1_RULE_UNMAPPED", "CAP1_STATUS_CONTRADICTS_STRATA",
-                    # P19 (18.09.2026, agent-review/v0.3): vergeben in `validate_agent_review_predicate`
-                    # fuer jeden Fehler, den `verifier_block.validate_verifier_block` am Block
-                    # meldet; `_mit_abschnitt(code_teil="PRODUCER_VERIFIER")` qualifiziert ihn zu
-                    # PRODUCER_VERIFIER_BLOCK_INVALID, unqualifiziert erscheint er nie. Ausloesbar in
-                    # tests/test_verifier_block.py (25 Einzeldefekte am Block, ein Code).
+                    # P19 (2026-09-18, agent-review/v0.3): assigned in `validate_agent_review_predicate`
+                    # for every error that `verifier_block.validate_verifier_block` reports on the
+                    # block; `_mit_abschnitt(code_teil="PRODUCER_VERIFIER")` qualifies it to
+                    # PRODUCER_VERIFIER_BLOCK_INVALID, unqualified it never appears. Triggered in
+                    # tests/test_verifier_block.py (25 single defects of the block, one code).
                     "BLOCK_INVALID"}
 
 #: Codes des Moduls, die diese Tafel (noch) nicht fuehrt — mit Grund. Waechst die Menge, faellt
@@ -223,8 +223,8 @@ OHNE_TAFELZEILE = {
                             "beim Auswerten wirft — tests/test_policy_nicht_auswertbar_hat_einen_"
                             "code.py. Dieser Code hatte beim ersten vollen Lauf KEINEN Test; "
                             "gefunden hat das genau diese Tafel, nicht ein roter Test",
-    # 18.09.2026, P19 (agent-review/v0.3). Beide werden von der Verifier-Seite vergeben, nicht von
-    # `validate_statement_shape`, und beide haben ihre ausloesende Eingabe in
+    # 2026-09-18, P19 (agent-review/v0.3). Both are assigned on the verifier side, not by
+    # `validate_statement_shape`, and both have their triggering input in
     # tests/test_verifier_block.py (TestInTheReceipt).
     "UNKNOWN_PREDICATE_VERSION": "wird von _verify_v02_inner vergeben, wenn der predicateType die "
                                  "SCHWESTERFASSUNG nennt (v0.2 im v0.3-Verifier oder umgekehrt) — "

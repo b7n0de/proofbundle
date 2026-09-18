@@ -173,9 +173,9 @@ def _installed_record_rows(package_dir: Path):
 
 
 def _innerhalb(p: Path, wurzel: Path) -> bool:
-    """Liegt die AUFGELOESTE Datei unter der Wurzel? Ein Symlink, der hinausfuehrt, zaehlt nicht als
-    Datei des Baums -- sein Ziel kann sich aendern, waehrend jedes Byte des Baums gleich bleibt, und
-    ein Digest, der das mitnimmt, pinnt nichts (lens C, 2026-09-18, P1)."""
+    """Does the RESOLVED file lie under the root? A symlink that leads out of the tree is not a file
+    of the tree: its target can change while every byte of the tree stays the same, and a digest
+    that takes it along pins nothing (lens C, 2026-09-18, P1)."""
     try:
         return p.resolve().is_relative_to(wurzel.resolve())
     except (OSError, ValueError):
@@ -524,7 +524,7 @@ def validate_test_result_statement(statement: Any) -> list[str]:
         warned = list(pred.get("warnedTests") or [])
         passed = list(pred.get("passedTests") or [])
         abgeleitet = "FAILED" if failed else ("WARNED" if warned else "PASSED")
-        if pred.get("result") in TEST_RESULTS and pred.get("result") != abgeleitet:
+        if is_member(pred.get("result"), TEST_RESULTS) and pred.get("result") != abgeleitet:
             errs.append(f"predicate.result {pred.get('result')!r} contradicts its own case lists, "
                         f"which derive {abgeleitet!r} ({len(failed)} failed, {len(warned)} warned, "
                         f"{len(passed)} passed)")
