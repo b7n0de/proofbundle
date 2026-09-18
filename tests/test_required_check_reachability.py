@@ -1266,11 +1266,21 @@ class TestAgainstThisRepository(unittest.TestCase):
 
     def test_the_real_declaration_matches_what_was_measured_by_hand(self):
         """Not a fixture: the gate is run against this repository's own files and must reproduce
-        the measurement of 2026-09-16 -- three contexts unconditional, four behind the label."""
+        the measurement of 2026-09-16 -- three contexts unconditional, four behind the label --
+        or, since the ruleset switch of 2026-09-18, the measurement of that day."""
         r = G.pruefe()
         if r["verdict"] == G.UNKNOWN:
             self.skipTest(f"declaration not readable here: {r.get('reason')}")
         zustand = {e["context"]: e["state"] for e in r["per_context"]}
+        verlangt = json.loads(G.DECLARATION.read_text(encoding="utf-8"))["required_contexts"]
+        if "all-checks-passed" in verlangt:
+            # Measured by hand on 2026-09-18 after the ruleset switch: two contexts, both
+            # unconditional -- guard from fork-pr-isolation.yml, the collector as a status
+            # function only (`if: ${{ !cancelled() }}`), which the gate reads as produced.
+            self.assertEqual(sorted(zustand), ["all-checks-passed", "guard"])
+            self.assertEqual(zustand["guard"], G.ALWAYS)
+            self.assertEqual(zustand["all-checks-passed"], G.ALWAYS)
+            return
         self.assertEqual(zustand.get("coverage"), G.ALWAYS)
         self.assertEqual(zustand.get("guard"), G.ALWAYS)
         self.assertEqual(zustand.get("test (3.12)"), G.ALWAYS)
@@ -1506,9 +1516,19 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         fork = self._ereignis(head_ref="docs/x", repository="b7n0de/proofbundle",
                               head_repo="fremd/proofbundle", ref_name="999/merge")
         d = G.lebend(fork)
-        self.assertEqual(d["missing"], ["test (3.10)", "test (3.11)", "test (3.13)", "test (3.14)"],
-                         "ein Fork-PR ohne Label bleibt an der Schranke")
-        self.assertIn("landung", d["advice"])
+        verlangt = json.loads(G.DECLARATION.read_text(encoding="utf-8"))["required_contexts"]
+        if "all-checks-passed" in verlangt:
+            # SINCE 2026-09-18 (ruleset on the collector): the four version contexts are no longer
+            # required, so NO required context is absent on a fork pull request without the label.
+            # The barrier moved into the collector's verdict (a skipped leg makes it red, measured
+            # on pull request 223). The contract measures that nothing required is absent and that
+            # the collector arrives on every event as a status function.
+            self.assertEqual(d["missing"], [], "nothing required is absent on a fork pull request")
+            self.assertEqual(d["verdict"], G.ALWAYS)
+        else:
+            self.assertEqual(d["missing"], ["test (3.10)", "test (3.11)", "test (3.13)", "test (3.14)"],
+                             "ein Fork-PR ohne Label bleibt an der Schranke")
+            self.assertIn("landung", d["advice"])
         fork["payload"]["pull_request"]["labels"] = [{"name": "landung"}]
         self.assertEqual(G.lebend(fork)["verdict"], G.ALWAYS, "mit Label auch auf dem Fork")
 
@@ -1847,6 +1867,14 @@ jobs:
         needs = set(job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
         for k in aus_ci:
             job_id = k.split(" (")[0]
+            if job_id == "all-checks-passed":
+                # SINCE 2026-09-18 THE COLLECTOR IS ITSELF THE REQUIRED CONTEXT (ruleset switch,
+                # OA-0f65aa76aa). It cannot need itself; what it must need are the legs it stands
+                # for, and that set is the workflow's own EXPECTED line, measured elsewhere in this
+                # file (TestTheCollectorJob). Here: the legs are needed, and nothing else is.
+                self.assertEqual(needs, {"test", "coverage"},
+                                 "the collector stands for exactly the test and coverage legs")
+                continue
             self.assertIn(job_id, needs, f"required context {k!r} is produced by job {job_id!r}, "
                                           f"which the collector does not need")
 
