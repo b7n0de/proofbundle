@@ -1,0 +1,15 @@
+{
+  "attribution": "CAP-1 conformance vectors by the draft author (Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0; conformance/cap1/vectors/LICENSE.author). Case wrapper built 2026-09-05 for proofbundle, Thema 7 Teil B Block 3.",
+  "caseId": "cap1-positive-control-pv-03-failure-reported-and-verdict-capped",
+  "expected": {
+    "cap1Rules": []
+  },
+  "input": "document.json",
+  "kind": "cap1_document",
+  "rationale": "PV-03: failure reported and verdict capped. Conformant: no rule fires.",
+  "role": "positive_control",
+  "rule": "PV",
+  "specRefs": [
+    "draft-hillier-coverage-attestation-00, section 7 (conformance class)"
+  ]
+}

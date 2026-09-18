@@ -1,0 +1,161 @@
+{
+ "profile": "cap/1",
+ "class": "cap-1-conformance/1.0.0",
+ "positives": 5,
+ "negatives": 10,
+ "passed": 15,
+ "failed": 0,
+ "rules_total": 8,
+ "rules_exercised": [
+  "R1-no-silent-remainder",
+  "R2-closed-disposition",
+  "R3-withholding-digest-bound",
+  "R4-denominator-basis",
+  "R5-counts-well-formed",
+  "R6-absence-is-scoped",
+  "R7-incomplete-not-clean",
+  "R8-supports-bounds-citation"
+ ],
+ "rules_unexercised": [],
+ "establishes": "The eight normative rules are implementable and each fires against an injected defect in a document differing from the positive base by exactly one mutation.",
+ "does_not_establish": "Specification adequacy, producer independence, timing behaviour, or conformance of any implementation other than the reference verifier in this directory.",
+ "results": [
+  {
+   "id": "PV-01",
+   "kind": "positive",
+   "expected": "conform",
+   "ok": true,
+   "rules": []
+  },
+  {
+   "id": "PV-02",
+   "kind": "positive",
+   "expected": "conform",
+   "ok": true,
+   "rules": []
+  },
+  {
+   "id": "PV-03",
+   "kind": "positive",
+   "expected": "conform",
+   "ok": true,
+   "rules": []
+  },
+  {
+   "id": "PV-04",
+   "kind": "positive",
+   "expected": "conform",
+   "ok": true,
+   "rules": []
+  },
+  {
+   "id": "PV-05",
+   "kind": "positive",
+   "expected": "conform",
+   "ok": true,
+   "rules": []
+  },
+  {
+   "id": "NC-01",
+   "kind": "negative",
+   "target": "R1-no-silent-remainder",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R1-no-silent-remainder"
+   ]
+  },
+  {
+   "id": "NC-02",
+   "kind": "negative",
+   "target": "R2-closed-disposition",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R2-closed-disposition"
+   ]
+  },
+  {
+   "id": "NC-03",
+   "kind": "negative",
+   "target": "R3-withholding-digest-bound",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R3-withholding-digest-bound"
+   ]
+  },
+  {
+   "id": "NC-04",
+   "kind": "negative",
+   "target": "R4-denominator-basis",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R4-denominator-basis"
+   ]
+  },
+  {
+   "id": "NC-05",
+   "kind": "negative",
+   "target": "R5-counts-well-formed",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R1-no-silent-remainder",
+    "R5-counts-well-formed"
+   ]
+  },
+  {
+   "id": "NC-06",
+   "kind": "negative",
+   "target": "R6-absence-is-scoped",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R6-absence-is-scoped"
+   ]
+  },
+  {
+   "id": "NC-07",
+   "kind": "negative",
+   "target": "R7-incomplete-not-clean",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R7-incomplete-not-clean"
+   ]
+  },
+  {
+   "id": "NC-08",
+   "kind": "negative",
+   "target": "R8-supports-bounds-citation",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R8-supports-bounds-citation"
+   ]
+  },
+  {
+   "id": "NC-09",
+   "kind": "negative",
+   "target": "R1-no-silent-remainder",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R1-no-silent-remainder"
+   ]
+  },
+  {
+   "id": "NC-10",
+   "kind": "negative",
+   "target": "R7-incomplete-not-clean",
+   "ok": true,
+   "refused": true,
+   "rules": [
+    "R7-incomplete-not-clean"
+   ]
+  }
+ ],
+ "record_digest": "b9308ee10a369bad106c6fb3118e273439b05724ed3c1c53296df0b7b22a71df"
+}
