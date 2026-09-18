@@ -277,8 +277,13 @@ jobs:
     # build backend, so DATA_BLOCKED is expected in CI and must not fail the build (No-Fake). The
     # underlying obligations are each ALSO enforced by their own blocking gate/test elsewhere in CI.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     continue-on-error: true
+    # `actions: read` lets the matrix NAME the latest nightly soak run (soak-nightly.yml) on a pull
+    # request -- download of an artefact needs it. It admits nothing; see c6_3_full_24h.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -290,7 +295,18 @@ jobs:
         run: cd tools/pb_verify_rs && cargo build --release
       - name: Regenerate the Python<->Rust differential matrix artifact
         run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_differential_matrix.json
-      - name: Audit-candidate matrix (advisory; DATA_BLOCKED expected for the 24h soak in CI)
+      # THREE OUTCOMES, AND RED ONLY FOR A FAIL (owner order 2026-09-17). Measured on pull request
+      # 218: this step was red on every pull request, for four candidate-bound evidence cells that
+      # no pull request can satisfy (DATA_BLOCKED 0, FAIL 4). Now: a cell that cannot be measured
+      # on this head is NOT_MEASURED with its reason (a notice, not an error); the exit code is 1
+      # only when a cell is FAIL or when nothing was measured at all; the table goes to the step
+      # summary. The small soak runs here as a real cell (C6.4) for 300 s -- under every other job
+      # of this workflow (coverage 2289 s, test 1379 s, measured 2026-09-17); the 24h soak is the
+      # nightly workflow, which this step names but never admits.
+      - name: Audit-candidate matrix (advisory; three outcomes, red only for a FAIL)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_MATRIX_SMALL_SOAK_SECONDS: "300"
         run: PYTHONPATH=src python scripts/audit_candidate_matrix.py
 
   gate-qualification:

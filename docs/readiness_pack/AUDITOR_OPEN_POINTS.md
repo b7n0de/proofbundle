@@ -65,6 +65,15 @@ edges a reviewer should know about.
   executing test step". This is a conscious trade (recognising them would need parsing the
   Makefile/tox config); the repository's own `ci.yml` runs `python -m unittest discover` directly, so
   it is covered.
+- **C6.4 is a smoke, not the soak.** The live cell runs `fuzz_soak.soak` for a bounded time on
+  the head under test (300 s in CI). It measures never-raise and never-false-accept on THIS code,
+  which is what a pull request can answer; it says nothing about the 24h acceptance criterion,
+  which stays with C6.3 and the signed, candidate-bound artefact. The nightly workflow's artefact
+  is unsigned and is only NAMED by C6.3 on a pull request. A GitHub-hosted job ends at six hours,
+  so a single nightly run is not the 86400 s soak; the artefact carries the elapsed time.
+- **NOT_MEASURED is not PASS.** The three outcomes exist so that a pull request is red only for a
+  FAIL; every NOT_MEASURED line keeps its reason and `audit_candidate_ready` keeps saying whether
+  the release evidence is admitted. Zero measured cells exit non-zero (`NOTHING_MEASURED`).
 - **C1.1 falls to DATA_BLOCKED without PyYAML.** The workflow is YAML-parsed (never a file-wide
   substring scan), so if PyYAML is absent the check reports DATA_BLOCKED (honestly "not verified
   here"), never a fake PASS and never a FAIL.
