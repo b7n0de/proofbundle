@@ -868,7 +868,32 @@ _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _
              "agent_review_predicate": _check_agent_review_predicate}
 
 
-def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> int:
+def schreibe_test_result_statement(results: list, ziel: pathlib.Path) -> dict:
+    """The run as a SEPARATE, joinable object: an in-toto test-result statement (P19, 6.1.0).
+
+    Subject: the digest of the build that ran the corpus, measured by `proofbundle.verifier_block`
+    from the package's own files. Configuration: the vector set, digest over manifest AND every
+    case file. Result: the corpus rule, a skipped check is never a passed one -- any failure is
+    FAILED, any case that ran partially or not at all makes the run WARNED, PASSED only when every
+    case ran in full. A receipt cites this statement by its canonical digest, and a relying party
+    joins the two by equality of digests, without trusting the issuer for the join.
+
+    Written UNSIGNED. Signing is the producer's step (`verifier_block.sign_test_result_statement`
+    with the key that signs the receipt); a runner that signed with a key of its own would be one
+    more identity nobody can look up.
+    """
+    from proofbundle import __version__, verifier_block  # noqa: PLC0415
+    build = verifier_block.measure_build()
+    vs = verifier_block.measure_vector_set(ROOT)
+    stmt = verifier_block.build_test_result_statement(build=build, vector_set=vs, results=results,
+                                                      version=__version__)
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    ziel.write_text(json.dumps(stmt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return stmt
+
+
+def run(*, require_anchors: bool = False, require_full_schema: bool = False,
+        test_result_out: "pathlib.Path | None" = None) -> int:
     manifest = json.loads((ROOT / "manifest.json").read_text())
     cases = manifest.get("cases", [])
     # F1 corpus-integrity precondition (schema-valid + cross-format-consistent) before any case
@@ -981,6 +1006,18 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> 
         # a check that ran in a smaller form must say so where its result is read.
         print(f"  note: case schemas were checked by the {cross_format.schema_check_name()} — "
               "install the [test] extra for the full validator")
+    if test_result_out is not None:
+        # WRITTEN WHATEVER THE OUTCOME. A statement that only exists for green runs would make
+        # "no statement" and "the run failed" the same observation.
+        try:
+            stmt = schreibe_test_result_statement(results, pathlib.Path(test_result_out))
+        except Exception as e:  # noqa: BLE001 -- the run's verdict stands; the statement is reported
+            print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
+            return 1
+        from proofbundle import verifier_block  # noqa: PLC0415
+        print(f"[conformance] test-result statement -> {test_result_out} "
+              f"(result {stmt['predicate']['result']}, subject {stmt['subject'][0]['digest']['sha256'][:12]}…, "
+              f"statementDigest {verifier_block.statement_digest(stmt)[:12]}…)")
     return 0 if ok else 1
 
 
@@ -991,9 +1028,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--require-full-schema", action="store_true",
                    help="fail (do not fall back to the structural floor) if the full JSON Schema "
                         "validator did not judge the corpus")
+    p.add_argument("--test-result-out", type=pathlib.Path, default=None,
+                   help="write the run as an unsigned in-toto test-result statement (subject: the "
+                        "measured build digest; configuration: the vector set) to this path")
     args = p.parse_args(argv)
     return run(require_anchors=args.require_anchors,
-               require_full_schema=args.require_full_schema)
+               require_full_schema=args.require_full_schema,
+               test_result_out=args.test_result_out)
 
 
 if __name__ == "__main__":

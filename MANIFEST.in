@@ -45,6 +45,11 @@ include docs/RECEIPT_ENVELOPE_PROFILE.md
 # document the installed package did not contain. It carries no local links, so it cannot
 # break test_docs_truth the way a `graft docs` would.
 include docs/AGENT_REVIEW_PREDICATE.md
+# P19 (6.1.0): der Vertrag zum Verifier-Block. Fuenf Konformanzfaelle nennen ihn normativ
+# (specRefs), und ein Dokument, das ein Fall nennt, liegt auch im Paket vor -- sonst waechst die
+# Luecke, die conformance/unshipped_spec_refs_baseline.json festschreibt. Keine lokalen Links
+# auf geprunte Dateien, damit test_docs_truth aus der sdist besteht.
+include docs/VERIFIER_BLOCK.md
 # PB-2026-0902-01: der sdist enthielt `conformance/` (94 Faelle, `graft conformance`), aber NICHT
 # das Makefile, ueber das die Doku den Korpus fahren laesst. Wer den sdist auspackt und
 # `make conformance` ruft, bekommt "No rule to make target" — der Korpus ist da und
@@ -138,6 +143,11 @@ include scripts/shipped_docs_check.py
 include scripts/sign_readiness_artifact.py
 include scripts/test_manifest_gate.py
 include scripts/type_confusion_gate.py
+# P19 (6.1.0): der Pruefer fuer Dritte. Er liest nur oeffentliche Schluessel und Commit-Blobs,
+# traegt keinen schluessel-lesenden Codepfad, und der Vertrag
+# tests/test_verify_pre_tag_receipt_third_party.py ruft ihn -- die Skripte, die die Tests
+# aufrufen, gehoeren in den sdist (Zeile 1 dieser Datei).
+include scripts/verify_pre_tag_receipt.py
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
 prune tools

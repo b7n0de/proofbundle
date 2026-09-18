@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.2 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 (docs/VERIFIER_BLOCK.md).",
+  "caseId": "agent-review-v02-counter-proof-verifier-block-refuses-unknown-fields",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "Ein Feld, das niemand validiert, ist ein Feld, in das ein Erzeuger alles schreiben kann (hier: eine URL, die wie ein Beleg aussieht). Die Feldmenge des Blocks ist geschlossen; ein unbekanntes Feld wird verweigert, nicht ueberlesen.",
+  "role": "counter_proof",
+  "rule": "P19",
+  "specRefs": [
+    "docs/VERIFIER_BLOCK.md",
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/verifier_block.py"
+  ]
+}

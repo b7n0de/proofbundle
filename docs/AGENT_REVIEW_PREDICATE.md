@@ -247,6 +247,16 @@ What v0.2 adds, each with its conformance case:
   for both; one that only the other version knows (today `policy=` on a v0.1 envelope) is dropped,
   named in `warnings`, and marked with the advisory code `ARGUMENT_NOT_APPLICABLE_TO_VERSION`.
 
+- **`producer.verifier`, the verifier block (since 6.1.0).** Optional. The producing build names
+  itself: implementation, version, a digest over its own files with the measurement's source
+  stated, the conformance vector set it was held against, and a reference to a separate signed
+  in-toto test-result statement, joinable by digest equality. It answers the question a relying
+  party asks at T+n — *which build produced this* — that a version string cannot. The verifier
+  reports it as the `verifier_block` axis with `matches_this_verifier` in `MATCH` / `MISMATCH` /
+  `NOT_EVALUATED`, and never folds it into `ok`; a malformed block is a structural error like any
+  other. v0.1 does not know the field and refuses it; a 6.0.0 verifier refuses a v0.2 receipt that
+  carries it, loudly. Contract and limits: [VERIFIER_BLOCK.md](VERIFIER_BLOCK.md).
+
 Every rule above has a counter-proof and a positive control in `conformance/agent_review/`, and every
 counter-proof has a flip test in `tests/test_agent_review_conformance_runner.py` that removes exactly
 its defect and expects the verdict to turn.

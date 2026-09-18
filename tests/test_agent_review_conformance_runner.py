@@ -287,6 +287,18 @@ _ENTSCHAERFUNG = {
         lambda p: p["declaration"]["findings"][0].update({"fixCommit": "f" * 40}),
     "agent-review-v02-counter-proof-disclosure-core-digest-is-required":
         lambda p: p["subjectContext"].update({"disclosureCoreDigest": "e" * 64}),
+    # ── P19 (6.1.0): der Verifier-Block ──────────────────────────────────────────────────────
+    # Jede Entschaerfung nimmt GENAU den einen Defekt am Block weg. Der v0.1-Fall darunter wird
+    # geheilt, indem der Block WEGGENOMMEN wird: die Altfassung kennt ihn nicht, und das ist die
+    # Eigenschaft, die der Fall haelt.
+    "agent-review-v02-counter-proof-verifier-block-must-be-self-declared":
+        lambda p: p["producer"]["verifier"].update({"assurance": "selfDeclared"}),
+    "agent-review-v02-counter-proof-verifier-block-build-digest-must-be-sha256":
+        lambda p: p["producer"]["verifier"]["build"].update({"digest": {"sha256": "1" * 64}}),
+    "agent-review-v02-counter-proof-verifier-block-refuses-unknown-fields":
+        lambda p: p["producer"]["verifier"].pop("wheelUrl"),
+    "agent-review-counter-proof-verifier-block-is-not-a-v01-field":
+        lambda p: p["producer"].pop("verifier"),
     "agent-review-counter-proof-partial-must-name-its-gap":
         lambda p: p["coverage"].update({"knownGaps": ["eine benannte Luecke"]}),
     "agent-review-counter-proof-complete-needs-an-expectation":

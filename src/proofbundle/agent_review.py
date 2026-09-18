@@ -108,6 +108,17 @@ _DECLARATION_FIELDS = frozenset(
 # waeren zwei Wahrheiten, die auseinanderlaufen.
 _DECLARATION_FIELDS_V02 = frozenset(("timeClaims",))
 
+#: `producer` names WHO produced the receipt (an id, a key id). v0.2 since 6.1.0 additionally
+#: allows `producer.verifier`: the VERIFIER BLOCK, measured by the producing build about itself
+#: (build digest, conformance vector set, a reference to a separate test-result statement --
+#: `proofbundle.verifier_block`). Same shape as `_DECLARATION_FIELDS_V02`: v0.2 EXTENDS the set,
+#: v0.1 is not loosened, and a v0.1 predicate carrying the block is refused as it always was. A
+#: 6.0.0 verifier refuses a v0.2 receipt that carries the block ("producer.verifier is not an
+#: allowed field") -- loudly, never by misreading it; a producer that needs 6.0.0 readability
+#: omits the block. docs/VERIFIER_BLOCK.md carries the contract.
+_PRODUCER_FIELDS = ("id", "keyId")
+_PRODUCER_FIELDS_V02 = frozenset(("verifier",))
+
 
 _REQUIRED_ALWAYS = ("schemaVersion", "reviewId", "subjectContext", "declaration",
                     "coverage", "times", "limitations")
@@ -328,8 +339,12 @@ def _code_segment(roh: str) -> str:
 
 
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
-                                    decl_zusatz: frozenset = frozenset()) -> list[str]:
-    """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid)."""
+                                    decl_zusatz: frozenset = frozenset(),
+                                    producer_zusatz: frozenset = frozenset()) -> list[str]:
+    """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid).
+
+    ``decl_zusatz`` and ``producer_zusatz`` are the v0.2 EXTENSIONS of two closed field sets --
+    one truth with a named exception each, instead of two copied lists that drift apart."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -402,7 +417,13 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
             errors.append("producer must be an object")
         else:
             for k in pr:
-                if k not in ("id", "keyId"):
+                if k == "verifier" and k in producer_zusatz:
+                    # THE VERIFIER BLOCK IS VALIDATED BY ITS OWN MODULE, not by a second list
+                    # here. Its errors keep the `producer.verifier:` prefix so a reader sees
+                    # where in the predicate the defect sits.
+                    from .verifier_block import validate_verifier_block  # noqa: PLC0415
+                    errors.extend(f"producer.verifier: {e}" for e in validate_verifier_block(pr[k]))
+                elif k not in _PRODUCER_FIELDS:
                     errors.append(f"producer.{k} is not an allowed field")
                 elif not isinstance(pr[k], str):
                     errors.append(f"producer.{k} must be a string")
@@ -1744,7 +1765,8 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     vorbehalten. Und eine Observation ohne benannten Beobachter ist keine.
     """
     errs = validate_agent_review_predicate(predicate, strict=strict,
-                                          decl_zusatz=_DECLARATION_FIELDS_V02)
+                                          decl_zusatz=_DECLARATION_FIELDS_V02,
+                                          producer_zusatz=_PRODUCER_FIELDS_V02)
     if not isinstance(predicate, dict):
         return errs
     zeiten = predicate.get("times")
@@ -2331,7 +2353,11 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     r.update({"event_time_status": "NOT_EVALUATED", "observation_time_status": "NOT_EVALUATED",
               "signature_time_status": "NOT_EVALUATED", "external_time_status": "NOT_EVALUATED",
               "policy_decision": None, "time_consistency_ok": None,
-              "time_policy_decision": None})
+              "time_policy_decision": None,
+              # ADDED HERE, NOT IN `_empty_result`: that function is byte-pinned to 5.1.0 for the
+              # v0.1 path (tests/test_a2_verifier_byteidentitaet_und_weiche.py). The same road
+              # the four time axes took.
+              "verifier_block": None})
     try:
         r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
                                                    payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
@@ -2418,6 +2444,16 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     r["structure_ok"] = ((not struct_errs) and (not shape_errs)
                          and bool(r["predicate_type_ok"]) and canonical_ok is True)
     r["time_semantics"] = "V0_2" if r["predicate_type_ok"] else None
+
+    # THE VERIFIER BLOCK IS REPORTED, NEVER JUDGED INTO `ok` (P19, 6.1.0). A malformed block is
+    # already a structural error above; a well-formed one names the build that produced the
+    # receipt and the vector set it stood against, and `matches_this_verifier` says whether the
+    # build running this verification is that build. A receipt from another build is not
+    # thereby invalid -- it is a receipt whose producer can now be named. Absent block: present
+    # False, everything else None, and NOT_EVALUATED is not a pass.
+    if isinstance(predicate, dict) and not shape_errs:
+        from .verifier_block import report as _verifier_block_report  # noqa: PLC0415
+        r["verifier_block"] = _verifier_block_report(predicate)
 
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
         r.update(_zeitachsen(predicate))

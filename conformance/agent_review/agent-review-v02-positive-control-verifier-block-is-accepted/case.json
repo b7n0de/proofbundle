@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.2 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 (docs/VERIFIER_BLOCK.md).",
+  "caseId": "agent-review-v02-positive-control-verifier-block-is-accepted",
+  "expected": {
+    "classification": "valid"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "Ein v0.2-Predicate, dessen producer einen Verifier-Block traegt, wird ausgestellt und wieder gelesen. Ohne diese Kontrolle bestuenden die drei Gegenbeweise darunter auch mit einem Validator, der JEDEN Block ablehnt -- und dann waere der Block ein Feld, das es nicht gibt.",
+  "role": "positive_control",
+  "rule": "P19",
+  "specRefs": [
+    "docs/VERIFIER_BLOCK.md",
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/verifier_block.py"
+  ]
+}
