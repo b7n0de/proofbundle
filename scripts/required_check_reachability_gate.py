@@ -67,6 +67,41 @@ _TERNARY = re.compile(
 )
 _MATRIX_REF = re.compile(r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}")
 
+#: A job condition made ONLY of a status function. `always()` and `!cancelled()` do not gate a job
+#: on the event: the job runs whenever the workflow runs (the second one except on a cancelled
+#: run, which produces no verdict at all). Such a job is the shape GitHub itself recommends for a
+#: required check that summarises other jobs -- "Use always() with needs for required checks
+#: that depend on other jobs" (docs, read 2026-09-17) -- and it must not read as `produced-only-if`.
+#: Anything else with a status function in it (`success()`, `failure()`, `cancelled()` alone, or a
+#: mix with event atoms) stays a named condition.
+#: Case-insensitive like every GitHub expression (`Always()` is `always()`); lens C, 2026-09-17.
+_NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$", re.I)
+#: The GUARD question is wider than the bucketing question (lens A, 2026-09-17): GitHub replaces
+#: the implicit `success()` as soon as ANY status function appears in the condition, so
+#: `always() && x` or `!cancelled() || y` is guarded even though it is a named condition for
+#: the event. THE TRAP IS A JOB THAT DOES NOT RUN WHEN A NEEDED JOB FAILED -- then it is
+#: skipped, and skipped reads as passed. So a guard is a status function that is TRUE on a
+#: failed need: `always()`, `!cancelled()` and `failure()` (the job runs on failure and can go
+#: red). A bare `cancelled()` is not one: the job runs only on a cancelled run and is skipped
+#: on every ordinary failure (un, round 1, 2026-09-18 -- the first regex counted it as a
+#: guard). `success()` is the default and guards nothing.
+_TRAEGT_WACHE = re.compile(r"always\(\s*\)|!\s*cancelled\(\s*\)|failure\(\s*\)", re.I)
+
+
+def ohne_wache_trotz_needs(job: dict) -> bool:
+    """Does this job have `needs` and no `always()`/`!cancelled()` guard?
+
+    Then it is SKIPPED whenever a needed job fails -- and a skipped required check reads as
+    passed, so a required context on such a job can never block on the failure of what it needs.
+    That is the exact trap a collector job is built to avoid, and the one shape in which it
+    would silently fail at its purpose. `if: success()` is the default and changes nothing;
+    `if: cancelled()` alone is skipped on every ordinary failure and guards nothing either.
+    """
+    if not job.get("needs"):
+        return False
+    bed = " ".join(str(job.get("if") or "").split())
+    return not _TRAEGT_WACHE.search(bed)
+
 
 def _lade(pfad: Path) -> dict:
     """Read one workflow. A file that does not parse is NOT an empty file."""
@@ -175,6 +210,8 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
     unlesbar: list[str] = []
     dateien_unlesbar: list[str] = []
     hinweise: list[str] = []
+    hinweise_status: list[str] = []
+    needs_ohne_wache: dict[str, str] = {}
     for pfad in sorted(wf.glob("*.yml")) + sorted(wf.glob("*.yaml")):
         try:
             doc = _lade(pfad)
@@ -209,6 +246,24 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             # uebersprungener Job meldet GitHub ein Success, ein Pflichtkontext auf ihm blockiert
             # also nie und beweist auch nichts.
             job_if = job.get("if")
+            if job_if is not None and _NUR_STATUSFUNKTION.match(" ".join(str(job_if).split())):
+                # `if: ${{ !cancelled() }}` or `if: always()` -- the job runs whenever the
+                # workflow runs. Treated like no condition at all, and said so, because the
+                # first draft of this gate would have called it `produced-only-if` and the
+                # collector job would have been red from its first run for the wrong reason.
+                hinweise_status.append(
+                    f"{pfad.name}:{job_id}: `if: {' '.join(str(job_if).split())}` is a status "
+                    f"function only; the job runs whenever the workflow runs")
+                job_if = None
+            if job.get("needs") and ohne_wache_trotz_needs(job):
+                # EXPANDED like the produced path (lens A, 2026-09-17): with `{}` a matrix job
+                # reported its bare id, the required context "test (3.10)" never matched, and
+                # the trap was invisible exactly on a matrix job -- a silent green.
+                for name in kontextnamen(job_id, job, gew or geg):
+                    needs_ohne_wache.setdefault(
+                        name, f"{pfad.name}:{job_id}: needs {list(job['needs']) if isinstance(job['needs'], list) else [job['needs']]} "
+                              f"without an always()/!cancelled() guard -- skipped when a needed job "
+                              f"fails, and a skipped required check reads as passed")
             if job_if is not None:
                 als_text = " ".join(str(job_if).split())
                 if als_text.lower() in ("false", "${{ false }}"):
@@ -231,7 +286,8 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
                     if name not in gewoehnlich:
                         gegated.setdefault(name, (pfad.name, bedingung))
     return {"gewoehnlich": gewoehnlich, "gegated": gegated, "unlesbar": unlesbar,
-            "dateien_unlesbar": dateien_unlesbar, "hinweise": hinweise}
+            "dateien_unlesbar": dateien_unlesbar, "hinweise": hinweise,
+            "statusfunktion": hinweise_status, "needs_ohne_wache": needs_ohne_wache}
 
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -301,6 +357,12 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
     for e in je:
         zahl[e["state"]] += 1
     verdict = ABSENT if zahl[ABSENT] else (GATED if zahl[GATED] else ALWAYS)
+    # A REQUIRED context on a job that is skipped when its needs fail. It is produced, so it is
+    # not absent; it is not conditional on the event, so it is not gated. It is worse than both
+    # for its purpose: skipped reads as passed, so it never blocks on exactly the failures it
+    # depends on. Named per context, and it turns the exit red below.
+    ohne_wache = [{"context": k, "why": erhoben["needs_ohne_wache"][k]}
+                  for k in verlangt if k in erhoben["needs_ohne_wache"]]
     # DIE ZUSAGE HAENGT AN DER BEDINGUNG, NICHT AM NAMEN. Die erste Fassung fuehrte
     # `accepted_gated` als blosse Namensliste, und zwei unabhaengige Gegenleser fanden am
     # 2026-09-16 dieselbe Luecke: ein Name, der einmal dort steht, ist dauerhaft immun. Ein
@@ -353,6 +415,8 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
             "unbound_unreadable_acceptances": sorted(unverbindlich_unlesbar),
             "unreadable": erhoben["unlesbar"], "unreadable_files": erhoben["dateien_unlesbar"],
             "dead_conditions": erhoben["hinweise"],
+            "status_function_conditions": erhoben["statusfunktion"],
+            "skipped_reads_as_passed": ohne_wache,
             "produced_contexts": sorted(erhoben["gewoehnlich"]),
             "ruleset": erklaert.get("ruleset"), "branch": erklaert.get("branch")}
 
@@ -623,6 +687,11 @@ _ATOME = [
      lambda m, ev: bool(_head_repo(ev)) and _head_repo(ev).lower() == str(ev.get("repository", "")).lower()),
     (re.compile(r"true\b"), lambda m, ev: True),
     (re.compile(r"false\b"), lambda m, ev: False),
+    # Status functions inside a mixed condition. `always()` and `!cancelled()` are true on any
+    # event that reaches the job; `cancelled()` is false for a run that is judging itself.
+    (re.compile(r"always\(\s*\)", re.I), lambda m, ev: True),
+    (re.compile(r"!\s*cancelled\(\s*\)", re.I), lambda m, ev: True),
+    (re.compile(r"cancelled\(\s*\)", re.I), lambda m, ev: False),
 ]
 _ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\|)")
 
@@ -656,7 +725,11 @@ def bedingung_am_ereignis(text: str, ereignis: dict) -> bool:
     """Evaluate one workflow condition against a live event. `&&` binds tighter than `||`."""
     if text.startswith("job `if: ") and text.endswith("`"):
         text = text[len("job `if: "):-1]
-    t = _tokens(" ".join((text or "").split()), ereignis)
+    text = " ".join((text or "").split())
+    # `${{ ... }}` around a job condition is decoration for the same expression.
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    t = _tokens(text, ereignis)
     pos = 0
 
     def ausdruck() -> bool:
@@ -885,6 +958,10 @@ def main(argv=None) -> int:
                   f"does not carry")
         for h in r.get("dead_conditions", []):
             print(f"  dead-condition     {_einzeilig(h, 160)}")
+        for h in r.get("status_function_conditions", []):
+            print(f"  status-function    {_einzeilig(h, 160)}")
+        for h in r.get("skipped_reads_as_passed", []):
+            print(f"  skipped-is-passed  {_einzeilig(h['context'], 80)}: {_einzeilig(h['why'], 200)}")
         neu_u = set(r.get("newly_unreadable") or [])
         for u in r.get("unreadable", []):
             marke = "not-measurable" if u in neu_u else "known-limit   "
@@ -895,6 +972,10 @@ def main(argv=None) -> int:
     if r.get("dead_conditions"):
         # A condition that can never take effect is a silent lie in the workflow, even when the
         # produced contexts happen to be right today.
+        return 1
+    if r.get("skipped_reads_as_passed"):
+        # A required context that is skipped -- and therefore green -- whenever what it needs
+        # fails is a check that cannot block on its own subject. Red, regardless of the rest.
         return 1
     # EINE VERSCHLECHTERUNG IST EINE VERSCHLECHTERUNG, AUCH WENN SONST ALLES LAEUFT. Diese drei
     # Zeilen standen frueher UNTER der Abkuerzung `verdict == ALWAYS`, und damit wirkten sie nur,

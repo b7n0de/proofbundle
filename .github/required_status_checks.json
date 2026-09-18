@@ -25,7 +25,13 @@
     "     accepted by the ratchet) and reported green on pull request 218 while the condition was",
     "     false on that event: no label, no release/ head, no dispatch. The four contexts were never",
     "     going to arrive and nothing on the pull request said so. Measured 2026-09-17. Closed the",
-    "     same day by the live step (--live): the condition is evaluated against the run's own event."
+    "     same day by the live step (--live): the condition is evaluated against the run's own event.",
+    "  5. The other half of the same class: a check that is PRODUCED but can never block. A job",
+    "     with `needs` and no always()/!cancelled() guard is skipped whenever a needed job fails,",
+    "     and GitHub counts a skipped required check as passed. The collector job all-checks-passed",
+    "     (ci.yml, 2026-09-17) carries `if: ${{ !cancelled() }}` for exactly that reason, and the",
+    "     gate reports a required context on an unguarded needs-job as skipped-is-passed and exits 1.",
+    "     A condition made only of always()/!cancelled() is read as unconditional, not as a gate."
   ],
   "ruleset": "protect-main",
   "ruleset_id": 18386496,
