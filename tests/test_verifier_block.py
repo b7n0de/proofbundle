@@ -100,8 +100,9 @@ class TestMeasureBuild:
         pkg = tmp_path / "site" / "proofbundle"
         pkg.mkdir(parents=True)
         (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+        echt = VB._record_digest_of(pkg / "__init__.py")
         record = ("../../../bin/proofbundle,sha256=AAAA,188\n"
-                  "proofbundle/__init__.py,sha256=BBBB,20\n"
+                  f"proofbundle/__init__.py,sha256={echt},20\n"
                   "proofbundle-6.1.0.dist-info/RECORD,,\n")
 
         class Dist:
@@ -116,7 +117,7 @@ class TestMeasureBuild:
         assert b["source"] == "installed-record"
         assert b["files"] == 1
         assert b["digest"]["sha256"] == hashlib.sha256(
-            "proofbundle/__init__.py\0BBBB".encode()).hexdigest()
+            f"proofbundle/__init__.py\0{echt}".encode()).hexdigest()
 
     def test_bytecode_rows_in_record_do_not_hide_an_installed_build(self, tmp_path, monkeypatch):
         """LENS C, 2026-09-18, P0 -- executed against a real wheel: `pip install` compiles by default
@@ -128,7 +129,7 @@ class TestMeasureBuild:
         pkg = tmp_path / "site" / "proofbundle"
         pkg.mkdir(parents=True)
         (pkg / "__init__.py").write_text("__version__ = 'x'\n")
-        record = ("proofbundle/__init__.py,sha256=BBBB,20\n"
+        record = (f"proofbundle/__init__.py,sha256={VB._record_digest_of(pkg / '__init__.py')},20\n"
                   "proofbundle/__pycache__/__init__.cpython-310.pyc,,\n"
                   "proofbundle/policies/__pycache__/x.cpython-312.pyc,,\n"
                   "proofbundle-6.1.0.dist-info/RECORD,,\n")
@@ -158,6 +159,38 @@ class TestMeasureBuild:
         (pkg / "link.py").symlink_to(aussen)
         with pytest.raises(VB.VerifierBlockError, match="outside the package"):
             VB.measure_build(pkg)
+
+    def test_a_modified_installed_file_is_not_the_installed_build(self, tmp_path, monkeypatch):
+        """Codex round one on PR 224, P1: an installed file edited in place while RECORD stayed
+        untouched measured the identical installed-record digest, and `report` called it a MATCH.
+        RECORD is what the installer wrote; the identity of the running build is the bytes."""
+        import importlib.metadata as im
+
+        pkg = tmp_path / "site" / "proofbundle"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+        (pkg / "a.py").write_text("def f():\n    return 1\n")
+        record = (f"proofbundle/__init__.py,sha256={VB._record_digest_of(pkg / '__init__.py')},20\n"
+                  f"proofbundle/a.py,sha256={VB._record_digest_of(pkg / 'a.py')},22\n"
+                  "proofbundle-6.1.0.dist-info/RECORD,,\n")
+
+        class Dist:
+            def read_text(self, name):
+                return record if name == "RECORD" else None
+
+            def locate_file(self, rel):
+                return tmp_path / "site" / rel
+
+        monkeypatch.setattr(im, "distribution", lambda name: Dist())
+        vorher = VB.measure_build(pkg)
+        assert vorher["source"] == "installed-record" and vorher["files"] == 2
+        (pkg / "a.py").write_text("def f():\n    return 2  # modified in place\n")
+        nachher = VB.measure_build(pkg)
+        assert nachher["source"] == "source-tree", "a modified install is another build"
+        assert nachher["digest"] != vorher["digest"]
+        # a RECORD row whose file is gone is the same finding
+        (pkg / "a.py").unlink()
+        assert VB.measure_build(pkg)["source"] == "source-tree"
 
     def test_an_editable_install_is_measured_as_a_source_tree(self, tmp_path, monkeypatch):
         """The distribution says the package is installed at A; the module on disk lives at B.
@@ -217,6 +250,24 @@ class TestMeasureVectorSet:
         (root / "b" / "case.json").unlink()
         with pytest.raises(VB.VerifierBlockError, match="no file"):
             VB.measure_vector_set(root)
+
+    def test_two_spellings_of_one_case_directory_are_refused(self, tmp_path):
+        """Codex round one on PR 224, P2: `['a', './a']` was accepted, hashed twice and counted as
+        two cases. A case is a directory; uniqueness is judged on the resolved path."""
+        root = tmp_path / "conformance"
+        (root / "a").mkdir(parents=True)
+        (root / "a" / "case.json").write_text("{}")
+        for alias in ("./a", "a/../a"):
+            (root / "manifest.json").write_text(json.dumps({"cases": ["a", alias]}))
+            with pytest.raises(VB.VerifierBlockError, match="two spellings"):
+                VB.measure_vector_set(root)
+        (root / "b").symlink_to(root / "a")
+        (root / "manifest.json").write_text(json.dumps({"cases": ["a", "b"]}))
+        with pytest.raises(VB.VerifierBlockError, match="two spellings"):
+            VB.measure_vector_set(root)
+        # anti-parity: the single spelling measures one case
+        (root / "manifest.json").write_text(json.dumps({"cases": ["a"]}))
+        assert VB.measure_vector_set(root)["cases"] == 1
 
     def test_a_case_listed_twice_is_refused(self, tmp_path):
         """LENS C, P2: `cases` counted the listing, not the corpus."""
@@ -406,6 +457,23 @@ class TestTestResultStatement:
         # same case count, different digest -- still another corpus
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 110}
         assert not VB.join_test_result(b, s)["ok"]
+
+    def test_a_result_that_its_own_lists_contradict_is_refused(self):
+        """Codex round one on PR 224, P1: `result: PASSED` beside `failedTests: [...]` validated
+        clean. The headline is derived from the lists; a case in two lists is the same defect."""
+        s = self._stmt()
+        assert VB.validate_test_result_statement(s) == []
+        p = s["predicate"]
+        p["failedTests"] = ["definitely-failed"]
+        errs = VB.validate_test_result_statement(s)
+        assert any("contradicts its own case lists" in e and "'FAILED'" in e for e in errs), errs
+        p["failedTests"] = []
+        p["warnedTests"] = ["ran-partially"]
+        assert any("derive 'WARNED'" in e for e in VB.validate_test_result_statement(s))
+        p["result"] = "WARNED"
+        assert VB.validate_test_result_statement(s) == []
+        p["passedTests"] = ["ran-partially"]
+        assert any("more than one outcome" in e for e in VB.validate_test_result_statement(s))
 
     def test_a_configuration_entry_without_the_case_count_does_not_join(self):
         """un round 2 (2026-09-18, P1): the case count was read with the block's own count as the
@@ -688,6 +756,54 @@ class TestRunnerWritesTheStatement:
         # THE RESULT AND THE EXIT CODE AGREE: a failed run is a FAILED statement, never a PASSED
         # one beside a red exit -- and a green exit never sits beside FAILED.
         assert (r.returncode == 0) == (s["predicate"]["result"] != "FAILED"), (r.returncode, s["predicate"]["result"])
+
+    @staticmethod
+    def _runner_module():
+        import importlib.util
+        pfad = REPO / "conformance" / "run_conformance.py"
+        if not pfad.is_file():
+            pytest.skip("conformance/run_conformance.py is not here")
+        spec = importlib.util.spec_from_file_location("rc_vb_test", pfad)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_a_run_on_the_reduced_schema_floor_is_warned_not_passed(self, tmp_path, capsys):
+        """Codex round one on PR 224, P1: with the full validator absent and no switch, every case
+        kept scope full and the statement said PASSED for a run whose schema validation never
+        happened. The reduced floor is a partial check, in the headline and in the statement."""
+        m = self._runner_module()
+        echt = m.cross_format.has_full_schema_check
+        ziel = tmp_path / "statement.json"
+        try:
+            m.cross_format.has_full_schema_check = lambda: False
+            rc = m.run(test_result_out=ziel)
+        finally:
+            m.cross_format.has_full_schema_check = echt
+        out = capsys.readouterr().out
+        assert rc == 0, out[-600:]
+        s = json.loads(ziel.read_text())
+        assert s["predicate"]["result"] == "WARNED"
+        assert s["predicate"]["passedTests"] == []
+        assert len(s["predicate"]["warnedTests"]) >= 1
+        assert "0 fully checked" in out and "structural floor only" in out
+
+    def test_a_required_validator_that_is_unavailable_still_leaves_a_statement(self, tmp_path, capsys):
+        """Codex round one on PR 224, P2: rc 1 and no file. Every early exit writes a FAILED
+        statement, so 'the validator was missing' and 'no evidence' stay two observations."""
+        m = self._runner_module()
+        echt = m.cross_format.has_full_schema_check
+        ziel = tmp_path / "statement.json"
+        try:
+            m.cross_format.has_full_schema_check = lambda: False
+            rc = m.run(require_full_schema=True, test_result_out=ziel)
+        finally:
+            m.cross_format.has_full_schema_check = echt
+        assert rc == 1
+        assert ziel.is_file(), capsys.readouterr().out[-600:]
+        s = json.loads(ziel.read_text())
+        assert s["predicate"]["result"] == "FAILED"
+        assert any("validator unavailable" in c for c in s["predicate"]["failedTests"])
 
     def test_a_broken_corpus_still_writes_a_failed_statement(self, tmp_path):
         """LENS C, P1: the corpus-integrity precondition returned before the statement was written,

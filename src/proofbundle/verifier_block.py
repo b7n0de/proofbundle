@@ -104,10 +104,27 @@ def _listing_digest(lines: list[str]) -> str:
 
 
 # ── measuring the build ───────────────────────────────────────────────────────────────────────
+def _record_digest_of(p: Path) -> str:
+    """RECORD's own encoding of a file hash: urlsafe base64 of the sha256, padding stripped."""
+    import base64  # noqa: PLC0415
+    return base64.urlsafe_b64encode(bytes.fromhex(_sha256_file(p))).rstrip(b"=").decode("ascii")
+
+
 def _installed_record_rows(package_dir: Path):
     """The ``proofbundle/`` rows of the installer's RECORD, IF the running package is the
-    installed one. ``None`` when there is no distribution, or when the module files on disk are
-    not the files the distribution installed (an editable install, a checkout on PYTHONPATH)."""
+    installed one AND every file still carries the bytes RECORD names for it. ``None`` when there
+    is no distribution, when the module files on disk are not the files the distribution
+    installed (an editable install, a checkout on PYTHONPATH), or when any package file on disk
+    no longer hashes to its RECORD row.
+
+    THE LAST CONDITION IS THE ONE THE FIRST DRAFT LACKED (Codex round one on PR 224, P1,
+    measured: an installed ``a.py`` edited in place while RECORD stayed untouched measured the
+    identical ``installed-record`` digest before and after, and ``report`` called that a MATCH).
+    RECORD is what the installer WROTE, not what is running now; a listing read from it without
+    checking the bytes is a stale-metadata identity. Now every row is hashed against the file, and
+    a mismatch makes the tree measure as what it is, ``source-tree`` over the actual bytes -- a
+    modified install is another build, and it joins nothing that the shipped wheel signed.
+    """
     try:
         import importlib.metadata as im  # noqa: PLC0415
         dist = im.distribution(IMPLEMENTATION)
@@ -144,6 +161,12 @@ def _installed_record_rows(package_dir: Path):
         if not digest.startswith("sha256="):
             # RECORD itself carries an empty hash; a package file without one cannot identify a
             # build, and a listing that silently skipped it would be a listing of the rest.
+            return None
+        try:
+            auf_platte = Path(str(dist.locate_file(pfad)))
+            if not auf_platte.is_file() or _record_digest_of(auf_platte) != digest[len("sha256="):]:
+                return None
+        except (OSError, ValueError):
             return None
         rows.append(f"{pfad}\0{digest[len('sha256='):]}")
     return rows or None
@@ -213,6 +236,18 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
         # the corpus, and the runner would execute the same directory twice under one id.
         doppelt = sorted({c for c in cases if cases.count(c) > 1})
         raise VerifierBlockError(f"conformance manifest lists a case more than once: {doppelt}")
+    # ... AND NEITHER IS A CASE LISTED UNDER TWO SPELLINGS (Codex round one on PR 224, P2,
+    # measured with `['a', './a']`: accepted, hashed twice, `cases: 2`). Uniqueness is a property
+    # of the directory, so it is judged on the resolved path; `./a`, `x/../a` and a symlink to `a`
+    # are the same case as `a`.
+    aufgeloest: dict[Path, str] = {}
+    for rel in cases:
+        ziel = (root / rel).resolve()
+        if ziel in aufgeloest:
+            raise VerifierBlockError(
+                f"conformance manifest lists one case directory under two spellings: "
+                f"{aufgeloest[ziel]!r} and {rel!r}")
+        aufgeloest[ziel] = rel
     rows = [f"manifest.json\0{_sha256_file(manifest_path)}"]
     for rel in cases:
         d = root / rel
@@ -470,12 +505,33 @@ def validate_test_result_statement(statement: Any) -> list[str]:
             for c in conf)):
         errs.append("predicate.configuration must be a non-empty list of resource descriptors "
                     "with name and sha256 digest (the vector set)")
+    listen_ok = True
     for k in ("passedTests", "warnedTests", "failedTests"):
         v = pred.get(k)
         if k in pred and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
             errs.append(f"predicate.{k} must be a list of strings")
+            listen_ok = False
     if "url" in pred and not (isinstance(pred["url"], str) and pred["url"]):
         errs.append("predicate.url, when present, must be a non-empty string")
+    # THE HEADLINE IS DERIVED FROM THE LISTS, NEVER ASSERTED BESIDE THEM (Codex round one on
+    # PR 224, P1, measured: `result: PASSED` with `failedTests: ['definitely-failed']` validated
+    # clean and could be joined as a passing run). The corpus rule that a skipped check is never
+    # a pass is a rule about the LISTS; a result that the lists do not derive is a signed headline
+    # contradicted by its own detail. Judged whenever any list is present; a name in two lists is
+    # the same contradiction one level down.
+    if listen_ok and any(k in pred for k in ("passedTests", "warnedTests", "failedTests")):
+        failed = list(pred.get("failedTests") or [])
+        warned = list(pred.get("warnedTests") or [])
+        passed = list(pred.get("passedTests") or [])
+        abgeleitet = "FAILED" if failed else ("WARNED" if warned else "PASSED")
+        if pred.get("result") in TEST_RESULTS and pred.get("result") != abgeleitet:
+            errs.append(f"predicate.result {pred.get('result')!r} contradicts its own case lists, "
+                        f"which derive {abgeleitet!r} ({len(failed)} failed, {len(warned)} warned, "
+                        f"{len(passed)} passed)")
+        alle = passed + warned + failed
+        doppelt = sorted({x for x in alle if alle.count(x) > 1})
+        if doppelt:
+            errs.append(f"a case is listed under more than one outcome: {doppelt}")
     return errs
 
 

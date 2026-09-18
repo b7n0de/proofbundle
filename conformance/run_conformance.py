@@ -58,9 +58,12 @@ NONE = "none"        # the case did not run at all
 
 SKIP_ANCHOR = "anchor-subcheck"
 SKIP_WHOLE = "whole-case"
+SKIP_FULL_SCHEMA = "full-schema-validator"
 _SKIP_REASON = {
     SKIP_ANCHOR: "anchor sub-check skipped (opentimestamps not installed)",
     SKIP_WHOLE: "case not run (needs the [anchors] extra)",
+    SKIP_FULL_SCHEMA: "case schema checked by the structural floor only (install the [test] extra "
+                      "for the full JSON Schema validator)",
 }
 
 
@@ -942,6 +945,16 @@ def schreibe_test_result_statement(results: list, ziel: pathlib.Path) -> dict:
     return stmt
 
 
+def _schreibe_fehlstatement(eintraege: list, ziel: pathlib.Path, grund: str) -> None:
+    """A FAILED statement for a run that ended before its cases -- one place for every early exit,
+    so no exit can be the one without a statement again."""
+    try:
+        schreibe_test_result_statement(eintraege, ziel)
+        print(f"[conformance] test-result statement -> {ziel} (result FAILED, {grund})")
+    except Exception as e:  # noqa: BLE001
+        print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
+
+
 def run(*, require_anchors: bool = False, require_full_schema: bool = False,
         test_result_out: "pathlib.Path | None" = None) -> int:
     manifest = json.loads((ROOT / "manifest.json").read_text())
@@ -960,6 +973,14 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False,
         # its counterpart one level up, and the authoritative CI leg sets both.
         print(f"[conformance] corpus integrity NOT FULLY CHECKED and --require-full-schema was "
               f"given: {cross_format.schema_check_name()}")
+        if test_result_out is not None:
+            # WRITTEN WHATEVER THE OUTCOME holds here too (Codex round one on PR 224, P2,
+            # measured: rc 1 and no file). "the required validator is unavailable" and "no
+            # evidence was produced" must stay two different observations.
+            _schreibe_fehlstatement(
+                [{"caseId": f"corpus-integrity: full JSON Schema validator unavailable "
+                            f"({cross_format.schema_check_name()})"[:200], "ok": False, "scope": NONE}],
+                pathlib.Path(test_result_out), "required validator unavailable")
         return 1
     if not cf_ok:
         print(f"[conformance] corpus integrity FAIL ({len(cf_problems)} problem(s)) "
@@ -972,14 +993,10 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False,
             # first draft returned here before the statement was written -- "no statement" and
             # "the corpus is broken" were the same observation. The statement now says it: one
             # FAILED entry per problem, no case passed, no case warned.
-            try:
-                schreibe_test_result_statement(
-                    [{"caseId": f"corpus-integrity: {pr}"[:200], "ok": False, "scope": NONE}
-                     for pr in cf_problems] or [{"caseId": "corpus-integrity", "ok": False, "scope": NONE}],
-                    pathlib.Path(test_result_out))
-                print(f"[conformance] test-result statement -> {test_result_out} (result FAILED, corpus integrity)")
-            except Exception as e:  # noqa: BLE001
-                print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
+            _schreibe_fehlstatement(
+                [{"caseId": f"corpus-integrity: {pr}"[:200], "ok": False, "scope": NONE}
+                 for pr in cf_problems] or [{"caseId": "corpus-integrity", "ok": False, "scope": NONE}],
+                pathlib.Path(test_result_out), "corpus integrity")
         return 1
     results: list[dict] = []
     for rel in cases:
@@ -1033,6 +1050,18 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False,
         except Exception as e:
             results.append(_fail(rel, f"{type(e).__name__}: {e}"))
 
+    if not cross_format.has_full_schema_check():
+        # A RUN ON THE REDUCED FLOOR IS NOT A FULL RUN, CASE BY CASE (Codex round one on PR 224,
+        # P1, measured: with `jsonschema` absent and without --require-full-schema every case kept
+        # `scope: full`, and the statement recorded PASSED for a run whose full schema validation
+        # never happened). The note below said so in prose; the results said the opposite in the
+        # field the statement is built from. A check that ran in a smaller form is a partial
+        # check, so every case that ran in full is downgraded here, with the reason named, and
+        # the headline, the per-case list and the statement all say WARNED for the same reason.
+        for r in results:
+            if r["ok"] and r.get("scope") == FULL:
+                r["scope"] = PARTIAL
+                r["skipped"] = list(r.get("skipped") or ()) + [SKIP_FULL_SCHEMA]
     ok = all(r["ok"] for r in results)
     gezaehlt = {k: sum(1 for r in results if r["ok"] and r.get("scope") == k)
                 for k in (FULL, PARTIAL, NONE)}
