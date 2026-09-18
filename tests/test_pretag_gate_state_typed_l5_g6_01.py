@@ -102,8 +102,13 @@ def _signed_receipt(priv=None, **over) -> str:
     from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes
     if priv is None:
         priv = Ed25519PrivateKey.generate()
-    rc = {"schema": RECEIPT_SCHEMA, "version": "6.0.0", "subject_tree_digest": "x" * 64,
-          "gate_source_digest": "y" * 64, "audit_command": "pytest", "audit_exit_code": 0,
+    # HEX-DIGESTS, und das ist eine Messung (Linse B, 2026-09-17): mit "x"*64 / "y"*64 fiel jede
+    # Quittung schon an der FORMPRUEFUNG des Verifizierers (kein sha256), und die Negativfaelle
+    # "andere Version" / "fremder Signierer" bestanden aus einem Grund, der nichts mit ihrem Namen
+    # zu tun hatte -- zwei Mutanten am other_tree-Probe (Version aus der Quittung nehmen; jeden
+    # Signierer vertrauen) ueberlebten die ganze Datei. Mit gueltigem Hex fallen sie.
+    rc = {"schema": RECEIPT_SCHEMA, "version": "6.0.0", "subject_tree_digest": "1" * 64,
+          "gate_source_digest": "2" * 64, "audit_command": "pytest", "audit_exit_code": 0,
           "audit_output_digest": "z" * 64, "runner_identity": "test",
           "produced_at": "2026-09-05T00:00:00Z"}
     rc.update(over)
@@ -190,6 +195,145 @@ class TheGateReportsATypedState(unittest.TestCase):
         self.assertEqual(len(r["rejected_receipts"]), 1, r)
         self.assertIn("unreadable", r["rejected_receipts"][0]["reason"].lower())
 
+    def test_a_valid_receipt_of_another_tree_is_other_tree_not_rejected(self):
+        """2026-09-17, measured on pull request 218: main's own receipt (trusted key, version 6.0.0,
+        audit exit 0) binds main's tree. Judged against a pull-request tree it was `rejected`, and
+        C12.1 turned red on every pull request. The probe is cryptographic: the same verifier, with
+        the receipt's OWN tree and gate digests as the expectation, must accept it -- then it is a
+        real receipt of another candidate, not a bad artefact. A copied v5.0.0 receipt still fails
+        at the version and stays `rejected` (the L5-G6-01 case, next test)."""
+        priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        # Hex-Digests eines ANDEREN Baums: die Formpruefung des Verifizierers (nur sha256-Kleinhex
+        # ist eine Erwartung) gilt auch fuer die Probe -- mit `x`*64 wuerde sie zu Recht ablehnen.
+        _plant(d, "600", "receipt.json", _signed_receipt(priv, subject_tree_digest="a" * 64,
+                                                         gate_source_digest="b" * 64))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "other_tree", r)
+        self.assertFalse(r["ok"])
+        self.assertEqual(len(r["other_tree_receipts"]), 1)
+        self.assertEqual(r["rejected_receipts"], [])
+        self.assertIn("ANOTHER tree", r["reason"])
+
+    def test_a_copied_receipt_of_another_version_stays_rejected(self):
+        priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        _plant(d, "600", "receipt.json", _signed_receipt(priv, version="5.0.0"))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+        self.assertEqual(r["other_tree_receipts"], [])
+
+    def test_a_foreign_signed_receipt_of_another_tree_stays_rejected(self):
+        """The probe must not soften the anchor: a receipt for another tree signed by a key the
+        anchor does not know is still a bad artefact."""
+        _priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        _plant(d, "600", "receipt.json", _signed_receipt(None))          # fresh, untrusted key
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+
+    def test_a_foreign_artefact_in_the_receipt_folder_is_not_a_rejection(self):
+        """Measured on pull request 218: `audit_artifacts/600/findings_register_v2.json` (schema
+        proofbundle.findings_register.v2) was judged as a receipt, rejected for its schema, and one
+        rejection turned `absent` into `rejected`. A file that names another schema is listed as
+        foreign and does not poison the state; a receipt WITHOUT a schema is still a broken receipt."""
+        d = _tree()
+        _plant(d, "600", "findings_register_v2.json",
+               json.dumps({"schema": "proofbundle.findings_register.v2", "findings": []}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "absent", r)
+        self.assertEqual([f["path"] for f in r["foreign_files"]],
+                         ["audit_artifacts/600/findings_register_v2.json"])
+        _plant(d, "600", "receipt.json", json.dumps({"version": "6.0.0", "signature": "x"}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", "a receipt without a schema is broken, not foreign")
+
+    def test_a_bad_receipt_cannot_opt_out_by_declaring_another_schema(self):
+        """LINSE B, P1 (2026-09-17): die erste Form der Fremd-Ausnahme war "jedes Schema ausser
+        unserem". Eine kaputte Quittung (fremder Signierer) mit `schema: totally.other.schema.v1`
+        wurde zur fremden Datei, der Zustand zu `absent`, C12.1 auf einem PR zu NOT_APPLICABLE.
+        Fremd ist nur, was auf der GESCHLOSSENEN Liste steht UND keine Quittungsfelder traegt."""
+        _priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        boese = json.loads(_signed_receipt(None))            # frischer, nicht verankerter Schluessel
+        boese["schema"] = "totally.other.schema.v1"
+        _plant(d, "600", "receipt.json", json.dumps(boese))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+        self.assertEqual(r["foreign_files"], [])
+        # und ein Register-Schema mit Quittungsfeldern ist ebenfalls keine fremde Datei
+        boese["schema"] = "proofbundle.findings_register.v2"
+        _plant(d, "600", "receipt.json", json.dumps(boese))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+        # der Degenerat ohne jede Quittungsform, aber mit unbekanntem Schema: auch keine fremde Datei
+        _plant(d, "600", "receipt.json", json.dumps({"schema": "x", "junk": True}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+
+    def test_a_signed_register_in_the_receipt_folder_is_foreign_not_rejected(self):
+        """MEASURED RED IN CI, on the very pull request that carried the fix (221, run 35285723295):
+        the findings register of this house is a SIGNED artefact -- it carries `signature` since
+        6.0.0 -- and the first shape list began with `signature`. So the register read as
+        receipt-shaped, was judged as a receipt, was rejected for its schema, and C12.1 went FAIL
+        on the pull request: the always-red re-created by its own fix. Locally it had been
+        measured green BEFORE the shape list was added; the number belonged to another tree.
+        A foreign artefact may be signed. Only receipt-specific fields make a receipt."""
+        d = _tree()
+        _plant(d, "600", "findings_register_v2.json", json.dumps({
+            "schema": "proofbundle.findings_register.v2", "document_id": "x", "issuer": "b7n0de",
+            "records": [], "signature": {"alg": "ed25519", "value": "AAAA"}}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "absent", r)
+        self.assertEqual([f["path"] for f in r["foreign_files"]],
+                         ["audit_artifacts/600/findings_register_v2.json"])
+        self.assertEqual(r["rejected_receipts"], [])
+
+    def test_this_repositorys_own_register_is_foreign_on_this_tree(self):
+        """The instance, against the real file: the register that lives next to the receipt in
+        audit_artifacts/600 of THIS repository is listed as foreign, never as a rejection. A
+        fixture with a made-up register cannot say that; only the real file can."""
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        register = repo / "audit_artifacts" / "600" / "findings_register_v2.json"
+        if not register.is_file():
+            self.skipTest("this tree carries no audit_artifacts/600/findings_register_v2.json")
+        r = self.pta.evaluate(repo)
+        if r["state"] == "not_determinable":
+            self.skipTest(f"not measurable here: {r.get('reason')}")
+        self.assertIn("audit_artifacts/600/findings_register_v2.json",
+                      [f["path"] for f in r["foreign_files"]], r)
+        for eintrag in r.get("rejected_receipts", []) or []:
+            self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
+
+    def test_the_receipt_library_comes_from_the_gate_not_from_the_judged_tree(self):
+        """LINSE B, P1 auf Vertragsebene (2026-09-17): `evaluate` legt `<repo>/src` vor den Suchpfad,
+        damit `proofbundle.signature` importierbar ist -- und ein `src/pre_tag_receipt_lib.py` im
+        GEPRUEFTEN Baum lieferte dem unveraenderten Tor `ok=true` fuer `{"garbage": true}`. Die
+        Bibliothek wird jetzt per Pfad aus dem Verzeichnis des Tors geladen."""
+        d = _tree()
+        (d / "src").mkdir()
+        (d / "src" / "pre_tag_receipt_lib.py").write_text(
+            "RECEIPT_SCHEMA = 'b7n0de.pre_tag_audit_receipt.v1'\n"
+            "def load_trusted_pubkeys(repo, ref='HEAD'): return ['x']\n"
+            "def subject_tree_digest(repo): return '0' * 64\n"
+            "def verify_receipt(receipt, **kw): return True, 'FORGED: always verifies'\n",
+            encoding="utf-8")
+        _plant(d, "600", "receipt.json", json.dumps({"garbage": True}))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertFalse(r["ok"], r)
+        self.assertNotEqual(r["state"], "verified", r)
+        self.assertNotIn("FORGED", json.dumps(r))
+
+    def test_a_rejected_candidate_outranks_other_tree(self):
+        """One known-bad artefact in the folder is a finding, whatever lies beside it."""
+        priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        _plant(d, "600", "good_other.json", _signed_receipt(priv, subject_tree_digest="a" * 64,
+                                                            gate_source_digest="b" * 64))
+        _plant(d, "600", "bad.json", "{ this is not json")
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(r["state"], "rejected", r)
+
     def test_an_unreadable_version_is_its_own_state(self):
         """Three states, and the third is not a pass: without a version the gate does not know what it
         is judging, and `not_determinable` must never inherit the absence leniency."""
@@ -247,6 +391,13 @@ class C121NarrowsOnlyOnAbsence(unittest.TestCase):
             ("absent", False, "push", fail),
             ("rejected", False, "pull_request", fail),      # THE FINDING
             ("rejected", False, "push", fail),
+            # 2026-09-17: a genuine, trusted-signed receipt of ANOTHER tree is, for a pull-request
+            # head, the same as none -- the head cannot carry one by construction. Outside a pull
+            # request it stays FAIL: main and tags need a receipt for THIS tree.
+            ("other_tree", False, "pull_request", na),
+            ("other_tree", False, "pull_request_target", na),
+            ("other_tree", False, "push", fail),
+            ("other_tree", False, None, fail),
             ("not_determinable", False, "pull_request", fail),
             ("verified", True, "pull_request", pas),
             ("verified", True, None, pas),

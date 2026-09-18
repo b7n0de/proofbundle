@@ -21,11 +21,19 @@ artifacts, so a re-run on a different box is comparable.
 
 ```
 python3 -m pytest -q                              # full suite (floor locked, see step 3)
-python3 scripts/audit_candidate_matrix.py         # the 33-check acceptance matrix (§9 minus external)
+python3 scripts/audit_candidate_matrix.py         # the 34-check acceptance matrix (§9 minus external)
 ```
 
 `audit_candidate_matrix.py` orchestrates every gate below and prints one line per acceptance
 obligation with an honest verdict (PASS / PENDING_JUSTIFIED / DATA_BLOCKED / EXTERNAL_PENDING / FAIL).
+Since 2026-09-17 every line also carries one of three OUTCOMES for the reader of that run —
+PASS, FAIL or NOT_MEASURED with a reason — and the exit code follows the outcomes: non-zero only
+for a release-deciding FAIL, for `NOTHING_MEASURED` (no cell measured at all) or for an unbound
+version pin. On a pull request, candidate-bound release evidence that is merely not bound to that
+head (C6.2, C6.3, C8.2; C12.1 with a receipt of another tree) is NOT_MEASURED, not FAIL; outside a
+pull request it stays FAIL. The internal verdicts and `audit_candidate_ready` are unchanged. C6.4
+runs a short fuzz-soak live on the head (`AUDIT_MATRIX_SMALL_SOAK_SECONDS`, a 3 s smoke by default, 300 s
+in CI); the 24h soak runs in `.github/workflows/soak-nightly.yml` and is named, never admitted.
 `audit_candidate_ready=True` means no internal obligation is broken; `fully_verified_here=True`
 additionally means this box had the full toolchain (cargo + build backend + a recorded 24h soak).
 

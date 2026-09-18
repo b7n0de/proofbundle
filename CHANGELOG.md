@@ -42,6 +42,9 @@ rather than before, which is itself the finding.
 - The producer is read against the signed register rather than against its own in-memory list.
 
 ### Changed
+- `scripts/required_check_reachability_gate.py --verify-live-pr` (#219) judges the LIVE pull request: it evaluates each gating condition against the run's own event and reports per required context whether it arrives, will not arrive, or is not measurable; the advisory job runs it after the offline gate. Measured 2026-09-17 on pull request 218: the offline gate was green while four required contexts could never arrive.
+- ci.yml (#220): the full five-version test matrix runs for every pull request from this repository; the `landung` label stays the gate only for fork pull requests (owner directive 2026-09-17, velocity). The reachability declaration re-binds its accepted contexts to the new condition.
+- `scripts/audit_candidate_matrix.py` reports three outcomes per cell (PASS, FAIL, NOT_MEASURED with a reason) and exits non-zero only for a release-deciding FAIL, for `NOTHING_MEASURED` or for an unbound version pin; on a pull request candidate-bound release evidence that is not bound to that head is NOT_MEASURED instead of FAIL. New cell C6.4 runs a short fuzz-soak live on the head; the 24h soak moved to `.github/workflows/soak-nightly.yml`. `scripts/pre_tag_audit_gate.py` distinguishes a genuine receipt of another tree (`other_tree`) and a foreign artefact in the receipt folder (`foreign_files`) from a rejected receipt. (Owner order 2026-09-17; measured on pull request 218: the advisory job was red on every pull request with DATA_BLOCKED 0 and FAIL 4.)
 
 - Identifiers transcribed, internal codename and account names.
 - The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.
