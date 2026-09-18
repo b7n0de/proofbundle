@@ -31,20 +31,21 @@
     "     and GitHub counts a skipped required check as passed. The collector job all-checks-passed",
     "     (ci.yml, 2026-09-17) carries `if: ${{ !cancelled() }}` for exactly that reason, and the",
     "     gate reports a required context on an unguarded needs-job as skipped-is-passed and exits 1.",
-    "     A condition made only of always()/!cancelled() is read as unconditional, not as a gate."
+    "     A condition made only of always()/!cancelled() is read as unconditional, not as a gate.",
+    "  6. 2026-09-18, the switch to the collector. The ruleset protect-main (id 18386496) now",
+    "     requires guard and all-checks-passed, strict kept; the collector carries test and",
+    "     coverage as needs and is red when a leg is skipped, cancelled or failed (measured live",
+    "     on pull requests 222 and 223 on 2026-09-18). Seven contexts became two, and the class",
+    "     this file was written against did not change: a context nobody produces still blocks",
+    "     silently, so the reachability gate keeps judging the two that remain."
   ],
   "ruleset": "protect-main",
   "ruleset_id": 18386496,
   "branch": "main",
-  "declared_on": "2026-09-16",
+  "declared_on": "2026-09-18",
   "required_contexts": [
-    "coverage",
-    "guard",
-    "test (3.10)",
-    "test (3.11)",
-    "test (3.12)",
-    "test (3.13)",
-    "test (3.14)"
+    "all-checks-passed",
+    "guard"
   ],
   "_ratchet": [
     "accepted_gated names the contexts whose CONDITIONAL production is knowingly accepted today, and",
