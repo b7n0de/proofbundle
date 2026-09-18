@@ -19,6 +19,21 @@ rather than before, which is itself the finding.
 
 ### Added
 
+- A collector job `all-checks-passed` in ci.yml that ALWAYS reports: it needs the jobs the
+  ruleset requires from this file (`test`, `coverage`), runs under `if: ${{ !cancelled() }}`, and
+  turns red when any needed job did not succeed -- `skipped` included -- or when the full test
+  matrix did not run on the event (fork pull request without the `landung` label). Owner
+  decision A on card OA-3c67b06ad6: one always-running context replaces six, four of which a
+  condition could leave uncreated. `guard` stays a required context of its own, because it lives in
+  fork-pr-isolation.yml and a job cannot need a job of another workflow. The ruleset is NOT
+  switched by this change; that is the owner's step once this job has run green.
+- The reachability gate learned two shapes of that job. A job condition made only of
+  `always()` or `!cancelled()` is unconditional, not `produced-only-if` (the first draft
+  would have called the collector conditional and been red for the wrong reason). A REQUIRED
+  context on a job with `needs` and no such guard is reported as `skipped-is-passed` and
+  turns the gate red: the job is skipped whenever a needed job fails, and a skipped required
+  check reads as passed, so it can never block on the failures it depends on. A contract
+  holds the collector's copy of the matrix condition byte-identical to the matrix's own.
 - Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
   producer emits `findings_register_v2.json` plus two generated views, every record carries the
   byte range of its own evidence, and the three 6.1 register lines are written directly in the new
@@ -31,6 +46,21 @@ rather than before, which is itself the finding.
   `import gen_findings_register`, while that script is deliberately withheld from the sdist. Nothing
   ran, not one of the other tests. The guard decides in the checkout, where both the file and the
   distribution listing are present, and leaves the cleanroom unchanged.
+- **Coverage in the language of CAP-1, target 6.1.0 (not part of 6.0.0).** A `proofbundle.cap1` module
+  checks a coverage-attestation document of `draft-hillier-coverage-attestation-00` (profile `cap/1`)
+  against the draft's rules R0 to R8, never raises, and reads strictly (a duplicate JSON name is a read
+  error, not a verdict — RFC 8259 section 4 calls that behaviour unpredictable, and the draft author's
+  own probes show three equally conformant readers disagreeing). The fifteen conformance vectors of the
+  draft author (Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0) ship under `conformance/cap1/`
+  as cases of the new kind `cap1_document` with one axis, `cap1Rules`, the exact set of rules that must
+  fire; NC-05 pins R1 and R5 together, and a counter-proof that fails for the wrong reason fails the
+  case. An `agent-review/v0.2` predicate may carry `coverage.strata`, `coverage.integrity` and
+  `coverage.absenceAssertions`; the rules are borrowed from `cap1`, each reports its own reason code
+  (`COVERAGE_CAP1_SHAPE` … `COVERAGE_CAP1_SUPPORTS_MISSING`, `COVERAGE_CAP1_RULE_UNMAPPED` for a rule the
+  mapping does not know), `status` is derived from `integrity.complete` and a stated status that
+  disagrees is rejected (`COVERAGE_CAP1_STATUS_CONTRADICTS_STRATA`). The older counters stay readable as
+  aliases with a stated decay (COMPATIBILITY.md); a v0.2 receipt without strata carries the advisory
+  code `COVERAGE_LEGACY_FIELDS`. v0.1 rejects the three fields as unknown.
 
 ### Fixed
 

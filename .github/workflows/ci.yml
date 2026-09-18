@@ -809,3 +809,88 @@ jobs:
         # ignore keeps the job blocking for a REAL finding in `cryptography` (the one dependency that
         # matters for this project's trust model). Re-evaluate when inspect_ai relaxes its click cap.
         run: pip-audit --desc --ignore-vuln PYSEC-2026-2132
+
+  all-checks-passed:
+    # THE ONE CONTEXT THE RULESET CAN REQUIRE FROM THIS FILE (owner decision A on card OA-3c67b06ad6,
+    # 2026-09-16; standing GO 2026-09-17, point 3). Today protect-main requires six contexts out of
+    # this file -- coverage and test (3.10) to (3.14) -- and four of them exist only when the full
+    # matrix runs. A required context that is never CREATED does not turn red; the pull request
+    # stays BLOCKED with nothing red on it (measured 2026-09-16 on four pull requests at once, and
+    # again 2026-09-17 on pull request 218). GitHub's own guidance: "Avoid requiring workflows
+    # that can be skipped" and "Use always() with needs for required checks that depend on other
+    # jobs" (docs, Troubleshooting required status checks, read 2026-09-17).
+    #
+    # So this job ALWAYS exists and ALWAYS reports. It needs the jobs the ruleset requires from
+    # this file and turns red when any of them did not SUCCEED -- "skipped" included, because a
+    # required check on a skipped job reads as passed and blocks nothing. `!cancelled()` rather
+    # than `always()`: the docs recommend it, a cancelled run must not produce a verdict at all.
+    #
+    # The seventh required context, `guard`, lives in fork-pr-isolation.yml. A job cannot `needs`
+    # a job of another workflow, so `guard` stays a required context of its own; it runs on every
+    # pull request, push to main and merge group without a condition, so it is not of the class
+    # this job exists for.
+    #
+    # THE FULL MATRIX IS PART OF THE VERDICT. `needs.test.result` is "success" whether the matrix
+    # ran five versions or one. A fork pull request without the `landung` label runs the fast
+    # layer only, and a green fast layer must not be read as a green release matrix. The condition
+    # below is therefore the SAME expression the matrix uses, evaluated here to a plain true/false.
+    # It is a second copy on purpose, and a contract holds the two copies byte-identical
+    # (tests/test_required_check_reachability.py, TestTheCollectorJob); two copies that may drift
+    # are the defect, one contract over both is the fix.
+    #
+    # EXCEPT ON A PUSH TO MAIN (lens B, 2026-09-17, measured with the gate's own evaluator: the
+    # condition is false on `push`). The only push this workflow sees is the one after a merge,
+    # and under the strict ruleset the merged tree is the tree the pull request already tested on
+    # the full matrix. The fast layer is enough there, and this job says so instead of turning
+    # every commit on main red -- the cry-wolf this job exists to end, inverted onto main.
+    #
+    # THE KEY SET IS CHECKED, not only the values: `toJSON(needs)` carries exactly the declared
+    # needs, and if that ever stops being true a missing job must not read as a passed one.
+    # The list in the script and the `needs:` line above are held equal by a contract.
+    needs: [test, coverage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every needed job succeeded, on the full matrix
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+          FULL_MATRIX: >-
+            ${{ ( github.event_name == 'workflow_dispatch'
+              || github.event.pull_request.head.repo.full_name == github.repository
+              || startsWith(github.ref_name, 'release/')
+              || contains(github.event.pull_request.labels.*.name, 'landung')
+              || github.event_name == 'merge_group' ) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          EXPECTED = {"test", "coverage"}
+          needs = json.loads(os.environ["NEEDS"])
+          event = os.environ.get("EVENT", "").strip().lower()
+          full = os.environ.get("FULL_MATRIX", "").strip().lower() == "true"
+          if set(needs) != EXPECTED:
+              print("::error title=all-checks-passed::needed jobs " + str(sorted(needs)) + " are not the "
+                    "declared " + str(sorted(EXPECTED)) + " -- a job that is not reported is not a passed one")
+              sys.exit(1)
+          bad = {}
+          for job, info in sorted(needs.items()):
+              result = (info or {}).get("result")
+              print(f"{job}: {result}")
+              if result != "success":
+                  bad[job] = result
+          print(f"event: {event or '?'} · full matrix: {'yes' if full else 'NO'}")
+          if bad:
+              print("::error title=all-checks-passed::" + ", ".join(f"{k}={v}" for k, v in bad.items())
+                    + " -- a failed, cancelled or skipped job is not a passed one")
+              sys.exit(1)
+          if not full and event == "push":
+              print("::notice title=all-checks-passed::fast layer on a push to main, by design: the merged "
+                    "pull request already ran the full matrix on this tree under the strict ruleset")
+          elif not full:
+              print("::error title=all-checks-passed::the full test matrix did not run on this event "
+                    "(fork pull request without the landung label); one version passing is not "
+                    "five versions passing -- add the label `landung` or push from this repository")
+              sys.exit(1)
+          print("all-checks-passed: every needed job succeeded" + ("" if not full else " on the full matrix"))
+          PY
