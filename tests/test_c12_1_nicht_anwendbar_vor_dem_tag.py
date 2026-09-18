@@ -33,13 +33,21 @@ def _lauf(event: str | None) -> subprocess.CompletedProcess:
         env.pop("GITHUB_EVENT_NAME", None)
     else:
         env["GITHUB_EVENT_NAME"] = event
+    # Die Zeile unter Test ist C12.1; der lebende Soak (C6.4) laeuft hier kurz, damit die zehn
+    # Laeufe dieser Datei nicht zehnmal die Vorgabe abwarten. Er wird nicht abgeschaltet: eine
+    # abgeschaltete Zelle waere NICHT GEMESSEN und aendert den Bericht.
+    env.setdefault("AUDIT_MATRIX_SMALL_SOAK_SECONDS", "1")
     return subprocess.run([sys.executable, str(SKRIPT)], capture_output=True, text=True,
                           cwd=str(REPO), env=env, timeout=300)
 
 
 def _quittungslage() -> str:
-    """``GUELTIG`` | ``ABGELEHNT`` | ``ABWESEND`` | ``NICHT_MESSBAR`` — der Zustand der Quittungen im
-    Baum, gemessen OHNE das Tor zu fragen, dessen Matrixzeile hier geprueft wird.
+    """``GUELTIG`` | ``ABGELEHNT`` | ``ANDERER_BAUM`` | ``ABWESEND`` | ``NICHT_MESSBAR`` — der Zustand
+    der Quittungen im Baum, gemessen OHNE das Tor zu fragen, dessen Matrixzeile hier geprueft wird.
+
+    ``ANDERER_BAUM`` kam am 2026-09-17 dazu (Owner-Auftrag, gemessen an PR 218): die echte Quittung
+    von main verifiziert mit ihren EIGENEN Digests, bindet aber nicht diesen Baum. Auf einem Pull
+    Request ist das dasselbe wie keine Quittung; ausserhalb bleibt es FAIL.
 
     ES RUFT DIE REGEL AUF, STATT SIE NACHZUBAUEN. Die erste Fassung baute die Gueltigkeit selbst
     nach und prueste DREI Bedingungen: Baumbindung, Signierer im Anker, Ed25519-Signatur. Gemessen
@@ -89,12 +97,24 @@ def _quittungslage() -> str:
     tree = subject_tree_digest(REPO)
     gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
     trusted = load_trusted_pubkeys(REPO)
+    anderer_baum, abgelehnt = False, False
     for q in kandidaten:
         try:
             r = json.loads(q.read_text(encoding="utf-8", errors="ignore"))
         except (OSError, ValueError):
-            continue                     # da, aber unlesbar: eine ABLEHNUNG, keine Abwesenheit
+            abgelehnt = True             # da, aber unlesbar: eine ABLEHNUNG, keine Abwesenheit
+            continue
         if not isinstance(r, dict):
+            abgelehnt = True
+            continue
+        # FREMDE DATEI (2026-09-17, verengt nach Linse B am selben Tag): fremd ist NUR ein Schema
+        # von der GESCHLOSSENEN Liste des Tors, und nur ohne Quittungsfelder -- dieselbe Regel wie
+        # im Tor, aus dem Tor gelesen, nicht nachgetippt. "Jedes Schema ausser unserem" liess eine
+        # kaputte Quittung sich selbst ausnehmen.
+        from pre_tag_audit_gate import _FOREIGN_SCHEMAS, _RECEIPT_SHAPED_FIELDS
+        schema = r.get("schema")
+        if (isinstance(schema, str) and schema in _FOREIGN_SCHEMAS
+                and not any(f in r for f in _RECEIPT_SHAPED_FIELDS)):
             continue
         try:
             ok, _grund = verify_receipt(r, trusted_pubkeys=trusted, expected_version=version,
@@ -103,7 +123,24 @@ def _quittungslage() -> str:
             ok = False
         if ok:
             return "GUELTIG"
-    return "ABGELEHNT"
+        # ANDERER BAUM (2026-09-17): dieselbe Regel, mit den EIGENEN Digests der Quittung als
+        # Erwartung. Verifiziert sie so, ist sie eine echte Quittung eines anderen Kandidaten --
+        # auf einem Pull Request dasselbe wie keine. Verifiziert sie auch so nicht, ist sie ABGELEHNT.
+        try:
+            eigener = verify_receipt(r, trusted_pubkeys=trusted, expected_version=version,
+                                     subject_tree_digest=str(r.get("subject_tree_digest")),
+                                     gate_source_digest=str(r.get("gate_source_digest")))[0]
+        except Exception:                # noqa: BLE001
+            eigener = False
+        if eigener:
+            anderer_baum = True
+        else:
+            abgelehnt = True
+    if abgelehnt:
+        return "ABGELEHNT"
+    if anderer_baum:
+        return "ANDERER_BAUM"
+    return "ABWESEND"
 
 
 @pytest.mark.parametrize("event", [None, "", "push", "release", "workflow_dispatch", "schedule",
@@ -314,12 +351,14 @@ def test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen():
     if lage == "NICHT_MESSBAR":
         pytest.skip("die Version ist hier nicht lesbar — ein Urteil aus einer nicht messbaren Lage "
                     "waere geraten")
-    if lage == "ABWESEND":
-        assert not c121_fail, f"KEINE Quittung, trotzdem faellt C12.1 auf einem PR:\n{fails}"
+    if lage in ("ABWESEND", "ANDERER_BAUM"):
+        assert not c121_fail, f"Lage {lage}, trotzdem faellt C12.1 auf einem PR:\n{fails}"
         assert c121_na, (
-            "KEINE Quittung auf einem PR — dann MUSS C12.1 `n.a.` tragen statt zu fallen, das ist "
+            f"Lage {lage} auf einem PR — dann MUSS C12.1 `n.a.` tragen statt zu fallen, das ist "
             f"der ganze Zweck der Verengung\n{r.stdout[-600:]}")
-        assert "nicht anwendbar vor dem Tag" in r.stdout
+        assert "not applicable before the tag" in r.stdout, "der n.a.-Satz ist englisch (er geht ueber Annotationen nach GitHub)"
+        if lage == "ANDERER_BAUM":
+            assert "another tree" in r.stdout, "die Zeile nennt die Quittung des anderen Baums nicht"
     elif lage == "ABGELEHNT":
         assert c121_fail, (
             "eine ABGELEHNTE Quittung liegt im Baum — dann MUSS C12.1 auch auf einem Pull Request "
@@ -375,7 +414,7 @@ def test_nur_dieser_eine_fehlschlag_wird_umgedeutet():
     Ablehnungsformen steht in tests/test_pretag_gate_state_typed_l5_g6_01.py.
     """
     quelle = SKRIPT.read_text(encoding="utf-8")
-    assert '_laeuft_auf_pull_request() and r.get("state") == "absent"' in quelle, (
+    assert '_laeuft_auf_pull_request() and r.get("state") in ("absent", "other_tree")' in quelle, (
         "die Umdeutung haengt nicht mehr am typisierten Zustand des Tors")
     # NUR CODE-ZEILEN, und der Grund ist beim Schreiben dieses Tests aufgetreten: der Kommentar, der
     # den Fund erklaert, ZITIERT die alte Regel woertlich. Ein Griff ueber die ganze Datei fand das
