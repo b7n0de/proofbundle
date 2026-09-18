@@ -192,7 +192,13 @@ NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT",
                     "CAP1_SHAPE", "CAP1_SILENT_REMAINDER", "CAP1_DISPOSITION_NOT_CLOSED",
                     "CAP1_WITHHELD_WITHOUT_DIGEST", "CAP1_BASIS_MISSING", "CAP1_COUNTS_MALFORMED",
                     "CAP1_ABSENCE_UNSCOPED", "CAP1_INCOMPLETE_CLAIMED_CLEAN", "CAP1_SUPPORTS_MISSING",
-                    "CAP1_RULE_UNMAPPED", "CAP1_STATUS_CONTRADICTS_STRATA"}
+                    "CAP1_RULE_UNMAPPED", "CAP1_STATUS_CONTRADICTS_STRATA",
+                    # P19 (18.09.2026, agent-review/v0.3): vergeben in `validate_agent_review_predicate`
+                    # fuer jeden Fehler, den `verifier_block.validate_verifier_block` am Block
+                    # meldet; `_mit_abschnitt(code_teil="PRODUCER_VERIFIER")` qualifiziert ihn zu
+                    # PRODUCER_VERIFIER_BLOCK_INVALID, unqualifiziert erscheint er nie. Ausloesbar in
+                    # tests/test_verifier_block.py (25 Einzeldefekte am Block, ein Code).
+                    "BLOCK_INVALID"}
 
 #: Codes des Moduls, die diese Tafel (noch) nicht fuehrt — mit Grund. Waechst die Menge, faellt
 #: `test_jeder_code_des_moduls_steht_in_der_tafel`: ein neuer Code ohne Eintrag ist genau der Fall,
@@ -217,6 +223,18 @@ OHNE_TAFELZEILE = {
                             "beim Auswerten wirft — tests/test_policy_nicht_auswertbar_hat_einen_"
                             "code.py. Dieser Code hatte beim ersten vollen Lauf KEINEN Test; "
                             "gefunden hat das genau diese Tafel, nicht ein roter Test",
+    # 18.09.2026, P19 (agent-review/v0.3). Beide werden von der Verifier-Seite vergeben, nicht von
+    # `validate_statement_shape`, und beide haben ihre ausloesende Eingabe in
+    # tests/test_verifier_block.py (TestInTheReceipt).
+    "UNKNOWN_PREDICATE_VERSION": "wird von _verify_v02_inner vergeben, wenn der predicateType die "
+                                 "SCHWESTERFASSUNG nennt (v0.2 im v0.3-Verifier oder umgekehrt) — "
+                                 "als ShapeError, damit der Code im Fehlertext mitreist; fuer v0.1 "
+                                 "steht der Code weiter nur in reason_codes. "
+                                 "tests/test_verifier_block.py",
+    "internal_error": "wird von _internal_error_ergebnis vergeben, der never-raise-Huelle beider "
+                      "Verifier (v0.2 und v0.3), wenn der Rumpf wirft — ein Defekt des Verifiers, "
+                      "kein Urteil ueber das Receipt. tests/test_verifier_block.py "
+                      "(gepflanzter RuntimeError im Rumpf)",
 }
 
 
@@ -250,6 +268,8 @@ OHNE_TAFELZEILE = {
 #: nicht toeten. `SECTION_NOT_OBJECT` hat sieben, weil `_mit_abschnitt` sie zur Laufzeit in sieben
 #: abschnittsbezogene Codes qualifiziert.
 AUFRUFSTELLEN_JE_CODE = {
+    # 18.09.2026, P19 (agent-review/v0.3): drei neue Codes, je EINE Stelle.
+    "BLOCK_INVALID": 1, "UNKNOWN_PREDICATE_VERSION": 1, "internal_error": 1,
     "FINDINGS_ROOT_MALFORMED": 1, "FINDINGS_ROOT_MISSING": 1, "SECTION_NOT_OBJECT": 7,
     "STATEMENT_NOT_OBJECT": 1, "STATEMENT_TYPE_ABSENT": 1, "STATEMENT_TYPE_MISMATCH": 1,
     "SUBJECT_ABSENT": 1, "SUBJECT_ABSENT_FIELD": 1, "SUBJECT_CARDINALITY": 1,

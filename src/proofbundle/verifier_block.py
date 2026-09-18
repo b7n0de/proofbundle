@@ -490,8 +490,8 @@ def test_result_ref(statement: dict) -> dict:
 
 
 def join_test_result(block: dict, statement: dict) -> dict:
-    """Does the statement belong to this block? Three equalities, each reported on its own, and
-    ``ok`` only when all three hold. A relying party needs no issuer for this join: it recomputes
+    """Does the statement belong to this block? Four equalities, each reported on its own, and
+    ``ok`` only when all four hold. A relying party needs no issuer for this join: it recomputes
     the statement digest and compares digests."""
     fehler: list[str] = []
     r: dict[str, Any] = {"subject_matches_build": False, "digest_matches": False,
@@ -517,10 +517,16 @@ def join_test_result(block: dict, statement: dict) -> dict:
     # configuration entry with a digest must match the block's, and there must be one.
     konf = statement["predicate"]["configuration"]
     vs = block["vectorSet"]
-    r["vector_set_matches"] = bool(konf) and all(
-        c.get("digest") == vs["digest"]
-        and (c.get("annotations") or {}).get("cases", vs["cases"]) == vs["cases"]
-        for c in konf)
+    # BOTH HALVES ARE REQUIRED, NOT DEFAULTED (un round 2, 2026-09-18, P1). The first form read
+    # `annotations.cases` with the block's own count as the default -- a configuration entry
+    # without the annotation matched by construction. A presence-conditional check is an option
+    # the producer can decline; this one is not. `validate_test_result_statement` already
+    # guarantees a digest per entry, so `c["digest"]` cannot be absent here.
+    def _entry_matches(c: dict) -> bool:
+        ann = c.get("annotations")
+        return (c["digest"] == vs["digest"]
+                and isinstance(ann, dict) and ann.get("cases") == vs["cases"])
+    r["vector_set_matches"] = bool(konf) and all(_entry_matches(c) for c in konf)
     if not r["subject_matches_build"]:
         fehler.append("the statement's subject is not this block's build digest")
     if not r["digest_matches"]:

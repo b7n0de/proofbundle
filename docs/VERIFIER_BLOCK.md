@@ -117,6 +117,10 @@ and reports both v0.2 and v0.3 as `current` — v0.3 does not deprecate v0.2. A 
 6.0.0 readability keeps issuing v0.2 without the block. The emitter picks v0.3 exactly when the
 predicate carries the block; there is no parameter that chooses it, the version follows the object.
 
+**Which version to issue, stated plainly:** issue v0.3 with the block whenever your readers run
+6.1.0 or later — it is the version that answers *which build produced this*. Issue v0.2 only when
+a reader on 6.0.0 must verify the receipt; v0.2 is not deprecated, but it cannot carry the block.
+
 ## Honest limits
 
 - **Self-declared.** The producing build measures itself. A producer that lies about its build

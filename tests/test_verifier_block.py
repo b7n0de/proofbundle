@@ -407,6 +407,25 @@ class TestTestResultStatement:
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 110}
         assert not VB.join_test_result(b, s)["ok"]
 
+    def test_a_configuration_entry_without_the_case_count_does_not_join(self):
+        """un round 2 (2026-09-18, P1): the case count was read with the block's own count as the
+        default, so a configuration entry without `annotations` matched by construction. Both
+        halves of the vector-set equality are required now."""
+        s = self._stmt()
+        b = VB.build_verifier_block(build=_valid_block()["build"], version="6.1.0",
+                                    vector_set=_valid_block()["vectorSet"],
+                                    test_result=VB.test_result_ref(s))
+        assert VB.join_test_result(b, s)["ok"], "positive control: the untouched statement joins"
+        s["predicate"]["configuration"][0].pop("annotations")
+        b["testResult"] = VB.test_result_ref(s)          # the reference follows the new bytes
+        j = VB.join_test_result(b, s)
+        assert j["digest_matches"] and not j["vector_set_matches"] and not j["ok"], j
+        assert any("vector set" in e for e in j["errors"])
+        # a wrong count under the right digest is refused just the same
+        s["predicate"]["configuration"][0]["annotations"] = {"cases": 3}
+        b["testResult"] = VB.test_result_ref(s)
+        assert not VB.join_test_result(b, s)["vector_set_matches"]
+
     def test_a_block_that_cites_a_run_must_declare_its_vector_set(self):
         b = _valid_block()
         del b["vectorSet"]
