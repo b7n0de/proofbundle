@@ -20,7 +20,12 @@
     "     carry required contexts; the assumption had been that all seven lived in one file.",
     "  3. The test matrix produces five Python versions only under a condition, so four of the seven",
     "     required contexts are never created for an ordinary pull request. Measured 2026-09-16 on",
-    "     PRs 209, 210, 211 and 212, all four BLOCKED with no required check red."
+    "     PRs 209, 210, 211 and 212, all four BLOCKED with no required check red.",
+    "  4. The reachability job itself. It judged the STRUCTURE (produced under a named condition,",
+    "     accepted by the ratchet) and reported green on pull request 218 while the condition was",
+    "     false on that event: no label, no release/ head, no dispatch. The four contexts were never",
+    "     going to arrive and nothing on the pull request said so. Measured 2026-09-17. Closed the",
+    "     same day by the live step (--live): the condition is evaluated against the run's own event."
   ],
   "ruleset": "protect-main",
   "ruleset_id": 18386496,

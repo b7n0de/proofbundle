@@ -67,6 +67,8 @@ jobs:
     # under the landung label. It was the THIRD instance of this class here -- the first was a
     # missing `labeled` trigger (commit 89301253), the second a missing `merge_group` trigger in
     # fork-pr-isolation.yml -- and all three were found by a person reading, never by a mechanism.
+    # The FOURTH instance was this job itself (2026-09-17, pull request 218): green on the
+    # structure while the pull request in front of it was blocked; see the live step below.
     #
     # Advisory on purpose: today the honest answer for this repository is "produced-only-if", and a
     # blocking job would be red from its first run. What it buys is that the gap is NAMED on every
@@ -112,6 +114,24 @@ jobs:
       # exists to remove. Said out loud, not acted on -- a check that did not run is never a pass.
       - name: Required-check reachability
         run: python scripts/required_check_reachability_gate.py
+      # THE LIVE QUESTION, and it is a different one. The step above asks whether the workflows
+      # CAN produce every required context under some named condition, and its ratchet accepts the
+      # four version contexts behind the five-branch condition. On a pull request the question is
+      # not CAN but WILL: does THIS event, with THIS label set and THIS head ref, make that
+      # condition true? Measured 2026-09-17 on pull request 218: the step above was green, the
+      # `landung` label was absent, and test (3.10), (3.11), (3.13) and (3.14) were never going to
+      # arrive -- the pull request stood BLOCKED with nothing red on it, the very picture this job
+      # exists to name, with the job itself green above it. A guard that judges the structure while
+      # the instance in front of it is blocked has not caught its class at the live instance.
+      #
+      # `if: always()` for the same reason the declaration check runs first: a red step above must
+      # not silently skip this one. The evaluator reads the runner's own event payload, needs no
+      # network, and reports NOT MEASURABLE for anything it cannot read -- never a pass. Red here is
+      # advisory like the rest of the job, but it is red on the pull request that is blocked, and
+      # it names the one action that makes the contexts arrive.
+      - name: Required checks on THIS pull request (live event)
+        if: always()
+        run: python scripts/required_check_reachability_gate.py --verify-live-pr
 
   release-scope-title:
     # THE GATE HAD NO CALLER. Measured on this pull request's own head by Codex round one and
