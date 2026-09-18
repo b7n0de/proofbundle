@@ -659,7 +659,11 @@ GRUNDLINIE_CODELOS = {
     "validate_agent_review_v02_predicate": 5,
     "validate_time_claim": 9,
     "verify_agent_review": 1,
-    "verify_agent_review_v02": 1,
+    # 0 since 2026-09-18 (P19, v0.3): the except path now lives in `_internal_error_ergebnis`,
+    # shared with `verify_agent_review_v03`, and carries the code `internal_error` there. The
+    # carrier list below was always empty for this function; the number falls because the site
+    # got a code, not because the sweep went blind.
+    "verify_agent_review_v02": 0,
 }
 
 

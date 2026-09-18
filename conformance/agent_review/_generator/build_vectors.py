@@ -492,6 +492,95 @@ schreibe("agent-review-v02-positive-control-fixcommit-full-sha-is-accepted", "po
          attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])
 
 
+# ══ P19 (6.1.0): the verifier block under producer.verifier, agent-review/v0.3 ═══════════════
+# Built 2026-09-18 for P19 of the 6.1.0 release scope (owner decision 2026-09-15, option A). The
+# block carries the build digest, the vector set and the reference to a separate test-result
+# statement; the values here are FIXED placeholders, because a corpus whose bytes depend on the
+# measuring machine is not a corpus. The block is measured in tests/test_verifier_block.py; the
+# corpus holds the FORM: a v0.3 predicate with a block is valid, three violations of the form are
+# refused, and a v0.1 predicate with a block stays refused, the old version does not know it.
+#
+# WHY v0.3 AND NOT v0.2 WITH THE BLOCK. The first form of this section (2026-09-18, morning)
+# carried the block in v0.2. Two reviewers measured the same day with the tagged 6.0.0 validator:
+# the SAME bytes were rejected by 6.0.0 and accepted by 6.1.0. The predicate's version rule says
+# that what a verifier must reject is the version, so the block is a new one and v0.2 stays what
+# 6.0.0 shipped. The cases below are therefore named `v03`; their producer is the same as for
+# v0.2 (`_v02`), because v0.3 is v0.2 plus exactly one field.
+_P19_ATTR = ("agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 "
+             "(docs/VERIFIER_BLOCK.md).")
+_P19_REFS = ["docs/VERIFIER_BLOCK.md", "docs/AGENT_REVIEW_PREDICATE.md", "src/proofbundle/verifier_block.py"]
+VERIFIER_BLOCK = {
+    "implementation": "proofbundle", "version": "6.1.0",
+    "build": {"digest": {"sha256": "1" * 64}, "source": "source-tree", "files": 77},
+    "vectorSet": {"name": "proofbundle.conformance.manifest.v1",
+                  "digest": {"sha256": "2" * 64}, "cases": 110},
+    "testResult": {"predicateType": "https://in-toto.io/attestation/test-result/v0.1",
+                   "result": "PASSED", "statementDigest": {"sha256": "3" * 64}},
+    "assurance": "selfDeclared",
+}
+
+
+def _mit_block(**aenderung):
+    """Grundform v0.2 plus ein Block = ein v0.3-Predicate, plus GENAU EINE benannte Aenderung am Block."""
+    b = copy.deepcopy(VERIFIER_BLOCK)
+    for k, v in aenderung.items():
+        if v is None:
+            b.pop(k, None)
+        else:
+            b[k] = v
+    return _v02(producer={"id": "b7n0de-release-runner", "verifier": b})
+
+
+schreibe("agent-review-v03-positive-control-verifier-block-is-accepted", "positive_control", "P19",
+         {"classification": "valid"},
+         "Ein v0.3-Predicate (v0.2 plus producer.verifier) wird ausgestellt und "
+         "wieder gelesen. Ohne diese Kontrolle bestuenden die drei Gegenbeweise darunter auch mit "
+         "einem Validator, der JEDEN Block ablehnt -- und dann waere der Block ein Feld, das es "
+         "nicht gibt.",
+         obj=_mit_block(), input_name="predicate.json", attribution=_P19_ATTR,
+         predicate_version="v0.3", spec_refs=_P19_REFS)
+
+schreibe("agent-review-v03-counter-proof-verifier-block-must-be-self-declared", "counter_proof",
+         "P19", {"classification": "refused"},
+         "Der Block ist eine Selbstmessung des erzeugenden Builds. Eine hoehere Sprosse "
+         "(runnerObserved, independentlyWitnessed) braucht einen Zeugen ausserhalb des Erzeugers, "
+         "den diese Fassung nicht hat -- dieselbe Regel, die das Predicat seit v0.1 fuer jede "
+         "Zusicherung traegt. Ein Block, der sich selbst hoeher einstuft, wird verweigert.",
+         obj=_mit_block(assurance="independentlyWitnessed"), input_name="predicate.json",
+         attribution=_P19_ATTR, predicate_version="v0.3", spec_refs=_P19_REFS)
+
+schreibe("agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256", "counter_proof",
+         "P19", {"classification": "refused"},
+         "Der Build-Digest ist die Groesse, ueber die eine relying party den Block mit dem "
+         "Test-Result-Statement verbindet -- per Gleichheit. Ein Wert, der keine sha256-Form hat, "
+         "kann nie gleich sein und wuerde als Bindung gelesen, die keine ist. Verweigert.",
+         obj=_mit_block(build={"digest": {"sha256": "not-a-digest"}, "source": "source-tree"}),
+         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.3",
+         spec_refs=_P19_REFS)
+
+schreibe("agent-review-v03-counter-proof-verifier-block-refuses-unknown-fields", "counter_proof",
+         "P19", {"classification": "refused"},
+         "Ein Feld, das niemand validiert, ist ein Feld, in das ein Erzeuger alles schreiben kann "
+         "(hier: eine URL, die wie ein Beleg aussieht). Die Feldmenge des Blocks ist geschlossen; "
+         "ein unbekanntes Feld wird verweigert, nicht ueberlesen.",
+         obj=_mit_block(wheelUrl="https://example.org/proofbundle-6.1.0.whl"),
+         input_name="predicate.json", attribution=_P19_ATTR, predicate_version="v0.3",
+         spec_refs=_P19_REFS)
+
+# v0.1 DOES NOT KNOW THE BLOCK, and that stays so: the old version is not loosened. This case
+# pins the boundary a 6.0.0 verifier draws, it refuses a block loudly and never reinterprets it.
+_p_v01 = copy.deepcopy(BASE)
+_p_v01["producer"] = {"id": "b7n0de-release-runner", "verifier": copy.deepcopy(VERIFIER_BLOCK)}
+schreibe("agent-review-counter-proof-verifier-block-is-not-a-v01-field", "counter_proof", "P19",
+         {"classification": "refused"},
+         "Die Altfassung v0.1 kennt producer.verifier nicht und verweigert das Predicate. Das ist "
+         "gewollt: v0.3 ist eine NEUE Fassung mit dem Block, v0.2 und v0.1 werden nicht gelockert, "
+         "und ein Verifizierer der Fassung 6.0.0 lehnt einen Block laut ab, statt ihn zu ueberlesen "
+         "(fuer v0.2 genauso -- gemessen 18.09.2026, und der Grund, warum der Block eine eigene "
+         "Fassung bekam). Wer 6.0.0-Lesbarkeit braucht, stellt v0.2 ohne Block aus.",
+         obj=_p_v01, input_name="predicate.json", attribution=_P19_ATTR, spec_refs=_P19_REFS)
+
+
 # ══ A5, erste Haelfte: A2 (die Weiche) und A3 (die Policy) ═════════════════════════════════════
 # Gemessen 04.09.2026 (Commit 786c321): der Korpus hatte null Faelle fuer A2 und null fuer A3. Die
 # Achsen `versionStatus` und `policyDecision` sind neu; der Laeufer misst sie ueber
@@ -526,14 +615,17 @@ schreibe("agent-review-v02-positive-control-current-v02-is-marked-current", "pos
 
 # A2 (3) — Gegenbeweis: eine fremde Fassung wird abgewiesen, nicht geraten.
 _st = json.loads(_b64.b64decode(env_v02["payload"]))
-_st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.3")
+# v0.9, NOT v0.3: until 6.1.0 this line used v0.3 as the example of a foreign version. Since P19
+# v0.3 exists (the verifier block), and a case that files an EXISTING version as unknown measures
+# the opposite of what it claims. The number was moved far enough that it is not the next one due.
+_st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.9")
 env_fremd_fassung = dict(env_v02)
 env_fremd_fassung["payload"] = _b64.b64encode(
     json.dumps(_st, sort_keys=True, separators=(",", ":")).encode()).decode()
 schreibe("agent-review-v02-counter-proof-unknown-predicate-type-is-refused", "counter_proof", "A2",
          {"versionStatus": "unknown"},
-         "Die Weiche kennt v0.1 und v0.2 und weist alles andere ab (A2): ein Umschlag mit "
-         "predicateType .../agent-review/v0.3 bekommt `predicateVersionStatus: unknown`, ok=False "
+         "Die Weiche kennt v0.1, v0.2 und v0.3 und weist alles andere ab (A2): ein Umschlag mit "
+         "predicateType .../agent-review/v0.9 bekommt `predicateVersionStatus: unknown`, ok=False "
          "und den Code AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN — VOR jeder Signaturpruefung, damit eine "
          "unbekannte Fassung nie nach den Regeln einer bekannten gelesen wird. Die Signatur dieses "
          "Umschlags ist absichtlich die alte (sie gilt fuer die v0.2-Bytes): die Abweisung darf nicht "

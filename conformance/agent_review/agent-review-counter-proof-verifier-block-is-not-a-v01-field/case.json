@@ -1,0 +1,17 @@
+{
+  "attribution": "agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 (docs/VERIFIER_BLOCK.md).",
+  "caseId": "agent-review-counter-proof-verifier-block-is-not-a-v01-field",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "rationale": "Die Altfassung v0.1 kennt producer.verifier nicht und verweigert das Predicate. Das ist gewollt: v0.3 ist eine NEUE Fassung mit dem Block, v0.2 und v0.1 werden nicht gelockert, und ein Verifizierer der Fassung 6.0.0 lehnt einen Block laut ab, statt ihn zu ueberlesen (fuer v0.2 genauso -- gemessen 18.09.2026, und der Grund, warum der Block eine eigene Fassung bekam). Wer 6.0.0-Lesbarkeit braucht, stellt v0.2 ohne Block aus.",
+  "role": "counter_proof",
+  "rule": "P19",
+  "specRefs": [
+    "docs/VERIFIER_BLOCK.md",
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/verifier_block.py"
+  ]
+}

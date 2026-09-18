@@ -115,6 +115,24 @@ _COVERAGE_FIELDS_V02 = frozenset(("strata", "integrity", "absenceAssertions"))
 _COVERAGE_LEGACY_FIELDS = ("status", "window", "sources", "observedRuns", "expectedRuns",
                            "knownGaps", "collectionMethod")
 
+#: `producer` names WHO produced the receipt (an id, a key id). agent-review/v0.3 (6.1.0)
+#: additionally allows `producer.verifier`: the VERIFIER BLOCK, measured by the producing build
+#: about itself (build digest, conformance vector set, a reference to a separate test-result
+#: statement -- `proofbundle.verifier_block`). Same mechanism as `_DECLARATION_FIELDS_V02`: one
+#: closed set with a named exception per version, not a second copied list.
+#:
+#: WHY A NEW PREDICATE TYPE AND NOT AN IN-PLACE EXTENSION OF v0.2. The first draft of 6.1.0 let
+#: v0.2 carry the block. Two reviewers measured the consequence on 2026-09-18 with the tagged
+#: 6.0.0 validator: the SAME bytes -- predicateType .../v0.2 with `producer.verifier` -- were
+#: REJECTED by 6.0.0 ("producer.verifier is not an allowed field") and ACCEPTED by 6.1.0. The
+#: predicate's own version rule (docs/AGENT_REVIEW_PREDICATE.md) says: a change to what a verifier
+#: must reject is a new version, because a reader must be able to say from the predicateType alone
+#: which validator judged it. So the block is v0.3: v0.2 stays exactly what 6.0.0 shipped, a v0.2
+#: predicate carrying the block is refused by EVERY verifier (6.0.0 and 6.1.0 alike), and a v0.1
+#: predicate carrying it is refused as it always was. docs/VERIFIER_BLOCK.md carries the contract.
+_PRODUCER_FIELDS = ("id", "keyId")
+_PRODUCER_FIELDS_V03 = frozenset(("verifier",))
+
 
 _REQUIRED_ALWAYS = ("schemaVersion", "reviewId", "subjectContext", "declaration",
                     "coverage", "times", "limitations")
@@ -336,8 +354,13 @@ def _code_segment(roh: str) -> str:
 
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                     decl_zusatz: frozenset = frozenset(),
-                                    cov_zusatz: frozenset = frozenset()) -> list[str]:
-    """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid)."""
+                                    cov_zusatz: frozenset = frozenset(),
+                                    producer_zusatz: frozenset = frozenset()) -> list[str]:
+    """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid).
+
+    ``decl_zusatz``, ``cov_zusatz`` and ``producer_zusatz`` are the later versions' EXTENSIONS of
+    three closed field sets (v0.2: declaration and coverage; v0.3: producer) -- one truth with a
+    named exception each, instead of copied lists that drift apart."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -411,7 +434,17 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
             errors.append("producer must be an object")
         else:
             for k in pr:
-                if k not in ("id", "keyId"):
+                if k == "verifier" and k in producer_zusatz:
+                    # THE VERIFIER BLOCK IS VALIDATED BY ITS OWN MODULE, not by a second list
+                    # here. Its errors keep the `producer.verifier:` prefix so a reader sees
+                    # where in the predicate the defect sits, and they carry ONE reason code
+                    # (PRODUCER_VERIFIER_BLOCK_INVALID): the block's own validator speaks in
+                    # sentences, this predicate speaks in codes, and the seam is here.
+                    from .verifier_block import validate_verifier_block  # noqa: PLC0415
+                    errors.extend(_mit_abschnitt("producer.verifier", _shape_err("BLOCK_INVALID", e),
+                                                 code_teil="PRODUCER_VERIFIER")
+                                  for e in validate_verifier_block(pr[k]))
+                elif k not in _PRODUCER_FIELDS:
                     errors.append(f"producer.{k} is not an allowed field")
                 elif not isinstance(pr[k], str):
                     errors.append(f"producer.{k} must be a string")
@@ -1050,11 +1083,24 @@ def _traegt_v02_felder(predicate: Any) -> bool:
     return isinstance(sc, dict) and "disclosureCoreDigest" in sc
 
 
+def _traegt_verifier_block(predicate: Any) -> bool:
+    """Whether the predicate carries `producer.verifier`, the marker that separates v0.3 from v0.2.
+
+    ONE marker, not three as in `_traegt_v02_felder`: v0.3 adds exactly ONE field, and a predicate
+    that carries it is v0.3 or invalid, never v0.2. The marker does NOT check the block's form;
+    `validate_agent_review_v03_predicate` does, and the switch hands over to it.
+    """
+    if not isinstance(predicate, dict):
+        return False
+    pr = predicate.get("producer")
+    return isinstance(pr, dict) and "verifier" in pr
+
+
 def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
-    """True = v0.2. Ein ausdruecklicher Parameter gewinnt; ohne ihn entscheiden die Marker."""
+    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide."""
     if legacy_v01 is not None:
         return not legacy_v01
-    return _traegt_v02_felder(predicate)
+    return _traegt_v02_felder(predicate) or _traegt_verifier_block(predicate)
 
 
 def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False,
@@ -1069,6 +1115,15 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
     der v0.2-Pruefer enthaelt den v0.1.
     """
     if _fassung_fuer_renderer(predicate, legacy_v01):
+        # v0.3 IS v0.2 PLUS THE BLOCK. If the predicate carries it, the v0.3 validator applies;
+        # without it the v0.2 validator, which refuses the block as an unknown field. A renderer
+        # reading v0.3 under v0.2 rules would refuse every receipt with a block, the same coupling
+        # as with the first v0.2 receipt, one version later.
+        if _traegt_verifier_block(predicate):
+            errs = validate_agent_review_v03_predicate(predicate, strict=strict)
+            if errs:
+                raise AgentReviewError("invalid agent-review/v0.3 predicate: " + "; ".join(errs))
+            return
         errs = validate_agent_review_v02_predicate(predicate, strict=strict)
         if errs:
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
@@ -1252,7 +1307,16 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     # Leser derselben Groesse — er wuerde die Verwarnung doppelt ausloesen und koennte im
     # Grenzfall etwas anderes ergeben als der erste.
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="build_agent_review_statement")
-    if _ist_v02:
+    # THE BLOCK PULLS v0.3, TYPE AND VALIDATOR TOGETHER. No parameter chooses v0.3: the version
+    # follows the object. A predicate with `producer.verifier` is v0.3 or invalid; a v0.2 type
+    # over a predicate with a block would be exactly the combination that 6.0.0 refuses and
+    # 6.1.0 would accept, two verdicts over the same bytes.
+    _ist_v03 = _ist_v02 and _traegt_verifier_block(predicate)
+    if _ist_v03:
+        errs = validate_agent_review_v03_predicate(predicate, strict=True)
+        if errs:
+            raise AgentReviewError("invalid agent-review/v0.3 predicate: " + "; ".join(errs))
+    elif _ist_v02:
         errs = validate_agent_review_v02_predicate(predicate, strict=True)
         if errs:
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
@@ -1262,7 +1326,9 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
         "_type": STATEMENT_TYPE,
         "subject": [{"name": subject_name or _subject_name(predicate),
                      "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
-        "predicateType": AGENT_REVIEW_PREDICATE_TYPE_V02 if _ist_v02 else AGENT_REVIEW_PREDICATE_TYPE,
+        "predicateType": (AGENT_REVIEW_PREDICATE_TYPE_V03 if _ist_v03
+                          else AGENT_REVIEW_PREDICATE_TYPE_V02 if _ist_v02
+                          else AGENT_REVIEW_PREDICATE_TYPE),
         "predicate": predicate,
     }
 
@@ -1278,11 +1344,15 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
     """
     from . import dsse  # noqa: PLC0415
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="emit_agent_review")
-    pruefer = validate_agent_review_v02_predicate if _ist_v02 else validate_agent_review_predicate
+    # Dieselbe Regel wie in `build_agent_review_statement`: der Block zieht v0.3.
+    _fassung = ("/v0.3" if _ist_v02 and _traegt_verifier_block(predicate)
+                else "/v0.2" if _ist_v02 else "")
+    pruefer = {"/v0.3": validate_agent_review_v03_predicate,
+               "/v0.2": validate_agent_review_v02_predicate,
+               "": validate_agent_review_predicate}[_fassung]
     errs = pruefer(predicate, strict=strict)
     if errs:
-        raise AgentReviewError(
-            f"invalid agent-review{'/v0.2' if _ist_v02 else ''} predicate: " + "; ".join(errs))
+        raise AgentReviewError(f"invalid agent-review{_fassung} predicate: " + "; ".join(errs))
     # DIE GETROFFENE WAHL WIRD WEITERGEREICHT, NICHT DIE EINGABE. `v02=v02` haette hier `None`
     # weitergegeben, die Entscheidung ein zweites Mal ausgeloest und ein zweites Mal verwarnt.
     statement = build_agent_review_statement(predicate, subject_name=subject_name,
@@ -1780,6 +1850,11 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
 # dass das Feld `observedAt` heisst. Beobachtung beginnt bei einem getrennt benannten Beobachter,
 # externe Zeit bei ueberpruefbarer Ankerevidenz.
 AGENT_REVIEW_PREDICATE_TYPE_V02 = "https://b7n0de.com/proofbundle/predicates/agent-review/v0.2"
+#: v0.3 (6.1.0) = v0.2 plus `producer.verifier`, the verifier block. A new predicate type, not a
+#: loosened v0.2 -- the reasoning stands at `_PRODUCER_FIELDS_V03`. Time semantics, observation
+#: rules and every other v0.2 requirement are UNCHANGED; `verify_agent_review_v03` is the v0.2
+#: verifier with the block admitted and reported.
+AGENT_REVIEW_PREDICATE_TYPE_V03 = "https://b7n0de.com/proofbundle/predicates/agent-review/v0.3"
 
 _TIME_CLAIM_KINDS = {"reviewCompleted", "receiptCreated", "reviewStarted", "evidenceCollected"}
 _TIME_ASSURANCE = {"selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"}
@@ -1822,16 +1897,33 @@ def validate_time_claim(tc: object) -> list[str]:
     return errs
 
 
-def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = False) -> list[str]:
+def validate_agent_review_v03_predicate(predicate: object, *, strict: bool = False) -> list[str]:
+    """v0.3 = v0.2 plus `producer.verifier`, validated by `proofbundle.verifier_block`.
+
+    Everything v0.2 requires is required here unchanged; the ONLY difference is that the closed
+    producer field set admits the block. The v0.2 validator keeps refusing it, so a receipt that
+    says v0.2 and carries the block is invalid under every verifier -- see `_PRODUCER_FIELDS_V03`.
+    """
+    return validate_agent_review_v02_predicate(predicate, strict=strict,
+                                               _producer_zusatz=_PRODUCER_FIELDS_V03)
+
+
+def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = False,
+                                        _producer_zusatz: frozenset = frozenset()) -> list[str]:
     """v0.2 zusaetzlich zu allem, was v0.1 schon verlangt.
 
     Der Kern in drei Saetzen: fachliche Zeiten stehen unter `declaration.timeClaims`. `observedAt`
     ist in einem reinen Tier-1-Predicate UNZULAESSIG — es ist einer getrennten Observation
     vorbehalten. Und eine Observation ohne benannten Beobachter ist keine.
+
+    ``_producer_zusatz`` belongs to the v0.3 validator, which CONTAINS this one (as this one
+    contains v0.1): one truth with a named exception instead of a copied list. A v0.2 call leaves
+    it empty, and the block stays an unknown field for v0.2.
     """
     errs = validate_agent_review_predicate(predicate, strict=strict,
                                           decl_zusatz=_DECLARATION_FIELDS_V02,
-                                          cov_zusatz=_COVERAGE_FIELDS_V02)
+                                          cov_zusatz=_COVERAGE_FIELDS_V02,
+                                          producer_zusatz=_producer_zusatz)
     if not isinstance(predicate, dict):
         return errs
     zeiten = predicate.get("times")
@@ -2378,6 +2470,58 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     return r
 
 
+def _leeres_v02_ergebnis() -> dict:
+    """`_empty_result` PLUS the fields that exist since v0.2, ONE place for both paths.
+
+    `_empty_result` is byte-pinned to 5.1.0 (tests/test_a2_verifier_byteidentitaet_und_weiche.py),
+    so the time axes and the verifier block are added here and not there. Measured by lens B on
+    2026-09-18: the except path of `verify_agent_review_v02` built its result from the bare
+    `_empty_result`, so an internal_error result had FEWER keys than every other result of the
+    same verifier, and a consumer reading `r["event_time_status"]` fell there with KeyError. Both
+    paths now build from this one function.
+    """
+    r = _empty_result()
+    r.update({"event_time_status": "NOT_EVALUATED", "observation_time_status": "NOT_EVALUATED",
+              "signature_time_status": "NOT_EVALUATED", "external_time_status": "NOT_EVALUATED",
+              "policy_decision": None, "time_consistency_ok": None,
+              "time_policy_decision": None,
+              "verifier_block": None})
+    return r
+
+
+def _internal_error_ergebnis(fassung: str, exc: BaseException) -> dict:
+    """The never-raise hull: a defect of the verifier is NAMED as such, never as a verdict."""
+    r = _leeres_v02_ergebnis()
+    r["structure_ok"] = False
+    r["reason_codes"].append("internal_error")
+    r["reason_code"] = "internal_error"
+    r["errors"].append(_shape_err(
+        "internal_error",
+        f"internal_error: the {fassung} verifier raised {type(exc).__name__} on this input — "
+        "this is a defect in the verifier, not a verdict about the receipt"))
+    return _finalize_failclosed(r)
+
+
+def verify_agent_review_v03(envelope: dict, public_key: bytes, *, strict: bool = False,
+                            expected_subject_digest: str | None = None,
+                            observed_body: str | None = None,
+                            policy: dict | None = None) -> dict:
+    """The v0.3 verifier: v0.2 with `producer.verifier` admitted and reported.
+
+    Same axes, same time semantics, same policy handling as `verify_agent_review_v02`; the one
+    addition is `verifier_block` in the result (`proofbundle.verifier_block.report`). It refuses
+    a v0.2 or v0.1 predicateType with a pointer to the right verifier rather than reinterpreting:
+    a v0.2 receipt was signed under a rule that has no block, and reading it as v0.3 would judge
+    it by a rule its producer never accepted. `verify_agent_review_any` routes by predicateType.
+    """
+    try:
+        return _verify_v02_inner(envelope, public_key, strict=strict,
+                                 expected_subject_digest=expected_subject_digest,
+                                 observed_body=observed_body, policy=policy, fassung="v0.3")
+    except Exception as exc:                                     # noqa: BLE001 — dieselbe Huelle
+        return _internal_error_ergebnis("v0.3", exc)
+
+
 def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
                             observed_body: str | None = None,
@@ -2387,6 +2531,7 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
     ER DEUTET v0.1 NIE STILLSCHWEIGEND NACH v0.2-REGELN. Ein v0.1-Receipt hat sein `observedAt`
     unter einer anderen Bedeutung erhalten; es hier als fehlende Observation zu werten waere eine
     rueckwirkende Umdeutung. Also: ablehnen, mit Verweis auf den richtigen Verifier.
+    The same holds for v0.3 (6.1.0): a receipt with a verifier block belongs to `verify_agent_review_v03`.
 
     Er liefert dieselben Achsen wie v0.1 PLUS event_time_status, observation_time_status,
     signature_time_status und external_time_status. `policy_decision` bleibt None: ohne benannte
@@ -2398,27 +2543,25 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
                                  expected_subject_digest=expected_subject_digest,
                                  observed_body=observed_body, policy=policy)
     except Exception as exc:                                     # noqa: BLE001 — dieselbe Huelle
-        r = _empty_result()
-        r["structure_ok"] = False
-        r["reason_codes"].append("internal_error")
-        r["reason_code"] = "internal_error"
-        r["errors"].append(f"internal_error: the v0.2 verifier raised {type(exc).__name__} on this "
-                           "input — this is a defect in the verifier, not a verdict about the receipt")
-        return _finalize_failclosed(r)
+        return _internal_error_ergebnis("v0.2", exc)
 
 
 def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
                       expected_subject_digest: str | None = None,
                       observed_body: str | None = None,
-                      policy: dict | None = None) -> dict:
+                      policy: dict | None = None, fassung: str = "v0.2") -> dict:
     from . import dsse  # noqa: PLC0415
     from ._strict_json import loads_strict  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
-    r = _empty_result()
-    r.update({"event_time_status": "NOT_EVALUATED", "observation_time_status": "NOT_EVALUATED",
-              "signature_time_status": "NOT_EVALUATED", "external_time_status": "NOT_EVALUATED",
-              "policy_decision": None, "time_consistency_ok": None,
-              "time_policy_decision": None})
+    # ONE BODY FOR v0.2 AND v0.3. The two versions differ in exactly two quantities: the expected
+    # predicateType and the validator. Everything else (time axes, policy, binding) is v0.2
+    # semantics, and a second body would be a second truth about it.
+    if fassung not in ("v0.2", "v0.3"):
+        raise ValueError(f"fassung must be 'v0.2' or 'v0.3', got {fassung!r}")
+    erwartet = AGENT_REVIEW_PREDICATE_TYPE_V03 if fassung == "v0.3" else AGENT_REVIEW_PREDICATE_TYPE_V02
+    pruefer = (validate_agent_review_v03_predicate if fassung == "v0.3"
+               else validate_agent_review_v02_predicate)
+    r = _leeres_v02_ergebnis()
     try:
         r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
                                                    payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
@@ -2433,16 +2576,29 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
-    r["predicate_type_ok"] = ptype == AGENT_REVIEW_PREDICATE_TYPE_V02
+    r["predicate_type_ok"] = ptype == erwartet
     if not r["predicate_type_ok"]:
         if ptype == AGENT_REVIEW_PREDICATE_TYPE:
             r["reason_codes"].append("UNKNOWN_PREDICATE_VERSION")
             r["errors"].append(
-                "predicateType is agent-review/v0.1 — this is the v0.2 verifier and it refuses "
+                f"predicateType is agent-review/v0.1 — this is the {fassung} verifier and it refuses "
                 "rather than reinterpreting. In v0.1 a producer-supplied observedAt was allowed; "
                 "judging it by v0.2 rules would rewrite what that receipt meant when it was signed")
+        elif ptype in (AGENT_REVIEW_PREDICATE_TYPE_V02, AGENT_REVIEW_PREDICATE_TYPE_V03):
+            # THE SISTER VERSION IS NOT REINTERPRETED. v0.3 is v0.2 plus one field, but a v0.2
+            # receipt was signed under a rule that does not know the field, and reading a v0.3
+            # receipt under v0.2 rules would refuse its block as an unknown field. Both are a
+            # verdict about the wrong version; `verify_agent_review_any` picks the right one by
+            # predicateType.
+            _andere = "v0.3" if ptype == AGENT_REVIEW_PREDICATE_TYPE_V03 else "v0.2"
+            r["reason_codes"].append("UNKNOWN_PREDICATE_VERSION")
+            r["errors"].append(_shape_err(
+                "UNKNOWN_PREDICATE_VERSION",
+                f"predicateType is agent-review/{_andere} — this is the {fassung} verifier and it "
+                f"refuses rather than reinterpreting; use verify_agent_review_{_andere.replace('.', '')} "
+                "or verify_agent_review_any, which routes by predicateType"))
         else:
-            r["errors"].append(f"predicateType is {ptype!r}, expected agent-review/v0.2")
+            r["errors"].append(f"predicateType is {ptype!r}, expected agent-review/{fassung}")
 
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     shape_errs = validate_statement_shape(statement, predicate)
@@ -2487,7 +2643,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         if r["reason_code"] is None and r["reason_codes"]:
             r["reason_code"] = r["reason_codes"][0]
     _codes_sammeln(shape_errs)
-    struct_errs = validate_agent_review_v02_predicate(predicate, strict=strict)
+    struct_errs = pruefer(predicate, strict=strict)
     r["errors"].extend(struct_errs)
     _codes_sammeln(struct_errs)
 
@@ -2504,7 +2660,31 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     r["structure_ok"] = ((not struct_errs) and (not shape_errs)
                          and bool(r["predicate_type_ok"]) and canonical_ok is True)
+    # `time_semantics` names the SEMANTICS, not the version: v0.3 took over the time rules of
+    # v0.2 unchanged, and a consumer that checks for "V0_2" checks exactly that.
     r["time_semantics"] = "V0_2" if r["predicate_type_ok"] else None
+
+    # THE VERIFIER BLOCK IS REPORTED, NEVER JUDGED INTO `ok` (P19, 6.1.0). A malformed block is
+    # already a structural error above; a well-formed one names the build that produced the
+    # receipt and the vector set it stood against, and `matches_this_verifier` says whether the
+    # build running this verification is that build. A receipt from another build is not
+    # thereby invalid -- it is a receipt whose producer can now be named. Absent block: present
+    # False, everything else None, and NOT_EVALUATED is not a pass.
+    #
+    # ONLY THE VERSION THAT KNOWS THE BLOCK READS IT. Measured by the first v0.3 test on
+    # 2026-09-18: a v0.2-typed receipt carrying the block was refused (unknown producer field)
+    # AND reported `verifier_block.present: True, valid: True` -- a refused field, read as if it
+    # had been accepted, is two verdicts over one receipt. Under v0.2 the block is an unknown
+    # field and nothing else; `verifier_block` stays None there.
+    #
+    # AND IT IS READ WHENEVER THERE IS A PREDICATE OBJECT TO READ IT FROM (lens A, 2026-09-18,
+    # P1). The first form also required an empty `shape_errs`: a v0.3 receipt with a valid block
+    # and an unrelated statement defect (a wrong subject name) then reported `verifier_block`
+    # as None -- the one field this feature exists to provide, dropped exactly when a relying
+    # party audits a rejected receipt. `ok` is unaffected either way; the report is a report.
+    if fassung == "v0.3" and isinstance(predicate, dict):
+        from .verifier_block import report as _verifier_block_report  # noqa: PLC0415
+        r["verifier_block"] = _verifier_block_report(predicate)
 
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
         r.update(_zeitachsen(predicate))
@@ -2751,7 +2931,7 @@ AGENT_REVIEW_LEGACY_V01 = "AGENT_REVIEW_LEGACY_V01"
 
 
 def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
-    """Beide Fassungen lesen, alles andere ablehnen — und NIE werfen.
+    """Alle drei Fassungen lesen, alles andere ablehnen — und NIE werfen.
 
     WARUM DIE KENNZEICHNUNG HIER SITZT UND NICHT IM v0.1-VERIFIZIERER. Teil A2 verlangt zweierlei,
     das sich zu widersprechen scheint: `verify_agent_review` soll fuer v0.1 BYTE-IDENTISCH zum
@@ -2773,12 +2953,13 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
     # roher TypeError. Ein Argument, das KEINE Fassung kennt, ist ein Fehler des Aufrufers und
     # wird VOR dem Lesen des Umschlags gemeldet, fuer beide Fassungen gleich; ein Argument, das
     # nur die andere Fassung kennt, wird weggelassen und im Ergebnis GENANNT.
+    _p03 = set(_insp.signature(verify_agent_review_v03).parameters) - {"envelope", "public_key"}
     _p02 = set(_insp.signature(verify_agent_review_v02).parameters) - {"envelope", "public_key"}
     _p01 = set(_insp.signature(verify_agent_review).parameters) - {"envelope", "public_key"}
-    _fremd = sorted(set(kw) - _p02 - _p01)
+    _fremd = sorted(set(kw) - _p03 - _p02 - _p01)
     if _fremd:
         raise TypeError(f"verify_agent_review_any() got unexpected keyword argument(s) {_fremd} — "
-                        f"unknown to both predicate versions")
+                        f"unknown to every predicate version")
 
     def _nur(erlaubt: set) -> tuple[dict, list]:
         return ({k: v for k, v in kw.items() if k in erlaubt},
@@ -2812,6 +2993,14 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
         r["reason_code"] = "AGENT_REVIEW_ENVELOPE_UNREADABLE"
         r["reason_codes"] = ["AGENT_REVIEW_ENVELOPE_UNREADABLE"]
         r["predicateVersionStatus"] = "unknown"
+        return r
+    if typ == AGENT_REVIEW_PREDICATE_TYPE_V03:
+        # v0.3 AND v0.2 ARE BOTH `current` (6.1.0): v0.3 adds an optional field and does not
+        # deprecate v0.2; a producer that needs 6.0.0 readers keeps issuing v0.2.
+        kw03, weg = _nur(_p03)
+        r = verify_agent_review_v03(envelope, public_key, **kw03)
+        r["predicateVersionStatus"] = "current"
+        _vermerke_weggelassen(r, weg)
         return r
     if typ == AGENT_REVIEW_PREDICATE_TYPE_V02:
         kw02, weg = _nur(_p02)

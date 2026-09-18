@@ -19,6 +19,37 @@ rather than before, which is itself the finding.
 
 ### Added
 
+- **The verifier block, and `agent-review/v0.3` to carry it** (`producer.verifier`,
+  `src/proofbundle/verifier_block.py`, `verify_agent_review_v03`, `validate_agent_review_v03_predicate`;
+  v0.3 is v0.2 plus this one optional field, and v0.2 stays exactly what 6.0.0 shipped — the same
+  bytes were measured refused by 6.0.0 and accepted by a v0.2-extension draft, which is why the block
+  is a version and not an extension;
+  contract in `docs/VERIFIER_BLOCK.md`). A receipt can now say WHICH build produced it: a digest
+  over the package's own files with the measurement's source stated (`installed-record` from the
+  installer's RECORD, or `source-tree`), the conformance vector set it was held against (digest
+  over manifest and every case file), and a reference to a separate in-toto
+  `test-result/v0.1` statement, joinable by digest equality without trusting the issuer for the
+  join. Measured on 2026-09-12 against 6.0.0: no receipt and no verify result carried a build
+  identity, and two wheels of the same version were indistinguishable from the receipt. The
+  block is self-declared and says so; the verifier reports it (`verifier_block`,
+  `matches_this_verifier` in MATCH / MISMATCH / NOT_EVALUATED) and never folds it into `ok`.
+  v0.1 refuses the field, a 6.0.0 verifier refuses a v0.2 receipt carrying it — loudly, never by
+  misreading. Five conformance cases with flip tests.
+- `conformance/run_conformance.py --test-result-out PATH` writes the run as that in-toto
+  test-result statement: subject the measured build digest, configuration the vector set, result
+  by the corpus rule that a skipped check is never a passed one (`FAILED` on any failure,
+  `WARNED` when a case ran partially or not at all, `PASSED` only when every case ran in full),
+  the case ids listed per outcome. Written unsigned; signing is the producer's step.
+- `scripts/verify_pre_tag_receipt.py`: the pre-tag audit receipt, verified by someone who holds
+  a clone. Receipt, pinned key and gate source are read from the COMMIT, never from the working
+  tree; the tree digest is taken by the same library the release gate uses, at the checked-out
+  commit, and a checkout at another head is refused rather than measured. Three contracts, each
+  planted and refused: no valid receipt fails; a receipt made for another commit fails; a
+  receipt with a correct signature over the wrong subject fails. The limit — the trust root is a
+  key committed in the same repository, and script and library are files of the tree they
+  verify — is printed with every verdict. `RELEASE.md` names the command where a reader decides
+  they have checked a release, and says what it establishes and what it does not;
+  `docs/PRE_TAG_AUDIT.md` no longer describes the prose check the gate stopped reading.
 - A collector job `all-checks-passed` in ci.yml that ALWAYS reports: it needs the jobs the
   ruleset requires from this file (`test`, `coverage`), runs under `if: ${{ !cancelled() }}`, and
   turns red when any needed job did not succeed -- `skipped` included -- or when the full test
@@ -81,6 +112,13 @@ rather than before, which is itself the finding.
 
 ### Fixed — the CI cut (PR 202), four defects the review found in the cut itself
 
+- **Explicit re-pin of one accepted conformance case**
+  (`agent_review/agent-review-v02-counter-proof-unknown-predicate-type-is-refused`): its example of
+  a foreign predicate version was `…/agent-review/v0.3`, which 6.1.0 turns into a real version. A
+  case that files an existing version as unknown measures the opposite of what it says, so the
+  foreign example is now `…/v0.9` and the case is regenerated. Recorded here because the corpus
+  rule (conformance/README.md, "Adding a case") allows an accepted vector to change only as an
+  explicit, reviewed re-pin — this is that record.
 - **A concurrency group coalesces a queue, it does not serialize one.** `cancel-in-progress` is
   evaluated on the *arriving* run, but the *group* decides which run dies. The eight workflow groups
   now carry `github.event_name`, so a pull-request run and a push run of the same ref no longer
