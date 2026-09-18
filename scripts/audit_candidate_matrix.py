@@ -65,6 +65,37 @@ PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL = (
 NOT_APPLICABLE = "NOT_APPLICABLE_BEFORE_TAG"
 _NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, NOT_APPLICABLE}
 
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# THREE OUTCOMES FOR THE READER (owner order 2026-09-17, QITEM-PROOFBUNDLE-AUDIT-MATRIX-SOAK-KLEIN-01,
+# steps 1 and 3). What should a reader of a pull request learn from this advisory job? Which cells
+# are measurable on THIS head and what they yield -- and which are not measurable and why. A cell
+# that cannot be measured here is NOT MEASURED, not broken. A job that goes red so that someone
+# looks at it achieves the opposite: measured on pull request 218 (2026-09-17), the job was red on
+# every pull request, and it was red for four candidate-bound evidence cells that no pull request
+# can ever satisfy -- the pre-tag receipt and the signed readiness artefacts bind the TAGGED tree.
+#
+# The five internal verdicts above stay exactly as they are: the JSON keeps them, the release path
+# (`audit_candidate_ready`, `--strict`) keeps reading them. What is NEW is one more field per row,
+# `outcome`, with three values and a reason, and the EXIT CODE follows the outcome: 1 only when a
+# cell is FAIL, or when NOTHING was measured at all. NOT_MEASURED is printed as a notice, FAIL as
+# an error, and the totals say "x of y measured, z NOT_MEASURED".
+#
+# ON A PULL REQUEST the candidate-bound evidence cells (C6.2, C6.3, C8.2; C12.1 has its own rule)
+# are NOT_MEASURED when their artefact is merely NOT BOUND to this head -- absent, unversioned,
+# bound to another candidate, unsigned, without a trust anchor, or not measurable here. An artefact
+# that is BROKEN (malformed, self-contradicting, forged, vacuous, stale) stays FAIL on a pull
+# request too: that is a defect in the tree, whichever head carries it. Outside a pull request
+# nothing changes: an unbound artefact is FAIL, as the release ceremony demands.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+NOT_MEASURED = "NOT_MEASURED"
+_OUTCOMES = (PASS, FAIL, NOT_MEASURED)
+
+#: The admission state each evidence-reading check last saw, by check id. Filled by the checks
+#: themselves (typed, from `_signed_versioned_artifact`), read by `outcome_for`; reset per
+#: `evaluate()`. A dict and not a return value, because every check returns `(verdict, detail)`
+#: and dozens of contracts hold that shape.
+_EVIDENZ_ZUSTAND: dict[str, str] = {}
+
 # F7 CLOSED (makellose-500 Phase 4, reviewer P8): these checks measure a keyword / a directory entry /
 # non-emptiness, not a behaviour — 7 of them passed on pure lexical decoys incl. a NEGATED sentence. A
 # presence proxy cannot GRANT release readiness, so they are INFORMATIVE (reported, never release-
@@ -335,6 +366,21 @@ ART_UNMEASURABLE_HERE = "unmeasurable_here"
 #: Der EINZIGE Zustand, der „diese Umgebung kann es nicht messen" heisst. Alles andere ist eine
 #: Aussage ueber die Evidenz und damit FAIL (Auflage C2).
 _ART_DATA_BLOCKED_STATES = {ART_UNMEASURABLE_HERE}
+
+#: States that say "this evidence is not about THIS head" rather than "this evidence is broken".
+#: On a pull request they read as NOT_MEASURED (see the outcome block near the top); everywhere
+#: else they stay FAIL. EXACTLY THREE, plus the environment state, and the reason is the ORDER of
+#: `_signed_versioned_artifact`: schema, version and the candidate binding are checked FIRST. An
+#: artefact that reaches the gate line, the provenance, the signature or the trust anchor has
+#: already proven that it binds this very head -- so an unsigned one, one without provenance, one
+#: whose gate line says FIX_FIRST, one signed under no anchor is ABOUT this head and BROKEN, and
+#: it stays FAIL on a pull request too. The first form of this set listed those four as well;
+#: a lens on 2026-09-17 built a zero-cryptography artefact bound to the pull request's own head
+#: (real tree digest, forged gate verdict) and watched it read as "measured at the release, not
+#: here". Malformed, schema mismatch, vacuous, self-reported failure, stale and untrusted were
+#: never in the set, for the same reason.
+_ART_UNBOUND_ON_PR = frozenset({ART_ABSENT, ART_VERSION_UNBOUND, ART_CANDIDATE_UNBOUND,
+                                ART_UNMEASURABLE_HERE})
 
 
 def _trust_anchor(repo: Path) -> tuple[dict, str]:
@@ -2010,6 +2056,7 @@ def c6_2_recorded_soak_clean():
     der steht in C6.3.
     """
     res = _soak_artifact()
+    _EVIDENZ_ZUSTAND["C6.2"] = res["state"]
     if res["state"] != ART_VERIFIED:
         verdikt, grund = _artifact_verdict(res, absent=FAIL)
         return verdikt, f"{grund}. {_ABHILFE_SIGNIEREN}"
@@ -2030,9 +2077,15 @@ def c6_3_full_24h():
     vor (hier standen keine 24 Stunden zur Verfuegung).
     """
     res = _soak_artifact()
+    _EVIDENZ_ZUSTAND["C6.3"] = res["state"]
     if res["state"] != ART_VERIFIED:
         verdikt, grund = _artifact_verdict(res, absent=DATA_BLOCKED)
-        return verdikt, f"{grund}. {_ABHILFE_SIGNIEREN}"
+        # THE NIGHTLY RUN IS NAMED, NEVER ADMITTED (order 2026-09-17, step 4). The 24h soak left the
+        # pull-request path: it runs as its own scheduled workflow (soak-nightly.yml) and leaves an
+        # unsigned artefact with the head it measured. A pull request reader sees the latest one
+        # here -- date, head, elapsed, verdict -- or NOT_MEASURED when none is reachable. It cannot
+        # turn this cell green: admission still needs the signed, candidate-bound artefact (P-A1..7).
+        return verdikt, f"{grund}. {_ABHILFE_SIGNIEREN}. {_nightly_soak_hinweis()}"
     b = res["signed_body"]
     el = b.get("elapsed_seconds", 0)
     if b.get("is_full_soak_24h") is True and isinstance(el, (int, float)) \
@@ -2042,6 +2095,131 @@ def c6_3_full_24h():
                           f"{b.get('is_full_soak_24h')!r}), not the full {_VOLLER_SOAK_SEKUNDEN}s — "
                           "run `fuzz_soak.py --duration-seconds 86400` on a soak box (operational "
                           "artifact), then sign it with scripts/sign_readiness_artifact.py")
+
+
+#: How long the LIVE small soak runs. In CI the job sets it (300 s measured under every other job
+#: of the workflow on 2026-09-17: coverage 2289 s, test 1379 s). The DEFAULT is a three-second
+#: smoke: ten pre-existing contracts call the live `evaluate()` unguarded (measured by a lens on
+#: 2026-09-17: with a 20 s default the full suite grew by ~200 s), and the default is the one
+#: place that covers every caller at once -- patching three test files would have fixed three
+#: instances. Zero or negative disables the cell -- and says so, as NOT measured, never as a pass.
+_SMALL_SOAK_ENV = "AUDIT_MATRIX_SMALL_SOAK_SECONDS"
+_SMALL_SOAK_SEED_ENV = "AUDIT_MATRIX_SMALL_SOAK_SEED"
+_SMALL_SOAK_DEFAULT_SECONDS = 3.0
+
+
+def c6_4_small_soak_live():
+    """A bounded fuzz-soak MEASURED ON THIS HEAD, right now -- the one soak cell a pull request can
+    actually answer (owner order 2026-09-17, step 4: "ein kleiner Soak laeuft in CI als echte Zelle").
+
+    C6.2 and C6.3 admit STORED evidence, signed and bound to a release candidate; a pull-request
+    head is never that candidate, so on a pull request they are NOT_MEASURED by construction. This
+    cell reads no artefact and admits nothing: it runs `fuzz_soak.soak` for a few minutes on the
+    code that is here and reports what happened. PASS is zero untriaged crashes and zero false
+    accepts over a non-zero number of iterations; FAIL names the first crash or false accept; a
+    harness that cannot be imported here is DATA_BLOCKED, and a disabled cell is DATA_BLOCKED too
+    -- never green for having done nothing (P-A5, the same rule the stored cells follow).
+
+    It is deliberately NOT in `EVIDENCE_ADMISSION_INVENTORY`: that inventory lists the lines whose
+    pass rests on admitted evidence, and this line rests on a measurement it just made.
+    """
+    try:
+        import fuzz_soak  # noqa: PLC0415
+    except Exception as exc:                                    # noqa: BLE001 -- environment
+        return DATA_BLOCKED, f"scripts/fuzz_soak.py is not importable here ({type(exc).__name__}: {exc})"
+    roh = os.environ.get(_SMALL_SOAK_ENV, "").strip()
+    try:
+        dauer = float(roh) if roh else _SMALL_SOAK_DEFAULT_SECONDS
+    except ValueError:
+        return DATA_BLOCKED, f"{_SMALL_SOAK_ENV}={roh!r} is not a number of seconds -- nothing was measured"
+    if dauer <= 0:
+        return DATA_BLOCKED, f"{_SMALL_SOAK_ENV}={roh!r} disables the live soak -- nothing was measured"
+    roh_seed = os.environ.get(_SMALL_SOAK_SEED_ENV, "").strip()
+    try:
+        seed = int(roh_seed) if roh_seed else 0
+    except ValueError:
+        seed = 0
+    try:
+        r = fuzz_soak.soak(dauer, seed=seed)
+    except Exception as exc:                                    # noqa: BLE001 -- a harness that dies proves nothing
+        return FAIL, (f"the live soak harness raised {type(exc).__name__}: {exc} -- a harness that "
+                      "cannot run on this head is a defect of the tree, not a measurement")
+    if not isinstance(r, dict):
+        return FAIL, f"the live soak harness returned {type(r).__name__}, not a result"
+    iters, parser = int(r.get("iterations") or 0), int(r.get("parsers_soaked") or 0)
+    if iters <= 0 or parser <= 0:
+        return FAIL, (f"the live soak ran {iters} iteration(s) over {parser} parser(s) in "
+                      f"{r.get('elapsed_seconds')}s -- a soak over nothing proves nothing")
+    if r.get("ok") is True and not r.get("untriaged_crashes") and not r.get("false_accepts"):
+        return PASS, (f"live soak on this head: {iters} iterations over {parser} parser(s) in "
+                      f"{r.get('elapsed_seconds')}s, 0 untriaged crash, 0 false-accept (seed {seed}; "
+                      f"a smoke measured here, not the 24h soak)")
+    erste = (r.get("untriaged_crashes") or [{}])[:1] + (r.get("false_accepts") or [{}])[:1]
+    return FAIL, (f"live soak on this head: {r.get('untriaged_crash_count')} untriaged crash(es), "
+                  f"{r.get('false_accept_count')} false accept(s) in {iters} iterations -- first: "
+                  f"{erste}")
+
+
+_NIGHTLY_WORKFLOW = "soak-nightly.yml"
+_NIGHTLY_ARTIFACT = "fuzz-soak-nightly"
+
+
+def _nightly_soak_hinweis() -> str:
+    """One sentence about the latest successful nightly soak run, or why none is known.
+
+    NETWORK, best effort, never a verdict: `gh` with the runner's token lists the workflow's
+    successful runs and downloads the newest artefact. Anything missing -- no token, no gh, no run
+    yet, a download that fails -- yields "no nightly soak reachable: <why>". The sentence informs
+    the reader of a pull request; the cell's verdict comes from admitted evidence alone.
+    """
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repo or not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
+        return "no nightly soak reachable: not running with a GitHub token"
+    if shutil.which("gh") is None:
+        return "no nightly soak reachable: gh is not installed here"
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{repo}/actions/workflows/{_NIGHTLY_WORKFLOW}/runs"
+                            "?status=success&per_page=1", "--jq",
+                            ".workflow_runs[0] | \"\\(.id) \\(.head_sha) \\(.created_at)\""],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"no nightly soak reachable: gh could not be run ({type(exc).__name__})"
+    if r.returncode != 0 or not r.stdout.strip() or r.stdout.strip().startswith("null"):
+        return ("no nightly soak run has succeeded yet (or the workflow is unknown here): "
+                f"{(r.stderr or r.stdout).strip()[:120] or 'empty answer'}")
+    teile = r.stdout.split()
+    if len(teile) < 3 or not teile[0].isdigit() or not re.fullmatch(r"[0-9a-f]{40}", teile[1]):
+        return f"no nightly soak reachable: unexpected answer {r.stdout.strip()[:80]!r}"
+    lauf, kopf, datum = teile[0], teile[1], teile[2][:32]
+    ziel = None
+    try:
+        ziel = Path(tempfile.mkdtemp(prefix="nightly_soak_"))
+        d = subprocess.run(["gh", "run", "download", lauf, "--repo", repo, "--name", _NIGHTLY_ARTIFACT,
+                            "--dir", str(ziel)], capture_output=True, text=True, timeout=120)
+        if d.returncode != 0:
+            return (f"latest nightly soak run {lauf} ({datum}, head {kopf[:12]}) has no readable "
+                    f"artefact: {(d.stderr or d.stdout).strip()[:100]}")
+        dateien = list(ziel.rglob("fuzz_soak_nightly.json"))
+        if not dateien:
+            return f"latest nightly soak run {lauf} ({datum}, head {kopf[:12]}): artefact without fuzz_soak_nightly.json"
+        art = json.loads(dateien[0].read_text(encoding="utf-8"))
+        if not isinstance(art, dict):
+            return f"latest nightly soak run {lauf} ({datum}, head {kopf[:12]}): artefact is not an object"
+
+        def _feld(k):
+            # A FIELD FROM A DOWNLOADED FILE IS AN INPUT VALUE, not text: folded to one line and
+            # capped, so a crafted artefact cannot add lines (or workflow commands) to the report.
+            return " ".join(str(art.get(k)).split())[:40]
+        return (f"latest nightly soak: run {lauf} on {datum}, head {kopf[:12]}, "
+                f"{_feld('elapsed_seconds')}s, {_feld('iterations')} iterations, "
+                f"ok={_feld('ok')}, full_24h={_feld('is_full_soak_24h')} (unsigned: informs, never admits)")
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return f"latest nightly soak run {lauf} ({datum}, head {kopf[:12]}) could not be read ({type(exc).__name__})"
+    finally:
+        if ziel is not None:
+            shutil.rmtree(ziel, ignore_errors=True)
 
 
 def _formal():
@@ -2111,6 +2289,7 @@ def c8_2_differential_agrees():
     res = _signed_versioned_artifact(
         _DIFFERENTIAL_ARTIFACT_REL, VERSION_UNDER_TEST,
         schema=_DIFFERENTIAL_SCHEMA, counters=("total_relation_vectors",), ok_field=None)
+    _EVIDENZ_ZUSTAND["C8.2"] = res["state"]
     if res["state"] != ART_VERIFIED:
         # ABWESENHEIT WIRD GEMESSEN, NICHT ANGENOMMEN (Auflage C2). Ohne die Rust-Binaerdatei kann
         # diese Umgebung die Matrix nicht erzeugen — das ist DATA_BLOCKED. IST sie da und die Matrix
@@ -2433,11 +2612,23 @@ def c12_1_pretag_audit():
     # Die Nachsicht gilt der ABWESENHEIT; sie vererbt sich nicht auf ein vorhandenes, geprueftes und
     # verworfenes Artefakt. `state` ist das Feld dafuer, und es driftet nicht, wenn jemand den Satz
     # umformuliert. Ein Tor ohne `state` (aeltere Fassung) faellt fail-closed auf FAIL zurueck.
-    if _laeuft_auf_pull_request() and r.get("state") == "absent":
+    # `other_tree` JOINED `absent` ON 2026-09-17, and only there. A genuine, trusted-signed receipt
+    # for ANOTHER candidate (main's tagged tree) is, for a pull-request head, the same as none: the
+    # head cannot carry one by construction. Read as `rejected` it made this line red on EVERY
+    # pull request (measured on 218), which is the always-red the owner order of that day removes.
+    # `rejected` -- a present artefact that claims this version and is broken -- stays FAIL on a
+    # pull request, exactly as L5-G6-01 demands; the split is typed in the gate, never in prose.
+    if _laeuft_auf_pull_request() and r.get("state") in ("absent", "other_tree"):
+        zusatz = ""
+        if r.get("state") == "other_tree":
+            zusatz = (" A valid receipt exists for another tree or gate version "
+                      f"({', '.join(x.get('path', '?') for x in r.get('other_tree_receipts') or [])}).")
+        # ENGLISH SINCE 2026-09-17: this sentence now reaches GitHub through the step summary and
+        # the ::notice annotation on every pull request; what becomes visible there is English.
         return (NOT_APPLICABLE,
-                "nicht anwendbar vor dem Tag: ein Receipt bindet einen BAUM, und der Baum eines "
-                "Zweigs hoert beim Merge auf zu existieren (Owner-Entscheid 30.08., OA-4a8daddb55). "
-                "Auf main und auf Tags bleibt diese Zeile scharf.")
+                "not applicable before the tag: a receipt binds a TREE, and the tree of a branch stops "
+                "existing at the merge (owner decision 2026-08-30, OA-4a8daddb55). On main and on tags "
+                "this line stays sharp." + zusatz)
     return (FAIL, r["reason"])
 
 
@@ -2521,6 +2712,7 @@ CHECKS = [
     ("C6.1", 6, "fuzz-soak harness present", c6_1_soak_harness),
     ("C6.2", 6, "recorded soak: 0 crash, 0 false-accept", c6_2_recorded_soak_clean),
     ("C6.3", 6, "full 24h soak artifact", c6_3_full_24h),
+    ("C6.4", 6, "small soak measured live on this head", c6_4_small_soak_live),
     ("C7.1", 7, "formal model: non-reserved obligations proven", c7_1_formal_proven),
     ("C7.2", 7, "formal model grounded in implementation", c7_2_impl_crosscheck),
     ("C7.3", 7, "O7 payloadType obligation honestly reserved", c7_3_o7_reserved_honest),
@@ -2611,17 +2803,60 @@ def gate_ready_on_binding(ready_before: bool, binding_state: str) -> bool:
     return bool(ready_before) and binding_state == "bound"
 
 
+def outcome_for(row: dict, *, auf_pr: bool, zustand: str | None) -> tuple[str, str]:
+    """``(outcome, reason)`` for one row: PASS, FAIL or NOT_MEASURED.
+
+    Pure, so every combination can be written down (the lesson of `gate_ready_on_binding`).
+    ``zustand`` is the typed admission state the check registered, or None for a check that
+    reads no artefact.
+    """
+    v = row["verdict"]
+    if v == PASS:
+        return PASS, "measured on this head"
+    if v == FAIL:
+        if auf_pr and zustand in _ART_UNBOUND_ON_PR:
+            return NOT_MEASURED, (f"candidate-bound evidence ({zustand}): a pull-request head is not a "
+                                  f"release candidate, so this cell is measured at the release, not here")
+        return FAIL, row["detail"]
+    if v == DATA_BLOCKED:
+        return NOT_MEASURED, f"not measurable in this environment: {row['detail']}"
+    if v == NOT_APPLICABLE:
+        return NOT_MEASURED, f"not applicable before the tag: {row['detail']}"
+    if v == EXTERNAL:
+        return NOT_MEASURED, f"external: {row['detail']}"
+    if v == PENDING:
+        # A DECISION, NOT AN OVERSIGHT (lens A, 2026-09-17, named it as scope creep): before this
+        # change a deciding PENDING_JUSTIFIED made the run exit 1. The owner order says exit 1
+        # only for a FAIL, and PENDING_JUSTIFIED is by its own definition "honestly declared,
+        # not-yet-closed but not a blocker" -- a statement about the work, not a broken
+        # obligation. So it is NOT_MEASURED with its reason, a notice on the pull request, and it
+        # keeps withholding `audit_candidate_ready` on the release path exactly as before.
+        return NOT_MEASURED, f"pending, justified: {row['detail']}"
+    return FAIL, f"unknown verdict {v!r}: {row['detail']}"
+
+
 def evaluate() -> dict:
     rows = []
+    _EVIDENZ_ZUSTAND.clear()
+    auf_pr = _laeuft_auf_pull_request()
     for cid, crit, title, fn in CHECKS:
         try:
             verdict, detail = fn()
         except Exception as exc:  # noqa: BLE001 - an erroring check is an honest FAIL, never a crash
             verdict, detail = FAIL, f"check raised {type(exc).__name__}: {exc}"
-        rows.append({"id": cid, "criterion": crit, "title": title,
-                     "verdict": verdict, "detail": detail})
+            # A CRASH IS NOT EVIDENCE ABOUT BINDING (un counter-reading and lens A, 2026-09-17): a
+            # cell may register its admission state and THEN raise; the stale state would read a
+            # crash as "not bound to this head" and soften it to NOT_MEASURED on a pull request.
+            # The state of a cell that did not finish is unknown, so it is dropped.
+            _EVIDENZ_ZUSTAND.pop(cid, None)
+        row = {"id": cid, "criterion": crit, "title": title, "verdict": verdict, "detail": detail}
+        row["outcome"], row["outcome_reason"] = outcome_for(row, auf_pr=auf_pr,
+                                                             zustand=_EVIDENZ_ZUSTAND.get(cid))
+        row["informative"] = cid in _INFORMATIVE_CHECKS
+        rows.append(row)
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
               for v in (PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE)}
+    outcome_counts = {o: sum(1 for r in rows if r["outcome"] == o) for o in _OUTCOMES}
     # F2 + F7 CLOSED (makellose-500 Phase 4): audit_candidate_ready = every RELEASE-DECIDING check is
     # PASS, EXCEPT exactly the one explicitly-external open audit (EXT.1 == EXTERNAL_PENDING). An internal
     # PENDING_JUSTIFIED, an internal DATA_BLOCKED (a check that could NOT be measured here), an unknown
@@ -2677,6 +2912,11 @@ def evaluate() -> dict:
         # Bedingung ein zweites Mal nachzubauen.
         "ready_before_binding": ready_before_binding,
         "counts": counts,
+        "on_pull_request": auf_pr,
+        "outcome_counts": outcome_counts,
+        "measured": outcome_counts[PASS] + outcome_counts[FAIL],
+        "not_measured": outcome_counts[NOT_MEASURED],
+        "failed_deciding": [r["id"] for r in rows if r["outcome"] == FAIL and not r["informative"]],
         "audit_candidate_ready": ready,
         "fully_verified_here": fully_here,
         "status_boundary": boundary,
@@ -2708,14 +2948,63 @@ def _fmt(result: dict) -> str:
         f"green — {c[DATA_BLOCKED]} still need the release toolchain/24h soak (DATA_BLOCKED) and "
         f"{c[EXTERNAL]} is the external audit. Full green HERE needs fully_verified_here=True.)",
     ]
+    oc = result.get("outcome_counts") or {}
+    lines.append(f"  outcomes on {'a pull request' if result.get('on_pull_request') else 'this head'}: "
+                 f"{result.get('measured', 0)} of {result['total_checks']} measured "
+                 f"(PASS {oc.get(PASS, 0)}, FAIL {oc.get(FAIL, 0)}), "
+                 f"{result.get('not_measured', 0)} NOT_MEASURED with reason")
     for r in result["checks"]:
         mark = {PASS: "  ok ", PENDING: " pend", DATA_BLOCKED: " data",
                 EXTERNAL: " ext ", FAIL: "FAIL ", NOT_APPLICABLE: " n.a."}[r["verdict"]]
         # NAME ZUERST, KUERZEL IN KLAMMERN. Das Kuerzel bleibt der stabile Bezeichner fuer Tests
         # und Tafeln; wer liest, soll aber nicht erst nachschlagen muessen, was C12.1 ist.
         name = _HUMAN_NAME.get(r["id"], r["title"])
-        lines.append(f"  [{mark}] {name} ({r['id']}) (§{r['criterion']}): {r['detail']}")
+        # ONE LINE PER ROW: a detail is a field, and this stream now also carries workflow
+        # commands (`::notice`, `::error`); a newline inside a detail must not become one.
+        detail = " ".join(str(r["detail"]).split())
+        lines.append(f"  [{mark}] {name} ({r['id']}) (§{r['criterion']}): {detail}")
+        if r.get("outcome") == NOT_MEASURED and r["verdict"] == FAIL:
+            # the one case where verdict and outcome disagree: say why, right under the row
+            lines.append(f"         -> NOT_MEASURED on this pull request: {r.get('outcome_reason')}")
     return "\n".join(lines)
+
+
+def _step_summary(result: dict) -> str:
+    """The matrix as a Markdown table for $GITHUB_STEP_SUMMARY -- readable without a log click."""
+    oc = result.get("outcome_counts") or {}
+    aus = [f"## Audit candidate matrix on {result.get('version_under_test')}",
+           "",
+           f"**{result.get('measured', 0)} of {result['total_checks']} measured** "
+           f"(PASS {oc.get(PASS, 0)}, FAIL {oc.get(FAIL, 0)}), "
+           f"{result.get('not_measured', 0)} NOT_MEASURED with reason. "
+           f"`audit_candidate_ready={result['audit_candidate_ready']}` "
+           f"(release readiness, unchanged by the outcomes).",
+           "",
+           "| id | cell | outcome | verdict | reason |",
+           "|---|---|---|---|---|"]
+    for r in result["checks"]:
+        name = _HUMAN_NAME.get(r["id"], r["title"]).replace("|", "\\|")
+        grund = str(r.get("outcome_reason") if r.get("outcome") != PASS else r.get("detail"))
+        grund = " ".join(grund.split()).replace("|", "\\|")
+        if len(grund) > 220:
+            grund = grund[:219] + "\u2026"
+        zeichen = {PASS: "\u2705 PASS", FAIL: "\u274c FAIL", NOT_MEASURED: "\u2139\ufe0f NOT_MEASURED"}[r["outcome"]]
+        info = " (informative)" if r.get("informative") else ""
+        aus.append(f"| {r['id']} | {name}{info} | {zeichen} | {r['verdict']} | {grund} |")
+    return "\n".join(aus) + "\n"
+
+
+def _annotationen(result: dict) -> list[str]:
+    """GitHub workflow commands: a notice per NOT_MEASURED cell, an error per FAIL cell."""
+    aus = []
+    for r in result["checks"]:
+        name = _HUMAN_NAME.get(r["id"], r["title"])
+        text = " ".join(str(r.get("outcome_reason") or r.get("detail")).split())[:400]
+        if r["outcome"] == NOT_MEASURED:
+            aus.append(f"::notice title=NOT_MEASURED {r['id']}::{name}: {text}")
+        elif r["outcome"] == FAIL:
+            aus.append(f"::error title=FAIL {r['id']}::{name}: {text}")
+    return aus
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2726,35 +3015,42 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     result = evaluate()
     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else _fmt(result))
-    # DER AUSGANGSCODE SAGT „BLOCKIERT DIESE PRUEFUNG DIESES OBJEKT", NICHT „IST ES FERTIG".
+    # THE STEP SUMMARY, so the table is readable without a log click (order 2026-09-17, step 5).
+    # Best effort: a summary that cannot be written changes no verdict.
+    zusammenfassung = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
+    if zusammenfassung:
+        try:
+            with open(zusammenfassung, "a", encoding="utf-8") as fh:
+                fh.write(_step_summary(result))
+        except OSError as exc:
+            print(f"  step summary not written ({exc})")
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true" and not args.json:
+        for zeile in _annotationen(result):
+            print(zeile)
+    # THE EXIT CODE FOLLOWS THE OUTCOMES (order 2026-09-17, step 3), and it says "a cell on this
+    # head is BROKEN" or "nothing was measured" -- never "this head is not release-ready".
+    # `audit_candidate_ready` keeps telling the release truth in the JSON above.
     #
-    # `audit_candidate_ready` bleibt unveraendert und sagt weiterhin die Wahrheit: ein Arbeitszweig
-    # ist nicht release-bereit, und im JSON steht das auch so. Was sich aendert, ist allein, ob
-    # dieser Lauf deswegen ROT wird. Haelt NUR eine nicht-anwendbare Zeile die Bereitschaft
-    # zurueck, ist das keine Aussage ueber einen Defekt — und ein rotes Kreuz waere eine.
+    #   * exit 1 when a release-deciding cell is FAIL (informative presence proxies never decide,
+    #     as before), or the version pin is not bound (a verdict about another release is no
+    #     verdict about this one -- unchanged);
+    #   * exit 1 with the word NOTHING_MEASURED when no cell was measured at all: zero measured
+    #     cells are never green;
+    #   * exit 0 otherwise, however many cells are NOT_MEASURED -- each one carries its reason.
     #
-    # FAIL bleibt FAIL, auch hier: sobald irgendeine Zeile wirklich gebrochen ist, oder die
-    # Version-Pin-Bindung nicht steht, endet der Lauf rot wie bisher.
-    if not result["audit_candidate_ready"]:
-        _na = [r for r in result["checks"] if r["verdict"] == NOT_APPLICABLE]
-        # WAS AUF EINEM PR KEIN MANGEL DES PR IST. `DATA_BLOCKED` steht hier neben
-        # `NOT_APPLICABLE`, und zwar nicht aus Bequemlichkeit: der Workflow sagt es woertlich
-        # ueber genau diesen Job — "a full run needs a soak box (24h) and the build backend, so
-        # DATA_BLOCKED is expected in CI and must not fail the build (No-Fake)". Beides heisst
-        # "hier nicht gemessen", keines heisst "gebrochen".
-        #
-        # FAIL, PENDING und ein unbekanntes Verdikt bleiben Maengel. Ein PENDING sagt "noch
-        # nicht", und das ist eine Aussage ueber die Arbeit; die anderen beiden sind Aussagen
-        # ueber die Umgebung und ueber den Gegenstand.
-        _echte_maengel = [
-            r for r in result["checks"]
-            if r["id"] not in _INFORMATIVE_CHECKS
-            and r["verdict"] not in (PASS, NOT_APPLICABLE, DATA_BLOCKED)
-            and not (r["id"] == _EXTERNAL_CHECK_ID and r["verdict"] == EXTERNAL)
-        ]
-        _pin_ok = (result.get("version_pin") or {}).get("state") == "bound"
-        if not (_na and not _echte_maengel and _pin_ok):
-            return 1
+    # Before 2026-09-17 this block exited 1 for a FAIL, a PENDING or an unknown verdict, and
+    # tolerated NOT_APPLICABLE/DATA_BLOCKED only when at least one row was NOT_APPLICABLE; on
+    # pull request 218 the four candidate-bound cells were FAIL, so every pull request was red.
+    # A red that always comes is looked past, and then so is the red that means something.
+    _pin_ok = (result.get("version_pin") or {}).get("state") == "bound"
+    if result.get("measured", 0) == 0:
+        print("[audit-candidate-matrix] NOTHING_MEASURED: no cell was measured on this head -- "
+              "zero measured cells are never green")
+        return 1
+    if result.get("failed_deciding"):
+        return 1
+    if not _pin_ok:
+        return 1
     if args.strict and not result["fully_verified_here"]:
         return 1
     return 0

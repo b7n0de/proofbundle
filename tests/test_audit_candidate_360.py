@@ -253,7 +253,10 @@ class TestAuditCandidateMatrix(unittest.TestCase):
         # Test, der bedingungslose Bereitschaft assertierte, war genau das, was ein falsches Gruen
         # shippen liess (die Drift-Falle selbst wird jetzt synthetisch geprueft, siehe version_pin_binding).
         r = self.m.evaluate()
-        self.assertEqual(r["total_checks"], 33)
+        # 34 SINCE 2026-09-17: C6.4, the small soak measured live on the head (owner order
+        # QITEM-PROOFBUNDLE-AUDIT-MATRIX-SOAK-KLEIN-01, step 4). It reads no artefact and admits
+        # nothing; it is the one soak cell a pull request can answer.
+        self.assertEqual(r["total_checks"], 34)
         pin = r["version_pin"]
         if pin["state"] == "bound" and not r["unmet_deciding"]:
             self.assertTrue(r["audit_candidate_ready"], r["counts"])
