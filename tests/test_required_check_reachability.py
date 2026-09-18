@@ -1518,11 +1518,11 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         d = G.lebend(fork)
         verlangt = json.loads(G.DECLARATION.read_text(encoding="utf-8"))["required_contexts"]
         if "all-checks-passed" in verlangt:
-            # SEIT 2026-09-18 (Regelsatz auf den Sammel-Job): die vier Versionskontexte sind keine
-            # Pflichtkontexte mehr, also fehlt auf dem Fork-PR ohne Label KEIN Pflichtkontext -- die
-            # Schranke ist in das Urteil des Sammel-Jobs gewandert (ein uebersprungenes Bein macht
-            # ihn rot, gemessen an #223). Der Vertrag misst, dass nichts Verlangtes fehlt und dass
-            # der Sammel-Job als Statusfunktion auf jedem Ereignis eintrifft.
+            # SINCE 2026-09-18 (ruleset on the collector): the four version contexts are no longer
+            # required, so NO required context is absent on a fork pull request without the label.
+            # The barrier moved into the collector's verdict (a skipped leg makes it red, measured
+            # on pull request 223). The contract measures that nothing required is absent and that
+            # the collector arrives on every event as a status function.
             self.assertEqual(d["missing"], [], "nothing required is absent on a fork pull request")
             self.assertEqual(d["verdict"], G.ALWAYS)
         else:
