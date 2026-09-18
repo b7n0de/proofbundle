@@ -331,6 +331,13 @@ UNBEWEGT_BEGRUENDET = {
     # Matrix fuehrt genau die benannte Standard-Policy, und die hat keinen.
     "time_consistency_ok": "haengt an den timeClaims im Dokument, nicht am Aufruf; eigene Testdatei",
     "time_policy_decision": "bewegt sich erst mit einer Policy, die `time` fuehrt; die Matrix fuehrt genau eine benannte ohne",
+    # ── seit dem 18.09.2026 (P19, agent-review/v0.3) ───────────────────────────────────────────
+    # `verifier_block` ist unter v0.2 IMMER None: die Fassung kennt den Block nicht, und die Matrix
+    # faehrt v0.2-Receipts. Unter v0.3 ist die Achse ein Bericht (dict, hier nicht gezaehlt), der
+    # `ok` nie bestimmt — MATCH/MISMATCH/NOT_EVALUATED sind Auskuenfte ueber den Erzeuger, keine
+    # Urteile. Dass sie `ok` nicht nachsichtiger macht, misst tests/test_verifier_block.py
+    # (TestInTheReceipt: MISMATCH bleibt ok=True, fehlerhafter Block ist ein Strukturfehler).
+    "verifier_block": "unter v0.2 immer None (Fassung kennt den Block nicht); unter v0.3 ein Bericht, der `ok` nie bestimmt; tests/test_verifier_block.py",
 }
 
 #: Werte, die NICHT als Urteil zaehlen: Sammelbehaelter und das Urteil selbst.

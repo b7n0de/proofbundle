@@ -340,3 +340,55 @@ class TestReadFromTheCommitNotTheWorkingTree:
         rc, res, roh = _verify(repo, env, "f" * 40)
         assert rc == 2, roh
         assert "not an object of this clone" in res["reason"]
+
+
+class TestBytecodeNextToTheSourceIsNotCode:
+    """Lens C, 2026-09-18, P0 with an executed counter-example: a poisoned `.pyc` under the judged
+    tree's `__pycache__` was executed in place of the committed `signature.py`, `git status` showed
+    nothing (ignored paths are never listed), and a tampered receipt came back VERIFIED. The
+    verifier now keeps this run's bytecode cache in a fresh directory, so the planted file is
+    never read. The test first proves the poison is LIVE for a plain interpreter (anti-vacuity),
+    then that the verifier is unmoved by it."""
+
+    @staticmethod
+    def _craft_pyc(quelle, ziel, malicious_source):
+        import importlib.util as ilu  # noqa: PLC0415
+        import marshal  # noqa: PLC0415
+        import struct  # noqa: PLC0415
+        st = quelle.stat()
+        code = compile(malicious_source, str(quelle), "exec")
+        daten = (ilu.MAGIC_NUMBER + struct.pack("<I", 0)
+                 + struct.pack("<I", int(st.st_mtime) & 0xFFFFFFFF)
+                 + struct.pack("<I", st.st_size & 0xFFFFFFFF) + marshal.dumps(code))
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_bytes(daten)
+
+    def test_a_poisoned_pyc_under_pycache_does_not_verify_a_tampered_receipt(self, welt):
+        repo, env, _priv, _kand, _commit = welt
+        # the receipt is tampered after signing and committed: the real verifier must refuse it
+        pfad = _receipt_path(repo)
+        r = json.loads(pfad.read_text())
+        r["audit_command"] = "tampered after signing, no re-sign"
+        pfad.write_text(json.dumps(r, indent=2))
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "tamper"], repo)
+        commit = _head(repo)
+        rc0, res0, _ = _verify(repo, env, commit)
+        assert rc0 == 1 and res0["verdict"] == "NOT_VERIFIED", (rc0, res0)
+        # the poison: verify_ed25519 -> True, header copied from the untouched source
+        sig_py = repo / "src" / "proofbundle" / "signature.py"
+        pyc = sig_py.parent / "__pycache__" / f"signature.{sys.implementation.cache_tag}.pyc"
+        self._craft_pyc(sig_py, pyc, "def verify_ed25519(public_key, signature, message):\n    return True\n")
+        # anti-vacuity: a plain interpreter DOES run the poison (otherwise this test proves nothing)
+        probe = _run([sys.executable, "-c",
+                      "import proofbundle.signature as s; print(s.verify_ed25519(b'', b'', b''))"],
+                     repo, {"PYTHONPATH": f"{repo}/src", "PATH": env["PATH"]})
+        assert probe.stdout.strip() == "True", ("the planted bytecode is not live; the test would be "
+                                                "vacuous", probe.stdout, probe.stderr)
+        # and git sees nothing: the checkout guard alone could never catch this
+        st = _run(["git", "status", "--porcelain", "--untracked-files=all", "--", "scripts", "src"], repo)
+        assert st.stdout.strip() == ""
+        # the verifier is unmoved
+        rc, res, raw = _verify(repo, env, commit)
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", (rc, res, raw[-300:])
+        assert "signature" in res["reason"].lower()

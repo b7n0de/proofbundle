@@ -209,6 +209,13 @@ measured that one uncommitted edit to the receipt library turned a garbage recei
 previous paragraph is printed with every verdict, the passing one included, because the script and
 the library it calls are themselves files of the tree they verify.
 
+A bytecode cache next to the sources is not code the verifier runs. Python would execute a
+`.pyc` under `__pycache__` in place of an unmodified `.py` whose header it matches, and git never
+lists ignored paths, so the checkout guard above cannot see one. The verifier therefore points
+Python's cache at a fresh temporary directory for the whole run: nothing under the judged tree's
+`__pycache__` is read or written. What stays trusted, and is not measured: the interpreter you
+run and its standard library.
+
 This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
 It is written here so that "I verified the release" means what it actually means — the artifact's
 origin and bytes are verifiable by you today; the audit verdict behind it rests on trusting this

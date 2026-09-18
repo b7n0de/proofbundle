@@ -196,7 +196,10 @@ _OUT_OF_SCOPE = frozenset({
     #   `build_verifier_block`, `build_test_result_statement`, `sign_test_result_statement`,
     #       `attach` are ERZEUGER in the sense of the family rule above: they take our own values
     #       and refuse loudly (`require_valid_verifier_block`) rather than emit a malformed block.
-    #   `statement_digest`, `test_result_ref` are digest helpers over a statement we built.
+    #   `statement_digest`, `test_result_ref` are digest helpers; `join_test_result` also feeds
+    #       `statement_digest` a caller-supplied statement, and a hostile one ends in a typed
+    #       `BundleFormatError` from the canonicalizer (lens C, 2026-09-18, measured with a
+    #       deeply nested `annotations` dict) -- an accepted termination, never a raw crash.
     #   `join_test_result` and `report` read a block that has ALREADY passed
     #       `validate_verifier_block` on the consumer side (`_verify_v02_inner` calls `report` only
     #       after the shape errors are empty); `report` returns a verdict dict for every input and

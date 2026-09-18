@@ -74,6 +74,34 @@ LIMIT = ("LIMIT: the trust anchor is a public key committed in this same reposit
 _CODE_PFADE = ("scripts", "src")
 
 
+#: Where Python keeps bytecode for THIS run: a fresh directory, never `__pycache__` next to the
+#: sources. Set once, before the first module of the judged tree is loaded.
+_CACHE_DIR: str | None = None
+
+
+def _bytecode_cache_elsewhere() -> None:
+    """A `.pyc` next to the committed source is not the committed source, and Python would run it.
+
+    Lens C, 2026-09-18, executed: a `signature.cpython-310.pyc` with `verify_ed25519 -> True`,
+    header copied from the untouched `signature.py`, dropped under `src/proofbundle/__pycache__/`.
+    `git status` never lists ignored paths, so the clean-checkout guard above saw nothing, and the
+    tampered receipt came back VERIFIED. The guard was scoped to source files; the bytecode cache
+    of an unmodified source file is the neighbour it did not cover.
+
+    The fix is not a second guard over `__pycache__` (a cache that is present is not evidence of
+    anything, and the first run of this script would create one). It is to make the cache next to
+    the sources irrelevant: `sys.pycache_prefix` sends every cache lookup and write of this run to
+    a fresh temporary directory, so nothing under the judged tree's `__pycache__` is ever read.
+    What stays trusted, and is not measured here: the interpreter and its standard library.
+    """
+    global _CACHE_DIR
+    if _CACHE_DIR is None:
+        import tempfile  # noqa: PLC0415
+        _CACHE_DIR = tempfile.mkdtemp(prefix="verify_pre_tag_receipt_pyc_")
+        sys.pycache_prefix = _CACHE_DIR
+        sys.dont_write_bytecode = True
+
+
 def _lib():
     """The receipt library, loaded BY PATH from this script's own directory.
 
@@ -83,6 +111,7 @@ def _lib():
     ``src/pre_tag_receipt_lib.py`` would then supply the verifier that judges it.
     """
     import importlib.util as ilu  # noqa: PLC0415
+    _bytecode_cache_elsewhere()
     pfad = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
     spec = ilu.spec_from_file_location("_verify_pre_tag_receipt_lib", pfad)
     if spec is None or spec.loader is None:
@@ -96,6 +125,7 @@ def _gate():
     """The release gate, loaded by path for its two closed lists of what lies in the receipt
     folder without being a receipt. One source for that rule, not a copy of it here."""
     import importlib.util as ilu  # noqa: PLC0415
+    _bytecode_cache_elsewhere()
     pfad = Path(__file__).resolve().parent / "pre_tag_audit_gate.py"
     spec = ilu.spec_from_file_location("_verify_pre_tag_receipt_gate", pfad)
     if spec is None or spec.loader is None:
@@ -172,6 +202,7 @@ def measure(repo: Path, commit: str, version: str) -> dict:
     lib = _lib()
     # The receipt binds `src/` through the tree digest, and `verify_receipt` imports
     # `proofbundle.signature` from it -- put THIS tree's src first, as the gate does.
+    _bytecode_cache_elsewhere()
     src = str(repo.resolve() / "src")
     if src not in sys.path:
         sys.path.insert(0, src)
