@@ -2676,7 +2676,13 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # AND reported `verifier_block.present: True, valid: True` -- a refused field, read as if it
     # had been accepted, is two verdicts over one receipt. Under v0.2 the block is an unknown
     # field and nothing else; `verifier_block` stays None there.
-    if fassung == "v0.3" and isinstance(predicate, dict) and not shape_errs:
+    #
+    # AND IT IS READ WHENEVER THERE IS A PREDICATE OBJECT TO READ IT FROM (lens A, 2026-09-18,
+    # P1). The first form also required an empty `shape_errs`: a v0.3 receipt with a valid block
+    # and an unrelated statement defect (a wrong subject name) then reported `verifier_block`
+    # as None -- the one field this feature exists to provide, dropped exactly when a relying
+    # party audits a rejected receipt. `ok` is unaffected either way; the report is a report.
+    if fassung == "v0.3" and isinstance(predicate, dict):
         from .verifier_block import report as _verifier_block_report  # noqa: PLC0415
         r["verifier_block"] = _verifier_block_report(predicate)
 

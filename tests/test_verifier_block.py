@@ -632,6 +632,28 @@ class TestInTheReceipt:
         with pytest.raises(VB.VerifierBlockError, match="producer must be an object"):
             VB.attach(p, _valid_block())
 
+    def test_a_valid_block_is_reported_even_when_the_statement_is_refused_for_another_reason(self):
+        """Lens A (2026-09-18, P1): the report is a report. A v0.3 receipt whose statement is
+        refused for a reason unrelated to the block (a wrong subject name) still names the
+        build that produced it; before the fix `verifier_block` was None there."""
+        p = VB.attach(_v02_predicate(), _valid_block())
+        sk, pk = _key()
+        stmt = {"_type": AR.STATEMENT_TYPE,
+                "subject": [{"name": "not-the-subject-name", "digest": {"sha256": AR._subject_digest(p)}}],
+                "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V03, "predicate": p}
+        env = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r = AR.verify_agent_review_v03(env, pk, expected_subject_digest=AR._subject_digest(p),
+                                       policy=AR.load_policy())
+        assert r["ok"] is False and r["statement_shape_ok"] is False
+        vb = r["verifier_block"]
+        assert vb is not None and vb["present"] and vb["valid"]
+        assert vb["build_digest"] == _valid_block()["build"]["digest"]["sha256"]
+        assert vb["matches_this_verifier"] == "MISMATCH"
+        # and under v0.2 the same defect leaves the field None: the version does not know the block
+        stmt["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+        env2 = dsse.sign_envelope(AR._rfc8785_bytes(stmt), sk, payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        assert AR.verify_agent_review_v02(env2, pk)["verifier_block"] is None
+
     def test_the_v01_result_skeleton_is_untouched(self):
         """`_empty_result` is byte-pinned to 5.1.0; the block's field lives on the v0.2/v0.3 path only."""
         assert "verifier_block" not in AR._empty_result()
