@@ -239,13 +239,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # B3: FUENF Versionen nur am Landekandidaten, sonst EINE. Der Kontext-Name bleibt dabei
-        # "test (3.12)" fuer die schnelle Schicht — die Pflichtpruefungen des Regelsatzes
-        # protect-main verlangen test (3.10) bis (3.14), deshalb MUSS der Landekandidat alle fuenf
-        # fahren, und deshalb steht hier ein Ausdruck und keine feste Kuerzung.
-        # B3: FUENF Versionen nur am Landekandidaten, sonst EINE. Der Regelsatz protect-main
-        # verlangt test (3.10) bis (3.14) als Pflichtkontexte, deshalb MUSS der Landekandidat alle
-        # fuenf fahren — hier steht ein Ausdruck und keine feste Kuerzung.
+        # VELOCITY (owner directive 2026-09-17, order QITEM-PROOFBUNDLE-AUDIT-MATRIX-SOAK-KLEIN-01,
+        # point 5): the FULL five-version matrix runs for EVERY pull request from this repository.
+        # The `landung` label stays the gate only for fork pull requests. The cost is machine
+        # minutes, not people. Measured the day before this change on pull request 218: four of
+        # the seven required contexts never arrived on an unlabelled pull request, and the pull
+        # request sat BLOCKED with nothing red on it. A required context that depends on a label a
+        # person has to remember is a condition nobody sets.
+        #
+        # Still one expression, not a fixed list: the ruleset protect-main requires test (3.10) to
+        # (3.14), and the branches of this condition are exactly the events that may land on main.
+        # A fork pull request (head repository differs) runs the fast layer, 3.12 only, unless it
+        # carries the label.
         #
         # DIE KLAMMER UM DIE ODER-KETTE IST NOETIG: in GitHub-Ausdruecken bindet && staerker als ||.
         # Ohne sie liest sich A || B || C || (D && voll) || eine, und bei wahrem A kaeme `true`
@@ -259,8 +264,7 @@ jobs:
         python-version: >-
           ${{ fromJSON(
             ( github.event_name == 'workflow_dispatch'
-              || ( github.event.pull_request.head.repo.full_name == github.repository
-                   && startsWith(github.head_ref, 'release/') )
+              || github.event.pull_request.head.repo.full_name == github.repository
               || startsWith(github.ref_name, 'release/')
               || contains(github.event.pull_request.labels.*.name, 'landung')
               || github.event_name == 'merge_group' )
