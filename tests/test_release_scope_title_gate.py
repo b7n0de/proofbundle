@@ -22,7 +22,7 @@ _spec.loader.exec_module(GATE)
 
 UMFANG = """# Release scope — 9.9.9 (Probe)
 
-## In — Spalte 1
+## In — Column 1
 
 | Punkt | Zweig |
 |---|---|
@@ -32,7 +32,7 @@ UMFANG = """# Release scope — 9.9.9 (Probe)
 | C2 Release-Notiz fortschreiben | mit C1 |
 | N14 Emit und assemble | = B1/B2 |
 
-## Out — und jedes Out nennt seinen Grund
+## Out — and every Out names its reason
 
 | Punkt | Zweig |
 |---|---|
@@ -44,14 +44,14 @@ class TestUmfangGelesen(unittest.TestCase):
     def setUp(self):
         import tempfile
         td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)          # `enterContext` gibt es erst ab 3.11, Boden ist 3.10
+        self.addCleanup(td.cleanup)          # `enterContext` only exists from 3.11, floor is 3.10
         self.p = pathlib.Path(td.name)
         self.datei = self.p / "9.9.9.md"
         self.datei.write_text(UMFANG, encoding="utf-8")
 
     def test_nur_der_in_abschnitt_zaehlt(self):
-        """Eine Zeile unter Out ist ausdruecklich NICHT gebaut. Wer sie mitzaehlt, verlangt eine
-        Kennung fuer etwas, das es nicht geben soll."""
+        """A line under Out is explicitly NOT being built. Whoever counts it in demands an
+        identifier for something that is not supposed to exist."""
         zu_zweig, mitlaeufer, zustand = GATE.lies_umfang(self.datei)
         self.assertEqual(zustand, "gemessen")
         self.assertIn("feat/999-beleg", zu_zweig)
@@ -66,8 +66,8 @@ class TestUmfangGelesen(unittest.TestCase):
         self.assertNotIn("C2", alle, "ein Mitlaeufer mit Zweig waere kein Mitlaeufer")
 
     def test_eine_fehlende_datei_ist_nicht_messbar_statt_leer(self):
-        """Eine leere Abbildung aus einer fehlenden Datei sieht aus wie eine aus einem leeren
-        Umfang, und die beiden bedeuten das Gegenteil voneinander."""
+        """An empty mapping from a missing file looks like one from an empty scope, and the
+        two mean the opposite of each other."""
         _, _, zustand = GATE.lies_umfang(self.p / "gibtsnicht.md")
         self.assertIn("NICHT MESSBAR", zustand)
 
@@ -76,7 +76,7 @@ class TestDasTorUrteilt(unittest.TestCase):
     def setUp(self):
         import tempfile
         td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)          # `enterContext` gibt es erst ab 3.11, Boden ist 3.10
+        self.addCleanup(td.cleanup)          # `enterContext` only exists from 3.11, floor is 3.10
         self.p = pathlib.Path(td.name)
         self.datei = self.p / "9.9.9.md"
         self.datei.write_text(UMFANG, encoding="utf-8")
@@ -96,8 +96,8 @@ class TestDasTorUrteilt(unittest.TestCase):
         self.assertTrue(any("keine Umfangskennung" in g for g in d["gruende"]), d["gruende"])
 
     def test_die_FALSCHE_kennung_ist_ROT(self):
-        """Der gefaehrlichere Fall: eine Kennung IST da, sie zeigt nur woanders hin. Ein Tor, das
-        nur die Anwesenheit prueft, faellt hier nicht — und die Landekarte zaehlt die falsche Zeile."""
+        """The more dangerous case: an identifier IS present, it just points somewhere else. A gate
+        that only checks for presence does not catch this — and the landing card counts the wrong line."""
         d = self._u("feat/999-beleg", "[9.9.9 N3-2] feat(receipt): wrong line")
         self.assertEqual(d["urteil"], "ROT")
         self.assertTrue(any("verschiedene Zeilen" in g for g in d["gruende"]), d["gruende"])
@@ -108,14 +108,14 @@ class TestDasTorUrteilt(unittest.TestCase):
         self.assertTrue(any("genau eine je" in g for g in d["gruende"]), d["gruende"])
 
     def test_ein_fremder_zweig_wird_als_AUSSERHALB_gemeldet_nicht_als_bestanden(self):
-        """Der Unterschied traegt: 'nicht geprueft' ist keine Aussage ueber den Inhalt."""
+        """The distinction carries: 'not checked' is not a statement about the content."""
         d = self._u("chore/etwas-anderes", "chore: unrelated")
         self.assertEqual(d["urteil"], "gruen")
         self.assertTrue(d["ausserhalb_des_umfangs"])
         self.assertIsNone(d["kennung_des_zweigs"])
 
     def test_ein_mitlaeufer_kann_das_tor_nicht_ausloesen(self):
-        """C2 faehrt mit C1. Es gibt keinen Zweig, der auf C2 zeigt, also auch keinen Pull Request."""
+        """C2 rides along with C1. There is no branch pointing at C2, and hence no pull request either."""
         zu_zweig, _, _ = GATE.lies_umfang(self.datei)
         self.assertNotIn("C2", zu_zweig)
         d = self._u("fix/999-sdist", "[9.9.9 C1] fix(sdist): reproducible")
@@ -143,8 +143,8 @@ class TestDasTorUrteilt(unittest.TestCase):
 
 
 class TestDieDateiSelbst(unittest.TestCase):
-    """Eine Kennung, die zwei Zeilen anfuehrt, macht den Titel mehrdeutig — und die Landekarte
-    zaehlt zwei Zeilen als eine. Das ist ein Befund ueber die DATEI, nicht ueber den Pull Request."""
+    """An identifier that leads two lines makes the title ambiguous — and the landing card
+    counts two lines as one. That is a finding about the FILE, not about the pull request."""
 
     def setUp(self):
         import tempfile
@@ -172,8 +172,8 @@ class TestDieDateiSelbst(unittest.TestCase):
         self.assertEqual(len(d["kollisionen"]["N3-1"]), 2)
 
     def test_die_zaehleinheit_ist_die_ZEILE(self):
-        """Wer ueber Kennungen zaehlt, zaehlt bei Kollisionen zu wenig; wer ueber Zweige zaehlt,
-        laesst die Mitlaeufer weg. Beide Zahlen sind kleiner als die Zeilenzahl."""
+        """Whoever counts by identifier undercounts on collisions; whoever counts by branch
+        leaves out the riders. Both numbers are smaller than the line count."""
         zeilen, zustand = GATE.fuehrende_kennungen(self._datei(UMFANG))
         self.assertEqual(zustand, "gemessen")
         zu_zweig, mit, _ = GATE.lies_umfang(self._datei(UMFANG))
@@ -187,17 +187,17 @@ class TestDieDateiSelbst(unittest.TestCase):
         self.assertEqual(d["zeilen"], 0)
 
     def test_eine_mehrdeutige_kennung_faellt_ROT(self):
-        """DIESER FALL HAT SEIN VORZEICHEN GEWECHSELT, und das gehoert hierher statt in ein Archiv.
+        """THIS CASE CHANGED ITS SIGN, and that belongs here rather than in an archive.
 
-        Die erste Fassung liess so einen Pull Request GRUEN durch, mit einem Vermerk, und begruendete
-        das damit, der Autor koenne ja nur die eine Kennung schreiben, die es gibt. Die Gegenlesung
-        der fremden Modellfamilie (qwen3.8:27b, 16.09.2026) hat das widerlegt, und der Einwand
-        traegt: der ZWECK dieses Riegels ist die eindeutige Zaehlbarkeit. Ein Titel, den die
-        Landekarte nicht zuordnen kann, verfehlt ihn — gleich wem die Schuld gehoert. Gruen hiesse
-        hier: der Pull Request ist in Ordnung, obwohl sein Landen nicht zaehlbar ist.
+        The first version let a pull request like this through GREEN, with a note, reasoning that
+        the author can, after all, only write the one identifier that exists. The counter-read by
+        the foreign model family (qwen3.8:27b, 2026-09-16) refuted that, and the objection carries:
+        the PURPOSE of this gate is unambiguous countability. A title the landing card cannot
+        assign misses it — whoever is at fault. Green here would mean: the pull request is fine,
+        even though its landing is not countable.
 
-        Die Reparatur steht dem Autor offen, sie ist nur nicht im Titel: die Kennung in der
-        Umfangsdatei aufteilen. Der Grund sagt das, statt ihn ratlos stehen zu lassen.
+        The fix is open to the author, it just is not in the title: split the identifier in the
+        scope file. The reason says so, instead of leaving them stuck without a way forward.
         """
         doppelt = UMFANG.replace(
             "| N3-2 Commit und Baum gemeinsam binden | `feat/999-commit` |",
@@ -210,10 +210,10 @@ class TestDieDateiSelbst(unittest.TestCase):
         self.assertTrue(any("die Kennung aufteilen" in g for g in d["gruende"]), d["gruende"])
 
     def test_ohne_den_Out_abschnitt_ist_der_umfang_NICHT_MESSBAR(self):
-        """Der zweite Befund derselben Gegenlesung: ohne die Grenze galt die GANZE Datei als
-        Umfang, samt der Zeilen, die ausdruecklich nicht gebaut werden. Ein Riegel, der bei
-        fehlender Struktur seine Pruefmenge VERGROESSERT, urteilt danach ueber Zeilen, die niemand
-        bauen wollte — und nennt das eine Messung."""
+        """The second finding of the same counter-read: without the boundary, the WHOLE file
+        counted as scope, including the lines that are explicitly not being built. A gate that
+        ENLARGES the set it checks when structure is missing then judges lines nobody wanted to
+        build — and calls that a measurement."""
         ohne = UMFANG.split("## Out")[0]
         d = self._datei(ohne)
         zu_zweig, _, zustand = GATE.lies_umfang(d)
@@ -228,24 +228,24 @@ class TestDieDateiSelbst(unittest.TestCase):
 
 
 class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
-    """Die Probe gegen den wirklichen 6.1.0-Umfang, falls er im Baum liegt.
+    """The check against the real 6.1.0 scope, if it is present in the tree.
 
-    Ohne sie prueft alles oben nur eine selbstgebaute Vorrichtung — und eine Vorrichtung, die nur
-    sich selbst kennt, ist genau die Koinzidenz, gegen die dieses Haus sonst antritt.
+    Without it, everything above only checks a self-built fixture — and a fixture that knows only
+    itself is exactly the coincidence this house otherwise stands against.
     """
 
     def setUp(self):
-        """Die echte Datei, egal ob sie gerade im Arbeitsbaum ausgecheckt ist.
+        """The real file, whether or not it happens to be checked out in the working tree.
 
-        WARUM NICHT EINFACH UEBERSPRINGEN. Bis 2026-09-16 tat dieser Aufbau genau das: liegt
-        `docs/release_scope/6.1.0.md` nicht im Baum, skipTest. Gemessen: die Datei liegt auf 33
-        Zweigen, aber nicht auf `main`, also sprangen alle drei Faelle immer. Ein uebersprungener
-        Fall kann nicht fallen — der Mutationsnachweis gegen sie blieb gruen und belegte nichts.
-        Dieselbe Klasse, gegen die dieser ganze Riegel steht: Abwesenheit liest sich als Ordnung.
+        WHY NOT SIMPLY SKIP. Until 2026-09-16 this setup did exactly that: if
+        `docs/release_scope/6.1.0.md` is not in the tree, skipTest. Measured: the file sits on 33
+        branches, but not on `main`, so all three cases always skipped. A skipped case cannot
+        fail — the mutation proof against it stayed green and proved nothing. The same class this
+        whole gate stands against: absence reads as order.
 
-        Deshalb wird die Datei aus dem OBJEKTSPEICHER geholt, wenn der Arbeitsbaum sie nicht
-        auscheckt. Uebersprungen wird nur noch, wenn sie in KEINEM Zweig existiert — und das waere
-        eine Aussage ueber das Repository, nicht ueber den Arbeitsbaum.
+        So the file is fetched from the OBJECT STORE when the working tree does not check it out.
+        It is only skipped when it exists in NO branch at all — and that would be a statement
+        about the repository, not about the working tree.
         """
         import subprocess
         import tempfile
@@ -281,15 +281,15 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
                          f"der Auftrag nennt neun Mitlaeufer, gelesen {sorted(mitlaeufer)}")
 
     def test_die_zeilenzahl_des_echten_umfangs_ist_die_zahl_des_auftrags(self):
-        """Der Auftrag nennt 55. Gemessen sind es 55 ZEILEN — nicht 52 Kennungen und nicht 44
-        Zweige. Die Zaehleinheit war die Stelle, an der meine erste Rechnung danebenlag."""
+        """The order names 55. Measured, it is 55 LINES — not 52 identifiers and not 44
+        branches. The counting unit was the point where my first calculation went wrong."""
         zeilen, zustand = GATE.fuehrende_kennungen(self.echt)
         self.assertEqual(zustand, "gemessen")
         self.assertEqual(len(zeilen), 55)
 
     def test_der_echte_umfang_traegt_drei_doppelt_vergebene_kennungen(self):
-        """A1, A2 und A3 stehen je zweimal: einmal aus dem Sammelauftrag, einmal aus
-        RESTRISIKO_600. Solange das so ist, ist ein Titel [6.1.0 A1] nicht eindeutig."""
+        """A1, A2 and A3 each appear twice: once from the collective order, once from
+        RESTRISIKO_600. As long as that is so, a title [6.1.0 A1] is not unambiguous."""
         d = GATE.pruefe_umfangsdatei(self.echt)
         self.assertEqual(d["urteil"], "ROT")
         self.assertEqual(sorted(d["kollisionen"]), ["A1", "A2", "A3"], d["kollisionen"])

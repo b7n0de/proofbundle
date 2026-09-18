@@ -34,8 +34,8 @@ import re
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
-#: Ein Bezeichner der Umfangsdatei: Buchstabe, optionaler Punkt oder Strich, Ziffern, optional ein
-#: Unterteil. Deckt A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278.
+#: An identifier from the scope file: a letter, an optional dot or dash, digits, optionally a
+#: sub-part. Covers A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278.
 _KENNUNG = r"[A-Z]\.?-?\d+(?:[.\-][0-9a-z]+)*"
 
 #: THE WHOLE TITLE FORM, anchored at both ends. The contract in the module docstring above reads
@@ -70,32 +70,32 @@ _TITELFORM = re.compile(
 #: ambiguity that "exactly one identifier" was written against.
 _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 
-#: Wo der Umfang endet. Alles danach (Out, Begruendungen, Owner-Tueren) ist NICHT die Menge, gegen
-#: die ein Pull Request geprueft wird — dort stehen Zeilen, die ausdruecklich nicht gebaut werden.
+#: Where the scope ends. Everything after that (Out, rationales, owner doors) is NOT the set
+#: against which a pull request is checked — those are lines that are explicitly not being built.
 _ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
 
 
 def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], str]:
-    """(Zweig -> LISTE der Kennungen, Mitlaeufer, Zustand). Nur der In-Abschnitt zaehlt.
+    """(Branch -> LIST of identifiers, riders, state). Only the In section counts.
 
-    EINE LISTE, WEIL EINE ABBILDUNG IN BEIDE RICHTUNGEN VERLIEREN KANN. Die erste Fassung bildete
-    Kennung -> Zweig ab und ueberschrieb still, sobald zwei Zeilen dieselbe Kennung anfuehren —
-    und genau das tut der 6.1.0-Umfang dreimal (A1, A2, A3). Die zweite Fassung drehte die
-    Richtung und verlor spiegelverkehrt, sobald zwei Zeilen denselben Zweig nennen. Beide Male
-    war der Verlust STILL. Eine Liste verliert nichts, und die Mehrdeutigkeit wird zum Befund
-    statt zur Abwesenheit. Beide Fassungen fand der eigene Vertrag, nicht das Lesen.
+    A LIST, BECAUSE A MAPPING IN EITHER DIRECTION CAN LOSE DATA. The first version mapped
+    identifier -> branch and silently overwrote as soon as two lines carried the same identifier —
+    and the 6.1.0 scope does exactly that three times (A1, A2, A3). The second version reversed
+    the direction and lost data the mirror-image way, as soon as two lines named the same branch.
+    Both times the loss was SILENT. A list loses nothing, and the ambiguity becomes a finding
+    instead of an absence. Both versions were caught by the contract itself, not by reading.
 
-    ACHTUNG, EINE KENNUNG IDENTIFIZIERT KEINE ZEILE. Gemessen am 6.1.0-Umfang: A1, A2 und A3
-    fuehren je ZWEI verschiedene Zeilen an, eine aus dem Sammelauftrag und eine aus RESTRISIKO_600,
-    mit verschiedenem Gegenstand und verschiedenem Zweig. Die Rueckgabe hier bildet deshalb nur
-    Zweig -> Kennung verlaesslich ab (Zweige sind eindeutig); die Gegenrichtung ist mehrdeutig und
-    wird von `pruefe_umfangsdatei` als Befund ueber die DATEI gemeldet, nicht still ueberschrieben.
+    NOTE: AN IDENTIFIER DOES NOT IDENTIFY A LINE. Measured on the 6.1.0 scope: A1, A2 and A3 each
+    lead TWO different lines, one from the collective order and one from RESTRISIKO_600, with a
+    different subject and a different branch. The return value here therefore reliably maps only
+    branch -> identifier (branches are unique); the reverse direction is ambiguous and is reported
+    by `pruefe_umfangsdatei` as a finding about the FILE, rather than silently overwritten.
 
-    Gibt drei Dinge zurueck, weil drei verschiedene Fragen daran haengen: welcher Zweig zu welchem
-    Bezeichner gehoert, welche Zeilen gar keinen eigenen Zweig haben (und deshalb nie ein Pull
-    Request sein koennen), und ob die Datei ueberhaupt lesbar war. Die dritte ist die wichtigste:
-    eine leere Abbildung aus einer fehlenden Datei sieht aus wie eine leere Abbildung aus einem
-    leeren Umfang, und die beiden bedeuten das Gegenteil voneinander.
+    Returns three things, because three different questions hang on it: which branch belongs to
+    which identifier, which lines have no branch of their own at all (and can therefore never be a
+    pull request), and whether the file was readable at all. The third is the most important: an
+    empty mapping from a missing file looks like an empty mapping from an empty scope, and the two
+    mean the opposite of each other.
     """
     try:
         text = pfad.read_text(encoding="utf-8")
@@ -103,10 +103,10 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
         return {}, [], f"NICHT MESSBAR: {type(e).__name__}: {e}"
     schnitt = _ENDE_DES_UMFANGS.search(text)
     if schnitt is None:
-        # FAIL-CLOSED, und auch das fand die fremde Familie. Ohne die Marke galt vorher die GANZE
-        # Datei als Umfang — samt der Zeilen unter "Out", die ausdruecklich NICHT gebaut werden.
-        # Ein Riegel, der bei fehlender Struktur die Pruefmenge VERGROESSERT, urteilt danach ueber
-        # Zeilen, die niemand bauen wollte, und nennt das eine Messung.
+        # FAIL-CLOSED, and that too was found by the foreign model family. Without the marker, the
+        # WHOLE file previously counted as scope — including the lines under "Out", which are
+        # explicitly NOT being built. A gate that ENLARGES the set it checks when structure is
+        # missing then judges lines nobody wanted to build, and calls that a measurement.
         return {}, [], ("NICHT MESSBAR: kein Abschnitt '## Out' gefunden — ohne ihn ist die Grenze "
                         "des Umfangs nicht bestimmbar, und die ganze Datei als Umfang zu lesen "
                         "waere eine Vergroesserung der Pruefmenge, keine Messung")
@@ -127,11 +127,12 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
             continue
         kennung = m.group(1)
         if zweig.startswith("`") and zweig.endswith("`"):
-            # ZWEIG -> KENNUNG, nicht umgekehrt. Die Gegenrichtung UEBERSCHREIBT still, sobald zwei
-            # Zeilen dieselbe Kennung anfuehren, und genau das tut der 6.1.0-Umfang dreimal (A1, A2,
-            # A3). Der erste Zweig verlor dabei seine Zuordnung und galt danach als "ausserhalb des
-            # Umfangs" — ein Pull Request auf einer echten Umfangszeile waere ungeprueft
-            # durchgelaufen. Gefunden vom eigenen Vertrag, nicht am Text.
+            # BRANCH -> IDENTIFIER, not the other way round. The reverse direction OVERWRITES
+            # silently as soon as two lines carry the same identifier, and the 6.1.0 scope does
+            # exactly that three times (A1, A2, A3). The first branch would lose its mapping in
+            # that case and would then count as "outside the scope" — a pull request on a real
+            # scope line would have run through unchecked. Found by the contract itself, not by
+            # reading the text.
             zu_zweig.setdefault(zweig.strip("`"), []).append(kennung)
         else:
             mitlaeufer.append(kennung)
@@ -141,11 +142,11 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
 
 
 def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]], str]:
-    """Jede In-Zeile als (Kennung, Punkt, Zweigspalte) — ZEILENWEISE, ohne Zusammenfassen.
+    """Every In-line as (identifier, item, branch column) — LINE BY LINE, without collapsing.
 
-    Die Zaehleinheit ist die ZEILE, nicht die Kennung und nicht der Zweig. Gemessen am 6.1.0-Umfang:
-    55 Zeilen, 52 verschiedene fuehrende Kennungen, 44 eigene Zweige, 9 Mitlaeufer. Wer ueber
-    Kennungen zaehlt, zaehlt drei Zeilen zu wenig; wer ueber Zweige zaehlt, elf.
+    The counting unit is the LINE, not the identifier and not the branch. Measured on the 6.1.0
+    scope: 55 lines, 52 distinct leading identifiers, 44 branches of their own, 9 riders. Whoever
+    counts by identifier is three lines short; whoever counts by branch, eleven.
     """
     try:
         text = pfad.read_text(encoding="utf-8")
@@ -170,13 +171,13 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
 
 
 def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
-    """Die Datei selbst: fuehrt jede Kennung GENAU EINE Zeile an?
+    """The file itself: does every identifier lead EXACTLY ONE line?
 
-    Das ist eine Aussage ueber die DATEI, nicht ueber einen Pull Request, und sie gehoert getrennt:
-    eine doppelt vergebene Kennung ist kein Fehler des Autors, der sie brav in seinen Titel
-    schreibt — sie macht nur seinen Titel mehrdeutig. Die Landekarte zaehlt gelandete Zeilen aus
-    Titeln; zwei Zeilen unter einer Kennung werden dort zu einer, und die andere verschwindet aus
-    der Zahl, die ihr Landen belegen soll.
+    This is a statement about the FILE, not about a pull request, and it belongs separately: an
+    identifier assigned twice is not a mistake by the author who dutifully writes it into their
+    title — it merely makes their title ambiguous. The landing card counts landed lines from
+    titles; two lines under one identifier become one there, and the other disappears from the
+    number that is supposed to prove it landed.
     """
     zeilen, zustand = fuehrende_kennungen(pfad)
     if zustand != "gemessen":
@@ -202,7 +203,7 @@ def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
 
 def pruefe(*, branch: str, title: str, version: str,
            scope_pfad: pathlib.Path | None = None) -> dict:
-    """Das Urteil. Zweiwertig, und jedes ROT traegt seinen Grund."""
+    """The verdict. Two-valued, and every RED carries its reason."""
     pfad = scope_pfad or (REPO / "docs" / "release_scope" / f"{version}.md")
     zu_zweig, mitlaeufer, zustand = lies_umfang(pfad)
     gruende: list[str] = []
@@ -213,8 +214,8 @@ def pruefe(*, branch: str, title: str, version: str,
 
     passend = sorted(zu_zweig.get(branch) or [])
     if not passend:
-        # KEIN PASS, SONDERN EINE ANGABE UEBER DIE REICHWEITE. Der Aufrufer soll sehen, dass hier
-        # nichts geprueft wurde, statt ein gruenes Haekchen als Aussage ueber den Inhalt zu lesen.
+        # NOT A PASS, BUT A STATEMENT ABOUT REACH. The caller should see that nothing was checked
+        # here, rather than reading a green checkmark as a statement about the content.
         return _urteil(branch, title, version, [], None, zu_zweig, mitlaeufer, zustand,
                        ausserhalb=True)
     if len(passend) > 1:
@@ -223,8 +224,8 @@ def pruefe(*, branch: str, title: str, version: str,
         return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
 
     kennung = passend[0]
-    # Eine Kollision ist ein Befund ueber die DATEI. Sie steht im Ergebnis, faellt dem Autor des
-    # Pull Requests aber nicht zur Last: er kann nur die eine Kennung schreiben, die es gibt.
+    # A collision is a finding about the FILE. It is recorded in the result, but is not held
+    # against the pull request's author: they can only write the one identifier that exists.
     datei_urteil = pruefe_umfangsdatei(pfad)
     kollision = kennung in (datei_urteil.get("kollisionen") or {})
     # THE WHOLE FORM, AT THE START, EXACTLY ONE IDENTIFIER, in that order, because each step is
@@ -261,13 +262,13 @@ def pruefe(*, branch: str, title: str, version: str,
                            f"{branch!r} gehoert aber zu {kennung} — Titel und Zweig zeigen auf "
                            "verschiedene Zeilen")
     if kollision:
-        # ROT, und die fremde Modellfamilie hat mich hier umgestimmt (16.09.2026). Meine erste
-        # Fassung liess so einen Pull Request gruen durch, mit einem Vermerk: der Autor koenne ja
-        # nur die eine Kennung schreiben, die es gibt. Ihr Einwand traegt: der ZWECK dieses Riegels
-        # ist die eindeutige Zaehlbarkeit, und ein Titel, den die Landekarte nicht zuordnen kann,
-        # verfehlt ihn — gleich wem die Schuld gehoert. Gruen hiesse hier: der Pull Request ist in
-        # Ordnung, obwohl sein Landen nicht zaehlbar ist. Und die Reparatur steht offen, sie ist
-        # nur nicht im Titel: die Kennung in der Umfangsdatei aufteilen.
+        # RED, and the foreign model family talked me around here (2026-09-16). My first version
+        # let a pull request like this through green, with a note: the author can, after all,
+        # only write the one identifier that exists. Their objection carries: the PURPOSE of this
+        # gate is unambiguous countability, and a title the landing card cannot assign misses it —
+        # whoever is at fault. Green here would mean: the pull request is fine, even though its
+        # landing is not countable. And the fix stands open, it just is not in the title: split
+        # the identifier in the scope file.
         zeilen = (pruefe_umfangsdatei(pfad).get("kollisionen") or {}).get(kennung, [])
         gruende.append(
             f"die Kennung {kennung!r} fuehrt {len(zeilen)} Zeilen der Umfangsdatei an {zeilen} — "
@@ -291,7 +292,7 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
         "umfang_zustand": zustand,
         "umfangszeilen_mit_zweig": len(zu_zweig),
         "mitlaeufer_ohne_zweig": sorted(mitlaeufer),
-        # AUSDRUECKLICH OFFEN, damit niemand mehr hineinliest als dasteht.
+        # EXPLICITLY STATED, so that nobody reads more into it than is there.
         "geprueft_wird": "der head-Zweig gegen die Umfangsdatei, NICHT der Diff",
         "nicht_geprueft": ("ob ein Pull Request auf einem nicht genannten Zweig inhaltlich eine "
                            "Umfangszeile beruehrt — das entscheidet dieser Riegel nicht"),

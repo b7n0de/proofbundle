@@ -62,7 +62,13 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     wrong one, and saying nothing about it turns a stale verdict into a wrong one.
     """
     ziel = "" if arbeitsbaum else "HEAD"
-    rc, aus = _git("diff", "--unified=0", basis + ("..." if ziel else ""), *( [ziel] if ziel else [] ), "--", "*.py")
+    # ONE ARGUMENT FOR THE RANGE. The first form passed `"<base>..."` and `"HEAD"` as two
+    # arguments; git answers that with its usage text and exit 129, and this tool then said
+    # "NOT MEASURABLE" -- on every run, including the pull request that introduced it (measured
+    # 2026-09-18, run 35287424973). A range is `<base>...<target>` in one string; the working
+    # tree form passes the base alone.
+    bereich = f"{basis}...{ziel}" if ziel else basis
+    rc, aus = _git("diff", "--unified=0", bereich, "--", "*.py")
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
     je_datei: dict[str, list[tuple[int, str]]] = {}

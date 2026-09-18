@@ -84,18 +84,18 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str = "6.1.0") -> dict
                 "grund": lage, "rc": 2}
     zu_zweig, mitlaeufer, _ = G.lies_umfang(pfad)
     mit = set(mitlaeufer)
-    # Eine Zeile MIT eigenem Zweig ist zaehlbar, eine Mitlaeufer-Zeile nie.
+    # A line WITH its own branch is countable, a rider line never.
     ohne_mitlaeufer = [(k, punkt) for k, punkt, zweig in zeilen if k not in mit]
 
-    # EINE KENNUNG, DIE ZWEI ZEILEN ANFUEHRT, IST NICHT ZAEHLBAR, und die erste Fassung dieser
-    # Datei zaehlte sie trotzdem. Sie sammelte gelandete Zeilen in einem Woerterbuch mit der
-    # KENNUNG als Schluessel, waehrend der Nenner ueber ZEILEN lief. Gemessen am 6.1.0-Umfang
-    # fuehren A1 und A3 je zwei Zeilen an, also konnte der Zaehler den Nenner nie erreichen, und
-    # die fehlenden Zeilen haetten wie unerledigte Arbeit ausgesehen statt wie eine mehrdeutige
-    # Datei. Genau der Fehler, vor dem der Docstring des Tors warnt, im Zaehler statt im Tor.
+    # AN IDENTIFIER THAT LEADS TWO LINES IS NOT COUNTABLE, and the first version of this file
+    # counted it anyway. It collected landed lines in a dictionary keyed by the IDENTIFIER, while
+    # the denominator ran over LINES. Measured on the 6.1.0 scope, A1 and A3 each lead two lines,
+    # so the numerator could never reach the denominator, and the missing lines would have looked
+    # like unfinished work instead of an ambiguous file. Exactly the mistake the gate's own
+    # docstring warns against, here in the counter instead of in the gate.
     #
-    # Sie sind deshalb eine EIGENE Menge mit eigenem Namen. Ein Titel mit so einer Kennung ist
-    # nicht zuordenbar, und das ist ein Befund ueber die Umfangsdatei, nicht ueber den Autor.
+    # They are therefore their OWN set with its own name. A title with such an identifier is not
+    # assignable, and that is a finding about the scope file, not about the author.
     von_kennung: dict[str, int] = {}
     for k, _punkt in ohne_mitlaeufer:
         von_kennung[k] = von_kennung.get(k, 0) + 1
@@ -128,11 +128,11 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str = "6.1.0") -> dict
         "version": version,
         "zeilen_gesamt": len(zeilen),
         "zeilen_zaehlbar": len(zaehlbar),
-        # ZEILEN, NICHT KENNUNGEN, und das ist derselbe Fehler noch einmal eine Ebene tiefer.
-        # Die erste Fassung meldete die Zahl der Mitlaeufer-KENNUNGEN, neun, waehrend der Nenner
-        # mit Mitlaeufer-ZEILEN rechnet, zehn. Eine Mitlaeufer-Kennung fuehrt zwei Zeilen an, also
-        # kam ein Leser auf 55 minus 9 minus 4 gleich 42 und las 41. Eine Zahl im Kopf, die sich
-        # nicht nachrechnen laesst, ist keine Messung, sondern eine Behauptung mit Ziffern.
+        # LINES, NOT IDENTIFIERS, and that is the same mistake once more, one level deeper.
+        # The first version reported the number of rider IDENTIFIERS, nine, while the denominator
+        # counts in rider LINES, ten. A rider identifier leads two lines, so a reader landed on
+        # 55 minus 9 minus 4 equals 42 and read 41. A number in your head that cannot be
+        # recalculated is not a measurement, but a claim dressed in digits.
         "mitlaeufer_kennungen": sorted(mit),
         "mitlaeufer_zeilen": len(zeilen) - len(ohne_mitlaeufer),
         "kennung_mehrdeutig": mehrdeutig,
@@ -162,8 +162,8 @@ def main(argv=None) -> int:
     elif d["zustand"] != "gemessen":
         print(f"landing card: {d['zustand']} — {d.get('grund')}")
     else:
-        # Die Kopfzeile nennt die Posten so, dass die Summe aufgeht: Gesamt minus Mitlaeufer-
-        # Zeilen minus mehrdeutige Zeilen ergibt die zaehlbaren.
+        # The header line names the entries so that the sum works out: total minus rider lines
+        # minus ambiguous lines leaves the countable ones.
         print(f"landing card {d['version']}: {d['gelandet']} of {d['zeilen_zaehlbar']} countable "
               f"lines landed")
         print(f"  {d['zeilen_gesamt']} lines total, minus {d['mitlaeufer_zeilen']} rider lines "

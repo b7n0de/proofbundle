@@ -80,3 +80,34 @@ def test_die_schwelle_verlangt_zwei_listenwoerter(tmp_path):
     assert NZ.SCHWELLE == 2
     assert len(NZ.DP.treffer("the die is cast")) < NZ.SCHWELLE
     assert len(NZ.DP.treffer("der Riegel und die Zeile")) >= NZ.SCHWELLE
+
+
+def test_the_git_range_is_measurable_on_a_real_repository(tmp_path, monkeypatch):
+    """The first version built the range as two arguments (`"<base>..."`, `"HEAD"`); git
+    replied with its usage text and exit 129, and the guard reported NOT MEASURABLE on every
+    run -- including the pull request that carried it (run 35287424973). No test here had ever
+    let it touch git. This one does: a real repository, a base commit, a commit that adds a
+    German comment, and the guard must SEE the added line."""
+    import subprocess
+    repo = tmp_path / "r"
+    repo.mkdir()
+    def git(*a):
+        subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)
+    git("init", "-q")
+    (repo / "m.py").write_text("x = 1\n", encoding="utf-8")
+    git("add", "m.py")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base")
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
+                          text=True, check=True).stdout.strip()
+    (repo / "m.py").write_text("x = 1\n# das ist eine deutsche Zeile und sie wird gesehen\n", encoding="utf-8")
+    git("add", "m.py")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "change")
+    monkeypatch.setattr(NZ, "REPO", repo)
+    je_datei, grund = NZ._neue_zeilen(base)
+    assert not grund.startswith("NOT MEASURABLE"), grund
+    assert "m.py" in je_datei and any("deutsche" in z for _, z in je_datei["m.py"]), je_datei
+    # and the working-tree form measures the uncommitted state
+    (repo / "m.py").write_text("x = 1\n# now english\n", encoding="utf-8")
+    je_datei, grund = NZ._neue_zeilen(base, arbeitsbaum=True)
+    assert not grund.startswith("NOT MEASURABLE"), grund
+    assert any("english" in z for _, z in je_datei.get("m.py", [])), je_datei
