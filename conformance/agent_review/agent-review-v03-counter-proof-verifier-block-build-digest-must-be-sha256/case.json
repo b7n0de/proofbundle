@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 (docs/VERIFIER_BLOCK.md).",
+  "caseId": "agent-review-v03-counter-proof-verifier-block-build-digest-must-be-sha256",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.3",
+  "rationale": "Der Build-Digest ist die Groesse, ueber die eine relying party den Block mit dem Test-Result-Statement verbindet -- per Gleichheit. Ein Wert, der keine sha256-Form hat, kann nie gleich sein und wuerde als Bindung gelesen, die keine ist. Verweigert.",
+  "role": "counter_proof",
+  "rule": "P19",
+  "specRefs": [
+    "docs/VERIFIER_BLOCK.md",
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/verifier_block.py"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.3 -- P19 Verifier-Block, gebaut 18.09.2026 zum Release-Umfang 6.1.0 (docs/VERIFIER_BLOCK.md).",
+  "caseId": "agent-review-v03-counter-proof-verifier-block-must-be-self-declared",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.3",
+  "rationale": "Der Block ist eine Selbstmessung des erzeugenden Builds. Eine hoehere Sprosse (runnerObserved, independentlyWitnessed) braucht einen Zeugen ausserhalb des Erzeugers, den diese Fassung nicht hat -- dieselbe Regel, die das Predicat seit v0.1 fuer jede Zusicherung traegt. Ein Block, der sich selbst hoeher einstuft, wird verweigert.",
+  "role": "counter_proof",
+  "rule": "P19",
+  "specRefs": [
+    "docs/VERIFIER_BLOCK.md",
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/verifier_block.py"
+  ]
+}

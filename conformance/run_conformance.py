@@ -58,9 +58,12 @@ NONE = "none"        # the case did not run at all
 
 SKIP_ANCHOR = "anchor-subcheck"
 SKIP_WHOLE = "whole-case"
+SKIP_FULL_SCHEMA = "full-schema-validator"
 _SKIP_REASON = {
     SKIP_ANCHOR: "anchor sub-check skipped (opentimestamps not installed)",
     SKIP_WHOLE: "case not run (needs the [anchors] extra)",
+    SKIP_FULL_SCHEMA: "case schema checked by the structural floor only (install the [test] extra "
+                      "for the full JSON Schema validator)",
 }
 
 
@@ -762,7 +765,11 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         #
         # ERZEUGER UND PRUEFER TRAGEN DIESELBE FASSUNG. Das war schon vorher der Punkt; jetzt
         # haengen beide an derselben Variablen, und ein v0.2-Fall waehlt beide Seiten zugleich.
-        _legacy = case.get("predicateVersion", "v0.1") != "v0.2"
+        _fassung = case.get("predicateVersion", "v0.1")
+        if _fassung not in ("v0.1", "v0.2", "v0.3"):
+            raise ValueError(f"{case.get('id')!r}: unknown predicateVersion {_fassung!r} — a case "
+                             "names v0.1, v0.2 or v0.3, it does not inherit one")
+        _legacy = _fassung == "v0.1"
         try:
             _env = ar.emit_agent_review(doc, _sk, legacy_v01=_legacy)
         except ar.AgentReviewError:
@@ -784,7 +791,11 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
                     _env, _sk.public_key().public_bytes_raw(),
                     expected_subject_digest=ar._subject_digest(doc))
             else:
-                _r = ar.verify_agent_review_v02(
+                # v0.3 (6.1.0) carries the verifier block and has its own verifier; the v0.2
+                # verifier would refuse every v0.3 receipt at the predicateType.
+                _verifier = (ar.verify_agent_review_v03 if _fassung == "v0.3"
+                             else ar.verify_agent_review_v02)
+                _r = _verifier(
                     _env, _sk.public_key().public_bytes_raw(),
                     expected_subject_digest=ar._subject_digest(doc),
                     policy=ar.load_policy())
@@ -839,8 +850,9 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
-    if case.get("predicateVersion") != "v0.2":
-        raise ValueError("a policyDecision case is a v0.2 case and must say so (predicateVersion)")
+    _fassung = case.get("predicateVersion")
+    if _fassung not in ("v0.2", "v0.3"):
+        raise ValueError("a policyDecision case is a v0.2 or v0.3 case and must say so (predicateVersion)")
     params = case.get("params") or {}
     doc = json.loads(_fall_datei(case_dir, case.get("input") or "predicate.json").read_text())
     sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
@@ -852,8 +864,9 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
         policy = ar.load_policy()
     else:
         policy = ar.load_policy(_fall_datei(case_dir, str(wahl)))
-    r = ar.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
-                                   expected_subject_digest=ar._subject_digest(doc), policy=policy)
+    _verifier = ar.verify_agent_review_v03 if _fassung == "v0.3" else ar.verify_agent_review_v02
+    r = _verifier(env, sk.public_key().public_bytes_raw(),
+                  expected_subject_digest=ar._subject_digest(doc), policy=policy)
     return {"decision": r.get("policy_decision"), "ok": r.get("ok"),
             "codes": list(r.get("reason_codes") or []),
             "advisory": list(r.get("advisory_codes") or []), "policy_name": r.get("policy_name"),
@@ -908,7 +921,42 @@ _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _
              "cap1_document": _check_cap1_document}
 
 
-def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> int:
+def schreibe_test_result_statement(results: list, ziel: pathlib.Path) -> dict:
+    """The run as a SEPARATE, joinable object: an in-toto test-result statement (P19, 6.1.0).
+
+    Subject: the digest of the build that ran the corpus, measured by `proofbundle.verifier_block`
+    from the package's own files. Configuration: the vector set, digest over manifest AND every
+    case file. Result: the corpus rule, a skipped check is never a passed one -- any failure is
+    FAILED, any case that ran partially or not at all makes the run WARNED, PASSED only when every
+    case ran in full. A receipt cites this statement by its canonical digest, and a relying party
+    joins the two by equality of digests, without trusting the issuer for the join.
+
+    Written UNSIGNED. Signing is the producer's step (`verifier_block.sign_test_result_statement`
+    with the key that signs the receipt); a runner that signed with a key of its own would be one
+    more identity nobody can look up.
+    """
+    from proofbundle import __version__, verifier_block  # noqa: PLC0415
+    build = verifier_block.measure_build()
+    vs = verifier_block.measure_vector_set(ROOT)
+    stmt = verifier_block.build_test_result_statement(build=build, vector_set=vs, results=results,
+                                                      version=__version__)
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    ziel.write_text(json.dumps(stmt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return stmt
+
+
+def _schreibe_fehlstatement(eintraege: list, ziel: pathlib.Path, grund: str) -> None:
+    """A FAILED statement for a run that ended before its cases -- one place for every early exit,
+    so no exit can be the one without a statement again."""
+    try:
+        schreibe_test_result_statement(eintraege, ziel)
+        print(f"[conformance] test-result statement -> {ziel} (result FAILED, {grund})")
+    except Exception as e:  # noqa: BLE001
+        print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
+
+
+def run(*, require_anchors: bool = False, require_full_schema: bool = False,
+        test_result_out: "pathlib.Path | None" = None) -> int:
     manifest = json.loads((ROOT / "manifest.json").read_text())
     cases = manifest.get("cases", [])
     # F1 corpus-integrity precondition (schema-valid + cross-format-consistent) before any case
@@ -925,12 +973,30 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> 
         # its counterpart one level up, and the authoritative CI leg sets both.
         print(f"[conformance] corpus integrity NOT FULLY CHECKED and --require-full-schema was "
               f"given: {cross_format.schema_check_name()}")
+        if test_result_out is not None:
+            # WRITTEN WHATEVER THE OUTCOME holds here too (Codex round one on PR 224, P2,
+            # measured: rc 1 and no file). "the required validator is unavailable" and "no
+            # evidence was produced" must stay two different observations.
+            _schreibe_fehlstatement(
+                [{"caseId": f"corpus-integrity: full JSON Schema validator unavailable "
+                            f"({cross_format.schema_check_name()})"[:200], "ok": False, "scope": NONE}],
+                pathlib.Path(test_result_out), "required validator unavailable")
         return 1
     if not cf_ok:
         print(f"[conformance] corpus integrity FAIL ({len(cf_problems)} problem(s)) "
               f"[schema checked by: {cross_format.schema_check_name()}]:")
         for pr in cf_problems:
             print("  -", pr)
+        if test_result_out is not None:
+            # THE MOST SEVERE FAILURE CLASS MUST NOT BE THE ONE WITHOUT A STATEMENT (lens C,
+            # 2026-09-18, P1): a corpus that fails its integrity precondition ran no case, and the
+            # first draft returned here before the statement was written -- "no statement" and
+            # "the corpus is broken" were the same observation. The statement now says it: one
+            # FAILED entry per problem, no case passed, no case warned.
+            _schreibe_fehlstatement(
+                [{"caseId": f"corpus-integrity: {pr}"[:200], "ok": False, "scope": NONE}
+                 for pr in cf_problems] or [{"caseId": "corpus-integrity", "ok": False, "scope": NONE}],
+                pathlib.Path(test_result_out), "corpus integrity")
         return 1
     results: list[dict] = []
     for rel in cases:
@@ -984,6 +1050,18 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> 
         except Exception as e:
             results.append(_fail(rel, f"{type(e).__name__}: {e}"))
 
+    if not cross_format.has_full_schema_check():
+        # A RUN ON THE REDUCED FLOOR IS NOT A FULL RUN, CASE BY CASE (Codex round one on PR 224,
+        # P1, measured: with `jsonschema` absent and without --require-full-schema every case kept
+        # `scope: full`, and the statement recorded PASSED for a run whose full schema validation
+        # never happened). The note below said so in prose; the results said the opposite in the
+        # field the statement is built from. A check that ran in a smaller form is a partial
+        # check, so every case that ran in full is downgraded here, with the reason named, and
+        # the headline, the per-case list and the statement all say WARNED for the same reason.
+        for r in results:
+            if r["ok"] and r.get("scope") == FULL:
+                r["scope"] = PARTIAL
+                r["skipped"] = list(r.get("skipped") or ()) + [SKIP_FULL_SCHEMA]
     ok = all(r["ok"] for r in results)
     gezaehlt = {k: sum(1 for r in results if r["ok"] and r.get("scope") == k)
                 for k in (FULL, PARTIAL, NONE)}
@@ -1021,6 +1099,18 @@ def run(*, require_anchors: bool = False, require_full_schema: bool = False) -> 
         # a check that ran in a smaller form must say so where its result is read.
         print(f"  note: case schemas were checked by the {cross_format.schema_check_name()} — "
               "install the [test] extra for the full validator")
+    if test_result_out is not None:
+        # WRITTEN WHATEVER THE OUTCOME. A statement that only exists for green runs would make
+        # "no statement" and "the run failed" the same observation.
+        try:
+            stmt = schreibe_test_result_statement(results, pathlib.Path(test_result_out))
+        except Exception as e:  # noqa: BLE001 -- the run's verdict stands; the statement is reported
+            print(f"[conformance] test-result statement NOT written: {type(e).__name__}: {e}")
+            return 1
+        from proofbundle import verifier_block  # noqa: PLC0415
+        print(f"[conformance] test-result statement -> {test_result_out} "
+              f"(result {stmt['predicate']['result']}, subject {stmt['subject'][0]['digest']['sha256'][:12]}…, "
+              f"statementDigest {verifier_block.statement_digest(stmt)[:12]}…)")
     return 0 if ok else 1
 
 
@@ -1031,9 +1121,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--require-full-schema", action="store_true",
                    help="fail (do not fall back to the structural floor) if the full JSON Schema "
                         "validator did not judge the corpus")
+    p.add_argument("--test-result-out", type=pathlib.Path, default=None,
+                   help="write the run as an unsigned in-toto test-result statement (subject: the "
+                        "measured build digest; configuration: the vector set) to this path")
     args = p.parse_args(argv)
     return run(require_anchors=args.require_anchors,
-               require_full_schema=args.require_full_schema)
+               require_full_schema=args.require_full_schema,
+               test_result_out=args.test_result_out)
 
 
 if __name__ == "__main__":

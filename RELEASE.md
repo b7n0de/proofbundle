@@ -158,3 +158,65 @@ sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
 #   pip download proofbundle==X.Y.Z --no-deps --no-binary :all: -d /tmp/pb
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```
+
+### What these commands establish, and what they do not
+
+They establish two things and leave a third open. Stated here rather than in a footnote, because
+this is the page where a reader decides they have checked the release.
+
+**Established.** The bytes you downloaded are the bytes listed in `SHA256SUMS`, and
+`gh attestation verify` shows that this wheel was built by this repository's release workflow from
+a specific commit, signed through Sigstore with a short-lived keyless certificate. The publish step
+additionally refuses to upload anything whose digest differs from the attested subject, so the
+artifact on PyPI is the artifact that was attested.
+
+**Not established: that an adversarial audit holds a verdict for that commit.** The release workflow
+does gate on one — `scripts/pre_tag_audit_gate.py --strict` is its first blocking check, and it
+verifies an ed25519-signed receipt bound to the tree digest, not a prose line. But that receipt is
+**not something you receive**. It lives in `audit_artifacts/` in the repository, which `MANIFEST.in`
+deliberately prunes from the sdist, and it is not among the release assets. Its trust root is a
+public key committed in the same repository whose release you are assessing.
+
+So the audit gate is a control **we** run on ourselves, and the receipt is evidence **for us**.
+
+Be precise about what is missing, because it is not the arithmetic. If you clone the repository you
+*can* check the signature — it is an ordinary ed25519 verification against a key in the tree. What
+you cannot do from outside is establish the **authority** behind it: the key that vouches for the
+verdict is published by the same party whose release the verdict concerns, so verifying it tells you
+the statement was made by whoever controls that repository, and nothing further. And if you only
+installed from PyPI, you never received the receipt at all.
+
+"You can check the signature" is a command, not a promise. From a clone, at the commit that
+`gh attestation verify` names as the source of the wheel:
+
+```bash
+git clone https://github.com/b7n0de/proofbundle && cd proofbundle
+git checkout <the source commit named by the attestation>
+python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+```
+
+It reads the receipt, the pinned key and the gate source **from the commit**, never from the
+working tree, takes the tree digest over the checked-out commit with the same library the release
+gate uses, and verifies the ed25519 signature. Exit 0 means: the holder of the pinned key signed a
+receipt over exactly this tree and this version, and the receipt records an audit run that exited 0.
+Exit 1 means it did not — no receipt in the commit, a receipt made for another commit, or a receipt
+whose signature is right and whose subject is not this tree; each is a contract with a test that
+plants the defect. Exit 2 means the question could not be measured: the checkout is not at the named
+commit, or it carries local modifications or untracked files under `scripts/` or `src/`. The second
+refusal exists because the verifier code runs from your checkout, not from the commit — a review
+measured that one uncommitted edit to the receipt library turned a garbage receipt into a pass while
+`HEAD` stayed put — so the script refuses to judge from code that nobody pinned. The limit of the
+previous paragraph is printed with every verdict, the passing one included, because the script and
+the library it calls are themselves files of the tree they verify.
+
+A bytecode cache next to the sources is not code the verifier runs. Python would execute a
+`.pyc` under `__pycache__` in place of an unmodified `.py` whose header it matches, and git never
+lists ignored paths, so the checkout guard above cannot see one. The verifier therefore points
+Python's cache at a fresh temporary directory for the whole run: nothing under the judged tree's
+`__pycache__` is read or written. What stays trusted, and is not measured: the interpreter you
+run and its standard library.
+
+This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
+It is written here so that "I verified the release" means what it actually means — the artifact's
+origin and bytes are verifiable by you today; the audit verdict behind it rests on trusting this
+repository.

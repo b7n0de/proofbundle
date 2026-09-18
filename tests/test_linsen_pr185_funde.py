@@ -107,9 +107,19 @@ def test_f2_policy_auf_einem_v01_umschlag_ist_ein_urteil_kein_typeerror():
 
 
 def test_f2_ein_argument_das_keine_fassung_kennt_faellt_fuer_beide_gleich():
-    for pred, legacy in ((_v02(), False), (_v01(), True)):
+    # since 2026-09-18 (P19) THREE versions: v0.3 = v0.2 plus producer.verifier. The message
+    # therefore says "every predicate version"; the property is the same, BEFORE the envelope is
+    # read, equal for every version.
+    from proofbundle import verifier_block as vb  # noqa: PLC0415
+    v03 = vb.attach(_v02(), {
+        "implementation": "proofbundle", "version": "6.1.0",
+        "build": {"digest": {"sha256": "1" * 64}, "source": "source-tree"},
+        "vectorSet": {"name": "proofbundle.conformance.manifest.v1", "digest": {"sha256": "2" * 64},
+                      "cases": 130},
+        "assurance": "selfDeclared"})
+    for pred, legacy in ((_v02(), False), (_v01(), True), (v03, False)):
         env = ar.emit_agent_review(pred, SK, legacy_v01=legacy)
-        with pytest.raises(TypeError, match="unknown to both"):
+        with pytest.raises(TypeError, match="unknown to every predicate version"):
             ar.verify_agent_review_any(env, PK, polcy=ar.load_policy())
 
 

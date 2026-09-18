@@ -282,10 +282,15 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
 
     def test_die_zeilenzahl_des_echten_umfangs_ist_die_zahl_des_auftrags(self):
         """The order names 55. Measured, it is 55 LINES — not 52 identifiers and not 44
-        branches. The counting unit was the point where my first calculation went wrong."""
+        branches. The counting unit was the point where my first calculation went wrong.
+
+        Since 2026-09-18 the scope carries one more line, P19 (the verifier block, owner order
+        of 2026-09-18T06:54Z, pull request 224, branch feat/610-verifier-block), so the measured
+        number is 56. The unit is still the LINE; a scope that grows by an ordered item grows by
+        exactly one line here, and this number moves with it, never silently."""
         zeilen, zustand = GATE.fuehrende_kennungen(self.echt)
         self.assertEqual(zustand, "gemessen")
-        self.assertEqual(len(zeilen), 55)
+        self.assertEqual(len(zeilen), 56)
 
     def test_der_echte_umfang_traegt_drei_doppelt_vergebene_kennungen(self):
         """A1, A2 and A3 each appear twice: once from the collective order, once from

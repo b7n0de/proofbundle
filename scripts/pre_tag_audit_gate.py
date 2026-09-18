@@ -304,10 +304,27 @@ def _receipt_candidates(repo: Path, version: str) -> list:
 _LIB = None
 
 
+#: Same neighbour as in scripts/verify_pre_tag_receipt.py (lens C, 2026-09-18): a poisoned `.pyc`
+#: under the judged tree's `__pycache__` would be executed in place of the committed source, and
+#: no git status shows it. The cache of this run lives in a fresh directory instead.
+_CACHE_DIR = None
+
+
+def _bytecode_cache_elsewhere() -> None:
+    global _CACHE_DIR
+    if _CACHE_DIR is None:
+        import sys as _sys  # noqa: PLC0415
+        import tempfile as _tempfile  # noqa: PLC0415
+        _CACHE_DIR = _tempfile.mkdtemp(prefix="pre_tag_audit_gate_pyc_")
+        _sys.pycache_prefix = _CACHE_DIR
+        _sys.dont_write_bytecode = True
+
+
 def _lib():
     global _LIB
     if _LIB is None:
         import importlib.util as _ilu  # noqa: PLC0415
+        _bytecode_cache_elsewhere()
         pfad = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
         spec = _ilu.spec_from_file_location("_pre_tag_receipt_lib_by_path", pfad)
         if spec is None or spec.loader is None:
@@ -356,6 +373,7 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     # CRASHES on a receipt-present tree instead of ruling on it (local-green -> CI-red). src is the tree
     # the receipt already binds via subject_tree_digest, so importing it here changes no trust surface;
     # it only lets the gate run where it previously died. Mirrors audit_candidate_matrix.py's src setup.
+    _bytecode_cache_elsewhere()
     _src = str(Path(repo).resolve() / "src")
     if _src not in _sys.path:
         _sys.path.insert(0, _src)
