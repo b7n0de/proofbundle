@@ -1611,5 +1611,339 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         self.assertEqual(d["missing"], ["test (3.10)"])
 
 
+class TestTheCollectorJob(unittest.TestCase):
+    """ONE CONTEXT THAT ALWAYS REPORTS. Owner decision A on card OA-3c67b06ad6 (2026-09-16): an
+    always-running collector job becomes the required context, so that a context nobody produces
+    can no longer hold a pull request BLOCKED with nothing red on it.
+
+    Two shapes of that job are wrong in a way this gate must see. A collector WITHOUT an
+    `always()`/`!cancelled()` guard is skipped whenever a needed job fails, and a skipped required
+    check reads as passed: the one job built to block on failures would block on none. And the
+    first draft of this very gate called `if: ${{ !cancelled() }}` a NAMED CONDITION, which would
+    have made the collector `produced-only-if` -- red from its first run, for the wrong reason.
+    Every case below can go red; the planted-defect ones assert the catch.
+    """
+
+    GUARDED = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+    ALWAYS_FORM = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: always()
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+    UNGUARDED = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+    FAILURE_ONLY = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+
+    @staticmethod
+    def _zustand(r: dict) -> dict:
+        return {e["context"]: e["state"] for e in r["per_context"]}
+
+    def test_a_status_function_only_condition_is_produced_not_gated(self):
+        """The shape GitHub recommends for a summarising required check is unconditional here."""
+        b = Baum(self, {"ci.yml": self.GUARDED}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        self.assertEqual(self._zustand(r)["all-checks-passed"], G.ALWAYS)
+        self.assertEqual(r["skipped_reads_as_passed"], [])
+        self.assertTrue(any("status function" in h for h in r["status_function_conditions"]),
+                        "the report must SAY the condition was read as a status function")
+        self.assertEqual(b.rc("--drift-marker", ""), 0)
+
+    def test_always_is_read_the_same_way(self):
+        b = Baum(self, {"ci.yml": self.ALWAYS_FORM}, ["coverage", "all-checks-passed"])
+        self.assertEqual(self._zustand(b.urteil())["all-checks-passed"], G.ALWAYS)
+        self.assertEqual(b.rc("--drift-marker", ""), 0)
+
+    def test_a_collector_without_the_guard_is_red_because_skipped_reads_as_passed(self):
+        """THE PLANTED DEFECT. Same tree, the guard removed. The context is still produced -- it
+        is not absent and not gated -- and the gate must be red all the same."""
+        b = Baum(self, {"ci.yml": self.UNGUARDED}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        self.assertEqual(self._zustand(r)["all-checks-passed"], G.ALWAYS)
+        self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["all-checks-passed"])
+        self.assertIn("skipped", r["skipped_reads_as_passed"][0]["why"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1, "a required check that is skipped when "
+                                                        "its needs fail must not exit 0")
+
+    def test_the_missing_guard_is_the_only_difference(self):
+        """Catch proof of the catch proof: GUARDED and UNGUARDED differ in one line, and only the
+        second is red. Otherwise the case above could be red for an unrelated reason."""
+        self.assertEqual(self.GUARDED.replace("    if: ${{ !cancelled() }}\n", ""), self.UNGUARDED)
+        gut = Baum(self, {"ci.yml": self.GUARDED}, ["coverage", "all-checks-passed"])
+        schlecht = Baum(self, {"ci.yml": self.UNGUARDED}, ["coverage", "all-checks-passed"])
+        self.assertEqual((gut.rc("--drift-marker", ""), schlecht.rc("--drift-marker", "")), (0, 1))
+
+    def test_an_unguarded_needs_job_that_nobody_requires_does_not_turn_the_gate_red(self):
+        """`mutation` in this repository has needs and an event condition and is required by
+        nobody. The class is about REQUIRED contexts; an advisory job may be skipped."""
+        b = Baum(self, {"ci.yml": self.UNGUARDED}, ["coverage"])
+        r = b.urteil()
+        self.assertEqual(r["skipped_reads_as_passed"], [])
+        self.assertEqual(b.rc("--drift-marker", ""), 0)
+
+    def test_failure_alone_stays_a_named_condition(self):
+        """Only `always()` and `!cancelled()` are unconditional. `failure()` runs the job only
+        after a failure, which IS a condition, and the gate must keep saying so."""
+        b = Baum(self, {"ci.yml": self.FAILURE_ONLY}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        e = [x for x in r["per_context"] if x["context"] == "all-checks-passed"][0]
+        self.assertEqual(e["state"], G.GATED)
+        self.assertIn("failure()", e["condition"])
+
+    def test_a_collector_that_vanishes_from_the_workflow_is_absent(self):
+        """The second red case the owner asked for: the collector disappears from ci.yml while
+        the ruleset still requires it. That is the original class, and it must still be caught."""
+        b = Baum(self, {"ci.yml": CI}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        self.assertEqual(self._zustand(r)["all-checks-passed"], G.ABSENT)
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    def test_live_a_status_function_arrives_on_any_event(self):
+        """The live evaluator reads status functions too, inside `${{ }}` and in a mix."""
+        ev = TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(event="pull_request")
+        self.assertTrue(G.bedingung_am_ereignis("${{ !cancelled() }}", ev))
+        self.assertTrue(G.bedingung_am_ereignis("always()", ev))
+        self.assertFalse(G.bedingung_am_ereignis("cancelled()", ev))
+        self.assertTrue(G.bedingung_am_ereignis("!cancelled() && github.event_name == 'pull_request'", ev))
+        self.assertFalse(G.bedingung_am_ereignis(
+            "!cancelled() && github.event_name == 'pull_request'",
+            TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(event="push")))
+
+    def test_live_the_guarded_collector_arrives_on_an_unlabelled_pull_request(self):
+        """The whole point: on the event that held pull request 218, the collector arrives."""
+        b = Baum(self, {"ci.yml": self.GUARDED}, ["coverage", "all-checks-passed"])
+        d = G.lebend(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(labels=()), b.decl, b.wf)
+        self.assertEqual(d["verdict"], G.ALWAYS)
+        self.assertEqual(d["missing"], [])
+
+    MATRIX_NEEDS_UNGUARDED = """
+name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+  test:
+    needs: [setup]
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+
+    def test_a_matrix_job_with_needs_and_no_guard_is_caught_under_its_expanded_name(self):
+        """LENS A, P1 (2026-09-17): the trap was invisible exactly on a matrix job. The unguarded
+        list was built with an empty value set, so the job reported its bare id `test`, the
+        required context `test (3.10)` never matched, and the gate stayed green. Same shape,
+        required by the expanded name, must be red."""
+        b = Baum(self, {"ci.yml": self.MATRIX_NEEDS_UNGUARDED}, ["setup", "test (3.10)"])
+        r = b.urteil()
+        self.assertEqual(self._zustand(r)["test (3.10)"], G.ALWAYS)
+        self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["test (3.10)"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    def test_a_compound_condition_with_a_status_function_is_guarded_but_still_named(self):
+        """LENS A, P2: GitHub replaces the implicit success() as soon as ANY status function is
+        in the condition, so `always() && x` is guarded against the skip trap -- and it is still a
+        named condition for the event. Two questions, two answers; the first draft gave one."""
+        ci = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+        b = Baum(self, {"ci.yml": ci}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        e = [x for x in r["per_context"] if x["context"] == "all-checks-passed"][0]
+        self.assertEqual(e["state"], G.GATED, "the event part of the condition still gates")
+        self.assertEqual(r["skipped_reads_as_passed"], [],
+                         "a status function anywhere in the condition suppresses the implicit success()")
+        self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["x"], "if": "!cancelled() || false"}))
+        self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["x"], "if": "success()"}),
+                        "an explicit success() is the default and guards nothing")
+        # THE TRAP IS "does not run when a need failed". `failure()` runs on failure and can go
+        # red, so it guards; a bare `cancelled()` runs only on a cancelled run and is skipped on
+        # every ordinary failure, so it does not (un, round 1, 2026-09-18: the first regex
+        # counted `cancelled()` as a guard because it searched for the word, not the truth value).
+        self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["x"], "if": "failure()"}))
+        self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["x"], "if": "${{ cancelled() }}"}),
+                        "cancelled() alone is skipped on an ordinary failure")
+        self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["x"], "if": "!cancelled() && failure()"}))
+
+    def test_whitespace_and_case_inside_the_status_function_are_tolerated(self):
+        """LENS A, P3 and lens C: `always(  )` and `Always()` are what GitHub reads as always()."""
+        for form in ("${{ always(  ) }}", "Always()", "${{ !CANCELLED( ) }}", "!cancelled( )"):
+            with self.subTest(form=form):
+                self.assertTrue(G._NUR_STATUSFUNKTION.match(" ".join(form.split())), form)
+                self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["x"], "if": form}), form)
+        ev = TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(event="push")
+        self.assertTrue(G.bedingung_am_ereignis("${{ Always(  ) }}", ev))
+        self.assertTrue(G.bedingung_am_ereignis("!cancelled( )", ev))
+
+    def test_a_guard_with_a_dead_event_part_is_caught_by_the_other_two_axes(self):
+        """un, round 2 (2026-09-18): `always() && false` carries a guard and never runs, so the
+        guard axis alone would call it fine. MEASURED before the reply: the structure axis reports
+        it `produced-only-if` (newly gated, exit 1) and the live axis reports WILL NOT ARRIVE
+        (exit 1). Three axes, and this shape falls through two of them. Bound here so it stays so."""
+        ci = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: ${{ always() && false }}
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+        b = Baum(self, {"ci.yml": ci}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        e = [x for x in r["per_context"] if x["context"] == "all-checks-passed"][0]
+        self.assertEqual(e["state"], G.GATED)
+        self.assertEqual(r["skipped_reads_as_passed"], [], "the guard axis is not the one that catches it")
+        self.assertEqual(b.rc("--drift-marker", ""), 1, "newly gated, not accepted: red")
+        d = G.lebend(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(labels=()), b.decl, b.wf)
+        self.assertEqual(d["verdict"], G.ABSENT)
+        self.assertEqual(d["missing"], ["all-checks-passed"])
+
+    # ---- this repository -------------------------------------------------------------------
+
+    def _ci(self):
+        pfad = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+        if not pfad.is_file():
+            self.skipTest("ci.yml not readable here")
+        return pfad, G._lade(pfad)
+
+    def test_this_repository_carries_a_guarded_collector_over_the_required_ci_contexts(self):
+        """Not a fixture. The collector in ci.yml needs exactly the jobs that produce the contexts
+        the declaration requires from ci.yml (everything but `guard`, which lives in another
+        file), and it carries the guard."""
+        _, doc = self._ci()
+        job = doc["jobs"].get("all-checks-passed")
+        self.assertIsNotNone(job, "ci.yml has no all-checks-passed job")
+        self.assertTrue(G._NUR_STATUSFUNKTION.match(" ".join(str(job.get("if", "")).split())),
+                        "the collector must carry an always()/!cancelled() guard")
+        self.assertFalse(G.ohne_wache_trotz_needs(job))
+        verlangt = json.loads(G.DECLARATION.read_text(encoding="utf-8"))["required_contexts"]
+        aus_ci = [k for k in verlangt if k != "guard"]
+        self.assertTrue(aus_ci, "the declaration names no ci.yml context")
+        needs = set(job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
+        for k in aus_ci:
+            job_id = k.split(" (")[0]
+            self.assertIn(job_id, needs, f"required context {k!r} is produced by job {job_id!r}, "
+                                          f"which the collector does not need")
+
+    def test_the_full_matrix_copy_is_the_matrix_condition_byte_for_byte(self):
+        """TWO COPIES OF ONE CONDITION, held together by this contract. The collector evaluates
+        the matrix condition to decide whether the full matrix ran; the matrix owns the original.
+        Compared through the same digest the ratchet binds to."""
+        pfad, doc = self._ci()
+        _, _, bedingung, _ = G.matrix_werte(doc["jobs"]["test"], pfad.read_text(encoding="utf-8"))
+        self.assertTrue(bedingung, "the matrix condition was not readable")
+        env = doc["jobs"]["all-checks-passed"]["steps"][0]["env"]["FULL_MATRIX"]
+        kopie = " ".join(str(env).split())
+        self.assertTrue(kopie.startswith("${{") and kopie.endswith("}}"))
+        kopie = kopie[3:-2].strip()
+        self.assertEqual(G.bedingungs_digest(kopie), G.bedingungs_digest(bedingung),
+                         f"the collector's copy drifted from the matrix condition:\n"
+                         f"  matrix:    {bedingung}\n  collector: {kopie}")
+
+
+class TestTheCollectorScript(unittest.TestCase):
+    """THE SCRIPT INSIDE THE JOB, executed -- not read. Lens B (2026-09-17) ran it by hand across
+    eight synthetic inputs and found two things reading could not: on a `push` to main the full
+    matrix condition is false, so the collector would have gone red on every commit that lands
+    (the cry-wolf inverted onto main); and a key missing from `needs` read as passed. Both are
+    now decided in the script and held here by running the real text out of ci.yml.
+    """
+
+    @classmethod
+    def _script(cls) -> str:
+        pfad = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+        if not pfad.is_file():
+            raise unittest.SkipTest("ci.yml not readable here")
+        run = G._lade(pfad)["jobs"]["all-checks-passed"]["steps"][0]["run"]
+        kopf, _, rest = run.partition("<<'PY'\n")
+        body, _, _ = rest.rpartition("\nPY")
+        assert "python3 -" in kopf and body.strip(), "the collector step is not the heredoc this test expects"
+        return body
+
+    def _run(self, needs: dict, full: str, event: str):
+        import os
+        import subprocess
+        r = subprocess.run([sys.executable, "-"], input=self._script(), capture_output=True, text=True,
+                           env={**os.environ, "NEEDS": json.dumps(needs), "FULL_MATRIX": full, "EVENT": event},
+                           timeout=60)
+        return r.returncode, r.stdout
+
+    OK = {"test": {"result": "success"}, "coverage": {"result": "success"}}
+
+    def test_all_success_on_the_full_matrix_passes(self):
+        rc, out = self._run(self.OK, "true", "pull_request")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("every needed job succeeded on the full matrix", out)
+
+    def test_a_failed_needed_job_is_red(self):
+        rc, out = self._run({**self.OK, "test": {"result": "failure"}}, "true", "pull_request")
+        self.assertEqual(rc, 1)
+        self.assertIn("::error", out)
+        self.assertIn("test=failure", out)
+
+    def test_a_skipped_needed_job_is_red_because_skipped_reads_as_passed_elsewhere(self):
+        rc, out = self._run({**self.OK, "coverage": {"result": "skipped"}}, "true", "pull_request")
+        self.assertEqual(rc, 1)
+        self.assertIn("coverage=skipped", out)
+
+    def test_the_fast_layer_on_a_pull_request_is_red_with_the_label_advice(self):
+        rc, out = self._run(self.OK, "false", "pull_request")
+        self.assertEqual(rc, 1)
+        self.assertIn("landung", out)
+
+    def test_the_fast_layer_on_a_push_to_main_is_green_and_says_so(self):
+        """LENS B, P1: the push after a merge runs the fast layer (the matrix condition has no
+        push branch); the merged tree was tested on the full matrix by its pull request under the
+        strict ruleset. Green with a notice, never red."""
+        rc, out = self._run(self.OK, "false", "push")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::notice", out)
+        self.assertIn("push to main", out)
+
+    def test_a_missing_or_extra_needed_job_is_red(self):
+        """LENS B, P3: a key absent from `needs` read as passed. Now the key set is checked."""
+        rc, out = self._run({"coverage": {"result": "success"}}, "true", "pull_request")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not the declared", out)
+        rc, out = self._run({**self.OK, "extra": {"result": "success"}}, "true", "pull_request")
+        self.assertEqual(rc, 1, out)
+
+    def test_the_expected_key_set_equals_the_needs_line(self):
+        """Two copies of one list, held together: the `needs:` of the job and the EXPECTED set in
+        its script."""
+        pfad = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+        job = G._lade(pfad)["jobs"]["all-checks-passed"]
+        import re
+        m = re.search(r"EXPECTED = \{([^}]*)\}", self._script())
+        self.assertIsNotNone(m, "the script names no EXPECTED set")
+        im_skript = {s.strip().strip("\"'") for s in m.group(1).split(",") if s.strip()}
+        self.assertEqual(im_skript, set(job["needs"]))
+
+
 if __name__ == "__main__":
     unittest.main()
