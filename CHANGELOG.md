@@ -19,6 +19,21 @@ rather than before, which is itself the finding.
 
 ### Added
 
+- A collector job `all-checks-passed` in ci.yml that ALWAYS reports: it needs the jobs the
+  ruleset requires from this file (`test`, `coverage`), runs under `if: ${{ !cancelled() }}`, and
+  turns red when any needed job did not succeed -- `skipped` included -- or when the full test
+  matrix did not run on the event (fork pull request without the `landung` label). Owner
+  decision A on card OA-3c67b06ad6: one always-running context replaces six, four of which a
+  condition could leave uncreated. `guard` stays a required context of its own, because it lives in
+  fork-pr-isolation.yml and a job cannot need a job of another workflow. The ruleset is NOT
+  switched by this change; that is the owner's step once this job has run green.
+- The reachability gate learned two shapes of that job. A job condition made only of
+  `always()` or `!cancelled()` is unconditional, not `produced-only-if` (the first draft
+  would have called the collector conditional and been red for the wrong reason). A REQUIRED
+  context on a job with `needs` and no such guard is reported as `skipped-is-passed` and
+  turns the gate red: the job is skipped whenever a needed job fails, and a skipped required
+  check reads as passed, so it can never block on the failures it depends on. A contract
+  holds the collector's copy of the matrix condition byte-identical to the matrix's own.
 - Register form 6.1 for the findings register, as a second carrier next to the signed v1: the
   producer emits `findings_register_v2.json` plus two generated views, every record carries the
   byte range of its own evidence, and the three 6.1 register lines are written directly in the new
