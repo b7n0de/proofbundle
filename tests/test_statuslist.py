@@ -199,8 +199,6 @@ class TestStatusList(unittest.TestCase):
         self.assertEqual(res["status_label"], "INVALID")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestFreshnessAndStrictTypes(unittest.TestCase):
@@ -269,3 +267,7 @@ class TestSelfIssuedSeparation(unittest.TestCase):
         self.assertTrue(res["ok"])
         self.assertFalse(res["self_issued"])            # distinct anchor → not self-issued
         self.assertEqual(res["status_label"], "INVALID")
+
+
+if __name__ == "__main__":
+    unittest.main()

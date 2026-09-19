@@ -148,8 +148,6 @@ class TestEvalResultsEntry(unittest.TestCase):
         self.assertFalse(result.ok)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestValueConsistency(unittest.TestCase):
@@ -185,3 +183,7 @@ class TestValueConsistency(unittest.TestCase):
         # a plain emit_bundle (not an eval receipt) has no claim → no cross-check, value accepted
         entry = to_eval_results_entry(_bundle(), dataset_id="d/x", task_id="t", value=0.5)
         self.assertEqual(entry["value"], 0.5)
+
+
+if __name__ == "__main__":
+    unittest.main()

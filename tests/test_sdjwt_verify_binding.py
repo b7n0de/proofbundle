@@ -167,8 +167,6 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         self.assertIn(rc, (1, 2))        # documented failure/malformed, never a crash
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestN1UnbindableEvalSdJwt(unittest.TestCase):
@@ -259,3 +257,7 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
         self.assertIn("sd-jwt-bundle-binding", by)
         self.assertFalse(by["sd-jwt-bundle-binding"])
         self.assertFalse(r.ok)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -532,8 +532,6 @@ class TestRustAgreement(unittest.TestCase):
                          + "\n  ".join(disagreements))
 
 
-if __name__ == "__main__":
-    sys.exit(0 if unittest.main(exit=False).result.wasSuccessful() else 1)
 
 
 class TestC2SPFelderNutzenDenC2SPDecoder(unittest.TestCase):
@@ -644,3 +642,7 @@ class TestC2SPFelderNutzenDenC2SPDecoder(unittest.TestCase):
                                                   threshold=2)
         self.assertFalse(ergebnis["witnesses_ok"],
                          "zwei Schreibweisen desselben Schluessels wurden als zwei Zeugen gezaehlt")
+
+
+if __name__ == "__main__":
+    sys.exit(0 if unittest.main(exit=False).result.wasSuccessful() else 1)

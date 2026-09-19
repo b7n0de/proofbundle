@@ -397,8 +397,6 @@ class TestMainCLI(unittest.TestCase):
             self.assertFalse(result["registry_integrity_ok"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestEineBehauptungOhneBelegIstKeineVerifizierte(unittest.TestCase):
@@ -460,3 +458,7 @@ class TestEineBehauptungOhneBelegIstKeineVerifizierte(unittest.TestCase):
             f"Registry-Regel statt des Schliessens der leeren Menge."))
         self.assertFalse(r["stale"], "Der Riegel trifft den Normalfall mit")
         self.assertTrue(r["registry_integrity_ok"])
+
+
+if __name__ == "__main__":
+    unittest.main()

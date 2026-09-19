@@ -450,8 +450,6 @@ class CodeTafel(unittest.TestCase):
                       "eine unbegruendete Doppelbelegung bleibt unbemerkt")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 # ── Die Vorpruefung muss dieselben Felder kennen wie die Ableitung ─────────────────────────────
@@ -771,3 +769,7 @@ def test_meta_die_negativseite_faengt_was_die_struktur_nicht_sieht():
     assert '_HEX64.match(dig["sha256"])' in quelle, (
         "die Bedingung, an der die Negativseite gemessen wurde, steht nicht mehr im Pruefling — "
         "die Messung im Docstring deckt den heutigen Stand dann nicht mehr")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -122,8 +122,6 @@ class TestTypedDigestParitaet(unittest.TestCase):
             jsonschema.validate(instance=p, schema=SCHEMA)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestHelferTraegtAllein(unittest.TestCase):
@@ -137,8 +135,6 @@ class TestHelferTraegtAllein(unittest.TestCase):
         self.assertIn("sneaky", err)
 
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
 
 
 class TestKonformitaetsHandlerFailClosed(unittest.TestCase):
@@ -177,3 +173,7 @@ class TestKonformitaetsHandlerFailClosed(unittest.TestCase):
         # Positivkontrolle: ohne sie wuerde ein Handler, der ALLES ablehnt, diese Klasse bestehen.
         case, d = self._fall()
         self.assertTrue(self._handler()(case, d)["ok"])
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

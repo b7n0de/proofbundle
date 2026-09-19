@@ -528,8 +528,6 @@ class TestScannerOnADisposableTree(unittest.TestCase):
             self.assertEqual(len(unguarded_membership_sites(p.read_text(encoding="utf-8"), str(p))), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestTheGuardCannotRaiseItself(unittest.TestCase):
@@ -566,3 +564,7 @@ class TestTheGuardCannotRaiseItself(unittest.TestCase):
         # Without this, an is_member that returned False for every tuple would pass the test above.
         self.assertTrue(self.is_member(("a", "b"), {("a", "b"), "x"}))
         self.assertFalse(self.is_member(("a", "b"), {"x"}))
+
+
+if __name__ == "__main__":
+    unittest.main()

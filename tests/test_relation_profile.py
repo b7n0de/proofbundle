@@ -247,8 +247,6 @@ class TestSuccessorWarning(unittest.TestCase):
         self.assertIsNone(successor_warning(None, related={}, subject_hex=None))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestPredicateWiring(unittest.TestCase):
@@ -734,3 +732,7 @@ class TestRelationsPolicyNegativePaths(unittest.TestCase):
     def test_valid_relations_accepted(self):
         from proofbundle.policy import load_policy
         load_policy(self._p({"require_relation_resolution": ["retracts"], "reject_superseded": True}))
+
+
+if __name__ == "__main__":
+    unittest.main()

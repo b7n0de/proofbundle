@@ -60,8 +60,6 @@ class TestCliEval(unittest.TestCase):
             self.assertIn("FAILED", r.stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestExpectIssuer(unittest.TestCase):
@@ -111,3 +109,7 @@ class TestExpectIssuer(unittest.TestCase):
             out, issuer = self._receipt(d)
             r = _run("show-eval", out, "--expect-issuer", "ed25519:alt", "--expect-issuer", issuer)
             self.assertEqual(r.returncode, 0, r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

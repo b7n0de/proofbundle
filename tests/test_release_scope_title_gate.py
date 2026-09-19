@@ -300,8 +300,6 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
         self.assertEqual(sorted(d["kollisionen"]), ["A1", "A2", "A3"], d["kollisionen"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -421,3 +419,6 @@ def test_die_genannte_grenze_ein_unsichtbares_zeichen_im_BETREFF_faellt_nicht(tm
     """
     assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): sub\u200bject") == "gruen"
 
+
+if __name__ == "__main__":
+    unittest.main()

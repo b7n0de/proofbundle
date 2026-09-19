@@ -323,8 +323,6 @@ class TestSampleExtractors(unittest.TestCase):
                 samples_from_lm_eval_jsonl(handle.name)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestVerifySideInvariants(unittest.TestCase):
@@ -416,3 +414,7 @@ class TestCanonicalOrderEnforcement(unittest.TestCase):
         for bad in (1.5, True, "x", None):
             with self.assertRaises(BundleFormatError):
                 build_sample_tree([{"id": 0, "epoch": bad}], SECRET)
+
+
+if __name__ == "__main__":
+    unittest.main()

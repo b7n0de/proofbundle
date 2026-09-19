@@ -130,8 +130,6 @@ class TestAdapters(unittest.TestCase):
                                 model_salt=b"0" * 16, dataset_salt=b"1" * 16)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestLmEvalVersionBinding(unittest.TestCase):
@@ -156,3 +154,7 @@ class TestLmEvalVersionBinding(unittest.TestCase):
                                             threshold="0.4",
                                             timestamp="2026-08-22T00:00:00+00:00")
             self.assertNotIn("harness_version", claim["provenance"])
+
+
+if __name__ == "__main__":
+    unittest.main()

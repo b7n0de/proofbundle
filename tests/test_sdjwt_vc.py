@@ -218,8 +218,6 @@ class TestProfileAlgCasing(unittest.TestCase):
         self.assertTrue(r["ok"], r)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestForgedDisclosureRejected(unittest.TestCase):
@@ -248,3 +246,7 @@ class TestForgedDisclosureRejected(unittest.TestCase):
         self.assertFalse(r["ok"], "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
         self.assertFalse((r.get("issuer") or {}).get("structure_ok"),
                          "structure_ok muss False sein bei einer nicht-committeten Disclosure")
+
+
+if __name__ == "__main__":
+    unittest.main()

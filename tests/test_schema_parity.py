@@ -186,8 +186,6 @@ class TestOutcomeSchemaParity(unittest.TestCase):
         self._assert_both_agree(p, expect_valid=False, msg="scalar validity")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipIf(jsonschema is None, "jsonschema not installed (pip install -e .[dev])")
@@ -249,3 +247,7 @@ class TestRelationshipsSchemaParity(unittest.TestCase):
 
     def test_bad_reason_code_rejected_by_both(self):
         self._both([dict(self._EDGE, reasonCode="because")], expect_valid=False, msg="bad reasonCode")
+
+
+if __name__ == "__main__":
+    unittest.main()

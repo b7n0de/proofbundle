@@ -68,8 +68,6 @@ class TestOtsFrozenRpTrustGuard(unittest.TestCase):
         self.assertEqual(r["status"], "malformed")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
@@ -96,3 +94,7 @@ class TestRpHeaderValueGuard(unittest.TestCase):
         r = verify_opentimestamps(self.proof, self.root, frozen={},
                                   rp_trust={"bitcoin_block_headers": {"700000": "xyz"}})
         self.assertIsInstance(r, dict)
+
+
+if __name__ == "__main__":
+    unittest.main()

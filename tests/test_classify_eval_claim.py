@@ -140,8 +140,6 @@ class TestKorpusDeckung(unittest.TestCase):
                 self.assertIn(wort, z, f"{rel}: '{z.strip()[:80]}' nennt nicht {wort} ({gezaehlt} gezaehlt)")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestNeverRaiseUnterTiefe(unittest.TestCase):
@@ -181,3 +179,7 @@ class TestNeverRaiseUnterTiefe(unittest.TestCase):
         with self.assertRaises(EvalClaimError) as ctx:
             load_claim_text("[" * 20000 + "]" * 20000)
         self.assertNotIsInstance(ctx.exception, RecursionError)
+
+
+if __name__ == "__main__":
+    unittest.main()
