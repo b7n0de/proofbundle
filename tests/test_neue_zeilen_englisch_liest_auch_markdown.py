@@ -16,6 +16,7 @@ is wrong, it is that the DERIVATION is: a flag flipped on every fence marker inv
 file after one stray marker, and the report then stays green because the tool stopped looking. This
 module's sibling already paid for that shape once with docstrings.
 """
+import json
 import pathlib
 import subprocess
 import sys
@@ -100,16 +101,34 @@ class TestMarkdownIsRead(unittest.TestCase):
             self.assertNotIn(2, prosa, "a backtick marker must not close a tilde fence")
             self.assertIn(4, prosa)
 
-    def test_the_gate_runs_and_reports_the_state_it_measured(self):
-        # The end-to-end shape, so a refactor that breaks the CLI is not green here.
+    def test_the_gate_runs_and_names_a_verdict_in_every_answer_shape(self):
+        """The end-to-end shape, so a refactor that breaks the CLI is not green here.
+
+        THE FIRST VERSION ASSERTED A FIELD THAT ONLY ONE ANSWER SHAPE CARRIES. It required
+        `gemessener_stand`, which the gate emits when it measured something. In CI the checkout has
+        no `origin/main` ref, the gate answers NOT MEASURABLE — correctly, and without that field —
+        and the case went red for a reason that had nothing to do with what it was written to
+        protect. Measured 2026-09-19 in the coverage job: 1 failed of 4924, and the one was this.
+
+        It passed on a developer machine because `origin/main` exists there, so the shape it could
+        not handle never appeared. A check that only ever sees one of two answer shapes is not
+        strict, it is lucky.
+
+        Both shapes are asserted now, and the second half is stronger than the original: a verdict
+        is always named, and WHENEVER the gate measured, it must also say on which state. An
+        honest NOT MEASURABLE is a verdict; silence is not.
+        """
         r = subprocess.run([sys.executable, str(TOR), "--base", "origin/main", "--json"],
                            capture_output=True, text=True, cwd=str(REPO))
         self.assertIn(r.returncode, (0, 1, 2))
-        self.assertIn("gemessener_stand", r.stdout + r.stderr)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        d = json.loads(r.stdout)
+        self.assertIn("urteil", d, r.stdout)
+        if d["urteil"] != "NOT MEASURABLE":
+            self.assertIn("gemessener_stand", d,
+                          "the gate measured and did not say on which state")
+        else:
+            self.assertTrue(d.get("grund"),
+                            "NOT MEASURABLE without a reason is a shrug, not a verdict")
 
 
 class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
@@ -162,3 +181,12 @@ class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
                 "Eine deutsche Zeile die sonst ausgenommen waere ohne je geklammert zu sein.\n"
                 "<!-- proofbundle:verbatim-quote:begin -->\n")
             self.assertIsNone(mod._md_prosazeilen(rel))
+
+
+# THE MAIN BLOCK BELONGS AT THE END OF THE FILE, and this file learned why.
+# It sat in the middle, because four cases were appended later. Under pytest all eight ran; run
+# directly, unittest.main() executed BEFORE the class below it was defined, and reported five.
+# Measured 2026-09-20: 5 against 8. A case that CANNOT run on a surface looks, on that surface,
+# exactly like one that passes.
+if __name__ == "__main__":
+    unittest.main()
