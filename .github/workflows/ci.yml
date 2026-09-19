@@ -330,6 +330,21 @@ jobs:
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
 
+      # PLACED HERE ON PURPOSE, AND NOT AS ITS OWN JOB. A fresh checkout carries no bytecode
+      # caches at all, so a separate job would scan an empty tree and report success having
+      # examined nothing — the green-tick-over-an-empty-set shape this repository already lists
+      # among its false greens. By this point the steps above have imported the package and the
+      # test suite, so the caches exist and there is something to check. --fail-on-empty makes the
+      # empty run a failure rather than a quiet pass, which is what catches a future reordering
+      # that moves this step back in front of the imports.
+      #
+      # WHAT IT GUARDS. A cache whose header still carries the source's mtime and size is executed
+      # without the interpreter reading the source again, and __pycache__/ is gitignored, so such
+      # a file never shows up in git status. Measured 2026-09-19: the planted body ran under the
+      # default interpreter, under --check-hash-based-pycs always, and under -B.
+      - name: Cached bytecode matches its source
+        run: python scripts/pyc_integrity_gate.py --root . --fail-on-empty
+
   audit-candidate-matrix:
     # The NAME is what a person reads beside the cross; the job id stays the stable handle for
     # tables and tooling (owner directive 2026-09-04, "in menschenlesbar"). Not a required check
