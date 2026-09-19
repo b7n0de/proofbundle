@@ -34,9 +34,18 @@ import re
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
-#: An identifier from the scope file: a letter, an optional dot or dash, digits, optionally a
-#: sub-part. Covers A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278.
-_KENNUNG = r"[A-Z]\.?-?\d+(?:[.\-][0-9a-z]+)*"
+#: An identifier from the scope file: a letter, an optional dot or dash, an optional SECOND
+#: letter, digits, optionally a sub-part. Covers A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278, R-A1.
+#:
+#: THE SECOND LETTER WAS ADDED 2026-09-19, and the way it was found matters more than the change.
+#: The owner decision renamed three RESTRISIKO lines to R-A1, R-A2, R-A3 to end an ambiguity: the
+#: names A1, A2, A3 led two lines each. After the rename the file check reported GREEN, no
+#: collisions -- and it was wrong. This expression did not match `R-A1`, so all three lines were
+#: dropped before they could collide with anything. The count fell from 56 lines to 53 and the
+#: verdict turned green on the way. Whoever reads only the verdict sees a fix; whoever reads the
+#: count sees three lines that stopped existing. The collision had not been resolved, it had been
+#: made invisible.
+_KENNUNG = r"[A-Z]\.?-?[A-Z]?\d+(?:[.\-][0-9a-z]+)*"
 
 #: THE WHOLE TITLE FORM, anchored at both ends. The contract in the module docstring above reads
 #: `[<version> <ID>] type(scope): subject`, exactly one identifier, at the start.
@@ -145,8 +154,14 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
     """Every In-line as (identifier, item, branch column) — LINE BY LINE, without collapsing.
 
     The counting unit is the LINE, not the identifier and not the branch. Measured on the 6.1.0
-    scope: 55 lines, 52 distinct leading identifiers, 44 branches of their own, 9 riders. Whoever
-    counts by identifier is three lines short; whoever counts by branch, eleven.
+    scope: 56 lines, 56 distinct leading identifiers, 9 riders. Whoever counts by branch is short.
+
+    THESE NUMBERS MOVED TWICE, and both moves are named because a stale number here teaches a
+    wrong one. 55 lines / 52 identifiers held until 2026-09-18, when P19 landed with pull request
+    224 and added one line. The identifiers caught up with the lines on 2026-09-19: three
+    RESTRISIKO rows were renamed to R-A1, R-A2, R-A3 (owner card OA-23931230c0), which ended the
+    only collision the file had. A number in a docstring is a claim about a measurement; when the
+    measurement moves and the claim does not, the claim starts teaching the wrong thing.
     """
     try:
         text = pfad.read_text(encoding="utf-8")
@@ -170,6 +185,59 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
     return aus, ("gemessen" if aus else "NICHT MESSBAR: keine Zeile im In-Abschnitt gefunden")
 
 
+def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
+    """Every In-line whose first column carries NO identifier this module can read.
+
+    THE CLASS, not the instance. Both readers above end their loop with "no match, next line".
+    That is the quiet variant of a wrong answer: the line does not become a finding, it stops
+    existing. The landing card then counts a scope it cannot see all of, and the count looks
+    healthy because nothing complains.
+
+    It was not a hypothetical. On 2026-09-19 the rename to R-A1, R-A2, R-A3 hit exactly this:
+    the expression did not know the shape, three lines fell out of the count, and the file check
+    answered GREEN -- the collision it was meant to report had disappeared along with the lines
+    that caused it. Widening the expression fixes that one shape. This function is what catches
+    the NEXT shape nobody thought of, because from here on an unreadable line is reported instead
+    of dropped.
+    """
+    try:
+        text = pfad.read_text(encoding="utf-8")
+    except OSError as e:
+        return [], f"NICHT MESSBAR: {type(e).__name__}: {e}"
+    schnitt = _ENDE_DES_UMFANGS.search(text)
+    if schnitt is None:
+        return [], ("NICHT MESSBAR: kein Abschnitt '## Out' gefunden — die Grenze des Umfangs ist "
+                    "nicht bestimmbar")
+    aus: list[str] = []
+    # ONLY TABLES THAT ASSIGN BRANCHES. The In section also carries the table of the three owner
+    # decisions (Karte | Zeit | Entscheid), which names no branch and is not scope. A first
+    # version checked every table row and reported eight findings on the only real file -- four
+    # header rows and the three owner cards. A guard that fires eight times on the one input it
+    # was written for is measuring its own reach, not the file. The header row names the column,
+    # so the file itself says which table is which.
+    im_umfangstabelle = False
+    for zeile in text[: schnitt.start()].splitlines():
+        if not zeile.startswith("|") or zeile.count("|") < 3:
+            im_umfangstabelle = False
+            continue
+        spalten = [s.strip() for s in zeile.strip("|").split("|")]
+        if len(spalten) < 2 or not spalten[0]:
+            continue
+        if set(spalten[-1]) <= set("-: "):
+            continue          # separator row; the header above it already decided
+        if spalten[-1].lower() == "zweig":
+            im_umfangstabelle = True   # header of a scope table; not itself a scope line
+            continue
+        if any(s.lower() in ("karte", "punkt", "eintrag", "tuer") for s in spalten[:1]):
+            im_umfangstabelle = False  # header of a table WITHOUT a branch column
+            continue
+        if not im_umfangstabelle:
+            continue
+        if not re.match(rf"^\**({_KENNUNG})", spalten[0]):
+            aus.append(spalten[0][:60])
+    return aus, "gemessen"
+
+
 def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
     """The file itself: does every identifier lead EXACTLY ONE line?
 
@@ -191,12 +259,21 @@ def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
     gruende = [f"Kennung {k!r} fuehrt {len(v)} Zeilen an {v} — ein Titel [{'<version>'} {k}] "
                "zeigt damit auf mehr als eine Zeile, und die Landekarte zaehlt sie als eine"
                for k, v in sorted(kollisionen.items())]
+    # A LINE THIS MODULE CANNOT READ IS A FINDING, NOT AN ABSENCE. Without this, an unknown
+    # identifier shape leaves the count silently and the verdict gets GREENER, not redder.
+    unlesbar, _ = zeilen_ohne_kennung(pfad)
+    if unlesbar:
+        gruende.append(
+            f"{len(unlesbar)} Zeile(n) des In-Abschnitts fuehren keine lesbare Kennung {unlesbar} "
+            "— sie fallen aus der Zaehlung und die Landekarte kann sie nie zaehlen. Zu tun ist es "
+            "in der Umfangsdatei oder am Kennungsmuster, nicht am Titel")
     return {
         "schema": "b7n0de.release_scope_datei.v1",
         "urteil": "gruen" if not gruende else "ROT",
         "gruende": gruende,
         "zeilen": len(zeilen),
         "kennungen": len(von_kennung),
+        "zeilen_ohne_kennung": unlesbar,
         "kollisionen": {k: v for k, v in sorted(kollisionen.items())},
     }
 
@@ -224,6 +301,14 @@ def pruefe(*, branch: str, title: str, version: str,
         return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
 
     kennung = passend[0]
+    # AN UNREADABLE LINE IS A FINDING ABOUT THE FILE AND IT REACHES THE RUN. Reported in
+    # `pruefe_umfangsdatei` alone it would never be seen: CI calls `main`, and `main` calls this
+    # function. A guard nobody calls is the same shape of failure it exists to catch.
+    unlesbar, _ul = zeilen_ohne_kennung(pfad)
+    if unlesbar:
+        gruende.append(
+            f"die Umfangsdatei fuehrt {len(unlesbar)} Zeile(n) ohne lesbare Kennung {unlesbar} — "
+            "sie fallen aus der Zaehlung, und kein Titel kann je auf sie zeigen")
     # A collision is a finding about the FILE. It is recorded in the result, but is not held
     # against the pull request's author: they can only write the one identifier that exists.
     datei_urteil = pruefe_umfangsdatei(pfad)
