@@ -127,11 +127,27 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(decode_eval_claim(self._signed_with("metric", value)))
 
-    def test_a_string_passed_can_no_longer_reach_the_in_toto_export(self):
-        # The catch-proof at the export: before the fix this claim decoded, and
-        # `_RESULT_ENUM[bool("false")]` exported it as PASSED. The boundary now refuses it, so the
-        # export is never handed a claim whose verdict is a coercion.
+    def test_a_string_passed_is_stopped_before_an_export_that_would_call_it_passed(self):
+        """The catch-proof at the export, and it calls the export rather than describing it.
+
+        A review lens caught the first version of this test: it was named after the export and
+        never invoked it, so it asserted the same thing as the `passed` case above while telling a
+        story about in-toto. Both halves are measured here now.
+        """
+        # Half one: the boundary refuses the claim, so the export is never handed it.
         self.assertIsNone(decode_eval_claim(self._signed_with("passed", "false")))
+        # Half two: what the export DOES with such a claim if it ever arrives. This commit does not
+        # change the coercion — `_RESULT_ENUM[bool("false")]` is still PASSED — and that is exactly
+        # why the boundary has to hold. A direct caller of this public function bypasses decode and
+        # keeps the hole; filed rather than widened here, because this release cut adds no scope.
+        signer = generate_signer()
+        geschmuggelt = dict(_valid_claim(signer))
+        geschmuggelt["passed"] = "false"
+        statement = to_test_result_statement(geschmuggelt, subject_digest={"sha256": "0" * 64})
+        self.assertEqual(statement["predicate"]["result"], "PASSED",
+                         "if this ever stops being PASSED the export grew its own guard, and the "
+                         "second half of this test should become the assertion that it did")
+        self.assertIn("passedTests", statement["predicate"])
 
     def test_control_a_real_claim_still_exports_its_true_verdict(self):
         signer = generate_signer()
