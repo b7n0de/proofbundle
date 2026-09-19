@@ -12,8 +12,14 @@ MEASURED 2026-09-16 on fix/anchor-verifier-zweischicht-phase2: 159 of 1577 Pytho
 German comment or docstring lines, 2687 lines in total. Those stay. What this refuses is the
 2688th.
 
-WHAT IT READS: added lines of the change range, comments and docstrings only. Code identifiers are
-not prose, and a German variable name is a naming question, not a language one. The word list
+WHAT IT READS: added lines of the change range. In `.py` that is comments and docstrings only,
+because code identifiers are not prose and a German variable name is a naming question rather than a
+language one. In `.md` it is every line outside a fenced code block, because a Markdown file is
+prose and the fence is where its commands and identifiers live.
+
+`.md` JOINED ON 2026-09-19, by owner decision, as the fourth item of the 6.1.0 release step. Until
+then the tool read `*.py` alone and said so nowhere: a cut that rewrote two `.md` scope files got
+"0 added lines in 0 files", in green, over 106 lines it had never opened. The word list
 lives in tests/_deutsche_prosa.py and is shared with the two existing contracts, because two lists
 for one question drift and the weaker one decides wherever it stands.
 
@@ -45,6 +51,21 @@ SCHWELLE = 2
 #: A comment, or a line inside a docstring. Everything else is code.
 _KOMMENTAR = re.compile(r"^\s*#")
 
+#: WHICH FILES THIS READS, in ONE place. It was `*.py` written twice, in the diff call and in the
+#: untracked-file call, and a third surface then went unmeasured in silence: a release cut on
+#: 2026-09-19 rewrote two `.md` scope files and this tool reported "0 added lines in 0 files", in
+#: green, over 106 added lines it never looked at. A gate that answers green about a surface it
+#: does not read is worse than one that says it cannot measure.
+#:
+#: Owner decision 2026-09-19: new and re-cast files are English, and `.md` becomes the fourth item
+#: of that release step. Two spellings of one list is how the first surface was forgotten, so the
+#: list is a constant and both call sites take it from here.
+_ENDUNGEN = ("*.py", "*.md")
+
+#: A fenced code block in Markdown. CommonMark: the opener is three or more backticks or tildes,
+#: the closer is at least as long and uses the SAME character.
+_ZAUN = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
 
 def _git(*args: str) -> tuple[int, str]:
     r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
@@ -68,7 +89,7 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # 2026-09-18, run 35287424973). A range is `<base>...<target>` in one string; the working
     # tree form passes the base alone.
     bereich = f"{basis}...{ziel}" if ziel else basis
-    rc, aus = _git("diff", "--unified=0", bereich, "--", "*.py")
+    rc, aus = _git("diff", "--unified=0", bereich, "--", *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
     je_datei: dict[str, list[tuple[int, str]]] = {}
@@ -90,7 +111,7 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         # measures committed heads and is not affected; this form is for the person fixing the
         # findings, and it must not flatter the file they just created. Every line of an
         # untracked file is an added line.
-        rc2, neu = _git("ls-files", "--others", "--exclude-standard", "--", "*.py")
+        rc2, neu = _git("ls-files", "--others", "--exclude-standard", "--", *_ENDUNGEN)
         if rc2 != 0:
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
         for rel in neu.splitlines():
@@ -162,12 +183,52 @@ def _prosazeilen(datei: str) -> set[int] | None:
     return aus
 
 
+def _md_prosazeilen(datei: str) -> set[int] | None:
+    """Every line of a Markdown file that is NOT inside a fenced code block.
+
+    In Markdown there is no comment/code split to make: the file IS prose, and the exception is the
+    fenced block, which carries commands, output and identifiers. That mirrors the rule one level
+    up, where code identifiers are a naming question rather than a language one.
+
+    THE FENCE IS DERIVED, NOT TOGGLED. A flag flipped on every fence line is the same defect this
+    module already fixed once for docstrings: a stray marker then inverts the rest of the file, and
+    the report stays green because the tool stopped looking rather than started being wrong. So the
+    opener's character and length are remembered, and only a closer of at least that length in the
+    SAME character ends the block, which is what CommonMark says.
+
+    Returns None when the file cannot be read, and the caller treats that as not-prose rather than
+    as a pass.
+    """
+    p = REPO / datei
+    try:
+        zeilen = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    aus: set[int] = set()
+    offen: str | None = None
+    for i, z in enumerate(zeilen, start=1):
+        m = _ZAUN.match(z)
+        if offen is None:
+            if m:
+                offen = m.group(1)
+                continue          # the fence line itself is not prose
+            aus.add(i)
+        else:
+            if m and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen):
+                offen = None
+            # inside the block, and the closing line too, stay out
+    return aus
+
+
 def _ist_prosa(datei: str, nr: int, text: str) -> bool:
     """Comment, or inside a string literal. The answer comes from the FILE, not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file at HEAD does say.
     """
+    if datei.endswith(".md"):
+        zeilen = _md_prosazeilen(datei)
+        return bool(zeilen and nr in zeilen)
     if _KOMMENTAR.search(text):
         return True
     zeilen = _prosazeilen(datei)
