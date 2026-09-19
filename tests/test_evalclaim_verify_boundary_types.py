@@ -113,8 +113,13 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
     def test_passed_must_be_a_bool(self):
         # "false" is the one that mattered: it is TRUTHY, so every `bool(claim["passed"])` downstream
         # read a signed failure as a pass.
-        # A float is SEPARATE, not a catch-proof: canonicalization forbids floats, so `passed: 1.0`
-        # is refused at EMIT and never reaches this boundary. The same holds for `n: 1.5`.
+        # A FLOAT IS NOT SEPARATE, and the first version of this comment said it was. It claimed
+        # canonicalization forbids floats, so `passed: 1.0` "never reaches this boundary" -- which
+        # is a statement about the BOUNDARY derived from measuring ONE of its callers. A review
+        # lens took the technique this very file already uses for A-16, signing the payload with
+        # `emit_bundle` instead of the emitter, and `canonicalize` is then never called at all.
+        # The float arrives, correctly signed, and the old code accepted it. The cases now live in
+        # `test_a_float_reaches_this_boundary_because_the_emitter_is_not_the_boundary` and count.
         for value in ("false", "true", "", 1, 0, [], {}, None):
             with self.subTest(value=value):
                 self.assertIsNone(decode_eval_claim(self._signed_with("passed", value)))
@@ -125,6 +130,28 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
         for value in ("x", "500", True, False, None, [500]):
             with self.subTest(value=value):
                 self.assertIsNone(decode_eval_claim(self._signed_with("n", value)))
+
+    def _handsigniert(self, field, value):
+        """A correctly signed bundle whose payload never went through `canonicalize`.
+
+        `emit_eval_receipt` canonicalizes and refuses floats, so a test that only uses the emitter
+        measures the emitter. This is the same shape the A-16 cases above already use, and it is
+        the honest way to ask what the VERIFY boundary does: a third party's bundle was never
+        produced by our emitter either.
+        """
+        signer = generate_signer()
+        claim = dict(_valid_claim(signer))
+        claim[field] = value
+        return emit_bundle(json.dumps(claim).encode(), signer)
+
+    def test_a_float_reaches_this_boundary_because_the_emitter_is_not_the_boundary(self):
+        # Red before the fix, green after: `float` is neither `bool` nor `int`, so the new
+        # isinstance checks refuse it -- and before them the claim decoded and was believed.
+        for field, value in (("passed", 1.0), ("passed", 0.0), ("n", 1.5), ("n", 500.0)):
+            with self.subTest(field=field, value=value):
+                bundle = self._handsigniert(field, value)
+                self.assertTrue(verify_bundle(bundle).ok, "the signature is intact — nothing forged")
+                self.assertIsNone(decode_eval_claim(bundle))
 
     def test_metric_must_be_a_str(self):
         for value in (1, ["refusal_rate"], {"m": 1}, None, True):
