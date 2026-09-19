@@ -33,9 +33,37 @@ import tokenize
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
+#: The TOOL's own root. The word list is part of the tool, so it is looked up here and not in the
+#: tree under judgement -- an old branch need not carry it for this check to run.
+WERKZEUG_WURZEL = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(WERKZEUG_WURZEL))
 from tests import _deutsche_prosa as DP  # noqa: E402
+
+
+def _gemessener_baum(vorgabe: str | None = None) -> Path:
+    """The tree this run JUDGES: the working directory's repository, not the tool's own.
+
+    MEASURED 2026-09-19: this was bound to `__file__`, so calling the script by an absolute path
+    in order to judge ANOTHER checkout silently judged the checkout the script sits in. From a
+    worktree on a different branch the answer came back word for word identical to the tool's own
+    tree -- green, 758 added lines, 7 files -- and only the coincidence that those numbers were
+    familiar kept a wrong clearance from standing. The real verdict for that tree was ROT.
+
+    A checker whose subject is its own file path answers a question nobody asked, and it answers
+    it confidently. The answer now NAMES the tree it measured, for the same reason it already
+    names the state: a verdict that does not say what it looked at cannot be checked.
+    """
+    if vorgabe:
+        return Path(vorgabe).resolve()
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        return Path(r.stdout.strip())
+    # No repository around the working directory: fall back to the tool's own tree and say so
+    # through the reported path, rather than guessing silently.
+    return WERKZEUG_WURZEL
+
+
+REPO = _gemessener_baum()
 
 #: How many list words a line needs before it counts as prose. One word is noise: "die" appears in
 #: English text as a verb, "auf" inside a quoted path. Two is the threshold the measurement of the
@@ -177,7 +205,8 @@ def _ist_prosa(datei: str, nr: int, text: str) -> bool:
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     je_datei, lage = _neue_zeilen(basis, arbeitsbaum)
     if lage != "measured":
-        return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [], "rc": 2}
+        return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [],
+                "gemessener_baum": str(REPO), "rc": 2}
     befunde = []
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
@@ -190,6 +219,7 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
                                 "text": text.strip()[:110]})
     return {"urteil": "ROT" if befunde else "gruen", "befunde": befunde,
             "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
+            "gemessener_baum": str(REPO),
             "geprueft": sum(len(z) for z in je_datei.values()),
             "dateien": len(je_datei), "schwelle": SCHWELLE,
             "reichweite": ("a word list of German function words, at least "
@@ -203,15 +233,20 @@ def main(argv=None) -> int:
                    help="the base of the change range (default origin/main)")
     p.add_argument("--arbeitsbaum", action="store_true",
                    help="measure the working tree instead of HEAD (local fixing, not CI)")
+    p.add_argument("--repo",
+                   help="the tree to judge (default: the working directory's repository)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
+    global REPO
+    REPO = _gemessener_baum(a.repo)
     d = pruefe(a.base, a.arbeitsbaum)
     if a.json:
         import json
         print(json.dumps(d, ensure_ascii=False, indent=2))
     else:
         print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
-              f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}")
+              f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
+              f" · measured tree: {d.get('gemessener_baum', '?')}")
         for b in d["befunde"][:20]:
             print(f"  {b['datei']}:{b['zeile']}  {b['woerter']}  {b['text']}")
         if len(d["befunde"]) > 20:
