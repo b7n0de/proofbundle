@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 
 SCHEMA = "b7n0de.required_context_presence.v1"
 
