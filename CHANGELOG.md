@@ -6,16 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [6.1.0] - 2026-09-19
 
-Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
-not bumped: nothing here changes the published package, and a bump without a release would claim a
-delivery that did not happen.
+The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
+`QITEM-PROOFBUNDLE-610-SCHNITT-LANDEN-KETTE-01`, option A: 6.1.0 is what has been on `main` since
+`v6.0.0`, plus the two P1 findings of the 2026-09-19 audit, R7 and the cheap documentation
+findings. The other 54 lines of the 2026-09-12 scope move to 6.2.0 unchanged, and
+`docs/release_scope/6.2.0.md` carries them word for word.
 
-This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
-Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
-work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
-rather than before, which is itself the finding.
+This section was `## [Unreleased]` until the cut, and it said the version was deliberately not
+bumped because "a bump without a release would claim a delivery that did not happen". That
+sentence was true while it stood and would have become false the moment the number moved, so it is
+replaced rather than left standing. What is open and why is in `RESTRISIKO_610.md`, which lands
+before the closing round, not after it.
 
 ### Added
 
