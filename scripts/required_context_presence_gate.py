@@ -125,8 +125,8 @@ def pruefe(repo: str, sha: str, basis: str = "main") -> dict:
     zurueck, streng, z3 = basisstand(repo, sha, basis)
     if z3 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z3, "sha": sha}
-    # DIE DRITTE LAGE: alles da, alles gruen, und trotzdem blockiert. Sie zaehlt nur, wenn die
-    # Regelmenge streng ist — sonst ist ein Rueckstand zur Basis kein Hindernis.
+    # THE THIRD STATE: everything present, everything green, and still unmergeable. It counts only
+    # when the ruleset is strict — without that policy, lagging behind the base blocks nothing.
     veraltet = bool(streng and zurueck and zurueck > 0)
     return {
         "schema": SCHEMA,
@@ -137,9 +137,9 @@ def pruefe(repo: str, sha: str, basis: str = "main") -> dict:
         "streng": streng,
         "hinter_basis": zurueck,
         "veraltet_unter_streng": veraltet,
-        # DIE ABWESENHEIT WIRD ZUERST GENANNT, auch wenn beides zutrifft: sie ist die Lage, an der
-        # ein Mensch zuerst etwas tun kann, und ein Grund, der "alle Pflichtkontexte existieren"
-        # sagt, waehrend `fehlend` nicht leer ist, widerspricht der eigenen Ausgabe.
+        # ABSENCE IS NAMED FIRST even when both faults hold: it is the half a person can act on,
+        # and a reason that says "every required context exists" next to a non-empty `fehlend`
+        # list contradicts its own output.
         "grund": (f"{len(fehlend)} Pflichtkontext(e) existieren auf diesem Kopf NICHT: {fehlend}. "
                   "Ein abwesender Kontext hat keine Farbe und keine Zeile — der Pull Request "
                   "bleibt BLOCKED, ohne dass etwas rot ist"

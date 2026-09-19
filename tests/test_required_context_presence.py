@@ -32,8 +32,8 @@ class _Netz:
     def __init__(self, verlangt, vorhanden, z1="gemessen", z2="gemessen",
                  zurueck=0, streng=False, z3="gemessen"):
         self.verlangt, self.vorhanden, self.z1, self.z2 = verlangt, vorhanden, z1, z2
-        # Standard ist der unauffaellige Fall: Kopf aktuell, Regelmenge nicht streng. Ein Vertrag,
-        # der die neue Lage nicht meint, soll durch sie auch nicht die Farbe wechseln.
+        # The default is the unremarkable case: head current, ruleset not strict. A contract that
+        # does not mean the new state must not change colour because of it.
         self.zurueck, self.streng, self.z3 = zurueck, streng, z3
 
     def __enter__(self):
@@ -111,7 +111,7 @@ class TestDieDritteLageAllesDaUndTrotzdemBlockiert(unittest.TestCase):
                    zurueck=1, streng=True) as _:
             d = GATE.pruefe("o/r", "a" * 40)
         self.assertEqual(d["urteil"], "ROT")
-        self.assertEqual(d["fehlend"], [])          # nichts fehlt — genau das ist der Punkt
+        self.assertEqual(d["fehlend"], [])          # nothing absent — that is exactly the point
         self.assertTrue(d["veraltet_unter_streng"])
         self.assertIn("hinter main", d["grund"])
 
@@ -135,9 +135,9 @@ class TestDieDritteLageAllesDaUndTrotzdemBlockiert(unittest.TestCase):
             d = GATE.pruefe("o/r", "a" * 40)
         self.assertEqual(d["urteil"], "ROT")
         self.assertEqual(d["fehlend"], ["all-checks-passed"])
-        # DER TEST HIESS SO UND PRUEFTE ES NICHT: die erste Fassung sicherte nur `fehlend` zu,
-        # waehrend der Grund "Alle Pflichtkontexte existieren" sagte — im echten Lauf gegen
-        # pull request 230 stand genau dieser Widerspruch in der Ausgabe.
+        # THE TEST WAS NAMED FOR THIS AND DID NOT CHECK IT: the first version asserted only
+        # `fehlend`, while the reason said "every required context exists" — the real run against
+        # pull request 230 carried exactly that contradiction in its output.
         self.assertIn("existieren auf diesem Kopf NICHT", d["grund"])
         self.assertNotIn("Alle Pflichtkontexte existieren", d["grund"])
         self.assertIn("zusaetzlich", d["grund"])
