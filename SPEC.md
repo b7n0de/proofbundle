@@ -118,9 +118,24 @@ be a breaking, versioned change.
 
 **Hashing (RFC 6962 / RFC 9162 §2):**
 
-- Leaf hash: `SHA-256(0x00 || leaf_data)`.
+- Leaf hash: `SHA-256(0x00 || leaf_data)`, where `leaf_data` is the RAW entry
+  payload and never an already-hashed value.
 - Interior node hash: `SHA-256(0x01 || left_child || right_child)`.
 - Empty tree hash: `SHA-256("")`.
+
+**The leaf preimage, pinned (normative).** `MTH` is defined over the list of
+DATA entries and applies the leaf hash itself, so a caller hands `MTH` the raw
+payloads. Computing the leaf hash first and handing the results to `MTH` hashes
+every leaf twice: the tree then stands over
+`SHA-256(0x00 || SHA-256(0x00 || leaf_data))` and its root does not match the
+one the log published. Both spellings read naturally out of a document that
+states the tree hash in one section and the leaf computation in another, which
+is why this paragraph says which one is meant: the raw payload. A verifier MUST
+NOT accept a root computed the second way, and an implementation MUST NOT offer
+a mode that does. The two spellings were measured against this reader and give
+different roots over the same five entries; the contract
+`tests/test_merkle_leaf_preimage_is_pinned.py` carries one vector per spelling
+and requires the second to fail.
 
 Check **merkle-inclusion**: the leaf is the payload bytes `P`. Recompute the
 root from `leaf_hash(P)`, `leaf_index`, `tree_size` and `inclusion_proof_b64`
