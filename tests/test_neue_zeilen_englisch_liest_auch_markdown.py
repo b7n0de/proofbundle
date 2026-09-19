@@ -110,3 +110,55 @@ class TestMarkdownIsRead(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
+    """The bracket exists because two owner instructions of 2026-09-19 met and both are right.
+
+    New and re-cast files are English; and the 54 scope lines moving from 6.1.0 to 6.2.0 move
+    unchanged, byte equality checked. A quotation that is rewritten is no longer a quotation, and
+    the byte-equality check behind it would mean nothing.
+
+    What these cases are really about is the bracket staying NARROW and FAIL-CLOSED, because an
+    exemption mechanism is only as good as its edges.
+    """
+
+    def _schreibe(self, d, text):
+        rel = pathlib.Path(d).name
+        (pathlib.Path(d) / "probe.md").write_text(text, encoding="utf-8")
+        return f"{rel}/probe.md"
+
+    def test_marked_material_is_not_judged_and_everything_else_still_is(self):
+        mod = _laden()
+        with tempfile.TemporaryDirectory(dir=REPO) as d:
+            rel = self._schreibe(d,
+                "Eine deutsche Zeile vor der Klammer und sie soll gefunden werden.\n"
+                "<!-- proofbundle:verbatim-quote:begin -->\n"
+                "| A1 Testsammler des Mutationstors und die Zeile bleibt wie sie ist |\n"
+                "<!-- proofbundle:verbatim-quote:end -->\n"
+                "Eine deutsche Zeile nach der Klammer und auch diese zaehlt.\n")
+            prosa = mod._md_prosazeilen(rel)
+            self.assertIn(1, prosa, "prose before the bracket is still judged")
+            self.assertNotIn(3, prosa, "the quoted row is not judged")
+            self.assertNotIn(2, prosa, "the marker line itself is not prose")
+            self.assertIn(5, prosa, "prose after the bracket is judged again")
+
+    def test_an_opener_without_a_closer_is_not_measurable_rather_than_clean(self):
+        # The defect this module already paid for once: a marker that swallows the rest of the file
+        # in silence. None means not measurable, and the caller treats that as not-prose, so the
+        # FILE never reads as clean on the strength of a broken bracket.
+        mod = _laden()
+        with tempfile.TemporaryDirectory(dir=REPO) as d:
+            rel = self._schreibe(d,
+                "<!-- proofbundle:verbatim-quote:begin -->\n"
+                "Alles was hier folgt waere sonst stillschweigend ausgenommen.\n")
+            self.assertIsNone(mod._md_prosazeilen(rel))
+
+    def test_a_closer_before_its_opener_is_not_measurable(self):
+        mod = _laden()
+        with tempfile.TemporaryDirectory(dir=REPO) as d:
+            rel = self._schreibe(d,
+                "<!-- proofbundle:verbatim-quote:end -->\n"
+                "Eine deutsche Zeile die sonst ausgenommen waere ohne je geklammert zu sein.\n"
+                "<!-- proofbundle:verbatim-quote:begin -->\n")
+            self.assertIsNone(mod._md_prosazeilen(rel))

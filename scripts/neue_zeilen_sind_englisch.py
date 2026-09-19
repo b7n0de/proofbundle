@@ -19,7 +19,11 @@ prose and the fence is where its commands and identifiers live.
 
 `.md` JOINED ON 2026-09-19, by owner decision, as the fourth item of the 6.1.0 release step. Until
 then the tool read `*.py` alone and said so nowhere: a cut that rewrote two `.md` scope files got
-"0 added lines in 0 files", in green, over 106 lines it had never opened. The word list
+"0 added lines in 0 files", in green, over 106 lines it had never opened.
+
+A VERBATIM QUOTATION can be marked and is then not judged, because quoted material keeps the wording
+it is quoted from. The marker is narrow, visible in the diff, and an unbalanced pair makes the file
+NOT MEASURABLE rather than clean. The word list
 lives in tests/_deutsche_prosa.py and is shared with the two existing contracts, because two lists
 for one question drift and the weaker one decides wherever it stands.
 
@@ -65,6 +69,23 @@ _ENDUNGEN = ("*.py", "*.md")
 #: A fenced code block in Markdown. CommonMark: the opener is three or more backticks or tildes,
 #: the closer is at least as long and uses the SAME character.
 _ZAUN = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+#: A VERBATIM QUOTATION of existing material, which keeps the wording it is quoted from.
+#:
+#: It exists because two owner instructions met on 2026-09-19 and both are right. New and re-cast
+#: files are English; and the 54 scope lines moving from 6.1.0 to 6.2.0 move UNCHANGED, with byte
+#: equality checked rather than claimed. Rewriting a quotation would make that check meaningless,
+#: and leaving it unmarked would make this gate red on material it is not meant to judge.
+#:
+#: NARROW ON PURPOSE. It skips only what stands between the two markers, never a file, never a
+#: directory, never a suffix. A marker is one visible line that a reader sees in the diff, so
+#: claiming an exemption costs more than fixing the language, which is the right way round.
+#:
+#: AND FAIL-CLOSED. An opener without a closer does not swallow the rest of the file in silence;
+#: that is exactly the shape this module already paid for once. An unbalanced pair makes the file
+#: NOT MEASURABLE, and not-measurable is a question rather than a pass.
+_ZITAT_AUF = "<!-- proofbundle:verbatim-quote:begin -->"
+_ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
 
 
 def _git(*args: str) -> tuple[int, str]:
@@ -204,9 +225,21 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
         zeilen = p.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return None
+    # The quotation brackets first, because an unbalanced pair is a measurement failure and must
+    # not be reported as a clean file.
+    auf = [i for i, z in enumerate(zeilen, start=1) if z.strip() == _ZITAT_AUF]
+    zu = [i for i, z in enumerate(zeilen, start=1) if z.strip() == _ZITAT_ZU]
+    if len(auf) != len(zu) or any(a >= b for a, b in zip(auf, zu)):
+        return None
+    zitat: set[int] = set()
+    for a, b in zip(auf, zu):
+        zitat.update(range(a, b + 1))
+
     aus: set[int] = set()
     offen: str | None = None
     for i, z in enumerate(zeilen, start=1):
+        if i in zitat:
+            continue
         m = _ZAUN.match(z)
         if offen is None:
             if m:
