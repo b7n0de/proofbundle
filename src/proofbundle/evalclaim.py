@@ -159,12 +159,29 @@ def load_claim_text(text: str) -> dict:
         # "never a raw traceback", so a type-confused input maps to the documented EvalClaimError.
         raise EvalClaimError(f"claim text must be str or bytes, got {type(text).__name__} (malformed)")
     try:
-        return loads_strict(text)
+        claim = loads_strict(text)
     except ProofBundleError as e:
         # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
         # BudgetExceeded (over-width/over-node input) NOT a BundleFormatError, which `except BundleFormatError`
         # let escape as a raw traceback. Both map to the DOCUMENTED EvalClaimError (a ValueError).
         raise EvalClaimError(str(e)) from e
+    # THE RETURN TYPE IS PART OF THE PROMISE, not only the argument type. The signature says
+    # `-> dict` and the docstring says "never a raw traceback", but valid JSON is also `[]`, `"x"`
+    # and `1` — and a caller that does `claim.get(...)` on those gets an AttributeError, which is
+    # in no call site's except list. Measured 2026-09-19 at the head 79f66a2: a correctly signed
+    # bundle (verify_bundle.ok True, Merkle and signature intact) whose payload is `[]` made
+    # `decode_eval_claim` raise instead of returning None, against its own documented contract.
+    #
+    # THE SAME CLASS WAS CLOSED ONCE BEFORE, on the INPUT side (round 8, the isinstance check
+    # above). Closing it on the input and leaving it on the output is how a repaired class comes
+    # back through the other door. `EvalClaimError` is a ValueError, so every existing
+    # `except (ValueError, EvalClaimError)` at the call sites — decode_eval_claim,
+    # classify_eval_claim, the CLI and hf_evals — turns this into the documented outcome without
+    # a single caller change.
+    if not isinstance(claim, dict):
+        raise EvalClaimError(
+            f"claim must be a JSON object, got {type(claim).__name__} (malformed)")
+    return claim
 
 
 def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator: str,
@@ -328,6 +345,30 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         # the blessed emit path already enforces the enum (build_eval_claim, emit_eval_receipt), so a
         # hand-signed claim must not bypass it (the emit-vs-verify asymmetry class this module guards).
         if claim.get("assurance_level") not in ASSURANCE_LEVELS:
+            return None
+        # A-15 (2026-09-19): the three fields every CONSUMER reads were the three this boundary did not
+        # type. The docstring above promises "every decoded claim is sane", and the enum/decimal checks
+        # right before this make that promise for `comparator`, `threshold` and `assurance_level` — but
+        # `passed`, `n` and `metric` were carried through with whatever JSON type a hand-signed claim
+        # chose. Measured at 79f66a2: 10 of 11 wrong-typed claims were ACCEPTED here.
+        #
+        # WHY IT IS NOT COSMETIC: every downstream reader coerces instead of checking, so a WRONG TYPE
+        # becomes a WRONG VERDICT rather than an error. intoto.to_test_result_statement builds
+        # `_RESULT_ENUM[bool(claim["passed"])]` — and `bool("false")` is True, so a signed claim whose
+        # `passed` is the STRING "false" is exported to in-toto as **PASSED**, and `passedTests` names
+        # the suite. hf_evals compares `cmp_ok == bool(claim["passed"])` and only notices when the
+        # published value happens to contradict it.
+        #
+        # `n` WAS type-checked here — but only inside `if samples is not None`, i.e. a claim that simply
+        # omits the optional `samples` block skipped the check entirely. A presence-conditional check is
+        # an option, not an invariant; it is unconditional now, and the one inside the samples branch
+        # stays as the n == samples.n equality it was always for.
+        if not isinstance(claim.get("passed"), bool):
+            return None
+        _n = claim.get("n")
+        if isinstance(_n, bool) or not isinstance(_n, int):
+            return None
+        if not isinstance(claim.get("metric"), str):
             return None
         samples = claim.get("samples")
         if samples is not None:

@@ -1,0 +1,144 @@
+"""The verify boundary types what it decodes, and a `-> dict` loader returns a dict.
+
+Two audit findings of 2026-09-19, measured at head 79f66a2, share one shape: a promise made in a
+signature or a docstring that nothing enforced, and a consumer downstream that COERCES instead of
+checking — so a wrong type became a wrong VERDICT rather than an error.
+
+A-16: `load_claim_text` is annotated `-> dict` and its docstring promises "never a raw traceback",
+but valid JSON is also `[]`, `"x"` and `1`. `decode_eval_claim` then did `claim.get(...)` and raised
+AttributeError out of a documented never-raise surface, on a bundle whose signature and Merkle root
+were INTACT. Its sibling `classify_eval_claim` carried an `isinstance` guard; this one did not.
+
+A-15: `passed`, `n` and `metric` were not typed at the verify boundary. 10 of 11 wrong-typed
+hand-signed claims were accepted, and `intoto.to_test_result_statement` turns them into a verdict
+via `_RESULT_ENUM[bool(claim["passed"])]` — where `bool("false")` is True, so a claim that says the
+string "false" exported to in-toto as PASSED.
+
+Every case below is a case that FAILED before its fix and passes after it; the control arm at the
+top of each class is the proof that the harness can still say yes.
+"""
+import json
+import pathlib
+import tempfile
+import unittest
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from proofbundle.bundle import load_bundle, verify_bundle
+from proofbundle.emit import emit_bundle, generate_signer
+from proofbundle.errors import BundleFormatError
+from proofbundle.evalclaim import (
+    EvalClaimError,
+    build_eval_claim,
+    decode_eval_claim,
+    emit_eval_receipt,
+    issuer_fingerprint,
+    load_claim_text,
+)
+from proofbundle.intoto import to_test_result_statement
+
+TS = "2026-09-19T12:00:00Z"
+
+# Valid JSON that is not a JSON object. `{}` is deliberately ABSENT: it was already handled before
+# the fix, so it is a SEPARATE case, not a catch-proof, and counting it as one would inflate the
+# number of things this file actually proves.
+NON_OBJECT_JSON = ([], ["a"], "x", "", 1, 0, 1.5, True, False, None)
+
+
+def _valid_claim(signer):
+    """A claim built by the blessed emitter — the control arm, so a rejection below means something."""
+    claim, _salts = build_eval_claim(
+        suite="safety-refusal", suite_version="v1", metric="refusal_rate",
+        comparator=">=", threshold="0.80", score="0.92", n=500,
+        model_id="acme/model-x", dataset_id="acme/dataset-y",
+        issuer=issuer_fingerprint(signer), timestamp=TS,
+        model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+    return claim
+
+
+class TestADictLoaderReturnsADict(unittest.TestCase):
+    """A-16 — the annotation is a promise to every caller, including the ones not written yet."""
+
+    def test_control_a_real_receipt_still_decodes(self):
+        signer = generate_signer()
+        bundle = emit_eval_receipt(_valid_claim(signer), signer)
+        self.assertIsInstance(decode_eval_claim(bundle), dict)
+
+    def test_load_claim_text_refuses_json_that_is_not_an_object(self):
+        for value in NON_OBJECT_JSON:
+            with self.subTest(value=value):
+                with self.assertRaises(EvalClaimError):
+                    load_claim_text(json.dumps(value))
+
+    def test_decode_returns_none_for_a_signed_bundle_whose_payload_is_not_an_object(self):
+        # The bundle is CORRECTLY signed: verify_bundle says ok, and the failure is only in the
+        # payload's shape. That is what made this reachable without forging anything.
+        signer = Ed25519PrivateKey.generate()
+        for value in NON_OBJECT_JSON:
+            with self.subTest(value=value):
+                bundle = emit_bundle(json.dumps(value).encode(), signer)
+                self.assertTrue(verify_bundle(bundle).ok)
+                self.assertIsNone(decode_eval_claim(bundle))
+
+    def test_load_bundle_refuses_a_file_that_is_not_a_json_object(self):
+        # 11 call sites read this loader's result as a dict; the annotation says they may.
+        directory = pathlib.Path(tempfile.mkdtemp())
+        for value in NON_OBJECT_JSON:
+            with self.subTest(value=value):
+                path = directory / "bundle.json"
+                path.write_text(json.dumps(value))
+                with self.assertRaises(BundleFormatError):
+                    load_bundle(str(path))
+
+
+class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
+    """A-15 — `passed`, `n` and `metric` are the three fields every consumer reads."""
+
+    def _signed_with(self, field, value):
+        signer = Ed25519PrivateKey.generate()
+        claim = dict(_valid_claim(signer))
+        claim[field] = value
+        return emit_eval_receipt(claim, signer)
+
+    def test_control_the_unmodified_claim_is_accepted(self):
+        signer = generate_signer()
+        decoded = decode_eval_claim(emit_eval_receipt(_valid_claim(signer), signer))
+        self.assertIsInstance(decoded, dict)
+        self.assertIsInstance(decoded["passed"], bool)
+
+    def test_passed_must_be_a_bool(self):
+        # "false" is the one that mattered: it is TRUTHY, so every `bool(claim["passed"])` downstream
+        # read a signed failure as a pass.
+        # A float is SEPARATE, not a catch-proof: canonicalization forbids floats, so `passed: 1.0`
+        # is refused at EMIT and never reaches this boundary. The same holds for `n: 1.5`.
+        for value in ("false", "true", "", 1, 0, [], {}, None):
+            with self.subTest(value=value):
+                self.assertIsNone(decode_eval_claim(self._signed_with("passed", value)))
+
+    def test_n_must_be_an_int_and_a_bool_is_not_one(self):
+        # This was checked ONLY inside `if samples is not None`, so a claim that omits the optional
+        # samples block skipped it entirely. A presence-conditional check is an option.
+        for value in ("x", "500", True, False, None, [500]):
+            with self.subTest(value=value):
+                self.assertIsNone(decode_eval_claim(self._signed_with("n", value)))
+
+    def test_metric_must_be_a_str(self):
+        for value in (1, ["refusal_rate"], {"m": 1}, None, True):
+            with self.subTest(value=value):
+                self.assertIsNone(decode_eval_claim(self._signed_with("metric", value)))
+
+    def test_a_string_passed_can_no_longer_reach_the_in_toto_export(self):
+        # The catch-proof at the export: before the fix this claim decoded, and
+        # `_RESULT_ENUM[bool("false")]` exported it as PASSED. The boundary now refuses it, so the
+        # export is never handed a claim whose verdict is a coercion.
+        self.assertIsNone(decode_eval_claim(self._signed_with("passed", "false")))
+
+    def test_control_a_real_claim_still_exports_its_true_verdict(self):
+        signer = generate_signer()
+        decoded = decode_eval_claim(emit_eval_receipt(_valid_claim(signer), signer))
+        statement = to_test_result_statement(decoded, subject_digest={"sha256": "0" * 64})
+        self.assertEqual(statement["predicate"]["result"], "PASSED")
+
+
+if __name__ == "__main__":
+    unittest.main()

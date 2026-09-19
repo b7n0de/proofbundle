@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
-from .errors import ProofBundleError
+from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
 
@@ -180,7 +180,18 @@ def _jwt_payload(compact: str) -> dict:
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
-    return loads_strict(decode_b64url(payload_b64).decode("utf-8"))
+    entschluesselt = loads_strict(decode_b64url(payload_b64).decode("utf-8"))
+    if not isinstance(entschluesselt, dict):
+        # A-16 neighbour (2026-09-19): THE SAME CLASS the `as_dict` at check_binds_bundle patches at the
+        # ACCESS site — but `present_with_key_binding` reads `_issuer_payload.get("_sd_alg", ...)` WITHOUT
+        # it, so a compact whose payload segment is `[]`/`"x"`/`1` raised a bare AttributeError past an
+        # `except ProofBundleError`. Patching each access site leaves the next caller to rediscover the
+        # hole; the annotation is enforced here instead. BundleFormatError is a ProofBundleError, which
+        # BOTH existing callers already catch — no call-site change, and the documented ValueError /
+        # fail-closed False stay exactly as they were.
+        raise BundleFormatError(
+            f"SD-JWT payload must be a JSON object, got {type(entschluesselt).__name__} (malformed)")
+    return entschluesselt
 
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
