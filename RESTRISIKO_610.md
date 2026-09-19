@@ -80,6 +80,41 @@ fails in both directions — an entry whose gap has since been closed turns the 
 be deleted. Verified with a planted closure. Register entry
 `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`, target 6.2.0.
 
+## Open — three public exporters coerce the verdict field, and A-15 fixes the boundary, not them
+
+A-15 typed `passed`, `n` and `metric` at `decode_eval_claim`. That closes every path that goes
+THROUGH the boundary, and `src/proofbundle/intoto.py` holds three that a library caller can reach
+without it. All three were measured on 2026-09-19 at `99d89a8` by an adversarial review lens whose
+falsification target was exactly this question, and all three are reproduced by an executable
+case, not asserted:
+
+| Where | Line | What it does with the field |
+|---|---|---|
+| `to_test_result_statement` | `intoto.py:246`, `:251` | `_RESULT_ENUM[bool(claim["passed"])]`, then `if claim["passed"]` |
+| `to_eval_result_predicate` | `intoto.py:424` | `"passed": bool(claim["passed"])` |
+| `svr_properties` | `intoto.py:551` | `if claim.get("passed")` sets `PROOFBUNDLE_THRESHOLD_MET` |
+
+With a genuinely failing claim (`score 0.10`, `threshold 0.80`, `passed` set to the string
+`"false"`, correctly signed), `decode_eval_claim` returns `None` as it should, and the three
+functions called directly return `"PASSED"`, `passed: true`, and the threshold-met property.
+`_require_export_fields` does not catch it: it tests for `None` and empty, and a non-empty string
+passes that.
+
+**Only the first of the three was documented before this file.** `tests/test_evalclaim_verify_boundary_types.py`
+names it and measures that it stays open; the other two were carried by nobody. Writing them down
+here is the point of the entry — the earlier text would have read as if one hole were the whole
+set, which is a claim of completeness that was never measured.
+
+Why this does not block the tag: every path the shipped CLI takes goes through the boundary.
+`cli.py:1685` decodes before `export_eval_result_dsse`, `intoto.py:584` decodes before
+`export_svr_dsse`, and `hf_evals` and `policy.evaluate_policy` decode before their own coercions —
+each of those checked in the same pass. What stays open is the direct library caller, which is a
+real exposure for a published package and is stated as one, not minimised.
+
+Target 6.2.0, and as a CLASS fix rather than three guards: one check that every public exporter
+passes through, with the catch-proof at the public functions instead of at the CLI. Register entry
+`DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01`.
+
 ## Honest limits of this file
 
 - **The funnel verdict on the 54 moved lines is a class judgement**, not 54 measurements. It is
@@ -89,5 +124,8 @@ be deleted. Verified with a planted closure. Register entry
   line so a reader can check rather than trust.
 - **`RESTRISIKO_600.md` stays untouched.** It is frozen at its tag and bound by the pre-tag
   receipt; the version assignment lives in the scope files and here, never there.
+- **The three exporters above were measured in `intoto.py` only.** The lens read `intoto.py` and
+  `evalclaim.py` end to end and the others in excerpts; `docs/`, `examples/` and
+  `.github/workflows/` were excluded as non-executing. A fourth site elsewhere is not ruled out.
 - **This file is written before the closing round**, so it cannot contain that round's findings. A
   finding of the closing round is a new iteration with a new freeze, never an edit to this file.
