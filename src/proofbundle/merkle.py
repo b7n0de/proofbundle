@@ -52,7 +52,27 @@ def _largest_power_of_two_less_than(n: int) -> int:
 
 
 def merkle_tree_hash(leaves: List[bytes]) -> bytes:
-    """Merkle Tree Hash (MTH) over a list of leaf *data* values (RFC 6962 2.1)."""
+    """Merkle Tree Hash (MTH) over a list of leaf *data* values (RFC 6962 2.1).
+
+    THE ARGUMENT IS DATA, NOT LEAF HASHES, and this paragraph exists because the name does not
+    say so. RFC 6962 2.1 defines MTH over the list of data entries D[n], and the single-entry
+    case IS the leaf hash: ``MTH({d(0)}) = SHA-256(0x00 || d(0))``. The line below does exactly
+    that. A caller who computes ``leaf_hash`` first and passes the result in therefore hashes
+    every leaf TWICE and builds a tree over ``SHA-256(0x00 || SHA-256(0x00 || data))`` -- a tree
+    no log ever built.
+
+    NOTHING CATCHES THAT MISTAKE, which is why it is written down instead of assumed. A leaf hash
+    is 32 bytes and so is plenty of data; the wrong call is type-correct and silent, and it ends
+    in a root that simply does not match. The failure surfaces far from its cause.
+
+    The reading was raised as finding 4 by Henri Sirkkavaara in the Last Call on the CCF profile:
+    section 2.1 and the leaf computation in section 3.2 of that document can be read in sequence.
+    Measured here on 2026-09-19 over five entries, the two readings give
+    ``72458930727ef63a…`` and ``b3ee65c562d59fb9…``. This implementation follows 2.1: the public
+    surface ``verify_inclusion`` takes ``leaf_data`` and applies ``leaf_hash`` itself, and it
+    accepts the first root and refuses the second. Both roots are pinned as vectors in
+    ``tests/test_merkle_zwei_lesarten_vektoren.py``.
+    """
     n = len(leaves)
     if n == 0:
         return hashlib.sha256(b"").digest()
