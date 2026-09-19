@@ -6,20 +6,26 @@
   "regel_der_extraktion": "Kennung am Anfang einer Ueberschrift ODER in der ersten Tabellenspalte — die Regel aus der Owner-Karte, woertlich uebernommen. Was die Regel findet und KEINE eigene Kennung ist, steht mit Grund im Feld nicht_eigene_kennungen — nicht im Schweigen. Der Riegel dazu ist tests/test_objektklassen_gegen_das_register.py; er FAEHRT diese Regel aus, statt sie zu zitieren, und vergleicht drei Mengen getrennt: den Kopf gegen die Liste, die Liste gegen das Register, und jede Ausnahme gegen das, was sie noch deckt.",
   "gemessen_an": {
     "datei": "RESTRISIKO_600.md",
-    "sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
-    "baum": "arbeit/registerzeilen-61-objektklassen, 0f72c6c",
-    "utc": "2026-09-13T0?:??Z",
+    "sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+    "baum": "arbeit/registerform-61 @ d041e0685 (PR 198)",
+    "utc": "2026-09-14T15:25:00Z",
     "_vorheriger_stand": {
-      "sha256": "38e56bf64b171a04d94624e526d01953327b2dd9302670758cf6fb785d6b2067",
-      "baum": "88834d3 plus die Zeile G2 (Commit c7d3691)",
-      "utc": "2026-09-12T12:2xZ (Owner-Beobachtung 20260912T1143Z)"
+      "sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
+      "baum": "arbeit/registerzeilen-61-objektklassen, 0f72c6c",
+      "utc": "2026-09-13T0?:??Z"
     },
-    "_warum_fortgeschrieben": "Der Vertrag test_der_festgehaltene_ausgangsdigest_stimmt_mit_der_datei war seit Commit 1d4aa8c ROT und verlangt eine ENTSCHEIDUNG: entweder ist die Aenderung gewollt, dann gehoert der neue Digest mit Grund in die Datei, oder sie ist es nicht. Gemessen ist sie ZWEIMAL gewollt und auftragsbelegt: 1d4aa8c legte die drei Registerzeilen 6.1 an (Auftrag 20260911T2132Z, Owner-Entscheid OA-fc7b230430 Option 1A), 0f72c6c stellte S121 richtig, das auf einer NACHBILDUNG statt auf dem Pruefer stand. Der vorherige Stand bleibt als `_vorheriger_stand` stehen, damit die Fortschreibung nachvollziehbar ist und nicht wie eine Erstmessung aussieht. NICHT AUTOMATISIEREN: der Sollwert ist ein bewusst gesetzter Prueffpunkt; test_der_sollwert_wird_nicht_aus_dem_register_abgeleitet bewacht genau das.",
+    "_warum_fortgeschrieben": "Owner-Karte OA-43f35b474c, Option A: 'Landen. Byte-gleich galt den bestehenden Aussagen, nicht dem Anhaengen. Kein bestehender Satz wird geaendert, die 163 Zeilen sind ein eigener Abschnitt, die entfernte Zeile steht wortgleich darin.' GEMESSEN VOR DEM SETZEN, damit die Auflage geprueft und nicht behauptet ist: von 145 Belegen liegen 103 um +722 B und 41 um +2048 B versetzt (reine Verschiebung, Bytes unveraendert); der 145. ist S68, dessen Abschnitt von 2619 auf 3944 B WUCHS, weil dort eine Berichtigung vom 14.09.2026 angefuegt wurde, die den alten Satz WOERTLICH zitiert und dann richtigstellt. Kein bestehender Satz wurde stillschweigend ersetzt.",
     "_kette": [
       {
         "sha256": "38e56bf64b171a04d94624e526d01953327b2dd9302670758cf6fb785d6b2067",
         "utc": "2026-09-12T12:2xZ (Owner-Beobachtung 20260912T1143Z)",
         "baum": "88834d3 plus die Zeile G2 (Commit c7d3691)"
+      },
+      {
+        "sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
+        "baum": "arbeit/registerzeilen-61-objektklassen, 0f72c6c",
+        "utc": "2026-09-13T0?:??Z",
+        "warum_abgeloest": "PR 198 haengt 163 Registerzeilen an RESTRISIKO_600.md an; Owner-Karte OA-43f35b474c, Option A: 'Landen. Byte-gleich galt den bestehenden Aussagen, nicht dem Anhaengen.'"
       }
     ],
     "_warum_kette": "ANHAENGEND gefuehrte Geschichte DIESES Sollwerts — nicht der Datei, sondern des Feldes. Sie steht hier und nicht in git-Abfragen, weil der Vertrag ohne .git sonst still uebersprungen wird: gemessen 13.09.2026 in einer sdist-artigen Kopie ergab ein FREI ERFUNDENER Vorgaenger 'RC=0, 1 passed, 1 skipped' — ein Skip liest sich wie Bestehen. Mit der Kette in den Daten pruefen Kontinuitaet und Wiederholung OHNE git; nur der Abstammungsbeweis braucht noch die Historie. Jede Fortschreibung haengt den bisherigen Wert an; die Liste wird nie gekuerzt und nie umsortiert. GRENZE, AM 13.09.2026 IM GEBAUTEN SDIST GEMESSEN und deshalb hier statt in einer Fussnote: die Zusage 'prueft OHNE git' gilt im CHECKOUT, nicht in der Auslieferung. Ein echtes sdist (python -m build --sdist, entpackt, tests/ darin gefahren) liefert die zwei Vertragsdateien AUS, aber weder diese JSON noch RESTRISIKO_600.md — Ergebnis 9 skipped, RC 0, Grund PKG-2026-0718-01 (repo-context: das Modul liest einen wurzelrelativen Pfad, der hier fehlt). Der Klassifikator urteilt dabei richtig; falsch war meine Annahme. Solange die Daten nicht mitgeliefert werden, ist die Kette im Paket NICHT GEMESSEN, und der Skip liest sich wie Bestehen — genau der Fehlermodus, gegen den dieses Feld gebaut wurde, eine Ebene hoeher."
