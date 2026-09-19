@@ -89,6 +89,13 @@ include Makefile
 # Urteil bilden — die Abwesenheit einer Eingabe als Ergebnis zu nehmen ist genau der Fehler,
 # gegen den das Skript gebaut ist. Es gehoert in den Checkout und in CI, nicht in die sdist.
 #
+# DRAUSSEN und ausdruecklich entschieden: scripts/required_context_presence_gate.py. Es fragt
+# die GitHub-API nach den Rulesets des Repositoriums und nach den check-runs eines Kopfes; beides
+# gibt es nur dort, wo dieses Repositorium als Repositorium existiert. Im Paket haette es weder
+# Ruleset noch Kopf und muesste aus zwei fehlenden Eingaben ein Urteil bilden — derselbe Grund,
+# aus dem sein Geschwister `required_check_reachability_gate.py` draussen steht, und genau der
+# Fehler, gegen den beide gebaut sind. Es gehoert in den Checkout und in CI, nicht in die sdist.
+#
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
 #
