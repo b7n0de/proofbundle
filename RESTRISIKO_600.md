@@ -14,15 +14,8 @@ For 5.1.0 the record was written after the closing round. For 6.0.0 the owner fi
 2026-09-05: this file lands on `main` first, the head that carries it is the frozen tree (the
 byte-freeze standard of 2026-07-31: freeze first, publish later, never reload mid-sequence), and the
 closing gate round — DEEP, six lenses, refute-to-kill jury — runs on exactly that frozen head. The
-pre-tag receipt that the tag depends on binds the tree digest at the tag, not this path for all
-time. This file may be continued afterwards, and earlier receipts stay valid for the tree they
-were written against. What may be continued is bounded by one property, not by a list: a
-continuation is any change that does NOT record a finding of the closing round. Correcting what
-this file says about itself, replacing a statement that has been measured wrong, and adding a
-later note all pass that test; they are examples and not the whole set. A finding of the closing
-round is never written here and stays what the paragraph below says it is. The rule is a
-property rather than an enumeration on purpose, because an enumeration is incomplete the first
-time a case appears that nobody listed, and the first such case was this file's own diff.
+pre-tag receipt that the tag depends on binds this file by its sha256, so it cannot be edited once
+the receipt exists.
 
 What follows from that order is stated plainly: a finding of the closing round that must be fixed
 or must be written down is a **new iteration with a new freeze** (standard, rule 2), never an edit
@@ -4246,25 +4239,7 @@ Refs**, kollidieren also nicht. Der gefaehrliche Fall ist nur der **zweimal gepu
 selten, aber genau dann waere der Abbruch am teuersten.
 
 **Deshalb gilt fuer die Landung: `release.yml` bekommt `cancel-in-progress: false`.** Die Gruppe
-selbst ist dort trotzdem sinnvoll, aber NICHT aus dem Grund, der hier zuerst stand.
-
-**Berichtigung 14.09.2026, aus der Codex-Runde drei an PR 202.** Der Satz lautete "sie serialisiert,
-statt zu verwerfen". Das ist falsch, und der Irrtum hat einen Namen: eine Warteschlange, die
-zusammenfaellt, wird fuer eine Reihenfolge gehalten. GitHub-Nebenlaeufigkeit SERIALISIERT NICHT. Je
-Gruppe bleibt hoechstens EIN wartender Lauf; tritt ein neuerer ein, wird der aeltere wartende
-abgebrochen. Bei drei Pushes desselben Tags waehrend der erste Release laeuft, wird der zweite Lauf
-also vom dritten verdraengt.
-
-**Was die Gruppe wirklich leistet, und warum sie bleibt:** sie verhindert, dass ZWEI Release-Laeufe
-desselben Tags GLEICHZEITIG veroeffentlichen. Ohne Gruppe liefen alle drei parallel, mit drei
-konkurrierenden PyPI-Uploads. Mit `cancel-in-progress: false` ist der LAUFENDE Lauf geschuetzt, und
-genau er ist der, der zwischen Entwurf, Upload und Veroeffentlichung nicht abbrechen darf.
-
-**Was verloren geht, und warum das kein Verlust ist:** der verdraengte wartende Lauf ist derselbe Tag
-und damit dieselbe Arbeit wie der, der ihn verdraengt. Die Auflage "release.yml darf nicht
-abgebrochen werden" meint den laufenden Veroeffentlichungsvorgang, nicht einen redundanten Wartenden
-auf denselben Ref. Der Wortlaut oben war zu weit gefasst; er ist hiermit auf das eingegrenzt, was er
-schuetzen soll.
+selbst ist dort trotzdem sinnvoll (sie serialisiert, statt zu verwerfen).
 
 **Warum das hier steht und nicht erst beim Landen auffaellt:** eine gute Idee wird durch ein Detail
 zum Vorfall. Ich haette den Patch fuer alle acht Dateien gleich geschrieben, weil sie in der
