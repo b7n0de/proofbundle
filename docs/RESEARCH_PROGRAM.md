@@ -179,16 +179,22 @@ that the evidence does *not* support, and naming it is what keeps the claim fals
 - **Claim:** a verifier can distinguish *fully checked*, *partially checked* and *not checked at
   all*, and can say which of the unchecked remainder is deliberately out of scope.
 - **Non-claim:** that this distinction is available in the shipped tree today. It is not.
-- **Evidence in tree:** **NOT MEASURED at `origin/main`.** `src/proofbundle/cap1.py`,
-  `tests/test_cap1_regeln.py` and `tests/test_cap1_im_predicate.py` exist **only** on the unmerged
-  branch `feat/cap1-abdeckung` (`bda71b2158b08e78e678940acea4f63ebe6bbece`); measured 2026-09-12,
-  that head is **not** an ancestor of `origin/main`. A claim resting on an unmerged branch is not a
-  claim about the tree.
+- **Evidence in tree:** present on `main`, re-measured 2026-09-19 at
+  `d0afab0adfc1f61f650cf46436e7eb67af769f7b`. `src/proofbundle/cap1.py` (16386 B),
+  `tests/test_cap1_regeln.py` (5613 B) and `tests/test_cap1_im_predicate.py` (11230 B) are all
+  three on `main`. The earlier reading of 2026-09-12 said they existed **only** on the unmerged
+  branch `feat/cap1-abdeckung`, and that reading was correct on its day.
+  One detail of how they arrived is worth keeping, because it would otherwise read as a merge that
+  never happened: the branch head named then, `bda71b2158b08e78e678940acea4f63ebe6bbece`, is still
+  **not** an ancestor of `main` (measured: diverged, `main` 368 ahead and 9 behind), and the branch
+  itself no longer exists. The work landed by another route, not by merging that commit.
+  What is **not** measured here: whether the distinction the claim describes actually works in the
+  shipped tree. This line says the files are there, at a named head, and nothing more.
 - **State of external review:** `NOT MEASURED`.
 
 ### What the six lines say together
 
-**Six candidates, six times `NOT MEASURED` for external review.** Five have substantial evidence in
-the tree; one (C6) has none at the measured head. The volume of code is not the finding here — the
+**Six candidates, six times `NOT MEASURED` for external review.** All six now have evidence in the
+tree; C6 was the exception until `cap1` landed, and its line was re-measured on 2026-09-19. The volume of code is not the finding here — the
 finding is that nothing in this list has been read by anyone outside this project, and that is a
 single, nameable gap rather than six separate ones.
