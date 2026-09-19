@@ -335,6 +335,12 @@ AUSGESCHLOSSEN = {
     # Klasse, gegen die es gebaut ist. Draussen, damit es nicht in einer Umgebung laeuft, in der
     # seine Eingabe fehlt.
     "required_check_reachability_gate.py": "liest .github/, das die sdist prunt — im Paket ohne Eingabe",
+    # 2026-09-19: asks the GitHub API for this repository's rulesets and for the check-runs of one
+    # head. Neither exists where the package is installed — there is no repository, no ruleset and
+    # no head. Inside the sdist the script could only fail to reach both and would have to form a
+    # verdict from two absent inputs, which is precisely the failure mode it was written against.
+    # Same reasoning as its sibling one line up, and the sibling is why this entry is short.
+    "required_context_presence_gate.py": "fragt Rulesets und check-runs der GitHub-API — im Paket ohne Eingabe",
     # 2026-09-16: reads `docs/release_scope/<version>.md`, and MANIFEST.in ships neither `graft docs`
     # nor these files one by one. Inside the package the script would find no scope file and would
     # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
