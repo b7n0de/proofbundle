@@ -39,7 +39,8 @@ COMMIT_ALG = "sha256-salted-v1"
 _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
-_DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
+_COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")   # schema: model_id_commit / dataset_id_commit  # \A..\Z (not ^..$): $ matches before a trailing newline
 # Assurance level (v1.1): how much a PASS is worth. Signed into the claim (tamper-evident + bound to the
 # issuer, so a third party cannot alter it) — but issuer-DECLARED: a dishonest issuer can sign a higher level,
 # the signature attributes that claim to them, it does not make it true. Ordered weakest→strongest. Default
@@ -370,6 +371,36 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             return None
         if not isinstance(claim.get("metric"), str):
             return None
+        # A TYPE IS NOT A DOMAIN, and schemas/eval_claim_v0_1.schema.json documents both. The round
+        # above types `passed`, `n` and `metric`; this one enforces the value ranges the schema and
+        # EVAL_CLAIM.md already promise a reader. Found by an external review lens on this very
+        # branch, which is the honest part: the type fix landed and left its own neighbour open.
+        #
+        # Measured at bfc3f42 against a HAND-SIGNED claim (the emit path refuses several of these,
+        # so testing through emit_eval_receipt answers a different question): 7 of 7 documented
+        # domains were accepted at this boundary. `commit_alg: "md5-plain"` is the loudest — a
+        # signed claim could name a commitment algorithm the receipt does not use.
+        #
+        # tests/test_eval_claim_domains_are_enforced.py derives one violating claim per documented
+        # constraint FROM the schema file, so a constraint added there tomorrow is covered without
+        # anyone remembering to come back here.
+        _n = claim["n"]
+        if not (0 <= _n <= 2**53 - 1):          # EVAL_CLAIM.md: `0 <= n <= 2^53-1`
+            return None
+        if not claim["metric"] or not claim.get("suite"):   # schema: minLength 1 on both
+            return None
+        if not isinstance(claim.get("suite"), str):
+            return None
+        if claim.get("commit_alg") != COMMIT_ALG:           # schema: const sha256-salted-v1
+            return None
+        # NOT ENFORCED HERE, and deliberately so: the schema's `^sha256:[0-9a-f]{64}$` on
+        # `model_id_commit` and `dataset_id_commit`. Enforcing it is correct and `salted_commit`
+        # always produces that form, but five existing CLI tests sign claims with placeholder
+        # commitments (`sha256:x`), so the check turns them red. Rewriting five house tests so a
+        # new check passes is not a thing to do inside a release cut whose order says no scope is
+        # added; it is its own change, with its own measurement of what else signs placeholders.
+        # Carried as COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, target 6.2.0, and named
+        # in tests/test_eval_claim_domains_are_enforced.py so it cannot be forgotten quietly.
         samples = claim.get("samples")
         if samples is not None:
             if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:
