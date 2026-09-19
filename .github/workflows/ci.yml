@@ -345,6 +345,31 @@ jobs:
       - name: Cached bytecode matches its source
         run: python scripts/pyc_integrity_gate.py --root . --fail-on-empty
 
+  codex-round-one:
+    # ROUND ONE BELONGS TO THE CREATOR, and until now nothing made anyone call it.
+    #
+    # MEASURED 2026-09-19 over six pull requests of this repository: the reviewer answered every
+    # call within twelve to twenty-one seconds and never appeared without one. PR 227 carried no
+    # call and got no review at all; the summary on PR 226 names its own trigger as a manual
+    # request, and the automatic on-open trigger produced nothing in that range. So a missing
+    # review is a missing call, not slowness and not a quota.
+    #
+    # NOT A REQUIRED CHECK BY ITSELF. Making it one changes the merge conditions for everybody and
+    # that is a branch-protection setting, which is the owner's. This job reports; the decision to
+    # require it is a separate, deliberate act.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: The creator called for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/codex_round_one_gate.py --pr "${{ github.event.pull_request.number }}"
+
   audit-candidate-matrix:
     # The NAME is what a person reads beside the cross; the job id stays the stable handle for
     # tables and tooling (owner directive 2026-09-04, "in menschenlesbar"). Not a required check
