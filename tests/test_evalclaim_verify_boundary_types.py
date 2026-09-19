@@ -158,12 +158,21 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(decode_eval_claim(self._signed_with("metric", value)))
 
-    def test_a_string_passed_is_stopped_before_an_export_that_would_call_it_passed(self):
-        """The catch-proof at the export, and it calls the export rather than describing it.
+    def test_a_string_passed_is_stopped_at_the_boundary_and_the_export_would_still_call_it_passed(self):
+        """One half is a catch-proof, the other half is a THREAT that is still open — and the
+        name has to say so.
 
-        A review lens caught the first version of this test: it was named after the export and
-        never invoked it, so it asserted the same thing as the `passed` case above while telling a
-        story about in-toto. Both halves are measured here now.
+        Two review lenses hit this test in sequence. The first caught that it was named after the
+        export and never invoked it. The second caught what the NAME then still promised: "is
+        stopped before an export that would call it passed" reads as a defence at the export, and
+        half two proves the opposite — that `to_test_result_statement` would still answer PASSED,
+        and stays green precisely as long as that stays true. A test whose name claims a defence it
+        does not provide is the same defect this file is about, one level up.
+
+        So: half one is the catch-proof (the boundary refuses the claim, red before the fix). Half
+        two is a standing measurement of an OPEN hole, green in both directions by construction,
+        and it is not counted. `RESTRISIKO_610.md` carries that hole, together with the two sibling
+        exporters a later lens found.
         """
         # Half one: the boundary refuses the claim, so the export is never handed it.
         self.assertIsNone(decode_eval_claim(self._signed_with("passed", "false")))
