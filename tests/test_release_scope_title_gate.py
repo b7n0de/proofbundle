@@ -273,24 +273,43 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
                       "Repositorys — NICHT MESSBAR, und das ist eine Aussage ueber das "
                       "Repository, nicht ueber den Arbeitsbaum")
 
-    def test_der_echte_umfang_liest_sich_und_traegt_neun_mitlaeufer(self):
+    def test_der_echte_umfang_liest_sich_und_traegt_einen_mitlaeufer(self):
+        """Nine riders and more than thirty branches were the state BEFORE the cut of 2026-09-19.
+
+        Owner word of that day, order QITEM-PROOFBUNDLE-610-SCHNITT-LANDEN-KETTE-01: 6.1.0 is what
+        is on main plus the two P1 findings of the audit and R7, and the remaining 54 lines move to
+        6.2.0 unchanged. So the scope shrinks by design, and these numbers shrink with it.
+
+        The case is renamed rather than left with nine in its title. A name that says nine while it
+        asserts one is a lie a reader meets before the assertion, and this file exists to stop
+        exactly that kind of drift.
+        """
         zu_zweig, mitlaeufer, zustand = GATE.lies_umfang(self.echt)
         self.assertEqual(zustand, "gemessen")
-        self.assertGreater(len(zu_zweig), 30)
-        self.assertEqual(len(mitlaeufer), 9,
-                         f"der Auftrag nennt neun Mitlaeufer, gelesen {sorted(mitlaeufer)}")
+        self.assertGreaterEqual(len(zu_zweig), 2,
+                                f"the cut leaves the two branches it adds, read {sorted(zu_zweig)}")
+        self.assertEqual(len(mitlaeufer), 1,
+                         f"P19 rides along as delivered, read {sorted(mitlaeufer)}")
 
     def test_die_zeilenzahl_des_echten_umfangs_ist_die_zahl_des_auftrags(self):
         """The order names 55. Measured, it is 55 LINES — not 52 identifiers and not 44
         branches. The counting unit was the point where my first calculation went wrong.
 
-        Since 2026-09-18 the scope carries one more line, P19 (the verifier block, owner order
-        of 2026-09-18T06:54Z, pull request 224, branch feat/610-verifier-block), so the measured
-        number is 56. The unit is still the LINE; a scope that grows by an ordered item grows by
-        exactly one line here, and this number moves with it, never silently."""
+        Since 2026-09-18 the scope carried one more line, P19 (the verifier block, owner order
+        of 2026-09-18T06:54Z, pull request 224, branch feat/610-verifier-block), which made 56.
+
+        On 2026-09-19 the owner cut the scope (order QITEM-PROOFBUNDLE-610-SCHNITT-LANDEN-KETTE-01):
+        6.1.0 is what is on main plus the two P1 findings of the audit and R7, and the remaining 54
+        lines move to docs/release_scope/6.2.0.md unchanged. Measured after the cut: three lines,
+        P19 delivered plus the two this cut adds.
+
+        The unit is still the LINE and the sentence above still holds in both directions. A scope
+        that grows by an ordered item grows by one line here; a scope the owner cuts shrinks by the
+        lines that moved, and this number moves with it, never silently. Fifty-four of them are in
+        6.2.0, byte equality checked, so nothing left the books."""
         zeilen, zustand = GATE.fuehrende_kennungen(self.echt)
         self.assertEqual(zustand, "gemessen")
-        self.assertEqual(len(zeilen), 56)
+        self.assertEqual(len(zeilen), 3)
 
     def test_der_echte_umfang_traegt_keine_doppelt_vergebene_kennung_mehr(self):
         """Until 2026-09-19 A1, A2 and A3 each led two lines, one from the collective order and
@@ -303,14 +322,33 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
         shape `R-A1`, so all three lines dropped out of the count before they could collide. The
         line count fell from 56 to 53 and the verdict turned green on the way out. So this case
         asserts the COUNT as well, and that lines and identifiers now agree. A green verdict over
-        a shrinking count is the failure this case exists to catch."""
+        a shrinking count is the failure this case exists to catch.
+
+        THE CUT OF 2026-09-19 IS A SHRINKING COUNT, which is why simply writing the new number here
+        would be the answer this case warns about. The count is three now; the fifty-four that left
+        went to docs/release_scope/6.2.0.md, and that is asserted rather than asserted-about. A line
+        that VANISHES and a line that MOVED look identical in a count and are not the same thing, so
+        the destination is part of the check.
+
+        If the two files are ever in one tree and the sum does not add up, this goes red, and it
+        does so for the same reason it did in September: a number that got smaller without anyone
+        being able to say where the difference went."""
         d = GATE.pruefe_umfangsdatei(self.echt)
         self.assertEqual(d["urteil"], "gruen", d["gruende"])
         self.assertEqual(d["kollisionen"], {})
-        self.assertEqual(d["zeilen"], 56, "a line must not vanish to make the verdict green")
-        self.assertEqual(d["kennungen"], 56, "one identifier per line, that is the whole point")
+        self.assertEqual(d["zeilen"], 3, "a line must not vanish to make the verdict green")
+        self.assertEqual(d["kennungen"], 3, "one identifier per line, that is the whole point")
         self.assertEqual(d["zeilen_ohne_kennung"], [],
                          "a line the gate cannot read must be reported, never dropped")
+        # WHERE THE OTHER FIFTY-FOUR WENT. Measured, not stated in prose.
+        nachfolger = REPO / "docs" / "release_scope" / "6.2.0.md"
+        if nachfolger.is_file():
+            verschoben = [z for z in nachfolger.read_text(encoding="utf-8").splitlines()
+                          if z.startswith("| ") and not z.startswith("| Punkt |")
+                          and not z.startswith("| Eintrag |")]
+            self.assertEqual(len(verschoben), 54,
+                             "the cut moved 54 lines to 6.2.0; if that number drops, a line was "
+                             "lost rather than moved, and the smaller count here is not honest")
 
 
 class TestEineUnlesbareZeileVerschwindetNicht(unittest.TestCase):
