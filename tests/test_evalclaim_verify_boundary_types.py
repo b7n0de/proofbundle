@@ -12,7 +12,9 @@ were INTACT. Its sibling `classify_eval_claim` carried an `isinstance` guard; th
 A-15: `passed`, `n` and `metric` were not typed at the verify boundary. 10 of 11 wrong-typed
 hand-signed claims were accepted, and `intoto.to_test_result_statement` turns them into a verdict
 via `_RESULT_ENUM[bool(claim["passed"])]` — where `bool("false")` is True, so a claim that says the
-string "false" exported to in-toto as PASSED.
+string "false" exported to in-toto as PASSED. `hf_evals.verify_eval_results_entry` coerces the same
+field the same way, so a Hub entry whose published value sat on the passing side verified as
+CONSISTENT with a signed failure; both consumers are measured below.
 
 Every case below is a case that FAILED before its fix and passes after it; the control arm at the
 top of each class is the proof that the harness can still say yes.
@@ -21,6 +23,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -35,6 +38,7 @@ from proofbundle.evalclaim import (
     issuer_fingerprint,
     load_claim_text,
 )
+from proofbundle.hf_evals import receipt_token, verify_eval_results_entry
 from proofbundle.intoto import to_test_result_statement
 
 TS = "2026-09-19T12:00:00Z"
@@ -154,6 +158,81 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
         decoded = decode_eval_claim(emit_eval_receipt(_valid_claim(signer), signer))
         statement = to_test_result_statement(decoded, subject_digest={"sha256": "0" * 64})
         self.assertEqual(statement["predicate"]["result"], "PASSED")
+
+
+class TestTheHubEntryVerifierIsStoppedByTheSameBoundary(unittest.TestCase):
+    """A-15, the SECOND consumer — `hf_evals.verify_eval_results_entry` coerces `passed` too.
+
+    in-toto turns a claim into a verdict via `_RESULT_ENUM[bool(claim["passed"])]`; this surface
+    does it via `cmp_ok == bool(claim["passed"])` (the `value_consistent` line). Same coercion,
+    different consumer — so the fix has to be MEASURED here as well, or "fixed" only means "fixed
+    at the one place the audit happened to name".
+
+    The entries this function exists for come from a THIRD PARTY's `.eval_results/*.yaml`; they
+    never pass through `to_eval_results_entry`, whose own guard therefore protects nobody here.
+    The harness builds them by hand with `receipt_token` for that reason.
+    """
+
+    def _entry(self, claim, signer, value):
+        """A hand-built Hub entry around a CORRECTLY signed receipt: only the claim is wrong-typed."""
+        return {"dataset": {"id": "acme/dataset-y", "task_id": "refusal"},
+                "value": value,
+                "verifyToken": receipt_token(emit_eval_receipt(claim, signer))}
+
+    def test_control_an_honest_entry_still_verifies(self):
+        # Without this the rejection below would prove nothing: a harness that rejects everything
+        # rejects the wrong-typed claim for free.
+        signer = generate_signer()
+        res = verify_eval_results_entry(self._entry(_valid_claim(signer), signer, 0.92))
+        self.assertTrue(res["crypto_ok"])
+        self.assertTrue(res["value_consistent"])
+        self.assertTrue(res["ok"], res["detail"])
+
+    def test_a_string_passed_no_longer_reads_as_a_consistent_published_value(self):
+        """The catch: signed verdict says the string "false", the published value is on the
+        PASSING side, and before the boundary typed `passed` the two agreed — `bool("false")` is
+        True, so `value_consistent` was True and the entry verified. The receipt says it failed.
+        """
+        signer = Ed25519PrivateKey.generate()
+        claim = dict(_valid_claim(signer))
+        claim["passed"] = "false"
+        res = verify_eval_results_entry(self._entry(claim, signer, 0.92))
+        self.assertTrue(res["crypto_ok"], "the token itself is intact — nothing was forged")
+        self.assertIsNone(res["claim"])
+        self.assertFalse(res["value_consistent"])
+        self.assertFalse(res["ok"])
+        self.assertIn("fail-closed", res["detail"])
+
+    def test_n_and_metric_reach_this_surface_too(self):
+        # `claim` is copied out field by field here, so a wrong-typed `n` or `metric` was published
+        # straight into a caller's report. Same boundary, so the same refusal.
+        signer = Ed25519PrivateKey.generate()
+        for field, value in (("n", "500"), ("n", True), ("metric", 1), ("metric", None)):
+            with self.subTest(field=field, value=value):
+                claim = dict(_valid_claim(signer))
+                claim[field] = value
+                res = verify_eval_results_entry(self._entry(claim, signer, 0.92))
+                self.assertTrue(res["crypto_ok"])
+                self.assertFalse(res["ok"])
+                self.assertIn("fail-closed", res["detail"])
+
+    def test_the_coercion_itself_is_unchanged_and_that_is_why_the_boundary_has_to_hold(self):
+        """SEPARATE, not a catch-proof: this passes before and after the fix, by construction.
+
+        It measures what the surface would do if such a claim ever reached it again — the same role
+        the in-toto half plays above. `bool("false")` is still True here; this commit does not add a
+        guard at the consumer, it stops the claim one level up. If this test ever goes red, the
+        consumer grew its own guard and this assertion should become the proof that it did.
+        """
+        signer = Ed25519PrivateKey.generate()
+        claim = dict(_valid_claim(signer))
+        claim["passed"] = "false"
+        entry = self._entry(claim, signer, 0.92)
+        with mock.patch("proofbundle.evalclaim.decode_eval_claim", return_value=claim):
+            res = verify_eval_results_entry(entry)
+        self.assertTrue(res["value_consistent"],
+                        "the coercion is unchanged: a truthy string still reads as a pass")
+        self.assertTrue(res["ok"])
 
 
 if __name__ == "__main__":
