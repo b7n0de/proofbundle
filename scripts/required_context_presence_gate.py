@@ -45,39 +45,105 @@ def _gh(*args: str, timeout: int = 60) -> tuple[int, str, str]:
     return p.returncode, p.stdout, p.stderr
 
 
-def pflichtkontexte(repo: str) -> tuple[set[str], str]:
-    """The contexts the active rulesets require on the default branch.
+def pflichtkontexte(repo: str, ref: str = "main") -> tuple[set[tuple[str, int | None]], str]:
+    """The checks the rules REALLY require on this ref, each with its source binding.
 
-    READ FROM THE LIVE RULESET, not from the declaration beside it. The declaration exists so an
-    offline check can run; here the question is what actually blocks this pull request, and only
-    the ruleset answers that.
+    APPLICABILITY IS PART OF THE QUESTION, NOT A DETAIL. The first version enumerated every ruleset
+    in the repository and unioned their required contexts, without looking at enforcement state,
+    target or ref. A ruleset in `evaluate` mode, or one scoped to a tag, would then have added a
+    context that blocks nothing — an applicability-blind union changes the verdict. `rules/branches/
+    <ref>` returns exactly the rules that apply to that ref, so applicability is answered by the
+    endpoint instead of being reconstructed here.
+
+    THE IDENTITY OF A REQUIRED CHECK IS (context, integration_id), NOT its display name. GitHub lets
+    a ruleset bind a required check to the app that must produce it. Dropping the binding means any
+    producer with the right name satisfies the requirement, which is a weaker statement than the one
+    the repository made. `integration_id` is carried and matched; where the ruleset leaves it out,
+    the requirement really is name-only and is treated as such.
+
+    Both findings came from the foreign-family review on pull request 230, 2026-09-19.
     """
-    rc, out, err = _gh("api", f"repos/{repo}/rulesets", "--jq", ".[].id")
+    rc, out, err = _gh("api", "--paginate", f"repos/{repo}/rules/branches/{ref}", "--jq",
+                       '.[] | select(.type=="required_status_checks")'
+                       ' | .parameters.required_status_checks[]'
+                       r' | "\(.context)\t\(.integration_id // "")"')
     if rc != 0:
-        return set(), f"NICHT MESSBAR: rulesets nicht lesbar ({err.strip()[:120]})"
-    aus: set[str] = set()
-    for rid in [z for z in out.split() if z.strip()]:
-        rc2, out2, err2 = _gh(
-            "api", f"repos/{repo}/rulesets/{rid}", "--jq",
-            '.rules[] | select(.type=="required_status_checks")'
-            ' | .parameters.required_status_checks[].context')
-        if rc2 != 0:
-            return set(), f"NICHT MESSBAR: ruleset {rid} nicht lesbar ({err2.strip()[:120]})"
-        aus.update(z.strip() for z in out2.splitlines() if z.strip())
+        return set(), f"NICHT MESSBAR: Regeln fuer {ref} nicht lesbar ({err.strip()[:120]})"
+    aus: set[tuple[str, int | None]] = set()
+    for zeile in out.splitlines():
+        if not zeile.strip():
+            continue
+        teile = zeile.split("\t")
+        ctx = teile[0].strip()
+        iid = teile[1].strip() if len(teile) > 1 else ""
+        if not ctx:
+            continue
+        aus.add((ctx, int(iid) if iid.isdigit() else None))
     if not aus:
         # NO REQUIRED CONTEXT IS A STATEMENT, NOT AN EMPTY RESULT. Either protection is off or the
         # read is wrong; both deserve a look, and neither is a green light.
-        return set(), "NICHT MESSBAR: kein Ruleset nennt einen Pflichtkontext"
+        return set(), "NICHT MESSBAR: keine Regel nennt einen Pflichtkontext"
     return aus, "gemessen"
 
 
-def vorhandene_kontexte(repo: str, sha: str) -> tuple[set[str], str]:
-    """Every check-run name that EXISTS on this head, whatever its conclusion."""
-    rc, out, err = _gh("api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100",
-                       "--jq", ".check_runs[].name")
+def vorhandene_kontexte(repo: str, sha: str) -> tuple[set[tuple[str, int | None]], str]:
+    """Everything on this head that can satisfy a required check, with the app that produced it.
+
+    TWO PRODUCER FAMILIES, NOT ONE. A required status check is satisfied by a Checks-API check run
+    OR by a classic commit status, and the first version read only the former. A context delivered
+    as a commit status would have been reported ABSENT — the gate would have raised exactly the
+    false alarm it exists to prevent. Both are read and unioned here.
+
+    PAGINATION IS PART OF CORRECTNESS: a head with more than one page of check runs would otherwise
+    hand back a truncated set, and a truncated set of PRESENT things turns into invented absences.
+    """
+    rc, out, err = _gh("api", "--paginate",
+                       f"repos/{repo}/commits/{sha}/check-runs?per_page=100",
+                       "--jq", r'.check_runs[] | "\(.name)\t\(.app.id // "")"')
     if rc != 0:
         return set(), f"NICHT MESSBAR: check-runs nicht lesbar ({err.strip()[:120]})"
-    return {z.strip() for z in out.splitlines() if z.strip()}, "gemessen"
+    aus: set[tuple[str, int | None]] = set()
+    for zeile in out.splitlines():
+        if not zeile.strip():
+            continue
+        teile = zeile.split("\t")
+        name = teile[0].strip()
+        aid = teile[1].strip() if len(teile) > 1 else ""
+        if name:
+            aus.add((name, int(aid) if aid.isdigit() else None))
+
+    rc2, out2, err2 = _gh("api", "--paginate",
+                          f"repos/{repo}/commits/{sha}/status?per_page=100",
+                          "--jq", r'.statuses[] | "\(.context)\t\(.creator.id // "")"')
+    if rc2 != 0:
+        # FAIL-CLOSED ON THE SECOND FAMILY TOO: a readable half is not a measured whole, and
+        # reporting absence from half the producers is the failure this gate was built against.
+        return set(), f"NICHT MESSBAR: commit-status nicht lesbar ({err2.strip()[:120]})"
+    for zeile in out2.splitlines():
+        if not zeile.strip():
+            continue
+        teile = zeile.split("\t")
+        name = teile[0].strip()
+        if name:
+            aus.add((name, None))
+    return aus, "gemessen"
+
+
+def erfuellt(pflicht: tuple[str, int | None],
+             vorhanden: set[tuple[str, int | None]]) -> bool:
+    """Does anything present satisfy this requirement, binding included?
+
+    A name-only requirement is met by any producer of that name. A bound requirement is met only by
+    the named app — that asymmetry IS the rule the repository wrote down, and collapsing it in
+    either direction would change the verdict.
+    """
+    ctx, iid = pflicht
+    for name, pid in vorhanden:
+        if name != ctx:
+            continue
+        if iid is None or pid == iid:
+            return True
+    return False
 
 
 def basisstand(repo: str, sha: str, basis: str = "main") -> tuple[int | None, bool, str]:
@@ -115,13 +181,13 @@ def basisstand(repo: str, sha: str, basis: str = "main") -> tuple[int | None, bo
 
 
 def pruefe(repo: str, sha: str, basis: str = "main") -> dict:
-    verlangt, z1 = pflichtkontexte(repo)
+    verlangt, z1 = pflichtkontexte(repo, basis)
     if z1 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z1, "sha": sha}
     vorhanden, z2 = vorhandene_kontexte(repo, sha)
     if z2 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z2, "sha": sha}
-    fehlend = sorted(verlangt - vorhanden)
+    fehlend = sorted(ctx for ctx, iid in verlangt if not erfuellt((ctx, iid), vorhanden))
     zurueck, streng, z3 = basisstand(repo, sha, basis)
     if z3 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z3, "sha": sha}
@@ -132,7 +198,7 @@ def pruefe(repo: str, sha: str, basis: str = "main") -> dict:
         "schema": SCHEMA,
         "urteil": "ROT" if (fehlend or veraltet) else "gruen",
         "sha": sha,
-        "verlangt": sorted(verlangt),
+        "verlangt": sorted(f"{c}@app:{i}" if i is not None else c for c, i in verlangt),
         "fehlend": fehlend,
         "streng": streng,
         "hinter_basis": zurueck,
