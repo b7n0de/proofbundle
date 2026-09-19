@@ -20,12 +20,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def schreibe_beleg(ziel: Path, nutzlast: dict, signierer=None) -> Path:
+def schreibe_beleg(ziel: Path, nutzlast: dict, signierer) -> Path:
     """Write a receipt and sign it — and publish nothing that is not signed.
 
     The carrier is built beside the target and moved into place only after signing succeeded, so a
     failing signer leaves no unsigned file where a caller would look for one.
+
+    THE SIGNER HAS NO DEFAULT, and that is the fix for the counter-probe's first finding: the first
+    version kept `signierer=None` from the planted corpus, so a caller who simply omitted the
+    argument published an unsigned artifact while the docstring promised the opposite. A promise
+    that an optional argument can switch off is not an invariant.
     """
+    if signierer is None:
+        raise ValueError("kein Signierer — ein unsignierter Beleg wird nicht veroeffentlicht")
     entwurf = ziel.with_suffix(ziel.suffix + ".unsigniert")
     entwurf.write_text(json.dumps(nutzlast, sort_keys=True), encoding="utf-8")
     try:
@@ -50,18 +57,27 @@ def pruefe_quelle(quelle: Path, manifest: dict) -> bool:
     return hashlib.sha256(quelle.read_bytes()).hexdigest() == erwartet
 
 
-def baum_unveraendert(wurzel: Path, vorzustand: dict[str, int]) -> bool:
+def baumzustand(wurzel: Path) -> dict[str, str]:
+    """The state a change would have to preserve: one digest per path, relative to the root."""
+    return {
+        str(p.relative_to(wurzel)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in wurzel.rglob("*")
+        if p.is_file()
+    }
+
+
+def baum_unveraendert(wurzel: Path, vorzustand: dict[str, str]) -> bool:
     """Assert the tree did not change — against a state captured EARLIER, passed in by the caller.
 
     The earlier state is an argument, so the comparison has two independent sides and can fail.
     Paths are relative to the root, because two files in different directories may share a name.
+
+    THE STATE IS A DIGEST PER PATH, NOT A SIZE, and that is the fix for the counter-probe's second
+    finding: the first version compared `st_size`, which the planted corpus also did, so a change
+    that keeps the length — "hello" to "world", or any same-length substitution — passed as
+    unchanged. A tamper check whose quantity a tamperer can hold constant is not one.
     """
-    jetzt = {
-        str(p.relative_to(wurzel)): p.stat().st_size
-        for p in wurzel.rglob("*")
-        if p.is_file()
-    }
-    return jetzt == vorzustand
+    return baumzustand(wurzel) == vorzustand
 
 
 _KENNUNG = re.compile(r"\A[A-Z]-\d+\Z")
