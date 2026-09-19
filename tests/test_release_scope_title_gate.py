@@ -292,12 +292,89 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
         self.assertEqual(zustand, "gemessen")
         self.assertEqual(len(zeilen), 56)
 
-    def test_der_echte_umfang_traegt_drei_doppelt_vergebene_kennungen(self):
-        """A1, A2 and A3 each appear twice: once from the collective order, once from
-        RESTRISIKO_600. As long as that is so, a title [6.1.0 A1] is not unambiguous."""
+    def test_der_echte_umfang_traegt_keine_doppelt_vergebene_kennung_mehr(self):
+        """Until 2026-09-19 A1, A2 and A3 each led two lines, one from the collective order and
+        one from RESTRISIKO_600, and a title [6.1.0 A1] pointed at both. Owner card OA-23931230c0
+        renamed the three RESTRISIKO rows to R-A1, R-A2, R-A3, and this case now holds the
+        resolved state.
+
+        IT IS NOT ENOUGH THAT THE VERDICT IS GREEN. The first attempt at this rename produced
+        exactly that green while making things worse: the identifier expression did not know the
+        shape `R-A1`, so all three lines dropped out of the count before they could collide. The
+        line count fell from 56 to 53 and the verdict turned green on the way out. So this case
+        asserts the COUNT as well, and that lines and identifiers now agree. A green verdict over
+        a shrinking count is the failure this case exists to catch."""
         d = GATE.pruefe_umfangsdatei(self.echt)
+        self.assertEqual(d["urteil"], "gruen", d["gruende"])
+        self.assertEqual(d["kollisionen"], {})
+        self.assertEqual(d["zeilen"], 56, "a line must not vanish to make the verdict green")
+        self.assertEqual(d["kennungen"], 56, "one identifier per line, that is the whole point")
+        self.assertEqual(d["zeilen_ohne_kennung"], [],
+                         "a line the gate cannot read must be reported, never dropped")
+
+
+class TestEineUnlesbareZeileVerschwindetNicht(unittest.TestCase):
+    """THE CLASS BEHIND THE R-A1 RENAME, and it is worth more than the rename.
+
+    Both readers in the gate ended their loop with "no identifier matched, next line". That is a
+    wrong answer in its quietest form: the line does not become a finding, it stops existing. The
+    count drops, no reason is printed, and the verdict gets GREENER rather than redder, because
+    whatever was wrong with that line went away with the line.
+
+    Measured on 2026-09-19: renaming three rows to R-A1..R-A3 made the file check report GREEN
+    with zero collisions, while the line count fell 56 -> 53. The collision was not resolved, it
+    was made invisible. Widening the expression fixes that one shape; these cases are about the
+    NEXT shape, which nobody has thought of yet.
+    """
+
+    def setUp(self):
+        import tempfile
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.p = pathlib.Path(td.name)
+
+    def _datei(self, inhalt: str) -> pathlib.Path:
+        f = self.p / "scope.md"
+        f.write_text(inhalt, encoding="utf-8")
+        return f
+
+    def test_eine_umfangszeile_ohne_lesbare_kennung_wird_gemeldet(self):
+        """Before this guard existed the same file read as one clean line and a green verdict."""
+        f = self._datei("# s\n## In\n| Punkt | Zweig |\n|---|---|\n"
+                        "| A1 gut | `fix/a1` |\n| voellig namenlose Zeile | `fix/x` |\n## Out\n")
+        d = GATE.pruefe_umfangsdatei(f)
         self.assertEqual(d["urteil"], "ROT")
-        self.assertEqual(sorted(d["kollisionen"]), ["A1", "A2", "A3"], d["kollisionen"])
+        self.assertEqual(d["zeilen_ohne_kennung"], ["voellig namenlose Zeile"])
+
+    def test_der_befund_erreicht_auch_den_lauf_nicht_nur_die_dateipruefung(self):
+        """CI calls `main`, which calls `pruefe`. A finding that only `pruefe_umfangsdatei`
+        reports is a guard nobody calls -- the same shape of failure it was written against."""
+        f = self._datei("# s\n## In\n| Punkt | Zweig |\n|---|---|\n"
+                        "| A1 gut | `fix/a1` |\n| namenlos | `fix/x` |\n## Out\n")
+        u = GATE.pruefe(branch="fix/a1", title="[6.1.0 A1] feat(x): y", version="6.1.0",
+                        scope_pfad=f)
+        self.assertEqual(u["urteil"], "ROT")
+        self.assertTrue(any("ohne lesbare Kennung" in g for g in u["gruende"]), u["gruende"])
+
+    def test_die_neue_form_r_a1_gilt_als_kennung(self):
+        """The instance. Without it the three renamed lines leave the count silently."""
+        f = self._datei("# s\n## In\n| Punkt | Zweig |\n|---|---|\n"
+                        "| R-A1 etwas | `fix/ra1` |\n## Out\n")
+        zeilen, zustand = GATE.fuehrende_kennungen(f)
+        self.assertEqual(zustand, "gemessen")
+        self.assertEqual([k for k, _, _ in zeilen], ["R-A1"])
+
+    def test_eine_tabelle_ohne_zweigspalte_loest_keinen_fehlalarm_aus(self):
+        """THE GUARD'S OWN REACH IS MEASURED TOO. Its first version checked every table row in
+        the In section and reported eight findings on the only real file: four header rows and
+        the three owner-decision rows. A guard that fires eight times on the one input it was
+        written for is describing its own reach, not the file."""
+        f = self._datei("# s\n## In\n| Karte | Zeit | Entscheid |\n|---|---|---|\n"
+                        "| `OA-123` | heute | irgendwas |\n\n"
+                        "| Punkt | Zweig |\n|---|---|\n| A1 gut | `fix/a1` |\n## Out\n")
+        d = GATE.pruefe_umfangsdatei(f)
+        self.assertEqual(d["zeilen_ohne_kennung"], [])
+        self.assertEqual(d["urteil"], "gruen", d["gruende"])
 
 
 if __name__ == "__main__":
