@@ -80,7 +80,41 @@ def vorhandene_kontexte(repo: str, sha: str) -> tuple[set[str], str]:
     return {z.strip() for z in out.splitlines() if z.strip()}, "gemessen"
 
 
-def pruefe(repo: str, sha: str) -> dict:
+def basisstand(repo: str, sha: str, basis: str = "main") -> tuple[int | None, bool, str]:
+    """How far this head lags the base branch, and whether the ruleset makes that fatal.
+
+    UNDER `strict_required_status_checks_policy` A PRESENT CONTEXT ON A STALE HEAD IS WORTH
+    NOTHING. Measured 2026-09-19 on pull request 228: both required contexts existed on the head
+    and both were green, this gate said `gruen`, and the merge was refused with "2 of 2 required
+    status checks are expected". The cause was not absence but staleness — pull request 226 had
+    landed one minute earlier, so the head was one commit behind main and GitHub wanted the checks
+    re-run on an up-to-date head. Presence answers a question the ruleset does not ask when it is
+    strict; this reader supplies the half that was missing.
+    """
+    rc, out, err = _gh("api", f"repos/{repo}/rulesets", "--jq", ".[].id")
+    if rc != 0:
+        return None, False, f"NICHT MESSBAR: rulesets nicht lesbar ({err.strip()[:120]})"
+    streng = False
+    for rid in [z for z in out.split() if z.strip()]:
+        rc2, out2, err2 = _gh(
+            "api", f"repos/{repo}/rulesets/{rid}", "--jq",
+            '.rules[] | select(.type=="required_status_checks")'
+            ' | .parameters.strict_required_status_checks_policy')
+        if rc2 != 0:
+            return None, False, f"NICHT MESSBAR: ruleset {rid} nicht lesbar ({err2.strip()[:120]})"
+        if "true" in out2:
+            streng = True
+    rc3, out3, err3 = _gh("api", f"repos/{repo}/compare/{basis}...{sha}", "--jq", ".behind_by")
+    if rc3 != 0:
+        return None, streng, f"NICHT MESSBAR: Vergleich zur Basis nicht lesbar ({err3.strip()[:120]})"
+    try:
+        zurueck = int(out3.strip())
+    except ValueError:
+        return None, streng, f"NICHT MESSBAR: behind_by unlesbar ({out3.strip()[:60]!r})"
+    return zurueck, streng, "gemessen"
+
+
+def pruefe(repo: str, sha: str, basis: str = "main") -> dict:
     verlangt, z1 = pflichtkontexte(repo)
     if z1 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z1, "sha": sha}
@@ -88,17 +122,36 @@ def pruefe(repo: str, sha: str) -> dict:
     if z2 != "gemessen":
         return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z2, "sha": sha}
     fehlend = sorted(verlangt - vorhanden)
+    zurueck, streng, z3 = basisstand(repo, sha, basis)
+    if z3 != "gemessen":
+        return {"schema": SCHEMA, "urteil": "NICHT_MESSBAR", "grund": z3, "sha": sha}
+    # DIE DRITTE LAGE: alles da, alles gruen, und trotzdem blockiert. Sie zaehlt nur, wenn die
+    # Regelmenge streng ist — sonst ist ein Rueckstand zur Basis kein Hindernis.
+    veraltet = bool(streng and zurueck and zurueck > 0)
     return {
         "schema": SCHEMA,
-        "urteil": "ROT" if fehlend else "gruen",
+        "urteil": "ROT" if (fehlend or veraltet) else "gruen",
         "sha": sha,
         "verlangt": sorted(verlangt),
         "fehlend": fehlend,
-        "grund": ("" if not fehlend else
-                  f"{len(fehlend)} Pflichtkontext(e) existieren auf diesem Kopf NICHT: {fehlend}. "
-                  "Ein abwesender Kontext hat keine Farbe und keine Zeile — der Pull Request bleibt "
-                  "BLOCKED, ohne dass etwas rot ist"),
-        "geprueft_wird": "die EXISTENZ am Kopf, NICHT der Ausgang und NICHT die Erzeugbarkeit",
+        "streng": streng,
+        "hinter_basis": zurueck,
+        "veraltet_unter_streng": veraltet,
+        # DIE ABWESENHEIT WIRD ZUERST GENANNT, auch wenn beides zutrifft: sie ist die Lage, an der
+        # ein Mensch zuerst etwas tun kann, und ein Grund, der "alle Pflichtkontexte existieren"
+        # sagt, waehrend `fehlend` nicht leer ist, widerspricht der eigenen Ausgabe.
+        "grund": (f"{len(fehlend)} Pflichtkontext(e) existieren auf diesem Kopf NICHT: {fehlend}. "
+                  "Ein abwesender Kontext hat keine Farbe und keine Zeile — der Pull Request "
+                  "bleibt BLOCKED, ohne dass etwas rot ist"
+                  + (f" (zusaetzlich liegt der Kopf {zurueck} Commit(s) hinter {basis}, "
+                     "und die Regelmenge ist streng)" if veraltet else "")
+                  if fehlend else
+                  (f"Alle Pflichtkontexte existieren, aber der Kopf liegt {zurueck} Commit(s) "
+                   f"hinter {basis}, und die Regelmenge ist streng. GitHub verlangt sie dann "
+                   "erneut auf einem aktuellen Kopf und meldet sie als expected — nichts ist rot, "
+                   "und der Pull Request laesst sich trotzdem nicht landen") if veraltet else
+                  ""),
+        "geprueft_wird": ("die EXISTENZ am Kopf und, bei strenger Regelmenge, ob der Kopf aktuell zur Basis ist — NICHT der Ausgang und NICHT die Erzeugbarkeit"),
         "nicht_geprueft": ("ob ein vorhandener Kontext bestanden hat — das sagt `gh pr checks`; "
                            "und ob ein Workflow ihn erzeugen KOENNTE — das sagt "
                            "required_check_reachability_gate.py"),

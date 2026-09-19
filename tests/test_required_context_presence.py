@@ -29,17 +29,24 @@ _spec.loader.exec_module(GATE)
 class _Netz:
     """Replaces the two readers, so the verdict is tested and not the network."""
 
-    def __init__(self, verlangt, vorhanden, z1="gemessen", z2="gemessen"):
+    def __init__(self, verlangt, vorhanden, z1="gemessen", z2="gemessen",
+                 zurueck=0, streng=False, z3="gemessen"):
         self.verlangt, self.vorhanden, self.z1, self.z2 = verlangt, vorhanden, z1, z2
+        # Standard ist der unauffaellige Fall: Kopf aktuell, Regelmenge nicht streng. Ein Vertrag,
+        # der die neue Lage nicht meint, soll durch sie auch nicht die Farbe wechseln.
+        self.zurueck, self.streng, self.z3 = zurueck, streng, z3
 
     def __enter__(self):
         self._p, self._v = GATE.pflichtkontexte, GATE.vorhandene_kontexte
+        self._b = GATE.basisstand
         GATE.pflichtkontexte = lambda repo: (set(self.verlangt), self.z1)
         GATE.vorhandene_kontexte = lambda repo, sha: (set(self.vorhanden), self.z2)
+        GATE.basisstand = lambda repo, sha, basis="main": (self.zurueck, self.streng, self.z3)
         return self
 
     def __exit__(self, *a):
         GATE.pflichtkontexte, GATE.vorhandene_kontexte = self._p, self._v
+        GATE.basisstand = self._b
 
 
 class TestEinAbwesenderKontextIstEinBefund(unittest.TestCase):
@@ -84,6 +91,60 @@ class TestEinAbwesenderKontextIstEinBefund(unittest.TestCase):
         """An empty required-set means protection is off or the read is wrong. Neither is a pass."""
         self.assertTrue(GATE.pflichtkontexte.__doc__)
         with _Netz(set(), {"guard"}, z1="NICHT MESSBAR: kein Ruleset nennt einen Pflichtkontext"):
+            d = GATE.pruefe("o/r", "a" * 40)
+        self.assertEqual(d["urteil"], "NICHT_MESSBAR")
+
+
+class TestDieDritteLageAllesDaUndTrotzdemBlockiert(unittest.TestCase):
+    """Present, green, and unmergeable. The shape pull request 228 really had on 2026-09-19.
+
+    THE GATE SAID `gruen` AND THE MERGE WAS REFUSED, seventy seconds after pull request 226 landed:
+    both required contexts existed on the head, both had passed, and GitHub answered
+    "2 of 2 required status checks are expected". Absence was never the problem — staleness was.
+    Under `strict_required_status_checks_policy` the contexts must have run on a head that is
+    current with the base, so a head one commit behind carries results that no longer count.
+    Presence alone answers a question the ruleset stops asking the moment it is strict.
+    """
+
+    def test_streng_und_hinter_der_basis_ist_rot_obwohl_nichts_fehlt(self):
+        with _Netz({"guard", "all-checks-passed"}, {"guard", "all-checks-passed"},
+                   zurueck=1, streng=True) as _:
+            d = GATE.pruefe("o/r", "a" * 40)
+        self.assertEqual(d["urteil"], "ROT")
+        self.assertEqual(d["fehlend"], [])          # nichts fehlt — genau das ist der Punkt
+        self.assertTrue(d["veraltet_unter_streng"])
+        self.assertIn("hinter main", d["grund"])
+
+    def test_nicht_streng_macht_rueckstand_folgenlos(self):
+        """Without the strict policy a lagging head merges fine, so it must not turn the gate red —
+        otherwise the gate would block work for a reason the repository does not have."""
+        with _Netz({"guard"}, {"guard"}, zurueck=7, streng=False):
+            d = GATE.pruefe("o/r", "a" * 40)
+        self.assertEqual(d["urteil"], "gruen")
+        self.assertFalse(d["veraltet_unter_streng"])
+
+    def test_streng_und_aktuell_ist_gruen(self):
+        with _Netz({"guard"}, {"guard"}, zurueck=0, streng=True):
+            d = GATE.pruefe("o/r", "a" * 40)
+        self.assertEqual(d["urteil"], "gruen")
+
+    def test_ein_fehlender_kontext_bleibt_der_genannte_grund(self):
+        """Both faults at once: the message must name the absent context, not the staleness,
+        because that is the one a person can act on first."""
+        with _Netz({"guard", "all-checks-passed"}, {"guard"}, zurueck=3, streng=True):
+            d = GATE.pruefe("o/r", "a" * 40)
+        self.assertEqual(d["urteil"], "ROT")
+        self.assertEqual(d["fehlend"], ["all-checks-passed"])
+        # DER TEST HIESS SO UND PRUEFTE ES NICHT: die erste Fassung sicherte nur `fehlend` zu,
+        # waehrend der Grund "Alle Pflichtkontexte existieren" sagte — im echten Lauf gegen
+        # pull request 230 stand genau dieser Widerspruch in der Ausgabe.
+        self.assertIn("existieren auf diesem Kopf NICHT", d["grund"])
+        self.assertNotIn("Alle Pflichtkontexte existieren", d["grund"])
+        self.assertIn("zusaetzlich", d["grund"])
+
+    def test_unlesbarer_basisstand_ist_nicht_messbar_und_nicht_gruen(self):
+        """Fail-closed on the third reader as well, for the same reason as the other two."""
+        with _Netz({"guard"}, {"guard"}, z3="NICHT MESSBAR: Vergleich zur Basis nicht lesbar"):
             d = GATE.pruefe("o/r", "a" * 40)
         self.assertEqual(d["urteil"], "NICHT_MESSBAR")
 
