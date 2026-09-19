@@ -80,11 +80,16 @@ def baum_unveraendert(wurzel: Path, vorzustand: dict[str, str]) -> bool:
     return baumzustand(wurzel) == vorzustand
 
 
-_KENNUNG = re.compile(r"\A[A-Z]-\d+\Z")
+_KENNUNG = re.compile(r"\A[A-Z]-[0-9]+\Z")
 
 
 def ist_kennung(s: str) -> bool:
-    """Is this string an identifier of the form A-1? Anchored, so the whole string must match."""
+    """Is this string an identifier of the form A-1? Anchored, so the whole string must match.
+
+    THE DIGIT CLASS IS ASCII, NOT `\d`, and that is the counter-probe's third finding: Python's
+    `\d` matches every Unicode decimal digit, so `A-\u0661` (Arabic-Indic one) passed as an
+    identifier of "the form A-1". The anchors fixed the shape and left the alphabet wrong.
+    """
     return bool(_KENNUNG.match(s))
 
 
