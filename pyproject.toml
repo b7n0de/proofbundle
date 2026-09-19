@@ -108,8 +108,10 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 #   * entry-point discovery finds `proofbundle`; `ProofbundleHooks` is a real `Hooks` subclass and
 #     carries all 17 `on_*` methods of the 0.3.261 API — no method went missing, none was added that
 #     we fail to implement
-#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 19 of 19 — against the REAL
-#     package, no mocks
+#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 10 of 10 — against the REAL
+#     package, no mocks. The count is re-derived by
+#     tests/test_shipped_comment_numbers.py, which fails when it drifts; it said 19 from 5.1.0
+#     to 6.0.0 and was wrong the day it was written (RESTRISIKO_600 R7).
 #   * the fixture recorded under 0.3.217 still reads (`version=2`, `status=success`), so the log
 #     format did not move under us
 # The ceiling stays a ceiling: 0.3.262 and later remain UNMEASURED and therefore excluded. What was
@@ -137,7 +139,8 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.263']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (63 files) — across BOTH major versions. So the declared
+#   2.2.0 / 2.3.0 exits 0 over `src` (70 files, measured at 79f66a2; re-derived by
+#   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
 #
