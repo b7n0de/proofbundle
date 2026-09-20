@@ -7,6 +7,10 @@
   "language": "en",
   "language_scope": {
     "generated_prose": "en",
+    "title_derivation": {
+      "tabelle_spalte1": "the cell of the title column of the table row, chosen by COLUMN NAME (Finding, In one line, What it is, Title) and falling back to the second column; then the first 200 characters are kept. The cut is HARD: no word boundary and no ellipsis",
+      "ueberschrift": "the heading line of the finding; the hash marks, the identifier and one leading dash, colon or comma are removed, then the first 200 characters are kept. The cut is HARD: no word boundary and no ellipsis, so it can fall inside a word"
+    },
     "quoted_from_source": [
       {
         "language": "de",
@@ -14,7 +18,7 @@
         "fields": [
           "records[].title"
         ],
-        "normalisation": "line wrapping collapsed to single spaces; a title longer than 200 characters is cut at a word boundary and marked with a trailing ellipsis. Apply this rule to the source text and the value is found there; without it the value is not byte identical to any source line.",
+        "normalisation": "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find form of a record stands in `evidence[].fundart` and the rules stand per form under `language_scope.title_derivation`. Applying the rule of that form to the evidence bytes reproduces the title exactly — it is a derivation, not a verbatim line of the source.",
         "why": "headings taken from the source register and normalised by the rule named above; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
       },
       {
@@ -32,7 +36,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T15:02:35Z",
+  "generated_at": "2026-09-20T15:32:13Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",

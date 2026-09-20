@@ -184,12 +184,23 @@ def nicht_woertlich(doc, repo: pathlib.Path) -> list[str]:
     for pfad, wert in _alle_strings(doc):
         if "language_scope" in pfad or not wert.strip():
             continue
+        # ONE PREDICATE PER QUESTION, and the stronger one wins.
+        #
+        # Codex named this in the same round that found the substring hole: this check and the
+        # per-record one went through the SAME helper, so fixing one and leaving the other would
+        # have left a second, weaker answer to the same question standing — and a weaker check
+        # that can report green still looks like coverage. A title is bound by the derivation of
+        # its OWN evidence, which is sharper than containment in a group's source, so it is
+        # answered there and the findings are folded back in below.
+        if pfad.lstrip(".") == "records[].title":
+            continue
         deckend = [g.get("source") or "" for g in _gruppen(doc)
                    if any(fnmatch.fnmatch(pfad.lstrip("."), m) for m in (g.get("fields") or []))]
         if not deckend:
             continue
         if not any(_steht_drin(wert, vorraete[q]) for q in deckend if q in vorraete):
             raus.append(f"{pfad} steht in keiner der genannten Quellen {deckend}: {wert[:70]!r}")
+    raus.extend(titel_ohne_ableitung(doc, repo))
     return raus
 
 
@@ -313,52 +324,183 @@ def test_ANTI_der_echte_traeger_bleibt_ohne_befund(traegerpfad):
     assert nicht_woertlich(_doc(traegerpfad), REPO) == []
 
 
-@traeger
-def test_jeder_titel_steht_in_der_quelle_SEINES_datensatzes(traegerpfad):
-    """[ZAEHLT] The exact binding, and it is sharper than the group check above it.
+#: THE TITLE COLUMNS, by NAME. Kept here rather than imported from the producer: a checker that
+#: imports the thing it checks re-runs it instead of measuring it.
+_TITELSPALTEN = ("Finding", "In one line", "What it is", "Title")
 
-    The groups name one source each for `records[].title`, and since a line cuts from two sheets
-    it is enough there that the value stands in ONE of the named sources. That is the right bound
-    for a group and too soft for a record, which carries its own source in
-    `evidence[].source_path`. That is the one asked here.
+
+def _tabellenkopf(text: str, byte_von: int) -> list[str]:
+    """The column names of the table a row sits in, searched upwards from the find site."""
+    vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
+    for zeile in reversed(vor.splitlines()):
+        z = zeile.strip()
+        if z.startswith("|") and "Id" in z:
+            return [t.strip() for t in z.strip("|").split("|")]
+        if z.startswith("#"):
+            break
+    return []
+
+
+def _ableiten(stueck: str, kennung: str, fundart: str, kopf: list[str]) -> str:
+    """The title the declared rule of THIS find form produces from THESE evidence bytes.
+
+    Written out here from the declared rules rather than imported from `gen_findings_register`.
+    HONEST LIMIT, and it is the whole reach of this case: two implementations of the same rule
+    catch a title that DETACHED from its evidence, and they catch the two drifting apart. They do
+    NOT catch a rule that is wrong in both places — that question is answered by reading the
+    declaration, not by running it.
+    """
+    zeilen = stueck.splitlines()
+    erste = zeilen[0] if zeilen else ""
+    if fundart == "prosa_zusage":
+        flach = " ".join(x.strip() for x in zeilen).strip()
+        teile = re.split(r"(?<=[.!?])\s+", flach)
+        satz = teile[0] if teile else flach
+        if len(satz) <= 200:
+            return satz
+        gekuerzt = satz[:200].rsplit(" ", 1)[0]
+        return (gekuerzt or satz[:200]) + " …"
+    if fundart == "tabelle_spalte1":
+        spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
+        for name in _TITELSPALTEN:
+            if kopf and name in kopf:
+                i = kopf.index(name)
+                if i < len(spalten):
+                    return spalten[i][:200]
+        return (spalten[1] if len(spalten) > 1 else "")[:200]
+    k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
+    return re.sub(r"^[·\-—,:]\s*", "", k)[:200]
+
+
+def titel_ohne_ableitung(doc, repo: pathlib.Path) -> list[str]:
+    """Which titles are NOT what the declared rule makes of their own evidence bytes?
+
+    THE ONE PREDICATE both the real case and the catch proof use. A catch proof that carries its
+    own copy proves something about the copy.
+    """
+    raus: list[str] = []
+    roh: dict[str, bytes] = {}
+    for r in doc.get("records") or []:
+        b = (r.get("evidence") or [{}])[0]
+        rel, br, fundart = b.get("source_path"), b.get("byte_range"), b.get("fundart")
+        if not rel or not isinstance(br, list) or len(br) != 2 or not fundart:
+            raus.append(f"{r.get('id')}: the record names no source, byte range or find form")
+            continue
+        if rel not in roh:
+            p = repo / rel
+            if not p.is_file():
+                raus.append(f"{r.get('id')}: the named source {rel!r} is missing")
+                continue
+            roh[rel] = p.read_bytes()
+        quelle = roh[rel]
+        von, bis = br
+        if not (0 <= von < bis <= len(quelle)):
+            raus.append(f"{r.get('id')}: the byte range {br} does not lie in {rel}")
+            continue
+        kopf = (_tabellenkopf(quelle.decode("utf-8", "ignore"), von)
+                if fundart == "tabelle_spalte1" else [])
+        soll = _ableiten(quelle[von:bis].decode("utf-8", "ignore"), r.get("id") or "", fundart,
+                         kopf)
+        if soll != (r.get("title") or ""):
+            raus.append(f"{r.get('id')} [{fundart}]: the carrier says {str(r.get('title'))[:50]!r}, "
+                        f"the rule of its find form makes {soll[:50]!r}")
+    return raus
+
+
+@traeger
+def test_jeder_titel_ist_die_ableitung_seiner_eigenen_belegbytes(traegerpfad):
+    """[ZAEHLT] The binding, and it replaces a check that measured neighbourhood.
+
+    Found by a review round on 2026-09-20 at commit 191b9d8f. The binding before this one asked
+    whether the title is a SUBSTRING of the flattened source, so replacing a title with the two
+    words `Register entry` — which stand in the sheet — left both this case and the group check
+    green. Substring membership stood in for the declared derivation, and a title could therefore
+    detach from the evidence that is supposed to carry it.
+    """
+    offen = titel_ohne_ableitung(_doc(traegerpfad), REPO)
+    assert not offen, (
+        f"{len(offen)} title(s) are not what the declared rule makes of their own evidence — "
+        f"then the provenance is a claim, not a derivation: {offen[:4]}")
+
+
+def test_FANG_ein_vom_beleg_abgeloester_titel_faellt_auf():
+    """[ZAEHLT] The counter-example of the review round, run against the LIVING predicate."""
+    import copy  # noqa: PLC0415
+    doc = copy.deepcopy(_doc(TRAEGER))
+    assert doc.get("records"), "no record to detach"
+    assert titel_ohne_ableitung(doc, REPO) == [], (
+        "the unmutated carrier already reports a finding — then the case below proves nothing")
+    doc["records"][0]["title"] = "Register entry"
+    offen = titel_ohne_ableitung(doc, REPO)
+    assert any(doc["records"][0]["id"] in x for x in offen), (
+        f"a title replaced by a phrase that merely STANDS in the source is not reported: {offen[:3]}")
+
+
+@traeger
+def test_jede_benutzte_fundart_traegt_eine_deklarierte_regel(traegerpfad):
+    """[ZAEHLT] Not one more and not one fewer — both directions, because both mislead.
+
+    A rule for a form that produced nothing here is a rule for nothing; a form that produced
+    titles and carries no rule leaves exactly those titles undeclared while the block looks whole.
     """
     doc = _doc(traegerpfad)
-    offen = []
-    for r in doc["records"]:
-        quelle = (r.get("evidence") or [{}])[0].get("source_path")
-        vorrat = _quellwerte(REPO, quelle or "")
-        if vorrat is None:
-            offen.append(f"{r['id']}: die Quelle {quelle!r} fehlt")
-            continue
-        if not _steht_drin(r.get("title") or "", vorrat):
-            offen.append(f"{r['id']}: der Titel steht nicht in {quelle}")
-    assert not offen, (
-        f"{len(offen)} Titel stehen nicht in der Quelle IHRES Datensatzes: {offen[:4]}")
+    benutzt = {(r.get("evidence") or [{}])[0].get("fundart") for r in doc.get("records") or []}
+    benutzt.discard(None)
+    erklaert = set((doc.get("language_scope") or {}).get("title_derivation") or {})
+    assert benutzt == erklaert, (
+        f"the find forms used and the rules declared do not match: used {sorted(benutzt)}, "
+        f"declared {sorted(erklaert)}")
+    for form, regel in ((doc.get("language_scope") or {}).get("title_derivation") or {}).items():
+        assert regel and len(regel) > 40, f"the rule of {form!r} is not a rule: {regel!r}"
 
 
 @traeger
-def test_eine_normalisierte_zusage_nennt_ihre_normalisierung(traegerpfad):
+def test_die_deklarierte_regel_sagt_was_die_daten_zeigen(traegerpfad):
+    """[ZAEHLT] The declaration is held against the VALUES, not against its own wording.
+
+    The case that failed to catch the wrong declaration asked whether the sentence contains the
+    words `wrap` and `cut`. It did, and it was still wrong for 145 of 150 values. What is
+    checkable without believing the prose: a title marked with a trailing ellipsis can only come
+    from a form whose rule says it ellipsises, and a title sitting exactly on the length bound
+    without one can only come from a form whose rule says the cut is hard.
+    """
+    doc = _doc(traegerpfad)
+    regeln = (doc.get("language_scope") or {}).get("title_derivation") or {}
+    fehler = []
+    for r in doc.get("records") or []:
+        titel = r.get("title") or ""
+        form = (r.get("evidence") or [{}])[0].get("fundart")
+        regel = (regeln.get(form) or "").lower()
+        if titel.endswith("…") and "ellipsis" not in regel:
+            fehler.append(f"{r.get('id')}: the title ends in an ellipsis, the rule of {form!r} "
+                          f"does not mention one")
+        if len(titel) == 200 and not titel.endswith("…") and "hard" not in regel:
+            fehler.append(f"{r.get('id')}: the title sits exactly on 200 characters without an "
+                          f"ellipsis, the rule of {form!r} does not call the cut hard")
+    assert not fehler, f"{len(fehler)} title(s) contradict the rule declared for their form: {fehler[:4]}"
+
+
+@traeger
+def test_eine_gruppe_die_titel_deckt_verweist_auf_die_regeln_je_fundart(traegerpfad):
     """[ZAEHLT] A tolerance that is not declared is a tolerance nobody can check.
 
     Found by a review round on 2026-09-20. The titles of this carrier are not byte identical to
-    any source line: line wrapping is collapsed and long ones are cut. The first answer to that
-    was to make THIS checker tolerant, which is the wrong way round, because a check bent to fit a
-    claim measures the claim and not the source. The carrier now declares the rule, and this case
-    binds that it does: a group covering the titles must name its normalisation, and the rule must
-    say what it does to whitespace and to length.
+    any source line. The first answer was to make the CHECKER tolerant, which is the wrong way
+    round; the second declared ONE rule for all of them, and that rule was wrong for 145 of 150
+    values because the derivation differs per find form. So the group no longer restates a rule —
+    it names WHERE the rule of a record stands, and the record carries its find form.
     """
     doc = _doc(traegerpfad)
     ohne = []
     for g in _gruppen(doc):
         if "records[].title" not in (g.get("fields") or []):
             continue
-        regel = g.get("normalisation")
+        regel = g.get("normalisation") or ""
         if not regel:
-            ohne.append(f"{g.get('source')}: keine Normalisierung genannt")
-        elif not ("wrap" in regel.lower() and ("cut" in regel.lower()
-                                               or "ellipsis" in regel.lower())):
-            ohne.append(f"{g.get('source')}: die Regel nennt Umbruch oder Kuerzung nicht: "
-                        f"{regel[:60]!r}")
+            ohne.append(f"{g.get('source')}: no normalisation named")
+        elif not ("title_derivation" in regel and "fundart" in regel):
+            ohne.append(f"{g.get('source')}: the sentence does not say where the rule of a record "
+                        f"stands: {regel[:70]!r}")
     assert not ohne, (
-        "eine Gruppe, die Titel deckt, nennt ihre Normalisierung nicht — dann ist die Toleranz "
-        f"dieses Pruefers still und der Leser kann sie nicht anwenden: {ohne}")
+        "a group covering titles does not point at the rules per find form — then a reader cannot "
+        f"tell which of them applies to a record: {ohne}")

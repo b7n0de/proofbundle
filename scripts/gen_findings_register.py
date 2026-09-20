@@ -350,12 +350,42 @@ _SPRACHE_DER_QUELLE = "de"
 #: source it is about.
 SPRACHE_JE_BLATT = {"RESTRISIKO_600.md": "de", "RESTRISIKO_610.md": "en"}
 
-#: THE ONE DECLARED RULE by which a title relates to its source. It stands in the carrier, so a
-#: reader can apply it, and the contract applies the same one rather than a wider tolerance.
+#: THE RULE IS PER FIND FORM, because the derivation is — and the first version said otherwise.
+#:
+#: A review round on 2026-09-20 found that the binding for a title accepted any SUBSTRING of the
+#: flattened source, so a title could detach from its evidence while the provenance guard reported
+#: success. Verifying that finding turned up the deeper one: `_titel` carries THREE branches and
+#: the single declared rule described ONE of them. Measured over both carriers, 145 of 150 titles
+#: come from a heading or a table cell and are cut HARD at 200 characters, with no word boundary
+#: and no ellipsis; only the five prose promises are cut the way the rule claimed for all of them.
+#: The declaration was not merely incomplete, it was wrong for 145 of 150 values.
+#:
+#: The contract that was supposed to catch this asked whether the declared sentence CONTAINS the
+#: words "wrap" and "cut" — a keyword check, which is the same defect class one level up: a claim
+#: about a derivation checked by a proxy instead of by performing the derivation. The binding now
+#: RE-DERIVES each title from the bytes of its own evidence and demands exact equality.
+NORMALISIERUNG_JE_FUNDART = {
+    "ueberschrift": (
+        "the heading line of the finding; the hash marks, the identifier and one leading dash, "
+        "colon or comma are removed, then the first 200 characters are kept. The cut is HARD: no "
+        "word boundary and no ellipsis, so it can fall inside a word"),
+    "tabelle_spalte1": (
+        "the cell of the title column of the table row, chosen by COLUMN NAME (Finding, In one "
+        "line, What it is, Title) and falling back to the second column; then the first 200 "
+        "characters are kept. The cut is HARD: no word boundary and no ellipsis"),
+    "prosa_zusage": (
+        "the paragraph is flattened to single spaces and its FIRST SENTENCE is taken; a sentence "
+        "longer than 200 characters is cut at a word boundary and marked with a trailing "
+        "ellipsis"),
+}
+
+#: The sentence that stands with every quoted source, pointing at the rules rather than restating
+#: one of them. A group names a SOURCE, and one source can be cut by several find forms.
 NORMALISIERUNG_DER_TITEL = (
-    "line wrapping collapsed to single spaces; a title longer than 200 characters is cut at a "
-    "word boundary and marked with a trailing ellipsis. Apply this rule to the source text and "
-    "the value is found there; without it the value is not byte identical to any source line.")
+    "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find "
+    "form of a record stands in `evidence[].fundart` and the rules stand per form under "
+    "`language_scope.title_derivation`. Applying the rule of that form to the evidence bytes "
+    "reproduces the title exactly — it is a derivation, not a verbatim line of the source.")
 
 #: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
 #: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
@@ -822,9 +852,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         k = e["kennung"]
         if not (isinstance(k, str) and _kennung_form().match(k)):
             raise SystemExit(
-                f"Erzeugung abgebrochen: die Kennung {k!r} traegt Zeichen, die keine Kennung "
-                f"tragen darf. Sie wird zu einem Dateinamen, und ein Dateiname aus ungeprueften "
-                f"Daten schreibt dorthin, wo die Daten hinzeigen")
+                f"build refused: the identifier {k!r} carries characters an identifier must "
+                f"not carry. It becomes a FILE NAME, and a file name built from unchecked data "
+                f"writes wherever that data points")
         e_rel = e.get("quelle") or RESTRISIKO_REL
         try:
             e_roh, e_text, e_qd = _quelle_von(e_rel)
@@ -967,6 +997,15 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "language": "en",
         "language_scope": {
             "generated_prose": "en",
+            # THE FORMS ACTUALLY USED, DERIVED — never a hand kept list beside the data.
+            #
+            # A carrier that names a find form it did not use publishes a rule for nothing, and one
+            # that omits a form it DID use leaves those titles without a declared derivation while
+            # looking complete. Both are the class this block exists against, so the set is read
+            # off the records rather than written down: exactly the forms that produced a title
+            # here, each with the rule the producer applied.
+            "title_derivation": {fa: NORMALISIERUNG_JE_FUNDART[fa] for fa in sorted(
+                {r["evidence"][0]["fundart"] for r in records})},
             # JE QUELLE EIN EINTRAG, und das ist eine Korrektur an der ersten Fassung dieses
             # Blocks. Sie nannte EINE Quelle fuer Felder aus ZWEI Dateien — gemessen kommen 145
             # Titel aus dem Quellregister und 153 weitere Zeichenketten aus der
