@@ -63,6 +63,28 @@ after the fix with a clean control arm: `sha1-unsalted` rejected, `md5-plain` re
 Two independent paths converging on one defect is the useful part of that story, and it is the
 reason this entry is here instead of quietly absent.
 
+**WHERE THAT FIX LIVES, because it is not on this branch.** The enforcement line
+(`if claim.get("commit_alg") != COMMIT_ALG: return None`) and the file that carries its cases,
+`tests/test_eval_claim_domains_are_enforced.py`, are both part of the evalclaim verify-boundary
+change, which lands as its own pull request. MEASURED 2026-09-20 over three trees, counting that
+line in `src/proofbundle/evalclaim.py` and looking for that file:
+
+| tree | the enforcement | the test file |
+|---|---|---|
+| `main` | absent | absent |
+| this branch | absent | absent |
+| the verify-boundary branch | present | present |
+
+So the sentence above is true of the tree the fix is in, and it is NOT true of the tree this
+document currently sits in. The cut's landing order puts the verify-boundary change before this
+one, which makes the claim true by the time this document reaches `main` -- but the order is the
+only thing holding that, and an order is not a gate. A reader who finds this document on a `main`
+that does not yet carry the fix would read a closure that is not there.
+
+A counter-reading found it by running the claim rather than by reading it: it emitted a receipt
+with `commit_alg: "sha1-unsalted"` on this tree and the CLI answered `=> OK`. That is the honest
+way round -- the document was ahead of its own branch, not wrong about the fix.
+
 ## Open — the two commitment patterns at the verify boundary
 
 `schemas/eval_claim_v0_1.schema.json` documents `^sha256:[0-9a-f]{64}$` for `model_id_commit` and
@@ -75,7 +97,9 @@ claims with placeholder commitments such as `sha256:x`. Isolated by measurement:
 without the two patterns, 4 red with them. Rewriting five house tests so a new check passes is its
 own change with its own measurement of what else signs placeholders.
 
-Carried in `tests/test_eval_claim_domains_are_enforced.py` as `BEKANNTE_LUECKEN`, and that list
+Carried in `tests/test_eval_claim_domains_are_enforced.py` as `BEKANNTE_LUECKEN` -- which,
+like the A-17 fix above, arrives with the verify-boundary pull request and is not in this
+tree -- and that list
 fails in both directions — an entry whose gap has since been closed turns the test red and asks to
 be deleted. Verified with a planted closure. Register entry
 `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`, target 6.2.0.
