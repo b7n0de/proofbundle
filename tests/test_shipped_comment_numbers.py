@@ -21,6 +21,7 @@ So the fix is this file. The numbers are now derived from the tree on every run,
 disagrees with what it counts fails here instead of shipping. From a distributed sdist the module is
 skipped by conftest's derived rule, because the paths below are root-relative.
 """
+import ast
 import importlib.util
 import pathlib
 import re
@@ -76,9 +77,43 @@ def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
     return bestanden, andere
 
 
-def zeilen_zaehlung(datei: pathlib.Path) -> int:
-    """The OLD reading: count `def test_` lines. Kept because the meta test needs both."""
-    return len(re.findall(r"^\s*def test_", datei.read_text(), re.M))
+def definitionszaehlung(datei: pathlib.Path) -> int:
+    """Cases a reader can count WITHOUT running them -- read from the syntax tree, not from text.
+
+    This is still the reading that a comment writer performs by eye, and the ratio case exists
+    because it is not a pass ratio. But a TEXT regex over `def test_` is not even a definition
+    count. MEASURED 2026-09-20 against the previous version:
+
+        a `Test*` class carrying `__init__`   regex said 3, the run passed 2
+        a `def test_` inside a docstring      regex said 2, the run passed 1
+
+    Both make the run pass FEWER cases than the comment claims. Raise the comment to the regex's
+    number and the structural case goes green, and on any surface without `inspect_ai` the ratio
+    case skips, so nothing is left to notice. A counter-reading from another lens found this, and
+    it is the R7 class arriving inside the fix for R7 for the second time.
+
+    pytest does not collect a class with `__init__` (`PytestCollectionWarning`), and a docstring is
+    not code. The syntax tree knows both; a regex over raw text knows neither. What remains
+    divergent on purpose is `@pytest.mark.parametrize`: one definition, several cases. That makes
+    the run report MORE than this count, the assertions contradict each other, and the gate goes
+    red -- fail-closed, and carried as an open entry rather than silently absorbed here.
+    """
+    baum = ast.parse(datei.read_text(encoding="utf-8"))
+
+    def faelle(koerper, in_klasse: bool) -> int:
+        n = 0
+        for k in koerper:
+            if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)) and k.name.startswith("test_"):
+                n += 1
+            elif isinstance(k, ast.ClassDef):
+                # A class pytest cannot instantiate contributes nothing, however it is named.
+                if any(isinstance(m, ast.FunctionDef) and m.name in ("__init__", "__new__")
+                       for m in k.body):
+                    continue
+                n += faelle(k.body, True)
+        return n
+
+    return faelle(baum.body, False)
 
 
 def bilanzzeile(stdout: str) -> str:
@@ -115,7 +150,7 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         """
         for rel, muster in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
-                gemessen = zeilen_zaehlung(REPO / rel)
+                gemessen = definitionszaehlung(REPO / rel)
                 treffer = re.search(muster, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the pyproject comment naming {rel} is gone — if it "
                                               f"was removed on purpose, remove this claim with it")
@@ -258,6 +293,60 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
                                  f"{wort} is not counted, so the ratio would pass over it")
 
 
+class TestDieZaehlungSiehtNurWasPytestAuchSammelt(unittest.TestCase):
+    """The count and the run must not disagree in the direction that reads GREEN.
+
+    A counter-reading refuted the unconditional form of this file's claim: the right-hand number is
+    bound only on the surface where `inspect_ai` is installed, because elsewhere the ratio case
+    skips and the structural case is alone. Alone, a TEXT regex over `def test_` counted things
+    pytest never collects, so a comment raised to match it passed.
+
+    Both planted files below make the old reading count MORE than the run passes. That is the
+    direction that goes green; the opposite direction (`parametrize`) makes the assertions
+    contradict each other and is red by construction.
+    """
+
+    GESPENST = ("import unittest\n\n"
+                "class TestEcht(unittest.TestCase):\n"
+                "    def test_eins(self):\n        pass\n"
+                "    def test_zwei(self):\n        pass\n\n"
+                "class TestGespenst:\n"
+                "    def __init__(self):\n        self.x = 1\n"
+                "    def test_gespenst(self):\n        assert True\n")
+
+    IM_DOCSTRING = ('"""An example in the module docstring:\n\n'
+                    'def test_example_pattern():\n'
+                    '    pass\n"""\n'
+                    "import unittest\n\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_eins(self):\n        pass\n")
+
+    def _baue(self, inhalt: str):
+        import tempfile
+        d = tempfile.mkdtemp()
+        baum = pathlib.Path(d)
+        (baum / "tests").mkdir()
+        datei = baum / "tests" / "gepflanzt.py"
+        datei.write_text(inhalt, encoding="utf-8")
+        return baum, datei
+
+    def test_eine_klasse_die_pytest_nicht_instanziieren_kann_zaehlt_nicht(self):
+        baum, datei = self._baue(self.GESPENST)
+        bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
+        self.assertEqual(bestanden, 2, f"pytest cannot collect a class with __init__ ({andere})")
+        self.assertEqual(definitionszaehlung(datei), bestanden,
+                         "the count must not include a case the run can never reach — a comment "
+                         "raised to that number would pass the structural check")
+
+    def test_ein_def_test_im_docstring_zaehlt_nicht(self):
+        baum, datei = self._baue(self.IM_DOCSTRING)
+        bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
+        self.assertEqual(bestanden, 1, f"only one real case exists here ({andere})")
+        self.assertEqual(definitionszaehlung(datei), bestanden,
+                         "text inside a docstring is not a case, and a reading that cannot tell "
+                         "them apart is the proxy this file exists against")
+
+
 class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
     """THE ANTI-PARITY, RUN INSTEAD OF ASSERTED. A counter-reading found it was only prose.
 
@@ -283,7 +372,7 @@ class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
                 "    def test_c(self):\n        self.skipTest('planted')\n",
                 encoding="utf-8")
             # A comment writer who counts definitions arrives at three and writes `3 of 3`.
-            behauptet = zeilen_zaehlung(datei)
+            behauptet = definitionszaehlung(datei)
             self.assertEqual(behauptet, 3, "the planted file defines three cases")
 
             bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
@@ -291,7 +380,7 @@ class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
             # THE OLD READING accepts it, and this assertion has to stand INSIDE the block: after
             # it the throwaway tree is gone, and a check written outside would have compared a
             # fallback constant with itself. A tautology reads exactly like a passing case.
-            self.assertEqual(zeilen_zaehlung(datei), behauptet,
+            self.assertEqual(definitionszaehlung(datei), behauptet,
                              "the line count sees three definitions and agrees with the comment, "
                              "which is precisely why it is not a pass ratio")
 
