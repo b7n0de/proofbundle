@@ -21,11 +21,11 @@ So the fix is this file. The numbers are now derived from the tree on every run,
 disagrees with what it counts fails here instead of shipping. From a distributed sdist the module is
 skipped by conftest's derived rule, because the paths below are root-relative.
 """
-import ast
 import importlib.util
 import json
 import pathlib
 import re
+import shutil
 import sys
 import unittest
 
@@ -60,113 +60,74 @@ def flaeche_traegt_die_behauptung() -> bool:
     return importlib.util.find_spec("inspect_ai") is not None
 
 
-def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
-    """Run one file and read its outcome. Returns (passed, everything that did not pass).
-
-    Named so the gate-meta test below can point it at a planted tree. A reading that only exists
-    inside the case that uses it cannot be turned against a planted defect, and a gate nobody can
-    aim at a planted defect is a gate nobody has tested.
-    """
+def _pytest(wurzel: pathlib.Path, *args: str) -> tuple[int, str]:
     import os
     import subprocess
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", rel], capture_output=True, text=True,
-                       cwd=str(wurzel), env=dict(os.environ, PYTHONPATH="src"))
-    zeile = bilanzzeile(r.stdout)
-    bestanden = int(m.group(1)) if (m := re.search(r"(\d+) passed", zeile)) else -1
-    andere = {w: int(m2.group(1)) for w in NICHT_BESTANDEN
-              if (m2 := re.search(rf"(\d+) {w}\b", zeile))}
-    return bestanden, andere
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", *args], capture_output=True,
+                       text=True, cwd=str(wurzel), env=dict(os.environ, PYTHONPATH="src"))
+    return r.returncode, r.stdout
 
 
-def _parametrize_faktor(knoten: ast.AST) -> int | None:
-    """How many cases one definition expands into. None means: not decidable from the source.
+def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
+    """Run one file and read its outcome FROM THE REPORT, not from the terminal text.
 
-    `@pytest.mark.parametrize("x", [1, 2, 3])` is ONE definition and THREE cases, and stacked
-    decorators multiply. Where the value list is a literal the number is right there; where it is a
-    name or a call it is not, and this returns None so the caller can say so instead of guessing.
-    A guess here would put the gate back where it started: a number nobody derived.
+    The first two versions scraped stdout. A counter-reading executed two ordinary constructs that
+    defeat any such rule, because both print a line carrying the complete shape of a summary AFTER
+    the real one: an `atexit` hook registered in a conftest, and a `pytest_sessionfinish` wrapper
+    printing after its `yield`. MEASURED 2026-09-20 with the atexit form: stdout ended
+    `2 passed, 1 skipped in 0.09s` then `5 failed in 0.03s`, and the reading returned the tail.
+
+    Anchoring harder on the text was the wrong direction -- a second, stricter pattern is still a
+    pattern over a stream anyone may append to. The same run writes a JUnit report whose attributes
+    are the counts, so this reads those. On the same planted tree the report says
+    `tests=3 failures=0 errors=0 skipped=1` and the appended line changes nothing.
     """
-    faktor = 1
-    for deko in getattr(knoten, "decorator_list", []):
-        ziel = deko.func if isinstance(deko, ast.Call) else deko
-        name = ziel.attr if isinstance(ziel, ast.Attribute) else getattr(ziel, "id", "")
-        if name != "parametrize":
-            continue
-        if not isinstance(deko, ast.Call) or len(deko.args) < 2:
-            return None
-        werte = deko.args[1]
-        if not isinstance(werte, (ast.List, ast.Tuple)):
-            return None                      # a name, a call, a comprehension -- not readable here
-        faktor *= len(werte.elts)
-    return faktor
+    import tempfile
+    import xml.etree.ElementTree as ET
+    with tempfile.TemporaryDirectory() as d:
+        bericht = pathlib.Path(d) / "bericht.xml"
+        _pytest(wurzel, rel, f"--junit-xml={bericht}")
+        if not bericht.is_file():
+            return -1, {"kein_bericht": 1}
+        wurzelknoten = ET.parse(bericht).getroot()
+    knoten = wurzelknoten if wurzelknoten.tag == "testsuite" else wurzelknoten.find("testsuite")
+    if knoten is None:
+        return -1, {"kein_bericht": 1}
+    a = knoten.attrib
+    gesamt = int(a.get("tests", 0))
+    andere = {w: int(a.get(w, 0)) for w in ("failures", "errors", "skipped") if int(a.get(w, 0))}
+    return gesamt - sum(andere.values()), andere
 
 
-def definitionszaehlung(datei: pathlib.Path) -> int | None:
-    """Cases a reader can count WITHOUT running them -- read from the syntax tree, not from text.
+def gesammelte_faelle(rel: str, wurzel: pathlib.Path) -> int:
+    """How many cases this file HAS -- asked of the collector, not derived from the source.
 
-    This is still the reading that a comment writer performs by eye, and the ratio case exists
-    because it is not a pass ratio. But a TEXT regex over `def test_` is not even a definition
-    count. MEASURED 2026-09-20 against the previous versions:
+    THIS REPLACES A PROXY THAT LEAKED TWICE. A syntax-tree counter was written because the ratio
+    case skips where `inspect_ai` is absent and something had to hold the right-hand number there.
+    It was wrong about a class carrying `__init__`, about `def test_` inside a docstring, and about
+    `parametrize`; each was fixed, and a second counter-reading then produced FIVE more shapes it
+    still got wrong, all of them counting MORE than the run -- the direction that reads green:
 
-        a `Test*` class carrying `__init__`   regex said 3, the run passed 2
-        a `def test_` inside a docstring      regex said 2, the run passed 1
-        one `parametrize` over three values   tree said 1, the run passed 3
-        two stacked `parametrize`             tree said 1, the run passed 6
+        a class whose name does not match `python_classes`   counted 2, the run passed 1
+        `__test__ = False` on a class                        counted 3, the run passed 1
+        `__test__ = False` on a function                     counted 2, the run passed 1
+        a `Test*` class nested inside another                counted 2, the run passed 1
+        `async def test_` with no async backend              counted 2, the run passed 1
 
-    The first two make the run pass FEWER cases than the comment claims: raise the comment to that
-    number and the structural case goes green, and on any surface without `inspect_ai` the ratio
-    case skips, so nothing is left to notice. The last two go the other way -- the assertions then
-    contradict each other and the gate is red, which is safe but blocks a perfectly ordinary test
-    and leaves no number that satisfies it.
+    Every one of them is pytest collection semantics that a syntax tree does not carry. A proxy
+    that needs a new exception each time somebody reads it harder is not cheaper than the thing it
+    stands for -- it is the defect this file is named after, wearing the tool's own face.
 
-    pytest does not collect a class with `__init__`, a docstring is not code, and a literal
-    `parametrize` list says how many cases one definition becomes. The syntax tree knows all three.
-    Where a `parametrize` list is NOT a literal the count is not decidable from the source, and
-    this returns None rather than a number the caller would have to trust.
+    MEASURED 2026-09-20, and this is what makes the replacement possible: `--collect-only` returns
+    9 and 10 for the two claimed files BOTH with and without `inspect_ai` installed. Collection
+    does not run conditional skips, so the count is the same on the cleanroom surface. The reason
+    the proxy existed does not survive the measurement.
     """
-    baum = ast.parse(datei.read_text(encoding="utf-8"))
-    unbekannt = False
-
-    def faelle(koerper) -> int:
-        nonlocal unbekannt
-        n = 0
-        for k in koerper:
-            if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)) and k.name.startswith("test_"):
-                f = _parametrize_faktor(k)
-                if f is None:
-                    unbekannt = True
-                else:
-                    n += f
-            elif isinstance(k, ast.ClassDef):
-                # A class pytest cannot instantiate contributes nothing, however it is named.
-                if any(isinstance(m, ast.FunctionDef) and m.name in ("__init__", "__new__")
-                       for m in k.body):
-                    continue
-                n += faelle(k.body)
-        return n
-
-    gesamt = faelle(baum.body)
-    return None if unbekannt else gesamt
-
-
-def bilanzzeile(stdout: str) -> str:
-    """The summary line, SEARCHED FOR rather than assumed to be the last one.
-
-    A counter-reading named the cases: a collection error ends on a traceback line, a missing file
-    ends on `ERROR: file or directory not found`, and a plugin may write after the summary. Taking
-    the last line turns any of those into "no match", which is red -- fail-closed, but red for the
-    wrong reason, and a gate that goes red for the wrong reason is one people learn to re-run.
-
-    MATCHED ON THE SUMMARY'S SHAPE, not on any line that carries a result word. The first version
-    took the LAST line matching a digit followed by a result word, which is the same assumption
-    one step weaker, and the fourth case in that list -- a plugin writing after the summary --
-    is exactly where it breaks. MEASURED 2026-09-20: `10 passed in 0.31s` followed by
-    `[gw0] 3 passed` returned the SECOND line, so the run read as three passing instead of ten.
-    A pytest summary always closes with ` in <seconds>s`; a line that lacks that is not one. An
-    output that reports nothing at all still yields "" and a red -1, which is the intended refusal.
-    """
-    return next((z for z in reversed(stdout.splitlines())
-                 if re.search(r"\d+ (passed|failed|error|skipped)\b.*\bin \d+(\.\d+)?s", z)), "")
+    rc, aus = _pytest(wurzel, rel, "--collect-only")
+    treffer = re.search(r"(\d+) tests? collected", aus)
+    if treffer is None:
+        raise AssertionError(f"the collector reported no count for {rel} (rc={rc}):\n{aus[-600:]}")
+    return int(treffer.group(1))
 
 
 class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
@@ -183,13 +144,7 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         """
         for rel, muster in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
-                gemessen = definitionszaehlung(REPO / rel)
-                self.assertIsNotNone(
-                    gemessen,
-                    f"{rel} carries a `parametrize` whose value list is not a literal, so the "
-                    f"case count is NOT MEASURABLE from the source. Refusing rather than "
-                    f"comparing against a guess — write the list literally, or drop the claim "
-                    f"from pyproject.toml together with this check.")
+                gemessen = gesammelte_faelle(rel, REPO)
                 treffer = re.search(muster, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the pyproject comment naming {rel} is gone — if it "
                                               f"was removed on purpose, remove this claim with it")
@@ -263,13 +218,24 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         and another change is in flight against that manifest, so touching them from here would
         collide. They are carried in the register instead.
         """
-        gemessen = len(json.loads((REPO / "conformance" / "manifest.json").read_text())["cases"])
+        faelle = json.loads((REPO / "conformance" / "manifest.json").read_text())["cases"]
+        # THE TYPE, not just the length. `len` of a dict counts its keys and says nothing, so a
+        # migration from a list to an id-keyed mapping would pass here whenever the key count
+        # happened to match -- a silent agreement between two different things.
+        self.assertIsInstance(faelle, list,
+                              f"conformance/manifest.json `cases` is {type(faelle).__name__}, and "
+                              f"only a list is a corpus this number can be taken from")
+        gemessen = len(faelle)
         text = (REPO / "CROSS_IMPLEMENTATION_REPORT.md").read_text()
-        treffer = re.search(r"\*\*The corpus holds (\d+) cases today\*\*", text)
-        self.assertIsNotNone(treffer, "the sentence naming the corpus size is gone — if it was "
-                                      "removed on purpose, remove this claim with it")
-        self.assertEqual(int(treffer.group(1)), gemessen,
-                         f"CROSS_IMPLEMENTATION_REPORT.md claims {treffer.group(1)} corpus cases, "
+        # EVERY occurrence, not the first. A counter-reading planted a second, stale sentence
+        # further down ("an earlier revision said ... 999 cases") and `re.search` never looked at
+        # it: the document contradicted itself and the gate was green. A document that says a
+        # number twice has to say it the same way twice.
+        alle = re.findall(r"\*\*The corpus holds (\d+) cases today\*\*", text)
+        self.assertTrue(alle, "the sentence naming the corpus size is gone — if it was "
+                              "removed on purpose, remove this claim with it")
+        self.assertEqual(sorted(set(alle)), [str(gemessen)],
+                         f"CROSS_IMPLEMENTATION_REPORT.md states the corpus size as {alle}, "
                          f"conformance/manifest.json lists {gemessen}")
         dateien = len(list((REPO / "conformance").rglob("case.json")))
         self.assertEqual(dateien, gemessen,
@@ -314,50 +280,28 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
             self.assertTrue(flaeche_traegt_die_behauptung(),
                             "present means the claim's surface IS this one")
 
-    def test_die_bilanzzeile_wird_gesucht_nicht_die_letzte_genommen(self):
-        """Tails that are not the summary. MEASURED which of them the old `[-1]` would have caught.
+    def test_der_bericht_ueberlebt_eine_zeile_die_wie_eine_bilanz_aussieht(self):
+        """The shape that defeated two stdout readings, run for real against the report.
 
-        Three of these four fail under `[-1]`, so they count as a catch-proof for dropping it. The
-        empty tail does NOT: the output already ends on the summary, so `[-1]` finds it too. It is
-        a control, not a proof, and saying "four cases" folds that difference away.
+        A conftest registering an `atexit` hook prints a complete summary line AFTER pytest's own.
+        Any rule over the terminal text reads the tail; the JUnit report does not have a tail.
         """
-        for schwanz in ("Traceback (most recent call last):",
-                        "ERROR: file or directory not found: tests/weg.py",
-                        "-- generated xml file: /tmp/x.xml --",
-                        ""):
-            with self.subTest(schwanz=schwanz):
-                aus = "collected 10 items\n\n10 passed in 0.31s\n" + schwanz
-                self.assertEqual(bilanzzeile(aus), "10 passed in 0.31s")
-
-    def test_eine_zeile_nach_der_bilanz_die_ein_ergebniswort_traegt(self):
-        """The case the four above cannot show, and the one the docstring above promised to catch.
-
-        A tail that does NOT match the pattern only proves the reading skipped a non-match. The
-        distinguishing case is a tail that DOES match while not being the summary -- which is what
-        `a plugin may write after the summary` actually means. Under a pattern that accepts any
-        result word, each of these returns the tail and the run reads as the wrong number.
-        """
-        for schwanz, falsch in (("[gw0] 3 passed", "3"),
-                                ("1 passed to the xml writer", "1"),
-                                ("rerun summary: 2 failed", "2")):
-            with self.subTest(schwanz=schwanz):
-                aus = "collected 10 items\n\n10 passed in 0.31s\n" + schwanz
-                self.assertEqual(bilanzzeile(aus), "10 passed in 0.31s",
-                                 f"the tail was read as the summary, so the run counts {falsch}")
-
-    def test_die_bilanz_ohne_ergebniswort_gibt_keine_zeile(self):
-        """An output that never reported must not silently read as zero findings."""
-        self.assertEqual(bilanzzeile("collected 0 items\n\nno tests ran in 0.01s\n"), "")
-
-    def test_jedes_ergebniswort_wird_gezaehlt_nicht_nur_skipped(self):
-        """`10 passed, 2 xfailed` is not a 10-of-10 surface either, and neither is deselected."""
-        for wort in ("xfailed", "xpassed", "deselected", "failed"):
-            with self.subTest(wort=wort):
-                zeile = f"10 passed, 2 {wort} in 0.4s"
-                gezaehlt = {w: int(m.group(1)) for w in NICHT_BESTANDEN
-                            if (m := re.search(rf"(\d+) {w}\b", zeile))}
-                self.assertEqual(sum(gezaehlt.values()), 2,
-                                 f"{wort} is not counted, so the ratio would pass over it")
+        import tempfile
+        d = tempfile.mkdtemp(prefix="shipped-numbers-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        baum = pathlib.Path(d)
+        (baum / "tests").mkdir()
+        (baum / "tests" / "x.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n"
+            "    def test_a(self):\n        pass\n"
+            "    def test_b(self):\n        pass\n"
+            "    def test_c(self):\n        self.skipTest('planted')\n", encoding="utf-8")
+        (baum / "conftest.py").write_text(
+            "import atexit\natexit.register(lambda: print('5 failed in 0.03s'))\n",
+            encoding="utf-8")
+        bestanden, andere = lauf_bilanz("tests/x.py", baum)
+        self.assertEqual(bestanden, 2, f"the appended line must not be read as the result ({andere})")
+        self.assertEqual(andere, {"skipped": 1}, andere)
 
 
 class TestDieZaehlungSiehtNurWasPytestAuchSammelt(unittest.TestCase):
@@ -409,15 +353,15 @@ class TestDieZaehlungSiehtNurWasPytestAuchSammelt(unittest.TestCase):
         baum, datei = self._baue(self.GESPENST)
         bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
         self.assertEqual(bestanden, 2, f"pytest cannot collect a class with __init__ ({andere})")
-        self.assertEqual(definitionszaehlung(datei), bestanden,
-                         "the count must not include a case the run can never reach — a comment "
+        self.assertEqual(gesammelte_faelle("tests/gepflanzt.py", baum), bestanden,
+                         "the collector must not see a case the run can never reach — a comment "
                          "raised to that number would pass the structural check")
 
     def test_ein_def_test_im_docstring_zaehlt_nicht(self):
         baum, datei = self._baue(self.IM_DOCSTRING)
         bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
         self.assertEqual(bestanden, 1, f"only one real case exists here ({andere})")
-        self.assertEqual(definitionszaehlung(datei), bestanden,
+        self.assertEqual(gesammelte_faelle("tests/gepflanzt.py", baum), bestanden,
                          "text inside a docstring is not a case, and a reading that cannot tell "
                          "them apart is the proxy this file exists against")
 
@@ -447,8 +391,7 @@ class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
                 "    def test_c(self):\n        self.skipTest('planted')\n",
                 encoding="utf-8")
             # A comment writer who counts definitions arrives at three and writes `3 of 3`.
-            behauptet = definitionszaehlung(datei)
-            self.assertIsNotNone(behauptet, "the planted file must be countable")
+            behauptet = gesammelte_faelle("tests/gepflanzt.py", baum)
             self.assertEqual(behauptet, 3, "the planted file defines three cases")
 
             bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
@@ -456,7 +399,7 @@ class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
             # THE OLD READING accepts it, and this assertion has to stand INSIDE the block: after
             # it the throwaway tree is gone, and a check written outside would have compared a
             # fallback constant with itself. A tautology reads exactly like a passing case.
-            self.assertEqual(definitionszaehlung(datei), behauptet,
+            self.assertEqual(gesammelte_faelle("tests/gepflanzt.py", baum), behauptet,
                              "the line count sees three definitions and agrees with the comment, "
                              "which is precisely why it is not a pass ratio")
 
