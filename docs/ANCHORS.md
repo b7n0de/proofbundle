@@ -253,9 +253,9 @@ The contract: a `type` that is REGISTERED, a fail-closed verify callable, and th
 canonicalRoot ↔ target binding enforced by the layer for you. The name is an identifier, not a
 grammar — `verify_anchor` asks whether the string is a key of the registry, and neither it nor the
 bundle schema checks its shape. `<org>/<name>/vN` is a RECOMMENDED form for a new name and nothing
-more; the names this project itself ships (`rfc3161-tsa`, `opentimestamps`, `chia-datalayer/v1`,
-`markovian-provenance/v1`) do not have it, and a verifier that enforced the shape would reject
-them. SPEC §7i carries the same statement for implementers. Third-party types are welcome as
+more: not one of the type names this project itself ships has that shape, the two built-ins
+included, and a verifier that enforced it would reject them. SPEC §7i carries the same statement
+for implementers and names them there, where the codename rule of this page does not apply. Third-party types are welcome as
 extensions with credit — see in-toto/attestation#565 and the reference-implementation tracking issue.
 
 ## First-party extension — `chia-datalayer/v1` (EXPERIMENTAL, the `[chia]` extra)
