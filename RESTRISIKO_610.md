@@ -54,6 +54,11 @@ already names the class as open, so it is disclosed rather than hidden, but disc
 
 ## Closed during the cut, and named because two paths found it
 
+**Named here but not in this tree:** `tests/test_eval_claim_domains_are_enforced.py`, `tests/test_evalclaim_verify_boundary_types.py` — they arrive with the evalclaim verify-boundary pull request. This line is the
+declaration a test compares against the tree, so it cannot drift from what the
+document actually names.
+
+
 **A-17** is not in the list above. It said `commit_alg` must be present but its value is never
 compared against `COMMIT_ALG`, so `"sha1-unsalted"` decodes. An external review lens reported the
 same defect independently as part of a wider P2 about value domains. One fix closes both. Measured

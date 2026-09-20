@@ -18,6 +18,7 @@ standing in is the one that can be wrong without anyone noticing.
 from __future__ import annotations
 
 import pathlib
+import re
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -29,7 +30,11 @@ TRAEGER = REPO / "tests" / "test_eval_claim_domains_are_enforced.py"
 DURCHSETZUNG = 'claim.get("commit_alg") != COMMIT_ALG'
 
 #: The one wording that marks a named file as living on another branch.
-MARKE = "is not in this tree"
+#: The one line in which the document declares the set. A declaration is a set, not a
+#: phrase near a word: a marker in a paragraph covers whatever else that paragraph
+#: happens to name, which a counter-reading demonstrated with two missing files and
+#: one marker between them.
+ERKLAERUNG = "**Named here but not in this tree:**"
 
 
 class TestTheRiskDocumentSaysWhichTreeItIsIn(unittest.TestCase):
@@ -67,43 +72,38 @@ class TestTheRiskDocumentSaysWhichTreeItIsIn(unittest.TestCase):
                                  f"RESTRISIKO_610.md says {was} is {gesagt} in this tree, and it "
                                  f"is {'present' if wirklich else 'absent'}")
 
-    def test_every_named_test_file_either_exists_here_or_says_it_does_not(self):
-        """THE CLASS, not the two instances of it that were found by hand.
+    def test_the_files_named_but_absent_are_declared_as_a_set(self):
+        """THE SET, derived -- not a marker phrase read out of the surrounding prose.
 
-        A sweep over 119 documents and 352 named source paths turned up ten that are not in this
-        tree. Seven of those are honest: six name tooling that lives in another repository or a
-        path a checker emitted, and one says in its own sentence that the file is deliberately not
-        shipped. Three were this document naming test files that arrive with another pull request,
-        and two of them had just been annotated by hand -- which is how the third was still
-        sitting there.
+        The first version of this rule required the paragraph naming a missing file to contain
+        `is not in this tree`. A counter-reading took it apart with two executed cases:
 
-        So the rule is derived instead of applied twice: a test file this document names is either
-        in this tree, or the document says within the same paragraph that it is not.
+            one paragraph naming TWO missing files and carrying the marker once covered BOTH,
+            because the marker belongs to the paragraph and not to the file it was written for
+
+            the pattern required backticks, so `**tests/x.py**`, a markdown link and a bare
+            mention all walked past it
+
+Both are the same defect: a rule about prose, written against the shape prose happened to have
+        that day. So the document declares the set instead, this derives the set, and the two are
+        compared. A file named in any form is found, and a declaration covers exactly the file it
+        names.
         """
-        import re
         text = DOKUMENT.read_text(encoding="utf-8")
-        absaetze = text.split("\n\n")
-        ungedeckt = []
-        for absatz in absaetze:
-            for treffer in re.findall(r"`(tests/[A-Za-z0-9_./-]+\.py)`", absatz):
-                if (REPO / treffer).exists():
-                    continue
-                # ONE marker, not a list of paraphrases. The first version also accepted the
-                # word `absent`, which is in the table and not in the sentence -- a rule that takes
-                # several wordings is a pattern over prose, which is the shape this whole cut has
-                # been replacing. The document says it one way and this reads that one way.
-                #
-                # WHITESPACE IS COLLAPSED FIRST, and that is not cosmetic. The marker sat across a
-                # line break in one paragraph (`is not in this` / `tree`), so a literal substring
-                # search missed a sentence that says exactly the right thing. A rule about WORDS
-                # that is written against CHARACTERS is the same defect one more time.
-                if MARKE in " ".join(absatz.split()):
-                    continue
-                ungedeckt.append(treffer)
-        self.assertEqual(sorted(set(ungedeckt)), [],
-                         "RESTRISIKO_610.md names these test files, they are not in this tree, and "
-                         "the paragraph naming them does not say so: "
-                         f"{sorted(set(ungedeckt))}")
+        genannt = set(re.findall(r"tests/[A-Za-z0-9_][A-Za-z0-9_./-]*\.py", text))
+        gemessen = {t for t in genannt if not (REPO / t).exists()}
+
+        zeile = [z for z in text.splitlines() if z.startswith(ERKLAERUNG)]
+        self.assertEqual(len(zeile), 1,
+                         f"the document declares the set of files it names but does not carry "
+                         f"exactly once ({len(zeile)} lines start with {ERKLAERUNG!r})")
+        erklaert = set(re.findall(r"tests/[A-Za-z0-9_][A-Za-z0-9_./-]*\.py", zeile[0]))
+
+        self.assertEqual(
+            erklaert, gemessen,
+            "RESTRISIKO_610.md declares which of the test files it names are not in this tree, and "
+            f"the tree disagrees.\n  declared but present: {sorted(erklaert - gemessen)}"
+            f"\n  absent but undeclared: {sorted(gemessen - erklaert)}")
 
     def test_the_section_does_not_claim_the_closure_without_naming_where_it_lives(self):
         """The sentence and its condition have to travel together, or the sentence travels alone."""
