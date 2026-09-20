@@ -8,7 +8,16 @@
   "language_scope": {
     "generated_prose": "en",
     "title_derivation": {
-      "prosa_zusage": "the paragraph is flattened to single spaces and its FIRST SENTENCE is taken; a sentence longer than 200 characters is cut at a word boundary and marked with a trailing ellipsis"
+      "prosa_zusage": {
+        "sourceUnit": "the paragraph",
+        "flattenWhitespace": true,
+        "takeFirstSentence": true,
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "wordBoundary",
+        "ellipsis": true,
+        "inWords": "the paragraph; flattened to single spaces; reduced to its first sentence of which the first 200 characters are kept, cut at a word boundary and marked with a trailing ellipsis beyond that"
+      }
     },
     "quoted_from_source": [
       {
@@ -44,7 +53,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T15:32:14Z",
+  "generated_at": "2026-09-20T16:15:10Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.1.0",

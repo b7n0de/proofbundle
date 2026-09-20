@@ -364,20 +364,65 @@ SPRACHE_JE_BLATT = {"RESTRISIKO_600.md": "de", "RESTRISIKO_610.md": "en"}
 #: words "wrap" and "cut" — a keyword check, which is the same defect class one level up: a claim
 #: about a derivation checked by a proxy instead of by performing the derivation. The binding now
 #: RE-DERIVES each title from the bytes of its own evidence and demands exact equality.
+#: The column names that carry a title, by NAME rather than by position.
+_TITELSPALTEN_NAMEN = ("Finding", "In one line", "What it is", "Title")
+
 NORMALISIERUNG_JE_FUNDART = {
-    "ueberschrift": (
-        "the heading line of the finding; the hash marks, the identifier and one leading dash, "
-        "colon or comma are removed, then the first 200 characters are kept. The cut is HARD: no "
-        "word boundary and no ellipsis, so it can fall inside a word"),
-    "tabelle_spalte1": (
-        "the cell of the title column of the table row, chosen by COLUMN NAME (Finding, In one "
-        "line, What it is, Title) and falling back to the second column; then the first 200 "
-        "characters are kept. The cut is HARD: no word boundary and no ellipsis"),
-    "prosa_zusage": (
-        "the paragraph is flattened to single spaces and its FIRST SENTENCE is taken; a sentence "
-        "longer than 200 characters is cut at a word boundary and marked with a trailing "
-        "ellipsis"),
+    "ueberschrift": {
+        "sourceUnit": "the first line of the evidence",
+        "flattenWhitespace": False,
+        "takeFirstSentence": False,
+        "strip": ["headingMarks", "identifier", "oneLeadingPunctuation"],
+        "keep": "prefix", "maxLength": 200, "cut": "hard", "ellipsis": False,
+    },
+    "tabelle_spalte1": {
+        "sourceUnit": "the title column of the table row",
+        "flattenWhitespace": False,
+        "takeFirstSentence": False,
+        "columnNames": list(_TITELSPALTEN_NAMEN),
+        "columnFallbackIndex": 1,
+        "keep": "prefix", "maxLength": 200, "cut": "hard", "ellipsis": False,
+    },
+    "prosa_zusage": {
+        "sourceUnit": "the paragraph",
+        "flattenWhitespace": True,
+        "takeFirstSentence": True,
+        "keep": "prefix", "maxLength": 200, "cut": "wordBoundary", "ellipsis": True,
+    },
 }
+
+
+def regel_als_satz(regel: dict) -> str:
+    """The human sentence RENDERED from the rule, so the two cannot drift apart.
+
+    A review round on 2026-09-20 measured the drift before it could happen: with the declared
+    sentence changed to say the LAST 200 characters are kept, all 24 cases of the contract stayed
+    green, because the contract carried its own hard-wired copy of the rule and never read the
+    declaration. A sentence beside a rule is a second source of truth; rendered from it, it is a
+    view of the first.
+    """
+    teile = [regel["sourceUnit"]]
+    if regel.get("columnNames"):
+        teile.append("chosen by column name (" + ", ".join(regel["columnNames"])
+                     + f"), falling back to column {regel['columnFallbackIndex'] + 1}")
+    if regel.get("strip"):
+        namen = {"headingMarks": "the heading marks", "identifier": "the identifier",
+                 "oneLeadingPunctuation": "one leading dash, colon or comma"}
+        teile.append("with " + ", ".join(namen[x] for x in regel["strip"]) + " removed")
+    if regel.get("flattenWhitespace"):
+        teile.append("flattened to single spaces")
+    if regel.get("takeFirstSentence"):
+        teile.append("reduced to its first sentence")
+    schnitt = ("cut at a word boundary and marked with a trailing ellipsis"
+               if regel["cut"] == "wordBoundary" and regel["ellipsis"]
+               else "cut hard, with no word boundary and no ellipsis")
+    # THE DIRECTION IS NAMED, because the review round changed exactly that word. A
+    # sentence saying the LAST characters are kept, beside a rule that keeps the first,
+    # is a false sentence that no length or cut check would have noticed.
+    richtung = "first" if regel["keep"] == "prefix" else "last"
+    teile.append(f"of which the {richtung} {regel['maxLength']} characters are kept, "
+                 f"{schnitt} beyond that")
+    return "; ".join(teile[:-1]) + " " + teile[-1]
 
 #: The sentence that stands with every quoted source, pointing at the rules rather than restating
 #: one of them. A group names a SOURCE, and one source can be cut by several find forms.
@@ -579,7 +624,8 @@ def _tabellenkopf(text: str, byte_von: int) -> list[str]:
 
 
 #: Spaltennamen, die den Titel eines Fundes tragen — nach Namen, nicht nach Position.
-_TITELSPALTEN = ("Finding", "In one line", "What it is", "Title")
+#: ONE source, two readers. The rule above names this same list instead of copying it.
+_TITELSPALTEN = _TITELSPALTEN_NAMEN
 
 
 def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = None) -> str:
@@ -1004,8 +1050,18 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # looking complete. Both are the class this block exists against, so the set is read
             # off the records rather than written down: exactly the forms that produced a title
             # here, each with the rule the producer applied.
-            "title_derivation": {fa: NORMALISIERUNG_JE_FUNDART[fa] for fa in sorted(
-                {r["evidence"][0]["fundart"] for r in records})},
+            # THE RULE IS DATA, and the sentence beside it is a VIEW of that data.
+            #
+            # A review round on 2026-09-20 measured what a sentence alone is worth here: with the
+            # declaration changed to say the LAST 200 characters are kept, all 24 cases of the
+            # contract stayed green, because the contract carried a hard-wired copy of the rule
+            # and never read what the carrier declared. A checker that cannot be moved by the
+            # declaration is not checking the declaration. The structured fields are what the
+            # contract executes; `inWords` is rendered from them for a human reader.
+            "title_derivation": {
+                fa: {**NORMALISIERUNG_JE_FUNDART[fa],
+                     "inWords": regel_als_satz(NORMALISIERUNG_JE_FUNDART[fa])}
+                for fa in sorted({r["evidence"][0]["fundart"] for r in records})},
             # JE QUELLE EIN EINTRAG, und das ist eine Korrektur an der ersten Fassung dieses
             # Blocks. Sie nannte EINE Quelle fuer Felder aus ZWEI Dateien — gemessen kommen 145
             # Titel aus dem Quellregister und 153 weitere Zeichenketten aus der

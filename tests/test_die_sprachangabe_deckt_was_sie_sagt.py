@@ -324,11 +324,6 @@ def test_ANTI_der_echte_traeger_bleibt_ohne_befund(traegerpfad):
     assert nicht_woertlich(_doc(traegerpfad), REPO) == []
 
 
-#: THE TITLE COLUMNS, by NAME. Kept here rather than imported from the producer: a checker that
-#: imports the thing it checks re-runs it instead of measuring it.
-_TITELSPALTEN = ("Finding", "In one line", "What it is", "Title")
-
-
 def _tabellenkopf(text: str, byte_von: int) -> list[str]:
     """The column names of the table a row sits in, searched upwards from the find site."""
     vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
@@ -341,69 +336,136 @@ def _tabellenkopf(text: str, byte_von: int) -> list[str]:
     return []
 
 
-def _ableiten(stueck: str, kennung: str, fundart: str, kopf: list[str]) -> str:
-    """The title the declared rule of THIS find form produces from THESE evidence bytes.
+class RegelUnbrauchbar(Exception):
+    """The declared rule cannot be executed — a finding, never a fallback."""
 
-    Written out here from the declared rules rather than imported from `gen_findings_register`.
-    HONEST LIMIT, and it is the whole reach of this case: two implementations of the same rule
-    catch a title that DETACHED from its evidence, and they catch the two drifting apart. They do
-    NOT catch a rule that is wrong in both places — that question is answered by reading the
-    declaration, not by running it.
+
+def _ableiten(stueck: str, kennung: str, regel: dict, kopf: list[str]) -> str:
+    """Apply the rule the CARRIER declares, field by field, to these evidence bytes.
+
+    THE ORACLE IS NOT ALLOWED TO KNOW THE RULE. A review round on 2026-09-20 measured the earlier
+    version of this function: with the 600 carrier's heading rule changed to say the LAST 200
+    characters are kept, all 24 cases of this file stayed green, because the derivation was
+    hard-wired here and the declaration was never read. A guard that cannot be moved by the
+    declaration is not checking the declaration, it is checking a copy of it that happens to sit
+    in the same repository.
+
+    So every step below reads a field of the declared rule. An unknown value is refused rather
+    than defaulted: the earlier version treated every unknown find form as a heading, which is a
+    fallback that turns an unmeasured case into a passing one.
     """
+    if not isinstance(regel, dict):
+        raise RegelUnbrauchbar(f"the declared rule is {type(regel).__name__}, expected an object")
+    fehlend = [k for k in ("sourceUnit", "maxLength", "cut", "ellipsis") if k not in regel]
+    if fehlend:
+        raise RegelUnbrauchbar(f"the declared rule names no {fehlend}")
+
     zeilen = stueck.splitlines()
-    erste = zeilen[0] if zeilen else ""
-    if fundart == "prosa_zusage":
-        flach = " ".join(x.strip() for x in zeilen).strip()
-        teile = re.split(r"(?<=[.!?])\s+", flach)
-        satz = teile[0] if teile else flach
-        if len(satz) <= 200:
-            return satz
-        gekuerzt = satz[:200].rsplit(" ", 1)[0]
-        return (gekuerzt or satz[:200]) + " …"
-    if fundart == "tabelle_spalte1":
+    einheit = regel["sourceUnit"]
+    if einheit == "the first line of the evidence":
+        wert = zeilen[0] if zeilen else ""
+    elif einheit == "the title column of the table row":
+        erste = zeilen[0] if zeilen else ""
         spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
-        for name in _TITELSPALTEN:
+        wert = ""
+        for name in regel.get("columnNames") or []:
             if kopf and name in kopf:
                 i = kopf.index(name)
                 if i < len(spalten):
-                    return spalten[i][:200]
-        return (spalten[1] if len(spalten) > 1 else "")[:200]
-    k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
-    return re.sub(r"^[·\-—,:]\s*", "", k)[:200]
+                    wert = spalten[i]
+                    break
+        else:
+            r = regel.get("columnFallbackIndex")
+            if not isinstance(r, int):
+                raise RegelUnbrauchbar("the column rule names no fallback index")
+            wert = spalten[r] if r < len(spalten) else ""
+    elif einheit == "the paragraph":
+        wert = "\n".join(zeilen)
+    else:
+        raise RegelUnbrauchbar(f"unknown source unit {einheit!r}")
+
+    for was in regel.get("strip") or []:
+        if was == "headingMarks":
+            wert = re.sub(r"^#+\s*", "", wert)
+        elif was == "identifier":
+            wert = re.sub(rf"^\s*{re.escape(kennung)}\s*", "", wert)
+        elif was == "oneLeadingPunctuation":
+            wert = re.sub(r"^[·\-—,:]\s*", "", wert.strip())
+        else:
+            raise RegelUnbrauchbar(f"unknown strip step {was!r}")
+    if regel.get("flattenWhitespace"):
+        wert = " ".join(x.strip() for x in wert.splitlines()).strip()
+    else:
+        wert = wert.strip()
+    if regel.get("takeFirstSentence"):
+        teile = re.split(r"(?<=[.!?])\s+", wert)
+        wert = teile[0] if teile else wert
+
+    grenze = regel["maxLength"]
+    if not isinstance(grenze, int) or grenze <= 0:
+        raise RegelUnbrauchbar(f"the length bound {grenze!r} is not a positive number")
+    if len(wert) <= grenze:
+        return wert
+    behalte = regel.get("keep")
+    if behalte not in ("prefix", "suffix"):
+        raise RegelUnbrauchbar(f"unknown keep {behalte!r}")
+    roh = wert[:grenze] if behalte == "prefix" else wert[-grenze:]
+    if regel["cut"] == "hard":
+        gekuerzt = roh
+    elif regel["cut"] == "wordBoundary":
+        gekuerzt = (roh.rsplit(" ", 1)[0] if behalte == "prefix"
+                    else roh.split(" ", 1)[-1]) or roh
+    else:
+        raise RegelUnbrauchbar(f"unknown cut {regel['cut']!r}")
+    return gekuerzt + (" …" if regel["ellipsis"] else "")
+
+
+def _regeln(doc) -> dict:
+    return (doc.get("language_scope") or {}).get("title_derivation") or {}
 
 
 def titel_ohne_ableitung(doc, repo: pathlib.Path) -> list[str]:
-    """Which titles are NOT what the declared rule makes of their own evidence bytes?
+    """Which titles are NOT what the DECLARED rule of their find form makes of their own bytes?
 
     THE ONE PREDICATE both the real case and the catch proof use. A catch proof that carries its
     own copy proves something about the copy.
     """
     raus: list[str] = []
     roh: dict[str, bytes] = {}
+    regeln = _regeln(doc)
     for r in doc.get("records") or []:
         b = (r.get("evidence") or [{}])[0]
         rel, br, fundart = b.get("source_path"), b.get("byte_range"), b.get("fundart")
         if not rel or not isinstance(br, list) or len(br) != 2 or not fundart:
             raus.append(f"{r.get('id')}: the record names no source, byte range or find form")
             continue
+        if fundart not in regeln:
+            raus.append(f"{r.get('id')}: the carrier declares no rule for the find form "
+                        f"{fundart!r}")
+            continue
         if rel not in roh:
-            p = repo / rel
-            if not p.is_file():
+            pf = repo / rel
+            if not pf.is_file():
                 raus.append(f"{r.get('id')}: the named source {rel!r} is missing")
                 continue
-            roh[rel] = p.read_bytes()
+            roh[rel] = pf.read_bytes()
         quelle = roh[rel]
         von, bis = br
         if not (0 <= von < bis <= len(quelle)):
             raus.append(f"{r.get('id')}: the byte range {br} does not lie in {rel}")
             continue
         kopf = (_tabellenkopf(quelle.decode("utf-8", "ignore"), von)
-                if fundart == "tabelle_spalte1" else [])
-        soll = _ableiten(quelle[von:bis].decode("utf-8", "ignore"), r.get("id") or "", fundart,
-                         kopf)
+                if regeln[fundart].get("columnNames") else [])
+        try:
+            soll = _ableiten(quelle[von:bis].decode("utf-8", "ignore"), r.get("id") or "",
+                             regeln[fundart], kopf)
+        except RegelUnbrauchbar as fehler:
+            raus.append(f"{r.get('id')} [{fundart}]: the declared rule cannot be applied "
+                        f"({fehler})")
+            continue
         if soll != (r.get("title") or ""):
             raus.append(f"{r.get('id')} [{fundart}]: the carrier says {str(r.get('title'))[:50]!r}, "
-                        f"the rule of its find form makes {soll[:50]!r}")
+                        f"its declared rule makes {soll[:50]!r}")
     return raus
 
 
@@ -437,47 +499,121 @@ def test_FANG_ein_vom_beleg_abgeloester_titel_faellt_auf():
 
 
 @traeger
-def test_jede_benutzte_fundart_traegt_eine_deklarierte_regel(traegerpfad):
-    """[ZAEHLT] Not one more and not one fewer — both directions, because both mislead.
+def test_jede_benutzte_fundart_traegt_eine_AUSFUEHRBARE_regel(traegerpfad):
+    """[ZAEHLT] Not one more and not one fewer, and each of them executable.
 
-    A rule for a form that produced nothing here is a rule for nothing; a form that produced
-    titles and carries no rule leaves exactly those titles undeclared while the block looks whole.
+    A rule for a form that produced nothing here is a rule for nothing; a form that produced titles
+    and carries no rule leaves exactly those titles undeclared while the block looks whole. And a
+    rule that names no length bound or no cut cannot be applied at all, which the binding case then
+    reports rather than silently working around.
     """
     doc = _doc(traegerpfad)
     benutzt = {(r.get("evidence") or [{}])[0].get("fundart") for r in doc.get("records") or []}
     benutzt.discard(None)
-    erklaert = set((doc.get("language_scope") or {}).get("title_derivation") or {})
+    erklaert = set(_regeln(doc))
     assert benutzt == erklaert, (
         f"the find forms used and the rules declared do not match: used {sorted(benutzt)}, "
         f"declared {sorted(erklaert)}")
-    for form, regel in ((doc.get("language_scope") or {}).get("title_derivation") or {}).items():
-        assert regel and len(regel) > 40, f"the rule of {form!r} is not a rule: {regel!r}"
+    for form, regel in _regeln(doc).items():
+        assert isinstance(regel, dict), f"the rule of {form!r} is not an object: {regel!r}"
+        for feld in ("sourceUnit", "keep", "maxLength", "cut", "ellipsis", "inWords"):
+            assert feld in regel, f"the rule of {form!r} names no {feld!r}"
+        assert regel["cut"] in ("hard", "wordBoundary"), regel["cut"]
+        assert isinstance(regel["maxLength"], int) and regel["maxLength"] > 0, regel["maxLength"]
 
 
 @traeger
 def test_die_deklarierte_regel_sagt_was_die_daten_zeigen(traegerpfad):
     """[ZAEHLT] The declaration is held against the VALUES, not against its own wording.
 
-    The case that failed to catch the wrong declaration asked whether the sentence contains the
-    words `wrap` and `cut`. It did, and it was still wrong for 145 of 150 values. What is
-    checkable without believing the prose: a title marked with a trailing ellipsis can only come
-    from a form whose rule says it ellipsises, and a title sitting exactly on the length bound
-    without one can only come from a form whose rule says the cut is hard.
+    The case that failed to catch the wrong declaration asked whether a sentence contains the words
+    `wrap` and `cut`. It did, and it was still wrong for 145 of 150 values. Asked here instead:
+    does the shape of a title agree with the fields its rule declares?
     """
     doc = _doc(traegerpfad)
-    regeln = (doc.get("language_scope") or {}).get("title_derivation") or {}
+    regeln = _regeln(doc)
     fehler = []
     for r in doc.get("records") or []:
         titel = r.get("title") or ""
         form = (r.get("evidence") or [{}])[0].get("fundart")
-        regel = (regeln.get(form) or "").lower()
-        if titel.endswith("…") and "ellipsis" not in regel:
+        regel = regeln.get(form) or {}
+        if titel.endswith("…") and not regel.get("ellipsis"):
             fehler.append(f"{r.get('id')}: the title ends in an ellipsis, the rule of {form!r} "
-                          f"does not mention one")
-        if len(titel) == 200 and not titel.endswith("…") and "hard" not in regel:
-            fehler.append(f"{r.get('id')}: the title sits exactly on 200 characters without an "
-                          f"ellipsis, the rule of {form!r} does not call the cut hard")
+                          f"declares ellipsis {regel.get('ellipsis')!r}")
+        if (len(titel) == regel.get("maxLength") and not titel.endswith("…")
+                and regel.get("cut") != "hard"):
+            fehler.append(f"{r.get('id')}: the title sits exactly on the declared bound without an "
+                          f"ellipsis, but the rule of {form!r} declares cut {regel.get('cut')!r}")
     assert not fehler, f"{len(fehler)} title(s) contradict the rule declared for their form: {fehler[:4]}"
+
+
+@traeger
+def test_der_satz_neben_der_regel_nennt_ihre_messbaren_groessen(traegerpfad):
+    """[ZAEHLT] The sentence is a VIEW of the rule, so it may not say something else.
+
+    Checked against the rule's own numbers rather than by re-running the producer's renderer: a
+    contract that renders the sentence itself agrees with the producer by construction and would
+    not notice the two drifting apart.
+    """
+    doc = _doc(traegerpfad)
+    fehler = []
+    for form, regel in _regeln(doc).items():
+        satz = (regel.get("inWords") or "").lower()
+        if str(regel.get("maxLength")) not in satz:
+            fehler.append(f"{form}: the sentence does not name the bound {regel.get('maxLength')}")
+        will = "word boundary" if regel.get("cut") == "wordBoundary" else "hard"
+        if will not in satz:
+            fehler.append(f"{form}: the sentence does not name the cut {regel.get('cut')!r}")
+        # THE WORD THE REVIEW ROUND CHANGED, and the phrase is matched WHOLE.
+        #
+        # The first attempt here asked whether `the first ` occurs anywhere in the sentence, and
+        # measured green against the very counter-example it was written for: the sentence opens
+        # with `the first line of the evidence`, which satisfies a substring check for a reason
+        # that has nothing to do with which end is kept. Substring membership standing in for the
+        # property is the class this whole round is about, and it caught me a third time inside my
+        # own checker. The phrase that carries the meaning is matched instead.
+        richtung = "first" if regel.get("keep") == "prefix" else "last"
+        phrase = f"the {richtung} {regel.get('maxLength')} characters are kept"
+        if phrase not in satz:
+            fehler.append(f"{form}: the sentence does not say {phrase!r}, so it does not name "
+                          f"which end the rule keeps ({regel.get('keep')!r})")
+        if regel.get("ellipsis") and "ellipsis" not in satz:
+            fehler.append(f"{form}: the rule ellipsises and the sentence does not say so")
+    assert not fehler, f"the sentence and the rule disagree: {fehler}"
+
+
+def test_FANG_eine_geaenderte_DEKLARATION_macht_die_bindung_rot():
+    """[ZAEHLT] The counter-example of the second review round, run against the LIVING predicate.
+
+    Measured before the fix at commit 1b0246f: changing the heading rule to say the LAST 200
+    characters are kept, while keeping the word HARD, left all 24 cases of this file green, because
+    the oracle carried its own copy of the rule. The oracle now reads the declaration, so moving
+    the declaration must move the verdict.
+    """
+    import copy  # noqa: PLC0415
+    doc = copy.deepcopy(_doc(TRAEGER))
+    assert titel_ohne_ableitung(doc, REPO) == [], (
+        "the unmutated carrier already reports a finding — then the case below proves nothing")
+    regeln = _regeln(doc)
+    form = next(f for f in regeln if regeln[f].get("cut") == "hard")
+    regeln[form]["maxLength"] = 40           # a bound the values do not obey
+    offen = titel_ohne_ableitung(doc, REPO)
+    assert offen, f"a changed length bound does not move the verdict: {offen[:2]}"
+
+    doc2 = copy.deepcopy(_doc(TRAEGER))
+    _regeln(doc2)[form]["cut"] = "wordBoundary"
+    _regeln(doc2)[form]["ellipsis"] = True
+    assert titel_ohne_ableitung(doc2, REPO), "a changed cut does not move the verdict"
+
+
+def test_FANG_eine_unbekannte_fundart_wird_gemeldet_statt_als_ueberschrift_behandelt():
+    """[ZAEHLT] The fallback that turned an unmeasured case into a passing one."""
+    import copy  # noqa: PLC0415
+    doc = copy.deepcopy(_doc(TRAEGER))
+    doc["records"][0]["evidence"][0]["fundart"] = "erfundene_form"
+    offen = titel_ohne_ableitung(doc, REPO)
+    assert any("erfundene_form" in x for x in offen), (
+        f"an unknown find form is not reported: {offen[:2]}")
 
 
 @traeger

@@ -8,8 +8,38 @@
   "language_scope": {
     "generated_prose": "en",
     "title_derivation": {
-      "tabelle_spalte1": "the cell of the title column of the table row, chosen by COLUMN NAME (Finding, In one line, What it is, Title) and falling back to the second column; then the first 200 characters are kept. The cut is HARD: no word boundary and no ellipsis",
-      "ueberschrift": "the heading line of the finding; the hash marks, the identifier and one leading dash, colon or comma are removed, then the first 200 characters are kept. The cut is HARD: no word boundary and no ellipsis, so it can fall inside a word"
+      "tabelle_spalte1": {
+        "sourceUnit": "the title column of the table row",
+        "flattenWhitespace": false,
+        "takeFirstSentence": false,
+        "columnNames": [
+          "Finding",
+          "In one line",
+          "What it is",
+          "Title"
+        ],
+        "columnFallbackIndex": 1,
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "hard",
+        "ellipsis": false,
+        "inWords": "the title column of the table row; chosen by column name (Finding, In one line, What it is, Title), falling back to column 2 of which the first 200 characters are kept, cut hard, with no word boundary and no ellipsis beyond that"
+      },
+      "ueberschrift": {
+        "sourceUnit": "the first line of the evidence",
+        "flattenWhitespace": false,
+        "takeFirstSentence": false,
+        "strip": [
+          "headingMarks",
+          "identifier",
+          "oneLeadingPunctuation"
+        ],
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "hard",
+        "ellipsis": false,
+        "inWords": "the first line of the evidence; with the heading marks, the identifier, one leading dash, colon or comma removed of which the first 200 characters are kept, cut hard, with no word boundary and no ellipsis beyond that"
+      }
     },
     "quoted_from_source": [
       {
@@ -36,7 +66,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T15:32:13Z",
+  "generated_at": "2026-09-20T16:15:09Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
