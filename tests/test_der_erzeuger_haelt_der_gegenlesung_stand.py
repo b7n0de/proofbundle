@@ -41,7 +41,7 @@ def test_ein_absatz_mit_CRLF_verschluckt_nicht_die_ganze_datei():
     g = _erzeuger()
     text = ("Head.\r\n\r\nSome paragraph before.\r\n\r\n"
             + ZUSAGE.format("AAA-BBBBBBB-01") + "\r\n\r\nTail after it.\r\n")
-    von, bis, art = g.schneide_beleg(text, "AAA-BBBBBBB-01")
+    von, bis, art = g.schneide_beleg(text, "AAA-BBBBBBB-01", {"AAA-BBBBBBB-01"})
     stueck = text.encode()[von:bis].decode()
     assert art == "prosa_zusage"
     assert "Some paragraph before" not in stueck, stueck
@@ -54,7 +54,7 @@ def test_eine_zeile_aus_leerzeichen_trennt_zwei_absaetze():
     g = _erzeuger()
     text = ("Head.\n\nNeighbour sentence that must stay out.\n   \n"
             + ZUSAGE.format("CCC-DDDDDDD-01") + "\n\nTail.\n")
-    von, bis, _ = g.schneide_beleg(text, "CCC-DDDDDDD-01")
+    von, bis, _ = g.schneide_beleg(text, "CCC-DDDDDDD-01", {"CCC-DDDDDDD-01"})
     assert "Neighbour sentence" not in text.encode()[von:bis].decode()
 
 
@@ -63,7 +63,7 @@ def test_eine_verneinte_zusage_ist_keine():
     sentence denying it."""
     g = _erzeuger()
     text = ("Head.\n\nThis is closed, so there is no Register entry `EEE-FFFFFFF-01` for it.\n\n")
-    assert g.schneide_beleg(text, "EEE-FFFFFFF-01") is None
+    assert g.schneide_beleg(text, "EEE-FFFFFFF-01", {"EEE-FFFFFFF-01"}) is None
 
 
 def test_eine_kennung_die_aus_dem_belegverzeichnis_ausbricht_wird_abgewiesen(tmp_path):
@@ -220,7 +220,8 @@ def test_eine_ueberschrift_gehoert_der_LAENGEREN_kennung_nicht_ihrem_praefix():
     """
     g = _erzeuger()
     text = "## N1.foo — open\n\nOnly the longer finding.\n"
-    kurz, lang = g.schneide_beleg(text, "N1"), g.schneide_beleg(text, "N1.foo")
+    bek = {"N1", "N1.foo"}
+    kurz, lang = g.schneide_beleg(text, "N1", bek), g.schneide_beleg(text, "N1.foo", bek)
     assert lang is not None, "the declared identifier lost its own heading"
     assert kurz != lang, (
         f"a heading was recorded as evidence for a prefix of the identifier it names: "
@@ -271,6 +272,169 @@ def test_eine_unbekannte_fundart_wird_ABGELEHNT_nicht_stillschweigend_zur_uebers
 
     # AND A DECLARED FORM STILL PASSES, so the refusal is not a refusal of everything.
     assert g._titel("## N1 something\n", "N1", "ueberschrift", None) == "something"
+
+
+def test_ein_beleg_verschlingt_die_NACHBARFUNDSTELLE_nicht(tmp_path):
+    """Eighth review round, thread 4057515793. Lowercase identifiers, and my own blind spot.
+
+    Measured at `4cccefb`: `schneide_beleg("## n1 ...\\n\\n### n2 ...", "n1")` returned the WHOLE
+    text, so the evidence for one finding contained another. Both `n1` and `n2` are admitted by
+    `_kennung_form`; the heading reader captured only `[A-Z]\\d+`, so neither the identifier-shaped
+    terminator nor the generic one (which only sees headings of the same level or shallower)
+    ended the range.
+
+    I HAD MEASURED THIS AREA ONE ROUND EARLIER AND MISSED IT. Three shapes, all with capital
+    identifiers, all showing no difference, and I reported "no effect". Three cases that share
+    the property under test are one case run three times. This one varies the property.
+    """
+    g = _erzeuger()
+    text = "## n1 — first\n\nfirst body\n\n### n2 — second\n\nsecond body\n"
+    r = g.schneide_beleg(text, "n1", {"n1", "n2"})
+    assert r is not None, "the lowercase identifier lost its own heading"
+    stueck = text.encode()[r[0]:r[1]].decode()
+    assert "n2" not in stueck, (
+        f"the evidence for n1 swallowed the neighbouring finding: {r} of {len(text.encode())} "
+        f"bytes, cut = {stueck!r}")
+
+    # AND A PROSE HEADING DOES NOT OPEN A RECORD, which is why the declared set is passed at all.
+    prosa = "## n1 — first\n\nfirst body\n\n### Notes on the above\n\nstill about n1\n"
+    r2 = g.schneide_beleg(prosa, "n1", {"n1"})
+    assert "still about n1" in prosa.encode()[r2[0]:r2[1]].decode(), (
+        f"a prose heading cut the evidence short: {r2}")
+
+
+def test_eine_quelle_ausserhalb_des_baumes_wird_ABGELEHNT(tmp_path):
+    """Eighth review round, thread 4057515786, P1. Evidence has to stay inside the tree.
+
+    Measured at `4cccefb`: an entry with `"quelle": "../outside.md"` and a matching heading in
+    that sibling file produced a record titled from bytes OUTSIDE the measured tree, recorded
+    `../outside.md` as its provenance, and the writer copied the slice into the repository. A
+    carrier built that way cannot be rechecked from a clean checkout, which is the one thing it
+    exists to allow.
+    """
+    g = _erzeuger()
+    (tmp_path / "outside.md").write_text("## N1 a finding from outside\n\nExternal body.\n",
+                                         encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "RESTRISIKO_PROBE.md").write_text(
+        "## Open — x\n\nRegister entry `N9`, target 6.2.0.\n", encoding="utf-8")
+    (repo / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": "N1", "quelle": "../outside.md", "klasse": "x",
+                       "zaehlt_als_fund": True}]}), encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    with pytest.raises(SystemExit) as e:
+        g.baue_v2(repo, "2026-09-20T00:00:00Z")
+    assert "outside" in str(e.value), (
+        f"the refusal does not say what it refused: {str(e.value)[:160]}")
+
+
+def test_eine_quelle_die_kein_text_ist_endet_in_einem_URTEIL(tmp_path):
+    """Eighth review round, thread 4057515789. The source field is the sibling of the identifier.
+
+    Measured at `4cccefb`: `"quelle": ["R.md"]` raised `TypeError: unhashable type: 'list'`, a
+    mapping the same class, an integer one line further on at `repo / rel`, and none of them
+    reached the typed refusal beside it because that catches only `OSError`. The identifier field
+    had been repaired one round earlier; its sibling had not.
+    """
+    g = _erzeuger()
+    for kaputt in (["RESTRISIKO_PROBE.md"], 7, {"a": 1}):
+        (tmp_path / "RESTRISIKO_PROBE.md").write_text(
+            "## Open — x\n\nRegister entry `N9`, target 6.2.0.\n", encoding="utf-8")
+        (tmp_path / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+            "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                            "utc": "2026-09-20T00:00:00Z"},
+            "eintraege": [{"kennung": "N1", "quelle": kaputt, "klasse": "x",
+                           "zaehlt_als_fund": True}]}), encoding="utf-8")
+        g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = ("RESTRISIKO_PROBE.md",
+                                                 "PROBE_OBJEKTKLASSEN.json")
+        with pytest.raises(SystemExit) as e:
+            g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
+        assert "not a path" in str(e.value), (
+            f"the source {kaputt!r} did not reach the typed refusal: {str(e.value)[:140]}")
+
+
+def test_JEDES_deklarierte_feld_der_titelregel_bewegt_den_erzeuger():
+    """Eighth review round, thread 4057515784. Three of seven fields obeyed is not the rule.
+
+    The previous round made the producer read `maxLength`, `cut` and `ellipsis` from the
+    declaration and left `sourceUnit`, `strip`, `flattenWhitespace` and `takeFirstSentence`
+    hard-wired. Measured at `4cccefb`: setting `takeFirstSentence` to false still produced a
+    first-sentence title, and the carrier then shipped that title beside a declaration saying
+    otherwise, with the checker reporting nothing.
+    """
+    g = _erzeuger()
+    form = "prosa_zusage"
+    vor = dict(g.NORMALISIERUNG_JE_FUNDART[form])
+    lang = ("Register entry `N1`, first sentence here. And a clearly separate second sentence "
+            "that must appear when the rule says not to take only the first.")
+    try:
+        g.NORMALISIERUNG_JE_FUNDART[form] = {**vor, "takeFirstSentence": False}
+        ohne = g._titel(lang, "N1", form, None)
+        g.NORMALISIERUNG_JE_FUNDART[form] = {**vor, "takeFirstSentence": True}
+        mit = g._titel(lang, "N1", form, None)
+    finally:
+        g.NORMALISIERUNG_JE_FUNDART[form] = vor
+    assert ohne != mit, (
+        f"the declared field does not move the producer, so the declaration describes it rather "
+        f"than ruling it: both gave {mit!r}")
+    assert "separate second" in ohne, f"with the field off the rest was still dropped: {ohne!r}"
+
+
+def test_ohne_die_deklarierten_kennungen_wird_NICHT_geraten():
+    """The cross-reading's axis, and it caught a regression my own repair had introduced.
+
+    Asked what else my cases held constant, the cross-reading named exactly the case I had not
+    built: the identifier under search is `N1` and the text carries a PROSE subheading whose
+    first word fits the widened alphabet. Measured on the first repair of `schneide_beleg`: the
+    evidence ended at (0, 35) where it had been (0, 74), so the finding lost the rest of its own
+    section. The reported defect and this regression are the two directions of one question, and
+    a shape can answer neither.
+
+    So the declared set is required. A caller without one is told, because a plausible wrong
+    answer is worse here than a refusal: the carrier it feeds is the thing a reader rechecks.
+    """
+    g = _erzeuger()
+    text = "## N1 — the finding\n\nfirst body\n\n### Notes on the above\n\nstill about N1\n"
+    r = g.schneide_beleg(text, "N1", {"N1"})
+    assert "still about N1" in text.encode()[r[0]:r[1]].decode(), (
+        f"a prose subheading cut the evidence short: {r}")
+
+    with pytest.raises(SystemExit) as e:
+        g.schneide_beleg(text, "N1")
+    assert "declared identifiers" in str(e.value), (
+        f"the refusal does not say what is missing: {str(e.value)[:140]}")
+
+
+def test_die_grenze_endet_das_WORT_nicht_nur_die_ascii_klasse():
+    """The cross-reading's second axis. The general form of the dot defect.
+
+    The boundary asked whether the next character was outside the ASCII identifier alphabet, and
+    a letter of another script is outside it. Measured: `## N1\u00e4 a heading` was cut as evidence
+    for `N1`, although the heading names a token that `_kennung_form` does not admit at all. The
+    dot of round six and this are the same defect one character class apart, so the repair is the
+    general one: the boundary asks whether the WORD ends, in any script.
+
+    MEASURED OVER THE SHIPPED SHEETS BEFORE WIDENING IT, because a boundary is exactly the place
+    where a careless widening eats real evidence: what follows a complete identifier in a heading
+    is a space (123 times) or a comma (9 times). Both stay outside `\\w`, and both are checked
+    here so a later narrowing cannot take them away silently.
+    """
+    g = _erzeuger()
+    # Nothing that can CONTINUE a word may end the identifier.
+    for text, k in (("## N1\u00e4 a heading\n\nBody.\n", "N1"),
+                    ("## N1.foo open\n\nOnly the longer.\n", "N1"),
+                    ("## S11 title\n\nBody.\n", "S1")):
+        assert g.schneide_beleg(text, k, {k}) is None, (
+            f"{k!r} was given evidence from a heading that names another token: {text!r}")
+
+    # AND THE SEPARATORS THE SHIPPED SHEETS ACTUALLY USE still separate.
+    for text, k in (("## S22, Nachtrag\n\nBody.\n", "S22"),
+                    ("## G1 \u00b7 Titel\n\nBody.\n", "G1")):
+        assert g.schneide_beleg(text, k, {k}) is not None, (
+            f"a separator the sheets use stopped working: {text!r}")
 
 
 def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp_path):
@@ -347,7 +511,7 @@ def test_KONTROLLE_die_gesunde_zusage_geht_weiter_durch():
     """A guard that refuses everything measures nothing. The ordinary form must still be cut."""
     g = _erzeuger()
     text = "Head.\n\n" + ZUSAGE.format("KKK-LLLLLLL-01") + "\n\nTail.\n"
-    t = g.schneide_beleg(text, "KKK-LLLLLLL-01")
+    t = g.schneide_beleg(text, "KKK-LLLLLLL-01", {"KKK-LLLLLLL-01"})
     assert t is not None and t[2] == "prosa_zusage"
     von, bis, _ = t
     assert text.encode()[von:bis].decode().strip() == ZUSAGE.format("KKK-LLLLLLL-01")

@@ -43,6 +43,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import pathlib
 import json
 import sys
 from pathlib import Path
@@ -152,19 +153,51 @@ BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision"}
 #: restating it.
 _KENNUNG_ZEICHEN = "A-Za-z0-9._-"
 
+#: WHERE AN IDENTIFIER ENDS, and this is NOT a second spelling of the alphabet above.
+#:
+#: The two answer different questions. `_KENNUNG_ZEICHEN` says what an identifier may CONTAIN,
+#: and it is ASCII on purpose. This one says what may not FOLLOW one, and the right answer there
+#: is wider: a word character in ANY script, plus the punctuation an identifier may carry.
+#:
+#: The cross-reading asked for the case and it fell: with an ASCII-only boundary, `## N1<umlaut>`
+#: was cut as evidence for `N1`, although that heading names a token which is not `N1` and which
+#: the form rule does not admit at all. The dot defect of round six is the same shape one
+#: character class narrower, so this is the general form rather than another instance.
+#:
+#: MEASURED over both shipped sheets before widening it: what follows a complete identifier in a
+#: heading is a space (123 times) or a comma (9 times, `### S22, Nachtrag vom ...`). Both stay
+#: outside `\w`, so both keep working; the digits and letters that also appear in that tally come
+#: from SHORTER identifiers matching inside LONGER ones, which is exactly what this lookahead is
+#: here to stop.
+_GRENZE_ZEICHEN = r"\w.\-"
+
 _KENNUNG_KOPF = None  # lazy, siehe _kopf_muster()
 
 
 def _kopf_muster():
+    """Headings that can open a record, captured with the SHARED alphabet.
+
+    Round seven repaired the BOUNDARY of this pattern and left the CAPTURE at `[A-Z]\\d+`. Round
+    eight measured what that costs, and the case is the one I had listed and then not tried:
+    `n1` and `n2` are both admitted by `_kennung_form`, and
+    `schneide_beleg("## n1 ...\\n\\n### n2 ...", "n1")` returned the WHOLE text, so the evidence
+    for one finding swallowed another. My own counter-measurement had used capitals throughout
+    and therefore could not reach it.
+
+    Capturing by shape alone is not enough either: this alphabet also admits ordinary words, so a
+    prose heading would count as a record opener and cut evidence short. `schneide_beleg`
+    therefore takes the DECLARED identifiers where it has them, and the shape below is only the
+    candidate sieve.
+    """
     global _KENNUNG_KOPF
     if _KENNUNG_KOPF is None:
         import re  # noqa: PLC0415
         _KENNUNG_KOPF = re.compile(
-            rf"^(#{{2,4}}) ([A-Z]\d+)(?![{_KENNUNG_ZEICHEN}])", re.M)
+            rf"^(#{{2,4}}) ([A-Za-z0-9][{_KENNUNG_ZEICHEN}]*)(?![{_GRENZE_ZEICHEN}])", re.M)
     return _KENNUNG_KOPF
 
 
-def schneide_beleg(text: str, kennung: str):
+def schneide_beleg(text: str, kennung: str, bekannte: frozenset | set | None = None):
     """Der byte-genaue Bereich der Fundstelle EINER Kennung. -> (von, bis, fundart) | None.
 
     DREI FASSUNGEN, und die ersten beiden waren falsch — beide nur durch Messen gefunden:
@@ -184,6 +217,27 @@ def schneide_beleg(text: str, kennung: str):
     (S/R/G/Z) und Tabellenzeile mit der Kennung in Spalte 1 (N/A).
     """
     import re  # noqa: PLC0415
+    # THE DECLARED IDENTIFIERS ARE REQUIRED, because without them this question has no answer.
+    #
+    # A heading ends this evidence when it OPENS ANOTHER RECORD, and a record exists exactly when
+    # its identifier is declared. Every shape-only guess is wrong in one direction or the other,
+    # and round eight measured both directions within one hour:
+    #
+    #   narrow shape `[A-Z]\d+`   the pair `## n1` / `### n2` never terminates, so the evidence
+    #                             of one finding swallows another. That was the reported defect.
+    #   shared alphabet, no set   `### Notes on the above` terminates, and a finding loses the
+    #                             rest of its own section: measured (0, 35) where it had been
+    #                             (0, 74). The cross-reading asked for exactly this case before
+    #                             the repair shipped, and it was the repair that introduced it.
+    #
+    # So the caller states which identifiers exist. `baue_v2` has that set; a caller without one
+    # is told so rather than handed a plausible wrong answer.
+    if bekannte is None:
+        raise SystemExit(
+            "build refused: schneide_beleg needs the declared identifiers. Whether a heading "
+            "ends this evidence depends on whether it opens another record, and that is a "
+            "question about the declared set and not about the shape of a word")
+
     # VIERTE FASSUNG, Fund der Fremdfamilie (Codex r3999820860, 13.09.2026). Die dritte suchte von
     # der TIEFSTEN Ebene aufwaerts (4, 3, 2) und nahm damit bei neun Kennungen einen spaeteren
     # `### <K>, Nachtrag` statt der HAUPTSTELLE `## <K>`. Gemessen an der erzeugten Belegdatei:
@@ -206,16 +260,23 @@ def schneide_beleg(text: str, kennung: str):
     # faelschlich fuer Sammelkoepfe — dort steht nach dem Strich nur der erste Satz.
     for ebene in (2, 3, 4):
         m = re.search(
-            rf"^({'#' * ebene}) {re.escape(kennung)}(?![{_KENNUNG_ZEICHEN}])",
+            rf"^({'#' * ebene}) {re.escape(kennung)}(?![{_GRENZE_ZEICHEN}])",
             text, re.M)
         if not m:
             continue
         zeilenende = text.find("\n", m.end())
         rest = text[m.end():zeilenende if zeilenende != -1 else len(text)]
-        if re.match(r"^\s*(?:bis|to)\s+[A-Z]\d+\b", rest):
+        if re.match(rf"^\s*(?:bis|to)\s+[A-Za-z0-9][{_KENNUNG_ZEICHEN}]*\b", rest):
             continue                      # Sammelkopf einer Spanne, die tiefere Ebene gilt
         ende = len(text)
         for n in _kopf_muster().finditer(text, m.end()):
+            # A HEADING ENDS THIS EVIDENCE WHEN IT OPENS ANOTHER RECORD.
+            #
+            # Where the declared identifiers are known, that is exactly what is asked. Shape
+            # alone is not enough: the shared alphabet also admits ordinary words, and a prose
+            # heading would then cut the evidence short.
+            if bekannte is not None and n.group(2) not in bekannte:
+                continue
             if len(n.group(1)) <= ebene or n.group(2) != kennung:
                 ende = n.start()
                 break
@@ -710,27 +771,61 @@ def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = Non
             f"build refused: the find form {fundart!r} has no declared title rule. A title "
             f"derived by a rule nobody declared cannot be checked against the declaration the "
             f"carrier ships")
+    # EVERY DECLARED FIELD IS EXECUTED, not only the numbers.
+    #
+    # Round eight measured the remainder of the previous repair: reading `maxLength`, `cut` and
+    # `ellipsis` from the declaration left `sourceUnit`, `strip`, `flattenWhitespace` and
+    # `takeFirstSentence` hard-wired per find form. Setting `takeFirstSentence` to false still
+    # produced a first-sentence title, and the carrier then SHIPPED that title beside the
+    # declaration that says otherwise, with the checker reporting nothing. A rule that is obeyed
+    # in three of its seven fields is not the rule the carrier ships.
     zeilen = stueck.splitlines()
-    erste = zeilen[0] if zeilen else ""
-    if fundart == "prosa_zusage":
+    einheit = regel["sourceUnit"]
+    if einheit == "the first line of the evidence":
+        wert = zeilen[0] if zeilen else ""
+    elif einheit == "the title column of the table row":
+        erste = zeilen[0] if zeilen else ""
+        spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
+        wert = None
+        for name in regel.get("columnNames") or _TITELSPALTEN:
+            if kopf and name in kopf:
+                i = kopf.index(name)
+                if i < len(spalten):
+                    wert = spalten[i]
+                    break
+        if wert is None:
+            r = regel["columnFallbackIndex"]
+            wert = spalten[r] if r < len(spalten) else ""
+    elif einheit == "the paragraph":
+        wert = "\n".join(zeilen)
+    else:
+        raise SystemExit(
+            f"build refused: the find form {fundart!r} declares the source unit {einheit!r}, "
+            f"and nothing here knows how to cut it")
+
+    for was in regel.get("strip") or []:
+        if was == "headingMarks":
+            wert = re.sub(r"^#+\s*", "", wert)
+        elif was == "identifier":
+            wert = re.sub(rf"^\s*{re.escape(kennung)}\s*", "", wert)
+        elif was == "oneLeadingPunctuation":
+            wert = re.sub(r"^[·\-—,:]\s*", "", wert.strip())
+        else:
+            raise SystemExit(
+                f"build refused: the find form {fundart!r} declares the strip step {was!r}, "
+                f"and nothing here knows how to apply it")
+
+    if regel.get("flattenWhitespace"):
         # THE FIRST SENTENCE OF THE PARAGRAPH, not its first LINE. Markdown wraps paragraphs; the
         # first line ends mid sentence and would have cut the title where the line break sits,
         # which is a property of the wrapping and not of the finding.
-        fliess = " ".join(x.strip() for x in zeilen).strip()
-        s = re.split(r"(?<=[.!?])\s+", fliess)
-        return _kuerzen(s[0] if s else fliess, regel)
-    if fundart == "tabelle_spalte1":
-        spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
-        if kopf:
-            for name in _TITELSPALTEN:
-                if name in kopf:
-                    i = kopf.index(name)
-                    if i < len(spalten):
-                        return _kuerzen(spalten[i], regel)
-        r = regel["columnFallbackIndex"]
-        return _kuerzen(spalten[r] if r < len(spalten) else "", regel)
-    k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
-    return _kuerzen(re.sub(r"^[·\-—,:]\s*", "", k), regel)
+        wert = " ".join(x.strip() for x in wert.splitlines()).strip()
+    else:
+        wert = wert.strip()
+    if regel.get("takeFirstSentence"):
+        teile = re.split(r"(?<=[.!?])\s+", wert)
+        wert = teile[0] if teile else wert
+    return _kuerzen(wert, regel)
 
 
 def _severity_aus_tabelle(stueck: str, kopf: list[str]) -> str | None:
@@ -952,9 +1047,36 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     # the entry. `evidence[].source_path` carries that statement per record anyway.
     _quellen: dict[str, tuple[bytes, str, str]] = {RESTRISIKO_REL: (roh, text, qd)}
 
-    def _quelle_von(rel: str):
+    def _quelle_von(rel):
+        """The bytes of ONE source, and it lies INSIDE the tree being measured.
+
+        The P1 of round eight, measured: with `"quelle": "../outside.md"` and a matching heading
+        in that sibling file, the generator built a record from bytes OUTSIDE the tree, recorded
+        `../outside.md` as its provenance and copied the slice into the repository. A carrier
+        built that way can no longer be rechecked from a clean checkout, and that is precisely
+        the promise of this artefact. A path that comes from data is not a path until somebody
+        has asked where it points.
+
+        The type is judged BEFORE the lookup rather than after it: a list as `quelle` raised
+        `TypeError: unhashable type` at the dictionary key, a mapping the same class, and an
+        integer one line further on at `repo / rel`; none of them reached the typed refusal
+        beside it, because that catches only `OSError`. This is the sibling of the identifier
+        defect of the same round.
+        """
+        if not isinstance(rel, str) or not rel:
+            raise SystemExit(
+                f"build refused: the source of an entry is {rel!r}, which is not a path. A "
+                f"source that is not text cannot be read, and a build that ends in a traceback "
+                f"has told nobody what it refused")
+        ziel = (repo / rel).resolve()
+        wurzel = pathlib.Path(repo).resolve()
+        if ziel != wurzel and wurzel not in ziel.parents:
+            raise SystemExit(
+                f"build refused: the source {rel!r} resolves to {ziel}, which lies outside the "
+                f"tree being measured. Evidence cut from outside the tree cannot be rechecked "
+                f"from a clean checkout, which is the whole promise of this artefact")
         if rel not in _quellen:
-            b = (repo / rel).read_bytes()
+            b = ziel.read_bytes()
             _quellen[rel] = (b, b.decode("utf-8"), hashlib.sha256(b).hexdigest())
         return _quellen[rel]
 
@@ -976,6 +1098,11 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     # typed verdict. A validation placed after the step that can already fail is not a boundary,
     # it is a comment. Every identifier is judged before any of them is collected.
     for _e in ok["eintraege"]:
+        _q = _e.get("quelle")
+        if _q is not None and not (isinstance(_q, str) and _q):
+            raise SystemExit(
+                f"build refused: the source of an entry is {_q!r}, which is not a path. Every "
+                f"field that becomes a lookup key is judged before any of them is used")
         _k = _e.get("kennung")
         if not (isinstance(_k, str) and _kennung_form().match(_k)):
             raise SystemExit(
@@ -999,7 +1126,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             raise SystemExit(
                 f"Erzeugung abgebrochen: die Quelle {e_rel!r} des Eintrags {k!r} ist nicht "
                 f"lesbar ({type(exc).__name__}: {exc})") from None
-        t = schneide_beleg(e_text, k)
+        t = schneide_beleg(e_text, k, alle_kennungen)
         if t is None:
             ohne_fundstelle.append(k)
             continue
@@ -1028,8 +1155,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             fremd = sorted(x for x in alle_kennungen
                            if isinstance(x, str) and x != k
                            and re.search(
-                               rf"(?<![{_KENNUNG_ZEICHEN}]){re.escape(x)}"
-                               rf"(?![{_KENNUNG_ZEICHEN}])", _text))
+                               rf"(?<![{_GRENZE_ZEICHEN}]){re.escape(x)}"
+                               rf"(?![{_GRENZE_ZEICHEN}])", _text))
             if fremd:
                 ohne_fundstelle.append(k)
                 continue
