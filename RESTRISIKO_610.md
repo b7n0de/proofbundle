@@ -66,7 +66,8 @@ reason this entry is here instead of quietly absent.
 **WHERE THAT FIX LIVES, because it is not on this branch.** The enforcement line
 (`if claim.get("commit_alg") != COMMIT_ALG: return None`) and the file that carries its cases,
 `tests/test_eval_claim_domains_are_enforced.py`, are both part of the evalclaim verify-boundary
-change, which lands as its own pull request. MEASURED 2026-09-20 over three trees, counting that
+change, which lands as its own pull request and is not in this tree. MEASURED 2026-09-20 over
+three trees, counting that
 line in `src/proofbundle/evalclaim.py` and looking for that file:
 
 | tree | the enforcement | the test file |
@@ -125,7 +126,9 @@ functions called directly return `"PASSED"`, `passed: true`, and the threshold-m
 passes that.
 
 **Only the first of the three was documented before this file.** `tests/test_evalclaim_verify_boundary_types.py`
-names it and measures that it stays open; the other two were carried by nobody. Writing them down
+names it and measures that it stays open -- and that file, like the A-17 carrier above, arrives with
+the evalclaim verify-boundary pull request and is not in this tree. The other two were carried
+by nobody. Writing them down
 here is the point of the entry — the earlier text would have read as if one hole were the whole
 set, which is a claim of completeness that was never measured.
 

@@ -28,6 +28,9 @@ TRAEGER = REPO / "tests" / "test_eval_claim_domains_are_enforced.py"
 #: The enforcement the A-17 section is about, as it reads in the tree that has it.
 DURCHSETZUNG = 'claim.get("commit_alg") != COMMIT_ALG'
 
+#: The one wording that marks a named file as living on another branch.
+MARKE = "is not in this tree"
+
 
 class TestTheRiskDocumentSaysWhichTreeItIsIn(unittest.TestCase):
 
@@ -63,6 +66,44 @@ class TestTheRiskDocumentSaysWhichTreeItIsIn(unittest.TestCase):
                 self.assertEqual(gesagt == "present", wirklich,
                                  f"RESTRISIKO_610.md says {was} is {gesagt} in this tree, and it "
                                  f"is {'present' if wirklich else 'absent'}")
+
+    def test_every_named_test_file_either_exists_here_or_says_it_does_not(self):
+        """THE CLASS, not the two instances of it that were found by hand.
+
+        A sweep over 119 documents and 352 named source paths turned up ten that are not in this
+        tree. Seven of those are honest: six name tooling that lives in another repository or a
+        path a checker emitted, and one says in its own sentence that the file is deliberately not
+        shipped. Three were this document naming test files that arrive with another pull request,
+        and two of them had just been annotated by hand -- which is how the third was still
+        sitting there.
+
+        So the rule is derived instead of applied twice: a test file this document names is either
+        in this tree, or the document says within the same paragraph that it is not.
+        """
+        import re
+        text = DOKUMENT.read_text(encoding="utf-8")
+        absaetze = text.split("\n\n")
+        ungedeckt = []
+        for absatz in absaetze:
+            for treffer in re.findall(r"`(tests/[A-Za-z0-9_./-]+\.py)`", absatz):
+                if (REPO / treffer).exists():
+                    continue
+                # ONE marker, not a list of paraphrases. The first version also accepted the
+                # word `absent`, which is in the table and not in the sentence -- a rule that takes
+                # several wordings is a pattern over prose, which is the shape this whole cut has
+                # been replacing. The document says it one way and this reads that one way.
+                #
+                # WHITESPACE IS COLLAPSED FIRST, and that is not cosmetic. The marker sat across a
+                # line break in one paragraph (`is not in this` / `tree`), so a literal substring
+                # search missed a sentence that says exactly the right thing. A rule about WORDS
+                # that is written against CHARACTERS is the same defect one more time.
+                if MARKE in " ".join(absatz.split()):
+                    continue
+                ungedeckt.append(treffer)
+        self.assertEqual(sorted(set(ungedeckt)), [],
+                         "RESTRISIKO_610.md names these test files, they are not in this tree, and "
+                         "the paragraph naming them does not say so: "
+                         f"{sorted(set(ungedeckt))}")
 
     def test_the_section_does_not_claim_the_closure_without_naming_where_it_lives(self):
         """The sentence and its condition have to travel together, or the sentence travels alone."""
