@@ -78,43 +78,75 @@ def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
     return bestanden, andere
 
 
-def definitionszaehlung(datei: pathlib.Path) -> int:
+def _parametrize_faktor(knoten: ast.AST) -> int | None:
+    """How many cases one definition expands into. None means: not decidable from the source.
+
+    `@pytest.mark.parametrize("x", [1, 2, 3])` is ONE definition and THREE cases, and stacked
+    decorators multiply. Where the value list is a literal the number is right there; where it is a
+    name or a call it is not, and this returns None so the caller can say so instead of guessing.
+    A guess here would put the gate back where it started: a number nobody derived.
+    """
+    faktor = 1
+    for deko in getattr(knoten, "decorator_list", []):
+        ziel = deko.func if isinstance(deko, ast.Call) else deko
+        name = ziel.attr if isinstance(ziel, ast.Attribute) else getattr(ziel, "id", "")
+        if name != "parametrize":
+            continue
+        if not isinstance(deko, ast.Call) or len(deko.args) < 2:
+            return None
+        werte = deko.args[1]
+        if not isinstance(werte, (ast.List, ast.Tuple)):
+            return None                      # a name, a call, a comprehension -- not readable here
+        faktor *= len(werte.elts)
+    return faktor
+
+
+def definitionszaehlung(datei: pathlib.Path) -> int | None:
     """Cases a reader can count WITHOUT running them -- read from the syntax tree, not from text.
 
     This is still the reading that a comment writer performs by eye, and the ratio case exists
     because it is not a pass ratio. But a TEXT regex over `def test_` is not even a definition
-    count. MEASURED 2026-09-20 against the previous version:
+    count. MEASURED 2026-09-20 against the previous versions:
 
         a `Test*` class carrying `__init__`   regex said 3, the run passed 2
         a `def test_` inside a docstring      regex said 2, the run passed 1
+        one `parametrize` over three values   tree said 1, the run passed 3
+        two stacked `parametrize`             tree said 1, the run passed 6
 
-    Both make the run pass FEWER cases than the comment claims. Raise the comment to the regex's
+    The first two make the run pass FEWER cases than the comment claims: raise the comment to that
     number and the structural case goes green, and on any surface without `inspect_ai` the ratio
-    case skips, so nothing is left to notice. A counter-reading from another lens found this, and
-    it is the R7 class arriving inside the fix for R7 for the second time.
+    case skips, so nothing is left to notice. The last two go the other way -- the assertions then
+    contradict each other and the gate is red, which is safe but blocks a perfectly ordinary test
+    and leaves no number that satisfies it.
 
-    pytest does not collect a class with `__init__` (`PytestCollectionWarning`), and a docstring is
-    not code. The syntax tree knows both; a regex over raw text knows neither. What remains
-    divergent on purpose is `@pytest.mark.parametrize`: one definition, several cases. That makes
-    the run report MORE than this count, the assertions contradict each other, and the gate goes
-    red -- fail-closed, and carried as an open entry rather than silently absorbed here.
+    pytest does not collect a class with `__init__`, a docstring is not code, and a literal
+    `parametrize` list says how many cases one definition becomes. The syntax tree knows all three.
+    Where a `parametrize` list is NOT a literal the count is not decidable from the source, and
+    this returns None rather than a number the caller would have to trust.
     """
     baum = ast.parse(datei.read_text(encoding="utf-8"))
+    unbekannt = False
 
-    def faelle(koerper, in_klasse: bool) -> int:
+    def faelle(koerper) -> int:
+        nonlocal unbekannt
         n = 0
         for k in koerper:
             if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)) and k.name.startswith("test_"):
-                n += 1
+                f = _parametrize_faktor(k)
+                if f is None:
+                    unbekannt = True
+                else:
+                    n += f
             elif isinstance(k, ast.ClassDef):
                 # A class pytest cannot instantiate contributes nothing, however it is named.
                 if any(isinstance(m, ast.FunctionDef) and m.name in ("__init__", "__new__")
                        for m in k.body):
                     continue
-                n += faelle(k.body, True)
+                n += faelle(k.body)
         return n
 
-    return faelle(baum.body, False)
+    gesamt = faelle(baum.body)
+    return None if unbekannt else gesamt
 
 
 def bilanzzeile(stdout: str) -> str:
@@ -152,6 +184,12 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         for rel, muster in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
                 gemessen = definitionszaehlung(REPO / rel)
+                self.assertIsNotNone(
+                    gemessen,
+                    f"{rel} carries a `parametrize` whose value list is not a literal, so the "
+                    f"case count is NOT MEASURABLE from the source. Refusing rather than "
+                    f"comparing against a guess — write the list literally, or drop the claim "
+                    f"from pyproject.toml together with this check.")
                 treffer = re.search(muster, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the pyproject comment naming {rel} is gone — if it "
                                               f"was removed on purpose, remove this claim with it")
@@ -410,6 +448,7 @@ class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
                 encoding="utf-8")
             # A comment writer who counts definitions arrives at three and writes `3 of 3`.
             behauptet = definitionszaehlung(datei)
+            self.assertIsNotNone(behauptet, "the planted file must be countable")
             self.assertEqual(behauptet, 3, "the planted file defines three cases")
 
             bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
