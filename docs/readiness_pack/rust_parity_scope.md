@@ -20,7 +20,7 @@ python3 tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_diffe
 - Strict JSON parse (duplicate-key rejection, parser-differential)
 - RFC 6962 Merkle tree head
 - Trust-Pack root-of-trust THRESHOLD (Ed25519 leg): threshold-met and threshold-NOT-met
-- The full relation/v0.1 and relation-statement/v0.1 surface: 40 conformance vectors, positive and
+- The full relation/v0.1 and relation-statement/v0.1 surface: 45 conformance vectors (`find conformance/relation -name case.json | wc -l`, measured 2026-09-20: 38 without and 7 with `statement` in the path; the line said 40 and nothing re-derived it), positive and
   negative (decoy-parent, subject-mismatch, signer, lineage tiers), Python == Rust on exit-class +
   lineage on every one
 
