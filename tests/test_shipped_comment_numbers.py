@@ -36,6 +36,13 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 #: Same class, different word, which is why the set is a set and not one name.
 NICHT_BESTANDEN = ("skipped", "xfailed", "xpassed", "deselected", "failed", "error", "errors")
 
+#: The claims this file guards, each as (file, pattern). ONE list, so a claim cannot be checked by
+#: one case and missed by the other. The ratio case and the structural case walk the same list.
+BEHAUPTUNGEN = (
+    ("tests/test_adapters.py", r"`test_adapters\.py` (\d+) of (\d+)"),
+    ("tests/test_inspect_hook.py", r"`test_inspect_hook\.py` (\d+) of (\d+)"),
+)
+
 
 def flaeche_traegt_die_behauptung() -> bool:
     """Is this the surface the comment's ratio is about?
@@ -65,19 +72,28 @@ def bilanzzeile(stdout: str) -> str:
 
 class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
 
-    def test_the_adapter_case_count_in_pyproject_matches_the_test_file(self):
-        gemessen = len(re.findall(r"^\s*def test_", (REPO / "tests" / "test_adapters.py").read_text(),
-                                  re.M))
-        treffer = re.search(r"`test_adapters\.py` (\d+) of (\d+)",
-                            (REPO / "pyproject.toml").read_text())
-        self.assertIsNotNone(treffer, "the pyproject comment naming test_adapters.py is gone — if it "
-                                      "was removed on purpose, remove this assertion with it")
-        behauptet_links, behauptet_rechts = int(treffer.group(1)), int(treffer.group(2))
-        self.assertEqual(behauptet_rechts, gemessen,
-                         f"pyproject.toml claims {behauptet_rechts} cases in tests/test_adapters.py, "
-                         f"the file defines {gemessen}")
-        self.assertEqual(behauptet_links, behauptet_rechts,
-                         "the comment claims fewer passing cases than it counts")
+    def test_the_case_count_in_pyproject_matches_each_named_test_file(self):
+        """BOTH files, and an adversarial reading is the reason it says both.
+
+        The first version checked this for `test_adapters.py` only. `test_inspect_hook.py` carried
+        the same shape of claim in the same file and had no structural anchor anywhere: its
+        right-hand N was asserted by nothing. A ratio case that measures a RUN cannot see a total
+        that changed without changing the run's outcome, so the right-hand number needs its own
+        derivation, and one of the two claims did not have one. That is the R7 class turning up
+        inside the fix for R7, which is exactly the shape this file is about.
+        """
+        for rel, muster in BEHAUPTUNGEN:
+            with self.subTest(datei=rel):
+                gemessen = len(re.findall(r"^\s*def test_", (REPO / rel).read_text(), re.M))
+                treffer = re.search(muster, (REPO / "pyproject.toml").read_text())
+                self.assertIsNotNone(treffer, f"the pyproject comment naming {rel} is gone — if it "
+                                              f"was removed on purpose, remove this claim with it")
+                behauptet_links, behauptet_rechts = int(treffer.group(1)), int(treffer.group(2))
+                self.assertEqual(behauptet_rechts, gemessen,
+                                 f"pyproject.toml claims {behauptet_rechts} cases in {rel}, "
+                                 f"the file defines {gemessen}")
+                self.assertEqual(behauptet_links, behauptet_rechts,
+                                 f"{rel}: the comment claims fewer passing cases than it counts")
 
     def test_the_pass_ratio_is_measured_by_running_the_cases_not_by_counting_lines(self):
         """`N of N` is a PASS RATIO, and a line count is not one.
@@ -106,8 +122,7 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
                           "by design; the comment's ratio is about the surface where it is "
                           "installed and says nothing about this one")
         umgebung = dict(os.environ, PYTHONPATH="src")
-        for rel, feld in (("tests/test_adapters.py", r"`test_adapters\.py` (\d+) of (\d+)"),
-                          ("tests/test_inspect_hook.py", r"`test_inspect_hook\.py` (\d+) of (\d+)")):
+        for rel, feld in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
                 treffer = re.search(feld, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the comment naming {rel} is gone")
