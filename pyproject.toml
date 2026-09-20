@@ -197,7 +197,10 @@ line-length = 100
 # These four prefixes ARE the set that judged this repo through the whole 0.15 line — verified by
 # set comparison, not by eye: `--select E4,E7,E9,F` under 0.16.2 enables exactly the same 59 rules
 # that 0.15.0/0.15.10/0.15.22 enabled by default, and under that selection every one of
-# 0.15.0 / 0.15.10 / 0.15.22 / 0.16.0 / 0.16.1 / 0.16.2 exits 0 over all 258 tracked .py files.
+# 0.15.0 / 0.15.10 / 0.15.22 / 0.16.0 / 0.16.1 / 0.16.2 exits 0 over all 484 tracked .py files
+# (re-derived by tests/test_shipped_comment_numbers.py; it said 258, true when written and
+# 226 short by 2026-09-20 -- the same unbound-number class as the three R7 figures, in the
+# sibling line the first round of that fix did not bind).
 # This is also Astral's own documented way to keep the pre-0.16 behaviour.
 #
 # WHAT A PREFIX DOES NOT DO, said plainly because the sentence above reads stronger than it is:

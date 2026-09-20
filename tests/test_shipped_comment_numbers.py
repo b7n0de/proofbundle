@@ -26,6 +26,7 @@ import json
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -337,6 +338,19 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
                          f"case.json files — the two readings must agree before either is quoted")
 
     def test_the_mypy_file_count_in_pyproject_matches_the_source_tree(self):
+        """The FILE COUNT is derived here. The `exits 0` verdict beside it is NOT, and says so.
+
+        An external review lens named this sibling as carrying the same structural-proxy problem as
+        the pass-ratio case: the comment claims eight mypy versions exit 0, and counting files does
+        not observe any of those runs. That is correct and it is not fixed here. Re-running mypy
+        1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 / 2.2.0 / 2.3.0 means installing eight
+        interpreterbound toolchains and minutes per run, which is its own change with its own
+        environment question, not something to add inside a release cut.
+
+        So the split is stated instead of blurred: BOUND is the number of files the claim ranges
+        over, UNBOUND is the verdict over those files, and the same split holds for the ruff line
+        below. Carried as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, target 6.2.0.
+        """
         # mypy's own figure is what the comment quotes, and mypy counts the .py files it checks under
         # src. Deriving it from the tree keeps this test free of a mypy run, which is minutes.
         gemessen = len(list((REPO / "src").rglob("*.py")))
@@ -345,6 +359,34 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         self.assertEqual(int(treffer.group(1)), gemessen,
                          f"pyproject.toml claims mypy covers {treffer.group(1)} files under src, the "
                          f"tree holds {gemessen}")
+
+    def test_the_ruff_file_count_in_pyproject_matches_the_tracked_tree(self):
+        """The fifth number of the same class, found by sweeping the neighbours of the fourth.
+
+        MEASURED 2026-09-20 on this branch: the ruff paragraph says the six pinned versions exit 0
+        "over all 258 tracked .py files". `git ls-files '*.py'` returns 484, and `ruff check .
+        --show-files` returns exactly that same set of .py paths -- two readings, one number, and
+        the shipped one 226 short. It was true when it was written, nothing read it again, and that
+        is this file's whole thesis arriving in a line the first round of the R7 fix walked past.
+
+        The mypy figure one method up was bound; this one sat four paragraphs away in the same file
+        and was not. A class fix that stops at one of two siblings is an instance fix wearing the
+        word class, so the neighbour is bound here.
+        """
+        r = subprocess.run(["git", "ls-files", "*.py"], cwd=REPO,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            self.skipTest("no git tree here, so `tracked` has no meaning on this surface")
+        gemessen = len([z for z in r.stdout.splitlines() if z.strip()])
+        self.assertGreater(gemessen, 0, "git reported zero tracked .py files, which is not a tree "
+                                        "this number can be derived from")
+        treffer = re.search(r"exits 0 over all (\d+) tracked \.py files",
+                            (REPO / "pyproject.toml").read_text())
+        self.assertIsNotNone(treffer, "the pyproject comment naming the ruff file count is gone — "
+                                      "if it was removed on purpose, remove this claim with it")
+        self.assertEqual(int(treffer.group(1)), gemessen,
+                         f"pyproject.toml claims ruff judged {treffer.group(1)} tracked .py files, "
+                         f"git lists {gemessen}")
 
 
 class TestDieBeidenLesungenSelbst(unittest.TestCase):
