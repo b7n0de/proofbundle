@@ -83,7 +83,11 @@ def test_eine_kennung_die_aus_dem_belegverzeichnis_ausbricht_wird_abgewiesen(tmp
     g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
     with pytest.raises(SystemExit) as e:
         g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
-    assert "Kennung" in str(e.value)
+    # BOUND TO THE REFUSED VALUE, not to the wording of the refusal. The first version asserted the
+    # German word `Kennung`; translating that message into English broke a case whose subject had
+    # not changed by a byte. A refusal names the value it refuses, in any language, and that is the
+    # property worth holding.
+    assert kennung in str(e.value), e.value
 
 
 def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp_path):
@@ -101,7 +105,9 @@ def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp
     g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
     with pytest.raises(SystemExit) as e:
         g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
-    assert "nicht" in str(e.value) and "lesbar" in str(e.value)
+    # Same class as the case above, swept in the same pass rather than left to break next time the
+    # message is touched: the verdict names the unreadable source and the entry that asked for it.
+    assert "GIBT_ES_NICHT.md" in str(e.value) and "K1" in str(e.value), e.value
 
 
 def test_zwei_datensaetze_unter_derselben_kennung_fallen_auf():
