@@ -24,7 +24,11 @@ python3 tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_diffe
   negative (decoy-parent, subject-mismatch, signer, lineage tiers), Python == Rust on exit-class +
   lineage on every one
 
-At v3.7.0 the conformance corpus held 57 cases and the `make conformance-crossimpl` gate reproduced 56 of them independently by the Rust binary. **That figure is bound to that corpus, not to this one:** the corpus holds 130 cases today (`python -c "import json;print(len(json.load(open('conformance/manifest.json'))['cases']))"`, measured 2026-09-20) and the reproduction count has NOT been re-measured against it, which would need a Rust build. No current full-coverage claim is made here.
+At v3.7.0 the conformance corpus held 57 cases and the `make conformance-crossimpl` gate reproduced 56 of them independently by the Rust binary. **That figure is bound to that corpus, not to this one.** The corpus holds 130 cases today, and the Rust build the previous wording said this needed has now been run: `cd tools/pb_verify_rs && cargo build --release` followed by `PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py`, on this tree, 2026-09-20.
+
+MEASURED: **61 of 130** corpus cases are reproduced independently, 45 of them relation vectors compared differentially on exit class and lineage. The gate names the remainder itself rather than folding it into the ratio — 69 cases are NOT RUN DIFFERENTIALLY, by kind: `agent_review_predicate` (35), `cap1_document` (15), `envelope_profile_rule` (9), `provenance_version_status` (10). Run it and it prints that block before the verdict.
+
+So the honest statement is neither the old "the whole corpus" nor "not measured": **47 per cent of the corpus is not differentially reproduced, and every one of those cases is accounted for by kind with a reason.** The largest single item, `cap1_document`, is not a missing Rust side — `tools/cap1_unabhaengige_umsetzung/rs/` exists and carries the same nine rules — but a Rust side that is not wired to this differential.
 
 The sentence above used to read "The whole conformance corpus ... is reproduced independently by the Rust binary". `CROSS_IMPLEMENTATION_REPORT.md` rejected exactly that form on 2026-09-08 — a count true of a smaller, older corpus placed next to the word *whole* reads as coverage of the current one. This file kept the rejected form for twelve more days because the fix there never swept its neighbours.
 
