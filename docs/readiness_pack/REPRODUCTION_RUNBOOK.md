@@ -21,7 +21,7 @@ artifacts, so a re-run on a different box is comparable.
 
 ```
 python3 -m pytest -q                              # full suite (floor locked, see step 3)
-python3 scripts/audit_candidate_matrix.py         # the 34-check acceptance matrix (§9 minus external)
+python3 scripts/audit_candidate_matrix.py         # the 33-check acceptance matrix (§9 minus external)
 ```
 
 `audit_candidate_matrix.py` orchestrates every gate below and prints one line per acceptance

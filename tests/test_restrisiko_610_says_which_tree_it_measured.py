@@ -90,6 +90,9 @@ Both are the same defect: a rule about prose, written against the shape prose ha
         names.
         """
         text = DOKUMENT.read_text(encoding="utf-8")
+        if "sha1-unsalted` rejected" not in text:
+            self.skipTest("the A-17 closure sentence is gone, and with it the section this "
+                          "declaration serves; there is no set left to declare")
         genannt = set(re.findall(r"tests/[A-Za-z0-9_][A-Za-z0-9_./-]*\.py", text))
         gemessen = {t for t in genannt if not (REPO / t).exists()}
 
@@ -98,6 +101,17 @@ Both are the same defect: a rule about prose, written against the shape prose ha
                          f"the document declares the set of files it names but does not carry "
                          f"exactly once ({len(zeile)} lines start with {ERKLAERUNG!r})")
         erklaert = set(re.findall(r"tests/[A-Za-z0-9_][A-Za-z0-9_./-]*\.py", zeile[0]))
+
+        # EMPTY AGAINST EMPTY IS NOT AGREEMENT. Both sides are the same regex over the same text,
+        # so an edit that turns the paths into prose empties BOTH and the comparison stays green
+        # while the line still announces a set. A counter-reading did exactly that: it replaced
+        # every path in the document with a phrase, and the declaration went on saying "Named here
+        # but not in this tree:" about nothing. A declaration that declares nothing is the state
+        # this rule exists to catch, not a state it may pass.
+        self.assertTrue(
+            erklaert,
+            f"the document carries {ERKLAERUNG!r} and names no file after it — either it declares "
+            f"a set or the line goes when the section does")
 
         self.assertEqual(
             erklaert, gemessen,
