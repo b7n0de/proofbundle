@@ -230,6 +230,14 @@ The mechanism above is measured; the specific cell is not.
 
 ## Honest limits of this file
 
+- **No gate of the three release documents is evidenced by a run on the candidate head.**
+  The figures in this file are derived from the register rather than retyped, and each one
+  names exactly one head, so a reader can re-measure any of them. What that does NOT give
+  is a gate run on the head being tagged: until S4 drives them, the three release documents
+  carry numbers that were true where they were measured and are unproven here. That is a
+  statement about the evidence, not a suspicion about the numbers, and it stops being true
+  the moment S4 runs — which is the point of naming it now rather than after.
+
 - **The funnel verdict on the 54 moved lines is a class judgement**, not 54 measurements. It is
   written that way on purpose; claiming 54 individual verdicts would be the more precise-looking
   and less true statement.

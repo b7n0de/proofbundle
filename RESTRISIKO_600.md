@@ -214,7 +214,7 @@ about P0 and P1, and every entry here is P2 or P3.
 
 | Id | Severity | Assurance touched | What it is | State |
 |---|---|---|---|---|
-| A1 | P2 | Candidate binding: the readiness artifacts bind a `trust_anchor_digest` | The trust anchor lives in `audit_artifacts/`, the one directory the subject tree digest excludes. The anchor is therefore outside the digest that is supposed to pin the candidate's trust basis | open; follow-up release |
+| A1 | P2 | Candidate binding: the readiness artifacts bind a `trust_anchor_digest` | The trust anchor was outside the digest that is supposed to pin the candidate's trust basis, because `subject_tree_digest` dropped the whole `audit_artifacts/` directory. **Closed in 6.0.0 (`b9d35d4`), and this row said otherwise until 2026-09-20.** The exclusion set is now three named files under `audit_artifacts/360/`, not a directory; measured on this head over `git ls-tree -r HEAD` against `MUTABLE_EVIDENCE_RELS`, both `audit_artifacts/pre_tag_trusted_pubkeys.txt` and `audit_artifacts/readiness_trusted_pubkeys.txt` are INSIDE the digest. `audit_artifacts/600/README.md` had it right; this row was the stale one, and a stale row here reads as "the trust basis is unpinned" about a release where it is pinned | closed |
 | A2 | P2 | `C4.1`/`C4.2`: completeness of the population they rule over | Both read their result without reading the `population_complete` bound — the same shape as `N17`, one gate over. A verdict from an incomplete population reads like a verdict over all of it | open; follow-up release |
 | A3 | P3 | Evidence paths of the release-deciding checks | The evidence paths are hard-wired to `audit_artifacts/360` instead of being derived from the version under test. It works today because 6.0.0 reuses that directory; it silently reads the wrong release's evidence the moment it does not | open; follow-up release |
 | A4 | P1 | `C12.2`: which key may sign the register | `not_after` was never evaluated on the register path, so an expired anchor key kept the ability to sign the register — a revocation by lowering `not_after` would have looked effective and done nothing. **Closed**, in `7eba21e` and its two corrections `3385d80` and `2ba939b` | closed |
@@ -5225,3 +5225,23 @@ ausgeliefertes Verhalten hängt daran.
 TRACE-Feld, je mit Quelle und **Abrufdatum der TRACE-Fassung** — ohne Abrufdatum ist eine
 Abbildung auf einen bewegten Standard nicht nachprüfbar. Herkunft: Auftrag `20260911T2132Z`,
 Zeile drei.
+
+
+## Nachtrag 2026-09-20 — vier Zahlen in dieser Akte wurden nach dem 13.09. nicht nachgezogen
+
+This file was written before the closing round finished and four figures in it were never brought
+forward. The record is corrected here rather than rewritten above, so that what was said on the day
+stays readable next to what is true now.
+
+- **The register holds 21 entries, not 20.** Measured 2026-09-20 over
+  `audit_artifacts/findings_register_361.json` (`version: 6.0.0`): 21 entries, `N1`…`N21`. The text
+  above says 20 and names `N18`, `N19`, `N20` as the tail; `N21` exists and is not named there.
+- **Six entries were added this round, not five.** The sentence introducing them undercounts by
+  one, for the same reason: it was written before the last one landed.
+- **`N19` names the wrong head.** The mutation-collector figure is measured at `a62d8cb4`; the row
+  states `59d0679`. The figure itself is unaffected — what is wrong is the commit it is pinned to,
+  and a number pinned to the wrong head is a number nobody can re-measure.
+- **Not every entry here is P2 or P3.** The sentence saying so stands a few lines above `A4`, which
+  is `P1` (closed in `7eba21e` with corrections `3385d80` and `2ba939b`). Closed does not make it
+  P2, and a blanket severity claim next to a counter-example is the kind of sentence this release
+  spent its round removing elsewhere.
