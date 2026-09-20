@@ -1,0 +1,25 @@
+<!doctype html><meta charset=utf-8>
+<title>Findings register proofbundle 6.1.0</title>
+<style>
+ body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:72rem;padding:0 1rem;color:#111}
+ h1{font-size:1.4rem;margin:0 0 .3rem} .sub{color:#666;margin:0 0 1.5rem}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ th,td{border-bottom:1px solid #e5e5e5;padding:.4rem .5rem;text-align:left;vertical-align:top}
+ th{background:#fafafa;position:sticky;top:0} .id{font-family:ui-monospace,monospace;white-space:nowrap}
+ .n{font-family:ui-monospace,monospace;color:#666;white-space:nowrap} .t{max-width:40rem}
+ .gap{color:#8a6d00;background:#fff8e1;padding:0 .3rem;border-radius:3px;white-space:nowrap}
+ .val{font-weight:600} .warn{background:#fff4f4;border-left:3px solid #c33;padding:.6rem .8rem}
+ ul{padding-left:1.2rem} code{background:#f4f4f4;padding:0 .25rem;border-radius:3px}
+</style>
+<h1>Known remainders — proofbundle 6.1.0</h1>
+<p class=sub>Tag v6.1.0 · cutoff 2026-09-20 ·
+ revision 0 ·
+ 5 of 5 identifiers carried</p>
+<p class=warn>Signature, UNSIGNED — this carrier has NOT been through the signing path; it was written by the generator alone, so the issuer named above is asserted by the document and not attested by anyone. Treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone.</p>
+<p>Assurance <code>0 open P0/P1</code>: <b>INDETERMINATE</b>, computed — 0 P0/P1 in the source, 0 open.</p>
+<h2>Known gaps</h2><ul></ul>
+<h2>Cross-count</h2><p class=warn>NOT MEASURED — the input carries no list `sollliste_kennungen`; without it there is nothing to COMPUTE against the independent tally, and the historical block would be a quotation from an earlier state</p>
+<h2>All records</h2>
+<table><thead><tr><th>Id<th>Role<th>Class<th>Severity<th>Title<th>Bytes</tr></thead>
+<tbody><tr><td class=id>COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01</td><td>finding</td><td>promised_class_entry</td><td class=gap>NOT MEASURED</td><td class=t>Carried in `tests/test_eval_claim_domains_are_enforced.py` as `BEKANNTE_LUECKEN` -- which, like the A-17 fix above, arrives with the verify-boundary p</td><td class=n>6770..7198</td></tr><tr><td class=id>SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01</td><td>finding</td><td>promised_class_entry</td><td class=gap>NOT MEASURED</td><td class=t>Refusing small-order keys at this one block is a code change with its own catch proof, not a documentation edit, so it is not in this cut.</td><td class=n>9472..9682</td></tr><tr><td class=id>SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01</td><td>finding</td><td>promised_class_entry</td><td class=gap>NOT MEASURED</td><td class=t>**A shipped tool verdict is quoted but not re-run.** `pyproject.toml` states that eight mypy versions and six ruff versions exit 0 over this tree.</td><td class=n>9684..10219</td></tr><tr><td class=id>DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01</td><td>finding</td><td>promised_class_entry</td><td class=gap>NOT MEASURED</td><td class=t>Target 6.2.0, and as a CLASS fix rather than three guards: one check that every public exporter passes through, with the catch-proof at the public fun</td><td class=n>12441..12696</td></tr><tr><td class=id>ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01</td><td>finding</td><td>promised_class_entry</td><td class=gap>NOT MEASURED</td><td class=t>**A number in this section that a later commit makes stale.** `ca2478d8f4dd` was the head when the matrix was run; committing this very section moves </td><td class=n>34185..34683</td></tr></tbody></table>
+<p class=sub>Generated from audit_artifacts/610/findings_register_v2.json. Do not edit by hand.</p>

@@ -70,6 +70,47 @@ EVIDENZ_REL = "audit_artifacts/600/register_evidence"
 V2_REL = "audit_artifacts/600/findings_register_v2.json"
 ANSICHTEN_REL = "audit_artifacts/600/views"
 
+#: TWO LINES, ONE PRODUCER. Owner decision OA-714de2fcdd forbids a second producer in so many
+#: words ("two tools for the same question drift apart"), and a second LINE is not a second
+#: question, it is the same question over a different cut. So it lives HERE as data rather than
+#: as a copy beside it. The default stays 600, so no existing call moves.
+LINIEN = {
+    "600": {"fassung": "6.0.0",
+            "restrisiko": "RESTRISIKO_600.md",
+            "objektklassen": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+            "evidenz": "audit_artifacts/600/register_evidence",
+            "v2": "audit_artifacts/600/findings_register_v2.json",
+            "ansichten": "audit_artifacts/600/views"},
+    "610": {"fassung": "6.1.0",
+            "restrisiko": "RESTRISIKO_610.md",
+            "objektklassen": "RESTRISIKO_610_OBJEKTKLASSEN.json",
+            "evidenz": "audit_artifacts/610/register_evidence",
+            "v2": "audit_artifacts/610/findings_register_v2.json",
+            "ansichten": "audit_artifacts/610/views"},
+}
+
+
+def waehle_linie(name: str) -> None:
+    """Set the line ONCE, before the build. One run speaks about exactly one cut.
+
+    The paths are module-level because a dozen functions name them inside their own reason texts
+    (`source in RESTRISIKO_600.md`); threading them through as a parameter would have produced the
+    same statement in twelve places. One run, one line, one set of paths.
+    """
+    global RESTRISIKO_REL, OBJEKTKLASSEN_REL, EVIDENZ_REL, V2_REL, ANSICHTEN_REL, V2_FASSUNG
+    linie = LINIEN[name]
+    # THE VERSION BELONGS TO THE LINE, not to the module. The first run of line 610 wrote
+    # "Known issues, 6.0.0" over a list that carries nothing but findings of the 6.1.0 cut. The
+    # number came from `VERSION`, which speaks about the v1 list FINDINGS. A carrier naming the
+    # wrong version is exactly the defect the comment at `VERSION` warns about, the other way
+    # round: there the list without the number, here the number without the list.
+    V2_FASSUNG = linie["fassung"]
+    RESTRISIKO_REL = linie["restrisiko"]
+    OBJEKTKLASSEN_REL = linie["objektklassen"]
+    EVIDENZ_REL = linie["evidenz"]
+    V2_REL = linie["v2"]
+    ANSICHTEN_REL = linie["ansichten"]
+
 LUECKENWOERTER = {"NOT MEASURED", "NOT MEASURABLE", "NOT APPLICABLE"}
 VEX_STATUS = {"affected", "not_affected", "fixed", "under_investigation"}
 QUAL_STATUS = {"open", "fixed", "not_a_defect", "under_investigation"}
@@ -150,6 +191,68 @@ def schneide_beleg(text: str, kennung: str):
         ze = text.find("\n", m.start())
         ze = len(text) if ze == -1 else ze
         return (len(text[:m.start()].encode()), len(text[:ze].encode()), "tabelle_spalte1")
+    return _zusage_als_fundstelle(text, kennung)
+
+
+#: THE PROMISE ITSELF IS A FIND SITE — the third find form, 2026-09-20.
+#:
+#: Line 610 carries five identifiers that have NEITHER a heading NOR a table row in the source.
+#: They stand in a sentence: "Register entry `<ID>`, target 6.2.0." Measured over both risk
+#: sheets: five such sentences, each alone in its paragraph.
+#:
+#: That is exactly the place that MAKES the promise, and therefore the right find site: a reader
+#: following the evidence lands on the sentence that promised the register entry. Inventing a
+#: heading for it would be the other way round, bending the document to the tool instead of the
+#: tool to what the document says.
+#:
+#: THE PARAGRAPH IS THE UNIT, and it is REFUSED when it carries more than one promise. The second
+#: version of `schneide_beleg` learned that in 2026-09: evidence containing thirteen findings
+#: proves none of them. Here the same rule stands BEFORE the first damage instead of after it.
+_ZUSAGE = None
+
+
+def _zusage_muster():
+    global _ZUSAGE
+    if _ZUSAGE is None:
+        import re  # noqa: PLC0415
+        _ZUSAGE = re.compile(r"Register entry[:\s]+`([A-Z0-9][A-Z0-9-]{8,})`")
+    return _ZUSAGE
+
+
+def _zusage_als_fundstelle(text: str, kennung: str):
+    """The paragraph promising the register entry for THIS identifier. -> (from, to, form) | None."""
+    muster = _zusage_muster()
+    treffer = [m for m in muster.finditer(text) if m.group(1) == kennung]
+    if len(treffer) != 1:
+        return None                       # no promise, or several — neither is evidence
+    m = treffer[0]
+    a = text.rfind("\n\n", 0, m.start())
+    a = 0 if a == -1 else a + 2
+    e = text.find("\n\n", m.end())
+    e = len(text) if e == -1 else e
+    if len({x.group(1) for x in muster.finditer(text[a:e])}) != 1:
+        return None                       # the paragraph promises something to several identifiers
+    return (len(text[:a].encode()), len(text[:e].encode()), "prosa_zusage")
+
+
+#: The state also stands in the SECTION heading, and only in its house form.
+#:
+#: MEASURED 2026-09-20 over RESTRISIKO_610.md: four of the five promises sit under a heading
+#: "## Open — …", the fifth does not. Narrowed to exactly that form: `Open` as the first word
+#: after the hashes. The sheets also carry sections "## Named state, not a backlog item — …", and
+#: those must NOT be read as open; they say the opposite, that no work item is open. Searching for
+#: the word anywhere in the heading would turn "not a backlog item" into a backlog item.
+_ABSCHNITT_OFFEN = r"^#{2,4}\s+Open\b"
+
+
+def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
+    """`open` when the nearest section above the find site carries the house form `## Open`."""
+    import re  # noqa: PLC0415
+    muster = re.compile(_ABSCHNITT_OFFEN)
+    vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
+    for zeile in reversed(vor.splitlines()):
+        if zeile.startswith("#"):
+            return "open" if muster.match(zeile) else None
     return None
 
 
@@ -159,6 +262,10 @@ def schneide_beleg(text: str, kennung: str):
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
 VERSION = "6.0.0"
+
+#: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
+#: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
+V2_FASSUNG = VERSION
 
 #: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
 #: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
@@ -360,6 +467,19 @@ def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = Non
     import re  # noqa: PLC0415
     zeilen = stueck.splitlines()
     erste = zeilen[0] if zeilen else ""
+    if fundart == "prosa_zusage":
+        # THE FIRST SENTENCE OF THE PARAGRAPH, not its first LINE. Markdown wraps paragraphs; the
+        # first line ends mid sentence and would have cut the title where the line break sits,
+        # which is a property of the wrapping and not of the finding.
+        fliess = " ".join(x.strip() for x in zeilen).strip()
+        s = re.split(r"(?<=[.!?])\s+", fliess)
+        satz = s[0] if s else fliess
+        if len(satz) <= 200:
+            return satz
+        # AT A WORD BOUNDARY, not at character 200. The first run cut "pull reques", and a cut
+        # off word reads like a data defect rather than like a shortening.
+        gekuerzt = satz[:200].rsplit(" ", 1)[0]
+        return (gekuerzt or satz[:200]) + " …"
     if fundart == "tabelle_spalte1":
         spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
         if kopf:
@@ -497,7 +617,7 @@ def _status_aus_ueberschrift(stueck: str, kennung: str) -> str | None:
 
 
 def _status(kennung: str, aus_tabelle: str | None = None,
-            aus_ueberschrift: str | None = None) -> dict:
+            aus_ueberschrift: str | None = None, aus_abschnitt: str | None = None) -> dict:
     """Der Zustand eines Fundes, GELESEN statt geraten.
 
     Codex r3999621596: `_offen` fiel fuer jede Kennung, die nicht in FINDINGS steht, auf
@@ -519,10 +639,17 @@ def _status(kennung: str, aus_tabelle: str | None = None,
     if aus_ueberschrift:
         return {"value": aus_ueberschrift,
                 "source": f"state word in the heading in {RESTRISIKO_REL}"}
+    if aus_abschnitt:
+        # FOURTH SOURCE, and it is read rather than guessed: the section the finding sits under
+        # carries the house form `## Open — …`. That is a statement of the document about its own
+        # section, not a derivation from severity or role.
+        return {"value": aus_abschnitt,
+                "source": f"state word in the enclosing section heading in {RESTRISIKO_REL}"}
     return {"value": None, "state": "NOT MEASURED",
             "reason": ("this identifier appears neither in the producer list, nor in a table with "
-                       "a state column, nor in a heading that names its state after a dash; "
-                       "setting a state here would be a guess")}
+                       "a state column, nor in a heading that names its state after a dash, nor "
+                       "under a section heading in the house form `## Open`; setting a state here "
+                       "would be a guess")}
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -541,6 +668,22 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     qd = hashlib.sha256(roh).hexdigest()
     ok = _json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
 
+    # THE SOURCE OF AN ENTRY IS ITS OWN, and that is not convenience.
+    #
+    # Line 610 carries five identifiers, and one of them
+    # (`ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01`) stands in RESTRISIKO_600.md, not in
+    # RESTRISIKO_610.md. The obvious remedy would have been to copy the sentence into the 610
+    # sheet, and then the promise sits in two places and the evidence file points at the copy
+    # instead of the original. An identifier has ONE find site; which file carries it is said by
+    # the entry. `evidence[].source_path` carries that statement per record anyway.
+    _quellen: dict[str, tuple[bytes, str, str]] = {RESTRISIKO_REL: (roh, text, qd)}
+
+    def _quelle_von(rel: str):
+        if rel not in _quellen:
+            b = (repo / rel).read_bytes()
+            _quellen[rel] = (b, b.decode("utf-8"), hashlib.sha256(b).hexdigest())
+        return _quellen[rel]
+
     # DIE DEKLARIERTE AUSNAHME, EINMAL GELESEN. Nur wer hier steht — mit Grund UND Beleg, das
     # verlangt tests/test_objektklassen_gegen_das_register.py — gilt als "gemessen, nichts
     # vorgefunden" und damit als KEIN Defekt. Alles andere bleibt ein Defekt, auch wenn es aus
@@ -553,13 +696,15 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     records, ohne_fundstelle = [], []
     for e in ok["eintraege"]:
         k = e["kennung"]
-        t = schneide_beleg(text, k)
+        e_rel = e.get("quelle") or RESTRISIKO_REL
+        e_roh, e_text, e_qd = _quelle_von(e_rel)
+        t = schneide_beleg(e_text, k)
         if t is None:
             ohne_fundstelle.append(k)
             continue
         von, bis, fundart = t
-        stueck = roh[von:bis]
-        kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
+        stueck = e_roh[von:bis]
+        kopf = _tabellenkopf(e_text, von) if fundart == "tabelle_spalte1" else []
         records.append({
             "id": k,
             "record_revision": revision,
@@ -619,13 +764,15 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "status": _status(k,
                               _status_aus_tabelle(stueck.decode("utf-8"), kopf)
                               if fundart == "tabelle_spalte1" else None,
-                              _status_aus_ueberschrift(stueck.decode("utf-8"), k)),
+                              _status_aus_ueberschrift(stueck.decode("utf-8"), k),
+                              _status_aus_abschnitt(e_text, von)
+                              if fundart == "prosa_zusage" else None),
             "evidence": [{
                 "path": f"{EVIDENZ_REL}/{k}.md",
                 "sha256": hashlib.sha256(stueck).hexdigest(),
                 "role": "historical_record",
-                "source_path": RESTRISIKO_REL,
-                "source_sha256": qd,
+                "source_path": e_rel,
+                "source_sha256": e_qd,
                 "byte_range": [von, bis],
                 "fundart": fundart,
             }],
@@ -645,7 +792,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     return {
         "schema": "proofbundle.findings_register.v2",
         "profile_version": "0.1",
-        "document_id": f"urn:b7n0de:findings-register:{VERSION.replace('.', '')}",
+        "document_id": f"urn:b7n0de:findings-register:{V2_FASSUNG.replace('.', '')}",
         "register_revision": revision,
         "issuer": "b7n0de",
         # DIE SPRACHANGABE WAR EINE HALBE WAHRHEIT (Codex r3999621601). Der Traeger fuehrte
@@ -691,7 +838,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         },
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
-        "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
+        "release_subject": {"name": "proofbundle", "version": V2_FASSUNG,
+                            "tag": f"v{V2_FASSUNG}"},
         # DIE BEWERTUNGSGRENZE IST KEINE EIGENSCHAFT DES ERZEUGUNGSLAUFS (Codex r4000054881).
         # Sie stand auf `generated_at`, also auf dem Zeitpunkt, an dem dieser Befehl lief. Gemessen:
         # `baue_v2(..., "2099-01-01T00:00:00Z")` meldet null Fehler und laesst beide Ansichten eine
@@ -703,12 +851,17 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         # MEASURED mit Grund — nie ein Rueckfall auf die Uhr des Laufs, denn das war der Fehler.
         "assessment_cutoff": _bewertungsgrenze(ok),
         "inventory": {
-            "source_documents": [{"path": RESTRISIKO_REL, "sha256": qd,
-                                  "identifiers": len(ok["eintraege"])},
-                                 {"path": OBJEKTKLASSEN_REL,
-                                  "sha256": hashlib.sha256(
-                                      (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
-                                  "identifiers": len(ok["eintraege"])}],
+            # EVERY source used stands here, not only the one of the line. An inventory that
+            # keeps quiet about a file evidence was cut from is not an inventory.
+            "source_documents": [{"path": rel, "sha256": _quellen[rel][2],
+                                  "identifiers": sum(
+                                      1 for r in records
+                                      if r["evidence"][0]["source_path"] == rel)}
+                                 for rel in sorted(_quellen)]
+            + [{"path": OBJEKTKLASSEN_REL,
+                "sha256": hashlib.sha256(
+                    (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
+                "identifiers": len(ok["eintraege"])}],
             "identifiers_total": len(ok["eintraege"]),
             "identifiers_in_this_register": len(records),
             "identifiers_without_evidence": ohne_fundstelle,
@@ -880,10 +1033,15 @@ def _gegenrechnung(ok: dict, records: list, repo=None) -> dict:
     }
     soll = ein.get("sollliste_kennungen")
     if not isinstance(soll, list) or not soll:
+        # ENGLISH, because this reason is GENERATED PROSE and the carrier declares `language:
+        # en`. It never appeared in an output before 2026-09-20: line 600 carries the tally
+        # block, so this branch was unreachable there. Line 610 has no external tally, the
+        # branch fires, and the German sentence would have shipped into a view that says it is
+        # English. A field is only as honest as the path nobody walked yet.
         return {**kopf, "state": "NOT MEASURED",
-                "reason": ("die Eingabe fuehrt keine Liste `sollliste_kennungen`; ohne sie "
-                           "laesst sich gegen die Fremdzaehlung nicht RECHNEN, und der "
-                           "historische Block waere ein Zitat aus einem frueheren Stand")}
+                "reason": ("the input carries no list `sollliste_kennungen`; without it there is "
+                           "nothing to COMPUTE against the independent tally, and the historical "
+                           "block would be a quotation from an earlier state")}
     # LINSE 1, Nebenfund 13.09.2026: `sorted()` ueber eine Menge mit unvergleichbaren Typen
     # (None neben str, int neben str) warf einen ROHEN TypeError — und zwar in `baue_v2`, also
     # VOR `pruefe_v2`. Ein Riegel, der mit einem Traceback endet statt mit einem Urteil, hat
@@ -1478,6 +1636,21 @@ def _signaturzeile(doc) -> str:
     return f"Signature, {zustand} — {grund}." + (f" {folge[0].upper()}{folge[1:]}." if folge else "")
 
 
+#: THE TWO MARKERS `scripts/neue_zeilen_sind_englisch.py` READS, and the generated views carry
+#: them around the material they QUOTE. Measured 2026-09-20 on line 610: the row for
+#: `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01` is flagged as German, and the two
+#: German words are inside the IDENTIFIER. That identifier is promised by a risk sheet that is
+#: already on `main`; renaming it would break the promise the register exists to back.
+#:
+#: The carrier already says this about itself: `language_scope.quoted_from_source` declares the
+#: titles and the class reasons as verbatim quotations with their own language. The views render
+#: exactly those fields, so the same statement belongs there in the form the gate reads. Narrow on
+#: purpose, the way the gate asks for it: the markers enclose the record rows and nothing else,
+#: never a file and never a directory.
+_ZITAT_AUF = "<!-- proofbundle:verbatim-quote:begin -->"
+_ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
+
+
 def ansicht_uebersicht(doc) -> str:
     sub, inv = doc["release_subject"], doc["inventory"]
     z = [f"# Known remainders, {sub['name']} {sub['version']}", "",
@@ -1514,25 +1687,26 @@ def ansicht_uebersicht(doc) -> str:
         if a.get("prose_rationale_state") == "REFUTED":
             z.append("  The prose rationale in the source is REFUTED by the source's own table; "
                      "the claim is carried here because it is COMPUTED, not quoted.")
-    z += ["", "## All records", "",
+    z += ["", "## All records", "", _ZITAT_AUF,
           "| Id | Role | Class | Severity | Evidence | Bytes |", "|---|---|---|---|---|---|"]
     for r in doc["records"]:
         sev = r["severity"].get("value") or r["severity"].get("state")
         b = r["evidence"][0]
         z.append(f"| {r['id']} | {r['record_role']} | {r.get('objektklasse','')} | {sev} "
                  f"| {b['path']} | {b['byte_range'][0]}..{b['byte_range'][1]} |")
-    z += ["", f"Generated from {V2_REL}. Do not edit by hand.", ""]
+    z += [_ZITAT_ZU, "", f"Generated from {V2_REL}. Do not edit by hand.", ""]
     return "\n".join(z)
 
 
 def ansicht_known_issues(doc) -> str:
-    z = [f"### Known issues, {doc['release_subject']['version']}", ""]
+    z = [f"### Known issues, {doc['release_subject']['version']}", "", _ZITAT_AUF]
     for r in doc["records"]:
         if not _offen(r):
             continue
         sev = r["severity"].get("value") or r["severity"].get("state")
         z.append(f"* {r['id']} ({sev}), {r['title'][:160]}")
-    z += ["", "Generated from the findings register. The register carries the rest.", ""]
+    z += [_ZITAT_ZU, "",
+          "Generated from the findings register. The register carries the rest.", ""]
     return "\n".join(z)
 
 
@@ -1625,15 +1799,18 @@ def schreibe_v2(repo, generated_at: str, revision: int = 0) -> dict:
             print("ROT,", f)
         raise SystemExit(f"Erzeugung abgebrochen, {len(fehler)} Verstoesse, keine Teilausgabe")
 
-    roh = (repo / RESTRISIKO_REL).read_bytes()
     ev = repo / EVIDENZ_REL
     ev.mkdir(parents=True, exist_ok=True)
+    _roh: dict[str, bytes] = {}
     for r in doc["records"]:
         b = r["evidence"][0]
         von, bis = b["byte_range"]
+        rel = b["source_path"]
+        if rel not in _roh:
+            _roh[rel] = (repo / rel).read_bytes()
         # GENAU die Bytes des Bereichs, nichts davor, nichts dahinter. Der fruehere
         # Herkunftskopf machte `sha256sum <path>` bei allen 145 Belegen unbrauchbar.
-        (ev / f"{r['id']}.md").write_bytes(roh[von:bis])
+        (ev / f"{r['id']}.md").write_bytes(_roh[rel][von:bis])
 
     # ERST GEGENRECHNEN, DANN DEN TRAEGER SCHREIBEN. Faellt das hier, entsteht kein
     # Traeger, der auf Dateien zeigt, die etwas anderes tragen als er behauptet.
@@ -1713,9 +1890,12 @@ def main(argv=None) -> int:
     p.add_argument("--v2", action="store_true",
                    help="Registerform 6.1: Traeger, Belege und Ansichten erzeugen")
     p.add_argument("--revision", type=int, default=0)
+    p.add_argument("--linie", choices=sorted(LINIEN), default="600",
+                   help="welcher Schnitt: 600 (Vorgabe) oder 610")
     a = p.parse_args(argv)
 
     if a.v2:
+        waehle_linie(a.linie)
         if a.generated_at is None:
             from datetime import datetime, timezone  # noqa: PLC0415
             a.generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
