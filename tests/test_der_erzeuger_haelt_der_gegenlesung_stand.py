@@ -515,3 +515,163 @@ def test_KONTROLLE_die_gesunde_zusage_geht_weiter_durch():
     assert t is not None and t[2] == "prosa_zusage"
     von, bis, _ = t
     assert text.encode()[von:bis].decode().strip() == ZUSAGE.format("KKK-LLLLLLL-01")
+
+
+def _probe_baum(tmp_path, eintraege, blatt="## Open — x\n\nRegister entry `N9`, target 6.2.0.\n"):
+    """A minimal tree with the two files the producer reads. Returns the repo path."""
+    (tmp_path / "RESTRISIKO_PROBE.md").write_text(blatt, encoding="utf-8")
+    (tmp_path / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": eintraege}), encoding="utf-8")
+    return tmp_path
+
+
+def test_eine_ABSOLUTE_quelle_im_baum_wird_ABGELEHNT(tmp_path):
+    """Ninth review round, thread 4057824359, P2. The NEIGHBOUR of the round-eight P1.
+
+    That P1 asked whether a source lies inside the tree, and the repair answered it by RESOLVING
+    the path. Measured at `55811a2`: an entry whose `quelle` is the ABSOLUTE path of an in-tree
+    file passes that check, because its resolved target is under the root — and the absolute
+    spelling is then published verbatim in `evidence[].source_path` and in
+    `inventory.source_documents`. Relocate the clean checkout and the carrier is unverifiable,
+    while a stale file at the old absolute location is still the one consulted.
+
+    Containment was checked; portable provenance was not, and provenance is what this artefact is
+    for.
+    """
+    g = _erzeuger()
+    repo = _probe_baum(tmp_path, [])
+    absolut = str((repo / "RESTRISIKO_PROBE.md").resolve())
+    (repo / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": "N9", "quelle": absolut, "klasse": "x",
+                       "zaehlt_als_fund": True}]}), encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    with pytest.raises(SystemExit) as e:
+        g.baue_v2(repo, "2026-09-20T00:00:00Z")
+    assert "absolute" in str(e.value).lower(), (
+        f"an absolute in-tree source was not refused as one: {str(e.value)[:180]}")
+
+
+def test_zwei_schreibweisen_EINER_quelle_sind_EIN_inventareintrag(tmp_path):
+    """Ninth review round, the second half of the same class — measured, not anticipated.
+
+    Measured at `55811a2`: with `R.md` on one entry and `./R.md` on another, the two spellings
+    became two `_quellen` keys, so `inventory.source_documents` listed the SAME file twice, each
+    row claiming one of the two identifiers. The inventory then reports two sources where the tree
+    has one, and neither row carries the true count.
+
+    The recorded key is the canonical repository-relative path of the file that was actually
+    opened, so a spelling in the data cannot split one source into two.
+    """
+    g = _erzeuger()
+    blatt = "## N1 — open, one\n\nbody one\n\n## N2 — open, two\n\nbody two\n"
+    repo = _probe_baum(tmp_path, [
+        {"kennung": "N1", "quelle": "RESTRISIKO_PROBE.md", "klasse": "x", "zaehlt_als_fund": True},
+        {"kennung": "N2", "quelle": "./RESTRISIKO_PROBE.md", "klasse": "x",
+         "zaehlt_als_fund": True}], blatt=blatt)
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    doc = g.baue_v2(repo, "2026-09-20T00:00:00Z")
+    blaetter = [q for q in doc["inventory"]["source_documents"]
+                if q["path"].endswith("RESTRISIKO_PROBE.md")]
+    assert len(blaetter) == 1, (
+        f"one file, two rows in the inventory: {[q['path'] for q in blaetter]}")
+    assert blaetter[0]["identifiers"] == 2, (
+        f"the single row does not carry both identifiers: {blaetter[0]}")
+    assert all(not pathlib.PurePosixPath(r["evidence"][0]["source_path"]).is_absolute()
+               and r["evidence"][0]["source_path"] == "RESTRISIKO_PROBE.md"
+               for r in doc["records"]), (
+        "a record kept the spelling from the data instead of the canonical key: "
+        f"{[r['evidence'][0]['source_path'] for r in doc['records']]}")
+
+
+def test_ein_deklarierter_WERT_ausserhalb_seiner_domaene_wird_ABGELEHNT():
+    """Ninth review round, thread 4057824361, P2. Truthiness is not a domain.
+
+    The round-seven repair made an unknown find FORM a typed refusal and made `_titel` execute all
+    seven declared FIELDS — and then trusted every field's VALUE. Measured at `55811a2`:
+
+      ellipsis="mystery"            every derived title stays byte-identical, nothing reports it
+      flattenWhitespace="mystery"   the same, and `takeFirstSentence` shares the surface
+      keep="mystery"                WORSE: it does not do nothing, it selects the OTHER branch —
+                                    a 250 character title was cut to its LAST 200 while the
+                                    carrier published `keep: prefix`
+
+    Each value is measured on its own, because a loop over one field would have proven one field.
+    """
+    g = _erzeuger()
+    orig = dict(g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"])
+    faelle = [("ellipsis", "mystery"), ("flattenWhitespace", "mystery"),
+              ("takeFirstSentence", "mystery"), ("keep", "mystery"), ("cut", "mystery"),
+              ("sourceUnit", "something else"), ("maxLength", 0), ("maxLength", "200"),
+              ("strip", ["noSuchStep"])]
+    try:
+        for feld, wert in faelle:
+            g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"] = {**orig, feld: wert}
+            with pytest.raises(SystemExit) as e:
+                g._titel("Register entry `X`, target 6.2.0. A second sentence.", "X",
+                         "prosa_zusage")
+            assert feld in str(e.value), (
+                f"{feld}={wert!r} was refused without naming the field: {str(e.value)[:160]}")
+    finally:
+        g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"] = orig
+
+
+def test_eine_REGEL_wird_geprueft_auch_wenn_KEIN_titel_sie_erreicht(tmp_path):
+    """Ninth review round. A declaration no title exercises would otherwise ship unchecked.
+
+    `_kuerzen` returns early for a title shorter than `maxLength`, so on a corpus of short titles
+    a wrong `keep`, `cut` or `ellipsis` is reachable by no title at all. The rules are therefore
+    judged as DECLARATIONS, once, before the first one is applied — and a form that no record of
+    this run uses is judged too, because a carrier that publishes a rule for a form it never
+    applied publishes a rule for nothing.
+    """
+    g = _erzeuger()
+    orig = dict(g.NORMALISIERUNG_JE_FUNDART["tabelle_spalte1"])
+    repo = _probe_baum(tmp_path, [{"kennung": "N9", "quelle": "RESTRISIKO_PROBE.md",
+                                   "klasse": "x", "zaehlt_als_fund": True}])
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    try:
+        gesund = g.baue_v2(repo, "2026-09-20T00:00:00Z")
+        fundarten = {r["evidence"][0]["fundart"] for r in gesund["records"]}
+        assert "tabelle_spalte1" not in fundarten, (
+            "the probe corpus was meant to use no table row; it uses one, so this case would "
+            f"prove nothing: {fundarten}")
+        assert all(len(r["title"]) < orig["maxLength"] for r in gesund["records"]), (
+            "the probe titles reach maxLength, so an early return would not hide the rule")
+        g.NORMALISIERUNG_JE_FUNDART["tabelle_spalte1"] = {**orig, "keep": "mystery"}
+        with pytest.raises(SystemExit) as e:
+            g.baue_v2(repo, "2026-09-20T00:00:00Z")
+        assert "tabelle_spalte1" in str(e.value) and "keep" in str(e.value), (
+            f"the unused rule was not judged: {str(e.value)[:180]}")
+    finally:
+        g.NORMALISIERUNG_JE_FUNDART["tabelle_spalte1"] = orig
+
+
+def test_ein_deklariertes_feld_das_NIEMAND_ausfuehrt_wird_ABGELEHNT():
+    """Ninth review round, the other direction of the round-seven finding.
+
+    There the declaration carried seven fields and the producer executed three, so the carrier
+    shipped a rule it did not follow. The reverse — a field the declaration carries and nothing
+    here reads — has the same shape: it reads like a promise and changes nothing. Both directions
+    are closed by naming the admissible set and refusing everything outside it.
+    """
+    g = _erzeuger()
+    orig = dict(g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"])
+    try:
+        g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"] = {**orig, "wrapAt": 80}
+        with pytest.raises(SystemExit) as e:
+            g.pruefe_titelregeln()
+        assert "wrapAt" in str(e.value), (
+            f"an undeclared field was accepted or refused anonymously: {str(e.value)[:160]}")
+        # A field that belongs to ANOTHER form is refused where it does not belong — the same
+        # question, asked about a field that does exist.
+        g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"] = {**orig, "columnFallbackIndex": 1}
+        with pytest.raises(SystemExit) as e:
+            g.pruefe_titelregeln()
+        assert "columnFallbackIndex" in str(e.value), (
+            f"a table field on the prose rule was accepted: {str(e.value)[:160]}")
+    finally:
+        g.NORMALISIERUNG_JE_FUNDART["prosa_zusage"] = orig

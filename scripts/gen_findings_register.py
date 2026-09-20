@@ -486,6 +486,119 @@ NORMALISIERUNG_JE_FUNDART = {
 }
 
 
+#: THE DOMAIN OF EVERY DECLARED FIELD, so an unknown VALUE is refused exactly like an unknown FORM.
+#:
+#: Round nine measured what the round-seven repair left standing. That repair made an unknown find
+#: FORM a typed refusal and made `_titel` execute all seven declared FIELDS — and then trusted every
+#: field's VALUE. Measured on this head: setting `ellipsis` to the string `"mystery"` leaves every
+#: derived title byte-identical and the contract reports nothing, because `regel.get("ellipsis")` asks
+#: whether the value is truthy and never whether it is the value the rule admits. The same surface
+#: carries `flattenWhitespace` and `takeFirstSentence`; `keep` and `cut` are worse still, because an
+#: unknown value there does not do nothing, it silently selects the OTHER branch — `keep="mystery"`
+#: cut a 250 character title to its LAST 200 characters while the carrier published `keep: prefix`.
+#:
+#: THE CLASS, named rather than the instance: a declaration is only a rule when every one of its
+#: values is checked against the set the producer can actually execute. Truthiness is not a domain.
+#:
+#: CHECKED BEFORE ANY TITLE IS DERIVED, not while deriving one. `_kuerzen` returns early for a title
+#: shorter than `maxLength`, so a bad `keep`, `cut` or `ellipsis` in a corpus of short titles is
+#: reachable by no title at all — the declaration would ship unexecuted and unchecked. The rules are
+#: therefore judged as DECLARATIONS, once, and a form that no record uses is judged too: a carrier
+#: that publishes a rule for a form it never applied publishes a rule for nothing.
+_REGEL_DOMAENEN = {
+    "sourceUnit": ("the first line of the evidence", "the title column of the table row",
+                   "the paragraph"),
+    "keep": ("prefix", "suffix"),
+    "cut": ("hard", "wordBoundary"),
+}
+#: Fields that are a TRUTH VALUE and nothing else — `isinstance(x, bool)`, never `if x`.
+_REGEL_WAHRHEITSWERTE = ("ellipsis", "flattenWhitespace", "takeFirstSentence")
+#: The strip steps `_titel` can apply. It refuses an unknown one when it REACHES it; this list
+#: refuses it when it is DECLARED, which is earlier and does not depend on the corpus.
+_STRIP_SCHRITTE = ("headingMarks", "identifier", "oneLeadingPunctuation")
+#: Fields that belong to the table form only.
+_SPALTEN_FELDER = ("columnNames", "columnFallbackIndex")
+
+
+def _pruefe_regel(fundart: str, regel: dict) -> None:
+    """One declared title rule against its domain. Raises SystemExit naming the field and the value.
+
+    A FIELD NOBODY EXECUTES IS REFUSED TOO, and that is the other half of the round-seven finding.
+    There the declaration carried seven fields and the producer executed three, so the carrier
+    shipped a rule it did not follow. The reverse — a field the declaration carries and nothing
+    here reads — has the same shape: it reads like a promise and changes nothing. Both directions
+    are closed by naming the admissible set and refusing everything outside it.
+    """
+    if not isinstance(regel, dict):
+        raise SystemExit(
+            f"build refused: the title rule of the find form {fundart!r} is {type(regel).__name__}, "
+            f"not a mapping of declared fields")
+    erlaubt = set(_REGEL_DOMAENEN) | set(_REGEL_WAHRHEITSWERTE) | {"maxLength", "strip"} \
+        | set(_SPALTEN_FELDER)
+    unbekannt = sorted(set(regel) - erlaubt)
+    if unbekannt:
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares {unbekannt}, and nothing in "
+            f"this producer reads those fields. A declared field that no step executes reads like "
+            f"a promise and changes nothing")
+    for feld, werte in _REGEL_DOMAENEN.items():
+        if feld not in regel:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares no {feld!r}; the producer "
+                f"branches on it, so its absence picks a branch nobody declared")
+        if regel[feld] not in werte:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares {feld}={regel[feld]!r}, "
+                f"which is not one of {list(werte)}. An unknown value here does not do nothing — "
+                f"it selects the other branch silently")
+    for feld in _REGEL_WAHRHEITSWERTE:
+        if feld not in regel:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares no {feld!r}; the producer "
+                f"reads it, and a missing truth value reads as false without saying so")
+        if not isinstance(regel[feld], bool):
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares {feld}={regel[feld]!r}, "
+                f"which is {type(regel[feld]).__name__} and not a truth value. The producer asks "
+                f"whether it is truthy, so every non-empty value would act as true")
+    grenze = regel.get("maxLength")
+    if isinstance(grenze, bool) or not isinstance(grenze, int) or grenze <= 0:
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares maxLength={grenze!r}; a bound "
+            f"that is not a positive whole number cannot cut anything")
+    schritte = regel.get("strip") or []
+    if not isinstance(schritte, list) or any(x not in _STRIP_SCHRITTE for x in schritte):
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares strip={schritte!r}; the steps "
+            f"this producer can apply are {list(_STRIP_SCHRITTE)}")
+    if regel["sourceUnit"] == "the title column of the table row":
+        namen = regel.get("columnNames")
+        if not isinstance(namen, list) or not namen or not all(
+                isinstance(x, str) and x for x in namen):
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} cuts a table column but declares "
+                f"columnNames={namen!r}; without names the column is chosen by position, and a "
+                f"column read by position is eventually the wrong column")
+        i = regel.get("columnFallbackIndex")
+        if isinstance(i, bool) or not isinstance(i, int) or i < 0:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares "
+                f"columnFallbackIndex={i!r}, which is not a column number")
+    else:
+        vorhanden = [f for f in _SPALTEN_FELDER if f in regel]
+        if vorhanden:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} cuts {regel['sourceUnit']!r} and "
+                f"still declares {vorhanden}; a field that this source unit never reads is a "
+                f"statement about a step that does not run")
+
+
+def pruefe_titelregeln(regeln: dict | None = None) -> None:
+    """EVERY declared rule, including the ones no record used. See `_pruefe_regel` for why."""
+    for fundart, regel in (regeln if regeln is not None else NORMALISIERUNG_JE_FUNDART).items():
+        _pruefe_regel(fundart, regel)
+
+
 def regel_als_satz(regel: dict) -> str:
     """The human sentence RENDERED from the rule, so the two cannot drift apart.
 
@@ -771,6 +884,10 @@ def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = Non
             f"build refused: the find form {fundart!r} has no declared title rule. A title "
             f"derived by a rule nobody declared cannot be checked against the declaration the "
             f"carrier ships")
+    # THE RULE IS JUDGED BEFORE IT IS APPLIED. `baue_v2` judges every declared rule up front; this
+    # call covers the direct caller, which a contract is. Checking twice costs three comparisons
+    # and removes the question of which entry point a rule came in through.
+    _pruefe_regel(fundart, regel)
     # EVERY DECLARED FIELD IS EXECUTED, not only the numbers.
     #
     # Round eight measured the remainder of the previous repair: reading `maxLength`, `cut` and
@@ -1036,6 +1153,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     text = roh.decode("utf-8")
     qd = hashlib.sha256(roh).hexdigest()
     ok = _json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+    # BEFORE ANY TITLE IS DERIVED. A declared rule that no title is long enough to exercise would
+    # otherwise ship unchecked; see `_pruefe_regel`.
+    pruefe_titelregeln()
 
     # THE SOURCE OF AN ENTRY IS ITS OWN, and that is not convenience.
     #
@@ -1068,6 +1188,26 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 f"build refused: the source of an entry is {rel!r}, which is not a path. A "
                 f"source that is not text cannot be read, and a build that ends in a traceback "
                 f"has told nobody what it refused")
+        # AN ABSOLUTE PATH IS REFUSED, not quietly rewritten — round nine, and it is the NEIGHBOUR
+        # of the P1 above rather than a new question.
+        #
+        # That P1 asked whether the source lies inside the tree, and the repair answered it by
+        # resolving the path. Measured on the repaired head: `"quelle": "/abs/path/to/repo/R.md"`
+        # passes, because its RESOLVED target is inside the root — and the ABSOLUTE spelling is then
+        # published verbatim in `evidence[].source_path` and in `inventory.source_documents`. Move
+        # that clean checkout anywhere else and the carrier is unverifiable, while a stale file left
+        # at the old absolute location is still the one consulted. Containment was checked; portable
+        # provenance was not, and provenance is what this artefact is for.
+        #
+        # Refused rather than normalised, because an absolute path in the object class file is a
+        # defect of the DATA — it carries one machine's layout into a document that ships. Silently
+        # relativising it would hide exactly that.
+        if pathlib.PurePosixPath(rel).is_absolute():
+            raise SystemExit(
+                f"build refused: the source of an entry is the absolute path {rel!r}. Evidence "
+                f"provenance is recorded repository-relative, so that a clean checkout anywhere "
+                f"can recheck it; an absolute path names one machine's layout and travels with "
+                f"the document as if it named the file")
         ziel = (repo / rel).resolve()
         wurzel = pathlib.Path(repo).resolve()
         if ziel != wurzel and wurzel not in ziel.parents:
@@ -1075,10 +1215,18 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 f"build refused: the source {rel!r} resolves to {ziel}, which lies outside the "
                 f"tree being measured. Evidence cut from outside the tree cannot be rechecked "
                 f"from a clean checkout, which is the whole promise of this artefact")
-        if rel not in _quellen:
+        # ONE FILE, ONE KEY. The second half of the same class, and it is measured rather than
+        # anticipated: with `R.md` on one entry and `./R.md` on another, the two spellings became
+        # two `_quellen` entries, so `inventory.source_documents` listed the SAME file twice, each
+        # time claiming one of the two identifiers. The inventory then reports two sources where
+        # the tree has one, and neither row carries the true count. The recorded key is therefore
+        # the canonical repository-relative path, derived from the resolved target, not the
+        # spelling the data happened to use.
+        schluessel = ziel.relative_to(wurzel).as_posix()
+        if schluessel not in _quellen:
             b = ziel.read_bytes()
-            _quellen[rel] = (b, b.decode("utf-8"), hashlib.sha256(b).hexdigest())
-        return _quellen[rel]
+            _quellen[schluessel] = (b, b.decode("utf-8"), hashlib.sha256(b).hexdigest())
+        return (*_quellen[schluessel], schluessel)
 
     # DIE DEKLARIERTE AUSNAHME, EINMAL GELESEN. Nur wer hier steht — mit Grund UND Beleg, das
     # verlangt tests/test_objektklassen_gegen_das_register.py — gilt als "gemessen, nichts
@@ -1119,7 +1267,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 f"writes wherever that data points")
         e_rel = e.get("quelle") or RESTRISIKO_REL
         try:
-            e_roh, e_text, e_qd = _quelle_von(e_rel)
+            # THE RECORDED KEY COMES BACK FROM THE READER, so what is written into the carrier is
+            # the canonical path the reader actually opened — never the spelling from the data.
+            e_roh, e_text, e_qd, e_rel = _quelle_von(e_rel)
         except OSError as exc:
             # A TYPED VERDICT, not a raw traceback. A gate that ends in a stack trace has no
             # NOT MEASURABLE path at all.
