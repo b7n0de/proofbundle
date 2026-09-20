@@ -243,20 +243,30 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         # new scope) but NOT into functions or classes (which do), and refuses unless there is
         # exactly one. Two candidates is not a number to choose between; it is a question this
         # test is not entitled to answer.
-        def _modul_kandidaten(knoten):
-            for k in knoten.body:
+        # A STATEMENT LIST, not a node with a body. The first attempt at this refusal took a NODE
+        # and recursed only into sub-nodes that themselves had a `body` -- so a plain
+        # `CHECKS = [...]` sitting directly inside `if True:` was never looked at, because an
+        # assignment has no body. Measured over twelve shapes, that version found ZERO candidates
+        # for a list inside `if`, and with a top-level decoy beside it found exactly one: the
+        # DECOY. The attack it was written against still walked through.
+        #
+        # WORSE, AND THE REASON THIS COMMENT IS LONG: the catch-proof for that version went red,
+        # and was reported as proof the refusal worked. It went red because the derived number
+        # disagreed with the documents, not because anything refused. Set the documents to match
+        # the decoy -- which is what the counter-reading did -- and it passed. A case going red
+        # proves only that it goes red; WHY it goes red is a second measurement.
+        def _modul_kandidaten(anweisungen):
+            for k in anweisungen or []:
                 if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     continue  # a new scope: a `CHECKS` in there is not the module's
                 if isinstance(k, ast.Assign) and isinstance(k.value, (ast.List, ast.Tuple)):
                     if any(isinstance(z, ast.Name) and z.id == "CHECKS" for z in k.targets):
                         yield k.value
                 for feld in ("body", "orelse", "finalbody", "handlers"):
-                    for unter in getattr(k, feld, []) or []:
-                        if hasattr(unter, "body"):
-                            yield from _modul_kandidaten(unter)
+                    yield from _modul_kandidaten(getattr(k, feld, None))
 
         baum = ast.parse(skript.read_text(encoding="utf-8"))
-        kandidaten = list(_modul_kandidaten(baum))
+        kandidaten = list(_modul_kandidaten(baum.body))
         self.assertEqual(
             len(kandidaten), 1,
             f"module scope carries {len(kandidaten)} assignments named CHECKS; a derivation that "
