@@ -98,6 +98,23 @@ before the closing round, not after it.
 
 ### Fixed
 
+- **A-15 / A-55 / A-60 — a loader annotated `-> dict` returned whatever it decoded.** The verify
+  boundary now types what it reads instead of trusting the annotation, and three exporters that
+  coerced the verdict field with `bool()` are covered by it: a claim carrying `passed` as the
+  STRING `"false"` verified as passed. Catch-proofs measure at the export sites, one case each,
+  red before the fix and green after, rather than only at the boundary that fixes them.
+- **A-16 — the boundary refuses a malformed claim instead of deciding on it.** SemVer: this can
+  turn a verdict that was `ok` into a refusal for input that was never valid. That is a behaviour
+  change for callers who were relying on the silent acceptance, and it is deliberate — a verifier
+  that decides on bytes it could not parse is not stricter, it is wrong. No ADDITIVE version bump
+  can carry it, so it rides the MINOR that this release already is.
+- **A-39 — CAP-1 coverage divided by a denominator that could be zero.** The null case now has its
+  own answer instead of an exception or a silent ratio, and the scope line for CAP-1 in
+  `docs/release_scope/6.1.0.md` names this finding, because 6.0.0 deferred CAP-1 to 6.1.0 and main
+  carries it.
+- **R7 — three numbers in shipped comments that no longer matched the tree.** They are now derived
+  by running the cases rather than by counting lines, and the run refuses to report a ratio when it
+  did not finish: killed and survived are not an exhaustive pair, and a partial run reports neither.
 - Evidence digests: a record named a `path` and a `sha256` that described different objects, the
   digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
   file. The checker also never opened the file it named, so a deleted or altered piece of evidence
