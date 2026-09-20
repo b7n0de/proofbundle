@@ -54,16 +54,25 @@ def _gemessener_baum(vorgabe: str | None = None) -> Path:
     names the state: a verdict that does not say what it looked at cannot be checked.
     """
     if vorgabe:
-        return Path(vorgabe).resolve()
+        return Path(vorgabe).resolve(), "vorgabe"
     r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if r.returncode == 0 and r.stdout.strip():
-        return Path(r.stdout.strip())
-    # No repository around the working directory: fall back to the tool's own tree and say so
-    # through the reported path, rather than guessing silently.
-    return WERKZEUG_WURZEL
+        return Path(r.stdout.strip()), "arbeitsverzeichnis"
+    # NO REPOSITORY AROUND THE WORKING DIRECTORY, and this returns a NAMED fallback rather than a
+    # usable answer. An earlier version fell back to the tool's own tree and reported a verdict:
+    # called from a directory that is not a repository it printed `gruen`, 163 added lines, exit 0,
+    # over the TOOL's tree. The tree was named in the output, so it was not silent -- but a caller
+    # who asked whether THEIR tree is clean got a green verdict with exit 0, and only a careful
+    # reader notices the name. That is the very shape this function was rewritten to remove: a
+    # checker that answers a question nobody asked, confidently.
+    #
+    # A counter-reading from a different model family put it plainly: the caller cannot tell a
+    # valid measurement from a fallback, so the fallback has to refuse rather than answer. The
+    # tree still comes back, because the answer has to say WHICH tree it would have judged.
+    return WERKZEUG_WURZEL, "rueckfall"
 
 
-REPO = _gemessener_baum()
+REPO, REPO_HERKUNFT = _gemessener_baum()
 
 #: How many list words a line needs before it counts as prose. One word is noise: "die" appears in
 #: English text as a verb, "auf" inside a quoted path. Two is the threshold the measurement of the
@@ -203,10 +212,17 @@ def _ist_prosa(datei: str, nr: int, text: str) -> bool:
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
+    if REPO_HERKUNFT == "rueckfall":
+        return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": [],
+                "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
+                "wortlisten_baum": str(WERKZEUG_WURZEL),
+                "grund": ("the working directory is not inside a git repository, so there is no "
+                          "tree to judge; name one with --repo instead of taking this tool's own")}
     je_datei, lage = _neue_zeilen(basis, arbeitsbaum)
     if lage != "measured":
         return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [],
-                "gemessener_baum": str(REPO), "rc": 2}
+                "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
+                "wortlisten_baum": str(WERKZEUG_WURZEL), "rc": 2}
     befunde = []
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
@@ -220,6 +236,13 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     return {"urteil": "ROT" if befunde else "gruen", "befunde": befunde,
             "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
             "gemessener_baum": str(REPO),
+            "baum_herkunft": REPO_HERKUNFT,
+            # WHOSE WORD LIST JUDGED THIS TREE. The list is imported from the TOOL's tree, while
+            # the tree under judgement can be another one. If the judged tree carries its own list,
+            # this run did not use it, and a term that is ordinary there can be flagged here. The
+            # asymmetry is named rather than removed: importing a list out of the judged tree would
+            # mean executing its code to check its prose.
+            "wortlisten_baum": str(WERKZEUG_WURZEL),
             "geprueft": sum(len(z) for z in je_datei.values()),
             "dateien": len(je_datei), "schwelle": SCHWELLE,
             "reichweite": ("a word list of German function words, at least "
@@ -237,8 +260,8 @@ def main(argv=None) -> int:
                    help="the tree to judge (default: the working directory's repository)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    global REPO
-    REPO = _gemessener_baum(a.repo)
+    global REPO, REPO_HERKUNFT
+    REPO, REPO_HERKUNFT = _gemessener_baum(a.repo)
     d = pruefe(a.base, a.arbeitsbaum)
     if a.json:
         import json
@@ -246,7 +269,9 @@ def main(argv=None) -> int:
     else:
         print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
               f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
-              f" · measured tree: {d.get('gemessener_baum', '?')}")
+              f" · measured tree: {d.get('gemessener_baum', '?')}"
+              f" ({d.get('baum_herkunft', '?')})"
+              f" · word list from: {d.get('wortlisten_baum', '?')}")
         for b in d["befunde"][:20]:
             print(f"  {b['datei']}:{b['zeile']}  {b['woerter']}  {b['text']}")
         if len(d["befunde"]) > 20:

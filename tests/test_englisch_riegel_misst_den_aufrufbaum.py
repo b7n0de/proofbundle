@@ -122,3 +122,58 @@ class TestTheGateJudgesTheCallingTree(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
+    """A fallback that answers is the defect this file exists against, one layer in.
+
+    The first fix bound the measured tree to the working directory instead of to `__file__`, and
+    named the tree in the answer. Measured afterwards from a directory that is not a repository:
+    the run fell back to the TOOL's tree and printed `gruen`, 163 added lines, exit 0. The tree was
+    named, so it was not silent -- but a caller who asked whether THEIR tree is clean got a green
+    verdict with a zero exit, and only a careful reader notices the name is not theirs.
+
+    A counter-reading from another model family named it before this test existed: the caller
+    cannot tell a valid measurement from a fallback, so the fallback has to refuse rather than
+    answer. It now returns NOT MEASURABLE with rc 2, and still says which tree it would have taken.
+    """
+
+    def _lauf(self, cwd: pathlib.Path, *args: str) -> dict:
+        r = subprocess.run([sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                            "--json", *args],
+                           cwd=str(cwd), capture_output=True, text=True)
+        return json.loads(r.stdout), r.returncode
+
+    def test_aus_einem_nicht_repo_gibt_es_kein_urteil(self):
+        with tempfile.TemporaryDirectory() as d:
+            kein_repo = pathlib.Path(d) / "kein_repo"
+            kein_repo.mkdir()
+            antwort, rc = self._lauf(kein_repo)
+        self.assertEqual(antwort["urteil"], "NOT MEASURABLE",
+                         "a run with no tree to judge must not report a verdict")
+        self.assertEqual(rc, 2, "and it must not exit zero")
+        self.assertEqual(antwort["baum_herkunft"], "rueckfall")
+        self.assertIn("--repo", antwort["grund"], "the answer names the way out")
+
+    def test_die_herkunft_des_baums_steht_in_der_antwort(self):
+        """Three origins, three names. Without this a reader cannot tell them apart."""
+        with tempfile.TemporaryDirectory() as d:
+            kein_repo = pathlib.Path(d) / "leer"
+            kein_repo.mkdir()
+            aus_fremdem, _ = self._lauf(kein_repo, "--repo", str(WERKZEUG))
+        self.assertEqual(aus_fremdem["baum_herkunft"], "vorgabe")
+        eigener, _ = self._lauf(WERKZEUG)
+        self.assertEqual(eigener["baum_herkunft"], "arbeitsverzeichnis")
+
+    def test_die_antwort_nennt_den_baum_der_die_wortlisten_stellt(self):
+        """The list comes from the TOOL's tree while another tree is judged, and that is named."""
+        eigener, _ = self._lauf(WERKZEUG)
+        self.assertEqual(eigener["wortlisten_baum"], str(WERKZEUG),
+                         "the word list's origin must be stated, not assumed to be the judged tree")
+
+    def test_KONTROLLE_ein_echter_baum_bekommt_weiterhin_ein_urteil(self):
+        """A guard that refuses everything is an outage. This falls if the refusal is too wide."""
+        antwort, rc = self._lauf(WERKZEUG)
+        self.assertIn(antwort["urteil"], ("gruen", "ROT"),
+                      "a real repository must still get a real verdict")
+        self.assertIn(rc, (0, 1))
