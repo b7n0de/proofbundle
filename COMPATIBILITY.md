@@ -82,7 +82,7 @@ cannot tell from it what arrives instead. `legacy_v01=True` names the thing it s
 at once is an error rather than a silent precedence — two versions cannot both be the answer, and a
 quiet winner would swallow one of the two intents without the caller ever learning.
 
-**Coverage aliases (from the release that carries CAP-1 coverage).** In `agent-review/v0.2` the
+**Coverage aliases (6.1.0, the release that carries CAP-1 coverage).** In `agent-review/v0.2` the
 fields `observedRuns`, `expectedRuns`, `knownGaps` and `collectionMethod` under `coverage` are
 aliases for the accounting that `strata`, `integrity` and `absenceAssertions` carry in the language
 of `draft-hillier-coverage-attestation-00`. They stay readable, keep their meaning, and a predicate
@@ -104,6 +104,9 @@ Currently labelled EXPERIMENTAL (see CHANGELOG and README for the authoritative 
 release):
 
 - **`relation/v0.1`** — the relation/lineage surface
+- **`agent-review/v0.3`** — v0.2 plus the optional verifier block, new in 6.1.0. It is listed
+  here because a reader looking for what may still move should find it in the same place as
+  its predecessor, not only in the CHANGELOG entry that introduces it.
 - **`agent-review/v0.2`** — the current agent-review predicate (see the table above; README says
   the same). What the 6.0.0 deprecation above protects is the EMITTER ARGUMENT `v02=` on a shipped
   function, not the predicate's status: the argument keeps working until a later MAJOR, the

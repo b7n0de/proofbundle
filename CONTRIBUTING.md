@@ -29,8 +29,15 @@ ruff check .
 
 > **Why pytest is required, measured 02.09.2026.** This used to say *"no pytest required, standard
 > library works too"*. That is not true of this suite and had not been true for a long time:
-> **35 of 217 test modules import `pytest` at module level**, and **30 modules hold 345 test
-> functions written as plain `def test_*()`**, which `unittest discover` cannot see at all. A
+> **104 of 337 test modules import `pytest` at module level**, and **108 modules hold 991 test
+> functions written as plain `def test_*()`**, which `unittest discover` cannot see at all.
+>
+> Those four figures were re-measured on 2026-09-20 with `ast` over `tests/**/test_*.py`; the
+> sentence had said 35 / 217 / 30 / 345 since 02.09.2026 and every one of them was low by a
+> factor between 1.6 and 3.6. The argument did not depend on the exact numbers, which is
+> precisely why they were never checked again — and a figure nobody rechecks is the defect
+> class this repository keeps finding. They are carried with their derivation and their date
+> rather than bound by a gate, because they move with every added test file. A
 > stdlib-only run therefore does not fail loudly — it silently runs several hundred tests fewer and
 > still reports `OK`. A promise a test suite cannot keep is worse than no promise: it sends the
 > reader down a path that looks green and is not.

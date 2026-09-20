@@ -292,17 +292,44 @@ class TheGateReportsATypedState(unittest.TestCase):
     def test_this_repositorys_own_register_is_foreign_on_this_tree(self):
         """The instance, against the real file: the register that lives next to the receipt in
         audit_artifacts/600 of THIS repository is listed as foreign, never as a rejection. A
-        fixture with a made-up register cannot say that; only the real file can."""
+        fixture with a made-up register cannot say that; only the real file can.
+
+        THE VERSION IS NAMED HERE, and it was not before. The call read the version off the tree,
+        so the assertion silently depended on which release the tree happened to claim: the gate
+        looks in `audit_artifacts/<cut>`, and the moment the tree moved to 6.1.0 it looked in
+        `610`, found nothing, answered `absent` with an empty `foreign_files`, and this test went
+        red — measured 2026-09-19 on the 6.1.0 version cut. The sentence it makes is about the
+        register in `600`, so it says `600`, exactly like its fixture sibling above. That is the
+        contract getting SHARPER: before, it was about whatever directory the tree pointed at.
+        """
         repo = pathlib.Path(__file__).resolve().parents[1]
         register = repo / "audit_artifacts" / "600" / "findings_register_v2.json"
         if not register.is_file():
             self.skipTest("this tree carries no audit_artifacts/600/findings_register_v2.json")
-        r = self.pta.evaluate(repo)
+        r = self.pta.evaluate(repo, "6.0.0")
         if r["state"] == "not_determinable":
             self.skipTest(f"not measurable here: {r.get('reason')}")
         self.assertIn("audit_artifacts/600/findings_register_v2.json",
                       [f["path"] for f in r["foreign_files"]], r)
         for eintrag in r.get("rejected_receipts", []) or []:
+            self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
+
+    def test_this_repositorys_own_register_never_grants_the_gate_whatever_the_tree_claims(self):
+        """The CLASS above the instance, and the reason the version above could be named safely.
+
+        Pinning the case to 6.0.0 would narrow what is measured if nothing else watched the
+        tree's own version. This does: for the version the tree actually claims, the gate must not
+        return ok — the register of this house is never a grant, whether it reads as foreign (the
+        cut it belongs to) or as absent (any other cut). Both are fail-closed, and the point is
+        that there is no third answer.
+        """
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        r = self.pta.evaluate(repo)
+        if r["state"] == "not_determinable":
+            self.skipTest(f"not measurable here: {r.get('reason')}")
+        self.assertFalse(r["ok"], r)
+        self.assertIn(r["state"], ("absent", "foreign", "rejected"), r)
+        for eintrag in r.get("verified_receipts", []) or []:
             self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
 
     def test_the_receipt_library_comes_from_the_gate_not_from_the_judged_tree(self):
