@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -261,27 +262,48 @@ class TestRunningThisFileAsAScriptCoversAllOfIt(unittest.TestCase):
     for. A run that covers half a file and reports success is the failure this repository keeps
     finding in other places, arriving in the test file itself.
 
-    Checked on the syntax tree rather than by running the script twice: the property is "nothing
-    that defines cases comes after the entry point", and that is a structural fact, so reading it
-    structurally is both exact and free.
+    MEASURED BY RUNNING IT, and the first version did not. That one read the syntax tree and its
+    docstring called the property "a structural fact, so reading it structurally is both exact and
+    free". An adversarial lens took that apart with three ordinary constructs, each reproduced here
+    before this rewrite -- in every one `pytest` collected two cases, the script ran ONE, and the
+    structural check said green or abstained:
+
+        a test class inside `if True:` after the entry   the check looks only at the module body
+        a class inheriting its cases from a mixin        the check looks only for `def test_` in
+                                                         the class body
+        the entry wrapped in `try: ... except SystemExit` the check finds no entry and skips
+
+    It also fired on a file that was fine, because `"__main__" in ast.dump(...)` is a substring
+    search and matched a string constant that was not the `__name__` comparison.
+
+    A proxy that is cheap and wrong is worse than the measurement it stands in for, and "exact"
+    was a claim about the proxy that nothing had tested. So the property is now measured the only
+    way it is decided: the file is run as a script and the count it reports is compared with the
+    count the loader sees. `Ran N tests` counts skipped cases, so the probe run skipping this one
+    case does not change the total -- and the guard below is what keeps it from recursing.
     """
 
-    def test_no_test_class_is_defined_after_the_entry_point(self):
-        import ast
-        quelle = pathlib.Path(__file__).read_text(encoding="utf-8")
-        baum = ast.parse(quelle)
-        einstieg = [k for k in baum.body
-                    if isinstance(k, ast.If) and "__main__" in ast.dump(k.test)]
-        if not einstieg:
-            self.skipTest("this file has no script entry point, so it cannot run a partial set")
-        ab = min(k.lineno for k in einstieg)
-        danach = [k.name for k in baum.body
-                  if isinstance(k, ast.ClassDef) and k.lineno > ab
-                  and any(isinstance(m, ast.FunctionDef) and m.name.startswith("test_")
-                          for m in k.body)]
-        self.assertEqual(danach, [],
-                         f"these classes are defined after `if __name__` on line {ab}, so running "
-                         f"this file as a script would silently skip them: {danach}")
+    SONDE = "PB_SKRIPTDECKUNG_SONDE"
+
+    def test_running_this_file_as_a_script_runs_every_case_in_it(self):
+        if os.environ.get(self.SONDE):
+            self.skipTest("this IS the probe run; recursing into another one would not end")
+        voll = unittest.TestLoader().loadTestsFromModule(
+            sys.modules[__name__]).countTestCases()
+        r = subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve())],
+                           cwd=str(WERKZEUG), capture_output=True, text=True,
+                           env=dict(os.environ, **{self.SONDE: "1"},
+                                    PYTHONPATH=str(WERKZEUG / "src")))
+        treffer = re.search(r"^Ran (\d+) tests?", r.stderr, re.M)
+        self.assertIsNotNone(
+            treffer, f"the script run reported no case count at all, which is not a pass:\n"
+                     f"{r.stderr[-600:]}")
+        gelaufen = int(treffer.group(1))
+        self.assertEqual(
+            gelaufen, voll,
+            f"the loader sees {voll} cases in this file and running it as a script ran "
+            f"{gelaufen}. Whatever the reason, a run that covers part of a file and reports "
+            f"success is the defect this class exists against.")
 
 
 if __name__ == "__main__":
