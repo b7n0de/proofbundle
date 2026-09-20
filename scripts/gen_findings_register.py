@@ -224,7 +224,12 @@ def _zusage_muster():
     global _ZUSAGE
     if _ZUSAGE is None:
         import re  # noqa: PLC0415
-        _ZUSAGE = re.compile(r"Register entry[:\s]+`([A-Z0-9][A-Z0-9-]{8,})`")
+        # THE SIBLING OF THE CONTRACT PATTERN, swept in the same pass. It carried both an
+        # alphabet and a length prefilter, so a promise for a short or unusually spelled
+        # identifier was invisible to the producer exactly as it was to the guard. The
+        # token is captured as it stands; which identifier a run is looking for is decided
+        # by the caller, which compares the capture against the name it was given.
+        _ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]+)`")
     return _ZUSAGE
 
 

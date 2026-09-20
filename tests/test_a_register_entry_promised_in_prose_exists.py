@@ -74,11 +74,24 @@ if not _im_checkout():
 #:
 #: So the pattern takes the token as it stands, and the check for what a well formed identifier
 #: looks like happens AFTERWARDS, where a violation becomes a FINDING instead of a blind spot.
-_ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]{8,})`")
+#:
+#: THE LENGTH WENT THE SAME WAY AS THE ALPHABET, one round later. The repair above removed the
+#: alphabet from the capture and left `{8,}` standing, which is the same prefilter in the same
+#: place: measured at `a1e5b11`, a shipped document saying ``Register entry `NOPE`.`` left all six
+#: cases of this file passing, because the token never reached the validation and the five real
+#: promises satisfied the non-vacuity control on their own. A guard cannot report what it refuses
+#: to look at, and a bound that decides before the judgement is a judgement.
+_ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]+)`")
 
-#: What an identifier of this house looks like: ASCII capitals, digits and hyphens. A token that
-#: fails this is not silently dropped, it is reported -- see `_zusagen_im_blatt`.
-_KENNUNG_ASCII = re.compile(r"\A[A-Z0-9][A-Z0-9-]{7,}\Z")
+#: What an identifier of this house looks like: ASCII capitals, digits and hyphens, of ANY length.
+#: A token that fails this is not silently dropped, it is reported -- see `_zusagen_im_blatt`.
+#:
+#: THE MINIMUM LENGTH WAS WRONG ABOUT THE HOUSE, not only about the attack. Line 600 carries `N1`,
+#: `S5` and `A1`, so a rule demanding eight characters called the register's own identifiers
+#: malformed and would have reported a perfectly good promise as a defect. A short token that is
+#: not in any register is still caught, one assertion further down, as a promise nothing backs --
+#: which is what it is.
+_KENNUNG_ASCII = re.compile(r"\A[A-Z0-9][A-Z0-9-]*\Z")
 
 #: Where an identifier may live. Every shipped register counts: an entry is present or it is not,
 #: and which file carries it is not what the prose promises.
@@ -292,6 +305,28 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
         # validation did not become a rule that rejects everything.
         gut2, schlecht2 = _zusagen_im_blatt("Register entry `ABCDEFGH-01`.\n")
         self.assertEqual((gut2, schlecht2), (["ABCDEFGH-01"], []), (gut2, schlecht2))
+
+    def test_FANG_eine_KURZE_zusage_ist_nicht_unsichtbar(self):
+        """[ZAEHLT] The counter-example of the fourth review round.
+
+        A promise for a short token was invisible to the capture, so it was neither resolved nor
+        reported while the file went on passing. Seen now, and unbacked, which is what it is.
+        """
+        gut, schlecht = _zusagen_im_blatt("Register entry `NOPE`.\n")
+        self.assertEqual((gut, schlecht), (["NOPE"], []),
+                         f"a short promise must be seen and judged, not dropped: {gut} {schlecht}")
+        self.assertNotIn("NOPE", _register_kennungen(),
+                         "precondition of this case: no register carries NOPE")
+
+    def test_FANG_eine_echte_registerkennung_gilt_als_formgerecht(self):
+        """[ZAEHLT] The other half of the same finding, and the one that would have bitten a user.
+
+        The shape rule demanded eight characters while line 600 carries `N1`, `S5` and `A1`, so a
+        promise naming a real register entry would have been reported as malformed.
+        """
+        for kennung in ("N1", "S5", "A1"):
+            gut, schlecht = _zusagen_im_blatt(f"Register entry `{kennung}`.\n")
+            self.assertEqual((gut, schlecht), ([kennung], []), f"{kennung}: {gut} {schlecht}")
 
     def test_KONTROLLE_die_erzeugten_belege_zaehlen_nicht_doppelt(self):
         """[ZAEHLT] The exclusion has a reason, and the reason is checked.

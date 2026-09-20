@@ -15,19 +15,18 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 53c74947a12d75df26e2525549f14a1b8776baae4a32bf0aa1d4dc5b92b38448
+    audit_artifacts/610/findings_register_v2.json   sha256 bb623cedb4dfc0ea0254383fb6c37f04bdcd9faa6b842944865f2a6208157ca7
                                                     16820 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
                                                     register_revision 0 · issued_at 2026-09-20 · 5 records
 
-NO COMMIT IS NAMED HERE, and that is a correction rather than an omission. An earlier version of
-this document named the head that `git rev-parse` returned while it was being written, which is
-the head BEFORE the commit that introduces the bytes it describes. A review round measured it: the
-carrier named here is 16,562 bytes, the file at that head was 16,160, so the line attributed an
-exact measurement to a revision that cannot reproduce it. A digest identifies bytes on its own;
-the commit that carries them is whichever one introduces this document, and
-`tests/test_der_610_beleg_nennt_die_bytes_die_dastehen.py` recomputes every digest below against
-the tree this file sits in, so none of them can drift from it.
+NO REVISION IS NAMED HERE, and that is a correction rather than an omission. An earlier version of
+this document named the head that `git rev-parse` returned while it was being written, which is the
+head BEFORE the commit that introduces the bytes it describes. A review round measured it: the
+carrier named here was 16,562 bytes, the file at that head was 16,160, so the line attributed an
+exact measurement to a revision that cannot reproduce it. A digest identifies bytes on its own, and
+`tests/test_der_610_beleg_nennt_die_bytes_die_dastehen.py` recomputes every digest below against the
+tree this file sits in and asks git whether any token here is a revision, so neither can drift.
 
 ## The sources it was cut from
 
