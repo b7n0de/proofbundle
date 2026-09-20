@@ -97,6 +97,21 @@ Both are the same defect: a rule about prose, written against the shape prose ha
         gemessen = {t for t in genannt if not (REPO / t).exists()}
 
         zeile = [z for z in text.splitlines() if z.startswith(ERKLAERUNG)]
+
+        # THE EMPTY SET IS A STATE, and the first version of this rule had no way to express it.
+        # It demanded the declaration line whenever the A-17 section was present, and separately
+        # demanded that the line name at least one file. Once the named files LAND -- which is what
+        # the cut's order exists to bring about -- both demands hold at once and no document can
+        # satisfy them: there is nothing absent to declare and the line may not be empty. Measured
+        # 2026-09-20 after #231 landed, all three declared files were present and this file's own
+        # rule had no legal state left. A rule that cannot be satisfied is not strict, it is broken.
+        if not gemessen:
+            self.assertEqual(zeile, [],
+                             f"every test file this document names is in this tree, so there is "
+                             f"nothing to declare, and {ERKLAERUNG!r} still stands. The line goes "
+                             f"when its set empties: {zeile}")
+            return
+
         self.assertEqual(len(zeile), 1,
                          f"the document declares the set of files it names but does not carry "
                          f"exactly once ({len(zeile)} lines start with {ERKLAERUNG!r})")

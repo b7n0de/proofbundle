@@ -54,11 +54,6 @@ already names the class as open, so it is disclosed rather than hidden, but disc
 
 ## Closed during the cut, and named because two paths found it
 
-**Named here but not in this tree:** `tests/test_eval_claim_domains_are_enforced.py`, `tests/test_evalclaim_verify_boundary_types.py` — they arrive with the evalclaim verify-boundary pull request; `tests/test_action_input_injection.py` — it is already on `main` and arrives here when this branch is updated from it. This line is the
-declaration a test compares against the tree, so it cannot drift from what the
-document actually names.
-
-
 **A-17** is not in the list above. It said `commit_alg` must be present but its value is never
 compared against `COMMIT_ALG`, so `"sha1-unsalted"` decodes. An external review lens reported the
 same defect independently as part of a wider P2 about value domains. One fix closes both. Measured
@@ -68,28 +63,27 @@ after the fix with a clean control arm: `sha1-unsalted` rejected, `md5-plain` re
 Two independent paths converging on one defect is the useful part of that story, and it is the
 reason this entry is here instead of quietly absent.
 
-**WHERE THAT FIX LIVES, because it is not on this branch.** The enforcement line
+**WHERE THAT FIX LIVES, and it now lives here.** The enforcement line
 (`if claim.get("commit_alg") != COMMIT_ALG: return None`) and the file that carries its cases,
-`tests/test_eval_claim_domains_are_enforced.py`, are both part of the evalclaim verify-boundary
-change, which lands as its own pull request and is not in this tree. MEASURED 2026-09-20 over
-three trees, counting that
-line in `src/proofbundle/evalclaim.py` and looking for that file:
+`tests/test_eval_claim_domains_are_enforced.py`, arrived with the evalclaim verify-boundary change,
+which landed as `#231` on 2026-09-20. MEASURED over the three trees this section has described,
+counting that line in `src/proofbundle/evalclaim.py` and looking for that file:
 
 | tree | the enforcement | the test file |
 |---|---|---|
-| `main` | absent | absent |
-| this branch | absent | absent |
-| the verify-boundary branch | present | present |
+| `main` before that landing | absent | absent |
+| this branch | present | present |
+| `main` after that landing | present | present |
 
-So the sentence above is true of the tree the fix is in, and it is NOT true of the tree this
-document currently sits in. The cut's landing order puts the verify-boundary change before this
-one, which makes the claim true by the time this document reaches `main` -- but the order is the
-only thing holding that, and an order is not a gate. A reader who finds this document on a `main`
-that does not yet carry the fix would read a closure that is not there.
+The middle row is the one that can go wrong without anyone noticing, and it is NOT asserted here:
+`tests/test_restrisiko_610_says_which_tree_it_measured.py` derives it from the tree this document
+sits in. While the verify-boundary change was open, that row read `absent`, and the closure
+sentence above was true of a tree this document was not in. The landing order closed the gap; the
+derived row is what keeps it closed, because an order is not a gate.
 
-A counter-reading found it by running the claim rather than by reading it: it emitted a receipt
-with `commit_alg: "sha1-unsalted"` on this tree and the CLI answered `=> OK`. That is the honest
-way round -- the document was ahead of its own branch, not wrong about the fix.
+A counter-reading found the gap by running the claim rather than by reading it: it emitted a
+receipt with `commit_alg: "sha1-unsalted"` on the then-current tree and the CLI answered `=> OK`.
+That is the honest way round -- the document was ahead of its own branch, not wrong about the fix.
 
 ## Open — the two commitment patterns at the verify boundary
 
