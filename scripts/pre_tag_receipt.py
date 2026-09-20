@@ -52,6 +52,17 @@ def _version_token(v: str) -> str:
 def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
                   audit_output: str, runner_identity: str, produced_at: str) -> dict:
     """The 9 SIGNED fields — identical across inline / emit / assemble. Exactly what canonical_bytes covers."""
+    # THE GATE BELONGS WHERE THE DIGEST IS MADE, not at one caller. The first version put it in
+    # the emit branch of main(). A counter-reading pointed at the OTHER caller: `build_and_sign`
+    # also calls this function, so the inline signing path reached `subject_tree_digest` with no
+    # cleanliness check at all. `_inline_erlaubt_oder_stop` guards that path, but it answers a
+    # DIFFERENT question — whether inline signing is permitted, not whether the tree being
+    # digested is the tree that was measured. Gating one caller instead of the invariant is the
+    # defect this release keeps finding, and it does not get to hide in the fix for itself.
+    #
+    # `assemble` does NOT pass here: it reads a context that was already built and signed
+    # elsewhere, so there is no tree of its own to bind.
+    _arbeitsbaum_sauber_oder_stop(repo)
     return {
         "schema": RECEIPT_SCHEMA,
         "version": version,
@@ -246,8 +257,6 @@ def main(argv=None) -> int:
     # ── emit mode (keyless first half) ───────────────────────────────────────────────────────────
     if args.emit_payload is not None:
         _need(args, ["context-out"], "emit")
-        # BEFORE build_context, because build_context is what calls subject_tree_digest().
-        _arbeitsbaum_sauber_oder_stop(repo)
         context = build_context(repo, args.version, args.audit_command, args.audit_exit,
                                 audit_output, args.runner_identity, args.produced_at)
         args.emit_payload.parent.mkdir(parents=True, exist_ok=True)

@@ -91,6 +91,36 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, "an untracked file did not stop the emit")
         self.assertIn("neu.txt", r.stdout + r.stderr)
 
+    def test_der_zweite_aufrufer_ist_ebenso_gebunden(self):
+        """The gate sits in build_context, so `build_and_sign` cannot reach the digest around it.
+
+        The first version of this fix guarded the emit branch of main(). A counter-reading named
+        the other caller: `build_and_sign` calls `build_context` too, so the inline signing path
+        reached `subject_tree_digest` ungated. `_inline_erlaubt_oder_stop` stands in front of that
+        path, but it answers whether inline signing is PERMITTED, not whether the tree is the one
+        that was measured — a different question with a different failure.
+
+        Rather than drive the inline CLI, which is fail-closed by Owner decision and would refuse
+        for that reason instead, this imports the module and calls `build_context` directly: the
+        one function both paths go through.
+        """
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_ptr", SKRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_ptr"] = mod
+        sys.path.insert(0, str(REPO / "scripts"))
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.path.pop(0)
+
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        self.assertNotEqual(_git(self.baum, "status", "--porcelain"), "", "fixture is not dirty")
+        with self.assertRaises(SystemExit) as gefangen:
+            mod.build_context(self.baum, "6.1.0", "true", 0, "audit", "test",
+                              "2026-09-20T00:00:00Z")
+        self.assertIn("uncommitted path", str(gefangen.exception), str(gefangen.exception))
+
     def test_nicht_bestimmbar_ist_keine_freigabe(self):
         """A directory that is no repository at all must refuse, not fall through to a digest."""
         kein_repo = self.baum.parent / "kein_repo"
