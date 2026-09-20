@@ -107,6 +107,32 @@ fails in both directions — an entry whose gap has since been closed turns the 
 be deleted. Verified with a planted closure. Register entry
 `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`, target 6.2.0.
 
+## Open — two findings this cut made and deliberately did not close
+
+Both were found while repairing something else, both are real, and both would have lived only in a
+docstring and a commit message if this section did not exist. That is the failure mode this file is
+against, so they are written down where a reader of the release looks for open risk.
+
+**A small-order key at the carrier's signature block is accepted.** `_signatur_lage`
+(`scripts/gen_findings_register.py`) delegates verification to `cryptography`, and this project's
+Ed25519 profile ACCEPTS small-order components, which SPEC section 4a states and pins byte-exact
+against the "Taming the Many EdDSAs" vectors. Consequence, measured 2026-09-20: 32 zero bytes as a
+public key and 64 as a signature verify over roughly one body in four. The order is computed, not
+inferred from that rate: the bytes decompress to a curve point with `y = 0` and `x` non-zero, and
+four self-additions reach the identity, so the order is exactly 4. What this does NOT mean is that
+a forged carrier passes the release path: the carrier is `signature.state: UNSIGNED` and goes
+through no signing path, and a real signature is what the anti-case now uses. What it DOES mean is
+that the checker would call a zero-key carrier signed. Refusing small-order keys at this one block
+is a code change with its own catch proof, not a documentation edit, so it is not in this cut.
+Register entry `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, target 6.2.0.
+
+**A shipped tool verdict is quoted but not re-run.** `pyproject.toml` states that eight mypy
+versions and six ruff versions exit 0 over this tree. `tests/test_shipped_comment_numbers.py` binds
+the number of FILES each claim ranges over; it does not re-run the tools, because that means eight
+interpreter-bound toolchains and minutes per run. The split is stated in the case's docstring
+rather than blurred: bound is the size of the set, unbound is the verdict over it. Register entry
+`SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01`, target 6.2.0.
+
 ## Open — three public exporters coerce the verdict field, and A-15 fixes the boundary, not them
 
 A-15 typed `passed`, `n` and `metric` at `decode_eval_claim`. That closes every path that goes
