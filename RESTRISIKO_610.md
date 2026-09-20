@@ -138,6 +138,15 @@ correct verdict over any commit of this repository, and the 68 classes that depe
 structural fact stay environment-blocked. Reading this as a backlog of 68 items would be the
 mistake the card was closed to prevent.
 
+WHERE THE 68 COMES FROM, because a number without a source is the defect this file is about.
+It is not derived in this repository and cannot be: the class ledger it counts lives in the
+tooling repository, not here. It is quoted from the card itself, whose subject text records the
+measurement of 2026-09-12 — of 108 open proofbundle classes in that ledger, 68 are
+environment-blocked, and their reason is the one structural fact this section describes: the
+subject under test, the regression test or the evidence nodes live in this repository while the
+ledger checks against the other one. A reader of this file alone cannot recompute the number,
+and that limit is stated rather than papered over.
+
 ## Open — the cut points version-derived tooling at a cut that does not exist yet
 
 The advisory audit-candidate matrix is RED on the head that carries this cut, and it is green
