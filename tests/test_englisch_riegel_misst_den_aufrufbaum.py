@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -212,6 +213,68 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(BrauchtDenBaum):
         self.assertIn(antwort["urteil"], ("gruen", "ROT"),
                       "a real repository must still get a real verdict")
         self.assertIn(rc, (0, 1))
+
+
+class TestAusEinemEchtenWorktree(BrauchtDenBaum):
+    """A real git worktree, which is the reproduction the commit message named and no case ran.
+
+    The message for the fix says the defect was found `run from a worktree on another branch`. Every
+    case in this file builds a fresh `git init` repository instead -- an independent repo, not a
+    worktree. A worktree is a different shape: its `.git` is a FILE redirecting to
+    `<main>/.git/worktrees/<name>`, and `rev-parse --show-toplevel` answers about the worktree while
+    the objects live in the main repository. A counter-reading named this: the reproduction the
+    message quotes was not in the suite.
+
+    Measured by hand on 2026-09-20 and correct -- from inside the worktree the tool judged the
+    WORKTREE, with `--repo` it judged the main repository, and the two verdicts differed. A hand
+    probe is not a test, and a behaviour nothing holds is one nobody notices losing.
+    """
+
+    def _worktree(self):
+        """A real main repo plus a worktree on a second branch. Returns (worktree, main, base)."""
+        d = tempfile.mkdtemp(prefix="englisch-worktree-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        haupt = pathlib.Path(d) / "haupt"
+        haupt.mkdir()
+        _git(haupt, "init", "-q")
+        _git(haupt, "config", "user.email", "t@example.invalid")
+        _git(haupt, "config", "user.name", "t")
+        (haupt / "mod.py").write_text("VALUE = 1\n")
+        _git(haupt, "add", "mod.py")
+        _git(haupt, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+        basis = _git(haupt, "rev-parse", "--abbrev-ref", "HEAD")
+        _git(haupt, "checkout", "-q", "-b", "zweig")
+        (haupt / "mod.py").write_text("VALUE = 1\n" + DEUTSCH)
+        _git(haupt, "add", "mod.py")
+        _git(haupt, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "german")
+        _git(haupt, "checkout", "-q", basis)
+        baum = pathlib.Path(d) / "wtree"
+        _git(haupt, "worktree", "add", "-q", str(baum), "zweig")
+        self.assertTrue((baum / ".git").is_file(),
+                        "a worktree's .git is a FILE; if it is a directory this is an ordinary "
+                        "repository and the case is not testing what it says")
+        return baum, haupt, basis
+
+    def test_from_inside_a_worktree_the_worktree_is_judged(self):
+        baum, _haupt, basis = self._worktree()
+        rc, antwort = _lauf(baum, "--base", basis)
+        self.assertEqual(antwort["urteil"], "ROT", antwort)
+        self.assertEqual(rc, 1)
+        self.assertEqual(pathlib.Path(antwort["gemessener_baum"]).resolve(), baum.resolve(), antwort)
+        self.assertEqual(antwort["baum_herkunft"], "arbeitsverzeichnis", antwort)
+        self.assertEqual([b["datei"] for b in antwort["befunde"]], ["mod.py"], antwort)
+
+    def test_repo_still_points_it_at_the_main_repository(self):
+        """The counter-case: same call site, other tree, other verdict.
+
+        Without it the first case would also pass for a tool that simply judged whatever tree it
+        found first, which is the defect this whole file exists against.
+        """
+        baum, haupt, basis = self._worktree()
+        rc, antwort = _lauf(baum, "--base", basis, "--repo", str(haupt))
+        self.assertEqual(antwort["urteil"], "gruen", antwort)
+        self.assertEqual(rc, 0)
+        self.assertEqual(pathlib.Path(antwort["gemessener_baum"]).resolve(), haupt.resolve(), antwort)
 
 
 class TestWennGitSelbstNichtLaeuft(BrauchtDenBaum):
