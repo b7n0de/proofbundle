@@ -93,6 +93,10 @@ def pytest_runtest_logreport(report):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    # THE EXIT STATUS TRAVELS WITH THE COUNTS. Without it an aborted run is indistinguishable
+    # from a complete one: the file holds whatever was counted before the abort, and the number
+    # depends on the order the cases happened to run in.
+    _z["_exitstatus"] = int(exitstatus)
     # ONLY THE CONTROLLER WRITES. Under xdist every worker runs this plugin and every worker would
     # write the same path, so the file would hold whichever partial set finished last. The
     # controller receives every worker's report through the same hook, so its set is the complete
@@ -134,13 +138,26 @@ def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
     third read the JUnit report and dropped `xpassed`, which is the one word this file's vocabulary
     exists for. See ZAEHLER_PLUGIN above for the measurement.
     """
-    import tempfile
     with tempfile.TemporaryDirectory() as d:
         ziel = pathlib.Path(d) / "zaehler.json"
-        _pytest(wurzel, rel, zaehler=ziel)
+        rc, _aus = _pytest(wurzel, rel, zaehler=ziel)
         if not ziel.is_file():
             return -1, {"kein_bericht": 1}
         z = json.loads(ziel.read_text(encoding="utf-8"))
+
+    # A RUN THAT DID NOT FINISH IS NOT A RESULT, and this is the third channel in this file to
+    # need saying so. MEASURED 2026-09-20: one file whose first case calls `pytest.exit()` gave
+    # `bestanden=1` and `bestanden=0` across five runs of the SAME file -- `pytest-randomly`
+    # decides which case ran before the abort, and nothing in the answer said the run stopped.
+    # The counts were real; what was missing was that they were partial.
+    #
+    # 0 and 1 are the two codes that mean the session ran to the end (all passed, some failed).
+    # 2 interrupted, 3 internal error, 4 usage error, 5 nothing collected -- for a ratio over a
+    # named file every one of those is a refusal, not a number.
+    status = z.pop("_exitstatus", None)
+    if status not in (0, 1) or rc not in (0, 1):
+        return -1, {"lauf_unvollstaendig": 1, "exitstatus": status, "rc": rc}
+
     bestanden = z.pop("passed", 0)
     return bestanden, {k: v for k, v in sorted(z.items()) if v}
 
@@ -329,6 +346,38 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
                         else echt(n, p)):
             self.assertTrue(flaeche_traegt_die_behauptung(),
                             "present means the claim's surface IS this one")
+
+    def test_ein_abgebrochener_lauf_ist_kein_ergebnis(self):
+        """A run that stopped early looks exactly like a complete one -- until it says so.
+
+        MEASURED 2026-09-20 on one file whose first case calls `pytest.exit()`: five runs of the
+        SAME file returned `bestanden=1` twice and `bestanden=0` three times. `pytest-randomly`
+        decides which case runs before the abort, and nothing in the answer said the session had
+        stopped. The counts were real; what was missing was that they were partial.
+
+        The subprocess return code was discarded and the plugin took `exitstatus` and ignored it,
+        so the one fact that separates a result from a fragment never left the run. This is the
+        same class as the two stdout readings and the JUnit report before it, through a fourth
+        channel: the carrier held the numbers but not whether they were finished.
+        """
+        d = tempfile.mkdtemp(prefix="shipped-numbers-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        baum = pathlib.Path(d)
+        (baum / "tests").mkdir()
+        (baum / "tests" / "x.py").write_text(
+            "import pytest, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_a(self):\n        pytest.exit('planted')\n"
+            "    def test_b(self): pass\n", encoding="utf-8")
+
+        # Repeated on purpose: the defect was that the ANSWER varied between runs of one file.
+        for lauf in range(3):
+            with self.subTest(lauf=lauf):
+                bestanden, andere = lauf_bilanz("tests/x.py", baum)
+                self.assertEqual(bestanden, -1, f"an interrupted run must not report a count "
+                                                f"({bestanden}, {andere})")
+                self.assertIn("lauf_unvollstaendig", andere, andere)
+                self.assertEqual(andere.get("exitstatus"), 2, andere)
 
     def test_jeder_ausgang_wird_als_der_gezaehlt_der_er_ist(self):
         """One file carrying every outcome, and `xpassed` is the one that decides the reading.
