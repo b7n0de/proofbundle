@@ -28,11 +28,30 @@ size, which is the one hyphenated figure with a real source. It deliberately doe
 that move with every added test, because a gate on a daily-changing number is one people learn to
 re-run -- those carry their command and their date in the text instead.
 
-HONEST LIMIT, stated because it was measured and not fixed: the corpus rule requires the CURRENT
-number to appear in a document that states a size, and tolerates another number beside it. A
-document may legitimately say "57 cases that existed at v3.7.0" next to today's 130, and by the
-number alone that is indistinguishable from drift. Tightening it would turn honest history red, so
-the looseness stays and is written here rather than discovered later.
+HONEST LIMITS. A closing lens took the first version of this file apart with executed exploits and
+the account below is what survived. None of these is hidden; a rule whose edge is written down can
+be argued with, one whose edge is discovered cannot.
+
+1. A WRONG NUMBER MAY STAND BESIDE THE RIGHT ONE. The corpus rule requires the CURRENT number to
+   appear in a document that states a size and tolerates another number next to it. "57 cases that
+   existed at v3.7.0" beside today's 130 is legitimate history and, by the number alone, is
+   indistinguishable from drift. Tightening it would turn honest prose red, so it stays loose.
+
+2. A PATTERN HAS AN EDGE AND THIS ONE IS NAMED. The corpus sweep reads `29 cases`, `29-case` and
+   `29cases`, in either case. It does NOT read a number written as a word, so "twenty-nine cases"
+   walks past. The acceptance-matrix rule reads the hyphenated form and the phrase with `N checks`
+   within one sentence either way round; a sentence that states the size without naming the matrix
+   is not reached. These are the measured edges, not a claim that none exists.
+
+3. THE EXCLUSION LIST IS A JUDGEMENT. Digest and key files (.sha256, .b64, .sig) are skipped
+   because they are long hex and base64 runs that a number sweep misreads, and because no one
+   states a count in them. If that ever stops being true, this list is the place it goes wrong.
+
+4. THE FALLBACK MEASURES SOMETHING SLIGHTLY DIFFERENT. When git cannot answer, the envelope count
+   comes from a directory walk with tool debris filtered out. That counts files present rather
+   than files tracked, so a deliberately untracked file would be included. It still runs and can
+   still fail, which is the property that matters; the failure message says which reading produced
+   the number.
 """
 from __future__ import annotations
 
@@ -51,27 +70,49 @@ def _case_json(unter: pathlib.Path) -> int:
     return len(list(unter.rglob("case.json")))
 
 
+#: Files in the pack that are machine-generated digests or key material. They hold long hex and
+#: base64 runs, which a number sweep reads as numbers, and no human states a count in them. This
+#: is an EXCLUSION list on purpose: an inclusion list of extensions made a new `.txt` invisible,
+#: which a counter-reading demonstrated by dropping one in with two already-corrected numbers.
+AUSGESCHLOSSEN = {".sha256", ".b64", ".sig", ".pyc"}
+
+
 def _pack_dokumente() -> list[pathlib.Path]:
     """Every document in the pack, so a new one cannot carry a corrected-away number unseen."""
     return [p for p in PACK.rglob("*")
-            if p.is_file() and p.suffix in (".md", ".json") and "__pycache__" not in p.parts]
+            if p.is_file() and p.suffix not in AUSGESCHLOSSEN and "__pycache__" not in p.parts]
 
 
-def _versandte_dateien(unter: pathlib.Path) -> list[str] | None:
-    """What git tracks under a directory, or None when that cannot be answered here.
+def _ist_werkzeugmuell(teile: tuple[str, ...]) -> bool:
+    return any(t.startswith(".") or t == "__pycache__" or t.endswith(".pyc") for t in teile)
+
+
+def _versandte_dateien(unter: pathlib.Path) -> tuple[list[str], str]:
+    """What ships under a directory, and by which measurement -- never nothing.
 
     The tree is what SHIPS, and `rglob` also counts what a tool dropped: a `.DS_Store` or a
     `__pycache__` entry moved the envelope-profile count by two and turned this red without any
     drift in the corpus. A false red is a test people learn to switch off.
+
+    BUT THE FIRST FIX TRADED A FALSE RED FOR A SILENT ABSENCE. It returned None when git could
+    not answer and the caller SKIPPED -- so on a machine without git on PATH, the one check that
+    guards these counts disappeared without a word. A counter-reading ran it with an emptied PATH
+    and got `1 skipped`, green by omission. That is the same class the .DS_Store fix was aimed at,
+    one mechanism over: a guard that removes itself is worse than one that cries wolf.
+
+    So git is the PREFERRED reading and the walk is the FALLBACK, with tool debris filtered out
+    of it. The check always runs; the answer says which measurement produced it.
     """
     try:
         fertig = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z", "--", str(unter)],
                                 capture_output=True, text=True, timeout=60)
+        if fertig.returncode == 0:
+            return [t for t in fertig.stdout.split("\0") if t], "git ls-files"
     except (OSError, subprocess.SubprocessError):
-        return None
-    if fertig.returncode != 0:
-        return None
-    return [t for t in fertig.stdout.split("\0") if t]
+        pass
+    gefunden = [p for p in unter.rglob("*")
+                if p.is_file() and not _ist_werkzeugmuell(p.relative_to(REPO).parts)]
+    return [str(p.relative_to(REPO)) for p in gefunden], "directory walk (git could not answer)"
 
 
 class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
@@ -94,7 +135,12 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         # same corrected-away number and stay invisible -- demonstrated by creating one.
         for datei in sorted(_pack_dokumente()):
             with self.subTest(datei=datei.name):
-                genannt = [int(x) for x in re.findall(r"(\d+) cases\b", datei.read_text())]
+                # SAME SHAPES AS ITS SIBLING. The check-matrix rule was widened after a lens
+                # escaped it; leaving this one narrow would have kept the identical hole open for
+                # the figure next to it. Measured escapes that now close: `29-case`, `29cases`,
+                # `29 Cases`. A number written as a word is still out of reach, and says so above.
+                genannt = [int(x) for x in re.findall(r"(\d+)[\s-]?[Cc]ases?\b",
+                                                      datei.read_text())]
                 if not genannt:
                     continue
                 heutige = [x for x in genannt if x == gemessen]
@@ -127,16 +173,13 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         if treffer is None:
             self.skipTest("the envelope-profile sentence is gone; nothing left to bind")
         unter = REPO / "conformance" / "envelope_profile"
-        versandt = _versandte_dateien(unter)
-        if versandt is None:
-            self.skipTest("git cannot answer what is tracked here, and an untracked count would "
-                          "measure tool debris instead of the corpus")
+        versandt, wie = _versandte_dateien(unter)
         dateien = len(versandt)
-        faelle = len([t for t in versandt if t.endswith("/case.json")])
+        faelle = len([t for t in versandt if pathlib.PurePosixPath(t).name == "case.json"])
         self.assertEqual([int(x) for x in treffer.groups()],
                          [dateien, dateien, faelle, faelle],
                          f"index.json claims {treffer.group(0)!r}; the tree holds {dateien} files "
-                         f"and {faelle} case.json")
+                         f"and {faelle} case.json (measured by {wie})")
 
     def test_the_acceptance_matrix_size_matches_the_matrix(self):
         """`34-check` against 33, in a form the sweep that found the other five could not see.
@@ -151,8 +194,15 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         if not skript.is_file():
             self.skipTest("scripts/audit_candidate_matrix.py is not in this tree")
         # Read, do not import: the module pulls in the gates it orchestrates.
+        # THE MODULE BODY, not `ast.walk`. The first version walked every node and kept the LAST
+        # `CHECKS = [...]` it saw, so a local of that name inside ANY function -- visited after the
+        # real one, because the walk is breadth-first -- silently became the answer. A
+        # counter-reading planted a two-element decoy in an uncalled function and the derivation
+        # reported 2; the pack was then free to claim "2-check acceptance matrix" and pass. A
+        # derivation that matches a bare NAME instead of a scoped binding is not a derivation.
+        baum = ast.parse(skript.read_text(encoding="utf-8"))
         kennungen = None
-        for knoten in ast.walk(ast.parse(skript.read_text(encoding="utf-8"))):
+        for knoten in baum.body:
             if isinstance(knoten, ast.Assign) and isinstance(knoten.value, (ast.List, ast.Tuple)):
                 if any(isinstance(z, ast.Name) and z.id == "CHECKS" for z in knoten.targets):
                     kennungen = [e.elts[0].value for e in knoten.value.elts
@@ -163,8 +213,16 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         gemessen = len([k for k in kennungen if str(k).startswith("C")])
         self.assertGreater(gemessen, 0, f"no machine-checkable check ids in {kennungen[:5]}")
         for datei in sorted(_pack_dokumente()):
-            genannt = {int(x) for x in re.findall(r"(\d+)-check acceptance matrix",
-                                                  datei.read_text())}
+            text = datei.read_text()
+            # TWO SHAPES, because one was not enough. The hyphenated form is what the pack uses;
+            # a counter-reading escaped it with "the acceptance matrix now has 40 checks" in a
+            # neighbouring document and the sweep never looked at the sentence. Both forms are
+            # anchored on the phrase, so an unrelated number elsewhere is not dragged in.
+            genannt = {int(x) for x in re.findall(r"(\d+)-check acceptance matrix", text)}
+            genannt |= {int(x) for x in re.findall(
+                r"acceptance matrix[^.\n]{0,80}?(\d+) checks?\b", text)}
+            genannt |= {int(x) for x in re.findall(
+                r"(\d+) checks?\b[^.\n]{0,80}?acceptance matrix", text)}
             if not genannt:
                 continue
             with self.subTest(datei=datei.name):
