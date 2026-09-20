@@ -100,9 +100,19 @@ def pytest_sessionfinish(session, exitstatus):
     # ONLY THE CONTROLLER WRITES. Under xdist every worker runs this plugin and every worker would
     # write the same path, so the file would hold whichever partial set finished last. The
     # controller receives every worker's report through the same hook, so its set is the complete
-    # one; a worker carries `workerinput` on its config and the controller does not. Measured with
-    # `-n 2` on a planted file: the counts come out right either way today, which is exactly why
-    # this is worth pinning -- a race that happens to fall the right way is not a result.
+    # one; a worker carries `workerinput` on its config and the controller does not.
+    #
+    # THIS GUARD IS UNBOUND, and saying so is the point of this paragraph. MEASURED 2026-09-20 on
+    # a twelve-case file, four configurations: guard present and guard removed, at `-n 2` and at
+    # `-n 4`. All four wrote `passed: 12`. With xdist 3.8.0 the controller's `sessionfinish` runs
+    # after the workers', so its complete set overwrites their partial ones and the guard changes
+    # nothing observable. No case in this file fails if this guard is deleted.
+    #
+    # It stays because the ordering it relies on is not promised anywhere, and a race that
+    # happens to fall the right way is not a result. But an unobservable safeguard is reasoning,
+    # not a measured invariant, and a reader who mistakes the one for the other will trust it
+    # further than it has earned. A counter-reading found this by looking for the negative control
+    # and not finding one.
     if hasattr(session.config, "workerinput"):
         return
     ziel = os.environ.get("PB_ZAEHLER_ZIEL")
