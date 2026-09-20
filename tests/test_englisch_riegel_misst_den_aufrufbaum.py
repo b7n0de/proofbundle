@@ -410,5 +410,61 @@ class TestRunningThisFileAsAScriptCoversAllOfIt(unittest.TestCase):
             f"success is the defect this class exists against.")
 
 
+class TestDieModulweiteVorbelegung(BrauchtDenBaum):
+    """The module-level default is observed by nothing, so nothing would notice if it were wrong.
+
+    `REPO, REPO_HERKUNFT = _gemessener_baum()` runs at import. A counter-reading measured that no
+    test in this repository observes it: the CLI overwrites both names in `main()` before any
+    check runs, and the module-import test file monkeypatches `REPO` as its first act in every
+    one of its cases. Replacing that line with nonsense left the whole suite green.
+
+    It cannot simply go -- the monkeypatching tests need the attribute to exist -- so it is
+    observed instead. Importing the module from inside another tree is the one call path where
+    the default is the answer, and there it has to name THAT tree, for the same reason the CLI
+    does: a checker whose subject is its own file path answers a question nobody asked.
+    """
+
+    def _importiere_aus(self, cwd) -> dict:
+        """Import the tool as a MODULE from `cwd` and report what the import-time default became."""
+        code = (
+            "import importlib.util, json, pathlib, sys\n"
+            f"s = importlib.util.spec_from_file_location('nzse', {str(RIEGEL)!r})\n"
+            "m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+            "print(json.dumps({'repo': str(m.REPO), 'herkunft': m.REPO_HERKUNFT}))\n"
+        )
+        r = subprocess.run([sys.executable, "-c", code], cwd=str(cwd),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"importing the tool failed:\n{r.stderr[-600:]}")
+        return json.loads(r.stdout)
+
+    def test_der_import_belegt_den_aufrufenden_baum_vor(self):
+        d = tempfile.mkdtemp(prefix="englisch-import-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        fremd = pathlib.Path(d) / "fremd"
+        fremd.mkdir()
+        _git(fremd, "init", "-q")
+        _git(fremd, "config", "user.email", "t@example.invalid")
+        _git(fremd, "config", "user.name", "t")
+        (fremd / "mod.py").write_text("VALUE = 1\n")
+        _git(fremd, "add", "mod.py")
+        _git(fremd, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+        antwort = self._importiere_aus(fremd)
+        self.assertEqual(pathlib.Path(antwort["repo"]).resolve(), fremd.resolve(),
+                         f"imported from another repository, the default named {antwort['repo']!r} "
+                         f"— the tool's own tree is {WERKZEUG}, and naming it here is the defect "
+                         f"this file exists against")
+        self.assertEqual(antwort["herkunft"], "arbeitsverzeichnis", antwort)
+
+    def test_KONTROLLE_ausserhalb_eines_repos_faellt_es_benannt_zurueck(self):
+        """The counter-case: without a tree the default must REFUSE by name, not answer anyway."""
+        d = tempfile.mkdtemp(prefix="englisch-import-kein-repo-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        antwort = self._importiere_aus(pathlib.Path(d))
+        self.assertTrue(antwort["herkunft"].startswith("rueckfall"),
+                        f"outside a repository the default must say so; it said "
+                        f"{antwort['herkunft']!r}")
+
+
 if __name__ == "__main__":
     unittest.main()
