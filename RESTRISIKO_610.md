@@ -115,6 +115,29 @@ Target 6.2.0, and as a CLASS fix rather than three guards: one check that every 
 passes through, with the catch-proof at the public functions instead of at the CLI. Register entry
 `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01`.
 
+## Named state, not a backlog item — the tool binding ships without its door
+
+Owner word of 2026-09-20, option C: the due date for the tool binding falls without replacement,
+card `OA-24e41ca200` is closed, there is no click, 6.1.0 ships without that door, and PARTIAL stays
+PARTIAL.
+
+What PARTIAL means here, because a reader should not have to reconstruct it. The card's answer of
+2026-09-12 stands unchanged: the checking mechanism may be read from the tool repository, but only
+from a committed head, never from a dirty worktree, and the receipt has to carry head and digest of
+pre-sweep, class ledger and lens store in its gate line. A receipt without that line stays PARTIAL.
+The component that would produce the line is rolled out through a privileged door, and that door is
+gone.
+
+Measured on 2026-09-20 before the card was closed: the door `runner_code_update` stands with zero
+hits in the waiting set of the privileged-request file and was struck out on 2026-09-19; the commit
+that struck it exists. So the click the card waited for cannot arrive. That is why the due date was
+dropped, and it is not a missed step.
+
+The consequence is a state with a name rather than an open work item: PARTIAL is the durable and
+correct verdict over any commit of this repository, and the 68 classes that depend on the same
+structural fact stay environment-blocked. Reading this as a backlog of 68 items would be the
+mistake the card was closed to prevent.
+
 ## Honest limits of this file
 
 - **The funnel verdict on the 54 moved lines is a class judgement**, not 54 measurements. It is
