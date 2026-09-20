@@ -126,11 +126,11 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         harmless is exactly the hole `verify_pre_tag_receipt` documents. This case fails the
         moment someone reintroduces the filter.
         """
-        # UNTER `scripts/`, weil das Verzeichnis in der Attrappe schon eine verfolgte Datei traegt.
-        # Unter einem voellig unverfolgten Verzeichnis faltet git die Meldung zu `?? src/`
-        # zusammen, und eine Zusicherung auf den Wortlaut `__pycache__` haengt dann an der
-        # Schreibweise von git statt an der Eigenschaft. Gemessen 2026-09-20, erste Fassung dieses
-        # Falls: `?? src/`, Zusicherung rot, obwohl der Riegel richtig verweigerte.
+        # PLANTED UNDER `scripts/`, because that directory already carries a tracked file in the
+        # fixture. Under a wholly untracked directory git collapses the report to `?? src/`, and an
+        # assertion on the literal `__pycache__` then hangs on git's SPELLING rather than on the
+        # property. Measured 2026-09-20, first version of this case: git said `?? src/`, the
+        # assertion went red, and the gate had refused correctly all along.
         (self.baum / "scripts" / "__pycache__").mkdir(exist_ok=True)
         (self.baum / "scripts" / "__pycache__" / "x.cpython-310.pyc").write_bytes(b"\x00\x01")
         r = self._emit()
