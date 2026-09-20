@@ -201,8 +201,17 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(BrauchtDenBaum):
                          "the word list's origin must be stated, not assumed to be the judged tree")
 
     def test_KONTROLLE_ein_echter_baum_bekommt_weiterhin_ein_urteil(self):
-        """A guard that refuses everything is an outage. This falls if the refusal is too wide."""
-        antwort, rc = self._lauf(WERKZEUG)
+        """A guard that refuses everything is an outage. This falls if the refusal is too wide.
+
+        `--base HEAD` ON PURPOSE, and the reason was measured rather than foreseen. The first
+        version left the base at its default `origin/main`. In the crypto-floor job that ref is not
+        fetched, `git diff origin/main...HEAD` failed, and the tool answered NOT MEASURABLE — which
+        is the RIGHT answer to a base it cannot resolve. The control then went red over a correct
+        refusal, because it had made itself depend on which refs the surrounding checkout happens
+        to carry. `HEAD...HEAD` resolves in any repository, so what is left is the question this
+        control is for: does a real tree still get a real verdict.
+        """
+        antwort, rc = self._lauf(WERKZEUG, "--base", "HEAD")
         self.assertIn(antwort["urteil"], ("gruen", "ROT"),
                       "a real repository must still get a real verdict")
         self.assertIn(rc, (0, 1))
