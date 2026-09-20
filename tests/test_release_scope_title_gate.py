@@ -303,13 +303,19 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
         lines move to docs/release_scope/6.2.0.md unchanged. Measured after the cut: three lines,
         P19 delivered plus the two this cut adds.
 
+        On 2026-09-20 owner card OA-f1b4021199 put N16 into this cut as well, and the count is four.
+        That is the direction this docstring already allowed for: a scope that GROWS by an ordered
+        item grows by one line here. The card splits N16 in two, and only the fix moves; tagging the
+        composite action and pointing INTEGRATIONS.md at that new tag stay an owner door and are
+        named as one in the scope file.
+
         The unit is still the LINE and the sentence above still holds in both directions. A scope
         that grows by an ordered item grows by one line here; a scope the owner cuts shrinks by the
         lines that moved, and this number moves with it, never silently. Fifty-four of them are in
         6.2.0, byte equality checked, so nothing left the books."""
         zeilen, zustand = GATE.fuehrende_kennungen(self.echt)
         self.assertEqual(zustand, "gemessen")
-        self.assertEqual(len(zeilen), 3)
+        self.assertEqual(len(zeilen), 4)
 
     def test_der_echte_umfang_traegt_keine_doppelt_vergebene_kennung_mehr(self):
         """Until 2026-09-19 A1, A2 and A3 each led two lines, one from the collective order and
@@ -332,12 +338,18 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
 
         If the two files are ever in one tree and the sum does not add up, this goes red, and it
         does so for the same reason it did in September: a number that got smaller without anyone
-        being able to say where the difference went."""
+        being able to say where the difference went.
+
+        THE COUNT ROSE TO FOUR on 2026-09-20, and that direction is the safe one for this case. It
+        guards against a number that got SMALLER without anyone being able to say where the
+        difference went; a number that gets larger carries its reason with it, here owner card
+        OA-f1b4021199, which put N16 into the cut. The 54 moved to 6.2.0 are asserted below and did
+        not move again."""
         d = GATE.pruefe_umfangsdatei(self.echt)
         self.assertEqual(d["urteil"], "gruen", d["gruende"])
         self.assertEqual(d["kollisionen"], {})
-        self.assertEqual(d["zeilen"], 3, "a line must not vanish to make the verdict green")
-        self.assertEqual(d["kennungen"], 3, "one identifier per line, that is the whole point")
+        self.assertEqual(d["zeilen"], 4, "a line must not vanish to make the verdict green")
+        self.assertEqual(d["kennungen"], 4, "one identifier per line, that is the whole point")
         self.assertEqual(d["zeilen_ohne_kennung"], [],
                          "a line the gate cannot read must be reported, never dropped")
         # WHERE THE OTHER FIFTY-FOUR WENT. Measured, not stated in prose.
