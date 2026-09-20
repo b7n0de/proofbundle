@@ -26,7 +26,6 @@ import json
 import pathlib
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -360,33 +359,39 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
                          f"pyproject.toml claims mypy covers {treffer.group(1)} files under src, the "
                          f"tree holds {gemessen}")
 
-    def test_the_ruff_file_count_in_pyproject_matches_the_tracked_tree(self):
-        """The fifth number of the same class, found by sweeping the neighbours of the fourth.
+    def test_the_ruff_sentence_carries_no_count_that_would_go_stale(self):
+        """The fifth number of the same class, and the only one whose fix is to have no number.
 
-        MEASURED 2026-09-20 on this branch: the ruff paragraph says the six pinned versions exit 0
-        "over all 258 tracked .py files". `git ls-files '*.py'` returns 484, and `ruff check .
-        --show-files` returns exactly that same set of .py paths -- two readings, one number, and
-        the shipped one 226 short. It was true when it was written, nothing read it again, and that
-        is this file's whole thesis arriving in a line the first round of the R7 fix walked past.
+        MEASURED 2026-09-20 on this branch: the ruff paragraph said the six pinned versions exit 0
+        "over all 258 tracked .py files". `git ls-files '*.py'` returned 484 and
+        `ruff check . --show-files` returned exactly that same set of .py paths, so the shipped
+        figure was 226 short. It was true when written and nothing read it again, which is this
+        file's whole thesis arriving in a line the first round of the R7 fix walked past.
 
-        The mypy figure one method up was bound; this one sat four paragraphs away in the same file
-        and was not. A class fix that stops at one of two siblings is an instance fix wearing the
-        word class, so the neighbour is bound here.
+        THE FIRST REPAIR WROTE 484 AND WAS WRONG WITHIN THE HOUR. The CI run on the merge ref
+        measured 488, because three pull requests had landed four test files in between, and the
+        case this method replaces went red on a tree nobody had touched for it. A count over every
+        tracked .py file moves with almost every pull request, so binding it would turn unrelated
+        changes red and each correction would schedule the next one. Pinning it to a named head
+        instead does not survive either: CI checks this repository out shallow, the head would not
+        resolve, and the case would skip everywhere while reading as covered.
+
+        So the number goes and its absence is bound. The mypy figure one method up counts `src`,
+        a directory that moved four times in a year, and stays a number. The difference is not
+        taste, it is how fast the counted set moves against the file that quotes it.
         """
-        r = subprocess.run(["git", "ls-files", "*.py"], cwd=REPO,
-                           capture_output=True, text=True)
-        if r.returncode != 0:
-            self.skipTest("no git tree here, so `tracked` has no meaning on this surface")
-        gemessen = len([z for z in r.stdout.splitlines() if z.strip()])
-        self.assertGreater(gemessen, 0, "git reported zero tracked .py files, which is not a tree "
-                                        "this number can be derived from")
-        treffer = re.search(r"exits 0 over all (\d+) tracked \.py files",
-                            (REPO / "pyproject.toml").read_text())
-        self.assertIsNotNone(treffer, "the pyproject comment naming the ruff file count is gone — "
-                                      "if it was removed on purpose, remove this claim with it")
-        self.assertEqual(int(treffer.group(1)), gemessen,
-                         f"pyproject.toml claims ruff judged {treffer.group(1)} tracked .py files, "
-                         f"git lists {gemessen}")
+        text = (REPO / "pyproject.toml").read_text()
+        ohne_zahl = "exits 0 over every tracked .py file."
+        self.assertIn(ohne_zahl, text,
+                      "the numberless ruff sentence is gone — if the paragraph was rewritten on "
+                      "purpose, rewrite this case with it")
+        # THE ABSENCE IS THE ASSERTION. A future edit that helpfully puts a count back reads as an
+        # improvement and is the defect, so it fails here with the reason spelled out.
+        zurueck = re.findall(r"over all ([\d,]+) tracked \.py files", text)
+        self.assertEqual(zurueck, [],
+                         f"pyproject.toml names a tracked .py count again ({zurueck}). That set "
+                         f"grows with almost every pull request, so the number is stale as soon "
+                         f"as it lands; the sentence states the scope without a figure on purpose")
 
 
 class TestDieBeidenLesungenSelbst(unittest.TestCase):
