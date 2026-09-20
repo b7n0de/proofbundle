@@ -119,12 +119,26 @@ Ed25519 profile ACCEPTS small-order components, which SPEC section 4a states and
 against the "Taming the Many EdDSAs" vectors. Consequence, measured 2026-09-20: 32 zero bytes as a
 public key and 64 as a signature verify over roughly one body in four. The order is computed, not
 inferred from that rate: the bytes decompress to a curve point with `y = 0` and `x` non-zero, and
-four self-additions reach the identity, so the order is exactly 4. What this does NOT mean is that
-a forged carrier passes the release path: the carrier is `signature.state: UNSIGNED` and goes
-through no signing path, and a real signature is what the anti-case now uses. What it DOES mean is
-that the checker would call a zero-key carrier signed. Refusing small-order keys at this one block
-is a code change with its own catch proof, not a documentation edit, so it is not in this cut.
-Register entry `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, target 6.2.0.
+the SMALLEST multiple reaching the identity is the fourth — `1P`, `2P` and `3P` are each measured
+NOT to be the identity, and `4P` is. That wording is deliberate. An earlier draft said only that
+four self-additions reach the identity, which establishes that the order DIVIDES four and leaves
+one and two open; a counter-reading caught the sentence, the underlying measurement had already
+excluded them, and the text now says what was measured.
+
+What this does NOT mean is that a forged carrier passes the release path: the carrier is
+`signature.state: UNSIGNED` and goes through no signing path, and a real signature is what the
+anti-case now uses. What it DOES mean reaches further than a first draft of this entry admitted,
+and the correction is the same counter-reading's. `_signaturzeile` and `pruefe_v2` share ONE exit,
+`_signatur_lage`, by explicit design (`gen_findings_register.py`, the function's own docstring says
+changing it changes both). So the generated views — `audit_artifacts/600/views/uebersicht.md` and
+`uebersicht.html` — report whatever that exit returns. A carrier carrying a zero key would be shown
+to a REVIEWER as signed. The release path is not the only thing a signature state feeds; the audit
+trail is the other, and a reviewer reading a wrong line is the cheaper failure only until someone
+relies on it.
+
+Refusing small-order keys at this one block is a code change with its own catch proof, not a
+documentation edit, so it is not in this cut. Register entry
+`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, target 6.2.0.
 
 **A shipped tool verdict is quoted but not re-run.** `pyproject.toml` states that eight mypy
 versions and six ruff versions exit 0 over this tree. `tests/test_shipped_comment_numbers.py` binds
