@@ -30,24 +30,24 @@
       }
     ]
   },
-  "issued_at": "2026-09-14",
-  "generated_at": "2026-09-14T15:24:38Z",
+  "issued_at": "2026-09-20",
+  "generated_at": "2026-09-20T09:35:47Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
     "tag": "v6.0.0"
   },
-  "assessment_cutoff": "2026-09-14",
+  "assessment_cutoff": "2026-09-20",
   "inventory": {
     "source_documents": [
       {
         "path": "RESTRISIKO_600.md",
-        "sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+        "sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
         "identifiers": 145
       },
       {
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
-        "sha256": "efdf86033c7a87572460da16b01fe113cbcc4959b21365bc3d9b4dc22cbd0166",
+        "sha256": "51fa23f426b144dd60081e52521ca0f63ae5c5b8209def2df2a8216572fb5730",
         "identifiers": 145
       }
     ],
@@ -166,7 +166,7 @@
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
-      "title": "The trust anchor lives in `audit_artifacts/`, the one directory the subject tree digest excludes. The anchor is therefore outside the digest that is supposed to pin the candidate's trust basis",
+      "title": "The trust anchor was outside the digest that is supposed to pin the candidate's trust basis, because `subject_tree_digest` dropped the whole `audit_artifacts/` directory. **Closed in 6.0.0 (`b9d35d4`)",
       "class_id": null,
       "class_state": "NOT MEASURED",
       "class_reason": "the source carries no class identifiers",
@@ -177,20 +177,20 @@
         "source": "severity column in RESTRISIKO_600.md"
       },
       "status": {
-        "value": "open",
+        "value": "closed",
         "source": "state column in RESTRISIKO_600.md",
-        "wortlaut": "open; follow-up release"
+        "wortlaut": "closed"
       },
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/A1.md",
-          "sha256": "96b18ac238fcddf76534e60763e81ed02f7a4d86323b0702d8caf737d8a5ab7c",
+          "sha256": "da8407bd67eb734541a810dd76f273bf072d2be11e0252e500d9575a018f23aa",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             24756,
-            25062
+            25569
           ],
           "fundart": "tabelle_spalte1"
         }
@@ -230,10 +230,10 @@
           "sha256": "68fecb63845f185501634e5a1e85ed3b95e529bda4ed5d48839e7626ed693d4a",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            25063,
-            25356
+            25570,
+            25863
           ],
           "fundart": "tabelle_spalte1"
         }
@@ -273,10 +273,10 @@
           "sha256": "ad97f0155ea1687d2a904a9021a7cc6fbf93610728b6debd0672d622f6ecf002",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            25357,
-            25679
+            25864,
+            26186
           ],
           "fundart": "tabelle_spalte1"
         }
@@ -316,10 +316,10 @@
           "sha256": "6dc6904a8c660edbbbdffdcaa791cac3b73fff4b8cf1eda4ad3658b375fe96f4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            25680,
-            26022
+            26187,
+            26529
           ],
           "fundart": "tabelle_spalte1"
         }
@@ -360,10 +360,10 @@
           "sha256": "9c013e50197f95ab80f8105e011f18304748bd5e2a7998c30077d827218d8989",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            357091,
-            360761
+            357598,
+            361268
           ],
           "fundart": "ueberschrift"
         }
@@ -404,10 +404,10 @@
           "sha256": "282ab993663e9ab84185231b5d5426f5d3be3a0ef72ec8ce52ea259151ce9508",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            360761,
-            363882
+            361268,
+            364389
           ],
           "fundart": "ueberschrift"
         }
@@ -448,7 +448,7 @@
           "sha256": "54ce9d689e6b332641acea407c93f3b03c98b9f323c9a44e11fd8980d106719f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             9138,
             9383
@@ -492,7 +492,7 @@
           "sha256": "215f6af00ad231e0f60511797c49a1fb23bbb35afdbbd40a53270e93a5a3ba15",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             9384,
             9561
@@ -536,7 +536,7 @@
           "sha256": "c6ea3d873b8fd432c17d850a71e966d26b2e03db65ea566d1bd93c34818f39b0",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             9562,
             9909
@@ -580,7 +580,7 @@
           "sha256": "dddea18db37250f0b6328e740c1e727bba853cb70b1fa6901fe6cb3da0c2ae2e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             9910,
             10200
@@ -624,7 +624,7 @@
           "sha256": "6b160a636dc6f3468acc0ff7ed3fe4ffd3f05a9682855d96dea76b63e64491ae",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             10201,
             10354
@@ -668,7 +668,7 @@
           "sha256": "eb2e06498c1be2bb9509e476620bd1d8ccb6e63ba5805fe628720d25cf192161",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             10355,
             10534
@@ -712,7 +712,7 @@
           "sha256": "4565a4cfc4ba2e014af1cf85c56d8acb38e5507814bad1df1a5ea3df334a972c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             10535,
             10804
@@ -758,7 +758,7 @@
           "sha256": "f4c76e0ee589c9b46fcd84e773fd284bbe6d1dbf6a896cee7bb32ef1ee291ecd",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             10805,
             11002
@@ -802,7 +802,7 @@
           "sha256": "09a13a6cb8d1e82883d221191fbbfb3b88e28b194b1bb0c1b5dab647f504709c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             11003,
             11292
@@ -846,7 +846,7 @@
           "sha256": "acc95ac9885f602dc99b22c59e55153126f070bba14193e8ed3faddfba49b8c4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             11293,
             11441
@@ -890,7 +890,7 @@
           "sha256": "3b08c8eadaca043ee3779a775e7b256ce69833b7012aa77465f0e07ab7f2a284",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             11442,
             11951
@@ -934,7 +934,7 @@
           "sha256": "a66b21653d3eb45217228e15e5ff454624c4081d4d7d31403579055deee772ba",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             11952,
             12738
@@ -978,7 +978,7 @@
           "sha256": "b2e406394313e14831af92d8e0ba2232dc5ff3d7701e603cc958367e58affb5a",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             12739,
             13527
@@ -1022,7 +1022,7 @@
           "sha256": "21a4f230236236fd70e5824c1b684b227adbd8b387213c6a35dee2d0c983db3e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             13528,
             15005
@@ -1066,7 +1066,7 @@
           "sha256": "e645cad4094a2563a85f485700ad8e15f35eec5238bb21446035729d30a55010",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             15006,
             18856
@@ -1110,7 +1110,7 @@
           "sha256": "096cfbb60082b66094a2e95dfd6dac6a9ecd8928f91aed6d88aa05143e696270",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             22261,
             22536
@@ -1154,7 +1154,7 @@
           "sha256": "1a6d7b413abb7a7ed6f68695962c2291dc356ea9b9c27c64b52a5ca1177fb461",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             22537,
             22739
@@ -1198,7 +1198,7 @@
           "sha256": "519e83c892aaebb117aae04adf89b77099c2dff52f98e5647c6f8a7e37e57cb7",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             22740,
             22929
@@ -1242,7 +1242,7 @@
           "sha256": "6bff41ca2124db77f66662c217f366b9c9e2ba7b46683778699cdcef9e21b096",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             22930,
             23364
@@ -1286,7 +1286,7 @@
           "sha256": "a8536f946e8e6a967b1ab70513ede3d0a00134534344fe23f5c786f242ccfdf9",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             23365,
             23603
@@ -1332,7 +1332,7 @@
           "sha256": "2b7aba7438fae0f6748e191e1f75c10b078c72d7eb3d389700c6228fde65bb74",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             23604,
             24239
@@ -1375,7 +1375,7 @@
           "sha256": "70dadc8f06e049866c0021ad3200f6cd162c0cc73d01fd0c2dfc2f65b2db7adf",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             3125,
             4165
@@ -1418,7 +1418,7 @@
           "sha256": "718e25c9089a1dd81cce3b109f800e23335feaae4bc0b7f1a7eb89117dd4497b",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             4165,
             4652
@@ -1461,7 +1461,7 @@
           "sha256": "62fc354bae045c729e595c862de95c7ca90e2a86ac7da13c29aecd00bd5967fb",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             4652,
             5882
@@ -1504,7 +1504,7 @@
           "sha256": "6f0189e8548b59273faa22a51d9539f8ac781a1941104a4e721519a29d57b8c4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             5882,
             6433
@@ -1547,7 +1547,7 @@
           "sha256": "5e5fcec79bcf561f17e8e0a515843a64e58f332e00f80409d530c7ced8c4e894",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             6433,
             6878
@@ -1590,7 +1590,7 @@
           "sha256": "00cb1f7700016ed31ee0a4656e9cdaea017243ca382771f32b2c9b70e4836db9",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             6878,
             7514
@@ -1633,7 +1633,7 @@
           "sha256": "14c636eec6861dee09a41f8bdef31a0449258fdbada09f35492061f30524f17f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
             7514,
             9032
@@ -1677,10 +1677,10 @@
           "sha256": "f66f3e47bdfc3a3ccfc6b7fb3cf6e5370f86ad8b03a90de4b05b22ebd44a3974",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            38300,
-            40582
+            38807,
+            41089
           ],
           "fundart": "ueberschrift"
         }
@@ -1720,10 +1720,10 @@
           "sha256": "99bc124b40978fa4f5608f34532b09260ced1f33a2dc54b28c2018759b0f04b2",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            40582,
-            41775
+            41089,
+            42282
           ],
           "fundart": "ueberschrift"
         }
@@ -1766,10 +1766,10 @@
           "sha256": "75192cfe38815001f66851cb8aaea6833a8387729d4a226207abb25299181f20",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            41775,
-            42524
+            42282,
+            43031
           ],
           "fundart": "ueberschrift"
         }
@@ -1809,10 +1809,10 @@
           "sha256": "ec73c0b2ca9cf2e21344509d9f33f84dc11254d0ca6f704c565288185e79f5f0",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            42524,
-            44641
+            43031,
+            45148
           ],
           "fundart": "ueberschrift"
         }
@@ -1852,10 +1852,10 @@
           "sha256": "eb6d0cc886ea85825feb0d03c7a66d0e2dc9b0e248774dc991530534093a1e12",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            45332,
-            47440
+            45839,
+            47947
           ],
           "fundart": "ueberschrift"
         }
@@ -1895,10 +1895,10 @@
           "sha256": "858fe3a7d1d6f91985d855aa127298a28bfe841f32fc4a6a81ac472c5e7c8703",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            48567,
-            52388
+            49074,
+            52895
           ],
           "fundart": "ueberschrift"
         }
@@ -1938,10 +1938,10 @@
           "sha256": "6f0c9d522679e1c2a8d247c407fe716c338e44c630abb4b12d675c1a5e0b5a20",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            52388,
-            54569
+            52895,
+            55076
           ],
           "fundart": "ueberschrift"
         }
@@ -1981,10 +1981,10 @@
           "sha256": "1bb6fca628317e8da6d0350da979249b9ffc9cd64580b8a8303d1fc683e0304d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            65091,
-            66768
+            65598,
+            67275
           ],
           "fundart": "ueberschrift"
         }
@@ -2024,10 +2024,10 @@
           "sha256": "24aa4bfc7dcde8f756d326437c2cac8bf0fa74e5ac88d52c39c5e767f5d914a4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            93732,
-            94679
+            94239,
+            95186
           ],
           "fundart": "ueberschrift"
         }
@@ -2067,10 +2067,10 @@
           "sha256": "71fb14f879a171832328eb698724e9b5306a864b6cce15f014de74431a227339",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            62297,
-            65091
+            62804,
+            65598
           ],
           "fundart": "ueberschrift"
         }
@@ -2111,10 +2111,10 @@
           "sha256": "61f4e5b0f6a62697b12742cc9374b43ed9e8fc5c475fc910d2b00459b78756c5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            66768,
-            69608
+            67275,
+            70115
           ],
           "fundart": "ueberschrift"
         }
@@ -2155,10 +2155,10 @@
           "sha256": "cb11d94b614e7c653ed516decdfbe82f2905ba10d230c8c10a309e7dcafa442e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            69608,
-            72489
+            70115,
+            72996
           ],
           "fundart": "ueberschrift"
         }
@@ -2199,10 +2199,10 @@
           "sha256": "066f39f6404d4f0499492ed93e41a4326440b7579b3dd5a026e6d3d614d4d13f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            72489,
-            76173
+            72996,
+            76680
           ],
           "fundart": "ueberschrift"
         }
@@ -2243,10 +2243,10 @@
           "sha256": "5be09406380aa788b1ce2aae477af3ab07f50f6bc72fabb18a0339eae9225029",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            76173,
-            80690
+            76680,
+            81197
           ],
           "fundart": "ueberschrift"
         }
@@ -2287,10 +2287,10 @@
           "sha256": "dfb35a8965f0c4504a79bb2d2003db4ab0c4f7889e1d1d8dc307a162d3599915",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            80690,
-            83563
+            81197,
+            84070
           ],
           "fundart": "ueberschrift"
         }
@@ -2331,10 +2331,10 @@
           "sha256": "1ab7bf4c574fd8d8e45f5d10069b01e11c684a23b52286775375b4f376110e4f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            83563,
-            85190
+            84070,
+            85697
           ],
           "fundart": "ueberschrift"
         }
@@ -2375,10 +2375,10 @@
           "sha256": "f95e8ecb1db0192787fb70deca5303aab3542bdeb6b13a36662cba79d701e61e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            85190,
-            88784
+            85697,
+            89291
           ],
           "fundart": "ueberschrift"
         }
@@ -2419,10 +2419,10 @@
           "sha256": "55359ac41db76f8e00a481ede44c75f4636f404710967fcf9f4b10b86ed19784",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            88784,
-            91305
+            89291,
+            91812
           ],
           "fundart": "ueberschrift"
         }
@@ -2463,10 +2463,10 @@
           "sha256": "2a4ffb10fe059732b1e49e78089c6590d9584dc2e01931a05ffc5c9385b9326a",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            91305,
-            93732
+            91812,
+            94239
           ],
           "fundart": "ueberschrift"
         }
@@ -2507,10 +2507,10 @@
           "sha256": "da2fd94bcd8e741a994f5d249c52c6f749e76f856e824c86c564d768d4386173",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            102931,
-            104812
+            103438,
+            105319
           ],
           "fundart": "ueberschrift"
         }
@@ -2551,10 +2551,10 @@
           "sha256": "7f95f810443403a7a73310121d85bd44e5d93081e75ffb5cdf44b6acf0563e23",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            104812,
-            105743
+            105319,
+            106250
           ],
           "fundart": "ueberschrift"
         }
@@ -2595,10 +2595,10 @@
           "sha256": "f2ee932f09138479eeae4c819216ab5fa7797b69732fd80be30c0fe2cf2663dd",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            105743,
-            106658
+            106250,
+            107165
           ],
           "fundart": "ueberschrift"
         }
@@ -2639,10 +2639,10 @@
           "sha256": "2e1dedf6773b36f4f30f06759283fa9b9df79e876b656fb339320b9e3d77fa22",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            106658,
-            109712
+            107165,
+            110219
           ],
           "fundart": "ueberschrift"
         }
@@ -2683,10 +2683,10 @@
           "sha256": "573fc6a0a924c805da7cb3a35c160f0c0729a7b094cc0715b67384f5f1d2b64d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            109712,
-            112456
+            110219,
+            112963
           ],
           "fundart": "ueberschrift"
         }
@@ -2727,10 +2727,10 @@
           "sha256": "03453b6d3cada61df5048816b009bdbc602604613836316aaafe57aa85f7182f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            114726,
-            122446
+            115233,
+            122953
           ],
           "fundart": "ueberschrift"
         }
@@ -2771,10 +2771,10 @@
           "sha256": "c11518fcc7581aa64f9db1261c13c4c04f56fa4a87586a0665d905ced762b245",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            122446,
-            123687
+            122953,
+            124194
           ],
           "fundart": "ueberschrift"
         }
@@ -2815,10 +2815,10 @@
           "sha256": "5bc0cd7deb4486f56a7c8f218bf9a312b7d482cf047b86ad1e2f82f49f04866d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            123687,
-            124780
+            124194,
+            125287
           ],
           "fundart": "ueberschrift"
         }
@@ -2859,10 +2859,10 @@
           "sha256": "5b3173c969ff504f78db9d52388a070610535331b7f953bfe8b833c0de8eb417",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            124780,
-            125331
+            125287,
+            125838
           ],
           "fundart": "ueberschrift"
         }
@@ -2903,10 +2903,10 @@
           "sha256": "b54ac8206faff7493c26afdd0b85cda0fb83d731044c25c348a85e05b8871c34",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            125331,
-            126879
+            125838,
+            127386
           ],
           "fundart": "ueberschrift"
         }
@@ -2947,10 +2947,10 @@
           "sha256": "a5ff9cf2e64a83506479b3e4650edeb73aca32117ecbbc291c79c0b1cf3a83a4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            126879,
-            132035
+            127386,
+            132542
           ],
           "fundart": "ueberschrift"
         }
@@ -2991,10 +2991,10 @@
           "sha256": "9038edbfdb4dc686215de82f4a686efc77699abe75575e88435e175d37c614df",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            132035,
-            134579
+            132542,
+            135086
           ],
           "fundart": "ueberschrift"
         }
@@ -3035,10 +3035,10 @@
           "sha256": "de50b1897bd85ee358f44ee655e3f1f50c483eaadfded4bedd0781a0a6ec4b7a",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            134579,
-            137060
+            135086,
+            137567
           ],
           "fundart": "ueberschrift"
         }
@@ -3079,10 +3079,10 @@
           "sha256": "ffdef9b88428b79563f306a07126f584f89242ab88f4c6b61cf953a894808363",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            137060,
-            140782
+            137567,
+            141289
           ],
           "fundart": "ueberschrift"
         }
@@ -3123,10 +3123,10 @@
           "sha256": "4e4e12e244ab8cce0649546293c3ed4b380c1ec669bbe1d95147325cf41e69b2",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            140782,
-            149048
+            141289,
+            149555
           ],
           "fundart": "ueberschrift"
         }
@@ -3167,10 +3167,10 @@
           "sha256": "b715e856ba414ef5d8a5f40e6b95a1f855b6ea524fc7e12fef38e9998f355072",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            151110,
-            164766
+            151617,
+            165273
           ],
           "fundart": "ueberschrift"
         }
@@ -3211,10 +3211,10 @@
           "sha256": "c33b0c14765c49ee5af4be35cd0bacce827438988151ef1387e1492475915140",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            164766,
-            166632
+            165273,
+            167139
           ],
           "fundart": "ueberschrift"
         }
@@ -3255,10 +3255,10 @@
           "sha256": "7b8960e73d53a43455c73cd91dd957abc51fafb06ff9d9347d7e56b6f25a49a5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            166632,
-            174382
+            167139,
+            174889
           ],
           "fundart": "ueberschrift"
         }
@@ -3299,10 +3299,10 @@
           "sha256": "52808db61ea47981d77b45ca08f73b4542d976138fb325bd7991bd094b36000d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            178591,
-            181331
+            179098,
+            181838
           ],
           "fundart": "ueberschrift"
         }
@@ -3343,10 +3343,10 @@
           "sha256": "1a121cc1cd4aaa0f444b36be340533d6f9c9117b78528284a73f136635f0029c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            181331,
-            184142
+            181838,
+            184649
           ],
           "fundart": "ueberschrift"
         }
@@ -3387,10 +3387,10 @@
           "sha256": "7f18dacc848d6dedd8ef7a2d25bfd94368bbf687e8ef7daefd62abde1dc5ac24",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            184142,
-            187216
+            184649,
+            187723
           ],
           "fundart": "ueberschrift"
         }
@@ -3431,10 +3431,10 @@
           "sha256": "8ff5a37f19b440a6cbc1e1f402e8471daa1c00c2ecc938fea9fccc2ec2077e80",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            187216,
-            189404
+            187723,
+            189911
           ],
           "fundart": "ueberschrift"
         }
@@ -3475,10 +3475,10 @@
           "sha256": "4a9f7729389e0235ca9c90620222458148383b322d41ecad62921ec0e78c95ea",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            189404,
-            196264
+            189911,
+            196771
           ],
           "fundart": "ueberschrift"
         }
@@ -3519,10 +3519,10 @@
           "sha256": "c9a5cc10f51e72665250520726a9daadb766d2015113dbbbdaf9e2a9e013182e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            196264,
-            198633
+            196771,
+            199140
           ],
           "fundart": "ueberschrift"
         }
@@ -3563,10 +3563,10 @@
           "sha256": "d1185752f55e899c8f408455ac3826e3f9b578418a21ab6823070cabda717e8c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            198633,
-            201351
+            199140,
+            201858
           ],
           "fundart": "ueberschrift"
         }
@@ -3607,10 +3607,10 @@
           "sha256": "01fb5e9710ee6b0cde051d5efb4cc9366fce2e2b99a499145053926b666c569c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            201351,
-            204073
+            201858,
+            204580
           ],
           "fundart": "ueberschrift"
         }
@@ -3651,10 +3651,10 @@
           "sha256": "b0bfe53e64d24bbdef12285b5e36d169dc641f1e41741e9394a259d4049c6101",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            204073,
-            206569
+            204580,
+            207076
           ],
           "fundart": "ueberschrift"
         }
@@ -3695,10 +3695,10 @@
           "sha256": "1b13f74d735b87ccdaf195e0aad9789c9cc06b71a62a494e68d364577898b2cb",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            206569,
-            209226
+            207076,
+            209733
           ],
           "fundart": "ueberschrift"
         }
@@ -3739,10 +3739,10 @@
           "sha256": "4f5c98fcc35d5a55cfa995cddee7556f44e79f4d9bdb6b0916331e84d628d391",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            209226,
-            212836
+            209733,
+            213343
           ],
           "fundart": "ueberschrift"
         }
@@ -3783,10 +3783,10 @@
           "sha256": "b0e1fae0abad7a9e37d5a05f6cd369bac39fd958f7337bfb5971ec7907901133",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            212836,
-            219780
+            213343,
+            220287
           ],
           "fundart": "ueberschrift"
         }
@@ -3827,10 +3827,10 @@
           "sha256": "80cbbe6a293f8bf912bf683d5780cb625b3445d098000c0ccc6d083b7e18029e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            219780,
-            222097
+            220287,
+            222604
           ],
           "fundart": "ueberschrift"
         }
@@ -3871,10 +3871,10 @@
           "sha256": "3533230f1f28fa274464b6447879aecb0bd61925f1f83ad7bdc58dba2ecbfe34",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            222097,
-            224536
+            222604,
+            225043
           ],
           "fundart": "ueberschrift"
         }
@@ -3915,10 +3915,10 @@
           "sha256": "7cc54ff66c93e9a5f0e7fea8d07045f23622eda75b50c3434b8922652a3c7654",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            226366,
-            229572
+            226873,
+            230079
           ],
           "fundart": "ueberschrift"
         }
@@ -3959,10 +3959,10 @@
           "sha256": "d1a4b4a10c4b79347dbb55a0401420a2fd828a8f13169a7cdb158476454c6daf",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            229572,
-            232446
+            230079,
+            232953
           ],
           "fundart": "ueberschrift"
         }
@@ -4003,10 +4003,10 @@
           "sha256": "b4af88cb39623088db623f0e1797c490d8d94be32e0c6661cb5ed23fb6c344ac",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            232446,
-            233185
+            232953,
+            233692
           ],
           "fundart": "ueberschrift"
         }
@@ -4047,10 +4047,10 @@
           "sha256": "caaba3031a8f3c2707f75a37a4dc02bcd5e8006b4b2fbb204baa4030e0b7c80f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            233185,
-            235484
+            233692,
+            235991
           ],
           "fundart": "ueberschrift"
         }
@@ -4091,10 +4091,10 @@
           "sha256": "db33f1f937cab23434c36ba677436e5e0ed8f9420fef136a044157f4ee78b63d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            235484,
-            237949
+            235991,
+            238456
           ],
           "fundart": "ueberschrift"
         }
@@ -4135,10 +4135,10 @@
           "sha256": "0b4c191a6d542a7338a8beaa0d468652e2b29f09be060b8c7372b7924a07fc31",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            243370,
-            247417
+            243877,
+            247924
           ],
           "fundart": "ueberschrift"
         }
@@ -4179,10 +4179,10 @@
           "sha256": "caae87cfc57d7185d95dc87ff0afb6a1f997f223bc42ae473cfdd99b2b1b6cf5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            247417,
-            247966
+            247924,
+            248473
           ],
           "fundart": "ueberschrift"
         }
@@ -4223,10 +4223,10 @@
           "sha256": "ccaeabd9ec5a2f7c4c708b0b3a0f4e53ae404f87e2f39d42b4bef1c943d984d0",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            253710,
-            258538
+            254217,
+            259045
           ],
           "fundart": "ueberschrift"
         }
@@ -4267,10 +4267,10 @@
           "sha256": "d9a5bf7de9f6a061abea8983e4a4f7f2439d3b67fb709b2cd27c3d83a244b903",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            258538,
-            260910
+            259045,
+            261417
           ],
           "fundart": "ueberschrift"
         }
@@ -4311,10 +4311,10 @@
           "sha256": "80ab9b584300d55ea1e59d16585f57eb9fc92054ef1ab112ebfa5e79a6bf98a4",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            260910,
-            264193
+            261417,
+            264700
           ],
           "fundart": "ueberschrift"
         }
@@ -4355,10 +4355,10 @@
           "sha256": "ab4fe7b6009fc757988f22b09769d025c66ed2eebf603125fb09a8e67e71c313",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            264193,
-            266139
+            264700,
+            266646
           ],
           "fundart": "ueberschrift"
         }
@@ -4399,10 +4399,10 @@
           "sha256": "9f9c1c85e2d815e0f6d3b8b6cd8774b5eab1a0b75bfbbd7ac2a7e9a3fb1d3ddd",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            266139,
-            268924
+            266646,
+            269431
           ],
           "fundart": "ueberschrift"
         }
@@ -4443,10 +4443,10 @@
           "sha256": "67cbfaf8930d182892a98feeab019728a1040387c81a26c4711183b6d3870b14",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            268924,
-            271651
+            269431,
+            272158
           ],
           "fundart": "ueberschrift"
         }
@@ -4487,10 +4487,10 @@
           "sha256": "9ad7ab9ccebb84b3b3c2ccf28c9404fefeb5595f3b718d22dbac7bf5272ac5cd",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            271651,
-            275510
+            272158,
+            276017
           ],
           "fundart": "ueberschrift"
         }
@@ -4531,10 +4531,10 @@
           "sha256": "b26cc0d13373ed8b370ac0ee65f3361a4dd2942bab1ee2108d283a332a729932",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            291768,
-            297924
+            292275,
+            298431
           ],
           "fundart": "ueberschrift"
         }
@@ -4575,10 +4575,10 @@
           "sha256": "52f1b96c617c09f43cbdda1ac8ee3470846a7880123b8936347d4b5ed1092986",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            297924,
-            299755
+            298431,
+            300262
           ],
           "fundart": "ueberschrift"
         }
@@ -4619,10 +4619,10 @@
           "sha256": "6c528760249b3ed1666df233946118691bcc9aa84115ca4c513fe1ca984ea2a5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            299755,
-            303700
+            300262,
+            304207
           ],
           "fundart": "ueberschrift"
         }
@@ -4663,10 +4663,10 @@
           "sha256": "2d36fdd790eeac4a6298fa849de01a64058b6570b7a0f3be55a1623c08c10c5b",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            303700,
-            306146
+            304207,
+            306653
           ],
           "fundart": "ueberschrift"
         }
@@ -4707,10 +4707,10 @@
           "sha256": "ad063bc52cc1f1188588ef7b32683bbf40f7646d50cae71fd164cbbb80bf56b0",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            306146,
-            307762
+            306653,
+            308269
           ],
           "fundart": "ueberschrift"
         }
@@ -4751,10 +4751,10 @@
           "sha256": "28d201fba59ec14b5f5db03060888a3566121cc174f3ec61b71fa45d96e83067",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            307762,
-            310082
+            308269,
+            310589
           ],
           "fundart": "ueberschrift"
         }
@@ -4795,10 +4795,10 @@
           "sha256": "b2e87f1e6a30cf4c23d7334835703034a8db593ca0427ae2453531f315a836cf",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            310082,
-            313078
+            310589,
+            313585
           ],
           "fundart": "ueberschrift"
         }
@@ -4839,10 +4839,10 @@
           "sha256": "24dec63da67d476ad9578f665fadce2369077e1babe6d59f920fa1c2f1018962",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            313078,
-            317246
+            313585,
+            317753
           ],
           "fundart": "ueberschrift"
         }
@@ -4883,10 +4883,10 @@
           "sha256": "7c116c8040252136f2205c728983dfff6ea4d8b9aa6a631445a078709739f51c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            317246,
-            319674
+            317753,
+            320181
           ],
           "fundart": "ueberschrift"
         }
@@ -4927,10 +4927,10 @@
           "sha256": "9b591b94fa617836c7f2bb1322751db916aa8bb0974a7fe4cda7533479ee8e7c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            319674,
-            324036
+            320181,
+            324543
           ],
           "fundart": "ueberschrift"
         }
@@ -4971,10 +4971,10 @@
           "sha256": "8fcac954f903fadd8fce7c832b657c06c57933d9ed0209c4cdf1506bfb6c7361",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            324036,
-            326351
+            324543,
+            326858
           ],
           "fundart": "ueberschrift"
         }
@@ -5015,10 +5015,10 @@
           "sha256": "e77c299c1e3eab7be1d8aadaa91ac53a8a94fc2c153afdf0623eb6c64782ece2",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            326351,
-            329505
+            326858,
+            330012
           ],
           "fundart": "ueberschrift"
         }
@@ -5059,10 +5059,10 @@
           "sha256": "9669a224ebf66f486752b94959559a02e11270c1a6927a5b1922b52e9f0b2d07",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            329505,
-            332030
+            330012,
+            332537
           ],
           "fundart": "ueberschrift"
         }
@@ -5103,10 +5103,10 @@
           "sha256": "51ce7f6cbc1e17fbb34320ce900d8ee844720e9568fb0f743918763624a54a9c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            332030,
-            333206
+            332537,
+            333713
           ],
           "fundart": "ueberschrift"
         }
@@ -5147,10 +5147,10 @@
           "sha256": "4e8be1b918070b249676811e51aa5a8e26ce5d5e648dcde0c2be227fc3485808",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            333206,
-            334193
+            333713,
+            334700
           ],
           "fundart": "ueberschrift"
         }
@@ -5191,10 +5191,10 @@
           "sha256": "bbbfa06efd453087af78c7403f6b0d425dfd02928464aeaa13acd3bdd17d74e5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            334193,
-            335025
+            334700,
+            335532
           ],
           "fundart": "ueberschrift"
         }
@@ -5235,10 +5235,10 @@
           "sha256": "441e671eb263f09cbfd5d9751e1ffa65f0fbafd5deaf2ac8e439fb65588ee626",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            335025,
-            336358
+            335532,
+            336865
           ],
           "fundart": "ueberschrift"
         }
@@ -5279,10 +5279,10 @@
           "sha256": "625d4dae0528f5547fe390d3920a648970270fbd2b5e4cfd996a9ae7af4fde2c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            336358,
-            337602
+            336865,
+            338109
           ],
           "fundart": "ueberschrift"
         }
@@ -5323,10 +5323,10 @@
           "sha256": "a1cf885dc11fa172e4aa9e96d1ed4835e7c9e0ba6bfe4036b59f8538e984a302",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            337602,
-            338342
+            338109,
+            338849
           ],
           "fundart": "ueberschrift"
         }
@@ -5367,10 +5367,10 @@
           "sha256": "7ccdefe5d30e4e214c6654b36eaed799b32ae35e0e629b1fff764d0d74612968",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            338342,
-            339721
+            338849,
+            340228
           ],
           "fundart": "ueberschrift"
         }
@@ -5411,10 +5411,10 @@
           "sha256": "571411f77f7f19797dcf7c648c16adc8b977fdd089b7cc3a9fceac97769e04ba",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            341189,
-            342292
+            341696,
+            342799
           ],
           "fundart": "ueberschrift"
         }
@@ -5455,10 +5455,10 @@
           "sha256": "b9521dc74be6b57bafc51d31a4b6afc9eeede6f1d923a6f1347cfbaf1f4c0a38",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            342292,
-            343149
+            342799,
+            343656
           ],
           "fundart": "ueberschrift"
         }
@@ -5499,10 +5499,10 @@
           "sha256": "142f180b9fefd55030cf78cd90b37861940d974e473fbe3c7e2a603b6173c2a5",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            343149,
-            343866
+            343656,
+            344373
           ],
           "fundart": "ueberschrift"
         }
@@ -5543,10 +5543,10 @@
           "sha256": "bef4ea12b601c2838a0d6dba498cfa0ecb81aed7ca9a614f05bd4ddbeb95eb79",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            343866,
-            344235
+            344373,
+            344742
           ],
           "fundart": "ueberschrift"
         }
@@ -5587,10 +5587,10 @@
           "sha256": "2b819085dae7fa11d648a8f6f23e8adbc4ed4178523a2982c5256e769872b3cc",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            344235,
-            344898
+            344742,
+            345405
           ],
           "fundart": "ueberschrift"
         }
@@ -5631,10 +5631,10 @@
           "sha256": "316cc3edc1465b4991a1215272549ef144bdcd96473f71c2d65dfdc28a6f0468",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            344898,
-            345699
+            345405,
+            346206
           ],
           "fundart": "ueberschrift"
         }
@@ -5675,10 +5675,10 @@
           "sha256": "24bb74e141c228acf0d02cd91f9ad09bd46f3d5c6fa6fe68fcaa0948cbd43416",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            345699,
-            346373
+            346206,
+            346880
           ],
           "fundart": "ueberschrift"
         }
@@ -5719,10 +5719,10 @@
           "sha256": "96c2c44000e30800867c3d4af549d9352ba5de0da2b1227e0ddc41adabd9551e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            346373,
-            346898
+            346880,
+            347405
           ],
           "fundart": "ueberschrift"
         }
@@ -5763,10 +5763,10 @@
           "sha256": "11c9e74f552fa9d772f57737205c01319ee5ec71befb547b144cb3122ac0d6f8",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            346898,
-            347405
+            347405,
+            347912
           ],
           "fundart": "ueberschrift"
         }
@@ -5807,10 +5807,10 @@
           "sha256": "b3506ac5b8658d8d487f3c106b37b0cfe9394fef428971d5ba19ed664d7ec29e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            347405,
-            348722
+            347912,
+            349229
           ],
           "fundart": "ueberschrift"
         }
@@ -5851,10 +5851,10 @@
           "sha256": "c52f04e4bc9398d22e9909505014eb6908569ee8c476bc369279758e66afc6ec",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            348722,
-            349895
+            349229,
+            350402
           ],
           "fundart": "ueberschrift"
         }
@@ -5895,10 +5895,10 @@
           "sha256": "b9934be98a13d3f2768716509cb146ab799c0cddd14b9bb085d3c6507ec12a65",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            349895,
-            350832
+            350402,
+            351339
           ],
           "fundart": "ueberschrift"
         }
@@ -5939,10 +5939,10 @@
           "sha256": "e2aac4b193dd3192d44fa765105b253cf16ec1549f4ed82659a8ffe0630bdf95",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            350832,
-            351717
+            351339,
+            352224
           ],
           "fundart": "ueberschrift"
         }
@@ -5983,10 +5983,10 @@
           "sha256": "775bca8dcf08d429f9dcef647da84c4bd9b30ef956ef439137864525fed219f1",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            351717,
-            352372
+            352224,
+            352879
           ],
           "fundart": "ueberschrift"
         }
@@ -6027,10 +6027,10 @@
           "sha256": "218d763588a21ba552269eaeee40854f6c1f697efa9ab7170bfb4440d838c10b",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            352372,
-            352870
+            352879,
+            353377
           ],
           "fundart": "ueberschrift"
         }
@@ -6071,10 +6071,10 @@
           "sha256": "b15c0ca5c04de7471bf52623cc27f344a63860c045b393a4911e33bf574f6e68",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            352870,
-            353546
+            353377,
+            354053
           ],
           "fundart": "ueberschrift"
         }
@@ -6115,10 +6115,10 @@
           "sha256": "6cd524a616afa893805d21d5e6af445c78a2145927bd49cba323661b4a10e55e",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            353546,
-            354106
+            354053,
+            354613
           ],
           "fundart": "ueberschrift"
         }
@@ -6159,10 +6159,10 @@
           "sha256": "fd9faa8da1f1b76bb3affa32197fada581bfffe50fbed62b37802b8bc4d25e4c",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            354106,
-            354383
+            354613,
+            354890
           ],
           "fundart": "ueberschrift"
         }
@@ -6203,10 +6203,10 @@
           "sha256": "e551789a505ede126771b95466e77344e223b7d745f4691f9bf480322d1124e1",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            354383,
-            357091
+            354890,
+            357598
           ],
           "fundart": "ueberschrift"
         }
@@ -6247,10 +6247,10 @@
           "sha256": "eef986d9d0d69133e9f1a2b4bff7ce1c2f53b9fd9bbab142f32b161ab10d0b1d",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            247966,
-            250179
+            248473,
+            250686
           ],
           "fundart": "ueberschrift"
         }
@@ -6291,10 +6291,10 @@
           "sha256": "929bc9ce636d5ed187697afd3d802e886028d93a8cd3d6b3e3f2783efffbcb63",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            250179,
-            251690
+            250686,
+            252197
           ],
           "fundart": "ueberschrift"
         }
@@ -6335,10 +6335,10 @@
           "sha256": "5f86948e8fefb4be5917c9e518d04ff6b379accf72f3715bb7cc2bfdaf10e09a",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            251690,
-            252913
+            252197,
+            253420
           ],
           "fundart": "ueberschrift"
         }
@@ -6379,10 +6379,10 @@
           "sha256": "67f45f9f71e0832583947f6b9fd6d7b24f06143bc094d670d2951ea8fe4916a7",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            252913,
-            253340
+            253420,
+            253847
           ],
           "fundart": "ueberschrift"
         }
@@ -6423,10 +6423,10 @@
           "sha256": "08c83e85a63f5330fdb3344f07036ea376d9915253ce8874d34fae342fa34109",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            363882,
-            366591
+            364389,
+            367098
           ],
           "fundart": "ueberschrift"
         }
@@ -6467,10 +6467,10 @@
           "sha256": "ba56f0086c6c9537c316f716c9fb03d9d406d8f9cb16a8d9afd7291815aceef3",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            366591,
-            367924
+            367098,
+            368431
           ],
           "fundart": "ueberschrift"
         }
@@ -6508,13 +6508,13 @@
       "evidence": [
         {
           "path": "audit_artifacts/600/register_evidence/S123.md",
-          "sha256": "23cef1181ccd82d6e39ca2419eb95655aada365d7f255780b9f31f8cf8f78c71",
+          "sha256": "70e5eeaf34b5e9bc38c95469f3955763f5b2fd81a54730db062c098599513af9",
           "role": "historical_record",
           "source_path": "RESTRISIKO_600.md",
-          "source_sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
           "byte_range": [
-            367924,
-            369191
+            368431,
+            369700
           ],
           "fundart": "ueberschrift"
         }

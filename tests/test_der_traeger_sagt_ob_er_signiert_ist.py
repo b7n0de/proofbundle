@@ -17,6 +17,7 @@ Auskunft den Leser ERREICHT, also in beiden Ansichten steht und nicht nur im Roh
 """
 from __future__ import annotations
 
+import base64
 import copy
 import importlib.util
 import json
@@ -99,21 +100,56 @@ def test_FANG_ein_traeger_ganz_OHNE_signaturblock_wird_gemeldet():
 
 
 def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
-    """[ZAEHLT] Die Verschaerfung darf den Weg, auf den sie zeigt, nicht verbauen."""
+    """[ZAEHLT] Die Verschaerfung darf den Weg, auf den sie zeigt, nicht verbauen.
+
+    DIE ATTRAPPE WAR EIN MUENZWURF, gemessen 2026-09-20. Hier standen 32 bzw. 64 NULLBYTES, mit
+    der Begruendung "verifiziert wird an DIESER Stelle nichts, nur die Form geprueft". Das stimmte
+    am 14.09. und stimmt seit `_signatur_lage` nicht mehr: der Pruefer verifiziert kryptografisch
+    ueber den kanonischen Rumpf. Und 32 Nullbytes sind als Punkt gelesen NICHT die Identitaet,
+    sondern ein Punkt der ORDNUNG 4 — mit einer Null-Signatur haelt die Gleichung genau dann,
+    wenn der Hash des Rumpfes guenstig faellt. GEMESSEN ueber 200 Rumpfe, die sich nur im
+    Zeitstempel unterscheiden: 44 verifizierten, 22 Prozent. Die Ordnung ist nicht aus dieser Rate
+    GESCHLOSSEN, sondern nachgerechnet: 32 Nullbytes entpacken auf der Kurve zu (x != 0, y = 0),
+    und vier Additionen des Punktes mit sich selbst erreichen die Identitaet (0, 1) — Ordnung
+    exakt 4, und nicht die Identitaet, die jede Nachricht durchgelassen haette. Die Rate passt
+    dazu, sie belegt es aber nicht; eine Trefferquote ist ein Hinweis, die Rechnung ist der Beleg.
+    Auf `main` fiel die Muenze guenstig, dieser Fall war gruen, und jede Aenderung am Traeger
+    warf sie neu. SPEC Abschnitt 4a nennt genau diese Annahme als dokumentiertes Verhalten
+    dieses Profils ("small-/mixed-order components are accepted"), also ist der Pruefer im Recht
+    und die Attrappe war es nie.
+
+    Ein Anti-Fall, der mit 22 Prozent Wahrscheinlichkeit gruen ist, misst nicht, ob ein
+    SIGNIERTER Traeger durchgeht. Er braucht eine echte Signatur, und das kostet drei Zeilen.
+
+    WAS HIER NICHT REPARIERT WIRD, und warum das eine Entscheidung ist und kein Uebersehen. Ein
+    erster Anlauf schrieb daneben einen Fangnachweis, der verlangt, dass die Null-Attrappe NIE
+    verifiziert. Der faellt, auf diesem Baum und auf `main`, weil `_signatur_lage` an
+    `cryptography` delegiert und dieses Profil Punkte kleiner Ordnung ANNIMMT — SPEC Abschnitt 4a
+    sagt das ausdruecklich und byte-genau gegen die "Taming the Many EdDSAs"-Vektoren zu. Ein
+    Test, der das Gegenteil behauptet, wuerde eine Eigenschaft festschreiben, die der Verifizierer
+    nicht hat und laut eigener Zusage nicht haben soll. Ein Schluessel kleiner Ordnung am
+    Traeger-Signaturblock abzuweisen ist eine CODE-Aenderung an `_signatur_lage`, gehoert in einen
+    eigenen Zweig mit eigenem Fangnachweis und nicht in einen Doku-Schnitt. Getragen als
+    SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01, Ziel 6.2.0, damit der Fund nicht mit diesem Kommentar
+    verschwindet.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
     g, doc = _gen(), _doc()
     k = copy.deepcopy(doc)
-    # DIE ATTRAPPE MUSS DIE FORM HABEN, NACH DER GEFRAGT WIRD (gemessen 14.09.2026). Vorher
-    # stand hier `"AAAA"` — base64 fuer DREI Bytes, waehrend ein Ed25519-Schluessel 32 hat. Das
-    # ging durch, solange `pruefe_v2` nur die ANWESENHEIT der Felder pruefte. Genau diese
-    # Anwesenheits-Pruefung ersetzt dieser Pull Request durch eine Eigenschafts-Pruefung
-    # (`_signatur_lage`, Codex-Thread 'Presence-as-verification') — und damit ueberholte die
-    # Aenderung die Vorrichtung, die sie begleiten soll. Der Riegel hat recht, die Attrappe war
-    # falsch: sie mass, ob eine Attrappe durchgeht, die keine sein darf.
-    # 32 bzw. 64 Nullbytes sind formal gueltig; verifiziert wird an DIESER Stelle nichts, nur die
-    # Form geprueft — deshalb genuegt und gehoert hier die formal richtige Groesse.
+    schluessel = Ed25519PrivateKey.generate()
+    oeffentlich = schluessel.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    # Der Rumpf, ueber den signiert wird, ist der Rumpf OHNE den Signaturblock, genau wie der
+    # Pruefer ihn bildet. Erst den Block setzen, dann kanonisieren, waere ein anderer Rumpf.
     k["signature"] = {"alg": "ed25519",
-                      "public_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                      "sig_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}
+                      "public_key_b64": base64.b64encode(oeffentlich).decode("ascii"),
+                      "sig_b64": ""}
+    rumpf = g.canonical_bytes(k)
+    k["signature"]["sig_b64"] = base64.b64encode(schluessel.sign(rumpf)).decode("ascii")
+    assert g._signatur_lage(k)[0] == "VERIFIZIERT", (
+        f"eine echte Signatur ueber den kanonischen Rumpf muss verifizieren, gemessen: "
+        f"{g._signatur_lage(k)}")
     assert not [x for x in g.pruefe_v2(k, REPO) if x.startswith("Signatur")]
 
 
