@@ -23,7 +23,42 @@ import pathlib
 import re
 import unittest
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _im_checkout() -> bool:
+    """Repo checkout or an extracted sdist? Read from conftest, the ONE source for it.
+
+    Not rebuilt here: checking the repo-only markers a second time would be a second measuring
+    point for the same quantity, and that is the next drift. Without conftest the fallback is the
+    observable fact rather than an assumption.
+    """
+    try:
+        from conftest import running_in_repo_checkout  # noqa: PLC0415
+    except Exception:                                  # noqa: BLE001
+        return any((REPO / m).exists() for m in ("RESTRISIKO_600.md", "audit_artifacts"))
+    return running_in_repo_checkout()
+
+
+# THIS FILE IS SHIPPED AND ITS SUBJECT IS NOT.
+#
+# MEASURED 2026-09-20 in the hermetic cleanroom, which extracts the sdist to /tmp/sdisttree and
+# runs the shipped suite there: both risk sheets and all registers are pruned from the
+# distribution, so the scan finds zero promises and the register set is empty. Exactly the two
+# anti-vacuous assertions of this file then fire — "0 not greater than 0" and "no register entry
+# is readable in this tree" — and they are RIGHT: in that tree the case would pass by measuring
+# nothing. What is wrong is the verdict, not the assertion. An absence the distribution creates on
+# purpose is N/A, never a failure, and the house already says so one file over.
+#
+# The guard stays sharp everywhere its subject exists. Only outside a checkout is it skipped, with
+# its reason.
+if not _im_checkout():
+    pytest.skip(
+        "nicht ausgeliefert: dieses Modul prueft die Risikoblaetter und die Register, und die "
+        "Verteilung enthaelt beide nicht — N/A ausserhalb eines git-Checkouts",
+        allow_module_level=True)
 
 #: The prose form, measured rather than assumed: `Register entry` followed by a backticked token,
 #: with an optional colon and any run of whitespace between them -- the sentence wraps across lines
