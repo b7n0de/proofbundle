@@ -91,6 +91,55 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, "an untracked file did not stop the emit")
         self.assertIn("neu.txt", r.stdout + r.stderr)
 
+    def test_der_lauf_legt_keinen_bytecode_neben_die_quellen(self):
+        """[ZAEHLT] The run must not create the very debris the gate would refuse.
+
+        MEASURED 2026-09-20 by the FULL suite, not by this file: the first version of the gate
+        refused `tests/test_pre_tag_receipt_commit_flow.py`, because the subprocess writes
+        `scripts/__pycache__/` and `src/proofbundle/__pycache__/` on import and `git status
+        --porcelain` reports both. The gate refused BECAUSE IT RAN. Running only this file's own
+        cases would never have shown it, because they build a fixture and never import the judged
+        tree into it; the change touches a file that 20 test files read.
+
+        A first repair filtered those paths out of the gate's view, and it was the wrong half of
+        the choice. `verify_pre_tag_receipt._bytecode_cache_elsewhere` had already rejected that
+        answer for this exact class and named the attack it misses: a `.pyc` carrying a forged
+        `verify_ed25519 -> True` beside an untouched `.py`, which Python runs and `git status`
+        never lists. So the emit path now uses the same mechanism, `sys.pycache_prefix` plus
+        `dont_write_bytecode`, and the gate keeps every tooth it had.
+
+        This case measures the guarantee that replaces the filter: after a full emit, the judged
+        tree carries no `__pycache__` next to its sources.
+        """
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, f"the control emit failed: {r.stdout + r.stderr}")
+        gefunden = sorted(str(q.relative_to(self.baum)) for q in self.baum.rglob("__pycache__"))
+        self.assertEqual(gefunden, [],
+                         f"the run left bytecode caches inside the judged tree ({gefunden}), so the "
+                         f"next emit on this tree would refuse because of debris this one created")
+
+    def test_ANTI_gepflanzter_bytecode_wird_weiterhin_abgewiesen(self):
+        """[ZAEHLT] The exemption that was almost added must not exist.
+
+        The gate refuses ANY untracked path, and a `__pycache__` it did not create is no
+        exception — a cache that is present is not evidence of anything, and treating it as
+        harmless is exactly the hole `verify_pre_tag_receipt` documents. This case fails the
+        moment someone reintroduces the filter.
+        """
+        # UNTER `scripts/`, weil das Verzeichnis in der Attrappe schon eine verfolgte Datei traegt.
+        # Unter einem voellig unverfolgten Verzeichnis faltet git die Meldung zu `?? src/`
+        # zusammen, und eine Zusicherung auf den Wortlaut `__pycache__` haengt dann an der
+        # Schreibweise von git statt an der Eigenschaft. Gemessen 2026-09-20, erste Fassung dieses
+        # Falls: `?? src/`, Zusicherung rot, obwohl der Riegel richtig verweigerte.
+        (self.baum / "scripts" / "__pycache__").mkdir(exist_ok=True)
+        (self.baum / "scripts" / "__pycache__" / "x.cpython-310.pyc").write_bytes(b"\x00\x01")
+        r = self._emit()
+        self.assertNotEqual(r.returncode, 0,
+                            "a planted bytecode cache went through — the gate has an exemption it "
+                            "must not have")
+        self.assertIn("__pycache__", r.stdout + r.stderr,
+                      f"the refusal did not name the offending path: {r.stdout + r.stderr}")
+
     def test_der_zweite_aufrufer_ist_ebenso_gebunden(self):
         """The gate sits in build_context, so `build_and_sign` cannot reach the digest around it.
 

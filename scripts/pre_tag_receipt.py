@@ -32,6 +32,41 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+#: Where Python keeps bytecode for THIS run. Set BEFORE the judged tree's modules are imported.
+_CACHE_DIR: str | None = None
+
+
+def _bytecode_cache_elsewhere() -> None:
+    """Keep this run from writing `__pycache__` next to the sources, and from reading one.
+
+    MEASURED 2026-09-20 by the full suite: the cleanliness gate below refused
+    `tests/test_pre_tag_receipt_commit_flow.py`, because the subprocess creates
+    `scripts/__pycache__/` and `src/proofbundle/__pycache__/` on import and `git status
+    --porcelain` reports both. The gate refused BECAUSE IT RAN, which on any tree without a
+    `.gitignore` for bytecode is every run, not an edge case.
+
+    A first repair filtered those paths out of the gate's view. That is the weaker answer, and this
+    repository already rejects it in as many words: `verify_pre_tag_receipt._bytecode_cache_elsewhere`
+    says the fix is not a second guard over `__pycache__`, because a cache that is present is not
+    evidence of anything, and it names the attack that guard would miss -- lens C, 2026-09-18, a
+    `signature.cpython-310.pyc` carrying `verify_ed25519 -> True` beside an untouched
+    `signature.py`, which Python runs and `git status` never lists. Tolerating the cache on the
+    EMIT side would have reopened here the hole that was closed on the verify path. Same mechanism,
+    same reason, rather than a second idea for the same class.
+
+    What stays trusted and is not measured here: the interpreter and its standard library.
+    """
+    global _CACHE_DIR
+    if _CACHE_DIR is None:
+        import tempfile  # noqa: PLC0415
+        _CACHE_DIR = tempfile.mkdtemp(prefix="pre_tag_receipt_pyc_")
+        sys.pycache_prefix = _CACHE_DIR
+        sys.dont_write_bytecode = True
+
+
+_bytecode_cache_elsewhere()
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, sha256_text, subject_tree_digest  # noqa: E402
 
