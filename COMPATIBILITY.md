@@ -40,6 +40,8 @@ stricter check and a break look identical.
 
 **5.0.0, worked example.** Both MAJOR triggers of 5.0.0 (recorded in [`docs/release_scope/5.0.0.md`](docs/release_scope/5.0.0.md)) are the two rules above made concrete: an input class that used to exit **2** (malformed/usage) now exits **1** (a crypto failure / verdict) — the meaning of an exit code changed, and exit codes are surface 2; and the Inspect lifecycle hook and the pytest plugin now **require** `PROOFBUNDLE_THRESHOLD` instead of silently defaulting it to `0` — an optional obligation made required. Neither flips a verdict: nothing that verified before stops, nothing that failed starts. Migration is one line: `export PROOFBUNDLE_THRESHOLD=0`.
 
+**`automation_summary`, a worked example of the stricter-check line.** `automation_summary` has been public since 5.0.0; from 5.1.0 it adds `RECEIPT_NOT_OK` to its `blockers` when the receipt is not `ok`, so a summary can no longer be more lenient than the verdict it summarises. The change can only ever be stricter: it can stop an automated action that was previously allowed, never allow one that was previously stopped. Automation that asks whether `blockers` is empty is unaffected; automation that matches the list exactly, or that reads `safeForAutomation` without an `ok` check, sees a value it did not see before. It is written here rather than only in a release note because this is where a reader looks for what a version step may do to a returned shape.
+
 ## What each version step allows
 
 | Step | Allowed |
