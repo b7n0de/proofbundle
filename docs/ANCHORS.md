@@ -37,7 +37,7 @@ Each `anchors[]` entry:
 
 ```jsonc
 {
-  "type": "rfc3161-tsa" | "opentimestamps" | "<extension>/vN",
+  "type": "rfc3161-tsa" | "opentimestamps" | "<a registered extension name>",
   "target": "receipt" | "preRegistration" | "statement",
   "canonicalRoot": "<base64 of the target's canonical root>",
   "proof": "<base64 of the type-specific proof>",
@@ -249,8 +249,13 @@ def verify_my_anchor(proof: bytes, canonical_root: bytes, *, frozen: dict, now):
 register_anchor_type("my-org/timebeacon/v1", verify_my_anchor)
 ```
 
-The contract: a namespaced `type` (`<org>/<name>/vN`), a fail-closed verify callable, and the
-canonicalRoot ↔ target binding enforced by the layer for you. Third-party types are welcome as
+The contract: a `type` that is REGISTERED, a fail-closed verify callable, and the
+canonicalRoot ↔ target binding enforced by the layer for you. The name is an identifier, not a
+grammar — `verify_anchor` asks whether the string is a key of the registry, and neither it nor the
+bundle schema checks its shape. `<org>/<name>/vN` is a RECOMMENDED form for a new name and nothing
+more; the names this project itself ships (`rfc3161-tsa`, `opentimestamps`, `chia-datalayer/v1`,
+`markovian-provenance/v1`) do not have it, and a verifier that enforced the shape would reject
+them. SPEC §7i carries the same statement for implementers. Third-party types are welcome as
 extensions with credit — see in-toto/attestation#565 and the reference-implementation tracking issue.
 
 ## First-party extension — `chia-datalayer/v1` (EXPERIMENTAL, the `[chia]` extra)

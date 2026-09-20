@@ -579,14 +579,24 @@ Each `anchors[]` entry is a JSON object:
 
 **The type name is an identifier, not a grammar (rev 2026-09-20).** An earlier revision of the
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or
-reject a type by its SHAPE. It cannot, and no type name this project ships has that shape. Measured
-2026-09-20 against the live registry and the shipped extension modules: `rfc3161-tsa`,
-`opentimestamps`, `chia-datalayer/v1`, `markovian-provenance/v1`,
-`markovianprotocol.com/bitcoin-anchor/rootcommit/v1` and its `v2-sig` sibling all fail
-`<org>/<name>/vN`, the two built-ins this document itself names as valid included. A conforming
-verifier MUST therefore match `type` as an exact string against what it has registered;
-`<org>/<name>/vN` is a RECOMMENDED shape for NEW extension names and nothing more. A verifier that
-enforced it as a grammar would reject the receipts this implementation emits.
+reject a type by its SHAPE. It cannot, and no anchor type this project ships has that shape.
+Measured 2026-09-20 over every name that reaches `register_anchor_type`: `rfc3161-tsa` and
+`opentimestamps` (the two built-ins this document itself names as valid), `chia-datalayer/v1` and
+`markovian-provenance/v1` (the shipped first-party extensions). All four fail
+`^[^/]+/[^/]+/v[0-9]+$`, the two built-ins most obviously of all. The decision is a membership test
+and nothing else: the reference verifier asks whether `type` is a key of its registry, and the
+bundle schema puts no `pattern` on the field. A conforming verifier MUST therefore match `type` as
+an exact string against what it has registered; `<org>/<name>/vN` is a RECOMMENDED shape for NEW
+extension names and nothing more. A verifier that enforced it as a grammar would reject the
+receipts this implementation emits.
+
+Honest limits of that measurement, because a list of four invites the reading that it is the whole
+world. The registry is populated at first use and degrades on purpose: without the `[anchors]`
+extra the two built-ins do not register at all, so the set a given install carries is smaller, not
+different in kind. And the identifiers of the C2SP checkpoint machinery (§7c/§7d), such as
+`markovianprotocol.com/bitcoin-anchor/rootcommit/v1`, are NOT anchor types in the sense of this
+row: they name a signature block on a checkpoint, never a member of `anchors[]`, and they are
+listed here only so a reader does not go looking for them in the registry.
 
 `canonicalRoot` is compared to the root of the anchor's OWN `target`: a
 `preRegistration` anchor can never validate a `receipt` target and vice versa

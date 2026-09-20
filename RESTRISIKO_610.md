@@ -54,7 +54,10 @@ already names the class as open, so it is disclosed rather than hidden, but disc
 
 ## Closed during the cut, and named because two paths found it
 
-**A-17** is not in the list above. It said `commit_alg` must be present but its value is never
+**A-17** is not in the OPEN list above, because it is closed and this section is where the
+closures stand. Saying only "not in the list above" was ambiguous enough that a counter-reading
+of this file took it for a claim that A-17 is not closed at all. It said `commit_alg` must be
+present but its value is never
 compared against `COMMIT_ALG`, so `"sha1-unsalted"` decodes. An external review lens reported the
 same defect independently as part of a wider P2 about value domains. One fix closes both. Measured
 after the fix with a clean control arm: `sha1-unsalted` rejected, `md5-plain` rejected,
