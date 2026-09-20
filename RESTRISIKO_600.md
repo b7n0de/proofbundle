@@ -5227,7 +5227,7 @@ Abbildung auf einen bewegten Standard nicht nachprüfbar. Herkunft: Auftrag `202
 Zeile drei.
 
 
-## Nachtrag 2026-09-20 — vier Zahlen in dieser Akte wurden nach dem 13.09. nicht nachgezogen
+## Addendum 2026-09-20 — four figures in this file were never brought forward after 13.09.
 
 This file was written before the closing round finished and four figures in it were never brought
 forward. The record is corrected here rather than rewritten above, so that what was said on the day
