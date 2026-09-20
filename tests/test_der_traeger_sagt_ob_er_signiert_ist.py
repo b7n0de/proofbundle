@@ -141,13 +141,22 @@ def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
     k = copy.deepcopy(doc)
     schluessel = Ed25519PrivateKey.generate()
     oeffentlich = schluessel.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    # The body that is signed is the body WITHOUT the signature block, exactly as the checker
-    # forms it. Setting the block first and canonicalising after would be a different body.
     k["signature"] = {"alg": "ed25519",
                       "public_key_b64": base64.b64encode(oeffentlich).decode("ascii"),
                       "sig_b64": ""}
     rumpf = g.canonical_bytes(k)
     k["signature"]["sig_b64"] = base64.b64encode(schluessel.sign(rumpf)).decode("ascii")
+    # THE ASSUMPTION THIS CASE RESTS ON, asserted rather than relied upon. An adversarial reading
+    # of this very change asked whether the case is circular: the bytes are canonicalised while
+    # `sig_b64` is empty, and the block is MUTATED afterwards, so if `canonical_bytes` covered the
+    # signature wrapper the verifier would hash something else and this case would pass or fail
+    # for a reason that has nothing to do with the signature. It does not cover it
+    # (`gen_findings_register.canonical_bytes` drops the `signature` key), and that is the only
+    # reason the mutation is allowed. If someone ever includes the wrapper, this line fails first
+    # and says why, instead of leaving a confusing InvalidSignature two frames down.
+    assert g.canonical_bytes(k) == rumpf, (
+        "canonical_bytes no longer ignores the signature wrapper, so the bytes signed here are "
+        "not the bytes the checker verifies — this case would be measuring nothing")
     assert g._signatur_lage(k)[0] == "VERIFIZIERT", (
         f"eine echte Signatur ueber den kanonischen Rumpf muss verifizieren, gemessen: "
         f"{g._signatur_lage(k)}")
