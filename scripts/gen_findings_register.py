@@ -866,6 +866,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     """
     import hashlib
     import json as _json  # noqa: PLC0415
+    import re  # noqa: PLC0415
     quelle = repo / RESTRISIKO_REL
     roh = quelle.read_bytes()
     text = roh.decode("utf-8")
@@ -932,9 +933,19 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         # "as in N16"), and a cross reference is not foreign evidence. In the paragraph of a
         # promise it is, because the paragraph is three sentences long and the promise owns it.
         if fundart == "prosa_zusage":
+            # IDENTIFIER IDENTITY, NOT CHARACTER CONTAINMENT.
+            #
+            # A review round measured what containment costs here: with `N1` and `N10` both
+            # declared, the paragraph promising `N10` contains the characters of `N1`, so `N1`
+            # counted as a foreign identifier in it, `N10` was refused and landed in
+            # `identifiers_without_evidence` although its promise was found. A substring standing
+            # in for identifier identity does not merely weaken a check here, it drops a valid
+            # entry from the generated carrier.
+            _text = stueck.decode("utf-8", "ignore")
             fremd = sorted(x for x in alle_kennungen
                            if isinstance(x, str) and x != k
-                           and x in stueck.decode("utf-8", "ignore"))
+                           and re.search(rf"(?<![0-9A-Za-z_-]){re.escape(x)}(?![0-9A-Za-z_-])",
+                                         _text))
             if fremd:
                 ohne_fundstelle.append(k)
                 continue
@@ -1055,18 +1066,23 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # looking complete. Both are the class this block exists against, so the set is read
             # off the records rather than written down: exactly the forms that produced a title
             # here, each with the rule the producer applied.
-            # THE RULE IS DATA, and the sentence beside it is a VIEW of that data.
+            # THE RULE IS DATA, AND NOTHING RESTATES IT HERE.
             #
-            # A review round on 2026-09-20 measured what a sentence alone is worth here: with the
-            # declaration changed to say the LAST 200 characters are kept, all 24 cases of the
-            # contract stayed green, because the contract carried a hard-wired copy of the rule
-            # and never read what the carrier declared. A checker that cannot be moved by the
-            # declaration is not checking the declaration. The structured fields are what the
-            # contract executes; `inWords` is rendered from them for a human reader.
-            "title_derivation": {
-                fa: {**NORMALISIERUNG_JE_FUNDART[fa],
-                     "inWords": regel_als_satz(NORMALISIERUNG_JE_FUNDART[fa])}
-                for fa in sorted({r["evidence"][0]["fundart"] for r in records})},
+            # Two review rounds took the same wrong turn out of me. The first carrier declared the
+            # rule as one English sentence, and the contract asked whether that sentence contains
+            # the words `wrap` and `cut`; it did, and the rule was wrong for 145 of 150 values.
+            # The repair made the rule structured data and kept a rendered sentence beside it in
+            # `inWords`, and the next round changed that sentence to say `never marked with a
+            # trailing ellipsis` while the rule still said `ellipsis: true`. All 28 cases stayed
+            # green, because a keyword check accepts a word inside its own negation.
+            #
+            # A longer phrase would have been defeated by other wording, so the answer is not a
+            # better lexical check. A free-text field beside structured data is a SECOND source of
+            # truth, and two sources drift; the carrier therefore stores the rule and nothing
+            # else. Prose for a human is RENDERED where it is displayed, by `regel_als_satz`, from
+            # this same data. A sentence that is not stored cannot contradict the rule.
+            "title_derivation": {fa: NORMALISIERUNG_JE_FUNDART[fa] for fa in sorted(
+                {r["evidence"][0]["fundart"] for r in records})},
             # JE QUELLE EIN EINTRAG, und das ist eine Korrektur an der ersten Fassung dieses
             # Blocks. Sie nannte EINE Quelle fuer Felder aus ZWEI Dateien — gemessen kommen 145
             # Titel aus dem Quellregister und 153 weitere Zeichenketten aus der

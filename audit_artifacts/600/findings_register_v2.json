@@ -22,8 +22,7 @@
         "keep": "prefix",
         "maxLength": 200,
         "cut": "hard",
-        "ellipsis": false,
-        "inWords": "the title column of the table row; chosen by column name (Finding, In one line, What it is, Title), falling back to column 2 of which the first 200 characters are kept, cut hard, with no word boundary and no ellipsis beyond that"
+        "ellipsis": false
       },
       "ueberschrift": {
         "sourceUnit": "the first line of the evidence",
@@ -37,8 +36,7 @@
         "keep": "prefix",
         "maxLength": 200,
         "cut": "hard",
-        "ellipsis": false,
-        "inWords": "the first line of the evidence; with the heading marks, the identifier, one leading dash, colon or comma removed of which the first 200 characters are kept, cut hard, with no word boundary and no ellipsis beyond that"
+        "ellipsis": false
       }
     },
     "quoted_from_source": [
@@ -66,7 +64,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T16:40:37Z",
+  "generated_at": "2026-09-20T16:51:21Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",

@@ -15,8 +15,7 @@
         "keep": "prefix",
         "maxLength": 200,
         "cut": "wordBoundary",
-        "ellipsis": true,
-        "inWords": "the paragraph; flattened to single spaces; reduced to its first sentence of which the first 200 characters are kept, cut at a word boundary and marked with a trailing ellipsis beyond that"
+        "ellipsis": true
       }
     },
     "quoted_from_source": [
@@ -53,7 +52,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T16:40:38Z",
+  "generated_at": "2026-09-20T16:51:21Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.1.0",

@@ -90,6 +90,37 @@ def test_eine_kennung_die_aus_dem_belegverzeichnis_ausbricht_wird_abgewiesen(tmp
     assert kennung in str(e.value), e.value
 
 
+def test_eine_kennung_die_eine_andere_als_praefix_hat_verliert_ihren_eintrag_NICHT(tmp_path):
+    """Fourth review round, thread 4057469367. Identifier identity, not character containment.
+
+    With `N1` and `N10` both declared, the paragraph promising `N10` contains the characters of
+    `N1`, so the foreign-identifier check saw `N1` inside it, refused the paragraph and dropped
+    `N10` into `identifiers_without_evidence` although its promise was found. Measured at the
+    previous head, the produced carrier lost a valid entry; this case builds that exact tree.
+    """
+    g = _erzeuger()
+    quelle = tmp_path / "RESTRISIKO_PROBE.md"
+    quelle.write_text(
+        "## Open — the probe\n\n"
+        "Register entry `N10`, target 6.2.0.\n\n"
+        "## N1 · a heading of its own\n\nSomething about N1.\n",
+        encoding="utf-8")
+    ok = tmp_path / "PROBE_OBJEKTKLASSEN.json"
+    ok.write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": "N1", "klasse": "x", "zaehlt_als_fund": True},
+                      {"kennung": "N10", "klasse": "x", "zaehlt_als_fund": True}]}),
+        encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    doc = g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
+    getragen = {r["id"] for r in doc["records"]}
+    assert "N10" in getragen, (
+        f"the entry whose identifier has another as a prefix was dropped: carried {sorted(getragen)}, "
+        f"without evidence {doc['inventory']['identifiers_without_evidence']}")
+    assert "N1" in getragen, f"the shorter identifier lost its own entry: {sorted(getragen)}"
+
+
 def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp_path):
     """Lens 2, target 3. A missing per-entry source raised a raw FileNotFoundError, so the run had
     no NOT MEASURABLE path at all."""

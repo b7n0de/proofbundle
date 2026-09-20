@@ -516,7 +516,7 @@ def test_jede_benutzte_fundart_traegt_eine_AUSFUEHRBARE_regel(traegerpfad):
         f"declared {sorted(erklaert)}")
     for form, regel in _regeln(doc).items():
         assert isinstance(regel, dict), f"the rule of {form!r} is not an object: {regel!r}"
-        for feld in ("sourceUnit", "keep", "maxLength", "cut", "ellipsis", "inWords"):
+        for feld in ("sourceUnit", "keep", "maxLength", "cut", "ellipsis"):
             assert feld in regel, f"the rule of {form!r} names no {feld!r}"
         assert regel["cut"] in ("hard", "wordBoundary"), regel["cut"]
         assert isinstance(regel["maxLength"], int) and regel["maxLength"] > 0, regel["maxLength"]
@@ -548,38 +548,33 @@ def test_die_deklarierte_regel_sagt_was_die_daten_zeigen(traegerpfad):
 
 
 @traeger
-def test_der_satz_neben_der_regel_nennt_ihre_messbaren_groessen(traegerpfad):
-    """[ZAEHLT] The sentence is a VIEW of the rule, so it may not say something else.
+def test_die_regel_steht_im_traeger_OHNE_prosafassung(traegerpfad):
+    """[ZAEHLT] One source of truth for the rule, because two of them drift.
 
-    Checked against the rule's own numbers rather than by re-running the producer's renderer: a
-    contract that renders the sentence itself agrees with the producer by construction and would
-    not notice the two drifting apart.
+    THIS CASE REPLACES TWO LEXICAL ONES, and the history is the argument. The first carrier stated
+    the rule as an English sentence and the contract asked whether that sentence contains the words
+    `wrap` and `cut`. It did, and the rule was wrong for 145 of 150 values. The repair made the
+    rule structured data and left a rendered sentence beside it, and the next review round changed
+    that sentence to say `never marked with a trailing ellipsis` while the rule still declared
+    `ellipsis: true`. All 28 cases stayed green, because a keyword check accepts the word inside
+    its own negation.
+
+    A longer phrase is not the answer, it is the same answer at greater length. The carrier stores
+    the rule and no restatement of it; prose for a human is rendered where it is displayed, from
+    this same data. What is not stored cannot contradict what is.
     """
     doc = _doc(traegerpfad)
-    fehler = []
+    prosa = []
     for form, regel in _regeln(doc).items():
-        satz = (regel.get("inWords") or "").lower()
-        if str(regel.get("maxLength")) not in satz:
-            fehler.append(f"{form}: the sentence does not name the bound {regel.get('maxLength')}")
-        will = "word boundary" if regel.get("cut") == "wordBoundary" else "hard"
-        if will not in satz:
-            fehler.append(f"{form}: the sentence does not name the cut {regel.get('cut')!r}")
-        # THE WORD THE REVIEW ROUND CHANGED, and the phrase is matched WHOLE.
-        #
-        # The first attempt here asked whether `the first ` occurs anywhere in the sentence, and
-        # measured green against the very counter-example it was written for: the sentence opens
-        # with `the first line of the evidence`, which satisfies a substring check for a reason
-        # that has nothing to do with which end is kept. Substring membership standing in for the
-        # property is the class this whole round is about, and it caught me a third time inside my
-        # own checker. The phrase that carries the meaning is matched instead.
-        richtung = "first" if regel.get("keep") == "prefix" else "last"
-        phrase = f"the {richtung} {regel.get('maxLength')} characters are kept"
-        if phrase not in satz:
-            fehler.append(f"{form}: the sentence does not say {phrase!r}, so it does not name "
-                          f"which end the rule keeps ({regel.get('keep')!r})")
-        if regel.get("ellipsis") and "ellipsis" not in satz:
-            fehler.append(f"{form}: the rule ellipsises and the sentence does not say so")
-    assert not fehler, f"the sentence and the rule disagree: {fehler}"
+        fremd = sorted(k for k in regel
+                       if k not in ("sourceUnit", "keep", "maxLength", "cut", "ellipsis",
+                                    "strip", "flattenWhitespace", "takeFirstSentence",
+                                    "columnNames", "columnFallbackIndex"))
+        if fremd:
+            prosa.append(f"{form}: carries {fremd} beside the rule")
+    assert not prosa, (
+        "a rule carries a field that restates it in another form; that is a second source of "
+        f"truth and it drifts: {prosa}")
 
 
 def test_FANG_eine_geaenderte_DEKLARATION_macht_die_bindung_rot():
