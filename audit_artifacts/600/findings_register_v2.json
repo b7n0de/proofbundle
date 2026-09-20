@@ -14,7 +14,8 @@
         "fields": [
           "records[].title"
         ],
-        "why": "headings cut verbatim out of the source register; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+        "normalisation": "line wrapping collapsed to single spaces; a title longer than 200 characters is cut at a word boundary and marked with a trailing ellipsis. Apply this rule to the source text and the value is found there; without it the value is not byte identical to any source line.",
+        "why": "headings taken from the source register and normalised by the rule named above; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
       },
       {
         "language": "de",
@@ -31,7 +32,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T14:17:59Z",
+  "generated_at": "2026-09-20T15:02:35Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",

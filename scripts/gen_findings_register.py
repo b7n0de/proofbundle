@@ -350,6 +350,13 @@ _SPRACHE_DER_QUELLE = "de"
 #: source it is about.
 SPRACHE_JE_BLATT = {"RESTRISIKO_600.md": "de", "RESTRISIKO_610.md": "en"}
 
+#: THE ONE DECLARED RULE by which a title relates to its source. It stands in the carrier, so a
+#: reader can apply it, and the contract applies the same one rather than a wider tolerance.
+NORMALISIERUNG_DER_TITEL = (
+    "line wrapping collapsed to single spaces; a title longer than 200 characters is cut at a "
+    "word boundary and marked with a trailing ellipsis. Apply this rule to the source text and "
+    "the value is found there; without it the value is not byte identical to any source line.")
+
 #: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
 #: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
 #:
@@ -973,9 +980,22 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                 *({"language": SPRACHE_JE_BLATT.get(rel, _SPRACHE_DER_RISIKOBLAETTER),
                    "source": rel,
                    "fields": ["records[].title"],
-                   "why": ("headings cut verbatim out of the source register; the evidence files "
-                           "are byte pinned and digest checked, so translating them would falsify "
-                           "the evidence they exist to reproduce")}
+                   # THE CLAIM SAYS WHAT THE VALUE IS, and the first version said more.
+                   #
+                   # A review round on 2026-09-20 put it plainly: a normalised, shortened title is
+                   # not a verbatim quotation, and calling it one publishes provenance a reader
+                   # cannot check against the named source. My own first answer to that was the
+                   # wrong way round — I made the CHECKER tolerant instead of making the CLAIM
+                   # accurate. A check bent to fit a claim measures the claim, not the source.
+                   #
+                   # So the normalisation is DECLARED, here, in the same block that names the
+                   # source. A reader applies it and gets the source bytes back; the contract
+                   # applies exactly this rule and nothing wider.
+                   "normalisation": NORMALISIERUNG_DER_TITEL,
+                   "why": ("headings taken from the source register and normalised by the rule "
+                           "named above; the evidence files are byte pinned and digest checked, "
+                           "so translating them would falsify the evidence they exist to "
+                           "reproduce")}
                   for rel in sorted(_quellen)),
                 {"language": _SPRACHE_DER_QUELLE, "source": OBJEKTKLASSEN_REL,
                  "fields": ["records[].objektklasse_begruendung",

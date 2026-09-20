@@ -334,3 +334,31 @@ def test_jeder_titel_steht_in_der_quelle_SEINES_datensatzes(traegerpfad):
             offen.append(f"{r['id']}: der Titel steht nicht in {quelle}")
     assert not offen, (
         f"{len(offen)} Titel stehen nicht in der Quelle IHRES Datensatzes: {offen[:4]}")
+
+
+@traeger
+def test_eine_normalisierte_zusage_nennt_ihre_normalisierung(traegerpfad):
+    """[ZAEHLT] A tolerance that is not declared is a tolerance nobody can check.
+
+    Found by a review round on 2026-09-20. The titles of this carrier are not byte identical to
+    any source line: line wrapping is collapsed and long ones are cut. The first answer to that
+    was to make THIS checker tolerant, which is the wrong way round, because a check bent to fit a
+    claim measures the claim and not the source. The carrier now declares the rule, and this case
+    binds that it does: a group covering the titles must name its normalisation, and the rule must
+    say what it does to whitespace and to length.
+    """
+    doc = _doc(traegerpfad)
+    ohne = []
+    for g in _gruppen(doc):
+        if "records[].title" not in (g.get("fields") or []):
+            continue
+        regel = g.get("normalisation")
+        if not regel:
+            ohne.append(f"{g.get('source')}: keine Normalisierung genannt")
+        elif not ("wrap" in regel.lower() and ("cut" in regel.lower()
+                                               or "ellipsis" in regel.lower())):
+            ohne.append(f"{g.get('source')}: die Regel nennt Umbruch oder Kuerzung nicht: "
+                        f"{regel[:60]!r}")
+    assert not ohne, (
+        "eine Gruppe, die Titel deckt, nennt ihre Normalisierung nicht — dann ist die Toleranz "
+        f"dieses Pruefers still und der Leser kann sie nicht anwenden: {ohne}")
