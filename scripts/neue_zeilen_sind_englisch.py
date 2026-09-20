@@ -55,7 +55,16 @@ def _gemessener_baum(vorgabe: str | None = None) -> Path:
     """
     if vorgabe:
         return Path(vorgabe).resolve(), "vorgabe"
-    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    # THE CALL ITSELF CAN FAIL, not only the command. An adversarial reading ran this with `git`
+    # unresolvable and got a bare FileNotFoundError out of a module-level statement: traceback, no
+    # answer, and exit 1 -- the SAME exit code this tool uses for a genuine ROT verdict. A caller
+    # that only reads the exit code cannot tell a crash from a finding. So the exception is caught
+    # and becomes the same typed refusal as a non-zero return.
+    try:
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True)
+    except OSError as fehler:
+        return WERKZEUG_WURZEL, f"rueckfall: git is not runnable here ({fehler.strerror})"
     if r.returncode == 0 and r.stdout.strip():
         return Path(r.stdout.strip()), "arbeitsverzeichnis"
     # NO REPOSITORY AROUND THE WORKING DIRECTORY, and this returns a NAMED fallback rather than a
@@ -69,7 +78,15 @@ def _gemessener_baum(vorgabe: str | None = None) -> Path:
     # A counter-reading from a different model family put it plainly: the caller cannot tell a
     # valid measurement from a fallback, so the fallback has to refuse rather than answer. The
     # tree still comes back, because the answer has to say WHICH tree it would have judged.
-    return WERKZEUG_WURZEL, "rueckfall"
+    #
+    # WHY git's OWN WORDS travel with it. `rev-parse` returns non-zero for more than one reason,
+    # and "there is no repository here" is only the most common of them: a bare repository has no
+    # working tree to name, and a checkout whose ownership git distrusts refuses while a perfectly
+    # real repository sits right there. The earlier version captured stderr and never read it, so
+    # every cause collapsed into one sentence that asserted the most common one. The cause is now
+    # carried rather than guessed.
+    grund = (r.stderr or "").strip().splitlines()
+    return WERKZEUG_WURZEL, ("rueckfall: " + grund[0]) if grund else "rueckfall"
 
 
 REPO, REPO_HERKUNFT = _gemessener_baum()
@@ -212,12 +229,13 @@ def _ist_prosa(datei: str, nr: int, text: str) -> bool:
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
-    if REPO_HERKUNFT == "rueckfall":
+    if REPO_HERKUNFT.startswith("rueckfall"):
         return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": [],
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
                 "wortlisten_baum": str(WERKZEUG_WURZEL),
-                "grund": ("the working directory is not inside a git repository, so there is no "
-                          "tree to judge; name one with --repo instead of taking this tool's own")}
+                "grund": ("no tree to judge here, and git's own reason is carried in "
+                          f"baum_herkunft; name one with --repo instead of taking this tool's own "
+                          f"({REPO_HERKUNFT})")}
     je_datei, lage = _neue_zeilen(basis, arbeitsbaum)
     if lage != "measured":
         return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [],

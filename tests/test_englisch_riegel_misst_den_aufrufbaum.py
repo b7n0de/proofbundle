@@ -152,7 +152,11 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
         self.assertEqual(antwort["urteil"], "NOT MEASURABLE",
                          "a run with no tree to judge must not report a verdict")
         self.assertEqual(rc, 2, "and it must not exit zero")
-        self.assertEqual(antwort["baum_herkunft"], "rueckfall")
+        # THE KIND, NOT THE SENTENCE. The field carries git's own reason after the kind, so an
+        # equality check here would pin the wording of a message this tool does not own and would
+        # go red the next time git rephrases it.
+        self.assertTrue(antwort["baum_herkunft"].startswith("rueckfall"),
+                        antwort["baum_herkunft"])
         self.assertIn("--repo", antwort["grund"], "the answer names the way out")
 
     def test_die_herkunft_des_baums_steht_in_der_antwort(self):
@@ -177,3 +181,43 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
         self.assertIn(antwort["urteil"], ("gruen", "ROT"),
                       "a real repository must still get a real verdict")
         self.assertIn(rc, (0, 1))
+
+
+class TestWennGitSelbstNichtLaeuft(unittest.TestCase):
+    """The call can fail, not only the command, and a crash must not look like a finding.
+
+    An adversarial reading ran the tool with `git` unresolvable. The module-level
+    `subprocess.run` raised FileNotFoundError before `main()` was ever entered: a traceback, no
+    answer, and exit 1 -- the SAME exit code this tool uses for a real ROT verdict. A caller that
+    only reads the exit code cannot tell a crash from a finding, which is the failure this whole
+    file exists against, arriving through a channel nobody had opened.
+    """
+
+    def test_ohne_git_gibt_es_eine_antwort_und_keinen_absturz(self):
+        umgebung = dict(os.environ, PATH="/nonexistent")
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(
+                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                 "--json"],
+                cwd=d, env=umgebung, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2,
+                         f"a tool that cannot run git must refuse, not crash: {r.stderr[-300:]}")
+        antwort = json.loads(r.stdout)
+        self.assertEqual(antwort["urteil"], "NOT MEASURABLE")
+        self.assertIn("git is not runnable", antwort["baum_herkunft"])
+
+    def test_die_zwei_ruecksfallgruende_sind_unterscheidbar(self):
+        """`no repository here` and `git is missing` are different facts, not one sentence."""
+        with tempfile.TemporaryDirectory() as d:
+            ohne_repo = subprocess.run(
+                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                 "--json"], cwd=d, capture_output=True, text=True)
+            ohne_git = subprocess.run(
+                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                 "--json"], cwd=d, env=dict(os.environ, PATH="/nonexistent"),
+                capture_output=True, text=True)
+        a = json.loads(ohne_repo.stdout)["baum_herkunft"]
+        b = json.loads(ohne_git.stdout)["baum_herkunft"]
+        self.assertNotEqual(a, b, "two different causes must not collapse into one sentence")
+        self.assertIn("not a git repository", a)
+        self.assertIn("not runnable", b)
