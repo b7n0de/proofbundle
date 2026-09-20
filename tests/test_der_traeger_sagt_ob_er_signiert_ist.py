@@ -100,38 +100,39 @@ def test_FANG_ein_traeger_ganz_OHNE_signaturblock_wird_gemeldet():
 
 
 def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
-    """[ZAEHLT] Die Verschaerfung darf den Weg, auf den sie zeigt, nicht verbauen.
+    """[ZAEHLT] A tightened check must not block the path it points at.
 
-    DIE ATTRAPPE WAR EIN MUENZWURF, gemessen 2026-09-20. Hier standen 32 bzw. 64 NULLBYTES, mit
-    der Begruendung "verifiziert wird an DIESER Stelle nichts, nur die Form geprueft". Das stimmte
-    am 14.09. und stimmt seit `_signatur_lage` nicht mehr: der Pruefer verifiziert kryptografisch
-    ueber den kanonischen Rumpf. Und 32 Nullbytes sind als Punkt gelesen NICHT die Identitaet,
-    sondern ein Punkt der ORDNUNG 4 — mit einer Null-Signatur haelt die Gleichung genau dann,
-    wenn der Hash des Rumpfes guenstig faellt. GEMESSEN ueber 200 Rumpfe, die sich nur im
-    Zeitstempel unterscheiden: 44 verifizierten, 22 Prozent. Die Ordnung ist nicht aus dieser Rate
-    GESCHLOSSEN, sondern nachgerechnet: 32 Nullbytes entpacken auf der Kurve zu (x != 0, y = 0),
-    und vier Additionen des Punktes mit sich selbst erreichen die Identitaet (0, 1) — Ordnung
-    exakt 4, und nicht die Identitaet, die jede Nachricht durchgelassen haette. Die Rate passt
-    dazu, sie belegt es aber nicht; eine Trefferquote ist ein Hinweis, die Rechnung ist der Beleg.
-    Auf `main` fiel die Muenze guenstig, dieser Fall war gruen, und jede Aenderung am Traeger
-    warf sie neu. SPEC Abschnitt 4a nennt genau diese Annahme als dokumentiertes Verhalten
-    dieses Profils ("small-/mixed-order components are accepted"), also ist der Pruefer im Recht
-    und die Attrappe war es nie.
+    (English because it is new; the German around it is the untranslated existing body, by the
+    owner's language rule of 2026-09-19.)
 
-    Ein Anti-Fall, der mit 22 Prozent Wahrscheinlichkeit gruen ist, misst nicht, ob ein
-    SIGNIERTER Traeger durchgeht. Er braucht eine echte Signatur, und das kostet drei Zeilen.
+    THE DUMMY WAS A COIN FLIP, measured 2026-09-20. What stood here were 32 and 64 ZERO BYTES,
+    justified by the comment "nothing is verified at this point, only the shape is checked". That
+    was true on the 14th and stopped being true with `_signatur_lage`, which verifies
+    cryptographically over the canonical body. And 32 zero bytes, read as a curve point, are NOT
+    the identity: they are a point of ORDER 4, so with a zero signature the equation holds exactly
+    when the body's hash falls favourably. MEASURED over 200 bodies differing only in a timestamp:
+    44 verified, 22 per cent. The order is not INFERRED from that rate, it is computed: the 32
+    zero bytes decompress to (x != 0, y = 0), and four self-additions of the point reach the
+    identity (0, 1), so the order is exactly 4 and it is not the identity, which would have let
+    every message through. The rate agrees with the computation but does not establish it; a hit
+    rate is a hint, the arithmetic is the evidence. On `main` the coin landed well, this case was
+    green, and every change to the carrier threw it again. SPEC section 4a names this very
+    assumption as documented behaviour of the profile ("small-/mixed-order components are
+    accepted"), so the checker is right and the dummy never was.
 
-    WAS HIER NICHT REPARIERT WIRD, und warum das eine Entscheidung ist und kein Uebersehen. Ein
-    erster Anlauf schrieb daneben einen Fangnachweis, der verlangt, dass die Null-Attrappe NIE
-    verifiziert. Der faellt, auf diesem Baum und auf `main`, weil `_signatur_lage` an
-    `cryptography` delegiert und dieses Profil Punkte kleiner Ordnung ANNIMMT — SPEC Abschnitt 4a
-    sagt das ausdruecklich und byte-genau gegen die "Taming the Many EdDSAs"-Vektoren zu. Ein
-    Test, der das Gegenteil behauptet, wuerde eine Eigenschaft festschreiben, die der Verifizierer
-    nicht hat und laut eigener Zusage nicht haben soll. Ein Schluessel kleiner Ordnung am
-    Traeger-Signaturblock abzuweisen ist eine CODE-Aenderung an `_signatur_lage`, gehoert in einen
-    eigenen Zweig mit eigenem Fangnachweis und nicht in einen Doku-Schnitt. Getragen als
-    SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01, Ziel 6.2.0, damit der Fund nicht mit diesem Kommentar
-    verschwindet.
+    An anti-case that is green with probability 22 per cent does not measure whether a SIGNED
+    carrier passes. It needs a real signature, and that costs three lines.
+
+    WHAT IS DELIBERATELY NOT FIXED HERE, because it is a decision and not an oversight. A first
+    attempt added a catch case demanding that the zero dummy NEVER verify. It fails, on this tree
+    and on `main`, because `_signatur_lage` delegates to `cryptography` and this profile ACCEPTS
+    small-order components, which SPEC section 4a states explicitly and pins byte-exact against
+    the "Taming the Many EdDSAs" vectors. A test asserting the opposite would fix a property the
+    verifier does not have and, by its own promise, is not meant to have. Refusing a small-order
+    key at the carrier's signature block is a CODE change to `_signatur_lage`; it belongs in its
+    own branch with its own catch proof, not in a documentation cut. Carried as
+    SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01, target 6.2.0, so the finding does not vanish with
+    this comment.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -140,8 +141,8 @@ def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
     k = copy.deepcopy(doc)
     schluessel = Ed25519PrivateKey.generate()
     oeffentlich = schluessel.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    # Der Rumpf, ueber den signiert wird, ist der Rumpf OHNE den Signaturblock, genau wie der
-    # Pruefer ihn bildet. Erst den Block setzen, dann kanonisieren, waere ein anderer Rumpf.
+    # The body that is signed is the body WITHOUT the signature block, exactly as the checker
+    # forms it. Setting the block first and canonicalising after would be a different body.
     k["signature"] = {"alg": "ed25519",
                       "public_key_b64": base64.b64encode(oeffentlich).decode("ascii"),
                       "sig_b64": ""}
