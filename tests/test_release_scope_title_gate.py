@@ -363,6 +363,56 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
                              "lost rather than moved, and the smaller count here is not honest")
 
 
+class TestDerWaechterBETRITTdieTabelleUeberhaupt(unittest.TestCase):
+    """AN EMPTY FINDING LIST OVER ZERO EXAMINED ROWS IS NOT A CLEAN ONE.
+
+    Measured 2026-09-20 by a counter-reading: `zeilen_ohne_kennung` entered a table only when the
+    LAST header column read `Zweig`. The scope file has been English for a while and heads its two
+    In-tables with `Title` and `Branch`, so the loop never set its flag, and the function returned
+    an empty list for the whole file. Green, every run, over nothing.
+
+    That is the class the function was written against, turned on itself: a line that stops
+    existing rather than becoming a finding, and a verdict that gets greener as a result. The
+    number of rows EXAMINED is the thing that tells the two apart, and these cases assert it.
+    """
+
+    def setUp(self):
+        self.echt = REPO / "docs" / "release_scope" / "6.1.0.md"
+
+    def test_der_waechter_erreicht_zeilen_der_echten_datei(self):
+        aus, zustand = GATE.zeilen_ohne_kennung(self.echt)
+        self.assertEqual(zustand, "gemessen", zustand)
+        self.assertGreater(GATE.ZULETZT_GEPRUEFT, 0,
+                           "the guard reported no unreadable line without reading a single one")
+        self.assertEqual(aus, [])
+
+    def test_ein_kopf_in_einer_unbekannten_sprache_ist_NICHT_MESSBAR_statt_gruen(self):
+        """The failure mode itself, planted: rename the column and the answer must change."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            gefaelscht = pathlib.Path(d) / "6.1.0.md"
+            gefaelscht.write_text(
+                self.echt.read_text(encoding="utf-8").replace("| Branch |", "| Filiale |"),
+                encoding="utf-8")
+            aus, zustand = GATE.zeilen_ohne_kennung(gefaelscht)
+        self.assertTrue(zustand.startswith("NOT MEASURABLE") or zustand.startswith("NICHT MESSBAR"),
+                        f"a header the guard cannot read must say so, read {zustand!r}")
+        self.assertEqual(aus, [], "and it must not invent findings either")
+
+    def test_beide_schreibweisen_der_spalte_werden_erkannt(self):
+        """German and English, because the file has been both."""
+        import tempfile
+        for kopf in ("| Identifier | Subject | Branch |", "| Kennung | Sache | Zweig |"):
+            with self.subTest(kopf=kopf):
+                with tempfile.TemporaryDirectory() as d:
+                    f = pathlib.Path(d) / "s.md"
+                    f.write_text("## In\n\n" + kopf + "\n|---|---|---|\n"
+                                 "| A-16 | x | `zweig/a` |\n\n## Out\n", encoding="utf-8")
+                    aus, zustand = GATE.zeilen_ohne_kennung(f)
+                self.assertEqual(zustand, "gemessen", zustand)
+                self.assertGreater(GATE.ZULETZT_GEPRUEFT, 0)
+
+
 class TestEineUnlesbareZeileVerschwindetNicht(unittest.TestCase):
     """THE CLASS BEHIND THE R-A1 RENAME, and it is worth more than the rename.
 
