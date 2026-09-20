@@ -104,9 +104,26 @@ def pytest_sessionfinish(session, exitstatus):
     #
     # THIS GUARD IS UNBOUND, and saying so is the point of this paragraph. MEASURED 2026-09-20 on
     # a twelve-case file, four configurations: guard present and guard removed, at `-n 2` and at
-    # `-n 4`. All four wrote `passed: 12`. With xdist 3.8.0 the controller's `sessionfinish` runs
-    # after the workers', so its complete set overwrites their partial ones and the guard changes
-    # nothing observable. No case in this file fails if this guard is deleted.
+    # `-n 4`. All four wrote `passed: 12`. No case in this file fails if this guard is deleted.
+    #
+    # WHY it comes out right anyway was MEASURED too, and not merely reasoned -- the first version
+    # of this paragraph asserted the mechanism from the outcome, which is the move this whole file
+    # exists to catch. The counting and writing below is what ships; an EXTERNAL append-log was
+    # wrapped around it for the measurement, because nothing here prints or records a pid, and a
+    # table that could not have come from the shipped code should say so. `-n 2`, guard removed:
+    #
+    #     worker      pid=314806   {'passed': 6}
+    #     worker      pid=314811   {'passed': 6}
+    #     controller  pid=314794   {'passed': 12}      <- last writer, complete set
+    #
+    # THE SPLIT IS AN INSTANCE, THE ORDER IS THE PATTERN, and the difference matters because the
+    # first version of this paragraph quoted "six of twelve" as though it were the rule. Across 77
+    # runs a later reading measured splits of [5,7] and, at -n 3, [3,4,5]; under `--dist loadscope`
+    # one worker held all twelve and the other none. What held in every one of those runs is the
+    # part the guard depends on: the controller wrote LAST, with the complete set.
+    #
+    # So a worker's set is USUALLY partial, and the guard is aimed at something real. It is
+    # unobservable today only because this version of xdist lets the controller finish last.
     #
     # It stays because the ordering it relies on is not promised anywhere, and a race that
     # happens to fall the right way is not a result. But an unobservable safeguard is reasoning,
