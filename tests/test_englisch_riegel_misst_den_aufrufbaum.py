@@ -47,7 +47,6 @@ class BrauchtDenBaum(unittest.TestCase):
         if not RIEGEL.is_file():
             self.skipTest(f"{RIEGEL.relative_to(WERKZEUG)} is not in this tree — a distributed "
                           f"artefact prunes scripts/, and a tool that is not here cannot be judged")
-SKRIPT = WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"
 
 
 def _git(cwd, *args):
@@ -75,7 +74,7 @@ def _repo(zeilen: str):
 
 def _lauf(cwd, *args):
     umgebung = dict(os.environ, PYTHONPATH=str(WERKZEUG / "src"))
-    r = subprocess.run([sys.executable, str(SKRIPT), "--json", *args],
+    r = subprocess.run([sys.executable, str(RIEGEL), "--json", *args],
                        cwd=cwd, capture_output=True, text=True, env=umgebung)
     return r.returncode, json.loads(r.stdout)
 
@@ -144,9 +143,6 @@ class TestTheGateJudgesTheCallingTree(BrauchtDenBaum):
         self.assertEqual(rc, 2)
         self.assertIn("gemessener_baum", antwort)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestDerRueckfallAntwortetNichtEreGibtAuf(BrauchtDenBaum):
@@ -255,3 +251,38 @@ class TestWennGitSelbstNichtLaeuft(BrauchtDenBaum):
         self.assertNotEqual(a, b, "two different causes must not collapse into one sentence")
         self.assertIn("not a git repository", a)
         self.assertIn("not runnable", b)
+class TestRunningThisFileAsAScriptCoversAllOfIt(unittest.TestCase):
+    """`unittest.main()` runs what is DEFINED when it is reached, not what the file contains.
+
+    MEASURED 2026-09-20 at 6d708fb: the call sat above three of this file's four test classes.
+    `pytest` and `python -m unittest` both ran twelve cases; `python tests/<this file>.py` ran SIX
+    and printed `OK` with exit 0. The six it skipped were every case about the fallback, the
+    missing-git path and the two distinguishable fallback reasons -- the cases this file was added
+    for. A run that covers half a file and reports success is the failure this repository keeps
+    finding in other places, arriving in the test file itself.
+
+    Checked on the syntax tree rather than by running the script twice: the property is "nothing
+    that defines cases comes after the entry point", and that is a structural fact, so reading it
+    structurally is both exact and free.
+    """
+
+    def test_no_test_class_is_defined_after_the_entry_point(self):
+        import ast
+        quelle = pathlib.Path(__file__).read_text(encoding="utf-8")
+        baum = ast.parse(quelle)
+        einstieg = [k for k in baum.body
+                    if isinstance(k, ast.If) and "__main__" in ast.dump(k.test)]
+        if not einstieg:
+            self.skipTest("this file has no script entry point, so it cannot run a partial set")
+        ab = min(k.lineno for k in einstieg)
+        danach = [k.name for k in baum.body
+                  if isinstance(k, ast.ClassDef) and k.lineno > ab
+                  and any(isinstance(m, ast.FunctionDef) and m.name.startswith("test_")
+                          for m in k.body)]
+        self.assertEqual(danach, [],
+                         f"these classes are defined after `if __name__` on line {ab}, so running "
+                         f"this file as a script would silently skip them: {danach}")
+
+
+if __name__ == "__main__":
+    unittest.main()
