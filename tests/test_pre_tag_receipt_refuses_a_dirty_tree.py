@@ -22,6 +22,28 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 SKRIPT = REPO / "scripts" / "pre_tag_receipt.py"
 
 
+#: Variables that let the ENVIRONMENT supply what the PRODUCTION CODE is supposed to supply.
+#: MEASURED 2026-09-20 by a counter-reading from another model family: with
+#: `_bytecode_cache_elsewhere()` removed but `PYTHONDONTWRITEBYTECODE=1` exported, the bytecode
+#: case PASSED — the very false green it was rewritten to close, one layer out. The two GIT_ names
+#: are the same class rather than the same symptom: they redirect `git status --porcelain` away
+#: from `--repo`, so the cleanliness gate would be answered about a tree nobody chose. A case must
+#: measure the code, so the child starts without them.
+_UMGEBUNG_DARF_DAS_NICHT_BEANTWORTEN = (
+    "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX",
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+)
+
+
+def _kindumgebung(**zusatz) -> dict:
+    """The parent environment minus everything that could stand in for what is under test."""
+    e = dict(os.environ)
+    for name in _UMGEBUNG_DARF_DAS_NICHT_BEANTWORTEN:
+        e.pop(name, None)
+    e.update(zusatz)
+    return e
+
+
 def _git(cwd, *args) -> str:
     r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
     if r.returncode != 0:
@@ -64,7 +86,7 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
              "--audit-output-file", str(self.ausgabe),
              "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
             capture_output=True, text=True, cwd=str(REPO),
-            env=dict(os.environ, PYTHONPATH=str(REPO / "scripts")))
+            env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
 
     def test_ein_schmutziger_baum_wird_abgewiesen(self):
         """The case this file exists for: one uncommitted path and the emit refuses by name."""
@@ -108,15 +130,42 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         never lists. So the emit path now uses the same mechanism, `sys.pycache_prefix` plus
         `dont_write_bytecode`, and the gate keeps every tooth it had.
 
-        This case measures the guarantee that replaces the filter: after a full emit, the judged
-        tree carries no `__pycache__` next to its sources.
+        This case measures the guarantee that replaces the filter: after a full emit, no
+        `__pycache__` appears next to the sources THE RUN ITSELF IMPORTS.
+
+        MEASURED 2026-09-20, and the first version of this case did not measure it. It looked for
+        `__pycache__` inside `self.baum`, the throwaway repository passed as `--repo`. No Python
+        module is ever imported out of that directory, so no cache can appear there with the fix
+        or without it: removing `_bytecode_cache_elsewhere()` left the case GREEN. A case that
+        cannot go red is not a catch proof. The sources the run does import are `scripts/` and
+        `src/proofbundle/`, so this version copies both into a directory of its own and watches
+        THAT.
         """
-        r = self._emit()
+        import shutil  # noqa: PLC0415
+        eigen = pathlib.Path(tempfile.mkdtemp(prefix="pre-tag-quellen-"))
+        self.addCleanup(shutil.rmtree, eigen, ignore_errors=True)
+        shutil.copytree(REPO / "scripts", eigen / "scripts")
+        shutil.copytree(REPO / "src", eigen / "src")
+        for rest in (eigen / "scripts").rglob("__pycache__"):
+            shutil.rmtree(rest, ignore_errors=True)
+        for rest in (eigen / "src").rglob("__pycache__"):
+            shutil.rmtree(rest, ignore_errors=True)
+
+        ziel = self.baum.parent / "p3.bin"
+        kontext = self.baum.parent / "c3.json"
+        r = subprocess.run(
+            [sys.executable, str(eigen / "scripts" / "pre_tag_receipt.py"), "--repo", str(self.baum),
+             "--emit-payload", str(ziel), "--context-out", str(kontext),
+             "--version", "6.1.0", "--audit-command", "true", "--audit-exit", "0",
+             "--audit-output-file", str(self.ausgabe),
+             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
+            capture_output=True, text=True, cwd=str(eigen),
+            env=_kindumgebung(PYTHONPATH=os.pathsep.join([str(eigen / "src"), str(eigen / "scripts")])))
         self.assertEqual(r.returncode, 0, f"the control emit failed: {r.stdout + r.stderr}")
-        gefunden = sorted(str(q.relative_to(self.baum)) for q in self.baum.rglob("__pycache__"))
+        gefunden = sorted(str(q.relative_to(eigen)) for q in eigen.rglob("__pycache__"))
         self.assertEqual(gefunden, [],
-                         f"the run left bytecode caches inside the judged tree ({gefunden}), so the "
-                         f"next emit on this tree would refuse because of debris this one created")
+                         f"the run left bytecode caches next to the sources it imported ({gefunden}), "
+                         f"so an emit in a checkout would refuse because of debris it created itself")
 
     def test_ANTI_gepflanzter_bytecode_wird_weiterhin_abgewiesen(self):
         """[ZAEHLT] The exemption that was almost added must not exist.
@@ -183,9 +232,19 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
              "--audit-output-file", str(self.ausgabe),
              "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
             capture_output=True, text=True, cwd=str(REPO),
-            env=dict(os.environ, PYTHONPATH=str(REPO / "scripts")))
+            env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
         self.assertNotEqual(r.returncode, 0, "a non-repository produced a payload")
         self.assertFalse(ziel.exists(), "a payload was written despite the refusal")
+        # THE EXIT CODE ALONE DOES NOT NAME THE MECHANISM. Measured 2026-09-20: with the gate
+        # removed the script still left with 1, because `subject_tree_digest` raises an unhandled
+        # `BaumNichtLesbar` one step later. The case was green in both states and therefore proved
+        # nothing about the gate. It now asserts the gate's OWN refusal, which is the thing under
+        # test, and a traceback no longer passes for a decision.
+        meldung = r.stdout + r.stderr
+        self.assertIn("refusing to bind a tree digest", meldung,
+                      f"the run failed, but not through the cleanliness gate: {meldung[-800:]}")
+        self.assertNotIn("Traceback", meldung,
+                         f"a refusal is a decision, not a crash: {meldung[-800:]}")
 
 
 if __name__ == "__main__":

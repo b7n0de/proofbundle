@@ -59,8 +59,17 @@ def _bytecode_cache_elsewhere() -> None:
     """
     global _CACHE_DIR
     if _CACHE_DIR is None:
-        import tempfile  # noqa: PLC0415
+        import atexit     # noqa: PLC0415
+        import shutil     # noqa: PLC0415
+        import tempfile   # noqa: PLC0415
+        # The path has to be UNPREDICTABLE, not merely elsewhere: a fixed prefix is a location an
+        # attacker can plant a `.pyc` at ahead of time, which is the same hole one directory over.
+        # `mkdtemp` buys that unpredictability, and it is why a constant is not the cheaper answer.
         _CACHE_DIR = tempfile.mkdtemp(prefix="pre_tag_receipt_pyc_")
+        # AND IT HAS TO BE GIVEN BACK. Measured 2026-09-20: this session's suite runs left 169 of
+        # these directories in /tmp, one per invocation, all empty — `dont_write_bytecode` means
+        # nothing is ever written into them. Empty is not harmless when the count has no ceiling.
+        atexit.register(shutil.rmtree, _CACHE_DIR, ignore_errors=True)
         sys.pycache_prefix = _CACHE_DIR
         sys.dont_write_bytecode = True
 
