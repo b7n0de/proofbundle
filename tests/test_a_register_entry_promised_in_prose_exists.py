@@ -178,11 +178,29 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
         self.assertTrue(register,
                         "no register entry is readable in this tree, so this case would pass by "
                         "measuring nothing")
-        offen = []
+        # THROUGH THE DECLARED VALIDATION, not past it.
+        #
+        # A review round measured that `_zusagen_im_blatt` had NO CALLERS while its docstring
+        # promised "a malformed token is a finding". The verdict iterated the raw pattern, so a
+        # promise for an identifier with one Cyrillic capital, plus a register record carrying
+        # that same id, produced an empty finding list. A validation path nobody walks is a
+        # sentence, not a check, and this file exists against exactly that substitution.
+        #
+        # THE REGISTER SIDE IS DELIBERATELY NOT FILTERED BY THE SAME SHAPE, and the reason is
+        # measured rather than assumed: real identifiers of line 600 are `N1`, `S5`, `A1`, which
+        # are shorter than a promise token may be. Whether a register id is well formed is the
+        # producer's own gate (`_kennung_form` in `scripts/gen_findings_register.py`), and it runs
+        # there. Refusing the malformed PROMISE closes the attack on its own, because a promise
+        # that never becomes a candidate can never be matched against anything.
+        offen, missgebildet = [], []
         for blatt in _risikoblaetter():
-            for kennung in _ZUSAGE.findall(blatt.read_text(encoding="utf-8", errors="replace")):
-                if kennung not in register:
-                    offen.append(f"{blatt.name}: {kennung}")
+            gut, schlecht = _zusagen_im_blatt(blatt.read_text(encoding="utf-8", errors="replace"))
+            missgebildet += [f"{blatt.name}: {k!r}" for k in schlecht]
+            offen += [f"{blatt.name}: {k}" for k in gut if k not in register]
+        self.assertEqual(
+            missgebildet, [],
+            "a promise names a token that is not an identifier of this house, so it can never "
+            "resolve and a reader cannot tell why:\n  " + "\n  ".join(missgebildet))
         self.assertEqual(offen, [], "a risk sheet promises a register entry that no register "
                                     "carries:\n  " + "\n  ".join(offen))
 
@@ -193,7 +211,8 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
         that the pattern still SEES them, so a later rewording cannot turn this file into a
         silent no-op -- the failure mode the sheets themselves keep finding elsewhere.
         """
-        gefunden = sum(len(_ZUSAGE.findall(b.read_text(encoding="utf-8", errors="replace")))
+        gefunden = sum(sum(len(x) for x in
+                           _zusagen_im_blatt(b.read_text(encoding="utf-8", errors="replace")))
                        for b in _risikoblaetter())
         self.assertGreater(gefunden, 0,
                            "the pattern matches no promise at all, so the case above proves "
@@ -253,10 +272,26 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
             (w / "docs" / "proposals" / "irgendeine_vorlage.md").write_text(
                 "Register entry `NUR-IN-EINER-VORLAGE-VERSPROCHEN-01`.\n", encoding="utf-8")
             gefunden = [k for b in _risikoblaetter(w)
-                        for k in _ZUSAGE.findall(b.read_text(encoding="utf-8"))]
+                        for k in _zusagen_im_blatt(b.read_text(encoding="utf-8"))[0]]
             self.assertIn("NUR-IN-EINER-VORLAGE-VERSPROCHEN-01", gefunden,
                           "a promise outside the risk sheets must be seen, otherwise the scope of "
                           "this guard is a file name rather than a property")
+
+    def test_FANG_eine_zusage_mit_fremdem_zeichen_wird_GEMELDET(self):
+        """[ZAEHLT] The attack of the review round, as an executable case.
+
+        A promise whose identifier carries one Cyrillic capital, together with a register record
+        holding that very id, left the verdict empty before this: the token failed the ASCII shape
+        and was therefore never a candidate, so nothing was ever compared. Reported now, which is
+        what the validation always claimed to do.
+        """
+        gut, schlecht = _zusagen_im_blatt("Register entry `\u0410BCDEFGH-01`.\n")
+        self.assertEqual(gut, [], "a token with a foreign capital must not count as well formed")
+        self.assertEqual(len(schlecht), 1, f"the malformed token is not reported: {schlecht}")
+        # The counter-direction in the same case: an ordinary promise still lands in `gut`, so the
+        # validation did not become a rule that rejects everything.
+        gut2, schlecht2 = _zusagen_im_blatt("Register entry `ABCDEFGH-01`.\n")
+        self.assertEqual((gut2, schlecht2), (["ABCDEFGH-01"], []), (gut2, schlecht2))
 
     def test_KONTROLLE_die_erzeugten_belege_zaehlen_nicht_doppelt(self):
         """[ZAEHLT] The exclusion has a reason, and the reason is checked.
