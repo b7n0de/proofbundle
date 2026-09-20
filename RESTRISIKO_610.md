@@ -54,7 +54,7 @@ already names the class as open, so it is disclosed rather than hidden, but disc
 
 ## Closed during the cut, and named because two paths found it
 
-**Named here but not in this tree:** `tests/test_eval_claim_domains_are_enforced.py`, `tests/test_evalclaim_verify_boundary_types.py` — they arrive with the evalclaim verify-boundary pull request. This line is the
+**Named here but not in this tree:** `tests/test_eval_claim_domains_are_enforced.py`, `tests/test_evalclaim_verify_boundary_types.py` — they arrive with the evalclaim verify-boundary pull request; `tests/test_action_input_injection.py` — it is already on `main` and arrives here when this branch is updated from it. This line is the
 declaration a test compares against the tree, so it cannot drift from what the
 document actually names.
 
@@ -178,6 +178,31 @@ environment-blocked, and their reason is the one structural fact this section de
 subject under test, the regression test or the evidence nodes live in this repository while the
 ledger checks against the other one. A reader of this file alone cannot recompute the number,
 and that limit is stated rather than papered over.
+
+## Named state, not a backlog item — N16 is fixed on main and open in the published Action tag
+
+`action/action.yml` on `main` passes `version` and `extras` through `env:` with a form check, the
+way `command` already did, and `tests/test_action_input_injection.py` holds the rule: no file may
+interpolate an externally controlled value into a shell body, all three inputs travel through
+`env:`, and a planted injection has to be caught. That landed with the cut.
+
+WHAT SHIPS TODAY IS OLDER. The published Action tag is `v6.0.0`, and there `action/action.yml`
+still splices both inputs straight into the script text:
+
+```
+spec="proofbundle${{ inputs.version }}"
+if [ -n "${{ inputs.extras }}" ]; then spec="proofbundle[${{ inputs.extras }}]${{ inputs.version }}"; fi
+```
+
+Only `command` travelled through `env:` at that tag. So anyone pinning `b7n0de/proofbundle@v6.0.0`
+runs the unfixed form, and will keep running it until a new Action tag exists. Measured 2026-09-20
+by reading the file at that ref, not inferred from the changelog.
+
+This is stated as a named state rather than filed as open work because the remedy is not a code
+change: the fix exists. What is missing is a published tag carrying it, and a new Action tag is an
+outward act that falls behind the 6.1.0 tag and needs its own go-ahead. Until then the honest
+sentence is the one in this heading, and a reader pinning the action should know which half they
+have.
 
 ## Open — the cut points version-derived tooling at a cut that does not exist yet
 
