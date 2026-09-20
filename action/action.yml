@@ -31,9 +31,33 @@ runs:
         python-version: ${{ inputs.python-version }}
     - name: Install proofbundle
       shell: bash
+      # Both inputs travel through env, never through ${{ }} interpolation — the same
+      # reason the run step below already gives, applied one step earlier. GitHub splices
+      # an interpolated value into the script text BEFORE bash sees it, so a value
+      # containing a quote or a semicolon becomes script. An env var is data.
+      #
+      # The shape check is the second half, and it is the one that survives a refactor:
+      # a version specifier and an extras list have a form, and anything outside it is
+      # refused rather than passed to pip. Without it, this step would be secure only for
+      # as long as nobody rewrites it.
+      env:
+        PB_VERSION: ${{ inputs.version }}
+        PB_EXTRAS: ${{ inputs.extras }}
       run: |
-        spec="proofbundle${{ inputs.version }}"
-        if [ -n "${{ inputs.extras }}" ]; then spec="proofbundle[${{ inputs.extras }}]${{ inputs.version }}"; fi
+        set -euo pipefail
+        if [ -n "$PB_VERSION" ] && ! printf '%s' "$PB_VERSION" | grep -Eq '^[=<>!~]{1,2}[A-Za-z0-9._*+!-]+$'; then
+          echo "::error::version input is not a PEP 440 specifier: refusing to pass it to pip" >&2
+          exit 1
+        fi
+        if [ -n "$PB_EXTRAS" ] && ! printf '%s' "$PB_EXTRAS" | grep -Eq '^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$'; then
+          echo "::error::extras input is not a comma-separated list of names: refusing" >&2
+          exit 1
+        fi
+        if [ -n "$PB_EXTRAS" ]; then
+          spec="proofbundle[${PB_EXTRAS}]${PB_VERSION}"
+        else
+          spec="proofbundle${PB_VERSION}"
+        fi
         python -m pip install --upgrade pip
         python -m pip install "$spec"
     - name: Run proofbundle
