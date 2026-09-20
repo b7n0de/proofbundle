@@ -83,15 +83,39 @@ if not _im_checkout():
 #: to look at, and a bound that decides before the judgement is a judgement.
 _ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]+)`")
 
-#: What an identifier of this house looks like: ASCII capitals, digits and hyphens, of ANY length.
-#: A token that fails this is not silently dropped, it is reported -- see `_zusagen_im_blatt`.
+#: WHAT AN IDENTIFIER LOOKS LIKE IS THE PRODUCER'S RULE, AND IT IS READ FROM THE PRODUCER.
 #:
 #: THE MINIMUM LENGTH WAS WRONG ABOUT THE HOUSE, not only about the attack. Line 600 carries `N1`,
 #: `S5` and `A1`, so a rule demanding eight characters called the register's own identifiers
 #: malformed and would have reported a perfectly good promise as a defect. A short token that is
 #: not in any register is still caught, one assertion further down, as a promise nothing backs --
 #: which is what it is.
-_KENNUNG_ASCII = re.compile(r"\A[A-Z0-9][A-Z0-9-]*\Z")
+#:
+#: AND THEN THE SHAPE ITSELF WAS WRONG ABOUT THE HOUSE. What stood here was
+#: `[A-Z0-9][A-Z0-9-]*`, written beside the producer rather than taken from it, and round seven
+#: measured the gap: the producer's `_kennung_form()` admits `N1.foo`, `n1` and `N_1`, and this
+#: rule rejected all three. So a sheet could promise an entry that the producer validly emits and
+#: the register actually carries, and this guard would fail the tree over it -- a false finding
+#: against a correct document, produced by a second opinion about what an identifier is.
+#:
+#: A guard for the producer's promises has no business holding its own theory of the producer's
+#: alphabet. It loads the rule. If the producer cannot be loaded the guard fails loudly rather
+#: than falling back to a guess: a check that quietly substitutes its own rule when it cannot
+#: find the real one is the defect this comment is about.
+_KENNUNG_FORM_ERZEUGER = None
+
+
+def _kennung_form():
+    """The producer's identifier rule, loaded from the producer."""
+    global _KENNUNG_FORM_ERZEUGER
+    if _KENNUNG_FORM_ERZEUGER is None:
+        import importlib.util  # noqa: PLC0415
+        pfad = REPO / "scripts" / "gen_findings_register.py"
+        spec = importlib.util.spec_from_file_location("_gfr_kennungsform", pfad)
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        _KENNUNG_FORM_ERZEUGER = modul._kennung_form()
+    return _KENNUNG_FORM_ERZEUGER
 
 #: Where an identifier may live. Every shipped register counts: an entry is present or it is not,
 #: and which file carries it is not what the prose promises.
@@ -147,8 +171,46 @@ def _zusagen_im_blatt(text: str) -> tuple[list[str], list[str]]:
     """(well formed identifiers, malformed ones). A malformed token is a finding, not a gap."""
     gut, schlecht = [], []
     for roh in _ZUSAGE.findall(text):
-        (gut if _KENNUNG_ASCII.match(roh) else schlecht).append(roh)
+        (gut if _kennung_form().match(roh) else schlecht).append(roh)
     return gut, schlecht
+
+
+def test_der_vertrag_haelt_keine_EIGENE_meinung_ueber_das_alphabet():
+    """Seventh review round, thread 4057515927. One identifier rule, read from the producer.
+
+    What stood here was `[A-Z0-9][A-Z0-9-]*`, written beside the producer instead of taken from
+    it. Measured at `8626ed7`, the two disagreed on three shipped-shaped inputs: the producer
+    admits `N1.foo`, `n1` and `N_1`, and this guard rejected all three, so a sheet promising an
+    entry that the producer validly emits and the register carries would have been reported as
+    malformed -- a false finding against a correct document.
+
+    The case asks for AGREEMENT rather than for a spelling, so it keeps holding when the house
+    alphabet changes; and it keeps a refusal in it, because a rule that admits everything agrees
+    with everything.
+    """
+    # THE ORACLE LOADS THE PRODUCER ITSELF, it does not ask the helper under test.
+    #
+    # The first version of this case called `_kennung_form()` for both sides. That helper IS the
+    # thing this case exists to bind, so with the guard's own rule put back the case compared the
+    # guard with itself and passed — measured, and green against exactly the defect it names. A
+    # case that takes its reference from the subject has no reference.
+    import importlib.util  # noqa: PLC0415
+    _spec = importlib.util.spec_from_file_location(
+        "_gfr_orakel", REPO / "scripts" / "gen_findings_register.py")
+    _modul = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_modul)
+    erzeuger = _modul._kennung_form()
+
+    for probe in ("N1", "N1.foo", "n1", "N_1", "A1-B2", "S5"):
+        gut, schlecht = _zusagen_im_blatt(f"Register entry `{probe}`.")
+        assert bool(erzeuger.match(probe)) == bool(gut), (
+            f"the guard and the producer disagree about {probe!r}: producer "
+            f"{bool(erzeuger.match(probe))}, guard {bool(gut)} (malformed: {schlecht})")
+
+    # AND IT STILL REFUSES SOMETHING, so the agreement above is not agreement with everything.
+    gut, schlecht = _zusagen_im_blatt("Register entry `NOPE-\u0410`.")
+    assert not gut and schlecht, (
+        f"an identifier carrying a non-ASCII letter was admitted: gut={gut} schlecht={schlecht}")
 
 
 def _register_kennungen(wurzel: pathlib.Path | None = None) -> set[str]:

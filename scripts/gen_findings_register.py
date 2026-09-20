@@ -127,6 +127,31 @@ ABHILFE = {"none_available", "vendor_fix", "workaround", "no_fix_planned"}
 PLANUNG = {"planned", "deferred", "undecided", None}
 BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision"}
 
+#: THE IDENTIFIER ALPHABET, WRITTEN ONCE, ABOVE EVERY READER THAT NEEDS IT.
+#:
+#: This constant has now been the subject of two review rounds, and the second one is the reason
+#: it stands here rather than three hundred lines further down.
+#:
+#: Round six: the foreign-identifier guard compared identifiers by containment, was repaired to
+#: compare with boundaries, and the repair typed the alphabet out a SECOND time as `0-9A-Za-z_-`,
+#: the same set minus the dot. With `N1` and `N1.foo` both declared, `N1` was still found inside
+#: `N1.foo` and the longer entry was dropped from the carrier. The fix made one constant and two
+#: readers, and the round was answered as if the class were closed.
+#:
+#: Round seven measured that it was not. The alphabet had FOUR readers, not two. `_kopf_muster`
+#: below and the heading boundary in `schneide_beleg` each carried `(?![0-9A-Za-z])`, so
+#: `schneide_beleg("## N1.foo — open…", "N1")` and the same call for `N1.foo` returned the SAME
+#: byte range, the carrier emitted two records backed by one heading, and `N1` was given the
+#: title `.foo — open`. A fifth reader sat in the contract, an ASCII shape rule that rejected
+#: `N1.foo`, `n1` and `N_1` although this house admits all three.
+#:
+#: THE LESSON IS ABOUT THE SWEEP, NOT ABOUT THE DOT. Unifying the two readers I could see and
+#: calling the class closed is the same move as fixing an instance: the neighbours have to be
+#: found by asking what ELSE reads this alphabet, repository-wide, in the same pass. So the
+#: constant sits above all of its readers, and the contract imports this rule instead of
+#: restating it.
+_KENNUNG_ZEICHEN = "A-Za-z0-9._-"
+
 _KENNUNG_KOPF = None  # lazy, siehe _kopf_muster()
 
 
@@ -134,7 +159,8 @@ def _kopf_muster():
     global _KENNUNG_KOPF
     if _KENNUNG_KOPF is None:
         import re  # noqa: PLC0415
-        _KENNUNG_KOPF = re.compile(r"^(#{2,4}) ([A-Z]\d+)(?![0-9A-Za-z])", re.M)
+        _KENNUNG_KOPF = re.compile(
+            rf"^(#{{2,4}}) ([A-Z]\d+)(?![{_KENNUNG_ZEICHEN}])", re.M)
     return _KENNUNG_KOPF
 
 
@@ -179,7 +205,9 @@ def schneide_beleg(text: str, kennung: str):
     # auch einen Gedankenstrich vor einer Kennung und hielt damit S21, S24, S49 und Z5
     # faelschlich fuer Sammelkoepfe — dort steht nach dem Strich nur der erste Satz.
     for ebene in (2, 3, 4):
-        m = re.search(rf"^({'#' * ebene}) {re.escape(kennung)}(?![0-9A-Za-z])", text, re.M)
+        m = re.search(
+            rf"^({'#' * ebene}) {re.escape(kennung)}(?![{_KENNUNG_ZEICHEN}])",
+            text, re.M)
         if not m:
             continue
         zeilenende = text.find("\n", m.end())
@@ -633,9 +661,55 @@ def _tabellenkopf(text: str, byte_von: int) -> list[str]:
 _TITELSPALTEN = _TITELSPALTEN_NAMEN
 
 
+def _kuerzen(wert: str, regel: dict) -> str:
+    """Shorten one title by the DECLARED bound, cut and ellipsis rather than by literals.
+
+    The numbers live in `NORMALISIERUNG_JE_FUNDART` and nowhere else. See `_titel` for why.
+    """
+    grenze = regel["maxLength"]
+    if len(wert) <= grenze:
+        return wert
+    roh = wert[:grenze] if regel["keep"] == "prefix" else wert[-grenze:]
+    if regel["cut"] == "wordBoundary":
+        # AT A WORD BOUNDARY, not at the bound itself. The first run cut "pull reques", and a cut
+        # off word reads like a data defect rather than like a shortening.
+        roh = (roh.rsplit(" ", 1)[0] if regel["keep"] == "prefix"
+               else roh.split(" ", 1)[-1]) or roh
+    return roh + (" …" if regel["ellipsis"] else "")
+
+
 def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = None) -> str:
-    """Der Titel EINER Fundstelle, aus ihren eigenen Bytes."""
+    """The title of ONE finding, cut from its own bytes.
+
+    THE DECLARED RULE IS THE RULE, not a description of this function written beside it.
+
+    Found by sweeping this branch for the class two review rounds had already hit: a second source
+    of truth that a test keeps in agreement. The carrier declares `maxLength`, `keep`, `cut`,
+    `ellipsis` and `columnFallbackIndex` per find form, and the contract executes that declaration
+    against the produced titles — but this function used to hard-wire every one of those values,
+    `200` six times over. So the declaration described the producer, it did not drive it: changing
+    a declared bound moved the contract and not the output, and the contract could only report
+    that the two disagreed, never which of them was meant.
+
+    That is the same class as the two lists that drifted over the identifier alphabet, one level
+    up. The parameters are now read from the declaration, so they exist once. The ALGORITHM stays
+    written twice on purpose: the contract's reader is an independent implementation, and an
+    oracle that shares its code with the thing it measures agrees with it by construction.
+    """
     import re  # noqa: PLC0415
+    # AN UNKNOWN FIND FORM IS REFUSED, not defaulted and not raised as a KeyError.
+    #
+    # Both neighbours of this line were measured while it was written. Before the rule was read
+    # from the declaration, an unknown form fell through to the heading branch, which turns an
+    # unmeasured case into a passing one. Reading the declaration turned that into `KeyError`,
+    # which is the traceback-instead-of-verdict shape this very round reported one function away.
+    # The third option is the right one and it is the house form.
+    regel = NORMALISIERUNG_JE_FUNDART.get(fundart)
+    if regel is None:
+        raise SystemExit(
+            f"build refused: the find form {fundart!r} has no declared title rule. A title "
+            f"derived by a rule nobody declared cannot be checked against the declaration the "
+            f"carrier ships")
     zeilen = stueck.splitlines()
     erste = zeilen[0] if zeilen else ""
     if fundart == "prosa_zusage":
@@ -644,13 +718,7 @@ def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = Non
         # which is a property of the wrapping and not of the finding.
         fliess = " ".join(x.strip() for x in zeilen).strip()
         s = re.split(r"(?<=[.!?])\s+", fliess)
-        satz = s[0] if s else fliess
-        if len(satz) <= 200:
-            return satz
-        # AT A WORD BOUNDARY, not at character 200. The first run cut "pull reques", and a cut
-        # off word reads like a data defect rather than like a shortening.
-        gekuerzt = satz[:200].rsplit(" ", 1)[0]
-        return (gekuerzt or satz[:200]) + " …"
+        return _kuerzen(s[0] if s else fliess, regel)
     if fundart == "tabelle_spalte1":
         spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
         if kopf:
@@ -658,10 +726,11 @@ def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = Non
                 if name in kopf:
                     i = kopf.index(name)
                     if i < len(spalten):
-                        return spalten[i][:200]
-        return (spalten[1] if len(spalten) > 1 else "")[:200]
+                        return _kuerzen(spalten[i], regel)
+        r = regel["columnFallbackIndex"]
+        return _kuerzen(spalten[r] if r < len(spalten) else "", regel)
     k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
-    return re.sub(r"^[·\-—,:]\s*", "", k)[:200]
+    return _kuerzen(re.sub(r"^[·\-—,:]\s*", "", k), regel)
 
 
 def _severity_aus_tabelle(stueck: str, kopf: list[str]) -> str | None:
@@ -845,18 +914,6 @@ def _status(kennung: str, aus_tabelle: str | None = None,
 #: evidence write landed OUTSIDE the evidence directory and outside the repository. Nothing in the
 #: chain asked what characters an identifier carries — the producer took the object class file at
 #: its word, and that file is data.
-#: THE IDENTIFIER ALPHABET, WRITTEN ONCE. Both readers take it from here.
-#:
-#: A review round measured what a second copy costs. The foreign-identifier guard was repaired to
-#: compare with boundaries, and its boundary class was typed out as `0-9A-Za-z_-` — the same
-#: alphabet as this form rule, minus the dot. `_kennung_form` accepts `N1.foo`, so with `N1` and
-#: `N1.foo` both declared the dot still counted as a boundary, `N1` was found inside `N1.foo` and
-#: the longer entry was dropped from the carrier again. The repair for a second source of truth
-#: had created a third one, two rounds after the lesson.
-#:
-#: The class is not the missing dot, it is the second list. One constant, two readers, so an
-#: identifier that this form admits cannot be split by a boundary that has not heard of it.
-_KENNUNG_ZEICHEN = "A-Za-z0-9._-"
 _KENNUNG_FORM = None
 
 
@@ -911,7 +968,21 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                   for kx in (_aus.get("kennungen") or [])}
 
     records, ohne_fundstelle = [], []
-    alle_kennungen = {e.get("kennung") for e in ok["eintraege"]}
+    # THE TYPE BOUNDARY COMES FIRST, because collecting is already processing.
+    #
+    # Measured in round seven: an entry with `"kennung": ["N1"]` raised `TypeError: unhashable
+    # type: 'list'` inside the set comprehension that used to stand here, so the `isinstance`
+    # refusal three lines below never ran and the generator ended in a traceback instead of its
+    # typed verdict. A validation placed after the step that can already fail is not a boundary,
+    # it is a comment. Every identifier is judged before any of them is collected.
+    for _e in ok["eintraege"]:
+        _k = _e.get("kennung")
+        if not (isinstance(_k, str) and _kennung_form().match(_k)):
+            raise SystemExit(
+                f"build refused: the identifier {_k!r} carries characters an identifier must "
+                f"not carry. It becomes a FILE NAME, and a file name built from unchecked data "
+                f"writes wherever that data points")
+    alle_kennungen = {e["kennung"] for e in ok["eintraege"]}
     for e in ok["eintraege"]:
         k = e["kennung"]
         if not (isinstance(k, str) and _kennung_form().match(k)):

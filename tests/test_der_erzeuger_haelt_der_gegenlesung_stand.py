@@ -154,6 +154,125 @@ def test_die_grenze_kennt_dasselbe_alphabet_wie_die_formregel(tmp_path):
     assert g._kennung_form().match("N1.foo"), "the form rule no longer admits what the case assumes"
 
 
+def test_eine_geaenderte_DEKLARATION_bewegt_den_ERZEUGER_nicht_nur_den_vertrag(tmp_path):
+    """Class sweep of this branch. The declared rule must drive the producer, not describe it.
+
+    The carrier declares `maxLength`, `keep`, `cut`, `ellipsis` and `columnFallbackIndex`, and the
+    language contract executes that declaration against the produced titles. But the producer used
+    to hard-wire all of them, so a declared bound was a description of the code rather than its
+    rule: changing it moved the contract alone, and the contract could then only report that the
+    two disagreed, never which side was meant.
+
+    Measured in both directions. Against the producer as it stood before this case, the declared
+    bound below is ignored and the title keeps its full length; against the producer that reads
+    its rule, the title follows the declaration.
+    """
+    g = _erzeuger()
+    # THE PROBE IS MEASURED, NOT GUESSED. Its first sentence is 156 characters: past the bound
+    # declared below, and short of the 200 the producer used to hard-wire. Only a promise in that
+    # window separates the two producers. The first version of this case used a 34-character
+    # sentence, where neither bound bites, and passed against BOTH — a case that cannot go red is
+    # not a catch proof, it is a decoration.
+    (tmp_path / "RESTRISIKO_PROBE.md").write_text(
+        "## Open — the probe\n\n"
+        "Register entry `N1`, a promise written out at deliberate length so the first sentence "
+        "passes sixty characters while staying below two hundred, target 6-2-0. A second "
+        "sentence follows.\n",
+        encoding="utf-8")
+    (tmp_path / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": "N1", "klasse": "x", "zaehlt_als_fund": True}]}),
+        encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+
+    # THE DECLARATION IS CHANGED, nothing else. If the producer reads it, the output moves.
+    form = "prosa_zusage"
+    vorher = dict(g.NORMALISIERUNG_JE_FUNDART[form])
+    try:
+        g.NORMALISIERUNG_JE_FUNDART[form] = {**vorher, "maxLength": 60}
+        doc = g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
+    finally:
+        g.NORMALISIERUNG_JE_FUNDART[form] = vorher
+
+    titel = [r["title"] for r in doc["records"] if r["id"] == "N1"]
+    assert titel, f"the probe entry was not carried: {[r['id'] for r in doc['records']]}"
+    assert len(titel[0]) <= 62, (
+        "the producer ignored the declared bound, so the declaration describes the code instead "
+        f"of ruling it: declared 60, produced {len(titel[0])} characters — {titel[0]!r}")
+
+    # AND THE PROBE REALLY REACHES PAST THE BOUND, so a green here means the rule bit rather
+    # than that there was nothing to cut.
+    assert len(titel[0]) > 40, f"the probe never reached the bound, so nothing was measured: {titel[0]!r}"
+
+
+def test_eine_ueberschrift_gehoert_der_LAENGEREN_kennung_nicht_ihrem_praefix():
+    """Seventh review round, thread 4057515923. The heading boundary knows the alphabet.
+
+    Measured at `8626ed7`: `schneide_beleg("## N1.foo — open…", "N1")` and the same call for
+    `N1.foo` BOTH returned the byte range (0, 45), so two records were backed by one heading and
+    `N1` was handed the title `.foo — open`. The form rule admits `N1.foo`, but the boundary in
+    `schneide_beleg` and the sibling in `_kopf_muster` each carried `(?![0-9A-Za-z])`, an alphabet
+    of their own that does not contain the dot.
+
+    This is the class of the previous round at two more sites. Round six unified the form rule and
+    the foreign-identifier boundary and treated the class as closed; it had five readers, not two.
+    """
+    g = _erzeuger()
+    text = "## N1.foo — open\n\nOnly the longer finding.\n"
+    kurz, lang = g.schneide_beleg(text, "N1"), g.schneide_beleg(text, "N1.foo")
+    assert lang is not None, "the declared identifier lost its own heading"
+    assert kurz != lang, (
+        f"a heading was recorded as evidence for a prefix of the identifier it names: "
+        f"N1 -> {kurz}, N1.foo -> {lang}")
+    assert kurz is None, f"N1 has no heading in this text, but one was cut for it: {kurz}"
+
+
+def test_eine_kennung_die_kein_text_ist_endet_in_einem_URTEIL_nicht_in_einem_traceback(tmp_path):
+    """Seventh review round, thread 4057515935. The type boundary comes before the collecting.
+
+    Measured at `8626ed7`: an entry with `"kennung": ["N1"]` raised `TypeError: unhashable type:
+    'list'` in the set comprehension that collected the identifiers, so the `isinstance` refusal
+    three lines further down never ran. A validation placed after a step that can already fail is
+    not a boundary. The generator must end in its typed verdict for every malformed shape.
+    """
+    g = _erzeuger()
+    (tmp_path / "RESTRISIKO_PROBE.md").write_text(
+        "## Open — the probe\n\nRegister entry `N1`, target 6.2.0.\n", encoding="utf-8")
+    (tmp_path / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": ["N1"], "klasse": "x", "zaehlt_als_fund": True}]}),
+        encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    with pytest.raises(SystemExit) as e:
+        g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
+    assert "['N1']" in str(e.value), (
+        f"the refusal does not name the value it refused: {str(e.value)[:160]}")
+
+
+def test_eine_unbekannte_fundart_wird_ABGELEHNT_nicht_stillschweigend_zur_ueberschrift():
+    """Own sweep, measured while making the producer read its declared rule.
+
+    Two wrong answers were measured on this one line, one before the change and one introduced by
+    it. Before, an unknown find form fell through to the heading branch and got a title from a
+    rule nobody had declared for it, which is an unmeasured case turned into a passing one. After
+    reading the declaration it became `KeyError`, which is the traceback-instead-of-verdict shape
+    that the same review round reported one function away.
+
+    The third option is the one that belongs here, and this case binds it so neither of the other
+    two can come back.
+    """
+    g = _erzeuger()
+    with pytest.raises(SystemExit) as e:
+        g._titel("## N1 something\n", "N1", "gibt_es_nicht", None)
+    assert "gibt_es_nicht" in str(e.value), (
+        f"the refusal does not name the form it refused: {str(e.value)[:160]}")
+
+    # AND A DECLARED FORM STILL PASSES, so the refusal is not a refusal of everything.
+    assert g._titel("## N1 something\n", "N1", "ueberschrift", None) == "something"
+
+
 def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp_path):
     """Lens 2, target 3. A missing per-entry source raised a raw FileNotFoundError, so the run had
     no NOT MEASURABLE path at all."""
