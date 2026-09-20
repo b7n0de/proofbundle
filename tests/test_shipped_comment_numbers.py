@@ -88,9 +88,17 @@ def bilanzzeile(stdout: str) -> str:
     ends on `ERROR: file or directory not found`, and a plugin may write after the summary. Taking
     the last line turns any of those into "no match", which is red -- fail-closed, but red for the
     wrong reason, and a gate that goes red for the wrong reason is one people learn to re-run.
+
+    MATCHED ON THE SUMMARY'S SHAPE, not on any line that carries a result word. The first version
+    took the LAST line matching a digit followed by a result word, which is the same assumption
+    one step weaker, and the fourth case in that list -- a plugin writing after the summary --
+    is exactly where it breaks. MEASURED 2026-09-20: `10 passed in 0.31s` followed by
+    `[gw0] 3 passed` returned the SECOND line, so the run read as three passing instead of ten.
+    A pytest summary always closes with ` in <seconds>s`; a line that lacks that is not one. An
+    output that reports nothing at all still yields "" and a red -1, which is the intended refusal.
     """
     return next((z for z in reversed(stdout.splitlines())
-                 if re.search(r"\d+ (passed|failed|error|skipped)", z)), "")
+                 if re.search(r"\d+ (passed|failed|error|skipped)\b.*\bin \d+(\.\d+)?s", z)), "")
 
 
 class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
@@ -205,7 +213,12 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
                             "present means the claim's surface IS this one")
 
     def test_die_bilanzzeile_wird_gesucht_nicht_die_letzte_genommen(self):
-        """Each of these ends on something that is not the summary. `[-1]` would miss all four."""
+        """Tails that are not the summary. MEASURED which of them the old `[-1]` would have caught.
+
+        Three of these four fail under `[-1]`, so they count as a catch-proof for dropping it. The
+        empty tail does NOT: the output already ends on the summary, so `[-1]` finds it too. It is
+        a control, not a proof, and saying "four cases" folds that difference away.
+        """
         for schwanz in ("Traceback (most recent call last):",
                         "ERROR: file or directory not found: tests/weg.py",
                         "-- generated xml file: /tmp/x.xml --",
@@ -213,6 +226,22 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
             with self.subTest(schwanz=schwanz):
                 aus = "collected 10 items\n\n10 passed in 0.31s\n" + schwanz
                 self.assertEqual(bilanzzeile(aus), "10 passed in 0.31s")
+
+    def test_eine_zeile_nach_der_bilanz_die_ein_ergebniswort_traegt(self):
+        """The case the four above cannot show, and the one the docstring above promised to catch.
+
+        A tail that does NOT match the pattern only proves the reading skipped a non-match. The
+        distinguishing case is a tail that DOES match while not being the summary -- which is what
+        `a plugin may write after the summary` actually means. Under a pattern that accepts any
+        result word, each of these returns the tail and the run reads as the wrong number.
+        """
+        for schwanz, falsch in (("[gw0] 3 passed", "3"),
+                                ("1 passed to the xml writer", "1"),
+                                ("rerun summary: 2 failed", "2")):
+            with self.subTest(schwanz=schwanz):
+                aus = "collected 10 items\n\n10 passed in 0.31s\n" + schwanz
+                self.assertEqual(bilanzzeile(aus), "10 passed in 0.31s",
+                                 f"the tail was read as the summary, so the run counts {falsch}")
 
     def test_die_bilanz_ohne_ergebniswort_gibt_keine_zeile(self):
         """An output that never reported must not silently read as zero findings."""
