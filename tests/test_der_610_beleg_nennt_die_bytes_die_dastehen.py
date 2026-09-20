@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -57,18 +58,62 @@ def test_jeder_genannte_digest_stimmt_mit_der_datei_im_baum():
     assert not offen, f"{len(offen)} digest(s) do not describe the file they name: {offen}"
 
 
-def test_der_beleg_nennt_keinen_commit_als_messpunkt():
-    """[ZAEHLT] The exact shape of the finding, held open so it cannot come back.
+#: A run of lowercase hex that could be an abbreviated object name. The lookarounds keep a 64
+#: character sha256 digest out, because that is ONE token rather than a prefix plus a tail.
+_HEXWORT = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])")
 
-    A forty character hex string in this document would be a commit, and a commit named here is
-    either the one that introduces the document, which it cannot know, or an earlier one, which
-    cannot reproduce its bytes. Digests of forty characters do not exist, so the pattern is
-    unambiguous.
+
+def _ist_bekanntes_objekt(token: str) -> bool | None:
+    """Does git resolve this token here? None when the question cannot be asked at all."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet", token + "^{commit}"],
+            capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.returncode == 0
+
+
+def test_KONTROLLE_die_erkennung_erkennt_den_eigenen_kopf():
+    """[ZAEHLT] A detector that recognises nothing makes the case below green for free."""
+    try:
+        kopf = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("NOT MEASURABLE: git cannot be run here")
+    if kopf.returncode != 0 or not kopf.stdout.strip():
+        pytest.skip("NOT MEASURABLE: this tree has no readable head")
+    assert _ist_bekanntes_objekt(kopf.stdout.strip()) is True, (
+        "the detector does not recognise this tree's own head, so the case below measures nothing")
+
+
+def test_der_beleg_nennt_keinen_kopf_als_messpunkt():
+    """[ZAEHLT] Measured by ASKING GIT, not by counting characters.
+
+    THE FIRST VERSION MATCHED A LENGTH, and a review round measured what that is worth: the
+    abbreviations `050e477` and `050e4777a5ef` both slipped past a forty character pattern, so
+    putting the old provenance line back into the document left all three cases passing while the
+    document again named a revision that cannot reproduce its bytes. An exact length standing in
+    for the property `git knows this object` is the same substitution this pull request is about,
+    and it caught me a fourth time, here, inside the repair for the third.
+
+    Every hex-shaped token is handed to git instead. A revision named in this document is either
+    the one that introduces it, which it cannot know while being written, or an earlier one, which
+    cannot reproduce its bytes. Both are wrong, so neither is allowed.
     """
     if not BELEG.is_file():
         pytest.skip(f"NOT MEASURABLE: {BELEG} is missing")
     text = BELEG.read_text(encoding="utf-8")
-    treffer = re.findall(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])", text)
+    treffer, unmessbar = [], 0
+    for token in sorted(set(_HEXWORT.findall(text))):
+        urteil = _ist_bekanntes_objekt(token)
+        if urteil is None:
+            unmessbar += 1
+        elif urteil:
+            treffer.append(token)
+    if unmessbar:
+        pytest.skip(f"NOT MEASURABLE: git could not be asked about {unmessbar} token(s)")
     assert not treffer, (
-        f"the document names {len(treffer)} commit-shaped identifier(s): {treffer[:3]}. A head "
-        f"named here is either unknowable or wrong about the bytes described")
+        f"the document names {len(treffer)} identifier(s) that git resolves here: {treffer[:3]}. "
+        f"A revision named in this document is either unknowable while it is written or wrong "
+        f"about the bytes it describes")
