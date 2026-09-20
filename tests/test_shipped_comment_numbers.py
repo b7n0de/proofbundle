@@ -351,8 +351,16 @@ class TestDieZaehlungSiehtNurWasPytestAuchSammelt(unittest.TestCase):
                     "    def test_eins(self):\n        pass\n")
 
     def _baue(self, inhalt: str):
+        """A throwaway tree that is REMOVED again. Measured: the first version leaked two per run.
+
+        `mkdtemp` without a cleanup is a directory that outlives the process, and a test suite that
+        leaks two per run leaks them for as long as the suite exists. `addCleanup` runs even when
+        the case fails, which a `with` block around the assertions would not.
+        """
+        import shutil
         import tempfile
-        d = tempfile.mkdtemp()
+        d = tempfile.mkdtemp(prefix="shipped-numbers-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         baum = pathlib.Path(d)
         (baum / "tests").mkdir()
         datei = baum / "tests" / "gepflanzt.py"
