@@ -22,6 +22,31 @@ import tempfile
 import unittest
 
 WERKZEUG = pathlib.Path(__file__).resolve().parents[1]
+
+#: The tool under test. It lives in `scripts/`, which a distributed sdist does not ship, so from an
+#: extracted artefact this path does not exist.
+RIEGEL = WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"
+
+
+class BrauchtDenBaum(unittest.TestCase):
+    """PER TEST AND THREE-STATE, which is what this repository's conftest asks for.
+
+    MEASURED 2026-09-20 in the hermetic cleanroom: from the EXTRACTED sdist all twelve cases in this
+    file failed with `json.decoder.JSONDecodeError: Expecting value: line 1 column 1`. The reason is
+    not a defect in the tool. The sdist prunes `scripts/`, so the subprocess had nothing to start,
+    stdout was empty, and parsing an empty string is what the reader did next. Twelve red cases that
+    say nothing about the package.
+
+    The conftest carries a blanket list for modules like this and says, in its own words, that a
+    module which solves it per test, three-state, has the better answer and should not be dragged
+    into the blanket. So it is solved here: absent tool means N/A with a reason, never a failure,
+    and never a silent pass either.
+    """
+
+    def setUp(self):
+        if not RIEGEL.is_file():
+            self.skipTest(f"{RIEGEL.relative_to(WERKZEUG)} is not in this tree — a distributed "
+                          f"artefact prunes scripts/, and a tool that is not here cannot be judged")
 SKRIPT = WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"
 
 
@@ -59,7 +84,7 @@ DEUTSCH = "# Diese Zeile ist deutsche Prosa und gehoert nicht in neue Zeilen.\n"
 ENGLISCH = "# This line is English prose and is allowed in new lines.\n"
 
 
-class TestTheGateJudgesTheCallingTree(unittest.TestCase):
+class TestTheGateJudgesTheCallingTree(BrauchtDenBaum):
     def test_control_the_tool_still_judges_its_own_tree_when_called_there(self):
         """The real control arm: green BEFORE and AFTER the fix, by construction.
 
@@ -124,7 +149,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
+class TestDerRueckfallAntwortetNichtEreGibtAuf(BrauchtDenBaum):
     """A fallback that answers is the defect this file exists against, one layer in.
 
     The first fix bound the measured tree to the working directory instead of to `__file__`, and
@@ -139,7 +164,7 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
     """
 
     def _lauf(self, cwd: pathlib.Path, *args: str) -> dict:
-        r = subprocess.run([sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+        r = subprocess.run([sys.executable, str(RIEGEL),
                             "--json", *args],
                            cwd=str(cwd), capture_output=True, text=True)
         return json.loads(r.stdout), r.returncode
@@ -183,7 +208,7 @@ class TestDerRueckfallAntwortetNichtEreGibtAuf(unittest.TestCase):
         self.assertIn(rc, (0, 1))
 
 
-class TestWennGitSelbstNichtLaeuft(unittest.TestCase):
+class TestWennGitSelbstNichtLaeuft(BrauchtDenBaum):
     """The call can fail, not only the command, and a crash must not look like a finding.
 
     An adversarial reading ran the tool with `git` unresolvable. The module-level
@@ -197,7 +222,7 @@ class TestWennGitSelbstNichtLaeuft(unittest.TestCase):
         umgebung = dict(os.environ, PATH="/nonexistent")
         with tempfile.TemporaryDirectory() as d:
             r = subprocess.run(
-                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                [sys.executable, str(RIEGEL),
                  "--json"],
                 cwd=d, env=umgebung, capture_output=True, text=True)
         self.assertEqual(r.returncode, 2,
@@ -210,10 +235,10 @@ class TestWennGitSelbstNichtLaeuft(unittest.TestCase):
         """`no repository here` and `git is missing` are different facts, not one sentence."""
         with tempfile.TemporaryDirectory() as d:
             ohne_repo = subprocess.run(
-                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                [sys.executable, str(RIEGEL),
                  "--json"], cwd=d, capture_output=True, text=True)
             ohne_git = subprocess.run(
-                [sys.executable, str(WERKZEUG / "scripts" / "neue_zeilen_sind_englisch.py"),
+                [sys.executable, str(RIEGEL),
                  "--json"], cwd=d, env=dict(os.environ, PATH="/nonexistent"),
                 capture_output=True, text=True)
         a = json.loads(ohne_repo.stdout)["baum_herkunft"]
