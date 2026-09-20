@@ -27,6 +27,7 @@ import pathlib
 import re
 import shutil
 import sys
+import tempfile
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -60,43 +61,80 @@ def flaeche_traegt_die_behauptung() -> bool:
     return importlib.util.find_spec("inspect_ai") is not None
 
 
-def _pytest(wurzel: pathlib.Path, *args: str) -> tuple[int, str]:
+#: A pytest plugin, written to a throwaway directory at call time, that records the outcome of
+#: every case FROM PYTEST'S OWN REPORTS and writes the counts as JSON.
+#:
+#: WHY NOT THE JUNIT REPORT, which this file used for exactly one commit. MEASURED 2026-09-20 on a
+#: planted file carrying one of every outcome: stdout said `2 passed, 1 skipped, 1 deselected,
+#: 1 xfailed, 1 xpassed, 1 error` while the JUnit attributes said `tests=6 failures=0 errors=1
+#: skipped=2`. JUnit folds `xfailed` into `skipped` and counts `xpassed` as a passing test, so
+#: `tests - failures - errors - skipped` returned THREE where two cases passed. `xpassed` is the
+#: precise word this file's vocabulary was written for -- a case that was expected to fail and did
+#: not is not a pass -- and the structured channel silently dropped it. A report format is a proxy
+#: too if it cannot express the distinction the question is about.
+#:
+#: `--report-log` would carry it, and this pytest does not have the option (measured: zero hits in
+#: `--help`). So the outcomes are taken where they are decided, in `pytest_runtest_logreport`.
+ZAEHLER_PLUGIN = '''
+import json, os
+_z = {}
+
+
+def pytest_runtest_logreport(report):
+    if report.when == "call":
+        wx = getattr(report, "wasxfail", None) is not None
+        art = ("xpassed" if (wx and report.outcome == "passed")
+               else "xfailed" if wx else report.outcome)
+    elif report.outcome == "failed":
+        art = "error"
+    else:
+        return
+    _z[art] = _z.get(art, 0) + 1
+
+
+def pytest_sessionfinish(session, exitstatus):
+    ziel = os.environ.get("PB_ZAEHLER_ZIEL")
+    if ziel:
+        with open(ziel, "w", encoding="utf-8") as f:
+            json.dump(_z, f)
+'''
+
+
+def _pytest(wurzel: pathlib.Path, *args: str, zaehler: pathlib.Path | None = None) -> tuple[int, str]:
     import os
     import subprocess
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", *args], capture_output=True,
-                       text=True, cwd=str(wurzel), env=dict(os.environ, PYTHONPATH="src"))
+    umgebung = dict(os.environ, PYTHONPATH="src")
+    zusatz: list[str] = []
+    if zaehler is not None:
+        plugdir = zaehler.parent / "plug"
+        plugdir.mkdir(exist_ok=True)
+        (plugdir / "pb_zaehler.py").write_text(ZAEHLER_PLUGIN, encoding="utf-8")
+        umgebung["PYTHONPATH"] = f"src{os.pathsep}{plugdir}"
+        umgebung["PB_ZAEHLER_ZIEL"] = str(zaehler)
+        zusatz = ["-p", "pb_zaehler"]
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", *zusatz, *args],
+                       capture_output=True, text=True, cwd=str(wurzel), env=umgebung)
     return r.returncode, r.stdout
 
 
 def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
-    """Run one file and read its outcome FROM THE REPORT, not from the terminal text.
+    """Run one file and read its outcome from pytest's reports. Returns (passed, everything else).
 
-    The first two versions scraped stdout. A counter-reading executed two ordinary constructs that
-    defeat any such rule, because both print a line carrying the complete shape of a summary AFTER
-    the real one: an `atexit` hook registered in a conftest, and a `pytest_sessionfinish` wrapper
-    printing after its `yield`. MEASURED 2026-09-20 with the atexit form: stdout ended
-    `2 passed, 1 skipped in 0.09s` then `5 failed in 0.03s`, and the reading returned the tail.
-
-    Anchoring harder on the text was the wrong direction -- a second, stricter pattern is still a
-    pattern over a stream anyone may append to. The same run writes a JUnit report whose attributes
-    are the counts, so this reads those. On the same planted tree the report says
-    `tests=3 failures=0 errors=0 skipped=1` and the appended line changes nothing.
+    Three readings of this stood here before, and the first two were rules over stdout. Both were
+    defeated by ordinary constructs that print a complete summary line AFTER pytest's own -- an
+    `atexit` hook in a conftest, a `pytest_sessionfinish` wrapper printing after its yield. The
+    third read the JUnit report and dropped `xpassed`, which is the one word this file's vocabulary
+    exists for. See ZAEHLER_PLUGIN above for the measurement.
     """
     import tempfile
-    import xml.etree.ElementTree as ET
     with tempfile.TemporaryDirectory() as d:
-        bericht = pathlib.Path(d) / "bericht.xml"
-        _pytest(wurzel, rel, f"--junit-xml={bericht}")
-        if not bericht.is_file():
+        ziel = pathlib.Path(d) / "zaehler.json"
+        _pytest(wurzel, rel, zaehler=ziel)
+        if not ziel.is_file():
             return -1, {"kein_bericht": 1}
-        wurzelknoten = ET.parse(bericht).getroot()
-    knoten = wurzelknoten if wurzelknoten.tag == "testsuite" else wurzelknoten.find("testsuite")
-    if knoten is None:
-        return -1, {"kein_bericht": 1}
-    a = knoten.attrib
-    gesamt = int(a.get("tests", 0))
-    andere = {w: int(a.get(w, 0)) for w in ("failures", "errors", "skipped") if int(a.get(w, 0))}
-    return gesamt - sum(andere.values()), andere
+        z = json.loads(ziel.read_text(encoding="utf-8"))
+    bestanden = z.pop("passed", 0)
+    return bestanden, {k: v for k, v in sorted(z.items()) if v}
 
 
 def gesammelte_faelle(rel: str, wurzel: pathlib.Path) -> int:
@@ -104,9 +142,9 @@ def gesammelte_faelle(rel: str, wurzel: pathlib.Path) -> int:
 
     THIS REPLACES A PROXY THAT LEAKED TWICE. A syntax-tree counter was written because the ratio
     case skips where `inspect_ai` is absent and something had to hold the right-hand number there.
-    It was wrong about a class carrying `__init__`, about `def test_` inside a docstring, and about
-    `parametrize`; each was fixed, and a second counter-reading then produced FIVE more shapes it
-    still got wrong, all of them counting MORE than the run -- the direction that reads green:
+    It was wrong about a class carrying `__init__`, about `def test_` inside a docstring and about
+    `parametrize`; each was fixed, and a counter-reading then produced FIVE more shapes it still
+    got wrong, all counting MORE than the run -- the direction that reads green:
 
         a class whose name does not match `python_classes`   counted 2, the run passed 1
         `__test__ = False` on a class                        counted 3, the run passed 1
@@ -114,20 +152,24 @@ def gesammelte_faelle(rel: str, wurzel: pathlib.Path) -> int:
         a `Test*` class nested inside another                counted 2, the run passed 1
         `async def test_` with no async backend              counted 2, the run passed 1
 
-    Every one of them is pytest collection semantics that a syntax tree does not carry. A proxy
-    that needs a new exception each time somebody reads it harder is not cheaper than the thing it
-    stands for -- it is the defect this file is named after, wearing the tool's own face.
+    Every one is pytest collection semantics a syntax tree does not carry. A proxy that needs a new
+    exception each time somebody reads it harder is not cheaper than the thing it stands for.
 
-    MEASURED 2026-09-20, and this is what makes the replacement possible: `--collect-only` returns
+    MEASURED 2026-09-20, and it is what makes the replacement possible: `--collect-only` returns
     9 and 10 for the two claimed files BOTH with and without `inspect_ai` installed. Collection
-    does not run conditional skips, so the count is the same on the cleanroom surface. The reason
-    the proxy existed does not survive the measurement.
+    does not run conditional skips, so the reason the proxy existed does not survive the
+    measurement.
+
+    THE `N/M` FORM IS THE COUNT AFTER DESELECTION. Measured: with one case deselected the line
+    reads `6/7 tests collected (1 deselected)`, and a pattern anchored on `(\d+) tests? collected`
+    returns SEVEN -- the total before deselection, which is not what ran and not what the comment
+    is about.
     """
     rc, aus = _pytest(wurzel, rel, "--collect-only")
-    treffer = re.search(r"(\d+) tests? collected", aus)
+    treffer = re.search(r"(?:(\d+)/)?(\d+) tests? collected", aus)
     if treffer is None:
         raise AssertionError(f"the collector reported no count for {rel} (rc={rc}):\n{aus[-600:]}")
-    return int(treffer.group(1))
+    return int(treffer.group(1) or treffer.group(2))
 
 
 class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
@@ -279,6 +321,39 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
                         else echt(n, p)):
             self.assertTrue(flaeche_traegt_die_behauptung(),
                             "present means the claim's surface IS this one")
+
+    def test_jeder_ausgang_wird_als_der_gezaehlt_der_er_ist(self):
+        """One file carrying every outcome, and `xpassed` is the one that decides the reading.
+
+        MEASURED 2026-09-20 against the JUnit report this file used for exactly one commit: stdout
+        said `2 passed, 1 skipped, 1 deselected, 1 xfailed, 1 xpassed, 1 error` while the report
+        attributes said `tests=6 failures=0 errors=1 skipped=2`. JUnit folds `xfailed` into
+        `skipped` and counts `xpassed` as a passing test, so the arithmetic returned THREE where
+        two cases passed. A case that was expected to fail and did not is not a pass -- that is the
+        whole reason this file keeps a vocabulary of outcome words instead of one.
+        """
+        d = tempfile.mkdtemp(prefix="shipped-numbers-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        baum = pathlib.Path(d)
+        (baum / "tests").mkdir()
+        (baum / "tests" / "x.py").write_text(
+            "import pytest, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_pass_a(self): pass\n"
+            "    def test_pass_b(self): pass\n"
+            "    def test_skip(self): self.skipTest('planted')\n"
+            "@pytest.mark.xfail(reason='planted')\n"
+            "def test_xfail(): assert False\n"
+            "@pytest.mark.xfail(reason='planted')\n"
+            "def test_xpass(): assert True\n"
+            "@pytest.fixture\n"
+            "def kaputt(): raise RuntimeError('planted')\n"
+            "def test_fixture_error(kaputt): pass\n", encoding="utf-8")
+        bestanden, andere = lauf_bilanz("tests/x.py", baum)
+        self.assertEqual(bestanden, 2, f"only two cases passed ({andere})")
+        self.assertEqual(andere, {"error": 1, "skipped": 1, "xfailed": 1, "xpassed": 1}, andere)
+        self.assertEqual(gesammelte_faelle("tests/x.py", baum), bestanden + sum(andere.values()),
+                         "the collector and the run must account for the same set")
 
     def test_der_bericht_ueberlebt_eine_zeile_die_wie_eine_bilanz_aussieht(self):
         """The shape that defeated two stdout readings, run for real against the report.
