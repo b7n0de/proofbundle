@@ -37,11 +37,17 @@ be argued with, one whose edge is discovered cannot.
    existed at v3.7.0" beside today's 130 is legitimate history and, by the number alone, is
    indistinguishable from drift. Tightening it would turn honest prose red, so it stays loose.
 
-2. A PATTERN HAS AN EDGE AND THIS ONE IS NAMED. The corpus sweep reads `29 cases`, `29-case` and
-   `29cases`, in either case. It does NOT read a number written as a word, so "twenty-nine cases"
-   walks past. The acceptance-matrix rule reads the hyphenated form and the phrase with `N checks`
-   within one sentence either way round; a sentence that states the size without naming the matrix
-   is not reached. These are the measured edges, not a claim that none exists.
+2. A PATTERN HAS AN EDGE AND THIS ONE IS NAMED. The corpus sweep reads `29 cases`, `29-case`,
+   `29cases` and `4,130 cases`, in either case. It does NOT read a number written as a word, so
+   "twenty-nine cases" walks past. The acceptance-matrix rule reads the hyphenated form and the
+   phrase followed by a size-stating verb (`the acceptance matrix has 40 checks`); a sentence that
+   states the size in some other construction is not reached.
+
+   THE LIST ABOVE WAS SHORTER AND SAID "all of them". A fresh adversarial pass found four more
+   edges of the same size in under an hour -- two escapes, one false positive, one crash -- and
+   each is now either fixed or written here. That is the honest status of any such enumeration:
+   these are the edges MEASURED SO FAR. A list of known edges is a record of who has looked, not a
+   boundary of what exists, and claiming otherwise is the error this file keeps finding elsewhere.
 
 3. THE EXCLUSION LIST IS A JUDGEMENT. Digest and key files (.sha256, .b64, .sig) are skipped
    because they are long hex and base64 runs that a number sweep misreads, and because no one
@@ -51,7 +57,20 @@ be argued with, one whose edge is discovered cannot.
    comes from a directory walk with tool debris filtered out. That counts files present rather
    than files tracked, so a deliberately untracked file would be included. It still runs and can
    still fail, which is the property that matters; the failure message says which reading produced
-   the number.
+   the number. Measured consequence, stated rather than left to be found: while git DOES answer,
+   an untracked addition is invisible here, because git is preferred and git does not see it.
+
+5. THE DEBRIS FILTER WOULD DROP A TRACKED DOTFILE. `_ist_werkzeugmuell` refuses any path component
+   beginning with a dot. Under the fallback that would silently under-count a dotfile the
+   repository legitimately tracks. Measured: no such file exists under `conformance/` today, so
+   the rule is dormant rather than wrong. It is written down because dormant is not the same as
+   safe, and the next tracked dotfile is the moment it stops being dormant.
+
+6. AMBIGUITY IN THE MATRIX SOURCE REFUSES RATHER THAN GUESSES. If module scope ever carries more
+   than one `CHECKS` list, this test fails and says so instead of choosing. That is deliberate: it
+   converts a silent wrong answer into a loud question. It also means a legitimate restructuring
+   of that script breaks this test on purpose, and whoever does it has to say which list is
+   authoritative.
 """
 from __future__ import annotations
 
@@ -79,8 +98,19 @@ AUSGESCHLOSSEN = {".sha256", ".b64", ".sig", ".pyc"}
 
 def _pack_dokumente() -> list[pathlib.Path]:
     """Every document in the pack, so a new one cannot carry a corrected-away number unseen."""
+    # THE SAME DEBRIS FILTER AS ITS SIBLING, which it should have had from the start. The commit
+    # that taught `_versandte_dateien` to ignore a `.DS_Store` left this function, twenty lines
+    # away, walking the filesystem with no such filter -- so a binary dropped in the pack reached
+    # `.read_text()` and burst a subtest with a UnicodeDecodeError. A counter-reading did it. One
+    # fix, one of two callers: that is fixing the instance and calling it the class.
     return [p for p in PACK.rglob("*")
-            if p.is_file() and p.suffix not in AUSGESCHLOSSEN and "__pycache__" not in p.parts]
+            if p.is_file() and p.suffix not in AUSGESCHLOSSEN
+            and not _ist_werkzeugmuell(p.relative_to(PACK).parts)]
+
+
+def _zahl(roh: str) -> int:
+    """A number as a document writes it: digits with grouping separators removed."""
+    return int(roh.replace(",", ""))
 
 
 def _ist_werkzeugmuell(teile: tuple[str, ...]) -> bool:
@@ -139,8 +169,13 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
                 # escaped it; leaving this one narrow would have kept the identical hole open for
                 # the figure next to it. Measured escapes that now close: `29-case`, `29cases`,
                 # `29 Cases`. A number written as a word is still out of reach, and says so above.
-                genannt = [int(x) for x in re.findall(r"(\d+)[\s-]?[Cc]ases?\b",
-                                                      datei.read_text())]
+                # THE COMMA IS PART OF THE NUMBER. `\d+` against "now totals 4,130 cases" matches
+                # only the trailing group, 130 -- which happened to equal the true count, so a
+                # document stating a number that was never right passed. A counter-reading built
+                # exactly that. The digits and their separators are read together and the
+                # separators removed, and a match may not begin in the middle of a number.
+                genannt = [_zahl(x) for x in re.findall(r"(?<![\d,])(\d[\d,]*)[\s-]?[Cc]ases?\b",
+                                                        datei.read_text())]
                 if not genannt:
                     continue
                 heutige = [x for x in genannt if x == gemessen]
@@ -194,35 +229,60 @@ class TestTheReadinessPackCountsMatchTheTree(unittest.TestCase):
         if not skript.is_file():
             self.skipTest("scripts/audit_candidate_matrix.py is not in this tree")
         # Read, do not import: the module pulls in the gates it orchestrates.
-        # THE MODULE BODY, not `ast.walk`. The first version walked every node and kept the LAST
-        # `CHECKS = [...]` it saw, so a local of that name inside ANY function -- visited after the
-        # real one, because the walk is breadth-first -- silently became the answer. A
-        # counter-reading planted a two-element decoy in an uncalled function and the derivation
-        # reported 2; the pack was then free to claim "2-check acceptance matrix" and pass. A
-        # derivation that matches a bare NAME instead of a scoped binding is not a derivation.
+        # AMBIGUITY REFUSES. THIS IS THE THIRD SHAPE OF ONE MISTAKE, so the mistake gets named
+        # rather than patched again. Version one walked every node and kept the LAST `CHECKS`,
+        # so a decoy inside an uncalled function won. Version two read only `baum.body`, so a
+        # decoy at true top level won while the REAL list, wrapped in `if True:`, became
+        # invisible. Both were executed by counter-readings; both made the derivation report 2
+        # and let the pack claim "2-check acceptance matrix" and pass.
+        #
+        # What both versions share is not a scoping bug, it is a DISPOSITION: when several
+        # candidates carried the name, they picked one. First, last, top-level -- every rule for
+        # picking is a rule an attacker or a refactor chooses for you. So this one collects
+        # every module-scope candidate, descending through `if`/`try`/`with` (which do not make a
+        # new scope) but NOT into functions or classes (which do), and refuses unless there is
+        # exactly one. Two candidates is not a number to choose between; it is a question this
+        # test is not entitled to answer.
+        def _modul_kandidaten(knoten):
+            for k in knoten.body:
+                if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue  # a new scope: a `CHECKS` in there is not the module's
+                if isinstance(k, ast.Assign) and isinstance(k.value, (ast.List, ast.Tuple)):
+                    if any(isinstance(z, ast.Name) and z.id == "CHECKS" for z in k.targets):
+                        yield k.value
+                for feld in ("body", "orelse", "finalbody", "handlers"):
+                    for unter in getattr(k, feld, []) or []:
+                        if hasattr(unter, "body"):
+                            yield from _modul_kandidaten(unter)
+
         baum = ast.parse(skript.read_text(encoding="utf-8"))
-        kennungen = None
-        for knoten in baum.body:
-            if isinstance(knoten, ast.Assign) and isinstance(knoten.value, (ast.List, ast.Tuple)):
-                if any(isinstance(z, ast.Name) and z.id == "CHECKS" for z in knoten.targets):
-                    kennungen = [e.elts[0].value for e in knoten.value.elts
-                                 if isinstance(e, (ast.Tuple, ast.List)) and e.elts
-                                 and isinstance(e.elts[0], ast.Constant)]
-        self.assertIsNotNone(kennungen, "the CHECKS list is gone — if the matrix was restructured, "
-                                        "rewrite this derivation with it")
+        kandidaten = list(_modul_kandidaten(baum))
+        self.assertEqual(
+            len(kandidaten), 1,
+            f"module scope carries {len(kandidaten)} assignments named CHECKS; a derivation that "
+            f"picks one of several is choosing, not deriving — if the matrix legitimately has "
+            f"more than one, this test has to learn which is authoritative before it may judge")
+        kennungen = [e.elts[0].value for e in kandidaten[0].elts
+                     if isinstance(e, (ast.Tuple, ast.List)) and e.elts
+                     and isinstance(e.elts[0], ast.Constant)]
         gemessen = len([k for k in kennungen if str(k).startswith("C")])
         self.assertGreater(gemessen, 0, f"no machine-checkable check ids in {kennungen[:5]}")
         for datei in sorted(_pack_dokumente()):
             text = datei.read_text()
-            # TWO SHAPES, because one was not enough. The hyphenated form is what the pack uses;
-            # a counter-reading escaped it with "the acceptance matrix now has 40 checks" in a
-            # neighbouring document and the sweep never looked at the sentence. Both forms are
-            # anchored on the phrase, so an unrelated number elsewhere is not dragged in.
-            genannt = {int(x) for x in re.findall(r"(\d+)-check acceptance matrix", text)}
-            genannt |= {int(x) for x in re.findall(
-                r"acceptance matrix[^.\n]{0,80}?(\d+) checks?\b", text)}
-            genannt |= {int(x) for x in re.findall(
-                r"(\d+) checks?\b[^.\n]{0,80}?acceptance matrix", text)}
+            # PROXIMITY IS NOT A CLAIM. A third pattern used to match any "N checks" within eighty
+            # characters of the phrase, in either direction. A counter-reading planted "We
+            # performed 12 checks on formatting before building the acceptance matrix document"
+            # and the rule accused an innocent sentence of misstating the matrix size. A rule that
+            # turns honest prose red is a defect of the same size as one that lets a wrong number
+            # through, and it is worse in one way: it trains people to switch the rule off.
+            #
+            # What remains states the size rather than standing near it: the hyphenated form the
+            # pack uses, and the phrase followed by a size-stating verb. "has 40 checks" is still
+            # caught; "12 checks on formatting ... acceptance matrix" no longer is.
+            genannt = {_zahl(x) for x in re.findall(r"(\d[\d,]*)-check acceptance matrix", text)}
+            genannt |= {_zahl(x) for x in re.findall(
+                r"acceptance matrix\b[^.\n]{0,40}?\b(?:has|holds|contains|comprises|is)\b"
+                r"[^.\n]{0,20}?(\d[\d,]*) checks?\b", text)}
             if not genannt:
                 continue
             with self.subTest(datei=datei.name):
