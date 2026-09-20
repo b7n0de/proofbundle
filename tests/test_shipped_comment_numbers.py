@@ -180,15 +180,29 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
 class TestDieBeidenLesungenSelbst(unittest.TestCase):
     """The ratio case cannot check these two on the surface it runs on, so they are checked here."""
 
-    def test_die_flaechenfrage_faellt_wenn_inspect_ai_fehlt(self):
+    def test_die_flaechenfrage_antwortet_auf_beide_lagen(self):
+        """BOTH answers, and neither is assumed from the surface this runs on.
+
+        The first version asserted that inspect_ai IS installed here, and then checked the absent
+        case by patching. In the hermetic cleanroom, where the package is deliberately absent, that
+        first assertion failed — a test ABOUT surface dependence that was itself surface dependent.
+        Measured there, woertlich: `AssertionError: False is not true : inspect_ai is installed
+        here, so the claim's surface is this one`.
+
+        So both answers are produced by patching, and the surface this runs on decides nothing.
+        """
         from unittest import mock
         echt = importlib.util.find_spec
-        self.assertTrue(flaeche_traegt_die_behauptung(),
-                        "inspect_ai is installed here, so the claim's surface is this one")
         with mock.patch("importlib.util.find_spec",
                         side_effect=lambda n, p=None: None if n.startswith("inspect_ai")
                         else echt(n, p)):
-            self.assertFalse(flaeche_traegt_die_behauptung())
+            self.assertFalse(flaeche_traegt_die_behauptung(),
+                             "absent means the claim's surface is not this one")
+        with mock.patch("importlib.util.find_spec",
+                        side_effect=lambda n, p=None: echt("unittest") if n.startswith("inspect_ai")
+                        else echt(n, p)):
+            self.assertTrue(flaeche_traegt_die_behauptung(),
+                            "present means the claim's surface IS this one")
 
     def test_die_bilanzzeile_wird_gesucht_nicht_die_letzte_genommen(self):
         """Each of these ends on something that is not the summary. `[-1]` would miss all four."""
