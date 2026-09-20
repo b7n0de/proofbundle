@@ -138,6 +138,30 @@ correct verdict over any commit of this repository, and the 68 classes that depe
 structural fact stay environment-blocked. Reading this as a backlog of 68 items would be the
 mistake the card was closed to prevent.
 
+## Open — the cut points version-derived tooling at a cut that does not exist yet
+
+The advisory audit-candidate matrix is RED on the head that carries this cut, and it is green
+everywhere else. Measured on 2026-09-20 over the open pull requests and the trunk: FAILURE on this
+branch, SUCCESS on `fix/610-evalclaim-verify-boundary` and on `fix/n16-action-input-injection`, and
+SUCCESS on the last three runs of `main`. The difference between those heads is the version.
+
+The mechanism is measured rather than inferred. `scripts/audit_candidate_matrix.py` sets
+`VERSION_UNDER_TEST` from `pyproject.toml`, and this cut moved that value from 6.0.0 to 6.1.0. The
+audit artefacts in the tree carry the cuts 360, 370, 380, 400, 500, 510 and 600; there is no 610,
+neither on this branch nor on `main`, because the pre-tag round that produces it has not run. So
+evidence that was bound to the previous version is no longer bound to the version under test, and
+the matrix says so.
+
+**This is the expected shape of a version cut, not a defect introduced by it**, and the job is
+advisory for a related reason its own workflow comment gives: a full run needs a soak box, so a
+non-green outcome is its ordinary CI state. What would have been dishonest is leaving a red context
+on the release candidate without a sentence saying why it is red.
+
+WHAT IS NOT MEASURED, and it is the part a reader should not assume: WHICH cell of the matrix went
+to FAIL rather than to NOT_MEASURED. The run that carries that job is still open, and GitHub
+releases job logs only when the run completes, so the log could not be read at the time of writing.
+The mechanism above is measured; the specific cell is not.
+
 ## Honest limits of this file
 
 - **The funnel verdict on the 54 moved lines is a class judgement**, not 54 measurements. It is
