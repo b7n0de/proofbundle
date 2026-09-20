@@ -55,8 +55,28 @@ _KENNUNG_ASCII = re.compile(r"\A[A-Z0-9][A-Z0-9-]{7,}\Z")
 _REGISTER_GLOB = "audit_artifacts/**/findings_register*.json"
 
 
+#: WHERE A PROMISE MAY STAND. Every shipped Markdown document, not the file name that happened to
+#: carry the promises when this was written.
+#:
+#: MEASURED 2026-09-20, repo wide: today there is not one `Register entry` outside the risk
+#: sheets, so this widening changes nothing about the current verdict. It closes a reach gap
+#: rather than a defect — the same gap a lens found one level over, at the register glob, where a
+#: file name stood in for the property. A proposal or a release note can make this promise just as
+#: a risk sheet can, and a guard scoped to `RESTRISIKO*` would not have seen it.
+#:
+#: `audit_artifacts/` is excluded, with its reason: the evidence files there are BYTE COPIES of the
+#: promise paragraphs, so scanning them would count every promise a second time at a place that is
+#: not its source. The generated views quote identifiers for the same reason. Their source is
+#: already scanned, which is where the promise is made.
+_BLATT_GLOB = "**/*.md"
+_NICHT_BLATT = ("audit_artifacts/",)
+
+
 def _risikoblaetter(wurzel: pathlib.Path | None = None) -> list[pathlib.Path]:
-    return sorted(p for p in (wurzel or REPO).glob("RESTRISIKO*.md") if p.is_file())
+    w = wurzel or REPO
+    return sorted(p for p in w.glob(_BLATT_GLOB)
+                  if p.is_file()
+                  and not any(str(p.relative_to(w)).startswith(x) for x in _NICHT_BLATT))
 
 
 #: The schema values a real register carries. A file is a register because it SAYS SO in the form
@@ -182,6 +202,36 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
             self.assertEqual(
                 _register_kennungen(w), set(),
                 "a file that only carries the NAME of a register must not be authoritative")
+
+
+    def test_eine_zusage_ausserhalb_der_risikoblaetter_faellt_auf(self):
+        """[ZAEHLT] The reach of the scan, measured rather than assumed.
+
+        A promise can be made anywhere prose ships. Before this case the scan was bound to files
+        named `RESTRISIKO*`, so a proposal making the same promise would have passed unseen. The
+        case builds that exact document in a throwaway tree.
+        """
+        import tempfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as d:
+            w = pathlib.Path(d)
+            (w / "docs" / "proposals").mkdir(parents=True)
+            (w / "docs" / "proposals" / "irgendeine_vorlage.md").write_text(
+                "Register entry `NUR-IN-EINER-VORLAGE-VERSPROCHEN-01`.\n", encoding="utf-8")
+            gefunden = [k for b in _risikoblaetter(w)
+                        for k in _ZUSAGE.findall(b.read_text(encoding="utf-8"))]
+            self.assertIn("NUR-IN-EINER-VORLAGE-VERSPROCHEN-01", gefunden,
+                          "a promise outside the risk sheets must be seen, otherwise the scope of "
+                          "this guard is a file name rather than a property")
+
+    def test_KONTROLLE_die_erzeugten_belege_zaehlen_nicht_doppelt(self):
+        """[ZAEHLT] The exclusion has a reason, and the reason is checked.
+
+        The evidence files under `audit_artifacts/` are byte copies of the promise paragraphs. If
+        they were scanned, every promise would be counted a second time at a place that is not its
+        source.
+        """
+        gescannt = {str(b.relative_to(REPO)) for b in _risikoblaetter()}
+        assert not any(p.startswith("audit_artifacts/") for p in gescannt), sorted(gescannt)[:3]
 
 
 if __name__ == "__main__":
