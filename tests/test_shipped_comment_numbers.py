@@ -21,12 +21,46 @@ So the fix is this file. The numbers are now derived from the tree on every run,
 disagrees with what it counts fails here instead of shipping. From a distributed sdist the module is
 skipped by conftest's derived rule, because the paths below are root-relative.
 """
+import importlib.util
 import pathlib
 import re
 import sys
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+
+#: Every outcome word a pytest summary can carry besides `passed`. `N of N` is a RATIO, so a case
+#: that neither passed nor is absent has to appear here. The first version of this file counted
+#: `skipped` alone, because a planted skip was the defect that started it -- and `10 passed,
+#: 2 xfailed` or `10 passed, 2 deselected` would have sailed straight through the same assertion.
+#: Same class, different word, which is why the set is a set and not one name.
+NICHT_BESTANDEN = ("skipped", "xfailed", "xpassed", "deselected", "failed", "error", "errors")
+
+
+def flaeche_traegt_die_behauptung() -> bool:
+    """Is this the surface the comment's ratio is about?
+
+    The docstring of the ratio case already named the surface. It did not say it to the code.
+    MEASURED 2026-09-19 in the hermetic cleanroom, where `inspect_ai` is deliberately absent:
+    test_adapters.py reported 6 passed and 4 skipped against a comment that says 10, and
+    test_inspect_hook.py 2 passed and 7 skipped against 9. The guard went red over a tree that
+    was behaving exactly as intended. A ratio defined on one surface and asserted on every
+    surface is this file's own defect wearing the other face: not a number that drifted from its
+    tree, but a number applied to a tree it was never about.
+    """
+    return importlib.util.find_spec("inspect_ai") is not None
+
+
+def bilanzzeile(stdout: str) -> str:
+    """The summary line, SEARCHED FOR rather than assumed to be the last one.
+
+    A counter-reading named the cases: a collection error ends on a traceback line, a missing file
+    ends on `ERROR: file or directory not found`, and a plugin may write after the summary. Taking
+    the last line turns any of those into "no match", which is red -- fail-closed, but red for the
+    wrong reason, and a gate that goes red for the wrong reason is one people learn to re-run.
+    """
+    return next((z for z in reversed(stdout.splitlines())
+                 if re.search(r"\d+ (passed|failed|error|skipped)", z)), "")
 
 
 class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
@@ -66,6 +100,11 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         """
         import os
         import subprocess
+
+        if not flaeche_traegt_die_behauptung():
+            self.skipTest("inspect_ai is absent here, so the conditional skips in both files fire "
+                          "by design; the comment's ratio is about the surface where it is "
+                          "installed and says nothing about this one")
         umgebung = dict(os.environ, PYTHONPATH="src")
         for rel, feld in (("tests/test_adapters.py", r"`test_adapters\.py` (\d+) of (\d+)"),
                           ("tests/test_inspect_hook.py", r"`test_inspect_hook\.py` (\d+) of (\d+)")):
@@ -75,16 +114,18 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
                 bestanden_behauptet, gesamt_behauptet = int(treffer.group(1)), int(treffer.group(2))
                 r = subprocess.run([sys.executable, "-m", "pytest", "-q", rel],
                                    capture_output=True, text=True, cwd=str(REPO), env=umgebung)
-                zeile = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+                zeile = bilanzzeile(r.stdout)
                 bestanden = int(m.group(1)) if (m := re.search(r"(\d+) passed", zeile)) else -1
-                uebersprungen = int(m2.group(1)) if (m2 := re.search(r"(\d+) skipped", zeile)) else 0
+                andere = {w: int(m3.group(1)) for w in NICHT_BESTANDEN
+                          if (m3 := re.search(rf"(\d+) {w}\b", zeile))}
+                uebersprungen = sum(andere.values())
                 self.assertEqual(bestanden, bestanden_behauptet,
                                  f"{rel}: the comment claims {bestanden_behauptet} passing, the run "
                                  f"reports {bestanden} ({zeile})")
                 self.assertEqual(uebersprungen, 0,
-                                 f"{rel}: {uebersprungen} case(s) skipped here, so the comment's "
+                                 f"{rel}: {andere} on this surface, so the comment's "
                                  f"'{bestanden_behauptet} of {gesamt_behauptet}' is not a pass ratio "
-                                 f"on this surface ({zeile})")
+                                 f"here ({zeile})")
 
     def test_the_conformance_case_count_in_the_manifest_matches_the_corpus(self):
         gemessen = len(list((REPO / "conformance" / "agent_review").rglob("case.json")))
@@ -104,6 +145,44 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         self.assertEqual(int(treffer.group(1)), gemessen,
                          f"pyproject.toml claims mypy covers {treffer.group(1)} files under src, the "
                          f"tree holds {gemessen}")
+
+
+class TestDieBeidenLesungenSelbst(unittest.TestCase):
+    """The ratio case cannot check these two on the surface it runs on, so they are checked here."""
+
+    def test_die_flaechenfrage_faellt_wenn_inspect_ai_fehlt(self):
+        from unittest import mock
+        echt = importlib.util.find_spec
+        self.assertTrue(flaeche_traegt_die_behauptung(),
+                        "inspect_ai is installed here, so the claim's surface is this one")
+        with mock.patch("importlib.util.find_spec",
+                        side_effect=lambda n, p=None: None if n.startswith("inspect_ai")
+                        else echt(n, p)):
+            self.assertFalse(flaeche_traegt_die_behauptung())
+
+    def test_die_bilanzzeile_wird_gesucht_nicht_die_letzte_genommen(self):
+        """Each of these ends on something that is not the summary. `[-1]` would miss all four."""
+        for schwanz in ("Traceback (most recent call last):",
+                        "ERROR: file or directory not found: tests/weg.py",
+                        "-- generated xml file: /tmp/x.xml --",
+                        ""):
+            with self.subTest(schwanz=schwanz):
+                aus = "collected 10 items\n\n10 passed in 0.31s\n" + schwanz
+                self.assertEqual(bilanzzeile(aus), "10 passed in 0.31s")
+
+    def test_die_bilanz_ohne_ergebniswort_gibt_keine_zeile(self):
+        """An output that never reported must not silently read as zero findings."""
+        self.assertEqual(bilanzzeile("collected 0 items\n\nno tests ran in 0.01s\n"), "")
+
+    def test_jedes_ergebniswort_wird_gezaehlt_nicht_nur_skipped(self):
+        """`10 passed, 2 xfailed` is not a 10-of-10 surface either, and neither is deselected."""
+        for wort in ("xfailed", "xpassed", "deselected", "failed"):
+            with self.subTest(wort=wort):
+                zeile = f"10 passed, 2 {wort} in 0.4s"
+                gezaehlt = {w: int(m.group(1)) for w in NICHT_BESTANDEN
+                            if (m := re.search(rf"(\d+) {w}\b", zeile))}
+                self.assertEqual(sum(gezaehlt.values()), 2,
+                                 f"{wort} is not counted, so the ratio would pass over it")
 
 
 if __name__ == "__main__":
