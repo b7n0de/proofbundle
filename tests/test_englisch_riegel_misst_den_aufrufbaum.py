@@ -264,6 +264,35 @@ class TestAusEinemEchtenWorktree(BrauchtDenBaum):
         self.assertEqual(antwort["baum_herkunft"], "arbeitsverzeichnis", antwort)
         self.assertEqual([b["datei"] for b in antwort["befunde"]], ["mod.py"], antwort)
 
+    def test_from_a_subdirectory_the_root_is_judged_not_the_subdirectory(self):
+        """At a tree ROOT the right answer and the wrong one are the same path.
+
+        `_gemessener_baum` asks git for `rev-parse --show-toplevel`. Every case in this file until
+        now called the tool from the top of a tree, and there `Path.cwd()` returns exactly what
+        `--show-toplevel` returns -- so no case could tell the two apart. A counter-reading proved
+        it by REPLACING the git call with `Path.cwd()`: twelve cases passed with the defect
+        installed, including both worktree cases written to guard this very property.
+
+        A test that cannot distinguish the correct implementation from the wrong one is not
+        testing that property, it is agreeing with whatever is there. One directory deeper the two
+        answers differ, and the finding is reported against the root either way -- a run from
+        `pkg/inner` still has to name `mod.py` at the top of the tree, because that is the tree the
+        caller asked about.
+        """
+        baum, _haupt, basis = self._worktree()
+        tief = baum / "pkg" / "inner"
+        tief.mkdir(parents=True)
+        rc, antwort = _lauf(tief, "--base", basis)
+        self.assertEqual(pathlib.Path(antwort["gemessener_baum"]).resolve(), baum.resolve(),
+                         "called one directory down, the tool must still name the tree ROOT — if "
+                         "it names the subdirectory it is reading cwd, not the repository")
+        self.assertEqual(antwort["baum_herkunft"], "arbeitsverzeichnis", antwort)
+        self.assertEqual(antwort["urteil"], "ROT", antwort)
+        self.assertEqual([b["datei"] for b in antwort["befunde"]], ["mod.py"],
+                         "the finding is named relative to the root, not to the directory the "
+                         "call happened to start in")
+        self.assertEqual(rc, 1)
+
     def test_repo_still_points_it_at_the_main_repository(self):
         """The counter-case: same call site, other tree, other verdict.
 
