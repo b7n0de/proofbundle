@@ -10,6 +10,14 @@
     "quoted_from_source": [
       {
         "language": "de",
+        "source": "RESTRISIKO_600.md",
+        "fields": [
+          "records[].title"
+        ],
+        "why": "headings cut verbatim out of the source register; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+      },
+      {
+        "language": "en",
         "source": "RESTRISIKO_610.md",
         "fields": [
           "records[].title"
@@ -18,7 +26,7 @@
       },
       {
         "language": "de",
-        "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+        "source": "RESTRISIKO_610_OBJEKTKLASSEN.json",
         "fields": [
           "records[].objektklasse_begruendung",
           "records[].not_a_defect.beleg",
@@ -31,7 +39,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T13:59:25Z",
+  "generated_at": "2026-09-20T14:17:59Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.1.0",
@@ -301,7 +309,12 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash, nor under a section heading in the house form `## Open`; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash",
+          "a section heading in the house form `## Open`"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash, a section heading in the house form `## Open`. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {

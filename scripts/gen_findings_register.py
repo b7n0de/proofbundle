@@ -76,12 +76,18 @@ ANSICHTEN_REL = "audit_artifacts/600/views"
 #: as a copy beside it. The default stays 600, so no existing call moves.
 LINIEN = {
     "600": {"fassung": "6.0.0",
+            # THE LANGUAGE OF THE QUOTED SOURCES IS A PROPERTY OF THE LINE, measured per line.
+            # Line 600 quotes German headings; line 610 quotes an English sheet. The first version
+            # carried the 600 statement over to 610 unchanged, and a lens measured that all five
+            # 610 titles are English while the carrier declared them German.
+            "sprache_blaetter": "de", "sprache_objektklassen": "de",
             "restrisiko": "RESTRISIKO_600.md",
             "objektklassen": "RESTRISIKO_600_OBJEKTKLASSEN.json",
             "evidenz": "audit_artifacts/600/register_evidence",
             "v2": "audit_artifacts/600/findings_register_v2.json",
             "ansichten": "audit_artifacts/600/views"},
     "610": {"fassung": "6.1.0",
+            "sprache_blaetter": "en", "sprache_objektklassen": "de",
             "restrisiko": "RESTRISIKO_610.md",
             "objektklassen": "RESTRISIKO_610_OBJEKTKLASSEN.json",
             "evidenz": "audit_artifacts/610/register_evidence",
@@ -98,6 +104,7 @@ def waehle_linie(name: str) -> None:
     same statement in twelve places. One run, one line, one set of paths.
     """
     global RESTRISIKO_REL, OBJEKTKLASSEN_REL, EVIDENZ_REL, V2_REL, ANSICHTEN_REL, V2_FASSUNG
+    global _SPRACHE_DER_RISIKOBLAETTER, _SPRACHE_DER_QUELLE
     linie = LINIEN[name]
     # THE VERSION BELONGS TO THE LINE, not to the module. The first run of line 610 wrote
     # "Known issues, 6.0.0" over a list that carries nothing but findings of the 6.1.0 cut. The
@@ -105,6 +112,8 @@ def waehle_linie(name: str) -> None:
     # wrong version is exactly the defect the comment at `VERSION` warns about, the other way
     # round: there the list without the number, here the number without the list.
     V2_FASSUNG = linie["fassung"]
+    _SPRACHE_DER_RISIKOBLAETTER = linie["sprache_blaetter"]
+    _SPRACHE_DER_QUELLE = linie["sprache_objektklassen"]
     RESTRISIKO_REL = linie["restrisiko"]
     OBJEKTKLASSEN_REL = linie["objektklassen"]
     EVIDENZ_REL = linie["evidenz"]
@@ -226,13 +235,60 @@ def _zusage_als_fundstelle(text: str, kennung: str):
     if len(treffer) != 1:
         return None                       # no promise, or several — neither is evidence
     m = treffer[0]
-    a = text.rfind("\n\n", 0, m.start())
-    a = 0 if a == -1 else a + 2
-    e = text.find("\n\n", m.end())
-    e = len(text) if e == -1 else e
+    a, e = _absatzgrenzen(text, m.start(), m.end())
     if len({x.group(1) for x in muster.finditer(text[a:e])}) != 1:
         return None                       # the paragraph promises something to several identifiers
+    # A NEGATED SENTENCE IS NOT A PROMISE, and the first version read one as one. Measured by a
+    # review lens: "there is no Register entry `X` for it" produced a record whose TITLE was the
+    # sentence denying it. The window is small and the direction is safe: a refusal drops the
+    # identifier into `identifiers_without_evidence`, where it is visible, instead of into a
+    # record that says the opposite of the source.
+    #
+    # HONEST LIMIT, stated rather than papered over: this catches the negations the sheets
+    # actually use. A sentence that denies the promise in some other wording still passes, and no
+    # amount of further word lists would change that — deciding whether prose asserts or denies is
+    # not a job for a pattern.
+    if _verneint_muster().search(text[max(a, m.start() - 40):m.start()]):
+        return None
     return (len(text[:a].encode()), len(text[:e].encode()), "prosa_zusage")
+
+
+#: A paragraph boundary is a blank line, and a line carrying only whitespace IS blank.
+#:
+#: MEASURED 2026-09-20 by a review lens, twice. With CRLF line endings the literal `"\n\n"` never
+#: occurs, so the search fell through to the file bounds and handed the WHOLE 371 KB source
+#: document to one identifier as its evidence — accepted by `pruefe_v2`, whose range check only
+#: asks whether the range is inside the file. And a separator line carrying spaces let two
+#: paragraphs merge, so one finding's evidence swallowed its neighbour's sentence.
+#:
+#: Both are the same root: a boundary measured as a character sequence instead of as the property
+#: "a line with nothing on it".
+_ABSATZGRENZE = None
+
+
+def _absatzgrenzen(text: str, von: int, bis: int) -> tuple[int, int]:
+    """The paragraph around [von, bis) — start index and end index into `text`."""
+    global _ABSATZGRENZE
+    if _ABSATZGRENZE is None:
+        import re  # noqa: PLC0415
+        _ABSATZGRENZE = re.compile(r"\r?\n[ \t]*\r?\n")
+    a = 0
+    for g in _ABSATZGRENZE.finditer(text, 0, von):
+        a = g.end()
+    g = _ABSATZGRENZE.search(text, bis)
+    return a, (g.start() if g else len(text))
+
+
+#: Negation directly before a promise. Deliberately short and deliberately incomplete.
+_VERNEINT = None
+
+
+def _verneint_muster():
+    global _VERNEINT
+    if _VERNEINT is None:
+        import re  # noqa: PLC0415
+        _VERNEINT = re.compile(r"\b(?:no|not|never|without|neither|nor)\b[^.]{0,40}\Z", re.I)
+    return _VERNEINT
 
 
 #: The state also stands in the SECTION heading, and only in its house form.
@@ -250,9 +306,23 @@ def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
     import re  # noqa: PLC0415
     muster = re.compile(_ABSCHNITT_OFFEN)
     vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
+    # THE ENCLOSING SECTION, not the next line that starts with a hash. Measured by a lens: with
+    # a `###` sub heading between the find site and its `## Open` section this returned None, and
+    # a real open finding fell silently to NOT MEASURED, and with it out of `known_issues.md`. It
+    # does not happen today because both sheets carry level two only; one sub heading in a later
+    # version would have been enough.
+    ebene = None
     for zeile in reversed(vor.splitlines()):
-        if zeile.startswith("#"):
-            return "open" if muster.match(zeile) else None
+        if not zeile.startswith("#"):
+            continue
+        tiefe = len(zeile) - len(zeile.lstrip("#"))
+        if ebene is not None and tiefe >= ebene:
+            continue                      # eine Unterueberschrift derselben Sektion
+        ebene = tiefe
+        if muster.match(zeile):
+            return "open"
+        if tiefe <= 2:
+            return None                   # die umschliessende Sektion sagt nichts
     return None
 
 
@@ -266,6 +336,19 @@ VERSION = "6.0.0"
 #: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
 #: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
 V2_FASSUNG = VERSION
+
+#: The language of the sources the selected line QUOTES from. Defaults to the 600 line.
+_SPRACHE_DER_RISIKOBLAETTER = "de"
+_SPRACHE_DER_QUELLE = "de"
+
+#: THE LANGUAGE IS A PROPERTY OF THE FILE, not of the line that happens to read it.
+#:
+#: A lens measured the first defect here: the 610 carrier declared its quoted titles German
+#: because the block was copied from the 600 line. Setting one language per LINE repaired that
+#: and left the next instance standing — line 610 quotes titles from BOTH sheets, and they are
+#: not in the same language. A statement about "the source" is only checkable when it names each
+#: source it is about.
+SPRACHE_JE_BLATT = {"RESTRISIKO_600.md": "de", "RESTRISIKO_610.md": "en"}
 
 #: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
 #: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
@@ -617,7 +700,8 @@ def _status_aus_ueberschrift(stueck: str, kennung: str) -> str | None:
 
 
 def _status(kennung: str, aus_tabelle: str | None = None,
-            aus_ueberschrift: str | None = None, aus_abschnitt: str | None = None) -> dict:
+            aus_ueberschrift: str | None = None, aus_abschnitt: str | None = None,
+            fundart: str | None = None) -> dict:
     """Der Zustand eines Fundes, GELESEN statt geraten.
 
     Codex r3999621596: `_offen` fiel fuer jede Kennung, die nicht in FINDINGS steht, auf
@@ -645,11 +729,43 @@ def _status(kennung: str, aus_tabelle: str | None = None,
         # section, not a derivation from severity or role.
         return {"value": aus_abschnitt,
                 "source": f"state word in the enclosing section heading in {RESTRISIKO_REL}"}
+    # THE REASON NAMES THE SOURCES THAT WERE ACTUALLY ASKED, and that is a repair.
+    #
+    # MEASURED 2026-09-20 by a review lens: the first version listed all four sources
+    # unconditionally, including "nor under a section heading in the house form `## Open`". That
+    # fourth source is consulted ONLY for the find form `prosa_zusage` (see `baue_v2`), so for the
+    # 105 records of line 600 that carry the heading form it named a check that structurally never
+    # ran. A reason that reports an unperformed step as performed is the same defect this whole
+    # file is built against, written into 105 places at once.
+    gefragt = ["the producer list", "a heading that names its state after a dash"]
+    if fundart == "tabelle_spalte1":
+        gefragt.insert(1, "a table with a state column")
+    if fundart == "prosa_zusage":
+        gefragt.append("a section heading in the house form `## Open`")
     return {"value": None, "state": "NOT MEASURED",
-            "reason": ("this identifier appears neither in the producer list, nor in a table with "
-                       "a state column, nor in a heading that names its state after a dash, nor "
-                       "under a section heading in the house form `## Open`; setting a state here "
-                       "would be a guess")}
+            "sources_asked": gefragt,
+            "reason": ("no source that was asked carries a state for this identifier. Asked: "
+                       + ", ".join(gefragt)
+                       + ". Setting a state here would be a guess, and naming a source that was "
+                         "not asked would be worse")}
+
+
+#: What an identifier may look like. It is a FILE NAME the moment a piece of evidence is written.
+#:
+#: MEASURED 2026-09-20 by a review lens: an entry whose `kennung` is
+#: `../../../../tmp/<name>` produced a record that `pruefe_v2` accepted with zero errors, and the
+#: evidence write landed OUTSIDE the evidence directory and outside the repository. Nothing in the
+#: chain asked what characters an identifier carries — the producer took the object class file at
+#: its word, and that file is data.
+_KENNUNG_FORM = None
+
+
+def _kennung_form():
+    global _KENNUNG_FORM
+    if _KENNUNG_FORM is None:
+        import re  # noqa: PLC0415
+        _KENNUNG_FORM = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
+    return _KENNUNG_FORM
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -694,16 +810,46 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                   for kx in (_aus.get("kennungen") or [])}
 
     records, ohne_fundstelle = [], []
+    alle_kennungen = {e.get("kennung") for e in ok["eintraege"]}
     for e in ok["eintraege"]:
         k = e["kennung"]
+        if not (isinstance(k, str) and _kennung_form().match(k)):
+            raise SystemExit(
+                f"Erzeugung abgebrochen: die Kennung {k!r} traegt Zeichen, die keine Kennung "
+                f"tragen darf. Sie wird zu einem Dateinamen, und ein Dateiname aus ungeprueften "
+                f"Daten schreibt dorthin, wo die Daten hinzeigen")
         e_rel = e.get("quelle") or RESTRISIKO_REL
-        e_roh, e_text, e_qd = _quelle_von(e_rel)
+        try:
+            e_roh, e_text, e_qd = _quelle_von(e_rel)
+        except OSError as exc:
+            # A TYPED VERDICT, not a raw traceback. A gate that ends in a stack trace has no
+            # NOT MEASURABLE path at all.
+            raise SystemExit(
+                f"Erzeugung abgebrochen: die Quelle {e_rel!r} des Eintrags {k!r} ist nicht "
+                f"lesbar ({type(exc).__name__}: {exc})") from None
         t = schneide_beleg(e_text, k)
         if t is None:
             ohne_fundstelle.append(k)
             continue
         von, bis, fundart = t
         stueck = e_roh[von:bis]
+        # EVIDENCE THAT NAMES A FOREIGN FINDING DOES NOT PROVE THIS ONE. The lesson the second
+        # version of `schneide_beleg` learned ("evidence containing thirteen findings proves
+        # none") carried to the third find form: the paragraph of a promise can mention another
+        # identifier in prose, and counting PROMISES does not see that. Measured by a lens on a
+        # built counter-example.
+        # ONLY FOR THE PROSE PROMISE, and the narrowness is measured rather than chosen out of
+        # caution. The first attempt checked every find form and broke line 600: a section in
+        # HEADING form regularly and rightly names other identifiers in its text ("see S22",
+        # "as in N16"), and a cross reference is not foreign evidence. In the paragraph of a
+        # promise it is, because the paragraph is three sentences long and the promise owns it.
+        if fundart == "prosa_zusage":
+            fremd = sorted(x for x in alle_kennungen
+                           if isinstance(x, str) and x != k
+                           and x in stueck.decode("utf-8", "ignore"))
+            if fremd:
+                ohne_fundstelle.append(k)
+                continue
         kopf = _tabellenkopf(e_text, von) if fundart == "tabelle_spalte1" else []
         records.append({
             "id": k,
@@ -734,8 +880,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # gelten. Das Zitat heisst deshalb `beleg` und steht nur da, wo es eines gibt; der
             # verneinte Fall traegt gar keine Prosa, denn "nichts deklariert" braucht keinen Satz.
             "not_a_defect": ({"value": True,
-                              "source": "declared exception `messung_ohne_fund` in "
-                                        "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                              "source": ("declared exception `messung_ohne_fund` in "
+                                         + OBJEKTKLASSEN_REL),
                               "beleg": _OHNE_FUND.get(k)}
                              if k in _OHNE_FUND else {"value": False}),
             # ART NICHT GERATEN. Die Objektklassen unterscheiden nach HERKUNFT
@@ -766,7 +912,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                               if fundart == "tabelle_spalte1" else None,
                               _status_aus_ueberschrift(stueck.decode("utf-8"), k),
                               _status_aus_abschnitt(e_text, von)
-                              if fundart == "prosa_zusage" else None),
+                              if fundart == "prosa_zusage" else None,
+                              fundart),
             "evidence": [{
                 "path": f"{EVIDENZ_REL}/{k}.md",
                 "sha256": hashlib.sha256(stueck).hexdigest(),
@@ -821,12 +968,16 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # `tests/test_die_sprachangabe_deckt_was_sie_sagt.py` rechnet ihn jetzt nach: jedes
             # als zitiert deklarierte Feld MUSS in seiner genannten Quelle woertlich vorkommen.
             "quoted_from_source": [
-                {"language": "de", "source": RESTRISIKO_REL,
-                 "fields": ["records[].title"],
-                 "why": ("headings cut verbatim out of the source register; the evidence files "
-                         "are byte pinned and digest checked, so translating them would falsify "
-                         "the evidence they exist to reproduce")},
-                {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                # ONE ENTRY PER SHEET ACTUALLY QUOTED FROM. `_quellen` carries exactly the files
+                # evidence was cut out of, so the block cannot name fewer than it used.
+                *({"language": SPRACHE_JE_BLATT.get(rel, _SPRACHE_DER_RISIKOBLAETTER),
+                   "source": rel,
+                   "fields": ["records[].title"],
+                   "why": ("headings cut verbatim out of the source register; the evidence files "
+                           "are byte pinned and digest checked, so translating them would falsify "
+                           "the evidence they exist to reproduce")}
+                  for rel in sorted(_quellen)),
+                {"language": _SPRACHE_DER_QUELLE, "source": OBJEKTKLASSEN_REL,
                  "fields": ["records[].objektklasse_begruendung",
                             "records[].not_a_defect.beleg",
                             "inventory.coverage_gaps[].reason",
@@ -1277,6 +1428,13 @@ def pruefe_v2(doc, repo) -> list[str]:
         for feld in ("class_state", "last_measured_state"):
             if r.get(feld) and r[feld] not in LUECKENWOERTER:
                 fehler.append(f"{kid}, {feld} ist kein Lueckenwort: {r[feld]!r}")
+    # ONE IDENTIFIER, ONE RECORD. Measured by a lens: two entries of the same identifier from two
+    # sources produced two records, the sum check stayed arithmetically true, and the cross count
+    # silently collapsed the duplication into a set.
+    _ids = [r.get("id") for r in doc["records"]]
+    _doppelt = sorted({x for x in _ids if _ids.count(x) > 1})
+    if _doppelt:
+        fehler.append(f"zwei oder mehr Datensaetze tragen dieselbe Kennung: {_doppelt}")
     inv = doc["inventory"]
     # DIE QUELL-DIGESTS DES INVENTARS WURDEN NIE NACHGERECHNET (Codex r3999918378, P1). Die
     # Belegeintraege tragen je einen `source_sha256`, und DER wird geprueft — aber

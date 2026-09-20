@@ -25,10 +25,25 @@ import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
-#: The prose form, measured rather than assumed: `Register entry` followed by a backticked
-#: identifier, with an optional colon and any run of whitespace between them -- the sentence wraps
-#: across lines in every shipped occurrence, so a line-wise pattern would find none of them.
-_ZUSAGE = re.compile(r"Register entry[:\s]+`([A-Z0-9][A-Z0-9-]{8,})`")
+#: The prose form, measured rather than assumed: `Register entry` followed by a backticked token,
+#: with an optional colon and any run of whitespace between them -- the sentence wraps across lines
+#: in every shipped occurrence, so a line-wise pattern would find none of them.
+#:
+#: THE TOKEN IS CAPTURED WITHOUT JUDGING ITS ALPHABET, and that is a repair. The first version
+#: asked for `[A-Z0-9][A-Z0-9-]{8,}`, an ASCII class that `re` does not widen to Unicode. An
+#: adversarial lens measured the consequence on 2026-09-20: one Cyrillic А (U+0410) at the front
+#: of an identifier makes the promise INVISIBLE to this guard -- not unbacked, not reported,
+#: simply absent from the candidate set, while a human reading the rendered Markdown sees a
+#: perfectly ordinary promise. A guard that judges the alphabet before it judges the promise can
+#: be silenced by a character nobody can see.
+#:
+#: So the pattern takes the token as it stands, and the check for what a well formed identifier
+#: looks like happens AFTERWARDS, where a violation becomes a FINDING instead of a blind spot.
+_ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]{8,})`")
+
+#: What an identifier of this house looks like: ASCII capitals, digits and hyphens. A token that
+#: fails this is not silently dropped, it is reported -- see `_zusagen_im_blatt`.
+_KENNUNG_ASCII = re.compile(r"\A[A-Z0-9][A-Z0-9-]{7,}\Z")
 
 #: Where an identifier may live. Every shipped register counts: an entry is present or it is not,
 #: and which file carries it is not what the prose promises.
@@ -44,9 +59,28 @@ def _risikoblaetter(wurzel: pathlib.Path | None = None) -> list[pathlib.Path]:
     return sorted(p for p in (wurzel or REPO).glob("RESTRISIKO*.md") if p.is_file())
 
 
+#: The schema values a real register carries. A file is a register because it SAYS SO in the form
+#: the producer writes, not because its name matches a pattern.
+#:
+#: MEASURED 2026-09-20 by an adversarial lens: a hand written
+#: `audit_artifacts/x/findings_register_backup.json` with one invented entry turned this guard
+#: fully green for a promise nothing backs. The glob was chosen for reach, and reach without a
+#: property check means any file that imitates a name is believed. That is the same substitution
+#: this file was written against, one level up: a token standing in for the property.
+_REGISTER_SCHEMATA = ("proofbundle.findings_register.v1", "proofbundle.findings_register.v2")
+
+
 def _register_dateien(wurzel: pathlib.Path | None = None) -> list[pathlib.Path]:
     w = wurzel or REPO
     return sorted({*w.glob(_REGISTER_GLOB), *w.glob("audit_artifacts/findings_register*.json")})
+
+
+def _zusagen_im_blatt(text: str) -> tuple[list[str], list[str]]:
+    """(well formed identifiers, malformed ones). A malformed token is a finding, not a gap."""
+    gut, schlecht = [], []
+    for roh in _ZUSAGE.findall(text):
+        (gut if _KENNUNG_ASCII.match(roh) else schlecht).append(roh)
+    return gut, schlecht
 
 
 def _register_kennungen(wurzel: pathlib.Path | None = None) -> set[str]:
@@ -72,6 +106,8 @@ def _register_kennungen(wurzel: pathlib.Path | None = None) -> set[str]:
             continue
         if not isinstance(d, dict):
             continue
+        if d.get("schema") not in _REGISTER_SCHEMATA:
+            continue                      # a file that only carries the NAME of a register
         for feld in ("findings", "records"):
             for eintrag in d.get(feld) or ():
                 if isinstance(eintrag, dict) and isinstance(eintrag.get("id"), str):
@@ -123,7 +159,7 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
             (w / "RESTRISIKO_PROBE.md").write_text(
                 "Register entry `ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01`.\n", encoding="utf-8")
             (w / "audit_artifacts" / "findings_register_probe.json").write_text(
-                json.dumps({"records": [],
+                json.dumps({"schema": "proofbundle.findings_register.v2", "records": [],
                             "note": "covers ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01"}),
                 encoding="utf-8")
             self.assertEqual(
@@ -132,11 +168,20 @@ class EineRegisterzusageHatEinenTraeger(unittest.TestCase):
                 "measuring the presence of a token")
             # And the other direction in the same probe: a REAL entry is seen.
             (w / "audit_artifacts" / "findings_register_probe.json").write_text(
-                json.dumps({"records": [{"id": "ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01"}]}),
+                json.dumps({"schema": "proofbundle.findings_register.v2",
+                            "records": [{"id": "ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01"}]}),
                 encoding="utf-8")
             self.assertEqual(_register_kennungen(w), {"ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01"},
                              "a real entry must be seen, otherwise the case above is green "
                              "because the reader is broken rather than because the attack fails")
+            # THE THIRD DIRECTION, measured by a lens on 2026-09-20: a file carrying only the
+            # NAME of a register was authoritative. Now it has to say what it is.
+            (w / "audit_artifacts" / "findings_register_probe.json").write_text(
+                json.dumps({"records": [{"id": "ERFUNDENE-KENNUNG-FUER-DIE-PROBE-01"}]}),
+                encoding="utf-8")
+            self.assertEqual(
+                _register_kennungen(w), set(),
+                "a file that only carries the NAME of a register must not be authoritative")
 
 
 if __name__ == "__main__":

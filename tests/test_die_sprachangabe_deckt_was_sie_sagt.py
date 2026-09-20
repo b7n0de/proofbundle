@@ -31,6 +31,18 @@ import re
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+
+#: EVERY carrier, not the one that existed when this was written.
+#:
+#: MEASURED 2026-09-20 by a lens: this file opened a hard wired
+#: `audit_artifacts/600/findings_register_v2.json`. When a second line (610) arrived the contract
+#: did not see it, and it would have caught two findings there at once, a quotation source
+#: pointing at the wrong file and a language statement that is wrong for the quoted titles. A
+#: gate whose reach hangs on a file path loses it at the next neighbour.
+def _traeger_liste() -> list[pathlib.Path]:
+    return sorted(REPO.glob("audit_artifacts/*/findings_register_v2.json"))
+
+
 TRAEGER = REPO / "audit_artifacts" / "600" / "findings_register_v2.json"
 
 #: Deutsche Funktionswoerter. Benannt, damit die Grenze der Messung sichtbar ist.
@@ -38,10 +50,24 @@ _DEUTSCH = re.compile(
     r"\b(die|der|das|und|nicht|wird|liegt|keine|eine|ist|werden|steht|waere|kein|fuer|auch)\b")
 
 
-def _doc():
-    if not TRAEGER.is_file():
-        pytest.skip(f"NICHT MESSBAR: {TRAEGER} fehlt")
-    return json.loads(TRAEGER.read_text(encoding="utf-8"))
+def _doc(pfad: pathlib.Path | None = None):
+    p = pfad or TRAEGER
+    if not p.is_file():
+        pytest.skip(f"NICHT MESSBAR: {p} fehlt")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _traeger_param():
+    """The carriers as parameters. Empty means NOT MEASURABLE, not passed."""
+    liste = _traeger_liste()
+    if not liste:
+        pytest.skip("NICHT MESSBAR: kein Traeger im Baum")
+    return liste
+
+
+traeger = pytest.mark.parametrize(
+    "traegerpfad", _traeger_liste() or [TRAEGER],
+    ids=lambda x: pathlib.Path(x).parent.name)
 
 
 def _alle_strings(doc) -> list[tuple[str, str]]:
@@ -108,42 +134,82 @@ def _quellwerte(repo: pathlib.Path, quelle: str):
     return werte
 
 
+def _flach(s: str) -> str:
+    """Whitespace collapsed. A line break belongs to the wrapping, not to the quotation."""
+    return " ".join(s.split())
+
+
+def _steht_drin(wert: str, vorrat) -> bool:
+    """Is `wert` in the source, even where the source wraps it across lines?
+
+    MEASURED 2026-09-20, the first time this contract pointed at the 610 carrier: all five titles
+    of the find form `prosa_zusage` failed. The cause is not a forgery but the wrapping. `_titel`
+    pulls the first sentence of a paragraph onto one line and Markdown wraps paragraphs, so the
+    title is byte verbatim in no source and word verbatim in exactly one.
+    """
+    # A SHORTENED TITLE IS A VERBATIM PREFIX, and it says so with its ellipsis. The producer cuts
+    # long titles at a word boundary and appends " …"; demanding the whole value in the source
+    # would make the shortening itself the finding. Measured at
+    # COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, 199 Zeichen, mit Auslassungszeichen.
+    kandidaten = {wert.strip(), _flach(wert)}
+    ohne = _flach(wert).removesuffix("…").strip()
+    if ohne != _flach(wert):
+        kandidaten.add(ohne)
+    if isinstance(vorrat, set):
+        flach = {_flach(x) for x in vorrat}
+        return any(k in vorrat or k in flach or any(k in f for f in flach) for k in kandidaten)
+    flach = _flach(vorrat)
+    return any(k in vorrat or k in flach for k in kandidaten)
+
+
 def nicht_woertlich(doc, repo: pathlib.Path) -> list[str]:
     """Welche als ZITAT deklarierten Werte stehen NICHT woertlich in ihrer genannten Quelle?"""
     raus = []
+    # A VALUE HOLDS WHEN IT IS IN ANY OF THE SOURCES THAT COVER ITS FIELD.
+    #
+    # The first version demanded it in EVERY named source. That was right while exactly one group
+    # existed per field. Since a line cuts from TWO risk sheets, the scope names two sources for
+    # `records[].title`, and the old condition would have looked for every title in the other
+    # sheet. The EXACT binding per record is checked by
+    # `test_jeder_titel_steht_in_der_quelle_SEINES_datensatzes`, where the data carries it, at
+    # `evidence[].source_path`.
+    vorraete: dict[str, object] = {}
     for g in _gruppen(doc):
-        quelle = g.get("source")
-        vorrat = _quellwerte(repo, quelle or "")
-        if vorrat is None:
+        quelle = g.get("source") or ""
+        v = _quellwerte(repo, quelle)
+        if v is None:
             raus.append(f"{quelle}: die genannte Quelle fehlt")
             continue
-        muster = g.get("fields") or []
-        for pfad, wert in _alle_strings(doc):
-            if "language_scope" in pfad or not wert.strip():
-                continue
-            if not any(fnmatch.fnmatch(pfad.lstrip("."), m) for m in muster):
-                continue
-            drin = wert.strip() in vorrat if isinstance(vorrat, set) else wert.strip() in vorrat
-            if not drin:
-                raus.append(f"{pfad} steht nicht woertlich in {quelle}: {wert[:70]!r}")
+        vorraete[quelle] = v
+    for pfad, wert in _alle_strings(doc):
+        if "language_scope" in pfad or not wert.strip():
+            continue
+        deckend = [g.get("source") or "" for g in _gruppen(doc)
+                   if any(fnmatch.fnmatch(pfad.lstrip("."), m) for m in (g.get("fields") or []))]
+        if not deckend:
+            continue
+        if not any(_steht_drin(wert, vorraete[q]) for q in deckend if q in vorraete):
+            raus.append(f"{pfad} steht in keiner der genannten Quellen {deckend}: {wert[:70]!r}")
     return raus
 
 
-def test_der_traeger_nennt_einen_geltungsbereich():
+@traeger
+def test_der_traeger_nennt_einen_geltungsbereich(traegerpfad):
     """[ZAEHLT] Eine Angabe ohne Geltungsbereich verschweigt ihre Ausnahme."""
-    ls = _doc().get("language_scope")
+    ls = _doc(traegerpfad).get("language_scope")
     assert ls, "der Traeger fuehrt keinen language_scope"
     assert ls.get("generated_prose"), "die Sprache der erzeugten Prosa ist nicht genannt"
-    gruppen = _gruppen(_doc())
+    gruppen = _gruppen(_doc(traegerpfad))
     assert gruppen, "der Geltungsbereich nennt keine einzige Zitatgruppe"
     for g in gruppen:
         for feld in ("language", "source", "fields", "why"):
             assert g.get(feld), f"eine Zitatgruppe nennt {feld!r} nicht: {g}"
 
 
-def test_jedes_deutsche_feld_liegt_im_geltungsbereich():
+@traeger
+def test_jedes_deutsche_feld_liegt_im_geltungsbereich(traegerpfad):
     """[ZAEHLT] Der Fund selbst, ueber den ganzen Traeger."""
-    doc = _doc()
+    doc = _doc(traegerpfad)
     muster = [m for g in _gruppen(doc) for m in (g.get("fields") or [])]
     offen = [p for p in _deutsche_felder(doc)
              if "language_scope" not in p
@@ -153,9 +219,10 @@ def test_jedes_deutsche_feld_liegt_im_geltungsbereich():
         f"Geltungsbereichs: {sorted(offen)}")
 
 
-def test_die_zitierte_quelle_existiert_und_ist_die_gepinnte():
+@traeger
+def test_die_zitierte_quelle_existiert_und_ist_die_gepinnte(traegerpfad):
     """[ZAEHLT] Ein Geltungsbereich, der auf eine Datei zeigt, die es nicht gibt, deckt nichts."""
-    doc = _doc()
+    doc = _doc(traegerpfad)
     genannt = {s["path"] for s in doc["inventory"]["source_documents"]}
     for g in _gruppen(doc):
         assert (REPO / g["source"]).is_file(), f"die genannte Quelle fehlt: {g['source']!r}"
@@ -164,9 +231,10 @@ def test_die_zitierte_quelle_existiert_und_ist_die_gepinnte():
             f"nicht gebunden, und das Zitat nicht nachrechenbar")
 
 
-def test_die_erzeugten_gruende_sind_in_der_deklarierten_sprache():
+@traeger
+def test_die_erzeugten_gruende_sind_in_der_deklarierten_sprache(traegerpfad):
     """[ZAEHLT] Was der Erzeuger selbst schreibt, folgt der Angabe."""
-    doc = _doc()
+    doc = _doc(traegerpfad)
     fehler = []
     for r in doc["records"]:
         for f in ("kind_reason", "class_reason", "last_measured_reason"):
@@ -180,13 +248,19 @@ def test_die_erzeugten_gruende_sind_in_der_deklarierten_sprache():
 
 
 def test_ANTI_die_zitate_wurden_NICHT_uebersetzt():
+    """[ZAEHLT] Measured on the 600 carrier, and that carrier is NAMED here rather than assumed.
+
+    The number 20 speaks about a sheet whose headings are German. The 610 carrier quotes an
+    English sheet, where the same bound would demand German text that does not belong there. A
+    bound that does not name its object goes astray at the next neighbour.
+    """
     """[ZAEHLT] Gegenrichtung, und sie ist die wichtigere.
 
     Wer die Titel uebersetzte, um die Sprachangabe zu retten, faelschte die Evidenz: die Belege
     sind byte-gepinnt und ihr Digest wird gegen genau diese Bytes gerechnet. Dieser Fall haelt
     fest, dass die Zitate ihre Sprache BEHALTEN.
     """
-    doc = _doc()
+    doc = _doc(TRAEGER)
     deutsch_in_titeln = sum(1 for r in doc["records"] if _DEUTSCH.search(r.get("title") or ""))
     assert deutsch_in_titeln >= 20, (
         f"nur {deutsch_in_titeln} Titel tragen noch deutsche Prosa — wurden die Zitate uebersetzt? "
@@ -209,9 +283,10 @@ def test_die_grenze_der_messung_steht_im_text():
 # als sie traegt. Ein Geltungsbereich, den niemand nachrechnet, ist eine zweite Erzaehlung neben
 # der ersten.
 
-def test_jedes_als_zitat_deklarierte_feld_steht_woertlich_in_seiner_quelle():
+@traeger
+def test_jedes_als_zitat_deklarierte_feld_steht_woertlich_in_seiner_quelle(traegerpfad):
     """[ZAEHLT] Der Fund an der eigenen Ausnahme: deklariert ist nicht dasselbe wie zitiert."""
-    offen = nicht_woertlich(_doc(), REPO)
+    offen = nicht_woertlich(_doc(traegerpfad), REPO)
     assert not offen, (
         f"{len(offen)} als Zitat deklarierte Wert(e) stehen nicht woertlich in ihrer genannten "
         f"Quelle — dann ist die Ausnahme eine Behauptung: {offen[:4]}")
@@ -220,7 +295,7 @@ def test_jedes_als_zitat_deklarierte_feld_steht_woertlich_in_seiner_quelle():
 def test_FANG_ein_deklariertes_aber_ERZEUGTES_feld_faellt_auf():
     """[ZAEHLT] Gegenrichtung rot: genau die Lage, die in der ersten Fassung gruen war."""
     import copy  # noqa: PLC0415
-    doc = copy.deepcopy(_doc())
+    doc = copy.deepcopy(_doc(TRAEGER))
     gruppen = _gruppen(doc)
     assert gruppen, "keine Gruppe zu erweitern"
     # Ein Feld, dessen Wert der Erzeuger selbst schreibt, in den Geltungsbereich schmuggeln.
@@ -232,6 +307,30 @@ def test_FANG_ein_deklariertes_aber_ERZEUGTES_feld_faellt_auf():
         f"ein erzeugtes Feld wurde als Zitat deklariert und faellt NICHT auf: {offen[:3]}")
 
 
-def test_ANTI_der_echte_traeger_bleibt_ohne_befund():
+@traeger
+def test_ANTI_der_echte_traeger_bleibt_ohne_befund(traegerpfad):
     """[ZAEHLT] Ein Riegel, der alles meldet, misst nichts."""
-    assert nicht_woertlich(_doc(), REPO) == []
+    assert nicht_woertlich(_doc(traegerpfad), REPO) == []
+
+
+@traeger
+def test_jeder_titel_steht_in_der_quelle_SEINES_datensatzes(traegerpfad):
+    """[ZAEHLT] The exact binding, and it is sharper than the group check above it.
+
+    The groups name one source each for `records[].title`, and since a line cuts from two sheets
+    it is enough there that the value stands in ONE of the named sources. That is the right bound
+    for a group and too soft for a record, which carries its own source in
+    `evidence[].source_path`. That is the one asked here.
+    """
+    doc = _doc(traegerpfad)
+    offen = []
+    for r in doc["records"]:
+        quelle = (r.get("evidence") or [{}])[0].get("source_path")
+        vorrat = _quellwerte(REPO, quelle or "")
+        if vorrat is None:
+            offen.append(f"{r['id']}: die Quelle {quelle!r} fehlt")
+            continue
+        if not _steht_drin(r.get("title") or "", vorrat):
+            offen.append(f"{r['id']}: der Titel steht nicht in {quelle}")
+    assert not offen, (
+        f"{len(offen)} Titel stehen nicht in der Quelle IHRES Datensatzes: {offen[:4]}")
