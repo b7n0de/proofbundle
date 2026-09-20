@@ -250,9 +250,21 @@ class TestAusEinemEchtenWorktree(BrauchtDenBaum):
         _git(haupt, "checkout", "-q", basis)
         baum = pathlib.Path(d) / "wtree"
         _git(haupt, "worktree", "add", "-q", str(baum), "zweig")
+        # THE SHAPE IS NOT THE PROPERTY. `.git` being a file says the checkout is not an ordinary
+        # repository -- a submodule has the same shape, and so does a worktree whose gitdir
+        # pointer leads nowhere. A counter-reading built the second case: `.git` is a file,
+        # `is_file()` is satisfied, and `rev-parse` answers `fatal: not a git repository`. The
+        # tool then correctly returns NOT MEASURABLE, and the test fails several lines further
+        # down with `'NOT MEASURABLE' != 'ROT'` -- which reads like a defect in the tool instead
+        # of a broken fixture. A setup assertion that lets a broken setup through has moved the
+        # failure, not caught it.
         self.assertTrue((baum / ".git").is_file(),
-                        "a worktree's .git is a FILE; if it is a directory this is an ordinary "
-                        "repository and the case is not testing what it says")
+                        "this checkout's .git is a directory, so it is an ordinary repository and "
+                        "the case is not testing what it says")
+        aufgeloest = _git(baum, "rev-parse", "--show-toplevel")
+        self.assertEqual(pathlib.Path(aufgeloest).resolve(), baum.resolve(),
+                         f"the worktree's gitdir pointer does not lead back here (git answered "
+                         f"{aufgeloest!r}) — the fixture is broken, not the tool under test")
         return baum, haupt, basis
 
     def test_from_inside_a_worktree_the_worktree_is_judged(self):
