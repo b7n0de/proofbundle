@@ -121,6 +121,39 @@ def test_eine_kennung_die_eine_andere_als_praefix_hat_verliert_ihren_eintrag_NIC
     assert "N1" in getragen, f"the shorter identifier lost its own entry: {sorted(getragen)}"
 
 
+def test_die_grenze_kennt_dasselbe_alphabet_wie_die_formregel(tmp_path):
+    """Sixth review round, thread 4057493355. The repair for a second list made a third one.
+
+    The boundary class was typed out beside the form rule and left the dot out, so with `N1` and
+    `N1.foo` both declared the dot counted as a boundary, `N1` was found inside `N1.foo`, and the
+    longer entry was dropped from the carrier exactly as before. Measured here at the data path,
+    and the constant is now shared rather than repeated.
+    """
+    g = _erzeuger()
+    (tmp_path / "RESTRISIKO_PROBE.md").write_text(
+        "## Open — the probe\n\n"
+        "Register entry `N1.foo`, target 6.2.0.\n\n"
+        "## N1 · a heading of its own\n\nSomething about N1.\n",
+        encoding="utf-8")
+    (tmp_path / "PROBE_OBJEKTKLASSEN.json").write_text(json.dumps({
+        "gemessen_an": {"datei": "RESTRISIKO_PROBE.md", "sha256": "0" * 64,
+                        "utc": "2026-09-20T00:00:00Z"},
+        "eintraege": [{"kennung": "N1", "klasse": "x", "zaehlt_als_fund": True},
+                      {"kennung": "N1.foo", "klasse": "x", "zaehlt_als_fund": True}]}),
+        encoding="utf-8")
+    g.RESTRISIKO_REL, g.OBJEKTKLASSEN_REL = "RESTRISIKO_PROBE.md", "PROBE_OBJEKTKLASSEN.json"
+    doc = g.baue_v2(tmp_path, "2026-09-20T00:00:00Z")
+    getragen = {r["id"] for r in doc["records"]}
+    assert "N1.foo" in getragen, (
+        f"an identifier the form rule admits was split by a boundary that does not know it: "
+        f"carried {sorted(getragen)}, without evidence "
+        f"{doc['inventory']['identifiers_without_evidence']}")
+
+    # AND THE CONSTANT IS THE ONE THE FORM RULE USES, not a second list that happens to agree.
+    assert all(z in g._KENNUNG_ZEICHEN for z in "._-"), g._KENNUNG_ZEICHEN
+    assert g._kennung_form().match("N1.foo"), "the form rule no longer admits what the case assumes"
+
+
 def test_eine_fehlende_quelle_endet_in_einem_urteil_nicht_in_einem_traceback(tmp_path):
     """Lens 2, target 3. A missing per-entry source raised a raw FileNotFoundError, so the run had
     no NOT MEASURABLE path at all."""

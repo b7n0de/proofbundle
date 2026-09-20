@@ -15,7 +15,7 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 086612b7c92d83bd4f0cf1508f3b29267f6c7fa2e6f7147a254b8b77462aa319
+    audit_artifacts/610/findings_register_v2.json   sha256 21b33c66c2e2675458a7959c7fc7b001e660ada3c8ec70d73e1c2bd95a8a4c20
                                                     16610 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
                                                     register_revision 0 · issued_at 2026-09-20 · 5 records

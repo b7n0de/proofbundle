@@ -845,6 +845,18 @@ def _status(kennung: str, aus_tabelle: str | None = None,
 #: evidence write landed OUTSIDE the evidence directory and outside the repository. Nothing in the
 #: chain asked what characters an identifier carries — the producer took the object class file at
 #: its word, and that file is data.
+#: THE IDENTIFIER ALPHABET, WRITTEN ONCE. Both readers take it from here.
+#:
+#: A review round measured what a second copy costs. The foreign-identifier guard was repaired to
+#: compare with boundaries, and its boundary class was typed out as `0-9A-Za-z_-` — the same
+#: alphabet as this form rule, minus the dot. `_kennung_form` accepts `N1.foo`, so with `N1` and
+#: `N1.foo` both declared the dot still counted as a boundary, `N1` was found inside `N1.foo` and
+#: the longer entry was dropped from the carrier again. The repair for a second source of truth
+#: had created a third one, two rounds after the lesson.
+#:
+#: The class is not the missing dot, it is the second list. One constant, two readers, so an
+#: identifier that this form admits cannot be split by a boundary that has not heard of it.
+_KENNUNG_ZEICHEN = "A-Za-z0-9._-"
 _KENNUNG_FORM = None
 
 
@@ -852,7 +864,7 @@ def _kennung_form():
     global _KENNUNG_FORM
     if _KENNUNG_FORM is None:
         import re  # noqa: PLC0415
-        _KENNUNG_FORM = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
+        _KENNUNG_FORM = re.compile(rf"\A[A-Za-z0-9][{_KENNUNG_ZEICHEN}]{{0,120}}\Z")
     return _KENNUNG_FORM
 
 
@@ -944,8 +956,9 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             _text = stueck.decode("utf-8", "ignore")
             fremd = sorted(x for x in alle_kennungen
                            if isinstance(x, str) and x != k
-                           and re.search(rf"(?<![0-9A-Za-z_-]){re.escape(x)}(?![0-9A-Za-z_-])",
-                                         _text))
+                           and re.search(
+                               rf"(?<![{_KENNUNG_ZEICHEN}]){re.escape(x)}"
+                               rf"(?![{_KENNUNG_ZEICHEN}])", _text))
             if fremd:
                 ohne_fundstelle.append(k)
                 continue
