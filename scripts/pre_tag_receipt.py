@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -159,6 +160,47 @@ def _inline_erlaubt_oder_stop() -> None:
             "here, sign the payload where the key lives, then --assemble here.")
 
 
+def _arbeitsbaum_sauber_oder_stop(repo: Path) -> None:
+    """Refuse to bind a tree digest while the working tree differs from the committed head.
+
+    THE RECEIPT BINDS `git ls-tree -r HEAD` AND THE RUN READS THE WORKING TREE. Those are two
+    different sets of bytes whenever anything is uncommitted, and nothing here compared them:
+    `subject_tree_digest()` digests the head, the audit whose output this receipt carries ran over
+    the checkout. A measurement on the operating tree found two modified paths while a receipt was
+    produced, so the receipt attested a tree that was not the tree that had been examined.
+
+    This is the same shape as the hole `subject_tree_digest` already documents for itself, one step
+    earlier: there the digest excluded a whole directory and so could not see a key added in the
+    same commit; here the digest is correct about the head and the head is not what was measured.
+    A digest over the wrong subject is not a weaker binding, it is a binding to something else.
+
+    Fail-closed in both directions. A dirty tree refuses, and a tree whose state cannot be
+    determined refuses too: not-determinable is not a clearance, and a release receipt is the last
+    place to guess.
+    """
+    try:
+        lauf = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as fehler:
+        raise SystemExit(
+            f"emit: cannot determine whether {repo} is clean ({fehler}) — refusing to bind a tree "
+            f"digest that may not describe what was measured (fail-closed)") from fehler
+    if lauf.returncode != 0:
+        grund = (lauf.stderr or "").strip().splitlines()
+        raise SystemExit(
+            f"emit: `git status --porcelain` failed in {repo}"
+            + (f": {grund[0]}" if grund else "")
+            + " — refusing to bind a tree digest that may not describe what was measured")
+    schmutzig = [z for z in lauf.stdout.splitlines() if z.strip()]
+    if schmutzig:
+        gezeigt = "\n  ".join(schmutzig[:20])
+        mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""
+        raise SystemExit(
+            f"emit: the working tree of {repo} carries {len(schmutzig)} uncommitted path(s), and "
+            f"the receipt would bind `git ls-tree -r HEAD` instead — refusing, because the bytes "
+            f"attested would not be the bytes measured:\n  {gezeigt}{mehr}")
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--repo", type=Path, default=Path("."))
@@ -204,6 +246,8 @@ def main(argv=None) -> int:
     # ── emit mode (keyless first half) ───────────────────────────────────────────────────────────
     if args.emit_payload is not None:
         _need(args, ["context-out"], "emit")
+        # BEFORE build_context, because build_context is what calls subject_tree_digest().
+        _arbeitsbaum_sauber_oder_stop(repo)
         context = build_context(repo, args.version, args.audit_command, args.audit_exit,
                                 audit_output, args.runner_identity, args.produced_at)
         args.emit_payload.parent.mkdir(parents=True, exist_ok=True)
