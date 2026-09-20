@@ -23,6 +23,7 @@ skipped by conftest's derived rule, because the paths below are root-relative.
 """
 import ast
 import importlib.util
+import json
 import pathlib
 import re
 import sys
@@ -208,6 +209,34 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         self.assertEqual(int(treffer.group(1)), gemessen,
                          f"MANIFEST.in claims {treffer.group(1)} conformance cases, the corpus holds "
                          f"{gemessen}")
+
+    def test_the_corpus_size_in_the_cross_implementation_report_matches_the_manifest(self):
+        """A fourth claim, added because a neighbour sweep found the third correction already stale.
+
+        MEASURED 2026-09-20: `conformance/manifest.json` lists 130 cases and the tree holds 130
+        `case.json` files -- two readings, one number. CROSS_IMPLEMENTATION_REPORT.md said `57 of
+        107`, and that document itself records how the same sentence was corrected on 2026-09-08
+        after a lens found it. Twelve days later the correction was wrong again, and two further
+        documents under docs/readiness_pack/ still carry the form the report had already rejected.
+
+        Correcting a number a third time without binding it schedules the fourth, which is this
+        file's whole thesis. So the report's figure is derived here. The two readiness_pack
+        neighbours are NOT bound here: `docs/readiness_pack/MANIFEST.sha256` carries their hashes
+        and another change is in flight against that manifest, so touching them from here would
+        collide. They are carried in the register instead.
+        """
+        gemessen = len(json.loads((REPO / "conformance" / "manifest.json").read_text())["cases"])
+        text = (REPO / "CROSS_IMPLEMENTATION_REPORT.md").read_text()
+        treffer = re.search(r"\*\*The corpus holds (\d+) cases today\*\*", text)
+        self.assertIsNotNone(treffer, "the sentence naming the corpus size is gone — if it was "
+                                      "removed on purpose, remove this claim with it")
+        self.assertEqual(int(treffer.group(1)), gemessen,
+                         f"CROSS_IMPLEMENTATION_REPORT.md claims {treffer.group(1)} corpus cases, "
+                         f"conformance/manifest.json lists {gemessen}")
+        dateien = len(list((REPO / "conformance").rglob("case.json")))
+        self.assertEqual(dateien, gemessen,
+                         f"the manifest lists {gemessen} cases and the tree holds {dateien} "
+                         f"case.json files — the two readings must agree before either is quoted")
 
     def test_the_mypy_file_count_in_pyproject_matches_the_source_tree(self):
         # mypy's own figure is what the comment quotes, and mypy counts the .py files it checks under
