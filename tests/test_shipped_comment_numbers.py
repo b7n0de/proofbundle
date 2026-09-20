@@ -93,6 +93,14 @@ def pytest_runtest_logreport(report):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    # ONLY THE CONTROLLER WRITES. Under xdist every worker runs this plugin and every worker would
+    # write the same path, so the file would hold whichever partial set finished last. The
+    # controller receives every worker's report through the same hook, so its set is the complete
+    # one; a worker carries `workerinput` on its config and the controller does not. Measured with
+    # `-n 2` on a planted file: the counts come out right either way today, which is exactly why
+    # this is worth pinning -- a race that happens to fall the right way is not a result.
+    if hasattr(session.config, "workerinput"):
+        return
     ziel = os.environ.get("PB_ZAEHLER_ZIEL")
     if ziel:
         with open(ziel, "w", encoding="utf-8") as f:
