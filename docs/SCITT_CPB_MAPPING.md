@@ -75,7 +75,7 @@ clause by clause instead:
 
 The conclusion survives; one of its six reasons did not.
 Measured over `src/`: **zero** occurrences of COSE, `Sign1`, RFC 9995, the labels 258 to 260 or
-`cpb-refs`, no COSE or CBOR dependency in `pyproject.toml`, and **22 files carrying DSSE**. The only
+`cpb-refs`, no COSE or CBOR dependency in `pyproject.toml`, and **23 files carrying DSSE** (`grep -rl DSSE --include='*.py' src/`, measured 2026-09-20; the sentence said 22 and nothing re-derived it). The only
 CBOR in the tree is under `tools/scitt_ccf_datahash_vector/`, and the first version of this
 sentence called it a "cross-check reader that signs nothing", which understates what it does. An
 adversarial re-measurement found that `mint_indefinite.py` **constructs** COSE_Sign1 bytes (tag 18,
@@ -219,7 +219,7 @@ the argument for it, and used it in one place out of several.
 | **Draft** | section 8 requires four fields: `type`, `digest_alg`, `digest` mandatory, `purpose` conditional. |
 | **Closed 2026-08-30, additively** | `$defs/typedDigest` plus an optional `typedDigest` on `evidenceRefs[]`. Required `type`, `digestAlgorithm`, `digest`; optional `purpose`. It replaces nothing: an entry may carry `digest` alone, `typedDigest` alone, or both, and `digest` stays required. |
 | **Naming** | the draft writes `digest_alg`; we write `digestAlgorithm`, because that field already exists in `relationDigest` with the same meaning and these schemas are lowerCamelCase throughout (ITE-9). Two names for one quantity inside one file would be the next drift, so the correspondence is recorded here instead — the same mapping question as G1. `type` and `purpose` are the draft's names unchanged. |
-| **Enforced** | `src/proofbundle/decision.py::_typed_digest_error`, one definition, mirrored by the docs schema and held together by `tests/test_evidence_typed_digest.py` (16 tests, incl. 8 parity cases). |
+| **Enforced** | `src/proofbundle/decision.py::_typed_digest_error`, one definition, mirrored by the docs schema and held together by `tests/test_evidence_typed_digest.py` (**20 tests**, of which **9** are in `TestTypedDigestParitaet`; `pytest --collect-only -q`, measured 2026-09-20 — the sentence said 16 and 8, and a neighbour sweep found both). |
 
 ## G4 — coverage
 

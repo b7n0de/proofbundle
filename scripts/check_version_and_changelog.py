@@ -122,7 +122,20 @@ def _init_version(repo: Path) -> str | None:
 
 
 def _citation_version(repo: Path) -> str | None:
-    m = re.search(r'(?m)^\s*version\s*:\s*["\']?([0-9]+\.[0-9]+\.[0-9]+[^"\'\s]*)', _read(repo / "CITATION.cff"))
+    """The TOP-LEVEL `version:` of CITATION.cff, bound to the structure and not to the order.
+
+    The first version of this allowed leading whitespace and took the first match. CITATION.cff
+    carries two version keys: the top-level one, which is the package version, and an INDENTED one
+    inside the identifiers block, which names the revision an older DOI was deposited for.
+    Measured 2026-09-20: line 18 `version: 6.1.0` and line 40 `    version: 6.0.0`. The reader
+    returned the right one only because line 18 comes first, and no test constructed a file where
+    it does not. Reorder the blocks, or add an older revision above, and a release gate would read
+    a historical number as the version being shipped.
+
+    A top-level key has no indentation, and that is the property rather than the position.
+    """
+    m = re.search(r'(?m)^version\s*:\s*["\']?([0-9]+\.[0-9]+\.[0-9]+[^"\'\s]*)',
+                  _read(repo / "CITATION.cff"))
     return m.group(1) if m else None
 
 

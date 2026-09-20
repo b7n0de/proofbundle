@@ -46,7 +46,15 @@ def bekannte_spiegel() -> dict[str, tuple[str | None, str]]:
     return {
         "src/proofbundle/__init__.py": _lies(
             "src/proofbundle/__init__.py", r'(?m)^\s*__version__\s*=\s*["\']([^"\']+)["\']'),
-        "CITATION.cff": _lies("CITATION.cff", r'(?m)^\s*version\s*:\s*["\']?([^"\'\s]+)'),
+        # NO LEADING WHITESPACE, and that is the whole binding. CITATION.cff carries TWO version
+        # keys: the top-level one, which is the version being shipped, and an INDENTED one inside
+        # the identifiers block, which names the revision a deposited DOI belongs to. Measured
+        # 2026-09-20: line 18 `version: 6.1.0`, line 40 `    version: 6.0.0`. With `^\s*version`
+        # the pattern matched BOTH and took the first, which is right only while line 18 comes
+        # first. With the blocks reversed the same file answers 6.0.0, the historical number
+        # instead of the one being shipped. `tests/test_docs_truth.py` has always used the strict
+        # form; this mirror had been sharing the defect of the gate it guards.
+        "CITATION.cff": _lies("CITATION.cff", r'(?m)^version\s*:\s*["\']?([^"\'\s]+)'),
     }
 
 
@@ -380,3 +388,47 @@ def test_jede_prosa_stelle_nennt_die_quelle_im_echten_baum(pfad, anker):
     abweichend = sorted({v for v in gefunden if v != quelle()})
     assert not abweichend, (
         f"{pfad} nennt {abweichend}, die Quelle sagt {quelle()!r}")
+
+def test_the_indented_revision_is_not_the_shipped_version(tmp_path):
+    """The ordering case, reversed on purpose: the nested block comes FIRST here.
+
+    Measured 2026-09-20 against the real patterns: with indentation allowed, a file in this order
+    answers 6.0.0, the revision of an older DOI, instead of 6.1.0. A release gate would have
+    reported a historical number as the one being shipped, and no fixture had ever built a file
+    where line 18 does not come first.
+    """
+    import importlib.util as u
+    s = u.spec_from_file_location("cv", str(REPO / "scripts" / "check_version_and_changelog.py"))
+    m = u.module_from_spec(s)
+    s.loader.exec_module(m)
+    (tmp_path / "CITATION.cff").write_text(
+        "cff-version: 1.2.0\n"
+        "identifiers:\n"
+        "  - type: doi\n"
+        "    value: 10.5281/zenodo.00000000\n"
+        "    version: 5.0.0\n"
+        "title: proofbundle\n"
+        "version: 6.1.0\n", encoding="utf-8")
+    assert m._citation_version(tmp_path) == "6.1.0"
+
+
+def test_without_a_top_level_version_key_there_is_no_answer(tmp_path):
+    """A nested version alone IS NOT the package version, and inventing one would be worse than
+    having none."""
+    import importlib.util as u
+    s = u.spec_from_file_location("cv", str(REPO / "scripts" / "check_version_and_changelog.py"))
+    m = u.module_from_spec(s)
+    s.loader.exec_module(m)
+    (tmp_path / "CITATION.cff").write_text(
+        "cff-version: 1.2.0\nidentifiers:\n  - type: doi\n    version: 5.0.0\n", encoding="utf-8")
+    assert m._citation_version(tmp_path) is None
+
+
+def test_CONTROL_the_real_citation_file_still_answers():
+    """A stricter pattern that finds nothing at all would be an outage, not a hardening."""
+    import importlib.util as u
+    s = u.spec_from_file_location("cv", str(REPO / "scripts" / "check_version_and_changelog.py"))
+    m = u.module_from_spec(s)
+    s.loader.exec_module(m)
+    assert m._citation_version(REPO) == quelle()
+
