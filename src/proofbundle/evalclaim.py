@@ -39,7 +39,8 @@ COMMIT_ALG = "sha256-salted-v1"
 _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
-_DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
+_COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")   # schema: model_id_commit / dataset_id_commit  # \A..\Z (not ^..$): $ matches before a trailing newline
 # Assurance level (v1.1): how much a PASS is worth. Signed into the claim (tamper-evident + bound to the
 # issuer, so a third party cannot alter it) — but issuer-DECLARED: a dishonest issuer can sign a higher level,
 # the signature attributes that claim to them, it does not make it true. Ordered weakest→strongest. Default
@@ -159,12 +160,29 @@ def load_claim_text(text: str) -> dict:
         # "never a raw traceback", so a type-confused input maps to the documented EvalClaimError.
         raise EvalClaimError(f"claim text must be str or bytes, got {type(text).__name__} (malformed)")
     try:
-        return loads_strict(text)
+        claim = loads_strict(text)
     except ProofBundleError as e:
         # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
         # BudgetExceeded (over-width/over-node input) NOT a BundleFormatError, which `except BundleFormatError`
         # let escape as a raw traceback. Both map to the DOCUMENTED EvalClaimError (a ValueError).
         raise EvalClaimError(str(e)) from e
+    # THE RETURN TYPE IS PART OF THE PROMISE, not only the argument type. The signature says
+    # `-> dict` and the docstring says "never a raw traceback", but valid JSON is also `[]`, `"x"`
+    # and `1` — and a caller that does `claim.get(...)` on those gets an AttributeError, which is
+    # in no call site's except list. Measured 2026-09-19 at the head 79f66a2: a correctly signed
+    # bundle (verify_bundle.ok True, Merkle and signature intact) whose payload is `[]` made
+    # `decode_eval_claim` raise instead of returning None, against its own documented contract.
+    #
+    # THE SAME CLASS WAS CLOSED ONCE BEFORE, on the INPUT side (round 8, the isinstance check
+    # above). Closing it on the input and leaving it on the output is how a repaired class comes
+    # back through the other door. `EvalClaimError` is a ValueError, so every existing
+    # `except (ValueError, EvalClaimError)` at the call sites — decode_eval_claim,
+    # classify_eval_claim, the CLI and hf_evals — turns this into the documented outcome without
+    # a single caller change.
+    if not isinstance(claim, dict):
+        raise EvalClaimError(
+            f"claim must be a JSON object, got {type(claim).__name__} (malformed)")
+    return claim
 
 
 def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator: str,
@@ -329,6 +347,60 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         # hand-signed claim must not bypass it (the emit-vs-verify asymmetry class this module guards).
         if claim.get("assurance_level") not in ASSURANCE_LEVELS:
             return None
+        # A-15 (2026-09-19): the three fields every CONSUMER reads were the three this boundary did not
+        # type. The docstring above promises "every decoded claim is sane", and the enum/decimal checks
+        # right before this make that promise for `comparator`, `threshold` and `assurance_level` — but
+        # `passed`, `n` and `metric` were carried through with whatever JSON type a hand-signed claim
+        # chose. Measured at 79f66a2: 10 of 11 wrong-typed claims were ACCEPTED here.
+        #
+        # WHY IT IS NOT COSMETIC: every downstream reader coerces instead of checking, so a WRONG TYPE
+        # becomes a WRONG VERDICT rather than an error. intoto.to_test_result_statement builds
+        # `_RESULT_ENUM[bool(claim["passed"])]` — and `bool("false")` is True, so a signed claim whose
+        # `passed` is the STRING "false" is exported to in-toto as **PASSED**, and `passedTests` names
+        # the suite. hf_evals compares `cmp_ok == bool(claim["passed"])` and only notices when the
+        # published value happens to contradict it.
+        #
+        # `n` WAS type-checked here — but only inside `if samples is not None`, i.e. a claim that simply
+        # omits the optional `samples` block skipped the check entirely. A presence-conditional check is
+        # an option, not an invariant; it is unconditional now, and the one inside the samples branch
+        # stays as the n == samples.n equality it was always for.
+        if not isinstance(claim.get("passed"), bool):
+            return None
+        _n = claim.get("n")
+        if isinstance(_n, bool) or not isinstance(_n, int):
+            return None
+        if not isinstance(claim.get("metric"), str):
+            return None
+        # A TYPE IS NOT A DOMAIN, and schemas/eval_claim_v0_1.schema.json documents both. The round
+        # above types `passed`, `n` and `metric`; this one enforces the value ranges the schema and
+        # EVAL_CLAIM.md already promise a reader. Found by an external review lens on this very
+        # branch, which is the honest part: the type fix landed and left its own neighbour open.
+        #
+        # Measured at bfc3f42 against a HAND-SIGNED claim (the emit path refuses several of these,
+        # so testing through emit_eval_receipt answers a different question): 7 of 7 documented
+        # domains were accepted at this boundary. `commit_alg: "md5-plain"` is the loudest — a
+        # signed claim could name a commitment algorithm the receipt does not use.
+        #
+        # tests/test_eval_claim_domains_are_enforced.py derives one violating claim per documented
+        # constraint FROM the schema file, so a constraint added there tomorrow is covered without
+        # anyone remembering to come back here.
+        _n = claim["n"]
+        if not (0 <= _n <= 2**53 - 1):          # EVAL_CLAIM.md: `0 <= n <= 2^53-1`
+            return None
+        if not claim["metric"] or not claim.get("suite"):   # schema: minLength 1 on both
+            return None
+        if not isinstance(claim.get("suite"), str):
+            return None
+        if claim.get("commit_alg") != COMMIT_ALG:           # schema: const sha256-salted-v1
+            return None
+        # NOT ENFORCED HERE, and deliberately so: the schema's `^sha256:[0-9a-f]{64}$` on
+        # `model_id_commit` and `dataset_id_commit`. Enforcing it is correct and `salted_commit`
+        # always produces that form, but five existing CLI tests sign claims with placeholder
+        # commitments (`sha256:x`), so the check turns them red. Rewriting five house tests so a
+        # new check passes is not a thing to do inside a release cut whose order says no scope is
+        # added; it is its own change, with its own measurement of what else signs placeholders.
+        # Carried as COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, target 6.2.0, and named
+        # in tests/test_eval_claim_domains_are_enforced.py so it cannot be forgotten quietly.
         samples = claim.get("samples")
         if samples is not None:
             if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:

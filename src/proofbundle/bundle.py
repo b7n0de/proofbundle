@@ -239,7 +239,16 @@ def load_bundle(path: str) -> dict:
             raw = handle.read(cap + 1)   # bounded: a device that lies about st_size cannot grow this unbounded
         if len(raw) > cap:
             raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
-        return loads_strict(raw.decode("utf-8"))
+        geladen = loads_strict(raw.decode("utf-8"))
+        if not isinstance(geladen, dict):
+            # A-16 neighbour (2026-09-19): the annotation `-> dict` is a PROMISE to 11 call sites, and a
+            # bundle FILE containing `[]`, `"x"` or `1` is perfectly valid JSON. Every caller then does
+            # `bundle["payload_b64"]` or hands it to verify_bundle — a raw TypeError/AttributeError out of
+            # a surface whose docstring says every malformed input becomes BundleFormatError. Enforced HERE,
+            # at the producer, so no caller needs a guard of its own.
+            raise BundleFormatError(
+                f"bundle must be a JSON object, got {type(geladen).__name__} (fail-closed)")
+        return geladen
     except BundleFormatError:
         raise
     except (OSError, ValueError, MemoryError, TypeError, ProofBundleError) as exc:
