@@ -185,6 +185,15 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
     return aus, ("gemessen" if aus else "NICHT MESSBAR: keine Zeile im In-Abschnitt gefunden")
 
 
+#: What the LAST column of a scope table is called. Two spellings because the file was translated
+#: and the guard was not; a third language costs one entry here instead of another silent blindness.
+_ZWEIGSPALTE = frozenset({"zweig", "branch"})
+
+#: How many scope rows the last call examined. An empty finding list over ZERO examined rows and one
+#: over forty are different facts, and this is where a caller can tell them apart.
+ZULETZT_GEPRUEFT = 0
+
+
 def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
     """Every In-line whose first column carries NO identifier this module can read.
 
@@ -215,7 +224,20 @@ def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
     # header rows and the three owner cards. A guard that fires eight times on the one input it
     # was written for is measuring its own reach, not the file. The header row names the column,
     # so the file itself says which table is which.
+    #
+    # THE HEADER WORD WAS GERMAN AND THE FILE IS ENGLISH, which made this guard blind on the only
+    # file it guards. Measured 2026-09-20 by a counter-reading: `docs/release_scope/6.1.0.md` heads
+    # its two In-tables with `| Identifier | PR | Merge commit | Title |` and
+    # `| Identifier | Subject | Branch |`. Neither last column is `Zweig`, so `im_umfangstabelle`
+    # never became True and this function returned an empty list for the whole file -- not because
+    # nothing was unreadable, but because it never entered a table. A guard built against a line
+    # that vanishes from a count had itself vanished, silently, at the translation.
+    #
+    # Both spellings are recognised now, and ZERO examined rows is its own state instead of an
+    # empty finding list that reads like a clean one.
+    global ZULETZT_GEPRUEFT
     im_umfangstabelle = False
+    geprueft = 0
     for zeile in text[: schnitt.start()].splitlines():
         if not zeile.startswith("|") or zeile.count("|") < 3:
             im_umfangstabelle = False
@@ -225,7 +247,7 @@ def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
             continue
         if set(spalten[-1]) <= set("-: "):
             continue          # separator row; the header above it already decided
-        if spalten[-1].lower() == "zweig":
+        if spalten[-1].lower() in _ZWEIGSPALTE:
             im_umfangstabelle = True   # header of a scope table; not itself a scope line
             continue
         if any(s.lower() in ("karte", "punkt", "eintrag", "tuer") for s in spalten[:1]):
@@ -233,8 +255,13 @@ def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
             continue
         if not im_umfangstabelle:
             continue
+        geprueft += 1
         if not re.match(rf"^\**({_KENNUNG})", spalten[0]):
             aus.append(spalten[0][:60])
+    ZULETZT_GEPRUEFT = geprueft
+    if geprueft == 0:
+        return aus, ("NICHT MESSBAR: keine Zeile einer Umfangstabelle erreicht — kein Tabellenkopf "
+                     f"nennt eine Spalte aus {sorted(_ZWEIGSPALTE)}, es wurde nichts geprueft")
     return aus, "gemessen"
 
 

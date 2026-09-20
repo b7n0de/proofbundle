@@ -56,7 +56,7 @@
         {
           "ref": "conformance/run_conformance.py",
           "kind": "harness",
-          "note": "F1 offline corpus, 29 cases, one common vocabulary"
+          "note": "F1 offline corpus, 130 cases as measured 2026-09-20 (len(json.load(open('conformance/manifest.json'))['cases']); the tree holds the same number of case.json files), one common vocabulary. It said 29 and nothing re-derived it."
         },
         {
           "ref": "conformance/common_vocabulary.py",
@@ -270,6 +270,16 @@
         "the closing gate round for 6.0.0 (six lenses, seven iterations on the frozen head) has not run at the time this slot is written; its verdict and the residual-risk file RESTRISIKO_600.md come from that round, not from this entry"
       ],
       "status": "filled"
+    },
+    "6.1.0": {
+      "status": "reserved",
+      "expected_evidence": [
+        "A-16 and A-15: a loader annotated -> dict returns one, and the verify boundary types passed, n and metric before a signed claim can be exported as PASSED",
+        "R7: three shipped comment numbers derived from the tree, with the pass ratio measured by running the cases rather than counting lines",
+        "N16: the composite action and the ci.yml neighbour route every externally controlled input through env:, with a shape check that refuses before pip is reached",
+        "the cheap documentation findings of the 2026-09-19 audit",
+        "RESTRISIKO_610.md, landed before the closing round as the record of what stayed open"
+      ]
     }
   },
   "navigation": {

@@ -97,7 +97,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 ## Beta / pre-release (any future pre-release line)
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
-stable default has since moved on to the 5.x line (current: 6.0.0) and the `[experimental]` extra
+stable default has since moved on to the 5.x line (current: 6.1.0) and the `[experimental]` extra
 ships with normal releases.
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
@@ -125,6 +125,7 @@ after the merge (see *Release ordering* above).
 - [ ] README.md deliberately hard-codes no test-count or version strings (live badges + CI output are the source); only touch README claims that the release genuinely changes.
 - [ ] `make all` green locally (lint + typecheck + tests); `make tamper-demo` exits 0;
       `make mutation` reports all operators killed (documented-equivalent survivor excepted).
+      **N20, named residual risk: this criterion has a THIRD state and the line above names two.** Killed and survived are not exhaustive — a run that does not finish reports neither, and a gate that cannot produce a verdict is not the same as a gate that produced a clean one. Read `NICHT MESSBAR` as its own outcome and treat it as unmet, never as passed.
 - [ ] Open the PR; confirm the CI matrix is green on all supported Pythons **and** the
       `crypto-floor` job; **the Owner merges** the PR to the target branch (`main`, or `release/*`
       then merge-back).

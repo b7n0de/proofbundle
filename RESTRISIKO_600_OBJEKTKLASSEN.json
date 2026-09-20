@@ -6,15 +6,15 @@
   "regel_der_extraktion": "Kennung am Anfang einer Ueberschrift ODER in der ersten Tabellenspalte — die Regel aus der Owner-Karte, woertlich uebernommen. Was die Regel findet und KEINE eigene Kennung ist, steht mit Grund im Feld nicht_eigene_kennungen — nicht im Schweigen. Der Riegel dazu ist tests/test_objektklassen_gegen_das_register.py; er FAEHRT diese Regel aus, statt sie zu zitieren, und vergleicht drei Mengen getrennt: den Kopf gegen die Liste, die Liste gegen das Register, und jede Ausnahme gegen das, was sie noch deckt.",
   "gemessen_an": {
     "datei": "RESTRISIKO_600.md",
-    "sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
-    "baum": "arbeit/registerform-61 @ d041e0685 (PR 198)",
-    "utc": "2026-09-14T15:25:00Z",
+    "sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
+    "baum": "docs/610-schnitt-umfang @ a3be10a (PR 233)",
+    "utc": "2026-09-20T09:35:00Z",
     "_vorheriger_stand": {
-      "sha256": "16b856b2e083edb4ca0c7ef9a2c068b0cdc1ea05c87f03ce0b91cf62c7a7f521",
-      "baum": "arbeit/registerzeilen-61-objektklassen, 0f72c6c",
-      "utc": "2026-09-13T0?:??Z"
+      "sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+      "baum": "arbeit/registerform-61 @ d041e0685 (PR 198)",
+      "utc": "2026-09-14T15:25:00Z"
     },
-    "_warum_fortgeschrieben": "Owner-Karte OA-43f35b474c, Option A: 'Landen. Byte-gleich galt den bestehenden Aussagen, nicht dem Anhaengen. Kein bestehender Satz wird geaendert, die 163 Zeilen sind ein eigener Abschnitt, die entfernte Zeile steht wortgleich darin.' GEMESSEN VOR DEM SETZEN, damit die Auflage geprueft und nicht behauptet ist: von 145 Belegen liegen 103 um +722 B und 41 um +2048 B versetzt (reine Verschiebung, Bytes unveraendert); der 145. ist S68, dessen Abschnitt von 2619 auf 3944 B WUCHS, weil dort eine Berichtigung vom 14.09.2026 angefuegt wurde, die den alten Satz WOERTLICH zitiert und dann richtigstellt. Kein bestehender Satz wurde stillschweigend ersetzt.",
+    "_warum_fortgeschrieben": "Owner-Auftrag 2010Z Nachtrag 13 (Punkte 1 und 2) und Nachtrag 16 (englische Ueberschrift, weil das Tor new-lines-english seit PR 231 auch .md liest). GEMESSEN VOR DEM SETZEN, damit die Auflage geprueft und nicht behauptet ist: von 145 Belegen liegen 28 unverschoben und 116 um exakt +507 B versetzt (reine Verschiebung, die Bytes ihres Bereichs sind unveraendert, woertlich im neuen Register wiedergefunden). ZWEI Belegdateien aendern sich, und die erste Messung fand nur eine. A1 ist der beauftragte Fund A-87 selbst: die Zeile sagte 'offen', gemessen ist sie in 6.0.0 geschlossen (b9d35d4), und die Berichtigung nennt das Datum. S123 waechst um zwei Leerzeilen, weil es der LETZTE Eintrag ist und der Nachtragsabschnitt hinter ihm beginnt. Die erste Messung sah das nicht: sie suchte die ALTEN Belegbytes im neuen Register und fand sie, denn bei S123 sind sie ein PRAEFIX des gewachsenen Bereichs. Eine Suche nach dem alten Inhalt beantwortet nicht, ob der BEREICH derselbe blieb. Gesehen hat es erst der Diff nach dem Neuschreiben, und das steht hier, weil der naechste Leser dieselbe Abkuerzung nehmen wird. Kein bestehender Satz wurde stillschweigend ersetzt.",
     "_kette": [
       {
         "sha256": "38e56bf64b171a04d94624e526d01953327b2dd9302670758cf6fb785d6b2067",
@@ -26,6 +26,12 @@
         "baum": "arbeit/registerzeilen-61-objektklassen, 0f72c6c",
         "utc": "2026-09-13T0?:??Z",
         "warum_abgeloest": "PR 198 haengt 163 Registerzeilen an RESTRISIKO_600.md an; Owner-Karte OA-43f35b474c, Option A: 'Landen. Byte-gleich galt den bestehenden Aussagen, nicht dem Anhaengen.'"
+      },
+      {
+        "sha256": "10e98ab43f85db2ed7efde08786e79ea0e567456c3af114b97f6c902caac94a6",
+        "baum": "arbeit/registerform-61 @ d041e0685 (PR 198)",
+        "utc": "2026-09-14T15:25:00Z",
+        "warum_abgeloest": "Owner-Auftrag 2010Z Nachtrag 13, Punkte 1 und 2: A-87 berichtigt die A1-Zeile (sie fuehrte A1 als offen, audit_artifacts/600/README.md als in 6.0.0 geschlossen; am Klon gemessen liegt der Trust Anchor IM subject_tree_digest, also war die Registerzeile die falsche), und ein Nachtragsabschnitt haelt vier Zahlen nach, die nach dem 13.09. nicht nachgezogen wurden."
       }
     ],
     "_warum_kette": "ANHAENGEND gefuehrte Geschichte DIESES Sollwerts — nicht der Datei, sondern des Feldes. Sie steht hier und nicht in git-Abfragen, weil der Vertrag ohne .git sonst still uebersprungen wird: gemessen 13.09.2026 in einer sdist-artigen Kopie ergab ein FREI ERFUNDENER Vorgaenger 'RC=0, 1 passed, 1 skipped' — ein Skip liest sich wie Bestehen. Mit der Kette in den Daten pruefen Kontinuitaet und Wiederholung OHNE git; nur der Abstammungsbeweis braucht noch die Historie. Jede Fortschreibung haengt den bisherigen Wert an; die Liste wird nie gekuerzt und nie umsortiert. GRENZE, AM 13.09.2026 IM GEBAUTEN SDIST GEMESSEN und deshalb hier statt in einer Fussnote: die Zusage 'prueft OHNE git' gilt im CHECKOUT, nicht in der Auslieferung. Ein echtes sdist (python -m build --sdist, entpackt, tests/ darin gefahren) liefert die zwei Vertragsdateien AUS, aber weder diese JSON noch RESTRISIKO_600.md — Ergebnis 9 skipped, RC 0, Grund PKG-2026-0718-01 (repo-context: das Modul liest einen wurzelrelativen Pfad, der hier fehlt). Der Klassifikator urteilt dabei richtig; falsch war meine Annahme. Solange die Daten nicht mitgeliefert werden, ist die Kette im Paket NICHT GEMESSEN, und der Skip liest sich wie Bestehen — genau der Fehlermodus, gegen den dieses Feld gebaut wurde, eine Ebene hoeher."
