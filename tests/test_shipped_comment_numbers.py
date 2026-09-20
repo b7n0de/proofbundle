@@ -58,6 +58,29 @@ def flaeche_traegt_die_behauptung() -> bool:
     return importlib.util.find_spec("inspect_ai") is not None
 
 
+def lauf_bilanz(rel: str, wurzel: pathlib.Path) -> tuple[int, dict]:
+    """Run one file and read its outcome. Returns (passed, everything that did not pass).
+
+    Named so the gate-meta test below can point it at a planted tree. A reading that only exists
+    inside the case that uses it cannot be turned against a planted defect, and a gate nobody can
+    aim at a planted defect is a gate nobody has tested.
+    """
+    import os
+    import subprocess
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", rel], capture_output=True, text=True,
+                       cwd=str(wurzel), env=dict(os.environ, PYTHONPATH="src"))
+    zeile = bilanzzeile(r.stdout)
+    bestanden = int(m.group(1)) if (m := re.search(r"(\d+) passed", zeile)) else -1
+    andere = {w: int(m2.group(1)) for w in NICHT_BESTANDEN
+              if (m2 := re.search(rf"(\d+) {w}\b", zeile))}
+    return bestanden, andere
+
+
+def zeilen_zaehlung(datei: pathlib.Path) -> int:
+    """The OLD reading: count `def test_` lines. Kept because the meta test needs both."""
+    return len(re.findall(r"^\s*def test_", datei.read_text(), re.M))
+
+
 def bilanzzeile(stdout: str) -> str:
     """The summary line, SEARCHED FOR rather than assumed to be the last one.
 
@@ -84,7 +107,7 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         """
         for rel, muster in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
-                gemessen = len(re.findall(r"^\s*def test_", (REPO / rel).read_text(), re.M))
+                gemessen = zeilen_zaehlung(REPO / rel)
                 treffer = re.search(muster, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the pyproject comment naming {rel} is gone — if it "
                                               f"was removed on purpose, remove this claim with it")
@@ -114,26 +137,18 @@ class TestAShippedCommentNumberIsDerivedNotRemembered(unittest.TestCase):
         named: this is the surface where `inspect_ai` is installed, which is the surface the comment
         is about.
         """
-        import os
-        import subprocess
-
         if not flaeche_traegt_die_behauptung():
             self.skipTest("inspect_ai is absent here, so the conditional skips in both files fire "
                           "by design; the comment's ratio is about the surface where it is "
                           "installed and says nothing about this one")
-        umgebung = dict(os.environ, PYTHONPATH="src")
         for rel, feld in BEHAUPTUNGEN:
             with self.subTest(datei=rel):
                 treffer = re.search(feld, (REPO / "pyproject.toml").read_text())
                 self.assertIsNotNone(treffer, f"the comment naming {rel} is gone")
                 bestanden_behauptet, gesamt_behauptet = int(treffer.group(1)), int(treffer.group(2))
-                r = subprocess.run([sys.executable, "-m", "pytest", "-q", rel],
-                                   capture_output=True, text=True, cwd=str(REPO), env=umgebung)
-                zeile = bilanzzeile(r.stdout)
-                bestanden = int(m.group(1)) if (m := re.search(r"(\d+) passed", zeile)) else -1
-                andere = {w: int(m3.group(1)) for w in NICHT_BESTANDEN
-                          if (m3 := re.search(rf"(\d+) {w}\b", zeile))}
+                bestanden, andere = lauf_bilanz(rel, REPO)
                 uebersprungen = sum(andere.values())
+                zeile = f"{bestanden} passed, {andere}"
                 self.assertEqual(bestanden, bestanden_behauptet,
                                  f"{rel}: the comment claims {bestanden_behauptet} passing, the run "
                                  f"reports {bestanden} ({zeile})")
@@ -198,6 +213,51 @@ class TestDieBeidenLesungenSelbst(unittest.TestCase):
                             if (m := re.search(rf"(\d+) {w}\b", zeile))}
                 self.assertEqual(sum(gezaehlt.values()), 2,
                                  f"{wort} is not counted, so the ratio would pass over it")
+
+
+class TestDasTorFaengtEinenGEPFLANZTENSkip(unittest.TestCase):
+    """THE ANTI-PARITY, RUN INSTEAD OF ASSERTED. A counter-reading found it was only prose.
+
+    The commit that replaced the line count with a pass ratio said, in its message and in a
+    docstring, that a planted skip plus a comment raised to match passes the line count and fails
+    the ratio. Nothing in the tree ran that. A later simplification back to counting lines would
+    have been caught by nothing, and the claim would have gone on being quoted.
+
+    So it is planted here, in a throwaway tree, and both readings are pointed at it.
+    """
+
+    def test_die_zeilenzaehlung_nimmt_ihn_an_die_quote_weist_ihn_ab(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            baum = pathlib.Path(d)
+            (baum / "tests").mkdir()
+            datei = baum / "tests" / "gepflanzt.py"
+            datei.write_text(
+                "import unittest\n\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_a(self):\n        pass\n"
+                "    def test_b(self):\n        pass\n"
+                "    def test_c(self):\n        self.skipTest('planted')\n",
+                encoding="utf-8")
+            # A comment writer who counts definitions arrives at three and writes `3 of 3`.
+            behauptet = zeilen_zaehlung(datei)
+            self.assertEqual(behauptet, 3, "the planted file defines three cases")
+
+            bestanden, andere = lauf_bilanz("tests/gepflanzt.py", baum)
+
+            # THE OLD READING accepts it, and this assertion has to stand INSIDE the block: after
+            # it the throwaway tree is gone, and a check written outside would have compared a
+            # fallback constant with itself. A tautology reads exactly like a passing case.
+            self.assertEqual(zeilen_zaehlung(datei), behauptet,
+                             "the line count sees three definitions and agrees with the comment, "
+                             "which is precisely why it is not a pass ratio")
+
+        # THE NEW READING refuses it, and says why.
+        self.assertEqual(bestanden, 2, f"the run passes two, not three ({andere})")
+        self.assertEqual(sum(andere.values()), 1, f"one case did not pass ({andere})")
+        self.assertNotEqual(bestanden, behauptet,
+                            "the ratio must refuse exactly what the line count accepted — if these "
+                            "agree, the anti-parity this file claims does not hold")
 
 
 if __name__ == "__main__":
