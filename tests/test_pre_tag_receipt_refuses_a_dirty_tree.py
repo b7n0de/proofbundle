@@ -291,7 +291,7 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         """[ZAEHLT] The tree digest covers modes (`ls-tree` prints them), so a mode change is a
         tree the head does not name; `core.fileMode=false` told git not to look. Red against
         `97af10d`."""
-        os.chmod(self.baum / "a.txt", 0o755)
+        os.chmod(self.baum / "a.txt", 0o700)
         _git(self.baum, "config", "core.fileMode", "false")
         self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
                          "git still reported the mode change, so this case measures nothing")
@@ -311,7 +311,7 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         target equals the committed one; a changed link target refuses by name."""
         lauf = self.baum / "run.sh"
         lauf.write_text("#!/bin/sh\n", encoding="utf-8")
-        os.chmod(lauf, 0o755)
+        os.chmod(lauf, 0o700)
         os.symlink("a.txt", self.baum / "link")
         _git(self.baum, "add", "run.sh", "link")
         _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "exec and link")
