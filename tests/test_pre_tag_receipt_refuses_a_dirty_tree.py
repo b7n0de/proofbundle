@@ -345,6 +345,44 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         (self.baum / "fremd" / "x.txt").write_text("x\n", encoding="utf-8")
         self._abgewiesen(self._emit(), "uncommitted path", "fremd/.git")
 
+    # ── the fifth round: a negated rule is not a hiding rule, and a replaced object is not HEAD ──
+
+    def test_eine_negierte_regel_versteckt_nichts(self):
+        """[ZAEHLT] Codex, round five, 2026-09-21: `check-ignore -v` also reports the last NEGATED
+        pattern that matched, and the reader of the previous head took every rule from a tracked
+        `.gitignore` for a hiding rule. `keep.log`, un-ignored by `!keep.log`, is untracked, and
+        `git status` says so; the tool of `9f9188d` emitted. Red against `9f9188d`."""
+        (self.baum / ".gitignore").write_text("*.log\n!keep.log\n", encoding="utf-8")
+        _git(self.baum, "add", ".gitignore")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "ignore logs, keep one")
+        (self.baum / "keep.log").write_text("planted\n", encoding="utf-8")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"),
+                         "?? keep.log", "precondition: git itself lists the un-ignored file")
+        self._abgewiesen(self._emit(), "uncommitted path", "?? keep.log")
+
+    def test_ein_ersatzobjekt_taeuscht_den_kopf_nicht(self):
+        """[ZAEHLT] Codex, round five, 2026-09-21: `refs/replace` makes every git read return a
+        substituted object. A base revision with `a.txt=eins`, a second with `a.txt=zwei`,
+        `git replace <base> <second>`, `git reset --hard <base>`: the checkout carries `zwei`, git
+        reports a clean tree, and `ls-tree HEAD` listed the second tree, so the tool of `9f9188d`
+        emitted while the raw head still said `eins`. Red against `9f9188d`."""
+        basis = _git(self.baum, "rev-parse", "HEAD")
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "add", "a.txt")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "second")
+        zweite = _git(self.baum, "rev-parse", "HEAD")
+        _git(self.baum, "reset", "-q", "--hard", basis)
+        _git(self.baum, "replace", basis, zweite)
+        _git(self.baum, "reset", "-q", "--hard", basis)      # read through the replacement
+        self.assertEqual((self.baum / "a.txt").read_text(encoding="utf-8"), "zwei\n",
+                         "precondition: the checkout was read through the replacement")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "precondition: git itself calls this tree clean")
+        roh = subprocess.run(["git", "-C", str(self.baum), "show", "HEAD:a.txt"], capture_output=True,
+                             text=True, env=dict(os.environ, GIT_NO_REPLACE_OBJECTS="1"))
+        self.assertEqual(roh.stdout, "eins\n", "precondition: the raw head still carries eins")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
     def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
         """Without this the case above would also pass for a gate that refuses every untracked
         ignore file — and pytest, ruff, mypy and hypothesis all write one (`*`) into their cache

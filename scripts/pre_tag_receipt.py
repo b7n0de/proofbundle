@@ -120,15 +120,28 @@ _GIT_UMLEITUNG = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
     "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
     "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_REPLACE_REF_BASE",
 )
 
 
 def _umgebung_ohne_git_umleitung() -> None:
-    """Remove the redirecting GIT_* variables from this process (see `_GIT_UMLEITUNG`)."""
+    """Remove the redirecting GIT_* variables from this process (see `_GIT_UMLEITUNG`), and make
+    every git call of this process read the RAW objects.
+
+    REPLACEMENT OBJECTS (Codex, fifth round, 2026-09-21): `refs/replace/*` under the root `.git`
+    make git substitute one object for another everywhere it reads, `ls-tree HEAD`, `show` and
+    `checkout` alike. Measured: a base revision with `a.txt=clean`, a second one with `a.txt=evil`
+    on top, `git replace <base> <second>`, `git reset --hard <base>`: the checkout carries `evil`,
+    `git status` is clean, and `ls-tree HEAD` lists the evil blob, so the computed comparison
+    agreed with the bytes on disk while `GIT_NO_REPLACE_OBJECTS=1 git show HEAD:a.txt` still said
+    `clean`. The receipt would have bound the head's id to a tree that head does not have.
+    `GIT_NO_REPLACE_OBJECTS=1` is set for this process, so the tool's own calls, the library's tree
+    digest and any git the audit program runs all read the objects the revision really names.
+    """
     for name in list(os.environ):
         if name in _GIT_UMLEITUNG or name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             os.environ.pop(name, None)
+    os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
 
 
 _bytecode_cache_elsewhere()
@@ -381,6 +394,13 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
             raus.append(f"?? {p}")
             continue
         quelle, muster = quelle_je_pfad[p]
+        # A NEGATED RULE IS NOT A HIDING RULE (Codex, fifth round, 2026-09-21): `check-ignore -v`
+        # also reports the last NEGATED pattern that matched, and a path un-ignored by `!keep.log`
+        # in a tracked `.gitignore` is untracked, exactly as `git status` lists it. The polarity of
+        # the rule decides, not the file it came from.
+        if muster.startswith("!"):
+            raus.append(f"?? {p}")
+            continue
         if quelle not in verfolgt:
             raus.append(f"!! {p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
     return raus
@@ -413,8 +433,11 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     before comparing; `core.worktree` makes git compare a directory other than the one the audit
     reads; `core.fileMode=false` hides a mode change. The fourth round (Codex again) measured
     `core.ignoreCase=true` making an untracked `A.TXT` beside a tracked `a.txt` invisible to
-    `git ls-files --others` on a case-sensitive filesystem. Every one of those is a question asked
-    of git about a tree, and git answers through its configuration.
+    `git ls-files --others` on a case-sensitive filesystem. The fifth round (Codex) measured two
+    more: a NEGATED rule in a tracked `.gitignore`, reported by `check-ignore -v` as the matching
+    rule and taken for a hiding one; and `refs/replace` making every git read return a
+    substituted object, so the head's listing was not the head's tree. Every one of those is a
+    question asked of git about a tree, and git answers through its configuration and its refs.
 
     So the property is COMPUTED FROM THE BYTES rather than asked. For every entry of `git ls-tree
     -r HEAD`:

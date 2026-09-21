@@ -127,12 +127,15 @@ before the closing round, not after it.
   `assume-unchanged` and `skip-worktree` hiding a modified tracked file from the version that
   followed; and the own sweep plus a third counter-reading showed a clean filter defined in the
   configuration, `core.worktree` and `core.fileMode=false` still deciding what `git diff-index`
-  reported on a fresh index, and a fourth counter-reading showed `core.ignoreCase=true` hiding
-  an untracked file from `ls-files --others`. The tree is now compared by COMPUTING the property:
-  the bytes on disk against `git ls-tree -r HEAD` (`hash-object --no-filters` per entry, modes
-  from the file, symbolic-link targets hashed) and the paths on disk against the same listing,
-  with only a tracked `.gitignore` rule allowed to hide one; each of the eleven has a case that
-  was red against the version it was measured on. A checkout whose files differ
+  reported on a fresh index, a fourth counter-reading showed `core.ignoreCase=true` hiding
+  an untracked file from `ls-files --others`, and a fifth showed a negated rule in a tracked
+  `.gitignore` taken for a hiding rule and `refs/replace` substituting the head's objects. The
+  tree is now compared by COMPUTING the property: the bytes on disk against `git ls-tree -r HEAD`
+  (`hash-object --no-filters` per entry, modes from the file, symbolic-link targets hashed) and
+  the paths on disk against the same listing, with only a non-negated tracked `.gitignore` rule
+  allowed to hide one, and every git call of the process reading the raw objects
+  (`GIT_NO_REPLACE_OBJECTS=1`); each of the thirteen has a case that was red against the version
+  it was measured on. A checkout whose files differ
   from their blobs by design (`core.autocrlf=true`, no executable bit) refuses, and the docstring
   says so.
   `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
