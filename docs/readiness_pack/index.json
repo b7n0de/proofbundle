@@ -272,13 +272,15 @@
       "status": "filled"
     },
     "6.1.0": {
-      "status": "reserved",
-      "expected_evidence": [
-        "A-16 and A-15: a loader annotated -> dict returns one, and the verify boundary types passed, n and metric before a signed claim can be exported as PASSED",
-        "R7: three shipped comment numbers derived from the tree, with the pass ratio measured by running the cases rather than counting lines",
-        "N16: the composite action and the ci.yml neighbour route every externally controlled input through env:, with a shape check that refuses before pip is reached",
-        "the cheap documentation findings of the 2026-09-19 audit",
-        "RESTRISIKO_610.md, landed before the closing round as the record of what stayed open"
+      "status": "filled",
+      "delivers": [
+        "A-16 and A-15 (PR 231): a loader annotated -> dict returns one, and the verify boundary types passed, n and metric before a signed claim is exported as PASSED; five of seven documented value domains enforced",
+        "R7 (PR 232): three shipped comment numbers derived from the tree, the pass ratio measured by running the cases",
+        "N16 fix (1fa05c2): the composite action and its ci.yml neighbour route every externally controlled input through env:, refusing before pip is reached; the outward half (tagging the action) stays an owner door",
+        "A-70 (PR 239): scripts/pre_tag_receipt.py runs the audit itself between two measurements and refuses a tree that differs from HEAD, computed from the bytes on disk against git ls-tree, 33 cases",
+        "findings register 6.1.0 (PR 238): audit_artifacts/findings_register_361.json signed by the owner over the canonical body, 26 entries, 0 open P0/P1, bound to version 6.1.0",
+        "RESTRISIKO_610.md: every line moved to 6.2.0 named as open, with the P3 findings of the 2026-09-19 audit",
+        "docs/release_scope/6.1.0.md: the cut of 2026-09-19, 34 pull requests on main since v6.0.0 measured by ancestry"
       ]
     }
   },

@@ -1,6 +1,6 @@
 # Known remainders, proofbundle 6.1.0
 
-Tag v6.1.0, assessment cutoff 2026-09-20, register revision 0.
+Tag v6.1.0, assessment cutoff 2026-09-21, register revision 0.
 Coverage, 5 of 5 identifiers carried in this register.
 Signature, UNSIGNED — this carrier has NOT been through the signing path; it was written by the generator alone, so the issuer named above is asserted by the document and not attested by anyone. Treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone.
 

@@ -265,6 +265,40 @@ to FAIL rather than to NOT_MEASURED. The run that carries that job is still open
 releases job logs only when the run completes, so the log could not be read at the time of writing.
 The mechanism above is measured; the specific cell is not.
 
+## Named state, not a backlog item — the closing gate round does not run for 6.1.0
+
+Owner word of 2026-09-21 (card `OA-ac65eda888`, option B): no deep-gate run on the frozen head.
+The reason is measured, not a preference. The DEEP mode of the gate requires three qualified model
+families; the operator's qualification register carries two, measured on 2026-09-21 with the
+register's own reading. Running the six lenses below that floor and calling
+the result `WITHSTANDS_DEEPGATE` would pass the word and miss its meaning, and the owner struck
+that option as never having been on the table. Qualifying a third family is work after the tag,
+not before it.
+
+What that means for the audit-candidate matrix on the tagged head, stated before the tag rather
+than discovered after it:
+
+- **C6.2, C6.3 and C8.2 stay red**, as they did for 6.0.0. The soak artefact
+  (`audit_artifacts/360/fuzz_soak_latest.json`) and the differential matrix
+  (`audit_artifacts/360/rust_differential_matrix.json`) are re-run against the head that carries
+  the signed pre-tag receipt and are signed by the owner, so the measurements themselves are bound
+  to the candidate. Their gate line names the run that did not happen, and the matrix refuses a
+  gate line without a `WITHSTANDS_DEEPGATE` verdict. That refusal is the correct reading of the
+  state, not a defect in the matrix, and no code at the matrix changes for it (owner boundary of
+  2026-09-07).
+- **C6.3 additionally lacks the 24-hour soak** at the candidate head, exactly as S21 recorded for
+  6.0.0. The short soak at the receipt head is the evidence C6.2 binds to; its duration and
+  iteration count are in the signed artefact and in the ceremony report. The 24-hour run starts
+  when the tree is frozen, runs beside the release, and is recorded after the tag in a dated
+  addendum file next to this one, never as an edit to this file.
+- **The pre-tag receipt binds this file** through its subject tree digest, so the state is in the
+  tree the receipt attests; the receipt's own signed fields carry a command, digests and a runner
+  line, not this text, and whether the runner line repeats the state is decided at the ceremony.
+
+What this does NOT mean: no claim that the six lenses would have found nothing. A round that did
+not run makes no statement about the tree, and this section exists so that nobody reads its
+absence as a clean result.
+
 ## Honest limits of this file
 
 - **No gate of the three release documents is evidenced by a run on the candidate head.**
