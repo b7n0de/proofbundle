@@ -13,7 +13,10 @@ restore, emit went through). Now the tool starts the audit itself, measures befo
 records what it captured. Second, the check took `git status`'s word, and that word depends on
 configuration outside the tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
 `.git/info/exclude`, an untracked `.gitignore` covering itself, `GIT_DIR` in the environment.
-Each of them hid a path from the first version; each has a case below.
+Each of them hid a path from the first version; each has a case below. The second counter-reading,
+the same day, named the index flags `assume-unchanged` and `skip-worktree`, which hide a modified
+tracked file from `git status` altogether; the comparison now runs through a fresh index read from
+HEAD, and those two have their cases as well.
 
 The cases run the real script through `--emit-payload`, not the helper alone, because the
 question is whether the REFUSAL IS ON THE PATH the release chain takes. A gate that exists and is
@@ -214,6 +217,43 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
                          "the ignore file did not hide the directory, so this case measures nothing")
         self._abgewiesen(self._emit(), "uncommitted path", "sub/.gitignore", "not a tracked rule")
+
+    def test_assume_unchanged_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] P1 of the second counter-reading, 2026-09-21: `git update-index
+        --assume-unchanged` tells git not to look at a tracked file, so `git status` and `git diff`
+        report nothing for it while its bytes differ from HEAD. The first version asked `git status`
+        and emitted. Red against the version that asked `git status`."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "update-index", "--assume-unchanged", "a.txt")
+        # anti-vacuity: the flag really hides the modification from a plain status
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the flag did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_skip_worktree_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] The sibling flag of the same round: `skip-worktree` is index metadata as well,
+        and it hides a modified tracked file from every listing that goes through that index."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "update-index", "--skip-worktree", "a.txt")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the flag did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_eine_gestagte_aenderung_zaehlt(self):
+        """[GETRENNT] A change that sits in the index but not in HEAD is dirt too: the receipt
+        binds HEAD, and the audit would read bytes HEAD does not carry. The version that asked
+        `git status` refused this as well, so the case could not be red against it; it pins that
+        the fresh-index comparison still sees the index."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "add", "a.txt")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_eine_geloeschte_verfolgte_datei_zaehlt(self):
+        """[GETRENNT] A tracked file missing from the checkout is a tree that differs from HEAD.
+        Refused by the previous version too, so not red against it; it pins that `git read-tree`
+        into a fresh index reports the absence as `D` rather than as nothing."""
+        (self.baum / "a.txt").unlink()
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
 
     def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
         """Without this the case above would also pass for a gate that refuses every untracked

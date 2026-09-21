@@ -120,10 +120,14 @@ before the closing round, not after it.
   since 2026-09-21 it runs the audit itself between two measurements of that tree: a supplied
   record and a typed exit code are no longer accepted, because a counter-reading bound output
   produced from a modified tree to the clean head by restoring the file before the emit. The
-  cleanliness measurement no longer takes `git status`'s word, which depends on configuration
-  outside the tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+  cleanliness measurement no longer asks `git status`, whose answer depends on state outside the
+  committed tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
   `.git/info/exclude`, an untracked ignore file covering itself and `GIT_DIR` in the environment
-  each hid a path from the first version, and each has a case that was red against it.
+  each hid a path from the first version, and a second counter-reading showed the index bits
+  `assume-unchanged` and `skip-worktree` hiding a modified tracked file from the version that
+  followed. The working tree is now compared with `HEAD` through a fresh index read from `HEAD`
+  into a private temporary file, which carries nobody's bits; each of the seven has a case that
+  was red against the version it was measured on.
   `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
   it wrote itself, which is exactly the shape the gate refuses. Named limit: a change made and
   undone during the run lies between the two measurements.

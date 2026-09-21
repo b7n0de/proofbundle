@@ -16,6 +16,11 @@ code is what the program returned, and `--audit-output-file` is where this proce
 captured. A typed exit code and a supplied record are no longer accepted, because neither can be bound
 to a run that was measured.
 
+THE SECOND ROUND, same day: the tree was compared through `git status`, and the index flags
+`assume-unchanged` and `skip-worktree` make git skip a modified tracked file there. The comparison
+now goes through a fresh index read from HEAD, so no flag anybody set on the checkout's index can
+hide a byte; see `_baumzustand_oder_stop`.
+
 WHAT THAT ESTABLISHES, AND WHAT IT DOES NOT. Established: the working tree equalled the committed head
 before the run and after it, the head and the tree digest were the same at both points, and the output
 digest is over the bytes this process read from that run. Not established: a change made and undone
@@ -281,12 +286,12 @@ def _inline_erlaubt_oder_stop() -> None:
 
 
 def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
-               erlaubte_codes: tuple[int, ...] = (0,)) -> bytes:
+               erlaubte_codes: tuple[int, ...] = (0,), umgebung: dict | None = None) -> bytes:
     """One git call in `repo`, its stdout as bytes. Any failure to answer refuses the whole run:
     not-determinable is not a clearance, and a release receipt is the last place to guess."""
     try:
         lauf = subprocess.run(["git", "-C", str(repo), *args], input=eingabe,
-                              capture_output=True, timeout=120)
+                              capture_output=True, timeout=120, env=umgebung)
     except (OSError, subprocess.SubprocessError) as fehler:
         raise SystemExit(
             f"emit: cannot determine whether {repo} is clean (git {' '.join(args[:2])}: {fehler}) "
@@ -301,12 +306,13 @@ def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
     return lauf.stdout
 
 
-def _git_z(repo: Path, *args: str) -> list[str]:
+def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
     """A NUL-separated git listing as a list of entries, raw paths, no quoting."""
-    return [e.decode("utf-8", "replace") for e in _git_bytes(repo, *args).split(b"\0") if e]
+    return [e.decode("utf-8", "replace")
+            for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
 
 
-def _versteckte_ignoredateien(repo: Path, sichtbar: set[str]) -> list[str]:
+def _versteckte_ignoredateien(repo: Path, sichtbar: set[str], umgebung: dict) -> list[str]:
     """Untracked `.gitignore` files that a TRACKED rule does not account for.
 
     `git ls-files --others --exclude-per-directory=.gitignore` reads every `.gitignore` in the
@@ -319,16 +325,16 @@ def _versteckte_ignoredateien(repo: Path, sichtbar: set[str]) -> list[str]:
     tree's own word and counts; the untracked file itself, `.git/info/exclude` or a global excludes
     file are outside the committed tree and do not.
     """
-    alle = _git_z(repo, "ls-files", "--others", "-z")
+    alle = _git_z(repo, "ls-files", "--others", "-z", umgebung=umgebung)
     kandidaten = [p for p in alle if p.rsplit("/", 1)[-1] == ".gitignore" and p not in sichtbar]
     if not kandidaten:
         return []
-    verfolgt = set(_git_z(repo, "ls-files", "-z"))
+    verfolgt = set(_git_z(repo, "ls-files", "-z", umgebung=umgebung))
     eingabe = b"".join(p.encode("utf-8") + b"\0" for p in kandidaten)
     # exit 1 means "none of the given paths is ignored"; for paths the listing above hid that
     # cannot happen, and it is not an error of the call either way.
     roh = _git_bytes(repo, "check-ignore", "-v", "-z", "--no-index", "--stdin",
-                     eingabe=eingabe, erlaubte_codes=(0, 1))
+                     eingabe=eingabe, erlaubte_codes=(0, 1), umgebung=umgebung)
     felder = [f.decode("utf-8", "replace") for f in roh.split(b"\0")]
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
     for i in range(0, len(felder) - 3, 4):
@@ -356,33 +362,63 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     same commit; here the digest is correct about the head and the head is not what was measured.
     A digest over the wrong subject is not a weaker binding, it is a binding to something else.
 
-    WHAT IS MEASURED, AND AGAINST WHICH CONFIGURATION (2026-09-21, counter-reading from another
-    model family plus the sweep for its siblings). The first version asked `git status --porcelain`
-    and took its answer. That answer depends on configuration outside the tree: with
-    `status.showUntrackedFiles=no` in the checkout's config the untracked file was not listed, and
-    the emit went through. The same holds for a global `core.excludesFile`, for `.git/info/exclude`,
-    for an untracked `.gitignore` that covers itself, and for `GIT_DIR` in the environment. Every
-    one of those was measured to hide a path from the first version. So the three questions are now
-    asked in the form that does not consult them:
+    WHAT IS MEASURED, AND AGAINST WHICH CONFIGURATION (2026-09-21, two counter-readings from another
+    model family plus the sweep for their siblings). The first version asked `git status --porcelain`
+    and took its answer. That answer depends on state outside the committed tree, and every one of
+    the following was measured to hide a path from it: `status.showUntrackedFiles=no` in the
+    checkout's config, a global `core.excludesFile`, `.git/info/exclude`, an untracked `.gitignore`
+    that covers itself, `GIT_DIR` in the environment, and — the second round — the index flags
+    `assume-unchanged` and `skip-worktree`, which make `git status` and `git diff` skip a modified
+    tracked file altogether. The last two are index METADATA: bits in `.git/index` that tell git not
+    to look, so no listing that goes through that index can be trusted to see the bytes.
 
-      modified tracked paths   `git status --porcelain=v1 -z --untracked-files=no
-                               --ignore-submodules=none` — the index and the worktree against HEAD,
-                               submodules never waved through;
-      untracked paths          `git ls-files --others --exclude-per-directory=.gitignore` — judged
-                               ONLY by the tree's own ignore files, never by the global file, never
-                               by `.git/info/exclude`, never by `status.showUntrackedFiles`;
-      untracked ignore files   see `_versteckte_ignoredateien`: hidden by a tracked rule is fine,
-                               hidden by anything else refuses.
+    So `git status` is not asked at all. The tree is compared against the head through a FRESH
+    index, read from `HEAD` into a temporary file of this run and carrying no flags of anybody:
+
+      staged changes            `git diff-index --cached HEAD` against the checkout's real index —
+                                the index content against the head, which the flags do not touch;
+      modified or missing files `git read-tree HEAD` into the fresh index, `git update-index
+                                --refresh` on it (which hashes every file, since a fresh index holds
+                                no stat data), then `git diff-index HEAD` — the bytes of the
+                                working tree against the head, and no flag exists in that index;
+      untracked paths           `git ls-files --others --exclude-per-directory=.gitignore` on the
+                                fresh index — judged ONLY by the tree's own ignore files, never by
+                                the global file, never by `.git/info/exclude`, never by
+                                `status.showUntrackedFiles`;
+      untracked ignore files    see `_versteckte_ignoredateien`: hidden by a tracked rule is fine,
+                                hidden by anything else refuses.
+
+    A consequence worth naming: a sparse checkout refuses, because the paths it leaves out are
+    missing from the working tree and the fresh index does not know they were meant to be. That is
+    the right answer for a release receipt, since an audit over a partial checkout did not read
+    the bytes the head carries there.
 
     Fail-closed in both directions. A dirty tree refuses, and a tree whose state cannot be
     determined refuses too: not-determinable is not a clearance, and a release receipt is the last
     place to guess.
     """
-    geaendert = _git_z(repo, "status", "--porcelain=v1", "-z", "--no-renames",
-                       "--untracked-files=no", "--ignore-submodules=none")
-    unverfolgt = _git_z(repo, "ls-files", "--others", "-z", "--exclude-per-directory=.gitignore")
-    fremd = _versteckte_ignoredateien(repo, set(unverfolgt))
-    schmutzig = geaendert + [f"?? {p}" for p in unverfolgt] + [f"!! {x}" for x in fremd]
+    import tempfile  # noqa: PLC0415
+    frisch = dict(os.environ)
+    # THE FRESH INDEX LIVES IN THIS RUN'S OWN UNPREDICTABLE DIRECTORY, beside the bytecode cache and
+    # removed with it. A fixed path would be a location an attacker can prepare ahead of time.
+    fd, indexpfad = tempfile.mkstemp(prefix="index_", dir=_CACHE_DIR)
+    os.close(fd)
+    # git meets a path that does not exist yet: `read-tree` writes it, and no reader of this run
+    # ever has to decide what an empty index file means.
+    os.unlink(indexpfad)
+    frisch["GIT_INDEX_FILE"] = indexpfad
+    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames", "--name-status", "HEAD")
+    _git_bytes(repo, "read-tree", "HEAD", umgebung=frisch)
+    # `--refresh` exits 1 when a file needs updating, and that is the answer we are after rather
+    # than an error of the call; `-q` keeps it going over every file instead of stopping at one.
+    _git_bytes(repo, "update-index", "-q", "--refresh", umgebung=frisch, erlaubte_codes=(0, 1))
+    geaendert = _git_z(repo, "diff-index", "-z", "--no-renames", "--name-status", "HEAD",
+                       umgebung=frisch)
+    unverfolgt = _git_z(repo, "ls-files", "--others", "-z", "--exclude-per-directory=.gitignore",
+                        umgebung=frisch)
+    fremd = _versteckte_ignoredateien(repo, set(unverfolgt), frisch)
+    schmutzig = ([f"staged {e}" for e in _paare(gestaged)] + [f"{e}" for e in _paare(geaendert)]
+                 + [f"?? {p}" for p in unverfolgt] + [f"!! {x}" for x in fremd])
     if schmutzig:
         gezeigt = "\n  ".join(schmutzig[:20])
         mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""
@@ -392,6 +428,11 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
             f"the bytes attested would not be the bytes measured:\n  {gezeigt}{mehr}")
     head = _git_bytes(repo, "rev-parse", "--verify", "HEAD").decode("ascii", "replace").strip()
     return {"head": head, "tree_digest": _tree_digest(repo)}
+
+
+def _paare(eintraege: list[str]) -> list[str]:
+    """`diff-index -z --name-status` alternates a status letter and a path; join them again."""
+    return [f"{eintraege[i]} {eintraege[i + 1]}" for i in range(0, len(eintraege) - 1, 2)]
 
 
 def _audit_ausfuehren(repo: Path, audit_command: str, ausgabe: Path) -> tuple[int, str, int]:

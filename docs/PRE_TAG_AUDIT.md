@@ -51,11 +51,15 @@ captured into `--audit-output-file` (a path outside the tree that did not exist 
 typed exit code and a supplied record are refused, because neither can be bound to a run that
 was measured; a counter-reading had shown that an output produced from a modified tree, with
 the file restored afterwards, was bound to the clean head. The cleanliness measurement does not
-take `git status`'s word: it is answered against the tree's own ignore files only, never against
+ask `git status` at all: the working tree is compared with `HEAD` through a fresh index that the
+run reads from `HEAD` into a private temporary file, so the `assume-unchanged` and
+`skip-worktree` bits of the checkout's own index, which make `git status` and `git diff` skip a
+modified tracked file, have nothing to act on; staged content is compared with `HEAD` on the
+real index; untracked paths are judged against the tree's own ignore files only, never against
 `status.showUntrackedFiles`, a global excludes file, `.git/info/exclude`, an untracked ignore
-file covering itself, or `GIT_DIR` in the environment, each of which had hidden a path from the
-earlier version. What two point measurements cannot see, and the script says so: a change made
-and undone during the run.
+file covering itself, or `GIT_DIR` in the environment. Each of those had hidden a path from an
+earlier version, and each has a case that was red against it. What two point measurements
+cannot see, and the script says so: a change made and undone during the run.
 
 **Honest limit, and it is not small.** The trust root is a key committed in this repository, the
 same one whose release the verdict concerns. A third party can verify the signature if they clone
