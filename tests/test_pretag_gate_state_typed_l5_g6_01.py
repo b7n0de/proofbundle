@@ -344,7 +344,15 @@ class TheGateReportsATypedState(unittest.TestCase):
             # case cannot see, and that is the hole the blanket form used to cover by accident.
             self.assertTrue(r.get("verified_receipts"), r)
         else:
-            self.assertIn(r["state"], ("absent", "foreign", "rejected"), r)
+            # The fail-closed states, taken from what the gate actually returns:
+            # `verified` / `rejected` / `other_tree` / `absent`, plus `not_determinable`,
+            # which is skipped above. This tuple used to read `foreign`, a word the gate
+            # stopped using when the states were typed, and it left out `other_tree`, which
+            # the gate does return. A dead string in an allow-list narrows it silently: the
+            # next version cut, where the only receipt on file belongs to the previous
+            # candidate, answers `other_tree` and would have gone red on a tree that was
+            # fail-closed exactly as designed. Same class as the line above, one cycle later.
+            self.assertIn(r["state"], ("absent", "other_tree", "rejected"), r)
         for eintrag in r.get("verified_receipts", []) or []:
             self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
 
