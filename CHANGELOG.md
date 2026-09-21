@@ -115,6 +115,18 @@ before the closing round, not after it.
 - **R7 — three numbers in shipped comments that no longer matched the tree.** They are now derived
   by running the cases rather than by counting lines, and the run refuses to report a ratio when it
   did not finish: killed and survived are not an exhaustive pair, and a partial run reports neither.
+- **A-70 — the pre-tag receipt could be produced from a tree that was not the one measured.**
+  `scripts/pre_tag_receipt.py` refuses a working tree that differs from the committed head, and
+  since 2026-09-21 it runs the audit itself between two measurements of that tree: a supplied
+  record and a typed exit code are no longer accepted, because a counter-reading bound output
+  produced from a modified tree to the clean head by restoring the file before the emit. The
+  cleanliness measurement no longer takes `git status`'s word, which depends on configuration
+  outside the tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+  `.git/info/exclude`, an untracked ignore file covering itself and `GIT_DIR` in the environment
+  each hid a path from the first version, and each has a case that was red against it.
+  `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
+  it wrote itself, which is exactly the shape the gate refuses. Named limit: a change made and
+  undone during the run lies between the two measurements.
 - Evidence digests: a record named a `path` and a `sha256` that described different objects, the
   digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
   file. The checker also never opened the file it named, so a deleted or altered piece of evidence

@@ -43,6 +43,20 @@ next sentence not on the list. A signature is not enumerable that way. The prope
 `test_P4_eine_prosa_zeile_erteilt_keinen_pass_mehr` feeds the exact canonical truthful prose
 line and asserts the gate does **not** grant on it.
 
+**How the receipt is produced, since 2026-09-21.** `scripts/pre_tag_receipt.py` starts the
+audit itself: it measures the checkout clean and equal to `HEAD`, runs `--audit-command` as a
+program in the tree, measures again, and only then builds the context whose `audit_exit_code`
+is what the program returned and whose `audit_output_digest` is the sha256 of the bytes it
+captured into `--audit-output-file` (a path outside the tree that did not exist before). A
+typed exit code and a supplied record are refused, because neither can be bound to a run that
+was measured; a counter-reading had shown that an output produced from a modified tree, with
+the file restored afterwards, was bound to the clean head. The cleanliness measurement does not
+take `git status`'s word: it is answered against the tree's own ignore files only, never against
+`status.showUntrackedFiles`, a global excludes file, `.git/info/exclude`, an untracked ignore
+file covering itself, or `GIT_DIR` in the environment, each of which had hidden a path from the
+earlier version. What two point measurements cannot see, and the script says so: a change made
+and undone during the run.
+
 **Honest limit, and it is not small.** The trust root is a key committed in this repository, the
 same one whose release the verdict concerns. A third party can verify the signature if they clone
 the repository, but they cannot establish the authority behind it from outside, and the receipt is
