@@ -4,9 +4,9 @@
   "_warum_die_linie_610_eine_eigene_datei_hat": "RESTRISIKO_600.md ist am Tag eingefroren und durch das pre-tag-Receipt gebunden; das 610er Blatt sagt das selbst ('RESTRISIKO_600.md stays untouched'). Die fuenf Zusagen in die 600er Datei zu schreiben haette einen gebundenen Stand veraendert. Eine eigene Linie laesst beide Blaetter, wie sie sind.",
   "gemessen_an": {
     "datei": "RESTRISIKO_610.md",
-    "sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
-    "baum": "fix/610-registerzusage-hat-einen-traeger @ ba29df8 (main)",
-    "utc": "2026-09-20T13:52:07Z",
+    "sha256": "33efa259a129de4c082487a45a4acbda6b0a2722169daf4b63d2fbbe99743b73",
+    "baum": "docs/c102-610-slot-and-closing-round @ 1119a2c (main after #238)",
+    "utc": "2026-09-21T12:27:41Z",
     "_wie": "sha256 ueber die Datei, gemessen beim Anlegen dieser Datei. pruefe_v2 rechnet ihn gegen die Datei nach und bricht bei Abweichung."
   },
   "grundgesamtheit": {

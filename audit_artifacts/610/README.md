@@ -15,7 +15,7 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 efa222529c3c8d96af63efd07ff7985d606bcad9277faa3b452a0a12c8354936
+    audit_artifacts/610/findings_register_v2.json   sha256 7fc8209bebbad99b49cf3e4f6054d06452fc41a0c7a2d99afa3beb83611e6253
                                                     15982 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
                                                     register_revision 0 · issued_at 2026-09-21 · 5 records
@@ -31,8 +31,8 @@ tree this file sits in and asks git whether any token here is a revision, so nei
 ## The sources it was cut from
 
     RESTRISIKO_600.md   sha256 27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af   1 identifier(s)
-    RESTRISIKO_610.md   sha256 9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455   4 identifier(s)
-    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 b35e0733bd082c3608fcb5362a1d7976196d15de6bae183913dcbfcacf217bfc   5 identifier(s)
+    RESTRISIKO_610.md   sha256 33efa259a129de4c082487a45a4acbda6b0a2722169daf4b63d2fbbe99743b73   4 identifier(s)
+    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 2c2d7b431f819191908e27742fd0592380568692fc37ccf3a0424b7d849c954b   5 identifier(s)
 
 ## How a title relates to its source
 
@@ -84,3 +84,27 @@ recomputes the three figures in this paragraph from the register on every run.
 
 Generated from measured values of the carrier named above. The carrier itself is produced by
 `scripts/gen_findings_register.py --v2 --linie 610` and is not edited by hand.
+
+## The pre-tag receipt and the closing round of 6.1.0
+
+The sentence above that says no receipt was produced here describes the state of this directory
+when the register was cut. The ceremony of 6.1.0 files the pre-tag receipt beside this file as
+`pre_tag_receipt_v6.1.0.json`; that receipt binds the tree without itself and without the
+mutable evidence paths, so its arrival changes no digest named in this document.
+
+The closing gate round does not run for 6.1.0. Owner word of 2026-09-21 (card `OA-ac65eda888`,
+option B): the DEEP mode requires three qualified model families and the qualification register
+carries one, so the round is not run rather than run as a formality. The consequences, named here
+so that a reader of the receipt sees them without opening the matrix:
+
+- the audit-candidate cells C6.2, C6.3 and C8.2 stay red, as they did for 6.0.0. The soak and
+  the differential matrix are re-run against the receipt head and signed by the owner, so their
+  measurements are bound to the candidate; their gate line names the run that did not happen,
+  and the matrix refuses a gate line whose verdict is not `WITHSTANDS_DEEPGATE`;
+- C6.3 additionally lacks the 24-hour soak at the candidate head; that run starts at the freeze
+  and is recorded after the tag in a dated addendum next to `RESTRISIKO_610.md`;
+- `RESTRISIKO_610.md` carries the same state in its own words, in the section on the closing
+  round, and the receipt binds that file.
+
+None of this is a claim that the six lenses would have found nothing. A round that did not run
+makes no statement about the tree.
