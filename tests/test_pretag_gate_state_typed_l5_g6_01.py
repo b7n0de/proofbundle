@@ -318,17 +318,48 @@ class TheGateReportsATypedState(unittest.TestCase):
         """The CLASS above the instance, and the reason the version above could be named safely.
 
         Pinning the case to 6.0.0 would narrow what is measured if nothing else watched the
-        tree's own version. This does: for the version the tree actually claims, the gate must not
-        return ok — the register of this house is never a grant, whether it reads as foreign (the
-        cut it belongs to) or as absent (any other cut). Both are fail-closed, and the point is
-        that there is no third answer.
+        tree's own version. This does: for the version the tree actually claims, the register of
+        this house is never what grants the gate.
+
+        THE BLANKET FORM WAS WRONG, and this case's own ceremony proved it (2026-09-21, owner
+        decision OA-fa327c91f0, option A). The line used to read `assertFalse(r["ok"])`, that is:
+        nothing ever grants the gate here. That held only while this tree carried no signed
+        pre-tag receipt of its own. The moment the release ceremony put one in, `ok` became true,
+        the state became `verified`, and the case went red against a tree that behaved exactly as
+        intended. A case that cannot survive the correct outcome is measuring the wrong thing.
+
+        What has to hold is narrower, and it is the sentence this case is named for: a grant
+        rests on a real receipt, never on the findings register. Where the gate does not grant,
+        the answer is one of the fail-closed states and there is no third answer. Where it does
+        grant, at least one receipt was verified, and the loop below keeps the register out of
+        that set whichever way the answer went.
         """
         repo = pathlib.Path(__file__).resolve().parents[1]
         r = self.pta.evaluate(repo)
         if r["state"] == "not_determinable":
             self.skipTest(f"not measurable here: {r.get('reason')}")
-        self.assertFalse(r["ok"], r)
-        self.assertIn(r["state"], ("absent", "foreign", "rejected"), r)
+        if r["ok"]:
+            # A grant has to rest on something that was actually verified. An `ok` carrying an
+            # empty set of verified receipts would mean the gate was opened by something this
+            # case cannot see, and that is the hole the blanket form used to cover by accident.
+            #
+            # HONEST ABOUT WHAT THIS CAN CATCH: today the gate computes `ok = bool(verified)`,
+            # so the state this line rejects is unreachable by construction, and the line is
+            # inert against the gate as it stands. It is a guard on that one identity, not on
+            # a state the gate can currently produce. It fires the day `ok` stops meaning
+            # "something verified", which is the day the word would quietly change meaning
+            # everywhere else that reads it.
+            self.assertTrue(r.get("verified_receipts"), r)
+        else:
+            # The fail-closed states, taken from what the gate actually returns:
+            # `verified` / `rejected` / `other_tree` / `absent`, plus `not_determinable`,
+            # which is skipped above. This tuple used to read `foreign`, a word the gate
+            # stopped using when the states were typed, and it left out `other_tree`, which
+            # the gate does return. A dead string in an allow-list narrows it silently: the
+            # next version cut, where the only receipt on file belongs to the previous
+            # candidate, answers `other_tree` and would have gone red on a tree that was
+            # fail-closed exactly as designed. Same class as the line above, one cycle later.
+            self.assertIn(r["state"], ("absent", "other_tree", "rejected"), r)
         for eintrag in r.get("verified_receipts", []) or []:
             self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
 
