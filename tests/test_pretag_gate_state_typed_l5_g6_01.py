@@ -342,6 +342,13 @@ class TheGateReportsATypedState(unittest.TestCase):
             # A grant has to rest on something that was actually verified. An `ok` carrying an
             # empty set of verified receipts would mean the gate was opened by something this
             # case cannot see, and that is the hole the blanket form used to cover by accident.
+            #
+            # HONEST ABOUT WHAT THIS CAN CATCH: today the gate computes `ok = bool(verified)`,
+            # so the state this line rejects is unreachable by construction, and the line is
+            # inert against the gate as it stands. It is a guard on that one identity, not on
+            # a state the gate can currently produce. It fires the day `ok` stops meaning
+            # "something verified", which is the day the word would quietly change meaning
+            # everywhere else that reads it.
             self.assertTrue(r.get("verified_receipts"), r)
         else:
             # The fail-closed states, taken from what the gate actually returns:
