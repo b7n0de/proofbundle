@@ -14,61 +14,19 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21110642.svg)](https://doi.org/10.5281/zenodo.21110642)
 
-**AI eval results need receipts.**
-
-Turn an AI evaluation result, review, decision, or action outcome into a portable receipt that can be checked offline.
-
-proofbundle lets a verifier check **which key signed the exact bytes** and **whether those bytes changed**. It does not prove that the result is true, that the signer is trustworthy, or that the evaluation was sound.
+**Portable evidence for AI work, verifiable offline. Integrity, not truth**
 
 **One file. No verification server. No network required.**
 
-[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [New in 6.0.0](#new-in-600) · [New in 5.1.0](#new-in-510) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) · [Documentation](#documentation)
+[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [Current release](#current-release) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) · [Documentation](#documentation)
 
 </div>
 
-## New in 6.0.0
+## Current release
 
-[proofbundle 6.0.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0) makes `agent-review/v0.2`
-what the emitter produces without an argument. That is the one break of this MAJOR: v0.1 needs an explicit
-`legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as
-`predicateVersionStatus: legacy` by the new dispatcher `verify_agent_review_any`. v0.2 requires
-`subjectContext.disclosureCoreDigest` and derived `limitationCodes`, separates time claims by source,
-accepts only the full 40-character `fixCommit`, and carries a named policy axis: `verify_agent_review_v02`
-evaluates the derived codes and the coverage status against a policy that is a file (the standard one ships
-in the package and its digest appears in the result), with three decisions, `accept`, `reject` and
-`insufficient_evidence`.
+What changed, entry by entry, is in the [CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md); what is in the cut and what moved out of it is in [docs/release_scope](https://github.com/b7n0de/proofbundle/tree/main/docs/release_scope). The version is on the PyPI badge above and not in this text, so this section cannot go stale.
 
-Two things a relying party should know. A receipt whose own time claims contradict each other is now
-rejected with `TIME_CLAIMS_CONFLICT` regardless of policy, and a malformed policy file is refused before it
-decides (`POLICY_NOT_EVALUABLE`), never read as a permissive one. Non-fatal notes such as
-`POLICY_NOT_EVALUATED` and `AGENT_REVIEW_LEGACY_V01` live in `advisory_codes`; `reason_codes` is empty for
-a valid receipt. The six published v0.1 receipts verify as before; the full list is in the
-[CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md).
-
-> **Release status**
->
-> The closing audit verdict for 6.0.0 was `FIX_FIRST`, not `WITHSTANDS_DEEPGATE`. Three findings
-> were confirmed and stay open; they are published in [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md),
-> together with the scope each statement of that round holds over: the mutation gate ran over a
-> measured subset of the suite, the parity gate over all 68 source files. Both figures are stated
-> in RESTRISIKO_600.md with the definition of what they count — this page deliberately carries no
-> test count, because one here goes stale with the next added test (`tests/test_docs_truth.py`).
-
-## New in 5.1.0
-
-[proofbundle 5.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0) adds a new receipt kind for disclosing AI agent involvement and review in pull requests and issues.
-
-- **Agent review receipts** bind the reviewed GitHub object, the declared review runs, coverage, findings, limitations, and the human visible disclosure.
-- **Stronger subject and disclosure binding** prevents a valid receipt from silently travelling to another object or a visible block from claiming more than the signed predicate.
-- **Clearer time and coverage semantics** separate declared event time from witness observation time and reject ambiguous claims of complete coverage.
-- **Hardened correction chains** prevent an untrusted receipt from taking over the current position in a correction or supersession chain.
-- **Executable conformance coverage** now includes the agent review predicate and the receipt envelope profile.
-
-One behaviour change deserves attention before upgrading. `automation_summary` now adds `RECEIPT_NOT_OK` to its blockers when a receipt is not `ok`. Read the [5.1.0 changelog](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md#510---2026-08-31-the-profile-a-stranger-can-read--minor) before updating automation.
-
-> **Release status**
->
-> For 6.0.0 the residual-risk record was frozen BEFORE the closing audit round, by owner decision: [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md) lists what was known to be open when the tree was frozen, with class and funnel ruling, and its sha256 is bound inside the pre-tag receipt. The verdict of the closing round itself is recorded next to that receipt in [audit_artifacts/600/](https://github.com/b7n0de/proofbundle/tree/main/audit_artifacts/600) once the round has run; a round that had to be written down would have meant a new freeze, not an edit. The 5.1.0 verdict was `PARTIAL_GATE_NO_WITHSTANDS` with its risks in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md) and [RESTRISIKO_510_NACHTRAG_20260903.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510_NACHTRAG_20260903.md).
+The closing audit verdict of the last release was `FIX_FIRST`, not `WITHSTANDS_DEEPGATE`. The findings that stayed open are published in [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md) with the scope each statement of that round holds over, and the artefacts of the round are in [audit_artifacts/600](https://github.com/b7n0de/proofbundle/tree/main/audit_artifacts/600).
 
 ## Quick start
 
@@ -98,6 +56,10 @@ The command uses the local file only. Its exit code is part of the public contra
 2  malformed input or usage error
 3  relying party policy not met
 ```
+
+That table is the contract of `proofbundle verify`. The statement-style commands
+(`decision verify`, `outcome verify`, `relation-statement verify`) carry their own exit contract in
+their own `--help`, and the meanings differ, until 6.2.0 sets one contract for all of them.
 
 Run the tamper demo.
 
@@ -183,7 +145,7 @@ The full predicate inventory and maturity labels live in [docs/predicates/README
 - The verifier uses `cryptography` for Ed25519 and `rfc8785` for canonicalization. It does not implement its own cryptographic primitives.
 - Correctness is checked against external RFC 6962 vectors and a real Sigstore Rekor proof, not only against the project's own receipts.
 - The test suite sits behind a mutation gate and property based parser fuzzing.
-- The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
+- The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures, plus an experimental ML-DSA path in the renewal layer (`pqsig.py`, EXPERIMENTAL, ADR 0006), which renews a receipt rather than signing its payload. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 - Releases are built once, carry SLSA build provenance, and are published through PyPI Trusted Publishing, where PyPI records PEP 740 attestations for the same bytes.
 - A second, independent verifier written in Rust cross-checks the conformance corpus. It is advisory: differential agreement on the recorded vectors, not a correctness proof of either implementation, and it does not ship in the package.
 - The conformance corpus includes positive controls and counter proofs. Read what it does and does not establish in [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md).
