@@ -15,10 +15,10 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 21b33c66c2e2675458a7959c7fc7b001e660ada3c8ec70d73e1c2bd95a8a4c20
-                                                    16610 bytes · schema proofbundle.findings_register.v2
+    audit_artifacts/610/findings_register_v2.json   sha256 efa222529c3c8d96af63efd07ff7985d606bcad9277faa3b452a0a12c8354936
+                                                    15982 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
-                                                    register_revision 0 · issued_at 2026-09-20 · 5 records
+                                                    register_revision 0 · issued_at 2026-09-21 · 5 records
 
 NO REVISION IS NAMED HERE, and that is a correction rather than an omission. An earlier version of
 this document named the head that `git rev-parse` returned while it was being written, which is the
@@ -49,17 +49,34 @@ DECLARED rule rather than a copy of it, so changing the declaration moves the ve
 
 | Identifier | Find form | Severity | State | Source |
 |---|---|---|---|---|
-| `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01` | prosa_zusage | NOT MEASURED | open | `RESTRISIKO_610.md` |
-| `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01` | prosa_zusage | NOT MEASURED | open | `RESTRISIKO_610.md` |
-| `SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01` | prosa_zusage | NOT MEASURED | open | `RESTRISIKO_610.md` |
-| `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01` | prosa_zusage | NOT MEASURED | open | `RESTRISIKO_610.md` |
-| `ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01` | prosa_zusage | NOT MEASURED | NOT MEASURED | `RESTRISIKO_600.md` |
+| `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01` | prosa_zusage | P2 | open | `RESTRISIKO_610.md` |
+| `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01` | prosa_zusage | P2 | open | `RESTRISIKO_610.md` |
+| `SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01` | prosa_zusage | P3 | open | `RESTRISIKO_610.md` |
+| `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01` | prosa_zusage | P2 | open | `RESTRISIKO_610.md` |
+| `ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01` | prosa_zusage | P3 | open | `RESTRISIKO_600.md` |
+
+## The signed v1 register of this cut
+
+The structured, signed carrier the release gate reads is `audit_artifacts/findings_register_361.json`,
+scoped to `6.1.0` since 2026-09-21 — 26 entries, 14 closed, 12 open, **0 open P0/P1** (counted, not
+quoted): the 21 findings carried from the 6.0.0 register, of which `N16` is closed for this tree
+and open in the published Action tag, plus the five class entries the risk sheets promise, each
+with the severity the producer assigned and the note that says so. `C12.2` reads and counts that
+register, not any prose here, and `tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py`
+recomputes the three figures in this paragraph from the register on every run.
+
+| check | state on this cut |
+|---|---|
+| findings register, 0 open P0/P1 | NOT MEASURED via C12.2 — 26 findings in the signed, version-bound register (`6.1.0`); the pre-tag round that runs the audit matrix on the frozen head has not run yet, so the gate's own verdict is not quoted here |
 
 ## The limits of this document, named rather than left out
 
 - The carrier is **unsigned**. treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone
-- Severity and state are read from a named source or left as a gap with a reason; nothing here is
-  rated by the tool that produced it.
+- Severity and state of the five records are read from `FINDINGS` in
+  `scripts/gen_findings_register.py`, the list the owner signs as the v1 register of this cut. The
+  sources carry no severity column, so the producer ASSIGNED each severity from the reach the sheet
+  states and says so in the entry's note; no tool rated anything, and the owner's signature over the
+  v1 register is what endorses the assignment.
 - `NOT MEASURED` for the cross-count against an independent tally:
   the input carries no list `sollliste_kennungen`; without it there is nothing to COMPUTE against the independent tally, and the historical block would be a quotation from an earlier state
 - The assessment cutoff is 2026-09-20, taken from the state the object class file records, not from

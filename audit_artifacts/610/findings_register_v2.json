@@ -51,8 +51,8 @@
       }
     ]
   },
-  "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T17:01:28Z",
+  "issued_at": "2026-09-21",
+  "generated_at": "2026-09-21T08:07:06Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.1.0",
@@ -106,20 +106,14 @@
           "open_entries": [],
           "population": {
             "records_gesamt": 5,
-            "mit_schwere": 0,
-            "ohne_schwere": 5,
-            "ohne_schwere_beispiele": [
-              "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01",
-              "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01",
-              "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01",
-              "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01",
-              "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01"
-            ]
+            "mit_schwere": 5,
+            "ohne_schwere": 0,
+            "ohne_schwere_beispiele": []
           }
         },
-        "holds": null,
-        "holds_state": "INDETERMINATE",
-        "holds_reason": "5 of 5 records carry no measured severity, so they can be shown to be neither P0/P1 nor anything else; a claim about the whole population cannot be established from the 0 that could be classified",
+        "holds": true,
+        "holds_state": "MEASURED",
+        "holds_reason": null,
         "prose_rationale_state": "NOT MEASURED",
         "prose_rationale_note": null
       }
@@ -143,13 +137,14 @@
       "objektklasse": "promised_class_entry",
       "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — the two commitment patterns at the verify boundary' und sagt den Registereintrag im selben Absatz zu, Ziel 6.2.0.",
       "severity": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
       },
       "status": {
         "value": "open",
-        "source": "state word in the enclosing section heading in RESTRISIKO_610.md"
+        "source": "FINDINGS in scripts/gen_findings_register.py"
       },
       "evidence": [
         {
@@ -186,13 +181,14 @@
       "objektklasse": "promised_class_entry",
       "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — two findings this cut made and deliberately did not close' und nennt sie dort ausdruecklich einen Fund, Ziel 6.2.0.",
       "severity": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
       },
       "status": {
         "value": "open",
-        "source": "state word in the enclosing section heading in RESTRISIKO_610.md"
+        "source": "FINDINGS in scripts/gen_findings_register.py"
       },
       "evidence": [
         {
@@ -229,13 +225,14 @@
       "objektklasse": "promised_class_entry",
       "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie im selben Open-Abschnitt wie die vorige; die Grenze ist benannt und der Eintrag zugesagt, Ziel 6.2.0.",
       "severity": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
+        "value": "P3",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
       },
       "status": {
         "value": "open",
-        "source": "state word in the enclosing section heading in RESTRISIKO_610.md"
+        "source": "FINDINGS in scripts/gen_findings_register.py"
       },
       "evidence": [
         {
@@ -272,13 +269,14 @@
       "objektklasse": "promised_class_entry",
       "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — three public exporters coerce the verdict field' mit drei ausfuehrbar gemessenen Stellen.",
       "severity": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
       },
       "status": {
         "value": "open",
-        "source": "state word in the enclosing section heading in RESTRISIKO_610.md"
+        "source": "FINDINGS in scripts/gen_findings_register.py"
       },
       "evidence": [
         {
@@ -315,19 +313,14 @@
       "objektklasse": "promised_class_entry",
       "objektklasse_begruendung": "Die Zusage steht in RESTRISIKO_600.md, nicht im 610er Blatt. Sie wird von dort geschnitten und nicht kopiert: eine Kennung hat EINE Fundstelle, und das 600er Blatt bleibt unberuehrt.",
       "severity": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
+        "value": "P3",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "sources_asked": [
-          "the producer list",
-          "a heading that names its state after a dash",
-          "a section heading in the house form `## Open`"
-        ],
-        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash, a section heading in the house form `## Open`. Setting a state here would be a guess, and naming a source that was not asked would be worse"
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
       },
       "evidence": [
         {

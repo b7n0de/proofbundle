@@ -425,7 +425,7 @@ def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 
 #: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
 #: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
@@ -639,14 +639,24 @@ NORMALISIERUNG_DER_TITEL = (
     "`language_scope.title_derivation`. Applying the rule of that form to the evidence bytes "
     "reproduces the title exactly — it is a derivation, not a verbatim line of the source.")
 
-#: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
-#: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
+#: THE HONEST STATE OF THE 6.1.0 FINDINGS. Two sources, named per entry, nothing from memory:
 #:
-#: SCHWEREGRAD NACH WIRKUNG, nicht nach Wunsch. Der Gate liest {P0, P1} als freigabeentscheidend;
-#: einen Fund niedriger einzustufen, damit das Tor gruen wird, waere genau der falsche PASS, gegen
-#: den dieses Register gebaut ist. Massgeblich ist die Spalte „Wirkung" des Restrisiko-Registers,
-#: Wort fuer Wort. Zwei Eintraege bleiben ausdruecklich OFFEN (N14, N15) — beide mit
-#: Owner-Entscheidung und beide ohne Wirkung auf einen Nutzer des Pakets.
+#:   * `N1`..`N21`, carried over from the 6.0.0 register, which derived them from the table rows of
+#:     `RESTRISIKO_600.md`. `tests/test_register_population_gegen_restrisiko.py` compares the two
+#:     populations rather than deriving one from the other. One of them changed state with the cut:
+#:     `N16` is closed for the 6.1.0 tree and its note says what still ships the old form.
+#:   * the five class entries the risk sheets PROMISE in prose (`Register entry <id>`), four in
+#:     `RESTRISIKO_610.md` and one in `RESTRISIKO_600.md`, cut out there and carried by the line
+#:     610 object class file. Owner word of 2026-09-20 for the 6.1.0 register: the carried 6.0.0
+#:     findings plus those five, nothing from the 6.2.0 scope.
+#:     `tests/test_register_610_carries_what_the_sheets_promise.py` binds both directions.
+#:
+#: SEVERITY FOLLOWS IMPACT, not wish. The gate reads {P0, P1} as release-deciding; rating a finding
+#: lower so that the gate turns green would be exactly the false PASS this register is built
+#: against. For the carried entries the "Wirkung" column of the 600 risk sheet is decisive, word for
+#: word. The five promised entries have no severity column in their source, so each note states in
+#: its own words that the producer assigned the severity from the sheet's stated reach and that no
+#: tool measured it; the owner's signature over the register is what endorses that assignment.
 FINDINGS = [
     {"id": "N1", "severity": "P3", "status": "closed",
      "note": "flip oracle of the A5 corpus test read one field; fixed to require ok (bc95dd6). The "
@@ -717,20 +727,21 @@ FINDINGS = [
     # Herkunft der Zahl pruefen koennen statt sie glauben zu muessen. Verdikt des Laufs:
     # FIX_FIRST. Fuer 6.0.0 wird KEIN WITHSTANDS_DEEPGATE behauptet.
     #
-    # Alle drei stehen OFFEN. Owner-Entscheid OA-b4489d0204 vom 2026-09-06: sie bleiben fuer
-    # 6.0.0 unter der Halte-Schwelle und werden im Sammelrelease geschlossen.
-    {"id": "N16", "severity": "P2", "status": "open",
-     "note": "deep gate run 5, L6-02: action/action.yml:35-36 interpolates ${{ inputs.version }} "
-             "and ${{ inputs.extras }} directly into a run: shell body, while lines 43-44 route "
-             "inputs.command through env: and say why. A class fix applied to one of three inputs "
-             "of one file and never swept to its siblings. NOT introduced by this release: the "
-             "file is byte-identical to the one at the public v1.0.0 tag (sha256 91cfcdc4…, a "
-             "single commit ever touched it, that tag is an ancestor of this candidate). Measured "
-             "reach: INTEGRATIONS.md points at action@v1.0.0, that tag is FIXED, and no moving "
-             "major ref v1 exists — so a fix on main does NOT reach the documented users; a new "
-             "action ref is outward-facing and needs its own owner GO. Owner decision "
-             "OA-b4489d0204: first item after the tag, not pulled forward, because "
-             "action/action.yml lies inside the frozen tree"},
+    # N17 and N18 stay OPEN: owner decision OA-b4489d0204 of 2026-09-06, below the holding
+    # threshold for 6.0.0, closed in a collective release. N16 is CLOSED for the 6.1.0 tree since
+    # 1fa05c2 (2026-09-20); what still ships the old form is in its note, not hidden by the state.
+    {"id": "N16", "severity": "P2", "status": "closed",
+     "note": "deep gate run 5, L6-02: action/action.yml interpolated ${{ inputs.version }} and "
+             "${{ inputs.extras }} directly into a run: shell body while inputs.command travelled "
+             "through env:, a class fix applied to one of three inputs of one file. FIXED IN THIS "
+             "TREE: since 1fa05c2 (2026-09-20) all three inputs travel through env: with a "
+             "whole-value shape check, and tests/test_action_input_injection.py holds the rule "
+             "with a planted injection that has to be caught. WHAT SHIPS TODAY IS OLDER: the "
+             "published Action tag v6.0.0 still splices both inputs into the script text, so "
+             "anyone pinning b7n0de/proofbundle@v6.0.0 runs the unfixed form until a new Action "
+             "tag exists, which is an outward act behind the 6.1.0 tag with its own go-ahead. "
+             "Closed as a defect of this tree; RESTRISIKO_610.md names the published-tag state "
+             "under 'N16 is fixed on main and open in the published Action tag'"},
     {"id": "N17", "severity": "P2", "status": "open",
      "note": "deep gate run 5, L5-G8-01: scripts/rust_parity_gate.py:124 swallows an unparseable "
              "or unreadable source file (except (SyntaxError, OSError): continue), and "
@@ -804,6 +815,84 @@ FINDINGS = [
              "From that day the audit matrix goes red until the key is rotated. Intended behaviour "
              "of a validity window, not a defect of the candidate. Closing action: rotate the key "
              "before 2027-09-06, or accept the red"},
+    # ── THE FIVE ENTRIES THE RISK SHEETS PROMISE (cut of 2026-09-19, register of 2026-09-21) ────
+    #
+    # Each of these identifiers stands in a shipped risk sheet as `Register entry <id>`, and until
+    # this list carried them the promise had a carrier only in the unsigned v2 line 610. The
+    # sources have no severity column, so the severity here is ASSIGNED by the producer from the
+    # reach the sheet states, and every note says so; a reader who wants the measured part reads
+    # the sheet, which each note names. None of them is P0 or P1: the sheet itself states for each
+    # why it does not hold the tag, and the owner's cut decision of 2026-09-20 ships 6.1.0 with
+    # them open, target 6.2.0.
+    {"id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01", "severity": "P2", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — the two commitment patterns at the "
+             "verify boundary': schemas/eval_claim_v0_1.schema.json documents ^sha256:[0-9a-f]{64}$ "
+             "for model_id_commit and dataset_id_commit, and decode_eval_claim does not enforce "
+             "it, so a signed claim carrying an arbitrary string in either field decodes. Not fixed "
+             "in 6.1.0 for a measured reason: the three-line check turns five cases of "
+             "tests/test_cli_eval.py red because they sign placeholder commitments such as "
+             "sha256:x (5 of 5 green without the two patterns, 4 red with them), and rewriting "
+             "house tests so a new check passes is its own change. Carried as BEKANNTE_LUECKEN in "
+             "tests/test_eval_claim_domains_are_enforced.py, which fails in both directions. "
+             "Severity P2 assigned by the producer from the sheet's stated reach — a malformed "
+             "commitment weakens what a claim binds, it does not flip a verdict — not measured by "
+             "a tool. Target 6.2.0"},
+    {"id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01", "severity": "P2", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — two findings this cut made and "
+             "deliberately did not close': _signatur_lage in scripts/gen_findings_register.py "
+             "delegates verification to cryptography, and the project's Ed25519 profile accepts "
+             "small-order components, so 32 zero bytes as a public key and 64 as a signature "
+             "verify over roughly one body in four (measured 2026-09-20; the point has order "
+             "four, 1P, 2P and 3P measured not to be the identity). The carrier goes through no "
+             "signing path and states signature.state UNSIGNED, so a forged carrier does not pass "
+             "the release path; what reaches further is that _signaturzeile and pruefe_v2 share "
+             "that one exit, so the generated views would show a carrier with a zero key to a "
+             "reviewer as signed. Refusing small-order keys at this block is a code change with "
+             "its own catch proof and is not in this cut. Severity P2 assigned by the producer "
+             "from the sheet's stated reach — the audit trail a reviewer reads, not the release "
+             "path — not measured by a tool. Target 6.2.0"},
+    {"id": "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01", "severity": "P3", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, same section as the previous entry: pyproject.toml "
+             "states that eight mypy versions and six ruff versions exit 0 over this tree, and "
+             "tests/test_shipped_comment_numbers.py binds the number of FILES each claim ranges "
+             "over without re-running the tools, because that means eight interpreter-bound "
+             "toolchains and minutes per run. Bound is the size of the set, unbound is the verdict "
+             "over it, and the case's docstring states the split rather than blurring it. Severity "
+             "P3 assigned by the producer from the sheet's stated reach — a shipped comment could "
+             "overstate a tool verdict, no verifier path depends on it — not measured by a tool. "
+             "Target 6.2.0"},
+    {"id": "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01", "severity": "P2",
+     "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — three public exporters coerce the "
+             "verdict field, and A-15 fixes the boundary, not them': A-15 typed passed, n and "
+             "metric at decode_eval_claim, and src/proofbundle/intoto.py holds three paths a "
+             "library caller reaches without that boundary: to_test_result_statement "
+             "(intoto.py:246 and :251), to_eval_result_predicate (intoto.py:424) and "
+             "svr_properties (intoto.py:551) coerce claim['passed'] with bool() or truthiness, so "
+             "a correctly signed claim whose passed field is the string 'false' returns 'PASSED', "
+             "passed: true and the threshold-met property when those functions are called "
+             "directly; measured 2026-09-19 at 99d89a8 by an adversarial lens and reproduced by an "
+             "executable case. Only the first of the three was documented before the sheet. Every "
+             "path the shipped CLI takes decodes at the boundary first (cli.py:1685, "
+             "intoto.py:584, hf_evals and policy.evaluate_policy), so the exposure is the direct "
+             "library caller of a published package, stated as real. Severity P2 assigned by the "
+             "producer from the sheet's stated reach — no path of the shipped CLI, the direct "
+             "library caller — consistent with the owner's cut decision of 2026-09-20 that 6.1.0 "
+             "ships with it open; not measured by a tool. Target 6.2.0, as a class fix at the "
+             "public exporters rather than three guards"},
+    {"id": "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01", "severity": "P3", "status": "open",
+     "note": "promised in RESTRISIKO_600.md, paragraph 'A number in this section that a later "
+             "commit makes stale' of the receipt-binding section: a head written into prose is "
+             "stale the moment the commit carrying it exists, so the sheet states such figures as "
+             "a measurement with date and object rather than as a claim about the current head. "
+             "The class recurs: audit_artifacts/600/README.md caught itself twice (49 against 53 "
+             "scanned docs, 20 against 21 register entries), and "
+             "tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py now recomputes the "
+             "register figures beside the register instead of trusting them. Open, because a "
+             "guard exists for two numbers and the class lives in every number written into "
+             "prose. Severity P3 assigned by the producer from the sheet's stated reach — a stale "
+             "number misleads a reader, it decides nothing — not measured by a tool. Its state is "
+             "'open' by the producer's reading of the paragraph, which names no state of its own"},
 ]
 
 
