@@ -15,7 +15,7 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 d05df9850238e074ea98a652a8bda6f27afd8ee57b9cf9d87381ab031c31117b
+    audit_artifacts/610/findings_register_v2.json   sha256 137098e07b7cad7414312512b4b6cce0dee35aa2f5cc157decfa4fce6d8080e6
                                                     15982 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
                                                     register_revision 0 · issued_at 2026-09-21 · 5 records
@@ -31,8 +31,8 @@ tree this file sits in and asks git whether any token here is a revision, so nei
 ## The sources it was cut from
 
     RESTRISIKO_600.md   sha256 27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af   1 identifier(s)
-    RESTRISIKO_610.md   sha256 c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468   4 identifier(s)
-    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 7c426bcde1976dd1fbf4535f9d6b35700ed263dd64904db67a16d8ca5dd5aacc   5 identifier(s)
+    RESTRISIKO_610.md   sha256 869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131   4 identifier(s)
+    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 107b399aa398ea2eb4f492f11c5b80f24717b525b5eff0c3b57ffebe984c7560   5 identifier(s)
 
 ## How a title relates to its source
 

@@ -291,8 +291,9 @@ than discovered after it:
   iteration count are in the signed artefact and in the ceremony report. The 24-hour run starts
   when the tree is frozen, runs beside the release, and is recorded after the tag in a dated
   addendum file next to this one, never as an edit to this file.
-- **The pre-tag receipt names this state** in its audit text, so a reader of the receipt alone sees
-  that the closing round was not run and why.
+- **The pre-tag receipt binds this file** through its subject tree digest, so the state is in the
+  tree the receipt attests; the receipt's own signed fields carry a command, digests and a runner
+  line, not this text, and whether the runner line repeats the state is decided at the ceremony.
 
 What this does NOT mean: no claim that the six lenses would have found nothing. A round that did
 not run makes no statement about the tree, and this section exists so that nobody reads its

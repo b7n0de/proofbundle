@@ -52,7 +52,7 @@
     ]
   },
   "issued_at": "2026-09-21",
-  "generated_at": "2026-09-21T12:38:02Z",
+  "generated_at": "2026-09-21T12:51:51Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.1.0",
@@ -68,12 +68,12 @@
       },
       {
         "path": "RESTRISIKO_610.md",
-        "sha256": "c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468",
+        "sha256": "869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131",
         "identifiers": 4
       },
       {
         "path": "RESTRISIKO_610_OBJEKTKLASSEN.json",
-        "sha256": "7c426bcde1976dd1fbf4535f9d6b35700ed263dd64904db67a16d8ca5dd5aacc",
+        "sha256": "107b399aa398ea2eb4f492f11c5b80f24717b525b5eff0c3b57ffebe984c7560",
         "identifiers": 5
       }
     ],
@@ -152,7 +152,7 @@
           "sha256": "386442531144528b230cea83afd6389a40393336c3c24276c4efd48cb3826d6f",
           "role": "historical_record",
           "source_path": "RESTRISIKO_610.md",
-          "source_sha256": "c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468",
+          "source_sha256": "869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131",
           "byte_range": [
             6770,
             7198
@@ -196,7 +196,7 @@
           "sha256": "8b687aeff88802c51176004807ebda813ebe92d2a5cc6b09a2bf86baeb6b03f6",
           "role": "historical_record",
           "source_path": "RESTRISIKO_610.md",
-          "source_sha256": "c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468",
+          "source_sha256": "869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131",
           "byte_range": [
             9472,
             9682
@@ -240,7 +240,7 @@
           "sha256": "47ece0a186716eb6d2613c8ea5493377ec1e40d09d221cbb98bc11494c07b3c0",
           "role": "historical_record",
           "source_path": "RESTRISIKO_610.md",
-          "source_sha256": "c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468",
+          "source_sha256": "869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131",
           "byte_range": [
             9684,
             10219
@@ -284,7 +284,7 @@
           "sha256": "09f6aa682a8dd48c61f0ed94a1167bd9baddcf4f0f7c4128d563a56ba43bd6c2",
           "role": "historical_record",
           "source_path": "RESTRISIKO_610.md",
-          "source_sha256": "c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468",
+          "source_sha256": "869bda7b3ac03b47fac6fda35660d74446882cce937868104616d93c83747131",
           "byte_range": [
             12441,
             12696
