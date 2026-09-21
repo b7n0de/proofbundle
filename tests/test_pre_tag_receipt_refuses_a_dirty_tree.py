@@ -51,9 +51,18 @@ SKRIPT = REPO / "scripts" / "pre_tag_receipt.py"
 #: are the same class rather than the same symptom: they redirect `git status --porcelain` away
 #: from `--repo`, so the cleanliness gate would be answered about a tree nobody chose. A case must
 #: measure the code, so the child starts without them.
+#: MEASURED 2026-09-21 by the crypto-floor job, which runs `unittest discover` and therefore the
+#: cases of this file in alphabetical order: the second-caller case below imports the tool into
+#: THIS process, and that import sets `GIT_NO_REPLACE_OBJECTS=1` process-wide, so every later
+#: fixture git call and every child inherited it. The replacement case then read the raw base where
+#: its precondition expected the replaced checkout, and a tool WITHOUT the replacement fix would
+#: have passed that case, because the environment supplied the switch. The fixture git runs on
+#: this list as well (see `_git`), so the state a case builds does not depend on which case ran
+#: before it.
 _UMGEBUNG_DARF_DAS_NICHT_BEANTWORTEN = (
     "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX",
     "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
 )
 
 
@@ -67,7 +76,11 @@ def _kindumgebung(**zusatz) -> dict:
 
 
 def _git(cwd, *args) -> str:
-    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    """Fixture git, in an environment this file controls: a sibling case that imports the tool
+    flips `GIT_NO_REPLACE_OBJECTS` for the whole process, and a fixture that inherited it would
+    build a different state depending on which case ran before it."""
+    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True,
+                       env=_kindumgebung())
     if r.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed in {cwd}: {r.stderr}")
     return r.stdout.strip()
@@ -365,7 +378,12 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         substituted object. A base revision with `a.txt=eins`, a second with `a.txt=zwei`,
         `git replace <base> <second>`, `git reset --hard <base>`: the checkout carries `zwei`, git
         reports a clean tree, and `ls-tree HEAD` listed the second tree, so the tool of `9f9188d`
-        emitted while the raw head still said `eins`. Red against `9f9188d`."""
+        emitted while the raw head still said `eins`. Red against `9f9188d`.
+
+        ORDER-INDEPENDENT since 2026-09-21: under `unittest discover` the in-process import of the
+        second-caller case runs first and sets `GIT_NO_REPLACE_OBJECTS=1` for this process; the
+        fixture git of this case and the child under test now run without it, so the precondition
+        holds in either order, and a tool that relied on the inherited variable is refused."""
         basis = _git(self.baum, "rev-parse", "HEAD")
         (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
         _git(self.baum, "add", "a.txt")
