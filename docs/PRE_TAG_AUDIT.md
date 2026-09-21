@@ -43,6 +43,31 @@ next sentence not on the list. A signature is not enumerable that way. The prope
 `test_P4_eine_prosa_zeile_erteilt_keinen_pass_mehr` feeds the exact canonical truthful prose
 line and asserts the gate does **not** grant on it.
 
+**How the receipt is produced, since 2026-09-21.** `scripts/pre_tag_receipt.py` starts the
+audit itself: it measures the checkout clean and equal to `HEAD`, runs `--audit-command` as a
+program in the tree, measures again, and only then builds the context whose `audit_exit_code`
+is what the program returned and whose `audit_output_digest` is the sha256 of the bytes it
+captured into `--audit-output-file` (a path outside the tree that did not exist before). A
+typed exit code and a supplied record are refused, because neither can be bound to a run that
+was measured; a counter-reading had shown that an output produced from a modified tree, with
+the file restored afterwards, was bound to the clean head. The cleanliness measurement does not
+ask git whether the tree is clean, because git answers through its configuration: it is COMPUTED
+from the bytes on disk. Every entry of `git ls-tree -r HEAD` is hashed as a blob with
+`git hash-object --no-filters` and compared with the committed object id, its mode is read from
+the file itself, a symbolic link's target is hashed, and a missing or foreign entry refuses by
+name; staged content is compared with `HEAD` on the real index; untracked paths are read from
+the filesystem and compared by name with the same listing, and only a non-negated rule in a
+tracked `.gitignore` may hide one; every git call of the process reads the raw objects
+(`GIT_NO_REPLACE_OBJECTS=1`), so a replacement ref cannot stand in for the head. Thirteen states
+outside the committed tree had each hidden a path from an earlier version, and each has a case
+that was red against it: `status.showUntrackedFiles`, a global excludes file,
+`.git/info/exclude`, an untracked ignore file covering itself, `GIT_DIR`, the index bits
+`assume-unchanged` and `skip-worktree`, a clean filter defined in the configuration,
+`core.worktree`, `core.fileMode`, `core.ignoreCase`, a negated rule in a tracked `.gitignore`
+and `refs/replace`. The price is named: a checkout whose files differ from their blobs by design
+(`core.autocrlf=true`, no executable bit, `core.symlinks=false`) refuses. What two point
+measurements cannot see, and the script says so: a change made and undone during the run.
+
 **Honest limit, and it is not small.** The trust root is a key committed in this repository, the
 same one whose release the verdict concerns. A third party can verify the signature if they clone
 the repository, but they cannot establish the authority behind it from outside, and the receipt is
