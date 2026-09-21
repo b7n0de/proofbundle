@@ -19,9 +19,10 @@ to a run that was measured.
 THE SECOND AND THIRD ROUND, same day: the tree was compared through `git status`, and the index
 flags `assume-unchanged` and `skip-worktree` make git skip a modified tracked file there; then it
 was compared through `git diff-index` on a fresh index, and a clean filter from the configuration,
-`core.worktree` and `core.fileMode=false` still decided what git reported. The comparison is now
-COMPUTED from the bytes on disk against `git ls-tree -r HEAD`, with no filter, attribute, index bit
-or `core.*` setting in between; see `_baumzustand_oder_stop`.
+`core.worktree` and `core.fileMode=false` still decided what git reported. A fourth round measured
+`core.ignoreCase` hiding an untracked file from `ls-files --others`. The comparison is now COMPUTED:
+the bytes on disk against `git ls-tree -r HEAD`, and the paths on disk against the same listing,
+with no filter, attribute, index bit or `core.*` setting in between; see `_baumzustand_oder_stop`.
 
 WHAT THAT ESTABLISHES, AND WHAT IT DOES NOT. Established: the working tree equalled the committed head
 before the run and after it, the head and the tree digest were the same at both points, and the output
@@ -315,41 +316,74 @@ def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
             for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
 
 
-def _versteckte_ignoredateien(repo: Path, sichtbar: set[str], umgebung: dict,
-                              baum: str) -> list[str]:
-    """Untracked `.gitignore` files that a TRACKED rule does not account for.
+def _pfade_auf_platte(repo_abs: Path) -> list[str]:
+    """Every path under the tree, read from the filesystem, never from an index or a listing.
 
-    `git ls-files --others --exclude-per-directory=.gitignore` reads every `.gitignore` in the
-    working tree, tracked or not. An untracked one whose patterns cover itself (`*`) therefore
-    hides itself and its whole directory from that listing, and `git status` shows nothing either
-    — measured 2026-09-21 with `sub/.gitignore` containing `*` beside `sub/evil.py`. Tool caches do
-    the same legitimately (`.pytest_cache/.gitignore`, `.hypothesis/.gitignore` both contain `*`),
-    which is why the shape of the file cannot decide. What decides is the SOURCE of the hiding:
-    `git check-ignore -v` names the file and pattern that made the decision. A tracked rule is the
-    tree's own word and counts; the untracked file itself, `.git/info/exclude` or a global excludes
-    file are outside the committed tree and do not.
+    THE FOURTH ROUND (Codex, 2026-09-21): `git ls-files --others` inherits git's notion of path
+    equality, and `core.ignoreCase=true` makes an untracked `A.TXT` beside a tracked `a.txt` look
+    tracked on a case-sensitive filesystem, so it was never listed while the audit could read it.
+    The walk below asks the filesystem what is there; which of those paths the head carries is
+    decided by name against `git ls-tree -r HEAD`, byte for byte, with no configured equality.
+
+    The root `.git` is skipped, because it is not part of the tree. A `.git` anywhere below is
+    NOT skipped: a nested repository or worktree inside the tree is something the head does not
+    carry, and it is named rather than descended into. Symbolic links are paths, not directories,
+    so the walk never follows one.
     """
-    alle = _git_z(repo, baum, "ls-files", "--others", "-z", umgebung=umgebung)
-    kandidaten = [p for p in alle if p.rsplit("/", 1)[-1] == ".gitignore" and p not in sichtbar]
+    raus: list[str] = []
+    stapel = [repo_abs]
+    while stapel:
+        d = stapel.pop()
+        with os.scandir(d) as eintraege:
+            for e in eintraege:
+                rel = os.path.relpath(e.path, repo_abs)
+                if e.name == ".git":
+                    if d == repo_abs:
+                        continue
+                    raus.append(rel)
+                    continue
+                if e.is_symlink() or not e.is_dir(follow_symlinks=False):
+                    raus.append(rel)
+                else:
+                    stapel.append(Path(e.path))
+    return sorted(raus)
+
+
+def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[str]:
+    """Paths on disk that HEAD does not carry, unless a TRACKED ignore rule hides them.
+
+    `git check-ignore -v` is asked one thing only: which rule, from which file, hides a path. A
+    path hidden by a rule in a `.gitignore` the head carries is a tool cache the tree itself
+    declared (`.pytest_cache/`, `__pycache__/`, a virtual environment) and is fine. A path hidden
+    by anything else — `.git/info/exclude`, a global `core.excludesFile`, an untracked `.gitignore`
+    — is hidden by state the head does not carry, and refuses. A path no rule hides is untracked
+    and refuses. `core.ignorecase` is forced off for the question, so the rule matching does not
+    inherit a configured equality either.
+    """
+    kandidaten = [p for p in _pfade_auf_platte(repo_abs) if p not in verfolgt]
     if not kandidaten:
         return []
-    verfolgt = set(_git_z(repo, baum, "ls-files", "-z", umgebung=umgebung))
-    eingabe = b"".join(p.encode("utf-8") + b"\0" for p in kandidaten)
-    # exit 1 means "none of the given paths is ignored"; for paths the listing above hid that
-    # cannot happen, and it is not an error of the call either way.
-    roh = _git_bytes(repo, baum, "check-ignore", "-v", "-z", "--no-index", "--stdin",
-                     eingabe=eingabe, erlaubte_codes=(0, 1), umgebung=umgebung)
+    if any("\n" in p or "\0" in p for p in kandidaten):
+        raise SystemExit("emit: a path on disk carries a newline or NUL in its name — refusing, such "
+                         "a path cannot be named to git without ambiguity")
+    eingabe = b"".join(os.fsencode(p) + b"\0" for p in kandidaten)
+    # exit 1 means "none of the given paths is ignored", which is an answer, not an error.
+    roh = _git_bytes(repo, "-c", "core.ignorecase=false", "check-ignore", "-v", "-z", "--no-index",
+                     "--stdin", eingabe=eingabe, erlaubte_codes=(0, 1))
     felder = [f.decode("utf-8", "replace") for f in roh.split(b"\0")]
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
     for i in range(0, len(felder) - 3, 4):
         quelle, _zeile, muster, pfad = felder[i:i + 4]
         quelle_je_pfad[pfad] = (quelle, muster)
-    fremd: list[str] = []
+    raus: list[str] = []
     for p in kandidaten:
-        quelle, muster = quelle_je_pfad.get(p, ("<no source reported>", ""))
+        if p not in quelle_je_pfad:
+            raus.append(f"?? {p}")
+            continue
+        quelle, muster = quelle_je_pfad[p]
         if quelle not in verfolgt:
-            fremd.append(f"{p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
-    return fremd
+            raus.append(f"!! {p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
+    return raus
 
 
 def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
@@ -377,8 +411,10 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     by `.git/info/attributes` and defined in the configuration (`filter.<x>.clean = git show
     HEAD:%f`) makes a modified file look unchanged, because `diff-index` converts the working file
     before comparing; `core.worktree` makes git compare a directory other than the one the audit
-    reads; `core.fileMode=false` hides a mode change. Every one of those is a question asked of git
-    about a tree, and git answers through its configuration.
+    reads; `core.fileMode=false` hides a mode change. The fourth round (Codex again) measured
+    `core.ignoreCase=true` making an untracked `A.TXT` beside a tracked `a.txt` invisible to
+    `git ls-files --others` on a case-sensitive filesystem. Every one of those is a question asked
+    of git about a tree, and git answers through its configuration.
 
     So the property is COMPUTED FROM THE BYTES rather than asked. For every entry of `git ls-tree
     -r HEAD`:
@@ -391,13 +427,13 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
       kind of object      committed, a submodule entry (this tool compares none of those);
       staged content      `git diff-index --cached HEAD` on the real index, so a change that sits
                           in the index and not in the head is named as such;
-      untracked paths     `git ls-files --others --exclude-per-directory=.gitignore` on a fresh
-                          index read from `HEAD`, with the working tree named explicitly on the
-                          command line — judged ONLY by the tree's own ignore files, never by the
-                          global file, `.git/info/exclude`, `status.showUntrackedFiles` or
-                          `core.worktree`;
-      untracked ignore    see `_versteckte_ignoredateien`: hidden by a tracked rule is fine, hidden
-      files               by anything else refuses.
+      untracked paths     read from the FILESYSTEM by `_pfade_auf_platte`, never from an index or
+                          a git listing, and compared by name with the entries of `ls-tree`; a
+                          path the head does not carry refuses unless a rule in a TRACKED
+                          `.gitignore` hides it (`_unverfolgte_pfade` asks `git check-ignore -v`
+                          which rule from which file, with `core.ignorecase` forced off) — hidden
+                          by `.git/info/exclude`, a global `core.excludesFile` or an untracked
+                          `.gitignore` refuses by name, and a nested `.git` refuses by name.
 
     No filter, no attribute, no index bit and no `core.*` setting stands between the bytes on disk
     and the comparison. WHAT THAT COSTS, named rather than smoothed over: a checkout whose files
@@ -409,11 +445,7 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     determined refuses too: not-determinable is not a clearance, and a release receipt is the last
     place to guess.
     """
-    import tempfile  # noqa: PLC0415
     repo_abs = repo.resolve()
-    # THE WORKING TREE IS NAMED ON EVERY LISTING COMMAND. `core.worktree` in the checkout's config
-    # would otherwise point git at another directory than the one the audit runs in.
-    baum = f"--work-tree={repo_abs}"
     schmutzig: list[str] = []
     # ── every committed entry against the bytes on disk ─────────────────────────────────────────
     felder = _git_z(repo, "ls-tree", "-r", "-z", "HEAD")
@@ -469,23 +501,11 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
                 "comparison over a partial set would clear paths nobody looked at")
         schmutzig.extend(f"M {p}" for (p, soll), oid in zip(regulaer, ist) if oid != soll)
     # ── staged content against the head, on the real index ─────────────────────────────────────
-    gestaged = _git_z(repo, baum, "diff-index", "--cached", "-z", "--no-renames", "--name-status",
-                      "HEAD")
+    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames", "--name-status", "HEAD")
     schmutzig.extend(f"staged {e}" for e in _paare(gestaged))
-    # ── untracked paths, through a fresh index that carries nobody's bits ───────────────────────
-    frisch = dict(os.environ)
-    fd, indexpfad = tempfile.mkstemp(prefix="index_", dir=_CACHE_DIR)
-    os.close(fd)
-    # git meets a path that does not exist yet: `read-tree` writes it, and no reader of this run
-    # ever has to decide what an empty index file means. The directory is this run's own and
-    # unpredictable, so no path here can be prepared ahead of time.
-    os.unlink(indexpfad)
-    frisch["GIT_INDEX_FILE"] = indexpfad
-    _git_bytes(repo, baum, "read-tree", "HEAD", umgebung=frisch)
-    unverfolgt = _git_z(repo, baum, "ls-files", "--others", "-z",
-                        "--exclude-per-directory=.gitignore", umgebung=frisch)
-    fremd = _versteckte_ignoredateien(repo, set(unverfolgt), frisch, baum)
-    schmutzig += [f"?? {p}" for p in unverfolgt] + [f"!! {x}" for x in fremd]
+    # ── untracked paths, read from the filesystem and judged by the tree's own rules ────────────
+    verfolgt = {feld.partition("\t")[2] for feld in felder}
+    schmutzig.extend(_unverfolgte_pfade(repo, repo_abs, verfolgt))
     if schmutzig:
         gezeigt = "\n  ".join(schmutzig[:20])
         mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""

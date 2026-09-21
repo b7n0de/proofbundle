@@ -55,13 +55,13 @@ ask git whether the tree is clean, because git answers through its configuration
 from the bytes on disk. Every entry of `git ls-tree -r HEAD` is hashed as a blob with
 `git hash-object --no-filters` and compared with the committed object id, its mode is read from
 the file itself, a symbolic link's target is hashed, and a missing or foreign entry refuses by
-name; staged content is compared with `HEAD` on the real index; untracked paths are judged on a
-fresh index against the tree's own ignore files only, with the working tree named on the command
-line. Ten states outside the committed tree had each hidden a path from an earlier version, and
-each has a case that was red against it: `status.showUntrackedFiles`, a global excludes file,
-`.git/info/exclude`, an untracked ignore file covering itself, `GIT_DIR`, the index bits
-`assume-unchanged` and `skip-worktree`, a clean filter defined in the configuration,
-`core.worktree` and `core.fileMode`. The price is named: a checkout whose files differ from their
+name; staged content is compared with `HEAD` on the real index; untracked paths are read from
+the filesystem and compared by name with the same listing, and only a rule in a tracked
+`.gitignore` may hide one. Eleven states outside the committed tree had each hidden a path from
+an earlier version, and each has a case that was red against it: `status.showUntrackedFiles`, a
+global excludes file, `.git/info/exclude`, an untracked ignore file covering itself, `GIT_DIR`,
+the index bits `assume-unchanged` and `skip-worktree`, a clean filter defined in the
+configuration, `core.worktree`, `core.fileMode` and `core.ignoreCase`. The price is named: a checkout whose files differ from their
 blobs by design (`core.autocrlf=true`, no executable bit, `core.symlinks=false`) refuses. What two
 point measurements cannot see, and the script says so: a change made and undone during the run.
 

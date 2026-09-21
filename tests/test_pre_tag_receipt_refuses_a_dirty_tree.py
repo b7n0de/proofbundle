@@ -20,7 +20,9 @@ HEAD, and those two have their cases as well. The third round, own sweep plus a 
 counter-reading the same day, measured that git still answered through its configuration on that
 fresh index: a clean filter defined in the configuration, `core.worktree` and `core.fileMode`. The
 comparison is now computed from the bytes on disk against `git ls-tree -r HEAD`, and those three
-have their cases below, each red against `97af10d`.
+have their cases below, each red against `97af10d`. The fourth round (Codex) measured
+`core.ignoreCase=true` hiding an untracked file from `git ls-files --others`; the untracked paths
+now come from the filesystem, and that case is red against `f4203e5`.
 
 The cases run the real script through `--emit-payload`, not the helper alone, because the
 question is whether the REFUSAL IS ON THE PATH the release chain takes. A gate that exists and is
@@ -321,6 +323,27 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"),
                          "M link", "precondition: git itself reports the retargeted link")
         self._abgewiesen(self._emit(), "uncommitted path", "M link")
+
+    # ── the fourth round: git's configured path equality hid an untracked file ────────────────
+
+    def test_core_ignoreCase_verbirgt_keine_unverfolgte_datei(self):
+        """[ZAEHLT] Codex, round four, 2026-09-21: with `core.ignoreCase=true` an untracked `A.TXT`
+        beside the tracked `a.txt` is invisible to `git ls-files --others` on a case-sensitive
+        filesystem, while the audit can read it. Red against `f4203e5`, which still asked git for
+        the untracked paths; the paths now come from the filesystem."""
+        (self.baum / "A.TXT").write_text("planted\n", encoding="utf-8")
+        _git(self.baum, "config", "core.ignoreCase", "true")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still listed the file, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "?? A.TXT")
+
+    def test_ein_fremdes_repository_im_baum_wird_benannt(self):
+        """[GETRENNT] A nested repository is something the head does not carry; the walk names its
+        `.git` rather than descending into it. `f4203e5` refused this too (git lists the
+        directory), so the case pins the walk, not the round."""
+        _git(self.baum, "init", "-q", "fremd")
+        (self.baum / "fremd" / "x.txt").write_text("x\n", encoding="utf-8")
+        self._abgewiesen(self._emit(), "uncommitted path", "fremd/.git")
 
     def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
         """Without this the case above would also pass for a gate that refuses every untracked
