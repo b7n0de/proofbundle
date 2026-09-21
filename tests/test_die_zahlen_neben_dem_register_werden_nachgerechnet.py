@@ -12,6 +12,11 @@ names about others and missed about itself." Damals war es die Zahl der gescannt
 49 statt 53. Jetzt dieselbe Klasse, dieselbe Datei, eine andere Zahl. Eine Klasse, die man nur
 BESCHREIBT, faengt nichts.
 
+THE DOCUMENT IS CHOSEN BY THE REGISTER'S VERSION (2026-09-21): `audit_artifacts/600/README.md`
+is frozen with the released 6.0.0, so a register scoped to 6.1.0 is measured against
+`audit_artifacts/610/README.md`, and a document that says NOT MEASURED for C12.2 still has to
+name the right population.
+
 DESHALB STEHT DIE ZAHL JETZT UNTER EINEM RIEGEL statt unter einer Mahnung. Dieser Vertrag rechnet
 sie aus dem Register aus und haelt sie gegen das, was die Prosa sagt. Wer einen Eintrag hinzufuegt,
 sieht die Abweichung hier, nicht erst in einem fremden Review.
@@ -26,7 +31,22 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 REGISTER = REPO / "audit_artifacts" / "findings_register_361.json"
-README = REPO / "audit_artifacts" / "600" / "README.md"
+
+
+def _readme_der_registerfassung() -> pathlib.Path:
+    """The document that speaks about THIS register, chosen by the register's own version.
+
+    The first version of this file named `audit_artifacts/600/README.md`. That document is the
+    record of the released 6.0.0 and is frozen with it, so the moment the register is scoped to
+    the next cut its figures stop describing the register and this guard would fail a correct
+    document. The token of a cut is its version without the dots (6.1.0 -> 610), the same rule
+    `audit_candidate_matrix` applies to the artefact folder, read from the register rather than
+    typed here.
+    """
+    if not REGISTER.is_file():
+        pytest.skip(f"NICHT MESSBAR: {REGISTER} fehlt")
+    version = str(json.loads(REGISTER.read_text(encoding="utf-8")).get("version", ""))
+    return REPO / "audit_artifacts" / version.replace(".", "") / "README.md"
 
 
 def _gemessen() -> dict:
@@ -41,9 +61,10 @@ def _gemessen() -> dict:
 
 
 def _text() -> str:
-    if not README.is_file():
-        pytest.skip(f"NICHT MESSBAR: {README} fehlt")
-    return README.read_text(encoding="utf-8")
+    readme = _readme_der_registerfassung()
+    if not readme.is_file():
+        pytest.skip(f"NICHT MESSBAR: {readme} fehlt")
+    return readme.read_text(encoding="utf-8")
 
 
 def abweichungen(text: str, g: dict) -> list[str]:
@@ -54,7 +75,11 @@ def abweichungen(text: str, g: dict) -> list[str]:
         raus.append("der Satz ueber den Traeger ist nicht auffindbar")
     elif tuple(int(x) for x in m.groups()) != (g["gesamt"], g["zu"], g["offen"]):
         raus.append(f"Prosa nennt {m.groups()}, gemessen ({g['gesamt']}, {g['zu']}, {g['offen']})")
-    r = re.search(r"PASS via C12\.2 — (\d+) findings evaluated", text)
+    # Two forms of the release line, and both carry the number: `PASS via C12.2 — N findings
+    # evaluated` once the gate has run on the candidate, `NOT MEASURED via C12.2 — N findings` in
+    # the document of a cut whose pre-tag round has not run yet. A document that says NOT MEASURED
+    # still names the population, and the population is what goes stale.
+    r = re.search(r"(?:PASS|NOT MEASURED) via C12\.2 — (\d+) findings", text)
     if not r:
         raus.append("die C12.2-Zeile ist nicht auffindbar")
     elif int(r.group(1)) != g["gesamt"]:
@@ -93,8 +118,8 @@ def test_FANG_eine_veraltete_zahl_faellt_hier_durch():
     assert abweichungen(t, g) == [], "Vorbedingung: der heutige Text stimmt"
     vorher = t.replace(f"{g['gesamt']} entries, {g['zu']} closed, {g['offen']} open",
                        f"{g['gesamt'] - 1} entries, {g['zu']} closed, {g['offen'] - 1} open", 1)
-    vorher = vorher.replace(f"PASS via C12.2 — {g['gesamt']} findings evaluated",
-                            f"PASS via C12.2 — {g['gesamt'] - 1} findings evaluated", 1)
+    vorher = re.sub(rf"((?:PASS|NOT MEASURED) via C12\.2 — ){g['gesamt']} findings",
+                    rf"\g<1>{g['gesamt'] - 1} findings", vorher, count=1)
     assert vorher != t, "die Ruecknahme hat nichts veraendert — dann misst dieser Fall nichts"
     gemeldet = abweichungen(vorher, g)
     assert len(gemeldet) == 2, f"erwartet zwei Abweichungen, gemessen {gemeldet}"

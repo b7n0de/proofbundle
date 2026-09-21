@@ -7,6 +7,38 @@
   "language": "en",
   "language_scope": {
     "generated_prose": "en",
+    "title_derivation": {
+      "tabelle_spalte1": {
+        "sourceUnit": "the title column of the table row",
+        "flattenWhitespace": false,
+        "takeFirstSentence": false,
+        "columnNames": [
+          "Finding",
+          "In one line",
+          "What it is",
+          "Title"
+        ],
+        "columnFallbackIndex": 1,
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "hard",
+        "ellipsis": false
+      },
+      "ueberschrift": {
+        "sourceUnit": "the first line of the evidence",
+        "flattenWhitespace": false,
+        "takeFirstSentence": false,
+        "strip": [
+          "headingMarks",
+          "identifier",
+          "oneLeadingPunctuation"
+        ],
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "hard",
+        "ellipsis": false
+      }
+    },
     "quoted_from_source": [
       {
         "language": "de",
@@ -14,7 +46,8 @@
         "fields": [
           "records[].title"
         ],
-        "why": "headings cut verbatim out of the source register; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+        "normalisation": "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find form of a record stands in `evidence[].fundart` and the rules stand per form under `language_scope.title_derivation`. Applying the rule of that form to the evidence bytes reproduces the title exactly — it is a derivation, not a verbatim line of the source.",
+        "why": "headings taken from the source register and normalised by the rule named above; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
       },
       {
         "language": "de",
@@ -31,7 +64,7 @@
     ]
   },
   "issued_at": "2026-09-20",
-  "generated_at": "2026-09-20T09:35:47Z",
+  "generated_at": "2026-09-20T17:01:27Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -352,7 +385,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -396,7 +433,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -1669,7 +1710,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -1758,7 +1803,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2103,7 +2152,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2147,7 +2200,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2191,7 +2248,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2235,7 +2296,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2279,7 +2344,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2323,7 +2392,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2367,7 +2440,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2411,7 +2488,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2455,7 +2536,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2499,7 +2584,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2543,7 +2632,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2587,7 +2680,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2631,7 +2728,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2675,7 +2776,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2719,7 +2824,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2763,7 +2872,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2807,7 +2920,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2851,7 +2968,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2895,7 +3016,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2939,7 +3064,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -2983,7 +3112,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3027,7 +3160,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3071,7 +3208,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3115,7 +3256,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3159,7 +3304,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3203,7 +3352,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3247,7 +3400,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3291,7 +3448,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3335,7 +3496,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3379,7 +3544,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3423,7 +3592,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3467,7 +3640,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3511,7 +3688,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3555,7 +3736,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3599,7 +3784,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3643,7 +3832,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3687,7 +3880,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3731,7 +3928,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3775,7 +3976,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3819,7 +4024,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3863,7 +4072,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3907,7 +4120,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3951,7 +4168,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -3995,7 +4216,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4039,7 +4264,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4083,7 +4312,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4127,7 +4360,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4171,7 +4408,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4215,7 +4456,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4259,7 +4504,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4303,7 +4552,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4347,7 +4600,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4391,7 +4648,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4435,7 +4696,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4479,7 +4744,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4523,7 +4792,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4567,7 +4840,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4611,7 +4888,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4655,7 +4936,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4699,7 +4984,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4743,7 +5032,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4787,7 +5080,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4831,7 +5128,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4875,7 +5176,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4919,7 +5224,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -4963,7 +5272,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5007,7 +5320,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5051,7 +5368,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5095,7 +5416,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5139,7 +5464,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5183,7 +5512,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5227,7 +5560,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5271,7 +5608,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5315,7 +5656,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5359,7 +5704,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5403,7 +5752,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5447,7 +5800,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5491,7 +5848,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5535,7 +5896,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5579,7 +5944,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5623,7 +5992,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5667,7 +6040,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5711,7 +6088,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5755,7 +6136,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5799,7 +6184,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5843,7 +6232,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5887,7 +6280,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5931,7 +6328,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -5975,7 +6376,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6019,7 +6424,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6063,7 +6472,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6107,7 +6520,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6151,7 +6568,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6195,7 +6616,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6239,7 +6664,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6283,7 +6712,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6327,7 +6760,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6371,7 +6808,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6415,7 +6856,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6459,7 +6904,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {
@@ -6503,7 +6952,11 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
+        "sources_asked": [
+          "the producer list",
+          "a heading that names its state after a dash"
+        ],
+        "reason": "no source that was asked carries a state for this identifier. Asked: the producer list, a heading that names its state after a dash. Setting a state here would be a guess, and naming a source that was not asked would be worse"
       },
       "evidence": [
         {

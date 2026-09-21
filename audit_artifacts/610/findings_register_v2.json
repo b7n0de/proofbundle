@@ -1,0 +1,350 @@
+{
+  "schema": "proofbundle.findings_register.v2",
+  "profile_version": "0.1",
+  "document_id": "urn:b7n0de:findings-register:610",
+  "register_revision": 0,
+  "issuer": "b7n0de",
+  "language": "en",
+  "language_scope": {
+    "generated_prose": "en",
+    "title_derivation": {
+      "prosa_zusage": {
+        "sourceUnit": "the paragraph",
+        "flattenWhitespace": true,
+        "takeFirstSentence": true,
+        "keep": "prefix",
+        "maxLength": 200,
+        "cut": "wordBoundary",
+        "ellipsis": true
+      }
+    },
+    "quoted_from_source": [
+      {
+        "language": "de",
+        "source": "RESTRISIKO_600.md",
+        "fields": [
+          "records[].title"
+        ],
+        "normalisation": "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find form of a record stands in `evidence[].fundart` and the rules stand per form under `language_scope.title_derivation`. Applying the rule of that form to the evidence bytes reproduces the title exactly — it is a derivation, not a verbatim line of the source.",
+        "why": "headings taken from the source register and normalised by the rule named above; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+      },
+      {
+        "language": "en",
+        "source": "RESTRISIKO_610.md",
+        "fields": [
+          "records[].title"
+        ],
+        "normalisation": "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find form of a record stands in `evidence[].fundart` and the rules stand per form under `language_scope.title_derivation`. Applying the rule of that form to the evidence bytes reproduces the title exactly — it is a derivation, not a verbatim line of the source.",
+        "why": "headings taken from the source register and normalised by the rule named above; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+      },
+      {
+        "language": "de",
+        "source": "RESTRISIKO_610_OBJEKTKLASSEN.json",
+        "fields": [
+          "records[].objektklasse_begruendung",
+          "records[].not_a_defect.beleg",
+          "inventory.coverage_gaps[].reason",
+          "inventory.cross_count._auflage",
+          "inventory.cross_count.warum_zu_viel_je_kennung.*"
+        ],
+        "why": "reasons carried over verbatim from the object class file, which is itself digest bound to the source register"
+      }
+    ]
+  },
+  "issued_at": "2026-09-21",
+  "generated_at": "2026-09-21T08:07:06Z",
+  "release_subject": {
+    "name": "proofbundle",
+    "version": "6.1.0",
+    "tag": "v6.1.0"
+  },
+  "assessment_cutoff": "2026-09-20",
+  "inventory": {
+    "source_documents": [
+      {
+        "path": "RESTRISIKO_600.md",
+        "sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
+        "identifiers": 1
+      },
+      {
+        "path": "RESTRISIKO_610.md",
+        "sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
+        "identifiers": 4
+      },
+      {
+        "path": "RESTRISIKO_610_OBJEKTKLASSEN.json",
+        "sha256": "b35e0733bd082c3608fcb5362a1d7976196d15de6bae183913dcbfcacf217bfc",
+        "identifiers": 5
+      }
+    ],
+    "identifiers_total": 5,
+    "identifiers_in_this_register": 5,
+    "identifiers_without_evidence": [],
+    "coverage_gaps": [],
+    "cross_count": {
+      "_auflage": null,
+      "quelle": null,
+      "sha256_der_sollliste": null,
+      "stand_der_fremdzaehlung": null,
+      "historisch": {
+        "gemessen_utc": null,
+        "gleich": null,
+        "fehlt": null,
+        "zu_viel": null,
+        "zu_viel_welche": null
+      },
+      "state": "NOT MEASURED",
+      "reason": "the input carries no list `sollliste_kennungen`; without it there is nothing to COMPUTE against the independent tally, and the historical block would be a quotation from an earlier state"
+    },
+    "assurance_checks": [
+      {
+        "claim": "0 open P0/P1",
+        "computed": {
+          "p0_p1_total": 0,
+          "p0_p1_open": 0,
+          "entries": [],
+          "open_entries": [],
+          "population": {
+            "records_gesamt": 5,
+            "mit_schwere": 5,
+            "ohne_schwere": 0,
+            "ohne_schwere_beispiele": []
+          }
+        },
+        "holds": true,
+        "holds_state": "MEASURED",
+        "holds_reason": null,
+        "prose_rationale_state": "NOT MEASURED",
+        "prose_rationale_note": null
+      }
+    ]
+  },
+  "records": [
+    {
+      "id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01",
+      "record_revision": 0,
+      "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
+      "kind": null,
+      "kind_state": "NOT MEASURED",
+      "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
+      "title": "Carried in `tests/test_eval_claim_domains_are_enforced.py` as `BEKANNTE_LUECKEN` -- which, like the A-17 fix above, arrives with the verify-boundary pull request and is not in this tree -- and that …",
+      "class_id": null,
+      "class_state": "NOT MEASURED",
+      "class_reason": "the source carries no class identifiers",
+      "objektklasse": "promised_class_entry",
+      "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — the two commitment patterns at the verify boundary' und sagt den Registereintrag im selben Absatz zu, Ziel 6.2.0.",
+      "severity": {
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
+      },
+      "status": {
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/610/register_evidence/COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01.md",
+          "sha256": "386442531144528b230cea83afd6389a40393336c3c24276c4efd48cb3826d6f",
+          "role": "historical_record",
+          "source_path": "RESTRISIKO_610.md",
+          "source_sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
+          "byte_range": [
+            6770,
+            7198
+          ],
+          "fundart": "prosa_zusage"
+        }
+      ],
+      "last_measured": null,
+      "last_measured_state": "NOT MEASURED",
+      "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
+    },
+    {
+      "id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01",
+      "record_revision": 0,
+      "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
+      "kind": null,
+      "kind_state": "NOT MEASURED",
+      "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
+      "title": "Refusing small-order keys at this one block is a code change with its own catch proof, not a documentation edit, so it is not in this cut.",
+      "class_id": null,
+      "class_state": "NOT MEASURED",
+      "class_reason": "the source carries no class identifiers",
+      "objektklasse": "promised_class_entry",
+      "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — two findings this cut made and deliberately did not close' und nennt sie dort ausdruecklich einen Fund, Ziel 6.2.0.",
+      "severity": {
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
+      },
+      "status": {
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/610/register_evidence/SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01.md",
+          "sha256": "8b687aeff88802c51176004807ebda813ebe92d2a5cc6b09a2bf86baeb6b03f6",
+          "role": "historical_record",
+          "source_path": "RESTRISIKO_610.md",
+          "source_sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
+          "byte_range": [
+            9472,
+            9682
+          ],
+          "fundart": "prosa_zusage"
+        }
+      ],
+      "last_measured": null,
+      "last_measured_state": "NOT MEASURED",
+      "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
+    },
+    {
+      "id": "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01",
+      "record_revision": 0,
+      "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
+      "kind": null,
+      "kind_state": "NOT MEASURED",
+      "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
+      "title": "**A shipped tool verdict is quoted but not re-run.** `pyproject.toml` states that eight mypy versions and six ruff versions exit 0 over this tree.",
+      "class_id": null,
+      "class_state": "NOT MEASURED",
+      "class_reason": "the source carries no class identifiers",
+      "objektklasse": "promised_class_entry",
+      "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie im selben Open-Abschnitt wie die vorige; die Grenze ist benannt und der Eintrag zugesagt, Ziel 6.2.0.",
+      "severity": {
+        "value": "P3",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
+      },
+      "status": {
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/610/register_evidence/SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01.md",
+          "sha256": "47ece0a186716eb6d2613c8ea5493377ec1e40d09d221cbb98bc11494c07b3c0",
+          "role": "historical_record",
+          "source_path": "RESTRISIKO_610.md",
+          "source_sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
+          "byte_range": [
+            9684,
+            10219
+          ],
+          "fundart": "prosa_zusage"
+        }
+      ],
+      "last_measured": null,
+      "last_measured_state": "NOT MEASURED",
+      "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
+    },
+    {
+      "id": "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01",
+      "record_revision": 0,
+      "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
+      "kind": null,
+      "kind_state": "NOT MEASURED",
+      "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
+      "title": "Target 6.2.0, and as a CLASS fix rather than three guards: one check that every public exporter passes through, with the catch-proof at the public functions instead of at the CLI.",
+      "class_id": null,
+      "class_state": "NOT MEASURED",
+      "class_reason": "the source carries no class identifiers",
+      "objektklasse": "promised_class_entry",
+      "objektklasse_begruendung": "RESTRISIKO_610.md fuehrt sie unter '## Open — three public exporters coerce the verdict field' mit drei ausfuehrbar gemessenen Stellen.",
+      "severity": {
+        "value": "P2",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
+      },
+      "status": {
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/610/register_evidence/DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01.md",
+          "sha256": "09f6aa682a8dd48c61f0ed94a1167bd9baddcf4f0f7c4128d563a56ba43bd6c2",
+          "role": "historical_record",
+          "source_path": "RESTRISIKO_610.md",
+          "source_sha256": "9b802088132bee817232fbb0bece02d63ef5b77d479bcfef2ba3ed24ef66d455",
+          "byte_range": [
+            12441,
+            12696
+          ],
+          "fundart": "prosa_zusage"
+        }
+      ],
+      "last_measured": null,
+      "last_measured_state": "NOT MEASURED",
+      "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
+    },
+    {
+      "id": "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01",
+      "record_revision": 0,
+      "record_role": "finding",
+      "not_a_defect": {
+        "value": false
+      },
+      "kind": null,
+      "kind_state": "NOT MEASURED",
+      "kind_reason": "the object classes separate by origin, not by kind; no source carries a security or quality assignment, and it is decided per finding rather than derived",
+      "title": "**A number in this section that a later commit makes stale.** `ca2478d8f4dd` was the head when the matrix was run; committing this very section moves the head again.",
+      "class_id": null,
+      "class_state": "NOT MEASURED",
+      "class_reason": "the source carries no class identifiers",
+      "objektklasse": "promised_class_entry",
+      "objektklasse_begruendung": "Die Zusage steht in RESTRISIKO_600.md, nicht im 610er Blatt. Sie wird von dort geschnitten und nicht kopiert: eine Kennung hat EINE Fundstelle, und das 600er Blatt bleibt unberuehrt.",
+      "severity": {
+        "value": "P3",
+        "source": "FINDINGS in scripts/gen_findings_register.py",
+        "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+        "source_reason": "the list lives in the producer, not in the signed register; their agreement is a separate assurance and not a property of this field"
+      },
+      "status": {
+        "value": "open",
+        "source": "FINDINGS in scripts/gen_findings_register.py"
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/610/register_evidence/ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01.md",
+          "sha256": "e68fdc3c0b870e4131410246e30e3251f9e1cff854b24249ac2959b54b2211ca",
+          "role": "historical_record",
+          "source_path": "RESTRISIKO_600.md",
+          "source_sha256": "27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af",
+          "byte_range": [
+            34185,
+            34683
+          ],
+          "fundart": "prosa_zusage"
+        }
+      ],
+      "last_measured": null,
+      "last_measured_state": "NOT MEASURED",
+      "last_measured_reason": "the source names the day it was produced, not the time each finding was last measured"
+    }
+  ],
+  "signature": {
+    "state": "UNSIGNED",
+    "reason": "this carrier has NOT been through the signing path; it was written by the generator alone, so the issuer named above is asserted by the document and not attested by anyone",
+    "what_would_change_it": "running the emit and assemble path over the canonical bytes of this body, with the private half of the key that stays with the owner",
+    "consequence_for_the_reader": "treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone"
+  }
+}

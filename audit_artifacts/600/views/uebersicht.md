@@ -20,6 +20,7 @@ Assurance `0 open P0/P1`: **INDETERMINATE**, computed — 1 P0/P1 in the source,
 
 ## All records
 
+<!-- proofbundle:verbatim-quote:begin -->
 | Id | Role | Class | Severity | Evidence | Bytes |
 |---|---|---|---|---|---|
 | A1 | finding | fund_aussenflaeche | P2 | audit_artifacts/600/register_evidence/A1.md | 24756..25569 |
@@ -167,5 +168,6 @@ Assurance `0 open P0/P1`: **INDETERMINATE**, computed — 1 P0/P1 in the source,
 | S121 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S121.md | 364389..367098 |
 | S122 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S122.md | 367098..368431 |
 | S123 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S123.md | 368431..369700 |
+<!-- proofbundle:verbatim-quote:end -->
 
 Generated from audit_artifacts/600/findings_register_v2.json. Do not edit by hand.

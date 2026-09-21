@@ -152,6 +152,17 @@ before the closing round, not after it.
 - `scripts/required_check_reachability_gate.py --verify-live-pr` (#219) judges the LIVE pull request: it evaluates each gating condition against the run's own event and reports per required context whether it arrives, will not arrive, or is not measurable; the advisory job runs it after the offline gate. Measured 2026-09-17 on pull request 218: the offline gate was green while four required contexts could never arrive.
 - ci.yml (#220): the full five-version test matrix runs for every pull request from this repository; the `landung` label stays the gate only for fork pull requests (owner directive 2026-09-17, velocity). The reachability declaration re-binds its accepted contexts to the new condition.
 - `scripts/audit_candidate_matrix.py` reports three outcomes per cell (PASS, FAIL, NOT_MEASURED with a reason) and exits non-zero only for a release-deciding FAIL, for `NOTHING_MEASURED` or for an unbound version pin; on a pull request candidate-bound release evidence that is not bound to that head is NOT_MEASURED instead of FAIL. New cell C6.4 runs a short fuzz-soak live on the head; the 24h soak moved to `.github/workflows/soak-nightly.yml`. `scripts/pre_tag_audit_gate.py` distinguishes a genuine receipt of another tree (`other_tree`) and a foreign artefact in the receipt folder (`foreign_files`) from a rejected receipt. (Owner order 2026-09-17; measured on pull request 218: the advisory job was red on every pull request with DATA_BLOCKED 0 and FAIL 4.)
+- The findings register is scoped to 6.1.0 (`VERSION` and `FINDINGS` in
+  `scripts/gen_findings_register.py`): the 21 findings carried from the 6.0.0 register, with `N16`
+  closed for this tree and named as still open in the published Action tag, plus the five class
+  entries the risk sheets promise as `Register entry`, each with a severity the producer assigned
+  from the sheet's stated reach and a note that says so — 26 entries, 14 closed, 12 open, 0 open
+  P0/P1. `tests/test_register_610_carries_what_the_sheets_promise.py` binds producer and sheets in
+  both directions and the producer's version to `pyproject.toml`; the numbers guard now reads the
+  document of the register's own version. The line-610 carrier and `audit_artifacts/610/README.md`
+  follow the producer. The signed v1 register is assembled from the owner's signature over the
+  emitted payload; until it lands, `tests/test_register_gegen_erzeuger.py` reports the gap, which
+  is what it is for.
 
 - Identifiers transcribed, internal codename and account names.
 - The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.

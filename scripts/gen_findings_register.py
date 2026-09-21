@@ -43,6 +43,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import pathlib
 import json
 import sys
 from pathlib import Path
@@ -70,6 +71,56 @@ EVIDENZ_REL = "audit_artifacts/600/register_evidence"
 V2_REL = "audit_artifacts/600/findings_register_v2.json"
 ANSICHTEN_REL = "audit_artifacts/600/views"
 
+#: TWO LINES, ONE PRODUCER. Owner decision OA-714de2fcdd forbids a second producer in so many
+#: words ("two tools for the same question drift apart"), and a second LINE is not a second
+#: question, it is the same question over a different cut. So it lives HERE as data rather than
+#: as a copy beside it. The default stays 600, so no existing call moves.
+LINIEN = {
+    "600": {"fassung": "6.0.0",
+            # THE LANGUAGE OF THE QUOTED SOURCES IS A PROPERTY OF THE LINE, measured per line.
+            # Line 600 quotes German headings; line 610 quotes an English sheet. The first version
+            # carried the 600 statement over to 610 unchanged, and a lens measured that all five
+            # 610 titles are English while the carrier declared them German.
+            "sprache_blaetter": "de", "sprache_objektklassen": "de",
+            "restrisiko": "RESTRISIKO_600.md",
+            "objektklassen": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+            "evidenz": "audit_artifacts/600/register_evidence",
+            "v2": "audit_artifacts/600/findings_register_v2.json",
+            "ansichten": "audit_artifacts/600/views"},
+    "610": {"fassung": "6.1.0",
+            "sprache_blaetter": "en", "sprache_objektklassen": "de",
+            "restrisiko": "RESTRISIKO_610.md",
+            "objektklassen": "RESTRISIKO_610_OBJEKTKLASSEN.json",
+            "evidenz": "audit_artifacts/610/register_evidence",
+            "v2": "audit_artifacts/610/findings_register_v2.json",
+            "ansichten": "audit_artifacts/610/views"},
+}
+
+
+def waehle_linie(name: str) -> None:
+    """Set the line ONCE, before the build. One run speaks about exactly one cut.
+
+    The paths are module-level because a dozen functions name them inside their own reason texts
+    (`source in RESTRISIKO_600.md`); threading them through as a parameter would have produced the
+    same statement in twelve places. One run, one line, one set of paths.
+    """
+    global RESTRISIKO_REL, OBJEKTKLASSEN_REL, EVIDENZ_REL, V2_REL, ANSICHTEN_REL, V2_FASSUNG
+    global _SPRACHE_DER_RISIKOBLAETTER, _SPRACHE_DER_QUELLE
+    linie = LINIEN[name]
+    # THE VERSION BELONGS TO THE LINE, not to the module. The first run of line 610 wrote
+    # "Known issues, 6.0.0" over a list that carries nothing but findings of the 6.1.0 cut. The
+    # number came from `VERSION`, which speaks about the v1 list FINDINGS. A carrier naming the
+    # wrong version is exactly the defect the comment at `VERSION` warns about, the other way
+    # round: there the list without the number, here the number without the list.
+    V2_FASSUNG = linie["fassung"]
+    _SPRACHE_DER_RISIKOBLAETTER = linie["sprache_blaetter"]
+    _SPRACHE_DER_QUELLE = linie["sprache_objektklassen"]
+    RESTRISIKO_REL = linie["restrisiko"]
+    OBJEKTKLASSEN_REL = linie["objektklassen"]
+    EVIDENZ_REL = linie["evidenz"]
+    V2_REL = linie["v2"]
+    ANSICHTEN_REL = linie["ansichten"]
+
 LUECKENWOERTER = {"NOT MEASURED", "NOT MEASURABLE", "NOT APPLICABLE"}
 VEX_STATUS = {"affected", "not_affected", "fixed", "under_investigation"}
 QUAL_STATUS = {"open", "fixed", "not_a_defect", "under_investigation"}
@@ -77,18 +128,76 @@ ABHILFE = {"none_available", "vendor_fix", "workaround", "no_fix_planned"}
 PLANUNG = {"planned", "deferred", "undecided", None}
 BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision"}
 
+#: THE IDENTIFIER ALPHABET, WRITTEN ONCE, ABOVE EVERY READER THAT NEEDS IT.
+#:
+#: This constant has now been the subject of two review rounds, and the second one is the reason
+#: it stands here rather than three hundred lines further down.
+#:
+#: Round six: the foreign-identifier guard compared identifiers by containment, was repaired to
+#: compare with boundaries, and the repair typed the alphabet out a SECOND time as `0-9A-Za-z_-`,
+#: the same set minus the dot. With `N1` and `N1.foo` both declared, `N1` was still found inside
+#: `N1.foo` and the longer entry was dropped from the carrier. The fix made one constant and two
+#: readers, and the round was answered as if the class were closed.
+#:
+#: Round seven measured that it was not. The alphabet had FOUR readers, not two. `_kopf_muster`
+#: below and the heading boundary in `schneide_beleg` each carried `(?![0-9A-Za-z])`, so
+#: `schneide_beleg("## N1.foo — open…", "N1")` and the same call for `N1.foo` returned the SAME
+#: byte range, the carrier emitted two records backed by one heading, and `N1` was given the
+#: title `.foo — open`. A fifth reader sat in the contract, an ASCII shape rule that rejected
+#: `N1.foo`, `n1` and `N_1` although this house admits all three.
+#:
+#: THE LESSON IS ABOUT THE SWEEP, NOT ABOUT THE DOT. Unifying the two readers I could see and
+#: calling the class closed is the same move as fixing an instance: the neighbours have to be
+#: found by asking what ELSE reads this alphabet, repository-wide, in the same pass. So the
+#: constant sits above all of its readers, and the contract imports this rule instead of
+#: restating it.
+_KENNUNG_ZEICHEN = "A-Za-z0-9._-"
+
+#: WHERE AN IDENTIFIER ENDS, and this is NOT a second spelling of the alphabet above.
+#:
+#: The two answer different questions. `_KENNUNG_ZEICHEN` says what an identifier may CONTAIN,
+#: and it is ASCII on purpose. This one says what may not FOLLOW one, and the right answer there
+#: is wider: a word character in ANY script, plus the punctuation an identifier may carry.
+#:
+#: The cross-reading asked for the case and it fell: with an ASCII-only boundary, `## N1<umlaut>`
+#: was cut as evidence for `N1`, although that heading names a token which is not `N1` and which
+#: the form rule does not admit at all. The dot defect of round six is the same shape one
+#: character class narrower, so this is the general form rather than another instance.
+#:
+#: MEASURED over both shipped sheets before widening it: what follows a complete identifier in a
+#: heading is a space (123 times) or a comma (9 times, `### S22, Nachtrag vom ...`). Both stay
+#: outside `\w`, so both keep working; the digits and letters that also appear in that tally come
+#: from SHORTER identifiers matching inside LONGER ones, which is exactly what this lookahead is
+#: here to stop.
+_GRENZE_ZEICHEN = r"\w.\-"
+
 _KENNUNG_KOPF = None  # lazy, siehe _kopf_muster()
 
 
 def _kopf_muster():
+    """Headings that can open a record, captured with the SHARED alphabet.
+
+    Round seven repaired the BOUNDARY of this pattern and left the CAPTURE at `[A-Z]\\d+`. Round
+    eight measured what that costs, and the case is the one I had listed and then not tried:
+    `n1` and `n2` are both admitted by `_kennung_form`, and
+    `schneide_beleg("## n1 ...\\n\\n### n2 ...", "n1")` returned the WHOLE text, so the evidence
+    for one finding swallowed another. My own counter-measurement had used capitals throughout
+    and therefore could not reach it.
+
+    Capturing by shape alone is not enough either: this alphabet also admits ordinary words, so a
+    prose heading would count as a record opener and cut evidence short. `schneide_beleg`
+    therefore takes the DECLARED identifiers where it has them, and the shape below is only the
+    candidate sieve.
+    """
     global _KENNUNG_KOPF
     if _KENNUNG_KOPF is None:
         import re  # noqa: PLC0415
-        _KENNUNG_KOPF = re.compile(r"^(#{2,4}) ([A-Z]\d+)(?![0-9A-Za-z])", re.M)
+        _KENNUNG_KOPF = re.compile(
+            rf"^(#{{2,4}}) ([A-Za-z0-9][{_KENNUNG_ZEICHEN}]*)(?![{_GRENZE_ZEICHEN}])", re.M)
     return _KENNUNG_KOPF
 
 
-def schneide_beleg(text: str, kennung: str):
+def schneide_beleg(text: str, kennung: str, bekannte: frozenset | set | None = None):
     """Der byte-genaue Bereich der Fundstelle EINER Kennung. -> (von, bis, fundart) | None.
 
     DREI FASSUNGEN, und die ersten beiden waren falsch — beide nur durch Messen gefunden:
@@ -108,6 +217,27 @@ def schneide_beleg(text: str, kennung: str):
     (S/R/G/Z) und Tabellenzeile mit der Kennung in Spalte 1 (N/A).
     """
     import re  # noqa: PLC0415
+    # THE DECLARED IDENTIFIERS ARE REQUIRED, because without them this question has no answer.
+    #
+    # A heading ends this evidence when it OPENS ANOTHER RECORD, and a record exists exactly when
+    # its identifier is declared. Every shape-only guess is wrong in one direction or the other,
+    # and round eight measured both directions within one hour:
+    #
+    #   narrow shape `[A-Z]\d+`   the pair `## n1` / `### n2` never terminates, so the evidence
+    #                             of one finding swallows another. That was the reported defect.
+    #   shared alphabet, no set   `### Notes on the above` terminates, and a finding loses the
+    #                             rest of its own section: measured (0, 35) where it had been
+    #                             (0, 74). The cross-reading asked for exactly this case before
+    #                             the repair shipped, and it was the repair that introduced it.
+    #
+    # So the caller states which identifiers exist. `baue_v2` has that set; a caller without one
+    # is told so rather than handed a plausible wrong answer.
+    if bekannte is None:
+        raise SystemExit(
+            "build refused: schneide_beleg needs the declared identifiers. Whether a heading "
+            "ends this evidence depends on whether it opens another record, and that is a "
+            "question about the declared set and not about the shape of a word")
+
     # VIERTE FASSUNG, Fund der Fremdfamilie (Codex r3999820860, 13.09.2026). Die dritte suchte von
     # der TIEFSTEN Ebene aufwaerts (4, 3, 2) und nahm damit bei neun Kennungen einen spaeteren
     # `### <K>, Nachtrag` statt der HAUPTSTELLE `## <K>`. Gemessen an der erzeugten Belegdatei:
@@ -129,15 +259,24 @@ def schneide_beleg(text: str, kennung: str):
     # auch einen Gedankenstrich vor einer Kennung und hielt damit S21, S24, S49 und Z5
     # faelschlich fuer Sammelkoepfe — dort steht nach dem Strich nur der erste Satz.
     for ebene in (2, 3, 4):
-        m = re.search(rf"^({'#' * ebene}) {re.escape(kennung)}(?![0-9A-Za-z])", text, re.M)
+        m = re.search(
+            rf"^({'#' * ebene}) {re.escape(kennung)}(?![{_GRENZE_ZEICHEN}])",
+            text, re.M)
         if not m:
             continue
         zeilenende = text.find("\n", m.end())
         rest = text[m.end():zeilenende if zeilenende != -1 else len(text)]
-        if re.match(r"^\s*(?:bis|to)\s+[A-Z]\d+\b", rest):
+        if re.match(rf"^\s*(?:bis|to)\s+[A-Za-z0-9][{_KENNUNG_ZEICHEN}]*\b", rest):
             continue                      # Sammelkopf einer Spanne, die tiefere Ebene gilt
         ende = len(text)
         for n in _kopf_muster().finditer(text, m.end()):
+            # A HEADING ENDS THIS EVIDENCE WHEN IT OPENS ANOTHER RECORD.
+            #
+            # Where the declared identifiers are known, that is exactly what is asked. Shape
+            # alone is not enough: the shared alphabet also admits ordinary words, and a prose
+            # heading would then cut the evidence short.
+            if bekannte is not None and n.group(2) not in bekannte:
+                continue
             if len(n.group(1)) <= ebene or n.group(2) != kennung:
                 ende = n.start()
                 break
@@ -150,6 +289,134 @@ def schneide_beleg(text: str, kennung: str):
         ze = text.find("\n", m.start())
         ze = len(text) if ze == -1 else ze
         return (len(text[:m.start()].encode()), len(text[:ze].encode()), "tabelle_spalte1")
+    return _zusage_als_fundstelle(text, kennung)
+
+
+#: THE PROMISE ITSELF IS A FIND SITE — the third find form, 2026-09-20.
+#:
+#: Line 610 carries five identifiers that have NEITHER a heading NOR a table row in the source.
+#: They stand in a sentence: "Register entry `<ID>`, target 6.2.0." Measured over both risk
+#: sheets: five such sentences, each alone in its paragraph.
+#:
+#: That is exactly the place that MAKES the promise, and therefore the right find site: a reader
+#: following the evidence lands on the sentence that promised the register entry. Inventing a
+#: heading for it would be the other way round, bending the document to the tool instead of the
+#: tool to what the document says.
+#:
+#: THE PARAGRAPH IS THE UNIT, and it is REFUSED when it carries more than one promise. The second
+#: version of `schneide_beleg` learned that in 2026-09: evidence containing thirteen findings
+#: proves none of them. Here the same rule stands BEFORE the first damage instead of after it.
+_ZUSAGE = None
+
+
+def _zusage_muster():
+    global _ZUSAGE
+    if _ZUSAGE is None:
+        import re  # noqa: PLC0415
+        # THE SIBLING OF THE CONTRACT PATTERN, swept in the same pass. It carried both an
+        # alphabet and a length prefilter, so a promise for a short or unusually spelled
+        # identifier was invisible to the producer exactly as it was to the guard. The
+        # token is captured as it stands; which identifier a run is looking for is decided
+        # by the caller, which compares the capture against the name it was given.
+        _ZUSAGE = re.compile(r"Register entry[:\s]+`([^`\s]+)`")
+    return _ZUSAGE
+
+
+def _zusage_als_fundstelle(text: str, kennung: str):
+    """The paragraph promising the register entry for THIS identifier. -> (from, to, form) | None."""
+    muster = _zusage_muster()
+    treffer = [m for m in muster.finditer(text) if m.group(1) == kennung]
+    if len(treffer) != 1:
+        return None                       # no promise, or several — neither is evidence
+    m = treffer[0]
+    a, e = _absatzgrenzen(text, m.start(), m.end())
+    if len({x.group(1) for x in muster.finditer(text[a:e])}) != 1:
+        return None                       # the paragraph promises something to several identifiers
+    # A NEGATED SENTENCE IS NOT A PROMISE, and the first version read one as one. Measured by a
+    # review lens: "there is no Register entry `X` for it" produced a record whose TITLE was the
+    # sentence denying it. The window is small and the direction is safe: a refusal drops the
+    # identifier into `identifiers_without_evidence`, where it is visible, instead of into a
+    # record that says the opposite of the source.
+    #
+    # HONEST LIMIT, stated rather than papered over: this catches the negations the sheets
+    # actually use. A sentence that denies the promise in some other wording still passes, and no
+    # amount of further word lists would change that — deciding whether prose asserts or denies is
+    # not a job for a pattern.
+    if _verneint_muster().search(text[max(a, m.start() - 40):m.start()]):
+        return None
+    return (len(text[:a].encode()), len(text[:e].encode()), "prosa_zusage")
+
+
+#: A paragraph boundary is a blank line, and a line carrying only whitespace IS blank.
+#:
+#: MEASURED 2026-09-20 by a review lens, twice. With CRLF line endings the literal `"\n\n"` never
+#: occurs, so the search fell through to the file bounds and handed the WHOLE 371 KB source
+#: document to one identifier as its evidence — accepted by `pruefe_v2`, whose range check only
+#: asks whether the range is inside the file. And a separator line carrying spaces let two
+#: paragraphs merge, so one finding's evidence swallowed its neighbour's sentence.
+#:
+#: Both are the same root: a boundary measured as a character sequence instead of as the property
+#: "a line with nothing on it".
+_ABSATZGRENZE = None
+
+
+def _absatzgrenzen(text: str, von: int, bis: int) -> tuple[int, int]:
+    """The paragraph around [von, bis) — start index and end index into `text`."""
+    global _ABSATZGRENZE
+    if _ABSATZGRENZE is None:
+        import re  # noqa: PLC0415
+        _ABSATZGRENZE = re.compile(r"\r?\n[ \t]*\r?\n")
+    a = 0
+    for g in _ABSATZGRENZE.finditer(text, 0, von):
+        a = g.end()
+    g = _ABSATZGRENZE.search(text, bis)
+    return a, (g.start() if g else len(text))
+
+
+#: Negation directly before a promise. Deliberately short and deliberately incomplete.
+_VERNEINT = None
+
+
+def _verneint_muster():
+    global _VERNEINT
+    if _VERNEINT is None:
+        import re  # noqa: PLC0415
+        _VERNEINT = re.compile(r"\b(?:no|not|never|without|neither|nor)\b[^.]{0,40}\Z", re.I)
+    return _VERNEINT
+
+
+#: The state also stands in the SECTION heading, and only in its house form.
+#:
+#: MEASURED 2026-09-20 over RESTRISIKO_610.md: four of the five promises sit under a heading
+#: "## Open — …", the fifth does not. Narrowed to exactly that form: `Open` as the first word
+#: after the hashes. The sheets also carry sections "## Named state, not a backlog item — …", and
+#: those must NOT be read as open; they say the opposite, that no work item is open. Searching for
+#: the word anywhere in the heading would turn "not a backlog item" into a backlog item.
+_ABSCHNITT_OFFEN = r"^#{2,4}\s+Open\b"
+
+
+def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
+    """`open` when the nearest section above the find site carries the house form `## Open`."""
+    import re  # noqa: PLC0415
+    muster = re.compile(_ABSCHNITT_OFFEN)
+    vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
+    # THE ENCLOSING SECTION, not the next line that starts with a hash. Measured by a lens: with
+    # a `###` sub heading between the find site and its `## Open` section this returned None, and
+    # a real open finding fell silently to NOT MEASURED, and with it out of `known_issues.md`. It
+    # does not happen today because both sheets carry level two only; one sub heading in a later
+    # version would have been enough.
+    ebene = None
+    for zeile in reversed(vor.splitlines()):
+        if not zeile.startswith("#"):
+            continue
+        tiefe = len(zeile) - len(zeile.lstrip("#"))
+        if ebene is not None and tiefe >= ebene:
+            continue                      # eine Unterueberschrift derselben Sektion
+        ebene = tiefe
+        if muster.match(zeile):
+            return "open"
+        if tiefe <= 2:
+            return None                   # die umschliessende Sektion sagt nichts
     return None
 
 
@@ -158,16 +425,238 @@ def schneide_beleg(text: str, kennung: str):
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 
-#: DER EHRLICHE STAND DER 6.0.0-FUNDE, abgeleitet aus `RESTRISIKO_600.md` (N1..N15) — nicht aus
-#: dem Gedaechtnis und nicht aus der 3.6.1-Liste, die hier vorher stand.
+#: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
+#: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
+V2_FASSUNG = VERSION
+
+#: The language of the sources the selected line QUOTES from. Defaults to the 600 line.
+_SPRACHE_DER_RISIKOBLAETTER = "de"
+_SPRACHE_DER_QUELLE = "de"
+
+#: THE LANGUAGE IS A PROPERTY OF THE FILE, not of the line that happens to read it.
 #:
-#: SCHWEREGRAD NACH WIRKUNG, nicht nach Wunsch. Der Gate liest {P0, P1} als freigabeentscheidend;
-#: einen Fund niedriger einzustufen, damit das Tor gruen wird, waere genau der falsche PASS, gegen
-#: den dieses Register gebaut ist. Massgeblich ist die Spalte „Wirkung" des Restrisiko-Registers,
-#: Wort fuer Wort. Zwei Eintraege bleiben ausdruecklich OFFEN (N14, N15) — beide mit
-#: Owner-Entscheidung und beide ohne Wirkung auf einen Nutzer des Pakets.
+#: A lens measured the first defect here: the 610 carrier declared its quoted titles German
+#: because the block was copied from the 600 line. Setting one language per LINE repaired that
+#: and left the next instance standing — line 610 quotes titles from BOTH sheets, and they are
+#: not in the same language. A statement about "the source" is only checkable when it names each
+#: source it is about.
+SPRACHE_JE_BLATT = {"RESTRISIKO_600.md": "de", "RESTRISIKO_610.md": "en"}
+
+#: THE RULE IS PER FIND FORM, because the derivation is — and the first version said otherwise.
+#:
+#: A review round on 2026-09-20 found that the binding for a title accepted any SUBSTRING of the
+#: flattened source, so a title could detach from its evidence while the provenance guard reported
+#: success. Verifying that finding turned up the deeper one: `_titel` carries THREE branches and
+#: the single declared rule described ONE of them. Measured over both carriers, 145 of 150 titles
+#: come from a heading or a table cell and are cut HARD at 200 characters, with no word boundary
+#: and no ellipsis; only the five prose promises are cut the way the rule claimed for all of them.
+#: The declaration was not merely incomplete, it was wrong for 145 of 150 values.
+#:
+#: The contract that was supposed to catch this asked whether the declared sentence CONTAINS the
+#: words "wrap" and "cut" — a keyword check, which is the same defect class one level up: a claim
+#: about a derivation checked by a proxy instead of by performing the derivation. The binding now
+#: RE-DERIVES each title from the bytes of its own evidence and demands exact equality.
+#: The column names that carry a title, by NAME rather than by position.
+_TITELSPALTEN_NAMEN = ("Finding", "In one line", "What it is", "Title")
+
+NORMALISIERUNG_JE_FUNDART = {
+    "ueberschrift": {
+        "sourceUnit": "the first line of the evidence",
+        "flattenWhitespace": False,
+        "takeFirstSentence": False,
+        "strip": ["headingMarks", "identifier", "oneLeadingPunctuation"],
+        "keep": "prefix", "maxLength": 200, "cut": "hard", "ellipsis": False,
+    },
+    "tabelle_spalte1": {
+        "sourceUnit": "the title column of the table row",
+        "flattenWhitespace": False,
+        "takeFirstSentence": False,
+        "columnNames": list(_TITELSPALTEN_NAMEN),
+        "columnFallbackIndex": 1,
+        "keep": "prefix", "maxLength": 200, "cut": "hard", "ellipsis": False,
+    },
+    "prosa_zusage": {
+        "sourceUnit": "the paragraph",
+        "flattenWhitespace": True,
+        "takeFirstSentence": True,
+        "keep": "prefix", "maxLength": 200, "cut": "wordBoundary", "ellipsis": True,
+    },
+}
+
+
+#: THE DOMAIN OF EVERY DECLARED FIELD, so an unknown VALUE is refused exactly like an unknown FORM.
+#:
+#: Round nine measured what the round-seven repair left standing. That repair made an unknown find
+#: FORM a typed refusal and made `_titel` execute all seven declared FIELDS — and then trusted every
+#: field's VALUE. Measured on this head: setting `ellipsis` to the string `"mystery"` leaves every
+#: derived title byte-identical and the contract reports nothing, because `regel.get("ellipsis")` asks
+#: whether the value is truthy and never whether it is the value the rule admits. The same surface
+#: carries `flattenWhitespace` and `takeFirstSentence`; `keep` and `cut` are worse still, because an
+#: unknown value there does not do nothing, it silently selects the OTHER branch — `keep="mystery"`
+#: cut a 250 character title to its LAST 200 characters while the carrier published `keep: prefix`.
+#:
+#: THE CLASS, named rather than the instance: a declaration is only a rule when every one of its
+#: values is checked against the set the producer can actually execute. Truthiness is not a domain.
+#:
+#: CHECKED BEFORE ANY TITLE IS DERIVED, not while deriving one. `_kuerzen` returns early for a title
+#: shorter than `maxLength`, so a bad `keep`, `cut` or `ellipsis` in a corpus of short titles is
+#: reachable by no title at all — the declaration would ship unexecuted and unchecked. The rules are
+#: therefore judged as DECLARATIONS, once, and a form that no record uses is judged too: a carrier
+#: that publishes a rule for a form it never applied publishes a rule for nothing.
+_REGEL_DOMAENEN = {
+    "sourceUnit": ("the first line of the evidence", "the title column of the table row",
+                   "the paragraph"),
+    "keep": ("prefix", "suffix"),
+    "cut": ("hard", "wordBoundary"),
+}
+#: Fields that are a TRUTH VALUE and nothing else — `isinstance(x, bool)`, never `if x`.
+_REGEL_WAHRHEITSWERTE = ("ellipsis", "flattenWhitespace", "takeFirstSentence")
+#: The strip steps `_titel` can apply. It refuses an unknown one when it REACHES it; this list
+#: refuses it when it is DECLARED, which is earlier and does not depend on the corpus.
+_STRIP_SCHRITTE = ("headingMarks", "identifier", "oneLeadingPunctuation")
+#: Fields that belong to the table form only.
+_SPALTEN_FELDER = ("columnNames", "columnFallbackIndex")
+
+
+def _pruefe_regel(fundart: str, regel: dict) -> None:
+    """One declared title rule against its domain. Raises SystemExit naming the field and the value.
+
+    A FIELD NOBODY EXECUTES IS REFUSED TOO, and that is the other half of the round-seven finding.
+    There the declaration carried seven fields and the producer executed three, so the carrier
+    shipped a rule it did not follow. The reverse — a field the declaration carries and nothing
+    here reads — has the same shape: it reads like a promise and changes nothing. Both directions
+    are closed by naming the admissible set and refusing everything outside it.
+    """
+    if not isinstance(regel, dict):
+        raise SystemExit(
+            f"build refused: the title rule of the find form {fundart!r} is {type(regel).__name__}, "
+            f"not a mapping of declared fields")
+    erlaubt = set(_REGEL_DOMAENEN) | set(_REGEL_WAHRHEITSWERTE) | {"maxLength", "strip"} \
+        | set(_SPALTEN_FELDER)
+    unbekannt = sorted(set(regel) - erlaubt)
+    if unbekannt:
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares {unbekannt}, and nothing in "
+            f"this producer reads those fields. A declared field that no step executes reads like "
+            f"a promise and changes nothing")
+    for feld, werte in _REGEL_DOMAENEN.items():
+        if feld not in regel:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares no {feld!r}; the producer "
+                f"branches on it, so its absence picks a branch nobody declared")
+        if regel[feld] not in werte:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares {feld}={regel[feld]!r}, "
+                f"which is not one of {list(werte)}. An unknown value here does not do nothing — "
+                f"it selects the other branch silently")
+    for feld in _REGEL_WAHRHEITSWERTE:
+        if feld not in regel:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares no {feld!r}; the producer "
+                f"reads it, and a missing truth value reads as false without saying so")
+        if not isinstance(regel[feld], bool):
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares {feld}={regel[feld]!r}, "
+                f"which is {type(regel[feld]).__name__} and not a truth value. The producer asks "
+                f"whether it is truthy, so every non-empty value would act as true")
+    grenze = regel.get("maxLength")
+    if isinstance(grenze, bool) or not isinstance(grenze, int) or grenze <= 0:
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares maxLength={grenze!r}; a bound "
+            f"that is not a positive whole number cannot cut anything")
+    schritte = regel.get("strip") or []
+    if not isinstance(schritte, list) or any(x not in _STRIP_SCHRITTE for x in schritte):
+        raise SystemExit(
+            f"build refused: the title rule of {fundart!r} declares strip={schritte!r}; the steps "
+            f"this producer can apply are {list(_STRIP_SCHRITTE)}")
+    if regel["sourceUnit"] == "the title column of the table row":
+        namen = regel.get("columnNames")
+        if not isinstance(namen, list) or not namen or not all(
+                isinstance(x, str) and x for x in namen):
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} cuts a table column but declares "
+                f"columnNames={namen!r}; without names the column is chosen by position, and a "
+                f"column read by position is eventually the wrong column")
+        i = regel.get("columnFallbackIndex")
+        if isinstance(i, bool) or not isinstance(i, int) or i < 0:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} declares "
+                f"columnFallbackIndex={i!r}, which is not a column number")
+    else:
+        vorhanden = [f for f in _SPALTEN_FELDER if f in regel]
+        if vorhanden:
+            raise SystemExit(
+                f"build refused: the title rule of {fundart!r} cuts {regel['sourceUnit']!r} and "
+                f"still declares {vorhanden}; a field that this source unit never reads is a "
+                f"statement about a step that does not run")
+
+
+def pruefe_titelregeln(regeln: dict | None = None) -> None:
+    """EVERY declared rule, including the ones no record used. See `_pruefe_regel` for why."""
+    for fundart, regel in (regeln if regeln is not None else NORMALISIERUNG_JE_FUNDART).items():
+        _pruefe_regel(fundart, regel)
+
+
+def regel_als_satz(regel: dict) -> str:
+    """The human sentence RENDERED from the rule, so the two cannot drift apart.
+
+    A review round on 2026-09-20 measured the drift before it could happen: with the declared
+    sentence changed to say the LAST 200 characters are kept, all 24 cases of the contract stayed
+    green, because the contract carried its own hard-wired copy of the rule and never read the
+    declaration. A sentence beside a rule is a second source of truth; rendered from it, it is a
+    view of the first.
+    """
+    teile = [regel["sourceUnit"]]
+    if regel.get("columnNames"):
+        teile.append("chosen by column name (" + ", ".join(regel["columnNames"])
+                     + f"), falling back to column {regel['columnFallbackIndex'] + 1}")
+    if regel.get("strip"):
+        namen = {"headingMarks": "the heading marks", "identifier": "the identifier",
+                 "oneLeadingPunctuation": "one leading dash, colon or comma"}
+        teile.append("with " + ", ".join(namen[x] for x in regel["strip"]) + " removed")
+    if regel.get("flattenWhitespace"):
+        teile.append("flattened to single spaces")
+    if regel.get("takeFirstSentence"):
+        teile.append("reduced to its first sentence")
+    schnitt = ("cut at a word boundary and marked with a trailing ellipsis"
+               if regel["cut"] == "wordBoundary" and regel["ellipsis"]
+               else "cut hard, with no word boundary and no ellipsis")
+    # THE DIRECTION IS NAMED, because the review round changed exactly that word. A
+    # sentence saying the LAST characters are kept, beside a rule that keeps the first,
+    # is a false sentence that no length or cut check would have noticed.
+    richtung = "first" if regel["keep"] == "prefix" else "last"
+    teile.append(f"of which the {richtung} {regel['maxLength']} characters are kept, "
+                 f"{schnitt} beyond that")
+    return "; ".join(teile[:-1]) + " " + teile[-1]
+
+#: The sentence that stands with every quoted source, pointing at the rules rather than restating
+#: one of them. A group names a SOURCE, and one source can be cut by several find forms.
+NORMALISIERUNG_DER_TITEL = (
+    "a title is DERIVED from the bytes of its own evidence by the rule of its find form; the find "
+    "form of a record stands in `evidence[].fundart` and the rules stand per form under "
+    "`language_scope.title_derivation`. Applying the rule of that form to the evidence bytes "
+    "reproduces the title exactly — it is a derivation, not a verbatim line of the source.")
+
+#: THE HONEST STATE OF THE 6.1.0 FINDINGS. Two sources, named per entry, nothing from memory:
+#:
+#:   * `N1`..`N21`, carried over from the 6.0.0 register, which derived them from the table rows of
+#:     `RESTRISIKO_600.md`. `tests/test_register_population_gegen_restrisiko.py` compares the two
+#:     populations rather than deriving one from the other. One of them changed state with the cut:
+#:     `N16` is closed for the 6.1.0 tree and its note says what still ships the old form.
+#:   * the five class entries the risk sheets PROMISE in prose (`Register entry <id>`), four in
+#:     `RESTRISIKO_610.md` and one in `RESTRISIKO_600.md`, cut out there and carried by the line
+#:     610 object class file. Owner word of 2026-09-20 for the 6.1.0 register: the carried 6.0.0
+#:     findings plus those five, nothing from the 6.2.0 scope.
+#:     `tests/test_register_610_carries_what_the_sheets_promise.py` binds both directions.
+#:
+#: SEVERITY FOLLOWS IMPACT, not wish. The gate reads {P0, P1} as release-deciding; rating a finding
+#: lower so that the gate turns green would be exactly the false PASS this register is built
+#: against. For the carried entries the "Wirkung" column of the 600 risk sheet is decisive, word for
+#: word. The five promised entries have no severity column in their source, so each note states in
+#: its own words that the producer assigned the severity from the sheet's stated reach and that no
+#: tool measured it; the owner's signature over the register is what endorses that assignment.
 FINDINGS = [
     {"id": "N1", "severity": "P3", "status": "closed",
      "note": "flip oracle of the A5 corpus test read one field; fixed to require ok (bc95dd6). The "
@@ -238,20 +727,21 @@ FINDINGS = [
     # Herkunft der Zahl pruefen koennen statt sie glauben zu muessen. Verdikt des Laufs:
     # FIX_FIRST. Fuer 6.0.0 wird KEIN WITHSTANDS_DEEPGATE behauptet.
     #
-    # Alle drei stehen OFFEN. Owner-Entscheid OA-b4489d0204 vom 2026-09-06: sie bleiben fuer
-    # 6.0.0 unter der Halte-Schwelle und werden im Sammelrelease geschlossen.
-    {"id": "N16", "severity": "P2", "status": "open",
-     "note": "deep gate run 5, L6-02: action/action.yml:35-36 interpolates ${{ inputs.version }} "
-             "and ${{ inputs.extras }} directly into a run: shell body, while lines 43-44 route "
-             "inputs.command through env: and say why. A class fix applied to one of three inputs "
-             "of one file and never swept to its siblings. NOT introduced by this release: the "
-             "file is byte-identical to the one at the public v1.0.0 tag (sha256 91cfcdc4…, a "
-             "single commit ever touched it, that tag is an ancestor of this candidate). Measured "
-             "reach: INTEGRATIONS.md points at action@v1.0.0, that tag is FIXED, and no moving "
-             "major ref v1 exists — so a fix on main does NOT reach the documented users; a new "
-             "action ref is outward-facing and needs its own owner GO. Owner decision "
-             "OA-b4489d0204: first item after the tag, not pulled forward, because "
-             "action/action.yml lies inside the frozen tree"},
+    # N17 and N18 stay OPEN: owner decision OA-b4489d0204 of 2026-09-06, below the holding
+    # threshold for 6.0.0, closed in a collective release. N16 is CLOSED for the 6.1.0 tree since
+    # 1fa05c2 (2026-09-20); what still ships the old form is in its note, not hidden by the state.
+    {"id": "N16", "severity": "P2", "status": "closed",
+     "note": "deep gate run 5, L6-02: action/action.yml interpolated ${{ inputs.version }} and "
+             "${{ inputs.extras }} directly into a run: shell body while inputs.command travelled "
+             "through env:, a class fix applied to one of three inputs of one file. FIXED IN THIS "
+             "TREE: since 1fa05c2 (2026-09-20) all three inputs travel through env: with a "
+             "whole-value shape check, and tests/test_action_input_injection.py holds the rule "
+             "with a planted injection that has to be caught. WHAT SHIPS TODAY IS OLDER: the "
+             "published Action tag v6.0.0 still splices both inputs into the script text, so "
+             "anyone pinning b7n0de/proofbundle@v6.0.0 runs the unfixed form until a new Action "
+             "tag exists, which is an outward act behind the 6.1.0 tag with its own go-ahead. "
+             "Closed as a defect of this tree; RESTRISIKO_610.md names the published-tag state "
+             "under 'N16 is fixed on main and open in the published Action tag'"},
     {"id": "N17", "severity": "P2", "status": "open",
      "note": "deep gate run 5, L5-G8-01: scripts/rust_parity_gate.py:124 swallows an unparseable "
              "or unreadable source file (except (SyntaxError, OSError): continue), and "
@@ -325,6 +815,84 @@ FINDINGS = [
              "From that day the audit matrix goes red until the key is rotated. Intended behaviour "
              "of a validity window, not a defect of the candidate. Closing action: rotate the key "
              "before 2027-09-06, or accept the red"},
+    # ── THE FIVE ENTRIES THE RISK SHEETS PROMISE (cut of 2026-09-19, register of 2026-09-21) ────
+    #
+    # Each of these identifiers stands in a shipped risk sheet as `Register entry <id>`, and until
+    # this list carried them the promise had a carrier only in the unsigned v2 line 610. The
+    # sources have no severity column, so the severity here is ASSIGNED by the producer from the
+    # reach the sheet states, and every note says so; a reader who wants the measured part reads
+    # the sheet, which each note names. None of them is P0 or P1: the sheet itself states for each
+    # why it does not hold the tag, and the owner's cut decision of 2026-09-20 ships 6.1.0 with
+    # them open, target 6.2.0.
+    {"id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01", "severity": "P2", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — the two commitment patterns at the "
+             "verify boundary': schemas/eval_claim_v0_1.schema.json documents ^sha256:[0-9a-f]{64}$ "
+             "for model_id_commit and dataset_id_commit, and decode_eval_claim does not enforce "
+             "it, so a signed claim carrying an arbitrary string in either field decodes. Not fixed "
+             "in 6.1.0 for a measured reason: the three-line check turns five cases of "
+             "tests/test_cli_eval.py red because they sign placeholder commitments such as "
+             "sha256:x (5 of 5 green without the two patterns, 4 red with them), and rewriting "
+             "house tests so a new check passes is its own change. Carried as BEKANNTE_LUECKEN in "
+             "tests/test_eval_claim_domains_are_enforced.py, which fails in both directions. "
+             "Severity P2 assigned by the producer from the sheet's stated reach — a malformed "
+             "commitment weakens what a claim binds, it does not flip a verdict — not measured by "
+             "a tool. Target 6.2.0"},
+    {"id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01", "severity": "P2", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — two findings this cut made and "
+             "deliberately did not close': _signatur_lage in scripts/gen_findings_register.py "
+             "delegates verification to cryptography, and the project's Ed25519 profile accepts "
+             "small-order components, so 32 zero bytes as a public key and 64 as a signature "
+             "verify over roughly one body in four (measured 2026-09-20; the point has order "
+             "four, 1P, 2P and 3P measured not to be the identity). The carrier goes through no "
+             "signing path and states signature.state UNSIGNED, so a forged carrier does not pass "
+             "the release path; what reaches further is that _signaturzeile and pruefe_v2 share "
+             "that one exit, so the generated views would show a carrier with a zero key to a "
+             "reviewer as signed. Refusing small-order keys at this block is a code change with "
+             "its own catch proof and is not in this cut. Severity P2 assigned by the producer "
+             "from the sheet's stated reach — the audit trail a reviewer reads, not the release "
+             "path — not measured by a tool. Target 6.2.0"},
+    {"id": "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01", "severity": "P3", "status": "open",
+     "note": "promised in RESTRISIKO_610.md, same section as the previous entry: pyproject.toml "
+             "states that eight mypy versions and six ruff versions exit 0 over this tree, and "
+             "tests/test_shipped_comment_numbers.py binds the number of FILES each claim ranges "
+             "over without re-running the tools, because that means eight interpreter-bound "
+             "toolchains and minutes per run. Bound is the size of the set, unbound is the verdict "
+             "over it, and the case's docstring states the split rather than blurring it. Severity "
+             "P3 assigned by the producer from the sheet's stated reach — a shipped comment could "
+             "overstate a tool verdict, no verifier path depends on it — not measured by a tool. "
+             "Target 6.2.0"},
+    {"id": "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01", "severity": "P2",
+     "status": "open",
+     "note": "promised in RESTRISIKO_610.md, section 'Open — three public exporters coerce the "
+             "verdict field, and A-15 fixes the boundary, not them': A-15 typed passed, n and "
+             "metric at decode_eval_claim, and src/proofbundle/intoto.py holds three paths a "
+             "library caller reaches without that boundary: to_test_result_statement "
+             "(intoto.py:246 and :251), to_eval_result_predicate (intoto.py:424) and "
+             "svr_properties (intoto.py:551) coerce claim['passed'] with bool() or truthiness, so "
+             "a correctly signed claim whose passed field is the string 'false' returns 'PASSED', "
+             "passed: true and the threshold-met property when those functions are called "
+             "directly; measured 2026-09-19 at 99d89a8 by an adversarial lens and reproduced by an "
+             "executable case. Only the first of the three was documented before the sheet. Every "
+             "path the shipped CLI takes decodes at the boundary first (cli.py:1685, "
+             "intoto.py:584, hf_evals and policy.evaluate_policy), so the exposure is the direct "
+             "library caller of a published package, stated as real. Severity P2 assigned by the "
+             "producer from the sheet's stated reach — no path of the shipped CLI, the direct "
+             "library caller — consistent with the owner's cut decision of 2026-09-20 that 6.1.0 "
+             "ships with it open; not measured by a tool. Target 6.2.0, as a class fix at the "
+             "public exporters rather than three guards"},
+    {"id": "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01", "severity": "P3", "status": "open",
+     "note": "promised in RESTRISIKO_600.md, paragraph 'A number in this section that a later "
+             "commit makes stale' of the receipt-binding section: a head written into prose is "
+             "stale the moment the commit carrying it exists, so the sheet states such figures as "
+             "a measurement with date and object rather than as a claim about the current head. "
+             "The class recurs: audit_artifacts/600/README.md caught itself twice (49 against 53 "
+             "scanned docs, 20 against 21 register entries), and "
+             "tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py now recomputes the "
+             "register figures beside the register instead of trusting them. Open, because a "
+             "guard exists for two numbers and the class lives in every number written into "
+             "prose. Severity P3 assigned by the producer from the sheet's stated reach — a stale "
+             "number misleads a reader, it decides nothing — not measured by a tool. Its state is "
+             "'open' by the producer's reading of the paragraph, which names no state of its own"},
 ]
 
 
@@ -352,25 +920,118 @@ def _tabellenkopf(text: str, byte_von: int) -> list[str]:
 
 
 #: Spaltennamen, die den Titel eines Fundes tragen — nach Namen, nicht nach Position.
-_TITELSPALTEN = ("Finding", "In one line", "What it is", "Title")
+#: ONE source, two readers. The rule above names this same list instead of copying it.
+_TITELSPALTEN = _TITELSPALTEN_NAMEN
+
+
+def _kuerzen(wert: str, regel: dict) -> str:
+    """Shorten one title by the DECLARED bound, cut and ellipsis rather than by literals.
+
+    The numbers live in `NORMALISIERUNG_JE_FUNDART` and nowhere else. See `_titel` for why.
+    """
+    grenze = regel["maxLength"]
+    if len(wert) <= grenze:
+        return wert
+    roh = wert[:grenze] if regel["keep"] == "prefix" else wert[-grenze:]
+    if regel["cut"] == "wordBoundary":
+        # AT A WORD BOUNDARY, not at the bound itself. The first run cut "pull reques", and a cut
+        # off word reads like a data defect rather than like a shortening.
+        roh = (roh.rsplit(" ", 1)[0] if regel["keep"] == "prefix"
+               else roh.split(" ", 1)[-1]) or roh
+    return roh + (" …" if regel["ellipsis"] else "")
 
 
 def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = None) -> str:
-    """Der Titel EINER Fundstelle, aus ihren eigenen Bytes."""
+    """The title of ONE finding, cut from its own bytes.
+
+    THE DECLARED RULE IS THE RULE, not a description of this function written beside it.
+
+    Found by sweeping this branch for the class two review rounds had already hit: a second source
+    of truth that a test keeps in agreement. The carrier declares `maxLength`, `keep`, `cut`,
+    `ellipsis` and `columnFallbackIndex` per find form, and the contract executes that declaration
+    against the produced titles — but this function used to hard-wire every one of those values,
+    `200` six times over. So the declaration described the producer, it did not drive it: changing
+    a declared bound moved the contract and not the output, and the contract could only report
+    that the two disagreed, never which of them was meant.
+
+    That is the same class as the two lists that drifted over the identifier alphabet, one level
+    up. The parameters are now read from the declaration, so they exist once. The ALGORITHM stays
+    written twice on purpose: the contract's reader is an independent implementation, and an
+    oracle that shares its code with the thing it measures agrees with it by construction.
+    """
     import re  # noqa: PLC0415
+    # AN UNKNOWN FIND FORM IS REFUSED, not defaulted and not raised as a KeyError.
+    #
+    # Both neighbours of this line were measured while it was written. Before the rule was read
+    # from the declaration, an unknown form fell through to the heading branch, which turns an
+    # unmeasured case into a passing one. Reading the declaration turned that into `KeyError`,
+    # which is the traceback-instead-of-verdict shape this very round reported one function away.
+    # The third option is the right one and it is the house form.
+    regel = NORMALISIERUNG_JE_FUNDART.get(fundart)
+    if regel is None:
+        raise SystemExit(
+            f"build refused: the find form {fundart!r} has no declared title rule. A title "
+            f"derived by a rule nobody declared cannot be checked against the declaration the "
+            f"carrier ships")
+    # THE RULE IS JUDGED BEFORE IT IS APPLIED. `baue_v2` judges every declared rule up front; this
+    # call covers the direct caller, which a contract is. Checking twice costs three comparisons
+    # and removes the question of which entry point a rule came in through.
+    _pruefe_regel(fundart, regel)
+    # EVERY DECLARED FIELD IS EXECUTED, not only the numbers.
+    #
+    # Round eight measured the remainder of the previous repair: reading `maxLength`, `cut` and
+    # `ellipsis` from the declaration left `sourceUnit`, `strip`, `flattenWhitespace` and
+    # `takeFirstSentence` hard-wired per find form. Setting `takeFirstSentence` to false still
+    # produced a first-sentence title, and the carrier then SHIPPED that title beside the
+    # declaration that says otherwise, with the checker reporting nothing. A rule that is obeyed
+    # in three of its seven fields is not the rule the carrier ships.
     zeilen = stueck.splitlines()
-    erste = zeilen[0] if zeilen else ""
-    if fundart == "tabelle_spalte1":
+    einheit = regel["sourceUnit"]
+    if einheit == "the first line of the evidence":
+        wert = zeilen[0] if zeilen else ""
+    elif einheit == "the title column of the table row":
+        erste = zeilen[0] if zeilen else ""
         spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
-        if kopf:
-            for name in _TITELSPALTEN:
-                if name in kopf:
-                    i = kopf.index(name)
-                    if i < len(spalten):
-                        return spalten[i][:200]
-        return (spalten[1] if len(spalten) > 1 else "")[:200]
-    k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
-    return re.sub(r"^[·\-—,:]\s*", "", k)[:200]
+        wert = None
+        for name in regel.get("columnNames") or _TITELSPALTEN:
+            if kopf and name in kopf:
+                i = kopf.index(name)
+                if i < len(spalten):
+                    wert = spalten[i]
+                    break
+        if wert is None:
+            r = regel["columnFallbackIndex"]
+            wert = spalten[r] if r < len(spalten) else ""
+    elif einheit == "the paragraph":
+        wert = "\n".join(zeilen)
+    else:
+        raise SystemExit(
+            f"build refused: the find form {fundart!r} declares the source unit {einheit!r}, "
+            f"and nothing here knows how to cut it")
+
+    for was in regel.get("strip") or []:
+        if was == "headingMarks":
+            wert = re.sub(r"^#+\s*", "", wert)
+        elif was == "identifier":
+            wert = re.sub(rf"^\s*{re.escape(kennung)}\s*", "", wert)
+        elif was == "oneLeadingPunctuation":
+            wert = re.sub(r"^[·\-—,:]\s*", "", wert.strip())
+        else:
+            raise SystemExit(
+                f"build refused: the find form {fundart!r} declares the strip step {was!r}, "
+                f"and nothing here knows how to apply it")
+
+    if regel.get("flattenWhitespace"):
+        # THE FIRST SENTENCE OF THE PARAGRAPH, not its first LINE. Markdown wraps paragraphs; the
+        # first line ends mid sentence and would have cut the title where the line break sits,
+        # which is a property of the wrapping and not of the finding.
+        wert = " ".join(x.strip() for x in wert.splitlines()).strip()
+    else:
+        wert = wert.strip()
+    if regel.get("takeFirstSentence"):
+        teile = re.split(r"(?<=[.!?])\s+", wert)
+        wert = teile[0] if teile else wert
+    return _kuerzen(wert, regel)
 
 
 def _severity_aus_tabelle(stueck: str, kopf: list[str]) -> str | None:
@@ -497,7 +1158,8 @@ def _status_aus_ueberschrift(stueck: str, kennung: str) -> str | None:
 
 
 def _status(kennung: str, aus_tabelle: str | None = None,
-            aus_ueberschrift: str | None = None) -> dict:
+            aus_ueberschrift: str | None = None, aus_abschnitt: str | None = None,
+            fundart: str | None = None) -> dict:
     """Der Zustand eines Fundes, GELESEN statt geraten.
 
     Codex r3999621596: `_offen` fiel fuer jede Kennung, die nicht in FINDINGS steht, auf
@@ -519,10 +1181,49 @@ def _status(kennung: str, aus_tabelle: str | None = None,
     if aus_ueberschrift:
         return {"value": aus_ueberschrift,
                 "source": f"state word in the heading in {RESTRISIKO_REL}"}
+    if aus_abschnitt:
+        # FOURTH SOURCE, and it is read rather than guessed: the section the finding sits under
+        # carries the house form `## Open — …`. That is a statement of the document about its own
+        # section, not a derivation from severity or role.
+        return {"value": aus_abschnitt,
+                "source": f"state word in the enclosing section heading in {RESTRISIKO_REL}"}
+    # THE REASON NAMES THE SOURCES THAT WERE ACTUALLY ASKED, and that is a repair.
+    #
+    # MEASURED 2026-09-20 by a review lens: the first version listed all four sources
+    # unconditionally, including "nor under a section heading in the house form `## Open`". That
+    # fourth source is consulted ONLY for the find form `prosa_zusage` (see `baue_v2`), so for the
+    # 105 records of line 600 that carry the heading form it named a check that structurally never
+    # ran. A reason that reports an unperformed step as performed is the same defect this whole
+    # file is built against, written into 105 places at once.
+    gefragt = ["the producer list", "a heading that names its state after a dash"]
+    if fundart == "tabelle_spalte1":
+        gefragt.insert(1, "a table with a state column")
+    if fundart == "prosa_zusage":
+        gefragt.append("a section heading in the house form `## Open`")
     return {"value": None, "state": "NOT MEASURED",
-            "reason": ("this identifier appears neither in the producer list, nor in a table with "
-                       "a state column, nor in a heading that names its state after a dash; "
-                       "setting a state here would be a guess")}
+            "sources_asked": gefragt,
+            "reason": ("no source that was asked carries a state for this identifier. Asked: "
+                       + ", ".join(gefragt)
+                       + ". Setting a state here would be a guess, and naming a source that was "
+                         "not asked would be worse")}
+
+
+#: What an identifier may look like. It is a FILE NAME the moment a piece of evidence is written.
+#:
+#: MEASURED 2026-09-20 by a review lens: an entry whose `kennung` is
+#: `../../../../tmp/<name>` produced a record that `pruefe_v2` accepted with zero errors, and the
+#: evidence write landed OUTSIDE the evidence directory and outside the repository. Nothing in the
+#: chain asked what characters an identifier carries — the producer took the object class file at
+#: its word, and that file is data.
+_KENNUNG_FORM = None
+
+
+def _kennung_form():
+    global _KENNUNG_FORM
+    if _KENNUNG_FORM is None:
+        import re  # noqa: PLC0415
+        _KENNUNG_FORM = re.compile(rf"\A[A-Za-z0-9][{_KENNUNG_ZEICHEN}]{{0,120}}\Z")
+    return _KENNUNG_FORM
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -535,11 +1236,86 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     """
     import hashlib
     import json as _json  # noqa: PLC0415
+    import re  # noqa: PLC0415
     quelle = repo / RESTRISIKO_REL
     roh = quelle.read_bytes()
     text = roh.decode("utf-8")
     qd = hashlib.sha256(roh).hexdigest()
     ok = _json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+    # BEFORE ANY TITLE IS DERIVED. A declared rule that no title is long enough to exercise would
+    # otherwise ship unchecked; see `_pruefe_regel`.
+    pruefe_titelregeln()
+
+    # THE SOURCE OF AN ENTRY IS ITS OWN, and that is not convenience.
+    #
+    # Line 610 carries five identifiers, and one of them
+    # (`ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01`) stands in RESTRISIKO_600.md, not in
+    # RESTRISIKO_610.md. The obvious remedy would have been to copy the sentence into the 610
+    # sheet, and then the promise sits in two places and the evidence file points at the copy
+    # instead of the original. An identifier has ONE find site; which file carries it is said by
+    # the entry. `evidence[].source_path` carries that statement per record anyway.
+    _quellen: dict[str, tuple[bytes, str, str]] = {RESTRISIKO_REL: (roh, text, qd)}
+
+    def _quelle_von(rel):
+        """The bytes of ONE source, and it lies INSIDE the tree being measured.
+
+        The P1 of round eight, measured: with `"quelle": "../outside.md"` and a matching heading
+        in that sibling file, the generator built a record from bytes OUTSIDE the tree, recorded
+        `../outside.md` as its provenance and copied the slice into the repository. A carrier
+        built that way can no longer be rechecked from a clean checkout, and that is precisely
+        the promise of this artefact. A path that comes from data is not a path until somebody
+        has asked where it points.
+
+        The type is judged BEFORE the lookup rather than after it: a list as `quelle` raised
+        `TypeError: unhashable type` at the dictionary key, a mapping the same class, and an
+        integer one line further on at `repo / rel`; none of them reached the typed refusal
+        beside it, because that catches only `OSError`. This is the sibling of the identifier
+        defect of the same round.
+        """
+        if not isinstance(rel, str) or not rel:
+            raise SystemExit(
+                f"build refused: the source of an entry is {rel!r}, which is not a path. A "
+                f"source that is not text cannot be read, and a build that ends in a traceback "
+                f"has told nobody what it refused")
+        # AN ABSOLUTE PATH IS REFUSED, not quietly rewritten — round nine, and it is the NEIGHBOUR
+        # of the P1 above rather than a new question.
+        #
+        # That P1 asked whether the source lies inside the tree, and the repair answered it by
+        # resolving the path. Measured on the repaired head: `"quelle": "/abs/path/to/repo/R.md"`
+        # passes, because its RESOLVED target is inside the root — and the ABSOLUTE spelling is then
+        # published verbatim in `evidence[].source_path` and in `inventory.source_documents`. Move
+        # that clean checkout anywhere else and the carrier is unverifiable, while a stale file left
+        # at the old absolute location is still the one consulted. Containment was checked; portable
+        # provenance was not, and provenance is what this artefact is for.
+        #
+        # Refused rather than normalised, because an absolute path in the object class file is a
+        # defect of the DATA — it carries one machine's layout into a document that ships. Silently
+        # relativising it would hide exactly that.
+        if pathlib.PurePosixPath(rel).is_absolute():
+            raise SystemExit(
+                f"build refused: the source of an entry is the absolute path {rel!r}. Evidence "
+                f"provenance is recorded repository-relative, so that a clean checkout anywhere "
+                f"can recheck it; an absolute path names one machine's layout and travels with "
+                f"the document as if it named the file")
+        ziel = (repo / rel).resolve()
+        wurzel = pathlib.Path(repo).resolve()
+        if ziel != wurzel and wurzel not in ziel.parents:
+            raise SystemExit(
+                f"build refused: the source {rel!r} resolves to {ziel}, which lies outside the "
+                f"tree being measured. Evidence cut from outside the tree cannot be rechecked "
+                f"from a clean checkout, which is the whole promise of this artefact")
+        # ONE FILE, ONE KEY. The second half of the same class, and it is measured rather than
+        # anticipated: with `R.md` on one entry and `./R.md` on another, the two spellings became
+        # two `_quellen` entries, so `inventory.source_documents` listed the SAME file twice, each
+        # time claiming one of the two identifiers. The inventory then reports two sources where
+        # the tree has one, and neither row carries the true count. The recorded key is therefore
+        # the canonical repository-relative path, derived from the resolved target, not the
+        # spelling the data happened to use.
+        schluessel = ziel.relative_to(wurzel).as_posix()
+        if schluessel not in _quellen:
+            b = ziel.read_bytes()
+            _quellen[schluessel] = (b, b.decode("utf-8"), hashlib.sha256(b).hexdigest())
+        return (*_quellen[schluessel], schluessel)
 
     # DIE DEKLARIERTE AUSNAHME, EINMAL GELESEN. Nur wer hier steht — mit Grund UND Beleg, das
     # verlangt tests/test_objektklassen_gegen_das_register.py — gilt als "gemessen, nichts
@@ -551,15 +1327,79 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
                   for kx in (_aus.get("kennungen") or [])}
 
     records, ohne_fundstelle = [], []
+    # THE TYPE BOUNDARY COMES FIRST, because collecting is already processing.
+    #
+    # Measured in round seven: an entry with `"kennung": ["N1"]` raised `TypeError: unhashable
+    # type: 'list'` inside the set comprehension that used to stand here, so the `isinstance`
+    # refusal three lines below never ran and the generator ended in a traceback instead of its
+    # typed verdict. A validation placed after the step that can already fail is not a boundary,
+    # it is a comment. Every identifier is judged before any of them is collected.
+    for _e in ok["eintraege"]:
+        _q = _e.get("quelle")
+        if _q is not None and not (isinstance(_q, str) and _q):
+            raise SystemExit(
+                f"build refused: the source of an entry is {_q!r}, which is not a path. Every "
+                f"field that becomes a lookup key is judged before any of them is used")
+        _k = _e.get("kennung")
+        if not (isinstance(_k, str) and _kennung_form().match(_k)):
+            raise SystemExit(
+                f"build refused: the identifier {_k!r} carries characters an identifier must "
+                f"not carry. It becomes a FILE NAME, and a file name built from unchecked data "
+                f"writes wherever that data points")
+    alle_kennungen = {e["kennung"] for e in ok["eintraege"]}
     for e in ok["eintraege"]:
         k = e["kennung"]
-        t = schneide_beleg(text, k)
+        if not (isinstance(k, str) and _kennung_form().match(k)):
+            raise SystemExit(
+                f"build refused: the identifier {k!r} carries characters an identifier must "
+                f"not carry. It becomes a FILE NAME, and a file name built from unchecked data "
+                f"writes wherever that data points")
+        e_rel = e.get("quelle") or RESTRISIKO_REL
+        try:
+            # THE RECORDED KEY COMES BACK FROM THE READER, so what is written into the carrier is
+            # the canonical path the reader actually opened — never the spelling from the data.
+            e_roh, e_text, e_qd, e_rel = _quelle_von(e_rel)
+        except OSError as exc:
+            # A TYPED VERDICT, not a raw traceback. A gate that ends in a stack trace has no
+            # NOT MEASURABLE path at all.
+            raise SystemExit(
+                f"Erzeugung abgebrochen: die Quelle {e_rel!r} des Eintrags {k!r} ist nicht "
+                f"lesbar ({type(exc).__name__}: {exc})") from None
+        t = schneide_beleg(e_text, k, alle_kennungen)
         if t is None:
             ohne_fundstelle.append(k)
             continue
         von, bis, fundart = t
-        stueck = roh[von:bis]
-        kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
+        stueck = e_roh[von:bis]
+        # EVIDENCE THAT NAMES A FOREIGN FINDING DOES NOT PROVE THIS ONE. The lesson the second
+        # version of `schneide_beleg` learned ("evidence containing thirteen findings proves
+        # none") carried to the third find form: the paragraph of a promise can mention another
+        # identifier in prose, and counting PROMISES does not see that. Measured by a lens on a
+        # built counter-example.
+        # ONLY FOR THE PROSE PROMISE, and the narrowness is measured rather than chosen out of
+        # caution. The first attempt checked every find form and broke line 600: a section in
+        # HEADING form regularly and rightly names other identifiers in its text ("see S22",
+        # "as in N16"), and a cross reference is not foreign evidence. In the paragraph of a
+        # promise it is, because the paragraph is three sentences long and the promise owns it.
+        if fundart == "prosa_zusage":
+            # IDENTIFIER IDENTITY, NOT CHARACTER CONTAINMENT.
+            #
+            # A review round measured what containment costs here: with `N1` and `N10` both
+            # declared, the paragraph promising `N10` contains the characters of `N1`, so `N1`
+            # counted as a foreign identifier in it, `N10` was refused and landed in
+            # `identifiers_without_evidence` although its promise was found. A substring standing
+            # in for identifier identity does not merely weaken a check here, it drops a valid
+            # entry from the generated carrier.
+            _text = stueck.decode("utf-8", "ignore")
+            fremd = sorted(x for x in alle_kennungen
+                           if isinstance(x, str) and x != k
+                           and re.search(
+                               rf"(?<![{_GRENZE_ZEICHEN}]){re.escape(x)}"
+                               rf"(?![{_GRENZE_ZEICHEN}])", _text))
+            if fremd:
+                ohne_fundstelle.append(k)
+                continue
+        kopf = _tabellenkopf(e_text, von) if fundart == "tabelle_spalte1" else []
         records.append({
             "id": k,
             "record_revision": revision,
@@ -589,8 +1429,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # gelten. Das Zitat heisst deshalb `beleg` und steht nur da, wo es eines gibt; der
             # verneinte Fall traegt gar keine Prosa, denn "nichts deklariert" braucht keinen Satz.
             "not_a_defect": ({"value": True,
-                              "source": "declared exception `messung_ohne_fund` in "
-                                        "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                              "source": ("declared exception `messung_ohne_fund` in "
+                                         + OBJEKTKLASSEN_REL),
                               "beleg": _OHNE_FUND.get(k)}
                              if k in _OHNE_FUND else {"value": False}),
             # ART NICHT GERATEN. Die Objektklassen unterscheiden nach HERKUNFT
@@ -619,13 +1459,16 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "status": _status(k,
                               _status_aus_tabelle(stueck.decode("utf-8"), kopf)
                               if fundart == "tabelle_spalte1" else None,
-                              _status_aus_ueberschrift(stueck.decode("utf-8"), k)),
+                              _status_aus_ueberschrift(stueck.decode("utf-8"), k),
+                              _status_aus_abschnitt(e_text, von)
+                              if fundart == "prosa_zusage" else None,
+                              fundart),
             "evidence": [{
                 "path": f"{EVIDENZ_REL}/{k}.md",
                 "sha256": hashlib.sha256(stueck).hexdigest(),
                 "role": "historical_record",
-                "source_path": RESTRISIKO_REL,
-                "source_sha256": qd,
+                "source_path": e_rel,
+                "source_sha256": e_qd,
                 "byte_range": [von, bis],
                 "fundart": fundart,
             }],
@@ -645,7 +1488,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     return {
         "schema": "proofbundle.findings_register.v2",
         "profile_version": "0.1",
-        "document_id": f"urn:b7n0de:findings-register:{VERSION.replace('.', '')}",
+        "document_id": f"urn:b7n0de:findings-register:{V2_FASSUNG.replace('.', '')}",
         "register_revision": revision,
         "issuer": "b7n0de",
         # DIE SPRACHANGABE WAR EINE HALBE WAHRHEIT (Codex r3999621601). Der Traeger fuehrte
@@ -666,6 +1509,30 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "language": "en",
         "language_scope": {
             "generated_prose": "en",
+            # THE FORMS ACTUALLY USED, DERIVED — never a hand kept list beside the data.
+            #
+            # A carrier that names a find form it did not use publishes a rule for nothing, and one
+            # that omits a form it DID use leaves those titles without a declared derivation while
+            # looking complete. Both are the class this block exists against, so the set is read
+            # off the records rather than written down: exactly the forms that produced a title
+            # here, each with the rule the producer applied.
+            # THE RULE IS DATA, AND NOTHING RESTATES IT HERE.
+            #
+            # Two review rounds took the same wrong turn out of me. The first carrier declared the
+            # rule as one English sentence, and the contract asked whether that sentence contains
+            # the words `wrap` and `cut`; it did, and the rule was wrong for 145 of 150 values.
+            # The repair made the rule structured data and kept a rendered sentence beside it in
+            # `inWords`, and the next round changed that sentence to say `never marked with a
+            # trailing ellipsis` while the rule still said `ellipsis: true`. All 28 cases stayed
+            # green, because a keyword check accepts a word inside its own negation.
+            #
+            # A longer phrase would have been defeated by other wording, so the answer is not a
+            # better lexical check. A free-text field beside structured data is a SECOND source of
+            # truth, and two sources drift; the carrier therefore stores the rule and nothing
+            # else. Prose for a human is RENDERED where it is displayed, by `regel_als_satz`, from
+            # this same data. A sentence that is not stored cannot contradict the rule.
+            "title_derivation": {fa: NORMALISIERUNG_JE_FUNDART[fa] for fa in sorted(
+                {r["evidence"][0]["fundart"] for r in records})},
             # JE QUELLE EIN EINTRAG, und das ist eine Korrektur an der ersten Fassung dieses
             # Blocks. Sie nannte EINE Quelle fuer Felder aus ZWEI Dateien — gemessen kommen 145
             # Titel aus dem Quellregister und 153 weitere Zeichenketten aus der
@@ -674,12 +1541,29 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # `tests/test_die_sprachangabe_deckt_was_sie_sagt.py` rechnet ihn jetzt nach: jedes
             # als zitiert deklarierte Feld MUSS in seiner genannten Quelle woertlich vorkommen.
             "quoted_from_source": [
-                {"language": "de", "source": RESTRISIKO_REL,
-                 "fields": ["records[].title"],
-                 "why": ("headings cut verbatim out of the source register; the evidence files "
-                         "are byte pinned and digest checked, so translating them would falsify "
-                         "the evidence they exist to reproduce")},
-                {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                # ONE ENTRY PER SHEET ACTUALLY QUOTED FROM. `_quellen` carries exactly the files
+                # evidence was cut out of, so the block cannot name fewer than it used.
+                *({"language": SPRACHE_JE_BLATT.get(rel, _SPRACHE_DER_RISIKOBLAETTER),
+                   "source": rel,
+                   "fields": ["records[].title"],
+                   # THE CLAIM SAYS WHAT THE VALUE IS, and the first version said more.
+                   #
+                   # A review round on 2026-09-20 put it plainly: a normalised, shortened title is
+                   # not a verbatim quotation, and calling it one publishes provenance a reader
+                   # cannot check against the named source. My own first answer to that was the
+                   # wrong way round — I made the CHECKER tolerant instead of making the CLAIM
+                   # accurate. A check bent to fit a claim measures the claim, not the source.
+                   #
+                   # So the normalisation is DECLARED, here, in the same block that names the
+                   # source. A reader applies it and gets the source bytes back; the contract
+                   # applies exactly this rule and nothing wider.
+                   "normalisation": NORMALISIERUNG_DER_TITEL,
+                   "why": ("headings taken from the source register and normalised by the rule "
+                           "named above; the evidence files are byte pinned and digest checked, "
+                           "so translating them would falsify the evidence they exist to "
+                           "reproduce")}
+                  for rel in sorted(_quellen)),
+                {"language": _SPRACHE_DER_QUELLE, "source": OBJEKTKLASSEN_REL,
                  "fields": ["records[].objektklasse_begruendung",
                             "records[].not_a_defect.beleg",
                             "inventory.coverage_gaps[].reason",
@@ -691,7 +1575,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         },
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
-        "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
+        "release_subject": {"name": "proofbundle", "version": V2_FASSUNG,
+                            "tag": f"v{V2_FASSUNG}"},
         # DIE BEWERTUNGSGRENZE IST KEINE EIGENSCHAFT DES ERZEUGUNGSLAUFS (Codex r4000054881).
         # Sie stand auf `generated_at`, also auf dem Zeitpunkt, an dem dieser Befehl lief. Gemessen:
         # `baue_v2(..., "2099-01-01T00:00:00Z")` meldet null Fehler und laesst beide Ansichten eine
@@ -703,12 +1588,17 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         # MEASURED mit Grund — nie ein Rueckfall auf die Uhr des Laufs, denn das war der Fehler.
         "assessment_cutoff": _bewertungsgrenze(ok),
         "inventory": {
-            "source_documents": [{"path": RESTRISIKO_REL, "sha256": qd,
-                                  "identifiers": len(ok["eintraege"])},
-                                 {"path": OBJEKTKLASSEN_REL,
-                                  "sha256": hashlib.sha256(
-                                      (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
-                                  "identifiers": len(ok["eintraege"])}],
+            # EVERY source used stands here, not only the one of the line. An inventory that
+            # keeps quiet about a file evidence was cut from is not an inventory.
+            "source_documents": [{"path": rel, "sha256": _quellen[rel][2],
+                                  "identifiers": sum(
+                                      1 for r in records
+                                      if r["evidence"][0]["source_path"] == rel)}
+                                 for rel in sorted(_quellen)]
+            + [{"path": OBJEKTKLASSEN_REL,
+                "sha256": hashlib.sha256(
+                    (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
+                "identifiers": len(ok["eintraege"])}],
             "identifiers_total": len(ok["eintraege"]),
             "identifiers_in_this_register": len(records),
             "identifiers_without_evidence": ohne_fundstelle,
@@ -880,10 +1770,15 @@ def _gegenrechnung(ok: dict, records: list, repo=None) -> dict:
     }
     soll = ein.get("sollliste_kennungen")
     if not isinstance(soll, list) or not soll:
+        # ENGLISH, because this reason is GENERATED PROSE and the carrier declares `language:
+        # en`. It never appeared in an output before 2026-09-20: line 600 carries the tally
+        # block, so this branch was unreachable there. Line 610 has no external tally, the
+        # branch fires, and the German sentence would have shipped into a view that says it is
+        # English. A field is only as honest as the path nobody walked yet.
         return {**kopf, "state": "NOT MEASURED",
-                "reason": ("die Eingabe fuehrt keine Liste `sollliste_kennungen`; ohne sie "
-                           "laesst sich gegen die Fremdzaehlung nicht RECHNEN, und der "
-                           "historische Block waere ein Zitat aus einem frueheren Stand")}
+                "reason": ("the input carries no list `sollliste_kennungen`; without it there is "
+                           "nothing to COMPUTE against the independent tally, and the historical "
+                           "block would be a quotation from an earlier state")}
     # LINSE 1, Nebenfund 13.09.2026: `sorted()` ueber eine Menge mit unvergleichbaren Typen
     # (None neben str, int neben str) warf einen ROHEN TypeError — und zwar in `baue_v2`, also
     # VOR `pruefe_v2`. Ein Riegel, der mit einem Traceback endet statt mit einem Urteil, hat
@@ -1119,6 +2014,13 @@ def pruefe_v2(doc, repo) -> list[str]:
         for feld in ("class_state", "last_measured_state"):
             if r.get(feld) and r[feld] not in LUECKENWOERTER:
                 fehler.append(f"{kid}, {feld} ist kein Lueckenwort: {r[feld]!r}")
+    # ONE IDENTIFIER, ONE RECORD. Measured by a lens: two entries of the same identifier from two
+    # sources produced two records, the sum check stayed arithmetically true, and the cross count
+    # silently collapsed the duplication into a set.
+    _ids = [r.get("id") for r in doc["records"]]
+    _doppelt = sorted({x for x in _ids if _ids.count(x) > 1})
+    if _doppelt:
+        fehler.append(f"zwei oder mehr Datensaetze tragen dieselbe Kennung: {_doppelt}")
     inv = doc["inventory"]
     # DIE QUELL-DIGESTS DES INVENTARS WURDEN NIE NACHGERECHNET (Codex r3999918378, P1). Die
     # Belegeintraege tragen je einen `source_sha256`, und DER wird geprueft — aber
@@ -1478,6 +2380,21 @@ def _signaturzeile(doc) -> str:
     return f"Signature, {zustand} — {grund}." + (f" {folge[0].upper()}{folge[1:]}." if folge else "")
 
 
+#: THE TWO MARKERS `scripts/neue_zeilen_sind_englisch.py` READS, and the generated views carry
+#: them around the material they QUOTE. Measured 2026-09-20 on line 610: the row for
+#: `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01` is flagged as German, and the two
+#: German words are inside the IDENTIFIER. That identifier is promised by a risk sheet that is
+#: already on `main`; renaming it would break the promise the register exists to back.
+#:
+#: The carrier already says this about itself: `language_scope.quoted_from_source` declares the
+#: titles and the class reasons as verbatim quotations with their own language. The views render
+#: exactly those fields, so the same statement belongs there in the form the gate reads. Narrow on
+#: purpose, the way the gate asks for it: the markers enclose the record rows and nothing else,
+#: never a file and never a directory.
+_ZITAT_AUF = "<!-- proofbundle:verbatim-quote:begin -->"
+_ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
+
+
 def ansicht_uebersicht(doc) -> str:
     sub, inv = doc["release_subject"], doc["inventory"]
     z = [f"# Known remainders, {sub['name']} {sub['version']}", "",
@@ -1514,25 +2431,26 @@ def ansicht_uebersicht(doc) -> str:
         if a.get("prose_rationale_state") == "REFUTED":
             z.append("  The prose rationale in the source is REFUTED by the source's own table; "
                      "the claim is carried here because it is COMPUTED, not quoted.")
-    z += ["", "## All records", "",
+    z += ["", "## All records", "", _ZITAT_AUF,
           "| Id | Role | Class | Severity | Evidence | Bytes |", "|---|---|---|---|---|---|"]
     for r in doc["records"]:
         sev = r["severity"].get("value") or r["severity"].get("state")
         b = r["evidence"][0]
         z.append(f"| {r['id']} | {r['record_role']} | {r.get('objektklasse','')} | {sev} "
                  f"| {b['path']} | {b['byte_range'][0]}..{b['byte_range'][1]} |")
-    z += ["", f"Generated from {V2_REL}. Do not edit by hand.", ""]
+    z += [_ZITAT_ZU, "", f"Generated from {V2_REL}. Do not edit by hand.", ""]
     return "\n".join(z)
 
 
 def ansicht_known_issues(doc) -> str:
-    z = [f"### Known issues, {doc['release_subject']['version']}", ""]
+    z = [f"### Known issues, {doc['release_subject']['version']}", "", _ZITAT_AUF]
     for r in doc["records"]:
         if not _offen(r):
             continue
         sev = r["severity"].get("value") or r["severity"].get("state")
         z.append(f"* {r['id']} ({sev}), {r['title'][:160]}")
-    z += ["", "Generated from the findings register. The register carries the rest.", ""]
+    z += [_ZITAT_ZU, "",
+          "Generated from the findings register. The register carries the rest.", ""]
     return "\n".join(z)
 
 
@@ -1625,15 +2543,18 @@ def schreibe_v2(repo, generated_at: str, revision: int = 0) -> dict:
             print("ROT,", f)
         raise SystemExit(f"Erzeugung abgebrochen, {len(fehler)} Verstoesse, keine Teilausgabe")
 
-    roh = (repo / RESTRISIKO_REL).read_bytes()
     ev = repo / EVIDENZ_REL
     ev.mkdir(parents=True, exist_ok=True)
+    _roh: dict[str, bytes] = {}
     for r in doc["records"]:
         b = r["evidence"][0]
         von, bis = b["byte_range"]
+        rel = b["source_path"]
+        if rel not in _roh:
+            _roh[rel] = (repo / rel).read_bytes()
         # GENAU die Bytes des Bereichs, nichts davor, nichts dahinter. Der fruehere
         # Herkunftskopf machte `sha256sum <path>` bei allen 145 Belegen unbrauchbar.
-        (ev / f"{r['id']}.md").write_bytes(roh[von:bis])
+        (ev / f"{r['id']}.md").write_bytes(_roh[rel][von:bis])
 
     # ERST GEGENRECHNEN, DANN DEN TRAEGER SCHREIBEN. Faellt das hier, entsteht kein
     # Traeger, der auf Dateien zeigt, die etwas anderes tragen als er behauptet.
@@ -1713,9 +2634,12 @@ def main(argv=None) -> int:
     p.add_argument("--v2", action="store_true",
                    help="Registerform 6.1: Traeger, Belege und Ansichten erzeugen")
     p.add_argument("--revision", type=int, default=0)
+    p.add_argument("--linie", choices=sorted(LINIEN), default="600",
+                   help="welcher Schnitt: 600 (Vorgabe) oder 610")
     a = p.parse_args(argv)
 
     if a.v2:
+        waehle_linie(a.linie)
         if a.generated_at is None:
             from datetime import datetime, timezone  # noqa: PLC0415
             a.generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
