@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,8 @@ SRC = REPO / "src"
 VERIFIER = "verify_pre_tag_receipt.py"
 _SCRIPTS_NEEDED = ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
                    "sign_readiness_artifact.py", VERIFIER)
+#: The audit the producer runs in these fixtures: a program that prints one line and exits 0.
+_AUDIT = shlex.join([sys.executable, "-c", "print('audit ran')"])
 
 
 def _run(cmd, cwd, env=None):
@@ -75,7 +78,6 @@ def welt(tmp_path):
     (repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
         base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n")
     (repo / "_privkey.b64").write_text(base64.b64encode(priv.private_bytes_raw()).decode())
-    (repo / "_audit.txt").write_text("audit ran\n")
     # The real repository ignores bytecode; without this line the producer's own __pycache__
     # would show up as an untracked file under scripts/ and the verifier would refuse its own
     # positive control -- which is exactly the refusal it is built for, so the fixture must be
@@ -87,8 +89,10 @@ def welt(tmp_path):
     kandidat = _head(repo)
     env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
            "PB_INLINE_SIGNING": "1"}
+    # THE AUDIT RUNS INSIDE THE TOOL (2026-09-21): started by the receipt script between two
+    # measurements of the tree; the record is written by the script, outside the tree.
     r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
-              "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
+              "--audit-command", _AUDIT, "--audit-output-file", str(tmp_path / "_audit_record.txt"),
               "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
               "--privkey-file", "_privkey.b64"], repo, env)
     assert r.returncode == 0, f"receipt production failed: {r.stderr}"
@@ -215,7 +219,8 @@ class TestContract1_NoValidReceiptFails:
         assert res["foreign_files"] == ["audit_artifacts/500/findings_register_v2.json"]
         # BESIDE a receipt produced over this tree it neither verifies nor poisons.
         r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
-                  "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
+                  "--audit-command", _AUDIT,
+                  "--audit-output-file", str(repo.parent / "_audit_record_beside_register.txt"),
                   "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
                   "--privkey-file", "_privkey.b64"], repo, env)
         assert r.returncode == 0, r.stderr

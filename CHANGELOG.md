@@ -115,6 +115,32 @@ before the closing round, not after it.
 - **R7 — three numbers in shipped comments that no longer matched the tree.** They are now derived
   by running the cases rather than by counting lines, and the run refuses to report a ratio when it
   did not finish: killed and survived are not an exhaustive pair, and a partial run reports neither.
+- **A-70 — the pre-tag receipt could be produced from a tree that was not the one measured.**
+  `scripts/pre_tag_receipt.py` refuses a working tree that differs from the committed head, and
+  since 2026-09-21 it runs the audit itself between two measurements of that tree: a supplied
+  record and a typed exit code are no longer accepted, because a counter-reading bound output
+  produced from a modified tree to the clean head by restoring the file before the emit. The
+  cleanliness measurement no longer asks `git status`, whose answer depends on state outside the
+  committed tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+  `.git/info/exclude`, an untracked ignore file covering itself and `GIT_DIR` in the environment
+  each hid a path from the first version; a second counter-reading showed the index bits
+  `assume-unchanged` and `skip-worktree` hiding a modified tracked file from the version that
+  followed; and the own sweep plus a third counter-reading showed a clean filter defined in the
+  configuration, `core.worktree` and `core.fileMode=false` still deciding what `git diff-index`
+  reported on a fresh index, a fourth counter-reading showed `core.ignoreCase=true` hiding
+  an untracked file from `ls-files --others`, and a fifth showed a negated rule in a tracked
+  `.gitignore` taken for a hiding rule and `refs/replace` substituting the head's objects. The
+  tree is now compared by COMPUTING the property: the bytes on disk against `git ls-tree -r HEAD`
+  (`hash-object --no-filters` per entry, modes from the file, symbolic-link targets hashed) and
+  the paths on disk against the same listing, with only a non-negated tracked `.gitignore` rule
+  allowed to hide one, and every git call of the process reading the raw objects
+  (`GIT_NO_REPLACE_OBJECTS=1`); each of the thirteen has a case that was red against the version
+  it was measured on. A checkout whose files differ
+  from their blobs by design (`core.autocrlf=true`, no executable bit) refuses, and the docstring
+  says so.
+  `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
+  it wrote itself, which is exactly the shape the gate refuses. Named limit: a change made and
+  undone during the run lies between the two measurements.
 - Evidence digests: a record named a `path` and a `sha256` that described different objects, the
   digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
   file. The checker also never opened the file it named, so a deleted or altered piece of evidence
