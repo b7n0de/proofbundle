@@ -15,7 +15,7 @@ gap with a reason.
 
 **The carrier, named by digest so the sentence cannot drift:**
 
-    audit_artifacts/610/findings_register_v2.json   sha256 7fc8209bebbad99b49cf3e4f6054d06452fc41a0c7a2d99afa3beb83611e6253
+    audit_artifacts/610/findings_register_v2.json   sha256 d05df9850238e074ea98a652a8bda6f27afd8ee57b9cf9d87381ab031c31117b
                                                     15982 bytes · schema proofbundle.findings_register.v2
                                                     document_id urn:b7n0de:findings-register:610
                                                     register_revision 0 · issued_at 2026-09-21 · 5 records
@@ -31,8 +31,8 @@ tree this file sits in and asks git whether any token here is a revision, so nei
 ## The sources it was cut from
 
     RESTRISIKO_600.md   sha256 27e3ef54d0d7d13b8d3ec4893f591bff7e52831d5c9244b3c9a65ad8194102af   1 identifier(s)
-    RESTRISIKO_610.md   sha256 33efa259a129de4c082487a45a4acbda6b0a2722169daf4b63d2fbbe99743b73   4 identifier(s)
-    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 2c2d7b431f819191908e27742fd0592380568692fc37ccf3a0424b7d849c954b   5 identifier(s)
+    RESTRISIKO_610.md   sha256 c9ced1fbb218ba1770f48f0d42e97b4920bbabae173cc6b8645122038b245468   4 identifier(s)
+    RESTRISIKO_610_OBJEKTKLASSEN.json   sha256 7c426bcde1976dd1fbf4535f9d6b35700ed263dd64904db67a16d8ca5dd5aacc   5 identifier(s)
 
 ## How a title relates to its source
 
@@ -79,7 +79,7 @@ recomputes the three figures in this paragraph from the register on every run.
   v1 register is what endorses the assignment.
 - `NOT MEASURED` for the cross-count against an independent tally:
   the input carries no list `sollliste_kennungen`; without it there is nothing to COMPUTE against the independent tally, and the historical block would be a quotation from an earlier state
-- The assessment cutoff is 2026-09-20, taken from the state the object class file records, not from
+- The assessment cutoff is 2026-09-21, taken from the state the object class file records, not from
   the clock of the run that produced this file.
 
 Generated from measured values of the carrier named above. The carrier itself is produced by
@@ -93,8 +93,9 @@ when the register was cut. The ceremony of 6.1.0 files the pre-tag receipt besid
 mutable evidence paths, so its arrival changes no digest named in this document.
 
 The closing gate round does not run for 6.1.0. Owner word of 2026-09-21 (card `OA-ac65eda888`,
-option B): the DEEP mode requires three qualified model families and the qualification register
-carries one, so the round is not run rather than run as a formality. The consequences, named here
+option B): the DEEP mode requires three qualified model families and the operator's qualification
+register carries two (measured on 2026-09-21), so the round is not run rather than run below its
+floor. The consequences, named here
 so that a reader of the receipt sees them without opening the matrix:
 
 - the audit-candidate cells C6.2, C6.3 and C8.2 stay red, as they did for 6.0.0. The soak and

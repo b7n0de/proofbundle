@@ -269,10 +269,11 @@ The mechanism above is measured; the specific cell is not.
 
 Owner word of 2026-09-21 (card `OA-ac65eda888`, option B): no deep-gate run on the frozen head.
 The reason is measured, not a preference. The DEEP mode of the gate requires three qualified model
-families; the qualification register carries one. Running the six lenses with that one family and
-calling the result `WITHSTANDS_DEEPGATE` would pass the word and miss its meaning, and the owner
-struck that option as never having been on the table. Qualifying further families is work after
-the tag, not before it.
+families; the operator's qualification register carries two, measured on 2026-09-21 with the
+register's own reading. Running the six lenses below that floor and calling
+the result `WITHSTANDS_DEEPGATE` would pass the word and miss its meaning, and the owner struck
+that option as never having been on the table. Qualifying a third family is work after the tag,
+not before it.
 
 What that means for the audit-candidate matrix on the tagged head, stated before the tag rather
 than discovered after it:
