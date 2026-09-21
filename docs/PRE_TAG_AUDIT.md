@@ -51,15 +51,19 @@ captured into `--audit-output-file` (a path outside the tree that did not exist 
 typed exit code and a supplied record are refused, because neither can be bound to a run that
 was measured; a counter-reading had shown that an output produced from a modified tree, with
 the file restored afterwards, was bound to the clean head. The cleanliness measurement does not
-ask `git status` at all: the working tree is compared with `HEAD` through a fresh index that the
-run reads from `HEAD` into a private temporary file, so the `assume-unchanged` and
-`skip-worktree` bits of the checkout's own index, which make `git status` and `git diff` skip a
-modified tracked file, have nothing to act on; staged content is compared with `HEAD` on the
-real index; untracked paths are judged against the tree's own ignore files only, never against
-`status.showUntrackedFiles`, a global excludes file, `.git/info/exclude`, an untracked ignore
-file covering itself, or `GIT_DIR` in the environment. Each of those had hidden a path from an
-earlier version, and each has a case that was red against it. What two point measurements
-cannot see, and the script says so: a change made and undone during the run.
+ask git whether the tree is clean, because git answers through its configuration: it is COMPUTED
+from the bytes on disk. Every entry of `git ls-tree -r HEAD` is hashed as a blob with
+`git hash-object --no-filters` and compared with the committed object id, its mode is read from
+the file itself, a symbolic link's target is hashed, and a missing or foreign entry refuses by
+name; staged content is compared with `HEAD` on the real index; untracked paths are judged on a
+fresh index against the tree's own ignore files only, with the working tree named on the command
+line. Ten states outside the committed tree had each hidden a path from an earlier version, and
+each has a case that was red against it: `status.showUntrackedFiles`, a global excludes file,
+`.git/info/exclude`, an untracked ignore file covering itself, `GIT_DIR`, the index bits
+`assume-unchanged` and `skip-worktree`, a clean filter defined in the configuration,
+`core.worktree` and `core.fileMode`. The price is named: a checkout whose files differ from their
+blobs by design (`core.autocrlf=true`, no executable bit, `core.symlinks=false`) refuses. What two
+point measurements cannot see, and the script says so: a change made and undone during the run.
 
 **Honest limit, and it is not small.** The trust root is a key committed in this repository, the
 same one whose release the verdict concerns. A third party can verify the signature if they clone

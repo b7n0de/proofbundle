@@ -16,10 +16,12 @@ code is what the program returned, and `--audit-output-file` is where this proce
 captured. A typed exit code and a supplied record are no longer accepted, because neither can be bound
 to a run that was measured.
 
-THE SECOND ROUND, same day: the tree was compared through `git status`, and the index flags
-`assume-unchanged` and `skip-worktree` make git skip a modified tracked file there. The comparison
-now goes through a fresh index read from HEAD, so no flag anybody set on the checkout's index can
-hide a byte; see `_baumzustand_oder_stop`.
+THE SECOND AND THIRD ROUND, same day: the tree was compared through `git status`, and the index
+flags `assume-unchanged` and `skip-worktree` make git skip a modified tracked file there; then it
+was compared through `git diff-index` on a fresh index, and a clean filter from the configuration,
+`core.worktree` and `core.fileMode=false` still decided what git reported. The comparison is now
+COMPUTED from the bytes on disk against `git ls-tree -r HEAD`, with no filter, attribute, index bit
+or `core.*` setting in between; see `_baumzustand_oder_stop`.
 
 WHAT THAT ESTABLISHES, AND WHAT IT DOES NOT. Established: the working tree equalled the committed head
 before the run and after it, the head and the tree digest were the same at both points, and the output
@@ -56,6 +58,7 @@ import hashlib
 import json
 import os
 import shlex
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -312,7 +315,8 @@ def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
             for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
 
 
-def _versteckte_ignoredateien(repo: Path, sichtbar: set[str], umgebung: dict) -> list[str]:
+def _versteckte_ignoredateien(repo: Path, sichtbar: set[str], umgebung: dict,
+                              baum: str) -> list[str]:
     """Untracked `.gitignore` files that a TRACKED rule does not account for.
 
     `git ls-files --others --exclude-per-directory=.gitignore` reads every `.gitignore` in the
@@ -325,15 +329,15 @@ def _versteckte_ignoredateien(repo: Path, sichtbar: set[str], umgebung: dict) ->
     tree's own word and counts; the untracked file itself, `.git/info/exclude` or a global excludes
     file are outside the committed tree and do not.
     """
-    alle = _git_z(repo, "ls-files", "--others", "-z", umgebung=umgebung)
+    alle = _git_z(repo, baum, "ls-files", "--others", "-z", umgebung=umgebung)
     kandidaten = [p for p in alle if p.rsplit("/", 1)[-1] == ".gitignore" and p not in sichtbar]
     if not kandidaten:
         return []
-    verfolgt = set(_git_z(repo, "ls-files", "-z", umgebung=umgebung))
+    verfolgt = set(_git_z(repo, baum, "ls-files", "-z", umgebung=umgebung))
     eingabe = b"".join(p.encode("utf-8") + b"\0" for p in kandidaten)
     # exit 1 means "none of the given paths is ignored"; for paths the listing above hid that
     # cannot happen, and it is not an error of the call either way.
-    roh = _git_bytes(repo, "check-ignore", "-v", "-z", "--no-index", "--stdin",
+    roh = _git_bytes(repo, baum, "check-ignore", "-v", "-z", "--no-index", "--stdin",
                      eingabe=eingabe, erlaubte_codes=(0, 1), umgebung=umgebung)
     felder = [f.decode("utf-8", "replace") for f in roh.split(b"\0")]
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
@@ -362,63 +366,126 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     same commit; here the digest is correct about the head and the head is not what was measured.
     A digest over the wrong subject is not a weaker binding, it is a binding to something else.
 
-    WHAT IS MEASURED, AND AGAINST WHICH CONFIGURATION (2026-09-21, two counter-readings from another
-    model family plus the sweep for their siblings). The first version asked `git status --porcelain`
-    and took its answer. That answer depends on state outside the committed tree, and every one of
-    the following was measured to hide a path from it: `status.showUntrackedFiles=no` in the
-    checkout's config, a global `core.excludesFile`, `.git/info/exclude`, an untracked `.gitignore`
-    that covers itself, `GIT_DIR` in the environment, and — the second round — the index flags
-    `assume-unchanged` and `skip-worktree`, which make `git status` and `git diff` skip a modified
-    tracked file altogether. The last two are index METADATA: bits in `.git/index` that tell git not
-    to look, so no listing that goes through that index can be trusted to see the bytes.
+    THREE ROUNDS OF THE SAME CLASS, 2026-09-21, and the class is: STATE OUTSIDE THE COMMITTED TREE
+    DECIDES WHAT THE GUARD SEES. The first version asked `git status --porcelain`, and its answer
+    was measured to depend on `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+    `.git/info/exclude`, an untracked `.gitignore` covering itself and `GIT_DIR` in the environment.
+    The second version compared through a fresh index instead, and a counter-reading from another
+    model family measured the index bits `assume-unchanged` and `skip-worktree` hiding a modified
+    tracked file. The third version compared through `git diff-index` on that fresh index, and the
+    own sweep for siblings plus a second counter-reading measured three more: a clean FILTER named
+    by `.git/info/attributes` and defined in the configuration (`filter.<x>.clean = git show
+    HEAD:%f`) makes a modified file look unchanged, because `diff-index` converts the working file
+    before comparing; `core.worktree` makes git compare a directory other than the one the audit
+    reads; `core.fileMode=false` hides a mode change. Every one of those is a question asked of git
+    about a tree, and git answers through its configuration.
 
-    So `git status` is not asked at all. The tree is compared against the head through a FRESH
-    index, read from `HEAD` into a temporary file of this run and carrying no flags of anybody:
+    So the property is COMPUTED FROM THE BYTES rather than asked. For every entry of `git ls-tree
+    -r HEAD`:
 
-      staged changes            `git diff-index --cached HEAD` against the checkout's real index —
-                                the index content against the head, which the flags do not touch;
-      modified or missing files `git read-tree HEAD` into the fresh index, `git update-index
-                                --refresh` on it (which hashes every file, since a fresh index holds
-                                no stat data), then `git diff-index HEAD` — the bytes of the
-                                working tree against the head, and no flag exists in that index;
-      untracked paths           `git ls-files --others --exclude-per-directory=.gitignore` on the
-                                fresh index — judged ONLY by the tree's own ignore files, never by
-                                the global file, never by `.git/info/exclude`, never by
-                                `status.showUntrackedFiles`;
-      untracked ignore files    see `_versteckte_ignoredateien`: hidden by a tracked rule is fine,
-                                hidden by anything else refuses.
+      a regular file      hashed as a blob with `git hash-object --no-filters` over the bytes on
+                          disk, in one batch, and compared with the entry's object id; its mode
+                          (100644 or 100755) read from the file itself and compared with the entry;
+      a symbolic link     its target hashed as a blob and compared, mode 120000 expected;
+      absent, or another  refused by name: a missing file, a directory or device where a file was
+      kind of object      committed, a submodule entry (this tool compares none of those);
+      staged content      `git diff-index --cached HEAD` on the real index, so a change that sits
+                          in the index and not in the head is named as such;
+      untracked paths     `git ls-files --others --exclude-per-directory=.gitignore` on a fresh
+                          index read from `HEAD`, with the working tree named explicitly on the
+                          command line — judged ONLY by the tree's own ignore files, never by the
+                          global file, `.git/info/exclude`, `status.showUntrackedFiles` or
+                          `core.worktree`;
+      untracked ignore    see `_versteckte_ignoredateien`: hidden by a tracked rule is fine, hidden
+      files               by anything else refuses.
 
-    A consequence worth naming: a sparse checkout refuses, because the paths it leaves out are
-    missing from the working tree and the fresh index does not know they were meant to be. That is
-    the right answer for a release receipt, since an audit over a partial checkout did not read
-    the bytes the head carries there.
+    No filter, no attribute, no index bit and no `core.*` setting stands between the bytes on disk
+    and the comparison. WHAT THAT COSTS, named rather than smoothed over: a checkout whose files
+    differ from their blobs BY DESIGN refuses — `core.autocrlf=true` on Windows, a filesystem that
+    cannot keep the executable bit, `core.symlinks=false`. Such a checkout is not the tree the head
+    names byte for byte, and a release receipt is produced on one that is.
 
     Fail-closed in both directions. A dirty tree refuses, and a tree whose state cannot be
     determined refuses too: not-determinable is not a clearance, and a release receipt is the last
     place to guess.
     """
     import tempfile  # noqa: PLC0415
+    repo_abs = repo.resolve()
+    # THE WORKING TREE IS NAMED ON EVERY LISTING COMMAND. `core.worktree` in the checkout's config
+    # would otherwise point git at another directory than the one the audit runs in.
+    baum = f"--work-tree={repo_abs}"
+    schmutzig: list[str] = []
+    # ── every committed entry against the bytes on disk ─────────────────────────────────────────
+    felder = _git_z(repo, "ls-tree", "-r", "-z", "HEAD")
+    regulaer: list[tuple[str, str]] = []            # (path, expected oid) for the batch hash
+    for feld in felder:
+        kopf, _, pfad = feld.partition("\t")
+        try:
+            mode, typ, oid = kopf.split()
+        except ValueError:
+            raise SystemExit(f"emit: cannot read the tree entry {feld!r} — refusing") from None
+        if typ != "blob":
+            schmutzig.append(f"?! {pfad} (a {typ} entry; this tool compares files and symbolic "
+                             "links only, so it refuses rather than guess)")
+            continue
+        ziel = repo_abs / pfad
+        try:
+            st = os.lstat(ziel)
+        except FileNotFoundError:
+            schmutzig.append(f"D {pfad}")
+            continue
+        except OSError as fehler:
+            schmutzig.append(f"?! {pfad} (cannot be read: {fehler})")
+            continue
+        if stat.S_ISLNK(st.st_mode):
+            ist_mode = "120000"
+            ist_oid = _git_bytes(repo, "hash-object", "--no-filters", "--stdin",
+                                 eingabe=os.fsencode(os.readlink(ziel))).decode("ascii").strip()
+            if ist_oid != oid:
+                schmutzig.append(f"M {pfad}")
+        elif stat.S_ISREG(st.st_mode):
+            ist_mode = "100755" if st.st_mode & 0o111 else "100644"
+            regulaer.append((pfad, oid))
+        else:
+            schmutzig.append(f"?! {pfad} (neither a regular file nor a symbolic link)")
+            continue
+        if ist_mode != mode:
+            schmutzig.append(f"mode {pfad} ({mode} -> {ist_mode})")
+    if regulaer:
+        # ONE BATCH, NO FILTERS: the bytes on disk, hashed the way git stores a blob, and nothing
+        # from `.gitattributes`, `.git/info/attributes` or `filter.*` in between.
+        # `--stdin-paths` reads one path per LINE and has no NUL form, so a path that carries a
+        # newline cannot be named to it; such a path is refused by name rather than mis-hashed.
+        krumm = [p for p, _ in regulaer if "\n" in p]
+        if krumm:
+            raise SystemExit(f"emit: {len(krumm)} tracked path(s) carry a newline in their name "
+                             f"and cannot be hashed by path — refusing: {krumm[:3]}")
+        eingabe = b"".join(os.fsencode(p) + b"\n" for p, _ in regulaer)
+        roh = _git_bytes(repo, "hash-object", "--no-filters", "--stdin-paths", eingabe=eingabe)
+        ist = roh.decode("ascii", "replace").split()
+        if len(ist) != len(regulaer):
+            raise SystemExit(
+                f"emit: git hashed {len(ist)} of {len(regulaer)} tracked files — refusing, because a "
+                "comparison over a partial set would clear paths nobody looked at")
+        schmutzig.extend(f"M {p}" for (p, soll), oid in zip(regulaer, ist) if oid != soll)
+    # ── staged content against the head, on the real index ─────────────────────────────────────
+    gestaged = _git_z(repo, baum, "diff-index", "--cached", "-z", "--no-renames", "--name-status",
+                      "HEAD")
+    schmutzig.extend(f"staged {e}" for e in _paare(gestaged))
+    # ── untracked paths, through a fresh index that carries nobody's bits ───────────────────────
     frisch = dict(os.environ)
-    # THE FRESH INDEX LIVES IN THIS RUN'S OWN UNPREDICTABLE DIRECTORY, beside the bytecode cache and
-    # removed with it. A fixed path would be a location an attacker can prepare ahead of time.
     fd, indexpfad = tempfile.mkstemp(prefix="index_", dir=_CACHE_DIR)
     os.close(fd)
     # git meets a path that does not exist yet: `read-tree` writes it, and no reader of this run
-    # ever has to decide what an empty index file means.
+    # ever has to decide what an empty index file means. The directory is this run's own and
+    # unpredictable, so no path here can be prepared ahead of time.
     os.unlink(indexpfad)
     frisch["GIT_INDEX_FILE"] = indexpfad
-    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames", "--name-status", "HEAD")
-    _git_bytes(repo, "read-tree", "HEAD", umgebung=frisch)
-    # `--refresh` exits 1 when a file needs updating, and that is the answer we are after rather
-    # than an error of the call; `-q` keeps it going over every file instead of stopping at one.
-    _git_bytes(repo, "update-index", "-q", "--refresh", umgebung=frisch, erlaubte_codes=(0, 1))
-    geaendert = _git_z(repo, "diff-index", "-z", "--no-renames", "--name-status", "HEAD",
-                       umgebung=frisch)
-    unverfolgt = _git_z(repo, "ls-files", "--others", "-z", "--exclude-per-directory=.gitignore",
-                        umgebung=frisch)
-    fremd = _versteckte_ignoredateien(repo, set(unverfolgt), frisch)
-    schmutzig = ([f"staged {e}" for e in _paare(gestaged)] + [f"{e}" for e in _paare(geaendert)]
-                 + [f"?? {p}" for p in unverfolgt] + [f"!! {x}" for x in fremd])
+    _git_bytes(repo, baum, "read-tree", "HEAD", umgebung=frisch)
+    unverfolgt = _git_z(repo, baum, "ls-files", "--others", "-z",
+                        "--exclude-per-directory=.gitignore", umgebung=frisch)
+    fremd = _versteckte_ignoredateien(repo, set(unverfolgt), frisch, baum)
+    schmutzig += [f"?? {p}" for p in unverfolgt] + [f"!! {x}" for x in fremd]
     if schmutzig:
         gezeigt = "\n  ".join(schmutzig[:20])
         mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""

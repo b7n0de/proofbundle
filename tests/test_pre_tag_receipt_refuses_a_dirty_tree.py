@@ -16,7 +16,11 @@ configuration outside the tree: `status.showUntrackedFiles=no`, a global `core.e
 Each of them hid a path from the first version; each has a case below. The second counter-reading,
 the same day, named the index flags `assume-unchanged` and `skip-worktree`, which hide a modified
 tracked file from `git status` altogether; the comparison now runs through a fresh index read from
-HEAD, and those two have their cases as well.
+HEAD, and those two have their cases as well. The third round, own sweep plus a second
+counter-reading the same day, measured that git still answered through its configuration on that
+fresh index: a clean filter defined in the configuration, `core.worktree` and `core.fileMode`. The
+comparison is now computed from the bytes on disk against `git ls-tree -r HEAD`, and those three
+have their cases below, each red against `97af10d`.
 
 The cases run the real script through `--emit-payload`, not the helper alone, because the
 question is whether the REFUSAL IS ON THE PATH the release chain takes. A gate that exists and is
@@ -254,6 +258,69 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         into a fresh index reports the absence as `D` rather than as nothing."""
         (self.baum / "a.txt").unlink()
         self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    # ── the third round: git answered through its configuration even on a fresh index ──────────
+
+    def test_ein_clean_filter_aus_der_konfiguration_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] Own sweep plus a second counter-reading, 2026-09-21: `git diff-index` converts
+        the working file through the clean filter before comparing, and the filter command comes
+        from the configuration. `git show HEAD:%f` as the filter makes every modified file look
+        like its committed self. Red against `97af10d`, the version that asked `diff-index`."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        (self.baum / ".git" / "info" / "attributes").write_text("a.txt filter=hide\n", encoding="utf-8")
+        _git(self.baum, "config", "filter.hide.clean", "git show HEAD:%f")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the filter did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
+    def test_core_worktree_zeigt_git_auf_einen_anderen_baum(self):
+        """[ZAEHLT] `core.worktree` in the checkout's config makes every git listing answer about
+        another directory, while the audit runs in this one. Red against `97af10d`."""
+        import shutil  # noqa: PLC0415
+        sauber = self.aussen / "sauber"
+        shutil.copytree(self.baum, sauber, symlinks=True)
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "config", "core.worktree", str(sauber))
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still looked at this directory, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
+    def test_core_fileMode_false_verbirgt_keine_modusaenderung(self):
+        """[ZAEHLT] The tree digest covers modes (`ls-tree` prints them), so a mode change is a
+        tree the head does not name; `core.fileMode=false` told git not to look. Red against
+        `97af10d`."""
+        os.chmod(self.baum / "a.txt", 0o755)
+        _git(self.baum, "config", "core.fileMode", "false")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still reported the mode change, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "mode a.txt")
+
+    def test_KONTROLLE_der_filter_allein_stoert_einen_sauberen_baum_nicht(self):
+        """A configured filter over an unchanged file must not refuse: the comparison is over the
+        bytes on disk, and those equal the blob."""
+        (self.baum / ".git" / "info" / "attributes").write_text("a.txt filter=hide\n", encoding="utf-8")
+        _git(self.baum, "config", "filter.hide.clean", "git show HEAD:%f")
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-800:])
+        self.assertTrue(self.payload.exists())
+
+    def test_KONTROLLE_eine_ausfuehrbare_datei_und_ein_symlink_gleich_dem_head_stoeren_nicht(self):
+        """The mode comparison accepts 100755 where 100755 was committed, and a symbolic link whose
+        target equals the committed one; a changed link target refuses by name."""
+        lauf = self.baum / "run.sh"
+        lauf.write_text("#!/bin/sh\n", encoding="utf-8")
+        os.chmod(lauf, 0o755)
+        os.symlink("a.txt", self.baum / "link")
+        _git(self.baum, "add", "run.sh", "link")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "exec and link")
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-800:])
+        os.unlink(self.baum / "link")
+        os.symlink("scripts", self.baum / "link")
+        # `_git` strips the output, so the porcelain state column loses its leading blank.
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"),
+                         "M link", "precondition: git itself reports the retargeted link")
+        self._abgewiesen(self._emit(), "uncommitted path", "M link")
 
     def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
         """Without this the case above would also pass for a gate that refuses every untracked

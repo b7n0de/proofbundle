@@ -123,11 +123,16 @@ before the closing round, not after it.
   cleanliness measurement no longer asks `git status`, whose answer depends on state outside the
   committed tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
   `.git/info/exclude`, an untracked ignore file covering itself and `GIT_DIR` in the environment
-  each hid a path from the first version, and a second counter-reading showed the index bits
+  each hid a path from the first version; a second counter-reading showed the index bits
   `assume-unchanged` and `skip-worktree` hiding a modified tracked file from the version that
-  followed. The working tree is now compared with `HEAD` through a fresh index read from `HEAD`
-  into a private temporary file, which carries nobody's bits; each of the seven has a case that
-  was red against the version it was measured on.
+  followed; and the own sweep plus a third counter-reading showed a clean filter defined in the
+  configuration, `core.worktree` and `core.fileMode=false` still deciding what `git diff-index`
+  reported on a fresh index. The tree is now compared by COMPUTING the property from the bytes
+  on disk against `git ls-tree -r HEAD` (`hash-object --no-filters` per entry, modes from the
+  file, symbolic-link targets hashed, the working tree named on every listing); each of the ten
+  has a case that was red against the version it was measured on. A checkout whose files differ
+  from their blobs by design (`core.autocrlf=true`, no executable bit) refuses, and the docstring
+  says so.
   `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
   it wrote itself, which is exactly the shape the gate refuses. Named limit: a change made and
   undone during the run lies between the two measurements.
