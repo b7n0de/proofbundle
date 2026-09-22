@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -71,11 +72,11 @@ def welt(tmp_path):
     (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n")
     (repo / "pyproject.toml").write_text('[project]\nname = "proofbundle"\nversion = "5.0.0"\n')
     (repo / "CHANGELOG.md").write_text("## [5.0.0] - 2026-08-25\naudit passed\n")
+    (repo / "_audit.txt").write_text("audit ran\n")
     priv = Ed25519PrivateKey.generate()
     (repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
         base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n")
     (repo / "_privkey.b64").write_text(base64.b64encode(priv.private_bytes_raw()).decode())
-    (repo / "_audit.txt").write_text("audit ran\n")
     # The real repository ignores bytecode; without this line the producer's own __pycache__
     # would show up as an untracked file under scripts/ and the verifier would refuse its own
     # positive control -- which is exactly the refusal it is built for, so the fixture must be
@@ -87,6 +88,22 @@ def welt(tmp_path):
     kandidat = _head(repo)
     env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
            "PB_INLINE_SIGNING": "1"}
+    # THE AUDIT OUTPUT IS TOUCHED LAST, immediately before the run that consumes it.
+    #
+    # It used to be written near the top of this fixture, before `.gitignore` and before the
+    # commit. Since 2026-09-20 the receipt tool refuses when a tracked path is NEWER than the audit
+    # output, because an audit cannot have read bytes that did not exist yet — and `.gitignore` was
+    # exactly that. The failure was not stable: two files written in the same instant can compare
+    # either way depending on timestamp resolution, so the error moved between cases from run to
+    # run. Writing it here makes the fixture describe the ceremony it is standing in for, and it
+    # fixes the ORDER for every case in this file rather than for the one that happened to fail.
+    #
+    # ITS TIME IS TOUCHED, NOT ITS CONTENT, and the first attempt got that wrong: moving the write
+    # down here took the file out of `git add -A` above, so it became UNTRACKED and every case in
+    # the file errored with `?? _audit.txt`. The original position was deliberate — this file is
+    # TRACKED. `os.utime` leaves the bytes alone, so the tree stays clean, and only the ordering
+    # the receipt tool reads is corrected.
+    os.utime(repo / "_audit.txt", None)
     r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
               "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
               "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
@@ -213,6 +230,13 @@ class TestContract1_NoValidReceiptFails:
         assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
         assert "no receipt" in res["reason"] and "foreign" in res["reason"] and not res["rejected"]
         assert res["foreign_files"] == ["audit_artifacts/500/findings_register_v2.json"]
+        # THE AUDIT RUNS ON THE TREE AS IT NOW STANDS, and this line is the second half of the
+        # ORDER rule the docstring above states. The fixture writes `_audit.txt` once, before this
+        # case commits the register; since 2026-09-20 the receipt tool also refuses when a tracked
+        # path was written AFTER the audit output, because an audit cannot have read bytes that did
+        # not exist yet. Re-running the audit here is what the ceremony does anyway — the case
+        # measured the verifier, and it had been relying on an ordering the tool no longer allows.
+        (repo / "_audit.txt").write_text("audit ran\n")
         # BESIDE a receipt produced over this tree it neither verifies nor poisons.
         r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
                   "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",

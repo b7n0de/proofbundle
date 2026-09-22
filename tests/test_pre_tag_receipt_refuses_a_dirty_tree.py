@@ -249,3 +249,123 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DerAuditLiefAufDiesemBaum(unittest.TestCase):
+    """The cleanliness check runs at RECEIPT time; the audit ran before it.
+
+    Codex 4057990627 (P1) on pull request 239, reproduced before this class was written: modify a
+    tracked file, let the audit read those modified bytes into a file OUTSIDE the repository,
+    restore the file with `git checkout --`, then emit. The tree is clean, HEAD never moved, and
+    the emitted context binds `subject_tree_digest` of the CLEAN head to an `audit_output_digest`
+    computed from bytes that head never carried — measured subject e71e8911…, audit 740c408a….
+    """
+
+    def setUp(self):
+        if not SKRIPT.is_file():
+            self.skipTest("scripts/pre_tag_receipt.py is not in this tree")
+        d = tempfile.mkdtemp(prefix="pre-tag-order-")
+        self.addCleanup(__import__("shutil").rmtree, d, ignore_errors=True)
+        self.baum = pathlib.Path(d) / "repo"
+        self.baum.mkdir()
+        # The audit output lives OUTSIDE the repository. Inside, it would be an untracked path and
+        # the tree would be dirty, so the refusal would come from the OTHER guard and this case
+        # would prove nothing. The first attempt at this reproduction made exactly that mistake.
+        self.ausserhalb = pathlib.Path(d) / "aussen"
+        self.ausserhalb.mkdir()
+        self.ausgabe = self.ausserhalb / "audit.txt"
+        _git(self.baum, "init", "-q")
+        _git(self.baum, "config", "user.email", "t@example.invalid")
+        _git(self.baum, "config", "user.name", "t")
+        (self.baum / "datei.txt").write_text("eins\n", encoding="utf-8")
+        (self.baum / "scripts").mkdir()
+        (self.baum / "scripts" / "pre_tag_audit_gate.py").write_text(
+            "# stub: only its bytes are hashed by _gate_source_digest\n", encoding="utf-8")
+        _git(self.baum, "add", "-A")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+    def _emit(self) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SKRIPT), "--repo", str(self.baum),
+             "--emit-payload", str(self.ausserhalb / "payload.bin"),
+             "--context-out", str(self.ausserhalb / "context.json"),
+             "--version", "6.1.0", "--audit-command", "cat datei.txt", "--audit-exit", "0",
+             "--audit-output-file", str(self.ausgabe),
+             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
+            capture_output=True, text=True, cwd=str(REPO),
+            env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
+
+    def test_eine_ausgabe_aus_einem_SPAETER_wiederhergestellten_baum_wird_ABGELEHNT(self):
+        """[ZAEHLT] The reported sequence, end to end through the real script."""
+        (self.baum / "datei.txt").write_text("zwei-schmutzig\n", encoding="utf-8")
+        self.ausgabe.write_text((self.baum / "datei.txt").read_text(encoding="utf-8"),
+                                encoding="utf-8")
+        _git(self.baum, "checkout", "--", "datei.txt")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the fixture is not clean, so the refusal could come from the other guard "
+                         "and this case would prove nothing")
+        r = self._emit()
+        self.assertNotEqual(r.returncode, 0,
+                            f"a restored tree produced a payload:\n{r.stdout}\n{r.stderr}")
+        meldung = r.stdout + r.stderr
+        self.assertIn("AFTER the audit output", meldung, meldung[-800:])
+        self.assertIn("datei.txt", meldung, "the refusal does not name the path that moved")
+
+    def test_KONTROLLE_die_ehrliche_reihenfolge_geht_weiter_durch(self):
+        """[GETRENNT] A guard that refuses ALWAYS would pass the case above too.
+
+        Green before this change as well, because there was no order check then — it is a control,
+        not a catch proof, and it is labelled as one.
+        """
+        self.ausgabe.write_text("audit output\n", encoding="utf-8")
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, f"the honest sequence was refused:\n{r.stdout}\n{r.stderr}")
+        self.assertIn("emitted payload", r.stdout, r.stdout)
+
+    def test_die_konfiguration_versteckt_eine_unverfolgte_datei_NICHT_mehr(self):
+        """[ZAEHLT] Codex 4057990630 (P1): `git status --porcelain` honours its configuration.
+
+        Measured in a throwaway repository before the change: with `status.showUntrackedFiles=no`
+        the command reports NOTHING for an untracked file and reports it again under
+        `--untracked-files=all`. A release checkout carrying that setting would therefore have been
+        blind to exactly the set this guard's own boundary calls dirty.
+        """
+        self.ausgabe.write_text("audit output\n", encoding="utf-8")
+        _git(self.baum, "config", "status.showUntrackedFiles", "no")
+        (self.baum / "ungetrackt.txt").write_text("neu\n", encoding="utf-8")
+        self.assertEqual(_git(self.baum, "status", "--porcelain"), "",
+                         "the fixture does not reproduce the configuration, so this case would "
+                         "pass for the wrong reason")
+        r = self._emit()
+        self.assertNotEqual(r.returncode, 0,
+                            f"an untracked file hidden by configuration produced a payload:\n{r.stdout}")
+        self.assertIn("ungetrackt.txt", r.stdout + r.stderr,
+                      "the refusal does not name the path the configuration hid")
+
+    def test_ein_indexbit_versteckt_den_unterschied_NICHT_mehr(self):
+        """[ZAEHLT] `git status` can be told to stop looking, so the content is compared instead.
+
+        Found by a cross-reading and verified before it was believed. With
+        `git update-index --assume-unchanged` set and the file rewritten, MEASURED in a throwaway
+        repository: `git status --porcelain --untracked-files=all` prints NOTHING and
+        `git diff --quiet HEAD` reports no change either, because that bit lives in the index and
+        both consult it. The emit then produced a payload over a tree whose content differed from
+        the head it was about to bind.
+
+        The case asserts the blindness FIRST. Without that assertion it would pass on any tree that
+        happens to be clean, which is the shape of a case that cannot fall for the reason it names.
+        """
+        self.ausgabe.write_text("audit output\n", encoding="utf-8")
+        _git(self.baum, "update-index", "--assume-unchanged", "datei.txt")
+        (self.baum / "datei.txt").write_text("GEAENDERT-UND-VERSTECKT\n", encoding="utf-8")
+        # The order guard must not be what stops this, or the case would measure the wrong thing.
+        os.utime(self.baum / "datei.txt", (0, 0))
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the index bit does not hide the change here, so this case would pass "
+                         "for the wrong reason")
+        r = self._emit()
+        self.assertNotEqual(r.returncode, 0,
+                            f"a hidden content change produced a payload:\n{r.stdout}")
+        meldung = r.stdout + r.stderr
+        self.assertIn("do not match the head", meldung, meldung[-800:])
+        self.assertIn("datei.txt", meldung, "the refusal does not name the hidden path")

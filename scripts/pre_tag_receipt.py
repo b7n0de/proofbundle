@@ -94,7 +94,8 @@ def _version_token(v: str) -> str:
 
 
 def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
-                  audit_output: str, runner_identity: str, produced_at: str) -> dict:
+                  audit_output: str, runner_identity: str, produced_at: str,
+                  audit_output_path: Path | None = None) -> dict:
     """The 9 SIGNED fields — identical across inline / emit / assemble. Exactly what canonical_bytes covers."""
     # THE GATE BELONGS WHERE THE DIGEST IS MADE, not at one caller. The first version put it in
     # the emit branch of main(). A counter-reading pointed at the OTHER caller: `build_and_sign`
@@ -106,7 +107,7 @@ def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
     #
     # `assemble` does NOT pass here: it reads a context that was already built and signed
     # elsewhere, so there is no tree of its own to bind.
-    _arbeitsbaum_sauber_oder_stop(repo)
+    _arbeitsbaum_sauber_oder_stop(repo, audit_output_path)
     return {
         "schema": RECEIPT_SCHEMA,
         "version": version,
@@ -121,12 +122,14 @@ def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
 
 
 def build_and_sign(repo: Path, version: str, audit_command: str, audit_exit: int,
-                   audit_output: str, runner_identity: str, produced_at: str, privkey_b64: str) -> dict:
+                   audit_output: str, runner_identity: str, produced_at: str, privkey_b64: str,
+                   audit_output_path: Path | None = None) -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from proofbundle._wire_b64 import decode_b64
     priv = Ed25519PrivateKey.from_private_bytes(decode_b64(privkey_b64))
     pub_b64 = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
-    receipt = build_context(repo, version, audit_command, audit_exit, audit_output, runner_identity, produced_at)
+    receipt = build_context(repo, version, audit_command, audit_exit, audit_output,
+                            runner_identity, produced_at, audit_output_path)
     sig = priv.sign(canonical_bytes(receipt))
     receipt["signature"] = base64.b64encode(sig).decode()
     receipt["signer_pubkey"] = pub_b64
@@ -215,7 +218,7 @@ def _inline_erlaubt_oder_stop() -> None:
             "here, sign the payload where the key lives, then --assemble here.")
 
 
-def _arbeitsbaum_sauber_oder_stop(repo: Path) -> None:
+def _arbeitsbaum_sauber_oder_stop(repo: Path, audit_output_path: Path | None = None) -> None:
     """Refuse to bind a tree digest while the working tree differs from the committed head.
 
     THE RECEIPT BINDS `git ls-tree -r HEAD` AND THE RUN READS THE WORKING TREE. Those are two
@@ -234,7 +237,19 @@ def _arbeitsbaum_sauber_oder_stop(repo: Path) -> None:
     place to guess.
     """
     try:
-        lauf = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+        # WHAT `git status` ANSWERS IS CONFIGURABLE, and this guard believed it.
+        #
+        # Codex 4057990630 (P1), measured in a throwaway repository: with
+        # `status.showUntrackedFiles=no` the command reports NOTHING for an untracked file, and
+        # reports it again under `--untracked-files=all`. A release checkout carrying that setting
+        # would have made this guard blind to exactly the set its own boundary calls dirty.
+        #
+        # The command-line flag overrides the configuration; it is ALSO set through `-c`, so a
+        # future rename of the switch cannot fall back to the configured value in silence. Two
+        # spellings of one statement — not a second source of truth, a bolt against the
+        # environment.
+        lauf = subprocess.run(["git", "-C", str(repo), "-c", "status.showUntrackedFiles=all",
+                               "status", "--porcelain", "--untracked-files=all"],
                               capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as fehler:
         raise SystemExit(
@@ -254,6 +269,155 @@ def _arbeitsbaum_sauber_oder_stop(repo: Path) -> None:
             f"emit: the working tree of {repo} carries {len(schmutzig)} uncommitted path(s), and "
             f"the receipt would bind `git ls-tree -r HEAD` instead — refusing, because the bytes "
             f"attested would not be the bytes measured:\n  {gezeigt}{mehr}")
+    _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo)
+    _audit_lief_auf_diesem_baum_oder_stop(repo, audit_output_path)
+
+
+def _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo: Path) -> None:
+    """`git status` can be told to stop looking, so the content is COMPARED here instead of asked for.
+
+    Found by a cross-reading and then verified rather than believed. With
+    `git update-index --assume-unchanged datei.txt` set and the file rewritten, MEASURED in a
+    throwaway repository: `git status --porcelain --untracked-files=all` prints NOTHING, and
+    `git diff --quiet HEAD` reports no change either — both consult the index, and that bit lives
+    in the index. The emit then produced a payload over a tree whose content differed from the head
+    it was about to bind. `skip-worktree` has the same effect by the same route.
+
+    THE CLASS, one level below the configuration fix beside it: forcing a single knob
+    (`--untracked-files=all`) keeps one answer honest, while the MECHANISM that produces the answer
+    stays configurable. The remedy is not a third knob. It is to stop asking and compute the
+    property: for every path the HEAD tree carries, hash the working file and compare it with the
+    blob id the tree records. `git hash-object` reads the file, not the index, so no index bit can
+    hide a difference.
+
+    The sibling check beside this one still uses `git status` for UNTRACKED paths, and that is
+    correct: a file the head does not carry has no blob to compare against, so absence from the
+    tree is the only question there and the forced flag is the right tool for it.
+    """
+    try:
+        baum = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "HEAD"],
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as fehler:
+        raise SystemExit(
+            f"emit: cannot read the head tree of {repo} ({fehler}) — refusing, because the content "
+            f"of the checkout cannot be compared with what the receipt would bind") from fehler
+    if baum.returncode != 0:
+        raise SystemExit(
+            f"emit: `git ls-tree -r HEAD` failed in {repo} — refusing, because the content of the "
+            f"checkout cannot be compared with what the receipt would bind")
+    erwartet: dict[str, bytes] = {}
+    for satz in baum.stdout.split(b"\0"):
+        if not satz:
+            continue
+        try:
+            kopf, pfad_roh = satz.split(b"\t", 1)
+            felder = kopf.split()
+            art, blob = felder[1], felder[2]
+        except (ValueError, IndexError):
+            raise SystemExit(
+                f"emit: `git ls-tree -r HEAD` produced a record this code cannot read ({satz[:60]!r}) "
+                f"— refusing rather than skipping it, because a skipped path is an unchecked path")
+        if art != b"blob":
+            continue
+        erwartet[pfad_roh.decode("utf-8", errors="replace")] = blob
+    fehlend = [rel for rel in erwartet if not (repo / rel).is_file()]
+    zu_hashen = [rel for rel in erwartet if rel not in set(fehlend)]
+    abweichend = []
+    if zu_hashen:
+        # ONE PROCESS, NOT ONE PER FILE. Measured on the real tree: 1475 tracked blobs, so the
+        # per-file form would spawn 1475 subprocesses for a single guard. `--stdin-paths` hashes
+        # the whole list in one go, and it still reads the FILES rather than the index, which is
+        # the property this check exists for.
+        ist = subprocess.run(["git", "-C", str(repo), "hash-object", "--stdin-paths"],
+                             input="\n".join(zu_hashen).encode() + b"\n",
+                             capture_output=True, timeout=600)
+        zeilen = ist.stdout.split()
+        if ist.returncode != 0 or len(zeilen) != len(zu_hashen):
+            # A SHORT ANSWER IS NOT A CLEAN ONE. If git returned fewer hashes than paths, the
+            # mapping below would silently compare the wrong pairs, so this refuses instead.
+            raise SystemExit(
+                f"emit: `git hash-object --stdin-paths` answered for {len(zeilen)} of "
+                f"{len(zu_hashen)} tracked path(s) (exit {ist.returncode}) — refusing, because a "
+                f"partial answer cannot show the checkout matches the head")
+        abweichend = [rel for rel, h in zip(zu_hashen, zeilen) if h != erwartet[rel]]
+    if fehlend or abweichend:
+        zeilen = [f"  missing: {x}" for x in sorted(fehlend)[:10]] + \
+                 [f"  differs: {x}" for x in sorted(abweichend)[:10]]
+        rest = len(fehlend) + len(abweichend) - len(zeilen)
+        mehr = f"\n  … and {rest} more" if rest > 0 else ""
+        raise SystemExit(
+            f"emit: {len(fehlend) + len(abweichend)} tracked path(s) do not match the head this "
+            f"receipt would bind, although `git status` reports the tree as clean — an index bit "
+            f"(assume-unchanged or skip-worktree) hides them. Refusing:\n"
+            + "\n".join(zeilen) + mehr)
+
+
+def _audit_lief_auf_diesem_baum_oder_stop(repo: Path, audit_output_path: Path | None) -> None:
+    """The cleanliness check above happens at RECEIPT time; the audit ran BEFORE it.
+
+    Codex 4057990627 (P1), reproduced in a throwaway repository: modify a tracked file, let the
+    audit read those modified bytes into a file OUTSIDE the repository, restore the file with
+    `git checkout --`, then emit. The tree is clean, HEAD never moved, the command returns 0, and
+    the emitted context binds `subject_tree_digest` of the CLEAN head to an `audit_output_digest`
+    computed from bytes that head never carried. Measured: subject e71e8911…, audit 740c408a….
+    A receipt in that shape grants the release gate for a tree the recorded audit never examined.
+
+    WHAT IS OBSERVABLE FROM HERE, and it is not the audit. This process cannot watch a run that
+    already finished. What it CAN see is the ORDER: restoring a file writes it, so the restored
+    path is NEWER than the audit output it is supposed to predate. That is exactly the signature
+    of the reported sequence, and it is checked here.
+
+    HONEST LIMIT, MEASURED rather than assumed. Modification times are metadata and can be set,
+    so the obvious question is whether this check survives someone setting them. It does not, and
+    that was measured instead of guessed: in the same throwaway repository, the reported sequence
+    is refused; adding one command — `touch -d "2020-01-01 00:00:00" datei.txt` on the restored
+    path — makes the very same invocation emit the payload again.
+
+    So the check is a NARROWING, not a proof: it catches the accident and the ordinary careless
+    sequence, a tree touched between the audit and the receipt, and it stops at deliberate
+    backdating. Closing that would take a signed statement from the audit runner about the tree it
+    saw, which is a schema change and belongs to the owner, not to this fix. Calling this a proof
+    would be exactly the kind of claim this whole file exists against.
+    """
+    if audit_output_path is None:
+        raise SystemExit(
+            "emit: the path of the audit output was not handed to the cleanliness gate, so the "
+            "ORDER of audit and receipt cannot be checked here — refusing, because an unchecked "
+            "order is what the reported defect exploits (fail-closed)")
+    try:
+        audit_zeit = Path(audit_output_path).stat().st_mtime
+    except OSError as fehler:
+        raise SystemExit(
+            f"emit: cannot read the modification time of the audit output {audit_output_path} "
+            f"({fehler}) — refusing, because the order of audit and receipt is then unknown") from fehler
+    try:
+        lauf = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as fehler:
+        raise SystemExit(
+            f"emit: cannot list the tracked files of {repo} ({fehler}) — refusing, because the "
+            f"order of audit and receipt cannot be established") from fehler
+    if lauf.returncode != 0:
+        raise SystemExit(
+            f"emit: `git ls-files` failed in {repo} — refusing, because the order of audit and "
+            f"receipt cannot be established")
+    juenger = []
+    for roh in lauf.stdout.split(b"\0"):
+        if not roh:
+            continue
+        pfad = repo / roh.decode("utf-8", errors="replace")
+        try:
+            if pfad.stat().st_mtime > audit_zeit:
+                juenger.append(str(pfad.relative_to(repo)))
+        except OSError:
+            continue
+    if juenger:
+        gezeigt = "\n  ".join(sorted(juenger)[:20])
+        mehr = f"\n  … and {len(juenger) - 20} more" if len(juenger) > 20 else ""
+        raise SystemExit(
+            f"emit: {len(juenger)} tracked path(s) were written AFTER the audit output "
+            f"{audit_output_path} — the audit therefore did not read the bytes this receipt would "
+            f"attest. Re-run the audit on the tree as it stands now:\n  {gezeigt}{mehr}")
 
 
 def main(argv=None) -> int:
@@ -302,7 +466,8 @@ def main(argv=None) -> int:
     if args.emit_payload is not None:
         _need(args, ["context-out"], "emit")
         context = build_context(repo, args.version, args.audit_command, args.audit_exit,
-                                audit_output, args.runner_identity, args.produced_at)
+                                audit_output, args.runner_identity, args.produced_at,
+                                args.audit_output_file)
         args.emit_payload.parent.mkdir(parents=True, exist_ok=True)
         args.emit_payload.write_bytes(canonical_bytes(context))
         args.context_out.parent.mkdir(parents=True, exist_ok=True)
@@ -316,7 +481,8 @@ def main(argv=None) -> int:
     receipt = build_and_sign(
         repo, args.version, args.audit_command, args.audit_exit,
         audit_output, args.runner_identity, args.produced_at,
-        args.privkey_file.read_text(encoding="utf-8").strip())
+        args.privkey_file.read_text(encoding="utf-8").strip(),
+        args.audit_output_file)
     out = args.out or (repo / "audit_artifacts" / _version_token(args.version)
                        / f"pre_tag_receipt_{args.version}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
