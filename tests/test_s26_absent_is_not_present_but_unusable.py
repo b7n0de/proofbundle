@@ -20,7 +20,10 @@ it.
 """
 from __future__ import annotations
 
+import json
 import unittest
+
+from proofbundle import intoto
 
 from proofbundle.intoto import (
     CONTENT_ROOT_ALG,
@@ -92,3 +95,54 @@ class AbsenceAndPresenceAreDistinguished(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ───── Codex finding on PR 254: the sentinel must not appear as a declaration ─────
+
+
+class TheSentinelIsNotASignedDeclaration(unittest.TestCase):
+    """The verdict was right and still described the payload wrongly.
+
+    Codex, review of 2026-09-23: for canonical bytes of `{"contentRootAlg":null}`,
+    `_content_root_binding` correctly reported ok=False and then named
+    `content_root_alg="invalid-contentRootAlg"` and "unknown contentRootAlg
+    'invalid-contentRootAlg'". That string appears NOWHERE in the signed payload, and the same held
+    for every unusable type. The shared builder feeds all three `verify_*_dsse` surfaces, so one
+    place carried the error outward three times.
+
+    The signature boundary and the fail-closed verdict were never in question. What was wrong is
+    the claim that the document declared something it did not, against this code's own promise that
+    the verdict names what was found.
+    """
+
+    def _binding(self, wert):
+        st = {"_type": "x", "subject": [], "predicateType": "p", "predicate": {},
+              "contentRootAlg": wert}
+        body = json.dumps(st, sort_keys=True, separators=(",", ":")).encode()
+        return intoto._content_root_binding(st, body)
+
+    def test_no_unusable_value_is_reported_as_a_declaration(self):
+        for wert in (None, "", 0, True, [], {}):
+            with self.subTest(wert=wert):
+                ok, gemeldet, meldung = self._binding(wert)
+                self.assertFalse(ok, "unusable stays fail-closed")
+                self.assertIsNone(gemeldet,
+                                  "nothing usable declared means None, not an invented name")
+                self.assertNotIn("invalid-contentRootAlg", meldung,
+                                 "the sentinel decides, it is not signed content")
+
+    def test_the_message_names_what_was_actually_there(self):
+        """A verdict that does not name the finding is half of the earlier mistake."""
+        _, _, meldung = self._binding(0)
+        self.assertIn("int", meldung, "the type found belongs in the message")
+        _, _, meldung = self._binding([])
+        self.assertIn("list", meldung)
+
+    def test_counter_direction_absent_stays_legacy_and_is_reported(self):
+        """WITHOUT THIS CASE a builder that ALWAYS reports None would pass, and 2.0.0 would break."""
+        st = {"_type": "x", "subject": [], "predicateType": "p", "predicate": {}}
+        body = json.dumps(st, sort_keys=True, separators=(",", ":")).encode()
+        ok, gemeldet, _ = intoto._content_root_binding(st, body)
+        self.assertTrue(ok, "a document without the field is a 2.0.0 receipt and verifies")
+        self.assertEqual(gemeldet, intoto.LEGACY_CONTENT_ROOT_ALG,
+                         "absent resolves to legacy, and that is what gets reported")

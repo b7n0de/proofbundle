@@ -195,7 +195,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
         f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
 
 
-def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
+def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
     """Verify the transmitted payload IS canonical for its OWN declared content-root algorithm. Fail-closed.
 
     Returns ``(ok, alg, detail)``. The verifier reads the DECLARED `contentRootAlg` (absent ⇒ legacy) and
@@ -207,8 +207,25 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
     needs the `[eval]` extra; without it this is fail-closed (never a silent pass over possibly non-canonical
     bytes). Legacy verification is stdlib-only, so released 2.0.0 receipts verify on a base install."""
     alg = _declared_content_root_alg(statement)
+    # THE SENTINEL DRIVES THE DECISION, IT DOES NOT GET REPORTED AS SIGNED CONTENT. Codex, review of
+    # 2026-09-23 on PR 254: for canonical bytes of `{"contentRootAlg":null}` the verdict correctly
+    # said ok=False, and then named `content_root_alg="invalid-contentRootAlg"` and "unknown
+    # contentRootAlg 'invalid-contentRootAlg'" — a string that appears NOWHERE in the signed
+    # payload, and the same for every unusable type. The shared builder below feeds all three
+    # verify_*_dsse surfaces, so one place fixed it for all three.
+    #
+    # The signature boundary and the fail-closed verdict were never in question; what was wrong is
+    # that the verdict claimed the document declared something it did not. `gemeldet` is therefore
+    # None (nothing usable was declared) and the detail names the type actually found.
+    unbrauchbar = alg is _PRESENT_BUT_UNUSABLE or alg == _PRESENT_BUT_UNUSABLE
+    gemeldet: Optional[str] = None if unbrauchbar else alg
+    if unbrauchbar:
+        roh = statement.get("contentRootAlg") if isinstance(statement, dict) else None
+        return False, gemeldet, (
+            f"contentRootAlg is present but unusable (found {type(roh).__name__} {roh!r}); a "
+            "declaration that names no algorithm is refused rather than read as absent")
     if not isinstance(statement, dict):
-        return False, alg, "payload is not a JSON in-toto Statement object"
+        return False, gemeldet, "payload is not a JSON in-toto Statement object"
     try:
         expected = _serialize_statement(statement, alg)
     except CanonicalizerUnavailable:
