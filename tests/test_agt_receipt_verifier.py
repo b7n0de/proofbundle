@@ -159,17 +159,40 @@ class DieKette(unittest.TestCase):
 
 
 class UnlesbaresIstKeinFehlgeschlagenesPruefen(unittest.TestCase):
-    """Malformed input raises (exit 2); it does not return a failed verification (exit 1)."""
+    """Malformed input is a NAMED finding with exit 2, not a crash and not a signature failure.
 
-    def test_kein_objekt(self):
+    The first version let the low-level helper raise through the verify surface so the two could be
+    told apart. The house type-confusion gate refused that, and it was right: a verifier that
+    crashes on a broken document does not judge, and a caller who forgets one `except` reads a
+    crash as nothing at all. Both properties are kept instead of traded — `canonical_payload` still
+    raises, because it is a helper and a caller asking for bytes must get bytes or an error, while
+    the verify surfaces catch it and record `readable`.
+    """
+
+    def test_der_helfer_wirft_weiterhin(self):
         with self.assertRaises(AGTReceiptError):
             canonical_payload(["nicht", "ein", "objekt"])
-
-    def test_pflichtfeld_fehlt(self):
         r = lade("01_allow")
         del r["args_hash"]
         with self.assertRaises(AGTReceiptError):
             canonical_payload(r)
+
+    def test_fang_die_pruefflaeche_wirft_NICHT(self):
+        """never-raise at the verify surface, over every shape a caller can hand in."""
+        for eingabe in (None, [], ["a"], "text", 7, {}, {"agent_did": "x"}):
+            with self.subTest(eingabe=repr(eingabe)[:24]):
+                e = verify_agt_receipt(eingabe)          # must not raise
+                self.assertFalse(e.ok)
+                self.assertEqual(exit_code(e), 2, "unreadable input is exit 2, never 1")
+                self.assertEqual(e.checks[0].name, "readable")
+
+    def test_fang_die_kette_bricht_nicht_ab(self):
+        """An unreadable link is a finding; the remaining receipts still get a verdict."""
+        e = verify_agt_receipt_chain([{"kaputt": True}, lade("01_allow")])
+        self.assertFalse(e.ok)
+        namen = [c.name for c in e.checks]
+        self.assertTrue(any(n.endswith("chain-link") for n in namen),
+                        "the chain must still report the link it could not check")
 
     def test_gegenrichtung_ein_vollstaendiges_receipt_wirft_nicht(self):
         canonical_payload(lade("01_allow"))
@@ -190,3 +213,26 @@ class DasVokabularWirdNichtStillUmgedeutet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DieKetteNimmtJedeFormEntgegenOhneTypeError(unittest.TestCase):
+    """Found by the house type-confusion gate on this very module, not by reading the code.
+
+    `not receipts` is True for `[]` and for `0` and `False` alike, so a truthy non-sequence such as
+    `True` or `-1` slipped past the emptiness check and died on `enumerate` with a bare TypeError.
+    The gate measured it: "TypeError on payload True: 'bool' object is not iterable". Checking the
+    shape before the emptiness is the fix, and this case pins the order.
+    """
+
+    def test_fang_wahrheitswert_und_zahl_werfen_nicht(self):
+        for eingabe in (True, -1, 9223372036854775808, "text", {"a": 1}, None):
+            with self.subTest(eingabe=repr(eingabe)[:20]):
+                e = verify_agt_receipt_chain(eingabe)        # must not raise
+                self.assertFalse(e.ok)
+                self.assertEqual(exit_code(e), 2)
+
+    def test_gegenrichtung_eine_echte_liste_wird_weiterhin_gepruft(self):
+        """WITHOUT THIS CASE a shape check that refuses everything would pass the catch above."""
+        r1, r2 = lade("01_allow"), lade("02_deny")
+        e = verify_agt_receipt_chain([r1, r2])
+        self.assertTrue(e.ok, [c.detail for c in e.checks if not c.ok])

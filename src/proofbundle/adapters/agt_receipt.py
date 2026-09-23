@@ -163,7 +163,17 @@ def verify_agt_receipt(
     wall-clock value here gives the live reading; the verdict names which one was used.
     """
     ergebnis = VerificationResult()
-    nutzlast = canonical_payload(receipt)                 # raises AGTReceiptError → exit 2
+    # NEVER-RAISE AT THE VERIFY SURFACE, and the house gate was right to insist. The first version
+    # let `canonical_payload` raise through here so that unreadable input could be told apart from
+    # a failed check. The type-confusion gate refused it: a verifier that crashes on a broken
+    # document does not judge, and a caller who forgets one `except` reads a crash as nothing at
+    # all. Both properties are kept instead of traded — the unreadability becomes a NAMED check, and
+    # `exit_code` maps that one name to 2 while every other failure maps to 1.
+    try:
+        nutzlast = canonical_payload(receipt)
+    except AGTReceiptError as fehler:
+        ergebnis.add("readable", False, str(fehler))
+        return ergebnis
 
     entscheidung = _text(receipt, "cedar_decision")
     ergebnis.add(
@@ -247,6 +257,15 @@ def verify_agt_receipt_chain(
     like a run that found nothing, and this house has paid for that confusion before.
     """
     ergebnis = VerificationResult()
+    # THE SHAPE IS CHECKED BEFORE THE EMPTINESS, and the order is the whole point. `not receipts`
+    # is True for `[]` and for `0` and `False` alike, so a truthy non-sequence such as `True` or
+    # `-1` slipped past it and died on `enumerate` with a bare TypeError. Measured by the house
+    # type-confusion gate on this very module: "TypeError on payload True: 'bool' object is not
+    # iterable". A verifier that raises instead of judging is the defect this gate exists to catch.
+    if not isinstance(receipts, (list, tuple)):
+        ergebnis.add("chain-readable", False,
+                     f"receipts is {type(receipts).__name__}, expected a list or tuple")
+        return ergebnis
     if not receipts:
         ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
         return ergebnis
@@ -257,7 +276,14 @@ def verify_agt_receipt_chain(
             ergebnis.add(f"[{i}] {c.name}", c.ok, c.detail)
 
     for i in range(1, len(receipts)):
-        erwartet = payload_hash(receipts[i - 1])
+        # Same never-raise rule as above: an unreadable link is a named finding, not a crash that
+        # abandons the remaining receipts. A chain verdict that stops halfway is not a verdict.
+        try:
+            erwartet = payload_hash(receipts[i - 1])
+        except AGTReceiptError as fehler:
+            ergebnis.add(f"[{i}] chain-link", False,
+                         f"the previous receipt is not readable, so no link can be checked: {fehler}")
+            continue
         gefunden = receipts[i].get("parent_receipt_hash")
         ergebnis.add(f"[{i}] chain-link", gefunden == erwartet,
                      f"parent_receipt_hash={str(gefunden)[:16]}… expected {erwartet[:16]}…")
@@ -274,6 +300,12 @@ def exit_code(ergebnis: VerificationResult) -> int:
     """
     if ergebnis.ok:
         return 0
+    # UNREADABLE FIRST, because it dominates: if the bytes could not be read, nothing else was
+    # examined, and reporting a signature failure over input that was never parsed would name the
+    # wrong cause.
+    for c in ergebnis.checks:
+        if not c.ok and c.name.split("] ", 1)[-1] in ("readable", "chain-readable"):
+            return 2
     krypto = {"signature", "external-authorization-signature", "payload-hash-self-consistent",
               "decision-vocabulary", "chain-link", "chain-non-empty"}
     for c in ergebnis.checks:
