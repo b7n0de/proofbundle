@@ -773,17 +773,17 @@ def _widerspruch_in_altfeldern(cov: dict) -> list[str]:
     obs, exp = cov.get("observedRuns"), cov.get("expectedRuns")
     if _is_zahl(obs) and _is_zahl(exp) and obs < exp:
         errs.append(_shape_err(
-            "COVERAGE_COMPLETE_UNDER_EXPECTATION",
+            "COMPLETE_UNDER_EXPECTATION",
             f"status COMPLETE but observedRuns {obs} < expectedRuns {exp} — the counters beside the "
             f"status refute it"))
     if _is_zahl(exp) and exp == 0:
         errs.append(_shape_err(
-            "COVERAGE_COMPLETE_OVER_NOTHING",
+            "COMPLETE_OVER_NOTHING",
             "status COMPLETE with expectedRuns 0 — 'complete' over an empty expectation says "
             "nothing; use UNKNOWN or NONE instead"))
     if cov.get("knownGaps"):
         errs.append(_shape_err(
-            "COVERAGE_COMPLETE_WITH_GAPS",
+            "COMPLETE_WITH_GAPS",
             "status COMPLETE cannot list knownGaps — a named gap is the counter-example to the "
             "word beside it"))
     return errs
