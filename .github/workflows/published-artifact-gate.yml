@@ -117,13 +117,25 @@ jobs:
         # checkout. Two things this pins: (1) a repo-context test that reads a pruned artifact (e.g.
         # audit_artifacts/findings_register_361.json) is conftest-skipped, never a silent failure; (2) the
         # optional-dep modules degrade to a clean module-level skip on a bare [eval] install rather than a
-        # collection error (L6-01). Stops the invariant from drifting false again.
+        # collection error (L6-01).
+        #
+        # N18, 2026-09-23: point (2) was claimed here and NOT executed. The step installed the [test] extra
+        # and only then ran pytest, so the bare case never ran, and the invariant drifted false while this
+        # gate stayed green. Measured on the published 6.1.0 sdist: a bare install plus pytest exited 2 with
+        # `ModuleNotFoundError: No module named 'yaml'` out of tests/test_action_input_injection.py, and
+        # collection was interrupted after 19 tests. A gate whose stated guarantee is broader than what it
+        # runs reports green over a case it did not try. The collection pass below runs BEFORE the [test]
+        # install, on the [eval]-only venv, which is the state point (2) is about.
         run: |
-          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
           mkdir -p /tmp/sdisttree
           tar -xzf "$(ls dist/*.tar.gz)" -C /tmp/sdisttree --strip-components=1
           cd /tmp/sdisttree
           test ! -e audit_artifacts/findings_register_361.json  # confirm it really is pruned from the sdist
+          # (2), now executed: on the bare [eval] venv, collection must SUCCEED. Missing optional
+          # dependencies become module-level skips; an unguarded import would make this exit non-zero.
+          /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider --collect-only >/dev/null
+          # (1) and the green-suite invariant, unchanged.
+          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
           /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider
 
   reusable-attest-dryrun:
