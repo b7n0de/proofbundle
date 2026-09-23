@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- **R1 counts distinct units rather than list entries** (`src/proofbundle/cap1.py`). A coverage list
+  naming the same unit twice read as two covered units, so a report could claim a count it had not
+  earned. The verdict now names the duplicates, because a number that silently absorbs a duplicate
+  is a number nobody can check.
+- **R8 validates every element, not only the container** (`src/proofbundle/cap1.py`). The guard
+  accepted any list, including one holding `{}` or `None`. The failure now names the offending
+  element instead of the field.
+- **The CAP-1 early return no longer silences the legacy alias check**
+  (`src/proofbundle/agent_review.py`). `_widerspruch_in_altfeldern` ran on the v0.1 path only, so a
+  document taking the CAP-1 branch could report `complete` while its own legacy fields said `0 of
+  100` with a gap. The check runs on both branches, and `_is_zahl` returns `TypeGuard[int]` so the
+  narrowing holds at the call site.
+
+Contract `tests/test_codex_funde_248_20260923.py`, with a catch proof measured on the branch:
+reverting `cap1.py` to its `main` state turns 7 cases red, reverting `agent_review.py` turns 3 red,
+and both fixes present leave 268 passing with 14 subtests.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
