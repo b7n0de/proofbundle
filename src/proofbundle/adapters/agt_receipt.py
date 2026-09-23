@@ -1,0 +1,285 @@
+"""Offline verification of Agent Governance Toolkit (AGT) MCP governance receipts.
+
+WHAT THIS IS. AGT (github.com/microsoft/agent-governance-toolkit, MIT) emits signed receipts for
+MCP tool calls: an Ed25519 signature over a canonical JSON payload, optionally a second signature
+from a separate authorizer, and a `parent_receipt_hash` chain link. This module verifies such a
+receipt WITHOUT AGT installed and without network access, from the receipt JSON alone.
+
+NO AGT CODE IS COPIED. The format was read from the published tree at commit
+``a917ad4ac04aff11a5e9e21f6a26b91642b750cd`` (2026-09-24) and re-derived here; the wire format is
+the interface, and an interface can be re-implemented. AGT is MIT, Copyright (c) Microsoft
+Corporation. The conformance vectors in ``tests/`` are produced by our own generator, not taken
+from AGT.
+
+THE ONE THING A READER MUST KNOW, and it is the reason this module exists in this shape.
+AGT's ``canonical_payload`` carries the docstring "RFC 8785 JCS canonical JSON" and is implemented
+as ``json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)``. Those two are NOT the
+same serializer, and they diverge on the field every receipt carries. Measured 2026-09-23 on a
+receipt produced by AGT's own signer:
+
+    timestamp 1758600000.0   json.dumps -> 1758600000.0     RFC 8785 -> 1758600000
+    payload_hash in receipt  f35ba4cf191963b9…  == sha256(json.dumps form)
+    sha256(RFC 8785 form)    f7d770b4e6c1fff4…  != the above
+    Ed25519 signature        valid against the json.dumps form, REJECTED against RFC 8785
+
+So a verifier that implements the DOCUMENTED format rejects valid receipts. This module therefore
+verifies against the form AGT actually signs, and says so, rather than quietly accepting whichever
+of the two happens to match. Silently trying both would be the very re-interpretation this house
+forbids: it would turn "the receipt is valid" into "one of two readings of the receipt is valid",
+and a reader could not tell which.
+
+EXIT CODES follow the house contract used by ``proofbundle verify`` (WP-B2): 0 when the receipt
+verifies, 1 on a cryptographic or structural failure, 2 on malformed input, 3 when the crypto is
+sound but a supplied relying-party requirement (a trusted authorizer key, an expiry horizon) is not
+met. The split matters: a receipt can be perfectly signed and still not satisfy the policy a
+relying party brings to it, and those two are different answers.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any, Dict, Optional, Sequence
+
+from ..errors import VerificationResult
+
+__all__ = [
+    "AGT_AUTHORIZATION_TYPE",
+    "AGT_CANONICAL_FORM",
+    "AGTReceiptError",
+    "canonical_payload",
+    "canonical_authorization_payload",
+    "payload_hash",
+    "verify_agt_receipt",
+    "verify_agt_receipt_chain",
+]
+
+#: The type URI AGT binds into the external-authorization payload. Read from the tree, not invented.
+AGT_AUTHORIZATION_TYPE = "https://agent-governance.org/receipts/external-authorization/v1"
+
+#: The serializer AGT actually signs with. NAMED, because AGT's own docstring names a different one
+#: and the difference is load-bearing (see the module docstring). This identifier is ours; it exists
+#: so a verdict can say WHICH canonical form it verified against.
+AGT_CANONICAL_FORM = "sortkeys-json-utf8"
+
+#: The payload fields, in the order AGT builds them. Optional ones are present only when set.
+_PFLICHTFELDER = ("agent_did", "args_hash", "cedar_decision", "cedar_policy_id",
+                  "receipt_id", "timestamp", "tool_name")
+_WAHLFELDER = ("parent_receipt_hash", "session_id")
+
+#: The decisions AGT's implementation uses. NOTE for anyone reading the proposal instead of the
+#: code: the proposal document says "permit/deny", the implementation says "allow"/"deny". A
+#: verifier that accepts "permit" would accept a receipt AGT never emits.
+_ENTSCHEIDUNGEN = frozenset({"allow", "deny"})
+
+
+class AGTReceiptError(ValueError):
+    """Malformed input: the bytes are not a readable AGT receipt. Exit code 2, never 1.
+
+    Kept apart from a verification failure on purpose. "I cannot read this" and "I read this and
+    the signature is wrong" are different answers, and folding them together loses the one a caller
+    needs to act on.
+    """
+
+
+def _text(receipt: Dict[str, Any], feld: str) -> str:
+    wert = receipt.get(feld)
+    if not isinstance(wert, str):
+        raise AGTReceiptError(f"{feld} is {type(wert).__name__}, expected a string")
+    return wert
+
+
+def canonical_payload(receipt: Dict[str, Any]) -> bytes:
+    """The bytes AGT signs. `sort_keys` JSON with compact separators and raw UTF-8.
+
+    NOT RFC 8785, although AGT's docstring says so; see the module docstring for the measurement.
+    The signature fields are excluded because they cover this payload.
+    """
+    if not isinstance(receipt, dict):
+        raise AGTReceiptError(f"receipt is {type(receipt).__name__}, expected an object")
+    fehlend = [f for f in _PFLICHTFELDER if f not in receipt]
+    if fehlend:
+        raise AGTReceiptError(f"receipt lacks required field(s): {', '.join(sorted(fehlend))}")
+    daten: Dict[str, Any] = {f: receipt[f] for f in _PFLICHTFELDER}
+    for f in _WAHLFELDER:
+        if receipt.get(f) is not None:
+            daten[f] = receipt[f]
+    return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def payload_hash(receipt: Dict[str, Any]) -> str:
+    """SHA-256 over :func:`canonical_payload`. This is what `parent_receipt_hash` points at."""
+    return hashlib.sha256(canonical_payload(receipt)).hexdigest()
+
+
+def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
+    """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce."""
+    fehlend = [f for f in ("authorizer_id", "authorization_expires_at", "authorization_nonce")
+               if receipt.get(f) is None]
+    if fehlend:
+        raise AGTReceiptError(
+            f"external authorization metadata is incomplete: {', '.join(sorted(fehlend))}")
+    daten = {
+        "authorizer_id": receipt["authorizer_id"],
+        "authorization_expires_at": receipt["authorization_expires_at"],
+        "authorization_nonce": receipt["authorization_nonce"],
+        "receipt_payload_hash": payload_hash(receipt),
+        "type": AGT_AUTHORIZATION_TYPE,
+    }
+    return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> bool:
+    """One Ed25519 check. Returns False on any failure; never raises for bad input.
+
+    A verifier that raises on a malformed key cannot finish a verdict over a list of receipts, and
+    an unfinished verdict reads like a clean one.
+    """
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        schluessel = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
+        schluessel.verify(bytes.fromhex(signatur_hex), nutzlast)
+        return True
+    except Exception:                                    # noqa: BLE001 — invalid is False, not a raise
+        return False
+
+
+def verify_agt_receipt(
+    receipt: Dict[str, Any],
+    *,
+    trusted_authorizer_keys: Optional[Sequence[str]] = None,
+    require_external_authorization: bool = False,
+    now: Optional[float] = None,
+) -> VerificationResult:
+    """Verify one AGT receipt offline.
+
+    `trusted_authorizer_keys` is the relying party's list; an external authorization is only
+    ACCEPTED when its key is on that list AND differs from the receipt signer key. Without the
+    list, an externally authorized receipt still verifies cryptographically, and the verdict says
+    the authorization was not evaluated. That is not a pass for the authorization.
+
+    `now` is the instant expiry is judged at. Default is the receipt's own `timestamp`, because
+    this is the OFFLINE reading: the proposal states that offline verification evaluates expiration
+    at the signed receipt timestamp while a live adapter evaluates it at execution time. Passing a
+    wall-clock value here gives the live reading; the verdict names which one was used.
+    """
+    ergebnis = VerificationResult()
+    nutzlast = canonical_payload(receipt)                 # raises AGTReceiptError → exit 2
+
+    entscheidung = _text(receipt, "cedar_decision")
+    ergebnis.add(
+        "decision-vocabulary", entscheidung in _ENTSCHEIDUNGEN,
+        f"cedar_decision={entscheidung!r}" if entscheidung in _ENTSCHEIDUNGEN else
+        f"cedar_decision={entscheidung!r} is not one of {sorted(_ENTSCHEIDUNGEN)} — note that the "
+        f"AGT proposal document says permit/deny while the implementation says allow/deny")
+
+    signatur = receipt.get("signature")
+    pubkey = receipt.get("signer_public_key")
+    if not isinstance(signatur, str) or not isinstance(pubkey, str) or not signatur or not pubkey:
+        ergebnis.add("signature", False, "receipt carries no signature or no signer public key")
+        return ergebnis
+    ergebnis.add(
+        "signature", _ed25519_gueltig(pubkey, signatur, nutzlast),
+        f"Ed25519 over the {AGT_CANONICAL_FORM} payload, {len(nutzlast)} bytes")
+
+    # The receipt may carry its own payload_hash. If it does and it disagrees, say so: a receipt
+    # whose self-reported hash does not match its own bytes is telling two stories.
+    selbst = receipt.get("payload_hash")
+    if isinstance(selbst, str) and selbst:
+        ergebnis.add("payload-hash-self-consistent", selbst == payload_hash(receipt),
+                     f"receipt states {selbst[:16]}…")
+
+    hat_autorisierung = any(receipt.get(f) is not None for f in
+                            ("authorizer_id", "authorization_signature", "authorizer_public_key"))
+    if require_external_authorization and not hat_autorisierung:
+        ergebnis.add("external-authorization", False,
+                     "required by the caller, but the receipt carries none")
+        return ergebnis
+    if not hat_autorisierung:
+        return ergebnis
+
+    a_sig = receipt.get("authorization_signature")
+    a_key = receipt.get("authorizer_public_key")
+    if not isinstance(a_sig, str) or not isinstance(a_key, str) or not a_sig or not a_key:
+        ergebnis.add("external-authorization", False,
+                     "authorization metadata present but signature or authorizer key missing")
+        return ergebnis
+    if a_key == pubkey:
+        ergebnis.add("external-authorization", False,
+                     "authorizer key equals the receipt signer key — a second signature from the "
+                     "same key adds no independent party")
+        return ergebnis
+
+    a_nutzlast = canonical_authorization_payload(receipt)
+    ergebnis.add("external-authorization-signature",
+                 _ed25519_gueltig(a_key, a_sig, a_nutzlast),
+                 f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
+
+    frist = receipt.get("authorization_expires_at")
+    zeitpunkt = receipt.get("timestamp") if now is None else now
+    quelle = "the receipt timestamp (offline reading)" if now is None else "the supplied instant"
+    if isinstance(frist, (int, float)) and isinstance(zeitpunkt, (int, float)):
+        ergebnis.add("external-authorization-unexpired", float(zeitpunkt) <= float(frist),
+                     f"judged at {quelle}")
+    else:
+        ergebnis.add("external-authorization-unexpired", False,
+                     "expiry or reference instant is not a number")
+
+    if trusted_authorizer_keys is None:
+        # NOT a pass. The check is recorded as not evaluated so the verdict cannot be read as
+        # "the authorizer was trusted".
+        ergebnis.add("external-authorization-trusted", False,
+                     "no trusted authorizer keys supplied — the authorization was NOT evaluated "
+                     "against a relying party's list, and this is not an acceptance")
+    else:
+        ergebnis.add("external-authorization-trusted", a_key in set(trusted_authorizer_keys),
+                     f"authorizer key {a_key[:16]}… against {len(trusted_authorizer_keys)} "
+                     f"trusted key(s)")
+    return ergebnis
+
+
+def verify_agt_receipt_chain(
+    receipts: Sequence[Dict[str, Any]],
+    **kwargs: Any,
+) -> VerificationResult:
+    """Verify a receipt chain: every receipt, plus every `parent_receipt_hash` link.
+
+    An empty sequence is a failure, not a clean chain. A run that examined nothing looks exactly
+    like a run that found nothing, and this house has paid for that confusion before.
+    """
+    ergebnis = VerificationResult()
+    if not receipts:
+        ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
+        return ergebnis
+
+    for i, r in enumerate(receipts):
+        teil = verify_agt_receipt(r, **kwargs)
+        for c in teil.checks:
+            ergebnis.add(f"[{i}] {c.name}", c.ok, c.detail)
+
+    for i in range(1, len(receipts)):
+        erwartet = payload_hash(receipts[i - 1])
+        gefunden = receipts[i].get("parent_receipt_hash")
+        ergebnis.add(f"[{i}] chain-link", gefunden == erwartet,
+                     f"parent_receipt_hash={str(gefunden)[:16]}… expected {erwartet[:16]}…")
+    return ergebnis
+
+
+def exit_code(ergebnis: VerificationResult) -> int:
+    """Map a verdict onto the house exit-code contract.
+
+    0 verified · 1 cryptographic or structural failure · 3 crypto sound but a relying-party
+    requirement unmet. 2 (malformed) is raised as :class:`AGTReceiptError` before this is reached,
+    for the same reason the house contract returns it earlier: unreadable input is not a failed
+    verification, it is a failed reading.
+    """
+    if ergebnis.ok:
+        return 0
+    krypto = {"signature", "external-authorization-signature", "payload-hash-self-consistent",
+              "decision-vocabulary", "chain-link", "chain-non-empty"}
+    for c in ergebnis.checks:
+        if c.ok:
+            continue
+        name = c.name.split("] ", 1)[-1]
+        if name in krypto:
+            return 1
+    return 3
