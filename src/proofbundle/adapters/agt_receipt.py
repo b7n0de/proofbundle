@@ -28,6 +28,16 @@ of the two happens to match. Silently trying both would be the very re-interpret
 forbids: it would turn "the receipt is valid" into "one of two readings of the receipt is valid",
 and a reader could not tell which.
 
+WHAT HAPPENS THE DAY AGT SWITCHES TO REAL JCS, because an independent review asked and the answer
+is not "try both". A receipt carries no canonical-form version, so the form cannot be read off the
+document; it has to be a decision the verifier states. The migration is therefore the same one
+this house already made for its own wire: name BOTH forms, default to absence meaning the older
+one, and never let an unlabelled receipt silently resolve to the newer. Until AGT emits a form
+marker there is nothing to switch on, and a second attempt would accept a receipt under a form its
+issuer never claimed. The trigger is already wired rather than left to memory:
+``test_die_gesignte_form_ist_sortkeys_json_nicht_rfc8785`` goes RED the day the two forms agree,
+and that red is the signal to add the second named form.
+
 EXIT CODES follow the house contract used by ``proofbundle verify`` (WP-B2): 0 when the receipt
 verifies, 1 on a cryptographic or structural failure, 2 on malformed input, 3 when the crypto is
 sound but a supplied relying-party requirement (a trusted authorizer key, an expiry horizon) is not
@@ -38,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Dict, Optional, Sequence
 
 from ..errors import VerificationResult
@@ -157,6 +168,20 @@ def verify_agt_receipt(
     list, an externally authorized receipt still verifies cryptographically, and the verdict says
     the authorization was not evaluated. That is not a pass for the authorization.
 
+    WHAT THE AUTHORIZATION CHECKS DO NOT SAY, named because an independent review found the earlier
+    check name claiming it. Two distinct keys are two keys, not two organizations: an admin key and
+    a service key of the same operator satisfy every check here. AGT's own proposal says the same —
+    "different keys alone cannot prove organizational independence" — and the check is therefore
+    called `authorizer-key-distinct`, which is what it measures, rather than something that sounds
+    like independence. Whether an authorizer is operationally independent is a deployment and
+    key-custody property, and no signature can carry it.
+
+    A CALLER WHO READS ONLY `.ok` LOSES THE REASON. `ok` is False for an unreadable receipt, a
+    broken signature and an unmet relying-party requirement alike; those are three different
+    answers and they are told apart by the check NAMES and by :func:`exit_code`, not by `ok`. The
+    same review raised this, and the honest answer is that `ok` is a summary and a summary is not a
+    diagnosis.
+
     `now` is the instant expiry is judged at. Default is the receipt's own `timestamp`, because
     this is the OFFLINE reading: the proposal states that offline verification evaluates expiration
     at the signed receipt timestamp while a live adapter evaluates it at execution time. Passing a
@@ -213,10 +238,15 @@ def verify_agt_receipt(
         ergebnis.add("external-authorization", False,
                      "authorization metadata present but signature or authorizer key missing")
         return ergebnis
+    # RECORDED IN BOTH DIRECTIONS, and the reason is a test of mine that was wrong. It asserted
+    # this check appears on a correctly authorized receipt; it did not, because the check was only
+    # added on the failing branch. A property that is only named when it is violated is invisible
+    # when it holds, and a reader of a green verdict cannot tell whether it was examined.
+    ergebnis.add("authorizer-key-distinct", a_key != pubkey,
+                 "authorizer key differs from the receipt signer key" if a_key != pubkey else
+                 "authorizer key equals the receipt signer key — a second signature from the same "
+                 "key adds no second party at all")
     if a_key == pubkey:
-        ergebnis.add("external-authorization", False,
-                     "authorizer key equals the receipt signer key — a second signature from the "
-                     "same key adds no independent party")
         return ergebnis
 
     a_nutzlast = canonical_authorization_payload(receipt)
@@ -290,6 +320,19 @@ def verify_agt_receipt_chain(
     return ergebnis
 
 
+#: Strips ONLY a leading chain index such as "[0] ". An independent review read the earlier
+#: `split("] ", 1)[-1]` as taking the LAST segment and called it broken for a name containing
+#: "] ". Measured, that reading was wrong: with maxsplit=1 the call already returns everything
+#: after the FIRST "] ", which is the name. The residual fragility is real though — an
+#: UNPREFIXED name containing "] " would still be cut — so the prefix is now matched as a prefix
+#: instead of being inferred from a separator that may also occur inside the name.
+_KETTENPRAEFIX = re.compile(r"^\[\d+\] ")
+
+
+def _blanker_name(name: str) -> str:
+    return _KETTENPRAEFIX.sub("", name, count=1)
+
+
 def exit_code(ergebnis: VerificationResult) -> int:
     """Map a verdict onto the house exit-code contract.
 
@@ -304,14 +347,14 @@ def exit_code(ergebnis: VerificationResult) -> int:
     # examined, and reporting a signature failure over input that was never parsed would name the
     # wrong cause.
     for c in ergebnis.checks:
-        if not c.ok and c.name.split("] ", 1)[-1] in ("readable", "chain-readable"):
+        if not c.ok and _blanker_name(c.name) in ("readable", "chain-readable"):
             return 2
     krypto = {"signature", "external-authorization-signature", "payload-hash-self-consistent",
               "decision-vocabulary", "chain-link", "chain-non-empty"}
     for c in ergebnis.checks:
         if c.ok:
             continue
-        name = c.name.split("] ", 1)[-1]
+        name = _blanker_name(c.name)
         if name in krypto:
             return 1
     return 3

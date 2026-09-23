@@ -100,8 +100,22 @@ class DieAutorisierungWirdNichtVerschenkt(unittest.TestCase):
         r["authorizer_public_key"] = r["signer_public_key"]
         e = verify_agt_receipt(r, trusted_authorizer_keys=[r["signer_public_key"]])
         self.assertFalse(e.ok)
-        treffer = [c for c in e.checks if c.name == "external-authorization"]
+        treffer = [c for c in e.checks if c.name == "authorizer-key-distinct"]
         self.assertTrue(treffer and "same key" in treffer[0].detail)
+
+    def test_der_pruefname_behauptet_nicht_mehr_als_er_misst(self):
+        """An independent review found the earlier name claiming independence it cannot measure.
+
+        Two distinct keys are two keys, not two organizations: an admin key and a service key of
+        the same operator satisfy every check here. AGT's own proposal says the same. The check is
+        therefore named for what it measures.
+        """
+        r = lade("03_extern_autorisiert")
+        e = verify_agt_receipt(r, trusted_authorizer_keys=[r["authorizer_public_key"]])
+        namen = {c.name for c in e.checks}
+        self.assertIn("authorizer-key-distinct", namen)
+        self.assertNotIn("external-authorization", namen,
+                         "a bare 'external-authorization' verdict would sound like independence")
 
     def test_gegenrichtung_eine_wache_die_alles_ablehnt_faellt_hier_auf(self):
         """WITHOUT THIS CASE a verifier that NEVER accepts would pass every catch above."""
@@ -236,3 +250,30 @@ class DieKetteNimmtJedeFormEntgegenOhneTypeError(unittest.TestCase):
         r1, r2 = lade("01_allow"), lade("02_deny")
         e = verify_agt_receipt_chain([r1, r2])
         self.assertTrue(e.ok, [c.detail for c in e.checks if not c.ok])
+
+
+
+class DerKettenpraefixWirdAlsPraefixAbgestreift(unittest.TestCase):
+    """An independent review called the earlier `split("] ", 1)[-1]` broken. It was not.
+
+    Measured: with maxsplit=1 that call returns everything after the FIRST "] ", which for
+    "[0] weird] name" is "weird] name" — the correct name. The review had read it as taking the
+    LAST segment. The residual fragility was real though: an UNPREFIXED name containing "] " would
+    still have been cut, so the prefix is now matched as a prefix instead of being inferred from a
+    separator that may also occur inside a name.
+    """
+
+    def test_fang_ein_unpraefixierter_name_mit_klammer_bleibt_ganz(self):
+        from proofbundle.adapters.agt_receipt import _blanker_name
+        self.assertEqual(_blanker_name("signature] x"), "signature] x")
+
+    def test_das_kettenpraefix_faellt_weg(self):
+        from proofbundle.adapters.agt_receipt import _blanker_name
+        self.assertEqual(_blanker_name("[0] chain-link"), "chain-link")
+        self.assertEqual(_blanker_name("[12] readable"), "readable")
+
+    def test_gegenrichtung_ein_name_ohne_praefix_bleibt_unveraendert(self):
+        """WITHOUT THIS CASE a stripper that removes anything in brackets would pass above."""
+        from proofbundle.adapters.agt_receipt import _blanker_name
+        self.assertEqual(_blanker_name("signature"), "signature")
+        self.assertEqual(_blanker_name("[abc] signature"), "[abc] signature")
