@@ -26,6 +26,8 @@ werden beim LESEN abgewiesen, nicht hier — dieses Modul bekommt ein bereits ge
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from typing import Any, TypeGuard
 
 from ._membership import is_member
@@ -138,7 +140,12 @@ def _r1_no_silent_remainder(doc: dict, f) -> None:
         # lower and the reader would see an arithmetic complaint whose cause is a duplicate row.
         # Naming the duplicate is what makes the refusal actionable.
         if len(benannt) != verschieden:
-            mehrfach = sorted({x for x in benannt if benannt.count(x) > 1})
+            # ONE PASS, NOT ONE PASS PER ENTRY. `benannt.count(x)` inside a comprehension over
+            # `benannt` is quadratic in attacker-controlled input. Measured by Codex on this branch:
+            # a 1.37 MB document with 30,000 entries and ONE duplicate passes the default parser
+            # budgets, loads in 0.085 s, and then spends 10.49 s here. The refusal is correct and
+            # the cost of reaching it is the defect.
+            mehrfach = sorted(x for x, n in Counter(benannt).items() if n > 1)
             f("R1-no-silent-remainder",
               f"{_sid(s)}: dieselbe Einheit ist mehrfach als unexamined gefuehrt ({', '.join(mehrfach)}) "
               f"— zwei Zeilen ueber eine Einheit sind eine Einheit")
