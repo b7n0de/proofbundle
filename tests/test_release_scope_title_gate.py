@@ -12,6 +12,7 @@ of it — a copied list is a second truth that ages the moment the file moves.
 """
 import importlib.util
 import pathlib
+import re
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -332,13 +333,22 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
 
         THE CUT OF 2026-09-19 IS A SHRINKING COUNT, which is why simply writing the new number here
         would be the answer this case warns about. The count is three now; the fifty-four that left
-        went to docs/release_scope/6.2.0.md, and that is asserted rather than asserted-about. A line
-        that VANISHES and a line that MOVED look identical in a count and are not the same thing, so
-        the destination is part of the check.
+        went to the 6.2.0 scope. A line that VANISHES and a line that MOVED look identical in a
+        count and are not the same thing, so the destination is part of the check.
 
-        If the two files are ever in one tree and the sum does not add up, this goes red, and it
-        does so for the same reason it did in September: a number that got smaller without anyone
-        being able to say where the difference went.
+        THE DESTINATION CHECK LEFT THIS CASE ON 2026-09-24, and the reason is that it had fallen
+        into the class this whole file stands against. It counted raw `| ` table rows in 6.2.0 and
+        excluded the headers `| Punkt |` and `| Eintrag |`. The file's columns have since been
+        named `| Item |`, so the headers counted as scope rows, and an accounting table added later
+        counted as scope rows too. Thirty-one rows were read where twenty were meant. Exactly the
+        shape TestDerWaechterBETRITTdieTabelleUeberhaupt records one level down: a header was
+        renamed and a check kept matching the old spelling in silence.
+
+        The 6.2.0 recast then split those lines across 6.2.0 and 6.3.0, so the destination became
+        two files and a count over one of them was a measurement of the wrong surface. Writing 31
+        in place of 54 would have made the suite green and recorded nothing. The replacement is in
+        TestDieVierundfuenfzigSindNamentlichAuffindbar, and it checks the fifty-four BY NAME
+        against the list the register itself carries, which a count cannot do.
 
         THE COUNT ROSE TO FOUR on 2026-09-20, and that direction is the safe one for this case. It
         guards against a number that got SMALLER without anyone being able to say where the
@@ -352,15 +362,204 @@ class TestGegenDieECHTEUmfangsdatei(unittest.TestCase):
         self.assertEqual(d["kennungen"], 4, "one identifier per line, that is the whole point")
         self.assertEqual(d["zeilen_ohne_kennung"], [],
                          "a line the gate cannot read must be reported, never dropped")
-        # WHERE THE OTHER FIFTY-FOUR WENT. Measured, not stated in prose.
-        nachfolger = REPO / "docs" / "release_scope" / "6.2.0.md"
-        if nachfolger.is_file():
-            verschoben = [z for z in nachfolger.read_text(encoding="utf-8").splitlines()
-                          if z.startswith("| ") and not z.startswith("| Punkt |")
-                          and not z.startswith("| Eintrag |")]
-            self.assertEqual(len(verschoben), 54,
-                             "the cut moved 54 lines to 6.2.0; if that number drops, a line was "
-                             "lost rather than moved, and the smaller count here is not honest")
+        # WHERE THE OTHER FIFTY-FOUR WENT — see TestDieVierundfuenfzigSindNamentlichAuffindbar.
+        # This case asserts the 6.1.0 file. The destination check is its own class, because the
+        # destination is now TWO files and a raw line count over one of them measured the wrong
+        # surface; the reason is written out there.
+
+
+def _tabellen(text: str) -> list[tuple[str, list[str]]]:
+    """Split markdown tables into (first header cell, data-row first cells).
+
+    THE HEADER IS FOUND BY STRUCTURE, NOT BY ITS WORDING: in a markdown table the header is the
+    row immediately above the `|---|` separator. The predecessor of this reader matched the
+    literal strings `| Punkt |` and `| Eintrag |`, the columns were later renamed to `| Item |`,
+    and from then on every header counted as a scope row. A reader that has to be taught each new
+    spelling is a reader that goes quietly wrong on the next one.
+    """
+    zeilen = text.splitlines()
+    trenner = [i for i, z in enumerate(zeilen) if re.match(r"^\|[\s:|-]+\|\s*$", z)]
+    aus = []
+    for t in trenner:
+        if t == 0:
+            continue
+        kopf = zeilen[t - 1]
+        if not kopf.startswith("|"):
+            continue
+        daten = []
+        for z in zeilen[t + 1:]:
+            if not z.startswith("|") or re.match(r"^\|[\s:|-]+\|\s*$", z):
+                break
+            daten.append(z)
+        aus.append((kopf.split("|")[1].strip(), daten))
+    return aus
+
+
+def _sach_und_rechnung(pfad: pathlib.Path) -> tuple[list[str], list[str]]:
+    """Scope rows and accounting rows.
+
+    The accounting table is the one whose FIRST HEADER CELL IS EMPTY (`| | Count |`); a scope
+    table always names its first column. That is one structural rule rather than a second list of
+    headings to keep in step, and the case below pins that exactly one table per file has it, so
+    the rule cannot widen without someone noticing.
+
+    A SCOPE ROW IS READ BY ITS FIRST CELL AND AN ACCOUNTING ROW WHOLE, and the asymmetry is not an
+    oversight. A scope row carries its identifier in column one. An accounting row carries its
+    label there and the identifiers it accounts for in the VALUE column — `| Without a row of its
+    own | 1: S62 / S65-3 |`. Reading only first cells lost exactly that rider, which is how this
+    line came to be written.
+    """
+    sach, rechnung = [], []
+    for kopf, daten in _tabellen(pfad.read_text(encoding="utf-8")):
+        if kopf == "":
+            rechnung.extend(daten)
+        else:
+            sach.extend(z.split("|")[1].strip() for z in daten)
+    return sach, rechnung
+
+
+def _deckt(zelle: str, marke: str) -> bool:
+    """Does this row's first cell carry that register identifier?
+
+    Rows are written `C1 / N15`, `S106 / S108`, `N2-3a–d, 3f, 3g`. The register writes one
+    identifier per line, so the match is per part and allows a trailing continuation.
+    """
+    for teil in re.split(r"\s*/\s*", zelle):
+        teil = teil.strip().lstrip("*").strip()
+        if teil == marke or teil.startswith(marke + ",") or teil.startswith(marke + " "):
+            return True
+    return False
+
+
+class TestDieVierundfuenfzigSindNamentlichAuffindbar(unittest.TestCase):
+    """THE FIFTY-FOUR ARE CHECKED BY NAME, because a count cannot tell loss from movement.
+
+    Until 2026-09-24 the destination check was `len(rows of 6.2.0) == 54`. It broke twice over, and
+    both breaks are the same class: it measured a surface that was no longer the one in use. The
+    columns were renamed, so headers counted as rows; an accounting table was added, so bookkeeping
+    counted as rows; and the recast split the lines across 6.2.0 AND 6.3.0, so one file stopped
+    being the destination at all. It read 31 where it wanted 20, and the honest number to write in
+    its place did not exist, because no single number was the right answer any more.
+
+    What a count could never do is say WHICH line went missing. This class reads the fifty-four
+    identifiers from the list the register carries in its own text, `RESTRISIKO_610.md`, and asks
+    of each one where it now lives. The list is not copied into this file: a copied list is a
+    second truth that ages the moment the register moves, which the module docstring already says
+    about the riders.
+
+    STATED LIMIT. A line deleted from a scope file AND written into an accounting table as a rider
+    passes this class. That is a deliberate, reviewable edit in prose a reader meets, not a silent
+    loss, and pretending to catch it would be a wider claim than the check.
+    """
+
+    def setUp(self):
+        self.register = REPO / "RESTRISIKO_610.md"
+        if not self.register.is_file():
+            self.skipTest("RESTRISIKO_610.md is in no tree here — NOT MEASURABLE, and that is a "
+                          "statement about the repository, not about the fifty-four")
+        self.ziele = [REPO / "docs" / "release_scope" / "6.2.0.md",
+                      REPO / "docs" / "release_scope" / "6.3.0.md"]
+
+    def _marken(self) -> list[str]:
+        """The fifty-four, read out of the register's own sentence."""
+        for zeile in self.register.read_text(encoding="utf-8").splitlines():
+            treffer = re.findall(r"`([^`]+)`", zeile)
+            if len(treffer) >= 40 and all(re.match(r"^[A-Z]", t) for t in treffer):
+                return treffer
+        self.fail("the register no longer carries a line listing the moved identifiers; this "
+                  "class cannot invent one, and an empty list would read as a clean result")
+
+    def test_das_register_nennt_die_vierundfuenfzig(self):
+        self.assertEqual(len(self._marken()), 54)
+
+    def test_die_zieldateien_existieren_denn_das_register_zeigt_auf_sie(self):
+        """Absence here is a FINDING, not a skip. The register names the destination in prose; if
+        that file is gone, the fifty-four have no recorded home and nothing says so."""
+        for z in self.ziele:
+            self.assertTrue(z.is_file(), f"{z.name} is named by the register and is not in the tree")
+
+    def test_genau_eine_rechnungstabelle_je_datei(self):
+        """The structural rule that separates bookkeeping from scope, pinned so it cannot widen."""
+        for z in self.ziele:
+            leer = [k for k, _ in _tabellen(z.read_text(encoding="utf-8")) if k == ""]
+            self.assertEqual(len(leer), 1, f"{z.name}: expected exactly one accounting table")
+
+    def test_jede_sachzeile_traegt_eine_lesbare_kennung(self):
+        """A row the reader cannot parse must become a finding, never disappear. That is the class
+        the R-A1 rename taught this house, applied to this reader."""
+        for z in self.ziele:
+            sach, _ = _sach_und_rechnung(z)
+            self.assertGreater(len(sach), 0, f"{z.name}: no scope row read at all")
+            stumm = [s for s in sach if not re.match(rf"^\**({GATE._KENNUNG})", s)]
+            self.assertEqual(stumm, [], f"{z.name}: rows without a readable identifier")
+
+    def test_jede_der_vierundfuenfzig_hat_genau_einen_ort(self):
+        """The whole point: loss and movement look identical in a count and are told apart here."""
+        marken = self._marken()
+        orte = {}
+        for z in self.ziele:
+            sach, rechnung = _sach_und_rechnung(z)
+            for m in marken:
+                if any(_deckt(s, m) for s in sach):
+                    orte.setdefault(m, []).append(z.name)
+                elif any(re.search(rf"(?<![0-9A-Za-z.\-]){re.escape(m)}(?![0-9A-Za-z.\-])", r)
+                         for r in rechnung):
+                    orte.setdefault(m, []).append(f"{z.name} (accounting)")
+        fehlend = [m for m in marken if m not in orte]
+        self.assertEqual(fehlend, [], "identifiers of the 54 that are in no file: a line did not "
+                                      "move, it vanished, and the count would not have said which")
+        doppelt = {m: o for m, o in orte.items()
+                   if len([x for x in o if "(accounting)" not in x]) > 1}
+        self.assertEqual(doppelt, {}, "the same identifier is cast into two scope files; the "
+                                      "landing card would count one line twice")
+
+    def test_ein_geloeschter_posten_faellt_ROT(self):
+        """COUNTER-DIRECTION, planted. Without it this class proves only that today's tree agrees
+        with itself, which is the coincidence the house stands against."""
+        marken = self._marken()
+        opfer = next(m for m in marken
+                     if any(_deckt(s, m) for s in _sach_und_rechnung(self.ziele[1])[0]))
+        text = self.ziele[1].read_text(encoding="utf-8")
+        beschnitten = "\n".join(z for z in text.splitlines()
+                                if not (z.startswith("| ") and _deckt(z.split("|")[1].strip(), opfer)))
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "6.3.0.md"
+            p.write_text(beschnitten, encoding="utf-8")
+            sach, _ = _sach_und_rechnung(p)
+            self.assertFalse(any(_deckt(s, opfer) for s in sach),
+                             f"the planted deletion of {opfer} did not take effect, so this "
+                             f"case would pass over a defect it never created")
+
+    def test_eine_umbenannte_spalte_aendert_die_zeilenzahl_NICHT(self):
+        """THE META-TEST AGAINST THE DEFECT THAT JUST HAPPENED, and it walks the spellings that
+        made the old reader swing rather than one arbitrary rename.
+
+        Measured on 6.2.0 on 2026-09-24, counting raw `| ` rows minus `| Punkt |` and
+        `| Eintrag |` the way the old check did:
+
+            | Item | (today)   36        | Punkt |     32
+            | Eintrag |        32        | Posten |    36
+
+        Four spellings, three different answers, and the file's own accounting says 24. The number
+        was a property of the heading, not of the scope. The reader below finds the header as the
+        row above the `|---|` separator, so none of these four moves it.
+        """
+        import tempfile
+        for z in self.ziele:
+            vorher, _ = _sach_und_rechnung(z)
+            roh = z.read_text(encoding="utf-8")
+            for wort in ("Punkt", "Eintrag", "Posten", "Identifier"):
+                with self.subTest(datei=z.name, kopf=wort):
+                    with tempfile.TemporaryDirectory() as d:
+                        p = pathlib.Path(d) / z.name
+                        p.write_text(re.sub(r"^\| Item \|", f"| {wort} |", roh, flags=re.M),
+                                     encoding="utf-8")
+                        nachher, _ = _sach_und_rechnung(p)
+                    self.assertEqual(
+                        len(vorher), len(nachher),
+                        f"{z.name}: calling the column {wort!r} changed the scope-row count from "
+                        f"{len(vorher)} to {len(nachher)} — the reader is matching wording again")
 
 
 class TestDerWaechterBETRITTdieTabelleUeberhaupt(unittest.TestCase):
