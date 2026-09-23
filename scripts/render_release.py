@@ -38,9 +38,16 @@ from typing import Any, Dict, List
 REPO = Path(__file__).resolve().parents[1]
 QUELLE = REPO / "release_notes" / "release-source.json"
 
-#: The five groups, in the order they appear in the rendered body. Read from the source, not from
-#: here; this tuple only says what a complete source looks like, so a missing group is a finding
-#: rather than a silently shorter release note.
+#: The five groups a complete source carries.
+#:
+#: THIS IS A DELIBERATE SECOND STATEMENT, and an adversarial counter-reading was right to call it
+#: duplication before accepting the reason. The names also live in the source, so adding a group
+#: there means changing this tuple too. That friction is the point: without it, `pruefe` would read
+#: the group set FROM the source and a source that had silently lost four of five groups would pass
+#: every check, because it would be measured against itself. A release note listing one group
+#: instead of five is exactly the failure nobody notices.
+#:
+#: The rendered ORDER comes from the source, not from here. This tuple decides membership only.
 ERWARTETE_GRUPPEN = (
     "Verifier and receipt formats",
     "Build, CI and test infrastructure",

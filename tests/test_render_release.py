@@ -155,3 +155,102 @@ class DasGerenderteIstDerVomOwnerGEPRUEFTEBody(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN(unittest.TestCase):
+    """An adversarial counter-reading called the byte-identity case a partial circle, and it was
+    half right.
+
+    The source was extracted FROM the reviewed body, so a renderer bug could in principle have been
+    compensated by the extraction. What the extraction pulled is semantic — group names, short
+    forms, pull request numbers — while the layout came from reading the body, so byte identity
+    still says the layout was read correctly. But that argument is an argument, and these cases are
+    a measurement: the renderer is exercised here against a SYNTHETIC source that shares nothing
+    with 6.1.0, so its structural behaviour is checked without the golden output.
+    """
+
+    def _synthetisch(self) -> dict:
+        eintraege = lambda n, s: [  # noqa: E731 — a fixture builder, not production code
+            {"nr": i, "kurz": f"Do thing {i}", "originaltitel": f"feat: thing {i}",
+             "autor": "someone", "url": f"https://example.test/pull/{i}"}
+            for i in range(s, s + n)]
+        return {
+            "schema": "b7n0de.release_source.v1", "version": "9.9.9",
+            "vorheriger_tag": "v9.9.8", "tag": "v9.9.9",
+            "release_commit": "0" * 40, "readme_commit": "1" * 40,
+            "kopfsatz": "A synthetic release. **Beta. Closing audit not run.**",
+            "was_sich_aenderte": [{"bereich": "Area", "aenderung": "Change", "beleg": "Evidence"}],
+            "vor_dem_upgrade": [{"titel": "Thing.", "text": "Some consequence."}],
+            "auditstatus": "Nothing was audited here.",
+            "gruppen": [
+                {"name": "Verifier and receipt formats", "eintraege": eintraege(1, 1)},
+                {"name": "Build, CI and test infrastructure", "eintraege": eintraege(2, 10)},
+                {"name": "Audit and evidence", "eintraege": eintraege(1, 20)},
+                {"name": "Documentation and interoperability", "eintraege": eintraege(1, 30)},
+                {"name": "Dependencies", "eintraege": eintraege(1, 40)},
+            ],
+            "danke": ["someone"],
+        }
+
+    def test_die_struktur_stimmt_ohne_jede_6_1_0_beruehrung(self):
+        d = self._synthetisch()
+        self.assertEqual(pruefe(d), [])
+        text = rendere(d)
+        self.assertIn("6 pull requests, grouped by area", text)
+        self.assertEqual(text.count("<details>"), 6, "five groups plus the audit block")
+        self.assertEqual(text.count("</details>"), 6)
+        self.assertIn("Verifier and receipt formats · 1 pull request</summary>", text)
+        self.assertIn("Build, CI and test infrastructure · 2 pull requests</summary>", text)
+        self.assertNotIn("6.1.0", text, "a synthetic render must not carry 6.1.0 anywhere")
+
+    def test_der_zaehler_folgt_der_quelle_und_nicht_einer_konstanten(self):
+        """Change the source, the count changes. A hard-coded 48 would survive this."""
+        d = self._synthetisch()
+        d["gruppen"][1]["eintraege"].pop()
+        self.assertIn("5 pull requests, grouped by area", rendere(d))
+
+    def test_einzahl_und_mehrzahl_folgen_der_zahl(self):
+        d = self._synthetisch()
+        text = rendere(d)
+        self.assertIn("· 1 pull request<", text)
+        self.assertIn("· 2 pull requests<", text)
+
+
+class DieVerweigerungIstDASVerhaltenUndKeinUnfall(unittest.TestCase):
+    """The same counter-reading asked what breaks on a tag like v6.1.0-rc1. Measured: nothing
+    breaks — it REFUSES, which is the designed outcome. A release candidate that has no source
+    written for it must not be published under the statements of another tree."""
+
+    def test_ein_rc_tag_ohne_eigene_quelle_wird_abgewiesen(self):
+        r = _fahre("--version", "6.1.0-rc1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("6.1.0-rc1", r.stderr)
+
+    def test_ein_versehentlich_mitgeschlepptes_v_wird_abgewiesen(self):
+        """`${GITHUB_REF_NAME#v}` strips ONE leading v; a source that kept it would not match."""
+        r = _fahre("--version", "v6.1.0")
+        self.assertEqual(r.returncode, 2)
+
+
+class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
+    """Named rather than removed, and pinned so the reason survives the next reader.
+
+    If `pruefe` read the group set from the source instead of from `ERWARTETE_GRUPPEN`, a source
+    that had lost four of five groups would pass every check — it would be measured against itself.
+    """
+
+    def test_fang_eine_quelle_mit_nur_einer_gruppe_faellt(self):
+        d = _quelle()
+        d["gruppen"] = d["gruppen"][:1]
+        befunde = pruefe(d)
+        self.assertTrue(befunde, "a source reduced to one group must not pass")
+        self.assertTrue(any("missing" in b for b in befunde), befunde)
+
+    def test_die_reihenfolge_kommt_aus_der_quelle_nicht_aus_der_konstanten(self):
+        """Membership is decided by the constant, ORDER by the source."""
+        d = _quelle()
+        d["gruppen"] = list(reversed(d["gruppen"]))
+        self.assertEqual(pruefe(d), [], "reordering is not a structural finding")
+        text = rendere(d)
+        zuerst = text.split("## All changes", 1)[1].split("<summary>", 1)[1].split(" ·", 1)[0]
+        self.assertEqual(zuerst, "Dependencies", "the render followed the source order")

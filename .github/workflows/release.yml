@@ -171,9 +171,10 @@ jobs:
           # (defaults-Block oben) laesst einen fehlgeschlagenen Aufruf nicht durchrutschen.
           python scripts/release_text_hygiene.py --text-file /tmp/release_notes.md \
             --label "release-notes $GITHUB_REF_NAME"
-          # DER DIGEST WIRD FESTGEHALTEN, damit der Entwurfsschritt nachweislich dieselben Bytes
-          # bekommt. Liegt die Vorbereitung eines Tages in einem anderen Job, wandert die Datei als
-          # Artefakt und wird dort gegen genau diesen Wert geprueft.
+          # DER DIGEST WIRD FESTGEHALTEN — und weiter unten GEGENGEPRUEFT. Die erste Fassung
+          # schrieb ihn nur und nannte das einen Nachweis; eine Gegenlesung hat das zu Recht als
+          # beruhigende Zeile ohne Pruefung bezeichnet. Ein Digest, den niemand vergleicht, belegt
+          # nichts. Der Entwurfsschritt prueft ihn jetzt unmittelbar vor der Uebergabe.
           sha256sum /tmp/release_notes.md | tee /tmp/release_notes.md.sha256
 
       - name: Build sdist and wheel (the ONLY build in this workflow)
@@ -329,6 +330,15 @@ jobs:
       #
       # Die irreversible Aussenwirkung passierte damit VOR dem Tor, das sie pruefen soll. Das ist
       # keine Prozess-Meinung, sondern die Reihenfolge in dieser Datei — und sie ist jetzt gedreht.
+      - name: Der Entwurf bekommt GENAU die gepruefte Datei, und das wird gemessen
+        # DIE GEGENPROBE ZUM DIGEST OBEN. Zwischen dem Formpruefer und diesem Schritt liegen Bau,
+        # Signatur und Provenance; wuerde die Datei dort beruehrt, bekaeme der Entwurf andere Bytes
+        # als die geprueften, und genau diese Luecke soll dieser Zug schliessen. Eine Zeile, die den
+        # Digest nur schreibt, haette das nicht gemerkt.
+        run: |
+          test -s /tmp/release_notes.md
+          sha256sum -c /tmp/release_notes.md.sha256
+
       - name: Create the GitHub Release as a DRAFT (no DOI yet)
         id: draft
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
