@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Die fuenfzehn CAP-1-Vektoren des Entwurfsautors als Faelle des Konformitaetslaeufers.
+"""The draft author's fifteen CAP-1 vectors as cases of the conformance runner.
 
-Quelle: conformance/cap1/vectors/{manifest.json, PV-*.json, NC-*.json, _author_conformance_run.json}
-(Certisyn-Inc/certisyn-drafts, Commit 0980d32, Apache-2.0 — LICENSE.author liegt daneben). Je Vektor
-entsteht ein Fallordner conformance/cap1/<caseId>/ mit document.json (Byte-Kopie des Vektors) und
-case.json; die Erwartung ist die EXAKTE Regelmenge aus dem aufgezeichneten Lauf des Autors —
-einschliesslich der Doppelung bei NC-05 (R1 UND R5). Deterministisch: zweimal laufen ergibt dieselben
-Bytes (ein Test haelt das). `CAP1_CASES_ROOT` lenkt die Ausgabe um, damit der Test in ein
-Temp-Verzeichnis bauen und vergleichen kann; der Manifest-Eintrag entsteht nur am echten Ort.
+Source: conformance/cap1/vectors/{manifest.json, PV-*.json, NC-*.json, _author_conformance_run.json}
+(Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0 — LICENSE.author sits beside them). Each
+vector yields a case folder conformance/cap1/<caseId>/ with document.json (a byte copy of the
+vector) and case.json; the expectation is the EXACT rule set from the author's recorded run —
+including the duplication at NC-05 (R1 AND R5). Deterministic: running it twice yields the same
+bytes (a test holds that). `CAP1_CASES_ROOT` redirects the output so the test can build into a temp
+directory and compare; the manifest entry is written only at the real location.
 """
 from __future__ import annotations
 

@@ -36,9 +36,9 @@ _MODULES = [
     # These seven carried 11 matching surfaces the property had never entered.
     "anchors_chia", "anchors_markovian", "anchors_ots", "anchors_rfc3161", "anchors_rootcommit",
     "emit", "pqsig",
-    # 2026-09-05: CAP-1 (draft-hillier-coverage-attestation-00) als Paketfunktion, Thema 7 Teil B.
-    # check_cap1_document ist never-raise per Vertrag; load_cap1_document wirft die TYPISIERTE
-    # Cap1DuplicateKey(ValueError) bei doppelten Namen — fail-closed, in _ACCEPTED.
+    # 2026-09-05: CAP-1 (draft-hillier-coverage-attestation-00) as a package function, topic 7 part B.
+    # check_cap1_document is never-raise by contract; load_cap1_document raises the TYPED
+    # Cap1DuplicateKey(ValueError) on duplicate names — fail-closed, listed in _ACCEPTED.
     "cap1",
     # 2026-08-17: the coverage guard itself globbed the top level only, so a module inside a
     # SUBPACKAGE was outside the ground truth — and therefore outside the guard that exists to prove
@@ -69,9 +69,9 @@ _NAME_PATTERN = re.compile(
     # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
     # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
     r"|expected_origin_wellformed"
-    # 2026-09-05, CAP-1 Teil B: `is_conformant` ist ein Praedikat ueber ein vom Aufrufer geliefertes
-    # Dokument (untrusted) und muss urteilen statt zu crashen — in den Nenner, wie das Vorbild eine
-    # Zeile darueber. `check_cap1_document`/`load_cap1_document` fallen ueber ihre Praefixe hinein.
+    # 2026-09-05, CAP-1 part B: `is_conformant` is a predicate over a caller-supplied document
+    # (untrusted) and must judge rather than crash — into the denominator, like the example one line
+    # above. `check_cap1_document`/`load_cap1_document` fall in through their prefixes.
     r"|is_conformant"
     # 2026-08-18, Deep-Gate-Linse 2 Befund 1: `split_key_binding` und `holder_key_from_cnf`
     # standen in der Ausschlussmenge unter ERZEUGER ("baut aus eigenen, bereits geprueften

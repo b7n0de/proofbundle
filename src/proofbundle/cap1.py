@@ -1,28 +1,28 @@
-"""CAP-1 (draft-hillier-coverage-attestation-00) — die acht normativen Regeln als Paketfunktion.
+"""CAP-1 (draft-hillier-coverage-attestation-00) — the eight normative rules as a package function.
 
-WAS DAS IST. Ein Coverage Attestation Document sagt, was eine Untersuchung untersucht hat, was nicht,
-und warum — je Stratum ein Nenner mit Basis und eine Buchfuehrung Einheit fuer Einheit mit einem
-Grund aus einer geschlossenen Menge. Ohne das ist eine Abwesenheitsaussage ("nicht gefunden")
-unfalsifizierbar: sie unterscheidet nicht, ob nachgesehen wurde.
+WHAT THIS IS. A Coverage Attestation Document states what an examination examined, what it did not,
+and why — per stratum a denominator with a basis, and a unit-by-unit account with a reason drawn
+from a closed set. Without that, an absence claim ("not found") is unfalsifiable: it does not
+distinguish whether anyone looked.
 
-GESCHRIEBEN AUS DEM ENTWURFSTEXT, Abschnitte 4, 4.1, 4.2, 4.3, 5 und 6 der Fassung -00 (Datatracker,
-abgerufen 2026-09-04), plus die Feldnamen aus CAP-1.schema.json (Autor-Repo, Commit 0980d32), die
-Abschnitt 4 zur normativen Form erklaert. Die Regelnamen sind die des Konformitaets-Manifests des
-Autors (R1-no-silent-remainder, …), damit die fuenfzehn Vektoren unveraendert als Test laufen.
-Der Referenzverifier des Autors wurde NICHT gelesen; die zweite unabhaengige Lesart im Haus ist
-`tools/cap1_unabhaengige_umsetzung/` und bleibt dort unveraendert (Auftrag Teil C).
+WRITTEN FROM THE DRAFT TEXT, sections 4, 4.1, 4.2, 4.3, 5 and 6 of revision -00 (Datatracker,
+retrieved 2026-09-04), plus the field names from CAP-1.schema.json (author's repository, commit
+0980d32), which section 4 declares to be the normative form. The rule names are those of the
+author's conformance manifest (R1-no-silent-remainder, …), so that the fifteen vectors run as tests
+unchanged. The author's reference verifier was NOT read; the second independent reading in this
+house is `tools/cap1_unabhaengige_umsetzung/` and stays there untouched (order, part C).
 
-DREI EIGENSCHAFTEN, die dieses Modul traegt:
-  * never-raise: `check_cap1_document` gibt fuer JEDE Eingabe eine Fehlerliste zurueck, nie eine
-    Ausnahme. Ein Verifizierer, der bei einem kaputten Dokument abstuerzt, urteilt nicht.
-  * Refusal ist die einzige konforme Antwort auf ein verletzendes Dokument (Entwurf §5); es wird
-    nichts korrigiert, nichts erraten, nichts aufgefuellt.
-  * Jede Regel steht EINZELN in `RULES`, damit der Meta-Test des Entwurfs (§7.2: "acht Regeln, acht
-    Mutanten, acht Kills") sie einzeln stumm schalten und die Klasse fallen sehen kann.
+THREE PROPERTIES this module carries:
+  * never-raise: `check_cap1_document` returns an error list for EVERY input, never an exception.
+    A verifier that crashes on a broken document does not judge it.
+  * Refusal is the only conformant answer to a violating document (draft §5); nothing is corrected,
+    nothing guessed, nothing filled in.
+  * Every rule stands SEPARATELY in `RULES`, so the draft's meta-test (§7.2: "eight rules, eight
+    mutants, eight kills") can silence them one at a time and watch the class fall.
 
-DUPLIKATE (die Klausel, die -01 tragen wird und von uns stammt): JSON-Objekte mit doppelten Namen
-werden beim LESEN abgewiesen, nicht hier — dieses Modul bekommt ein bereits geparstes Objekt.
-`load_cap1_document` liest strikt und lehnt Doppelungen ab.
+DUPLICATES (the clause that -01 will carry, and which originates here): JSON objects with duplicate
+names are rejected at READ time, not here — this module receives an already parsed object.
+`load_cap1_document` reads strictly and refuses duplicates.
 """
 from __future__ import annotations
 
@@ -37,36 +37,36 @@ __all__ = [
 
 CAP1_PROFILE = "cap/1"
 
-#: Entwurf §6, das geschlossene Vokabular. Acht Werte, woertlich.
+#: Draft §6, the closed vocabulary. Eight values, verbatim.
 DISPOSITIONS = frozenset({
     "not_applicable", "disabled_by_policy", "unsupported_input", "resource_exhausted",
     "failed", "unavailable", "out_of_scope", "withheld",
 })
 
-#: Entwurf §4.2, die drei Arten des Nenners.
+#: Draft §4.2, the three kinds of denominator.
 BASIS_KINDS = frozenset({"catalogue", "enumeration", "declared"})
 
-#: Entwurf R7: diese drei Dispositionen sind mit `integrity.complete = true` unvereinbar.
+#: Draft R7: these three dispositions are incompatible with `integrity.complete = true`.
 HARD_DISPOSITIONS = frozenset({"failed", "resource_exhausted", "unavailable"})
 
 _HEX = frozenset("0123456789abcdef")
 
 
 def _is_int(x: object) -> TypeGuard[int]:
-    """Eine echte Ganzzahl. `bool` ist in Python eine int-Unterklasse und hier keine Zahl.
+    """A genuine integer. `bool` is an int subclass in Python and is not a number here.
 
-    WARUM TypeGuard UND NICHT bool, gemessen 2026-09-15: `mypy src` meldete sechs Fehler in diesem
-    Modul, alle derselben Klasse — ein aus geparstem JSON gelesener Wert ist `Any | None`, und der
-    Pruefer sah nicht, dass `_is_int(el)` ihn bereits auf `int` einengt. Zur LAUFZEIT war jede
-    dieser Stellen korrekt bewacht; falsch war nur, dass die Zusicherung im Rueckgabetyp nicht
-    stand. Mit `TypeGuard[int]` verengt der Pruefer durch JEDE Aufrufstelle, auch durch die, die es
-    noch nicht gibt — sechs `# type: ignore` haetten dagegen genau sechs Stellen stumm gestellt und
-    die siebte wieder rot werden lassen."""
+    WHY TypeGuard AND NOT bool, measured 2026-09-15: `mypy src` reported six errors in this module,
+    all of one class — a value read from parsed JSON is `Any | None`, and the checker did not see
+    that `_is_int(el)` had already narrowed it to `int`. At RUNTIME every one of those places was
+    correctly guarded; the only thing wrong was that the guarantee did not stand in the return type.
+    With `TypeGuard[int]` the checker narrows through EVERY call site, including the ones that do
+    not exist yet — six `# type: ignore` would instead have silenced exactly six places and let the
+    seventh go red again."""
     return isinstance(x, int) and not isinstance(x, bool)
 
 
 def _is_digest(x: object) -> bool:
-    """Schema: `^[0-9a-f]{32,128}$` — der Entwurf schreibt keinen Algorithmus vor (§9), nur die Form."""
+    """Schema: `^[0-9a-f]{32,128}$` — the draft mandates no algorithm (§9), only the shape."""
     return isinstance(x, str) and 32 <= len(x) <= 128 and set(x) <= _HEX
 
 
@@ -85,11 +85,11 @@ def _sid(s: dict) -> str:
     return sid if isinstance(sid, str) and sid else "?"
 
 
-# ── die acht Regeln, Entwurf §5, je eine Funktion ─────────────────────────────────────────────
+# ── the eight rules, draft §5, one function each ──────────────────────────────────────────────
 
 def _r0_shape(doc: dict, f) -> None:
-    """R0: Objekt, profile cap/1, subject, mindestens ein Stratum, integrity mit boolean complete,
-    Stratum-Kennungen vorhanden und eindeutig."""
+    """R0: object, profile cap/1, subject, at least one stratum, integrity with a boolean complete,
+    stratum identifiers present and unique."""
     if doc.get("profile") != CAP1_PROFILE:
         f("R0-shape", "profile ist nicht die Zeichenkette cap/1")
     subject = doc.get("subject")
@@ -117,8 +117,8 @@ def _r0_shape(doc: dict, f) -> None:
 
 
 def _r1_no_silent_remainder(doc: dict, f) -> None:
-    """R1: eligible == examined + Anzahl der einzeln gefuehrten unexamined; ein Rest, der nur durch
-    Subtraktion aufgeht, wird abgewiesen."""
+    """R1: eligible == examined + the number of individually listed unexamined entries; a remainder
+    that only works out by subtraction is refused."""
     for s in _strata(doc):
         el, ex, un = s.get("eligible"), s.get("examined"), s.get("unexamined")
         if not isinstance(un, list):
@@ -130,8 +130,8 @@ def _r1_no_silent_remainder(doc: dict, f) -> None:
 
 
 def _r2_closed_disposition(doc: dict, f) -> None:
-    """R2: jeder unexamined-Eintrag nennt eine Einheit und traegt eine Disposition aus §6; Freitext
-    an dieser Stelle wird nicht angenommen, weil Freitext nicht aggregiert."""
+    """R2: every unexamined entry names a unit and carries a disposition from §6; free text is not
+    accepted here, because free text does not aggregate."""
     for s in _strata(doc):
         for i, u in enumerate(s.get("unexamined") or []):
             if not isinstance(u, dict):
@@ -145,8 +145,8 @@ def _r2_closed_disposition(doc: dict, f) -> None:
 
 
 def _r3_withholding_digest_bound(doc: dict, f) -> None:
-    """R3: eine als withheld gefuehrte Einheit traegt einen Digest des zurueckgehaltenen Materials —
-    sonst ist sie von einer Luecke nicht zu unterscheiden."""
+    """R3: a unit listed as withheld carries a digest of the withheld material — otherwise it is
+    indistinguishable from a gap."""
     for s in _strata(doc):
         for i, u in enumerate(_unexamined(s)):
             if u.get("disposition") == "withheld" and not _is_digest(u.get("withheld_digest")):
@@ -154,8 +154,8 @@ def _r3_withholding_digest_bound(doc: dict, f) -> None:
 
 
 def _r4_denominator_basis(doc: dict, f) -> None:
-    """R4: jedes Stratum nennt basis.kind aus §4.2; catalogue braucht catalogue_digest, enumeration
-    braucht enumeration_method."""
+    """R4: every stratum names a basis.kind from §4.2; catalogue needs catalogue_digest,
+    enumeration needs enumeration_method."""
     for s in _strata(doc):
         basis = s.get("basis")
         if not isinstance(basis, dict):
@@ -173,7 +173,7 @@ def _r4_denominator_basis(doc: dict, f) -> None:
 
 
 def _r5_counts_well_formed(doc: dict, f) -> None:
-    """R5: Zaehler sind nicht-negative Ganzzahlen, examined uebersteigt eligible nicht."""
+    """R5: counts are non-negative integers, and examined does not exceed eligible."""
     for s in _strata(doc):
         el, ex = s.get("eligible"), s.get("examined")
         if not _is_int(el) or el < 0:
@@ -185,7 +185,7 @@ def _r5_counts_well_formed(doc: dict, f) -> None:
 
 
 def _r6_absence_is_scoped(doc: dict, f) -> None:
-    """R6: jede Abwesenheitsaussage nennt ein existierendes Stratum, das sie begrenzt."""
+    """R6: every absence claim names an existing stratum that bounds it."""
     vorhandene = {_sid(s) for s in _strata(doc)}
     aa = doc.get("absence_assertions")
     if aa is None:
@@ -205,8 +205,8 @@ def _r6_absence_is_scoped(doc: dict, f) -> None:
 
 
 def _r7_incomplete_not_clean(doc: dict, f) -> None:
-    """R7: eine Einheit mit failed / resource_exhausted / unavailable schliesst complete=true aus;
-    bei complete=false nennt capped_to den Verdikt, auf den ein Leser sich stuetzen darf."""
+    """R7: a unit with failed / resource_exhausted / unavailable rules out complete=true; when
+    complete=false, capped_to names the verdict a reader may rely on."""
     _integrity = doc.get("integrity")
     integrity: dict = _integrity if isinstance(_integrity, dict) else {}
     hart = any(is_member(u.get("disposition"), HARD_DISPOSITIONS)
@@ -222,29 +222,26 @@ def _r7_incomplete_not_clean(doc: dict, f) -> None:
 
 
 def _r8_supports_bounds_citation(doc: dict, f) -> None:
-    """R8: ein von einer Abwesenheitsaussage zitiertes Stratum nennt, welche Klassen von Aussagen es
-    stuetzt."""
+    """R8: a stratum cited by an absence claim names which classes of claim it supports."""
     aa = doc.get("absence_assertions")
-    # DIE VIERTE STELLE DERSELBEN KLASSE, und sie sitzt eine Ebene frueher als die drei, die
-    # 7bdfb31 geschlossen hat. Dort wurde beim TEST gehasht (`x in KONSTANTE`), hier schon beim
-    # AUFBAU der Menge: eine Set-Comprehension hasht jedes Element, und `a.get("stratum")` kommt
-    # ungeprueft aus dem Dokument. Ein Angreifer, der `{"stratum": []}` schickt, loeste hier ein
-    # rohes TypeError aus, das `check_cap1_document` in "Regel konnte nicht ausgewertet werden"
-    # verwandelte — genau die Verdikt-Degradation, gegen die die drei anderen Fixes stehen.
+    # THE FOURTH SITE OF THE SAME CLASS, and it sits one level earlier than the three that 7bdfb31
+    # closed. There the hashing happened at the TEST (`x in CONSTANT`); here it happens while the
+    # set is BUILT: a set comprehension hashes every element, and `a.get("stratum")` arrives
+    # unchecked from the document. An attacker sending `{"stratum": []}` raised a bare TypeError
+    # here, which `check_cap1_document` turned into "rule could not be evaluated" — exactly the
+    # verdict degradation the other three fixes stand against.
     #
-    # `is_member` hilft an dieser Stelle NICHT: es schuetzt den linken Operanden eines
-    # Mitgliedschaftstests, nicht den Aufbau des Behaelters. Deshalb wird hier gefiltert statt
-    # umgeleitet.
+    # `is_member` does NOT help at this site: it protects the left operand of a membership test,
+    # not the construction of the container. So this filters instead of redirecting.
     #
-    # WARUM `isinstance(..., str)` UND NICHT `Hashable`: `_sid` gibt immer eine Zeichenkette
-    # zurueck, ein Nicht-String kann also niemals gleich einer Stratum-Kennung sein. Gefiltert
-    # wird damit genau die Menge, die ohnehin nie treffen koennte — das Verhalten fuer jedes
-    # WOHLGEFORMTE Dokument bleibt unveraendert, und ein `("a", [])`-Tupel, das `Hashable` faelsch-
-    # lich durchliesse, kommt hier gar nicht erst in Frage.
+    # WHY `isinstance(..., str)` AND NOT `Hashable`: `_sid` always returns a string, so a non-string
+    # can never equal a stratum identifier. What gets filtered is therefore exactly the set that
+    # could never have matched anyway — behaviour for every WELL-FORMED document is unchanged, and
+    # an `("a", [])` tuple, which `Hashable` would wrongly let through, does not arise here at all.
     #
-    # EHRLICHE GRENZE: eine Abwesenheitsaussage mit nicht-textlichem `stratum` zitiert nach diesem
-    # Fix KEIN Stratum mehr, statt die Regel abstuerzen zu lassen. Dass ihre Form falsch ist, ist
-    # Sache von R0; R8 urteilt ueber `supports`, nicht ueber die Form der Zitierung.
+    # HONEST LIMIT: after this fix an absence claim with a non-textual `stratum` cites NO stratum,
+    # rather than making the rule crash. That its shape is wrong is R0's business; R8 judges
+    # `supports`, not the shape of the citation.
     zitiert = ({a.get("stratum") for a in aa
                 if isinstance(a, dict) and isinstance(a.get("stratum"), str)}
                if isinstance(aa, list) else set())
@@ -256,8 +253,8 @@ def _r8_supports_bounds_citation(doc: dict, f) -> None:
                   f"{_sid(s)}: von einer Abwesenheitsaussage zitiert, nennt aber keine supports")
 
 
-#: Regelregister in der Reihenfolge des Entwurfs. R5 laeuft VOR R1, weil R1 auf denselben Zahlen
-#: rechnet und eine nicht-ganzzahlige eligible sonst einen Typfehler statt einer Verweigerung gaebe.
+#: Rule register in the draft's order. R5 runs BEFORE R1, because R1 computes on the same numbers
+#: and a non-integer eligible would otherwise give a type error instead of a refusal.
 RULES: dict[str, Any] = {
     "R0-shape": _r0_shape,
     "R5-counts-well-formed": _r5_counts_well_formed,
@@ -273,9 +270,9 @@ RULE_IDS: tuple[str, ...] = tuple(RULES)
 
 
 def check_cap1_document(doc: object) -> list[dict]:
-    """Alle Regeln gegen das Dokument; Rueckgabe eine Liste von {rule, reason}. NIE eine Ausnahme.
+    """All rules against the document; returns a list of {rule, reason}. NEVER an exception.
 
-    Eine leere Liste heisst: konform im Sinn des Entwurfs — innere Konsistenz, nicht Wahrheit (§9).
+    An empty list means: conformant in the draft's sense — internal consistency, not truth (§9).
     """
     out: list[dict] = []
 
@@ -288,7 +285,7 @@ def check_cap1_document(doc: object) -> list[dict]:
     for rule_id, rule in RULES.items():
         try:
             rule(doc, f)
-        except Exception as exc:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche
+        except Exception as exc:  # noqa: BLE001 — never-raise is this surface's promise
             f(rule_id, f"Regel konnte nicht ausgewertet werden ({type(exc).__name__}: {exc})")
     return out
 
@@ -298,19 +295,19 @@ def is_conformant(doc: object) -> bool:
 
 
 def load_cap1_document(raw: object) -> Any:
-    """Strikt lesen: UTF-8, JSON, keine doppelten Namen — mit dem EINEN strikten Leser des Pakets.
+    """Read strictly: UTF-8, JSON, no duplicate names — with the package's ONE strict reader.
 
-    Die erste Fassung brachte einen eigenen `object_pairs_hook` mit. Das Paket hat seit WP-C1
-    genau einen Leser fuer diese Eigenschaft (`_strict_json.loads_strict`, in jedem Verify-Pfad);
-    ein zweiter waere eine zweite Wahrheit ueber dieselbe Grenze, und die driftet. Doppelte Namen
-    kommen als `BundleFormatError` (ProofBundleError-Familie) zurueck — RFC 8259 §4 nennt das
-    Verhalten sonst 'unpredictable', drei gleichermassen konforme Leser urteilen ueber dieselben
-    Bytes verschieden (gemessen in tools/cap1_unabhaengige_umsetzung).
+    The first version brought its own `object_pairs_hook`. Since WP-C1 the package has exactly one
+    reader for this property (`_strict_json.loads_strict`, in every verify path); a second would be
+    a second truth about the same boundary, and those drift. Duplicate names come back as
+    `BundleFormatError` (ProofBundleError family) — RFC 8259 §4 otherwise calls the behaviour
+    'unpredictable', and three equally conformant readers judge the same bytes differently
+    (measured in tools/cap1_unabhaengige_umsetzung).
 
-    Wirft NUR typisierte Fehler (ProofBundleError, ValueError-Familie inkl. UnicodeDecodeError) —
-    nie einen rohen TypeError. Die never-raise-Familie des Pakets fuzzt jede oeffentliche Flaeche
-    mit acht falschen Typen; ein Leser, der bei `None` mit TypeError abstuerzt, urteilt nicht, er
-    faellt um (gemessen beim ersten Lauf dieser Datei, 2026-09-05).
+    Raises ONLY typed errors (ProofBundleError, the ValueError family including UnicodeDecodeError)
+    — never a bare TypeError. The package's never-raise family fuzzes every public surface with
+    eight wrong types; a reader that crashes on `None` with TypeError does not judge, it falls over
+    (measured on this file's first run, 2026-09-05).
     """
     from ._strict_json import loads_strict  # noqa: PLC0415
     if isinstance(raw, (bytes, bytearray, memoryview)):

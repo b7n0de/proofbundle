@@ -1,15 +1,15 @@
-"""CAP-1 als Paketfunktion: die fuenfzehn Vektoren, die acht Mutanten, und kein Absturz.
+"""CAP-1 as a package function: the fifteen vectors, the eight mutants, and no crash.
 
-DIE VEKTOREN sind die des Autors (Certisyn-Inc/certisyn-drafts, Commit 0980d32, Apache-2.0, Kopie
-unter conformance/cap1/vectors/ mit LICENSE.author). Erwartet wird nicht nur "refused", sondern
-die EXAKTE Menge gefeuerter Regeln aus dem aufgezeichneten Lauf des Autors
-(`_author_conformance_run.json`) — einschliesslich der Doppelung bei NC-05 (R1 und R5), die eine
-Umsetzung nur trifft, wenn sie R5 unabhaengig von R1 misst. Ein Gegenbeweis, der aus dem falschen
-Grund faellt, belegt seine Regel nicht (Entwurf §7.1).
+THE VECTORS are the author's (Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0, copied to
+conformance/cap1/vectors/ with LICENSE.author). What is expected is not merely "refused" but the
+EXACT set of fired rules from the author's recorded run (`_author_conformance_run.json`) —
+including the duplication at NC-05 (R1 and R5), which an implementation only hits if it measures R5
+independently of R1. A counter-proof that fails for the wrong reason does not establish its rule
+(draft §7.1).
 
-DIE MUTANTEN, Entwurf §7.2 woertlich: "Each of the eight rules is silenced in turn and the class is
-re-run; the class MUST fail in each case. Eight rules, eight mutants, eight kills." R0 hat im Korpus
-des Autors keinen eigenen Vektor und wird hier ueber ein eigenes Dokument gefangen.
+THE MUTANTS, draft §7.2 verbatim: "Each of the eight rules is silenced in turn and the class is
+re-run; the class MUST fail in each case. Eight rules, eight mutants, eight kills." R0 has no vector
+of its own in the author's corpus and is caught here through a document written for it.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _gefeuert(doc: object) -> set[str]:
 
 
 def test_es_sind_fuenfzehn_vektoren_und_acht_regeln():
-    """DRITTER ZUSTAND: ohne diese Zeile waeren die parametrisierten Tests bei leerem Ordner gruen."""
+    """THIRD STATE: without this line the parametrised tests would be green on an empty folder."""
     assert len(MANIFEST) == 15
     assert sum(1 for e in MANIFEST if e["expect"] == "conform") == 5
     assert set(cap1.RULE_IDS) >= {f"R{i}-" + s for i, s in (
@@ -49,23 +49,23 @@ def test_jeder_vektor_feuert_genau_die_regeln_des_autors(eintrag):
     vid = eintrag["id"]
     gefeuert = _gefeuert(_vektor(vid))
     erwartet = set(AUTOR_LAUF[vid]["rules"])
-    assert gefeuert == erwartet, f"{vid}: gefeuert {sorted(gefeuert)} != Autor {sorted(erwartet)}"
+    assert gefeuert == erwartet, f"{vid}: fired {sorted(gefeuert)} != author {sorted(erwartet)}"
     if eintrag["expect"] == "conform":
         assert cap1.is_conformant(_vektor(vid))
     else:
-        assert eintrag["rule"] in gefeuert, f"{vid} faellt nicht an seiner Regel {eintrag['rule']}"
+        assert eintrag["rule"] in gefeuert, f"{vid} does not fail at its rule {eintrag['rule']}"
 
 
 @pytest.mark.parametrize("regel", [r for r in cap1.RULE_IDS if r != "R0-shape"])
 def test_meta_acht_regeln_acht_mutanten_acht_kills(monkeypatch, regel):
-    """Die Regel stumm geschaltet: mindestens ein negativer Vektor, der sie zum Ziel hat, wird
-    nicht mehr abgewiesen — sonst waere die Regel Dekoration (Entwurf §7.2)."""
+    """With the rule silenced, at least one negative vector aimed at it is no longer refused —
+    otherwise the rule is decoration (draft §7.2)."""
     ziele = [e["id"] for e in MANIFEST if e.get("rule") == regel]
-    assert ziele, f"kein Vektor zielt auf {regel}"
+    assert ziele, f"no vector targets {regel}"
     monkeypatch.setitem(cap1.RULES, regel, lambda doc, f: None)
     ueberlebt = [vid for vid in ziele if regel not in _gefeuert(_vektor(vid))]
-    assert ueberlebt == ziele, f"{regel} stumm, aber {set(ziele) - set(ueberlebt)} fallen weiter an ihr"
-    # Und die Positivkontrollen bleiben konform — ein Mutant, der alles rot faerbt, beweist nichts.
+    assert ueberlebt == ziele, f"{regel} silenced, yet {set(ziele) - set(ueberlebt)} still fail at it"
+    # And the positive controls stay conformant — a mutant that turns everything red proves nothing.
     for e in MANIFEST:
         if e["expect"] == "conform":
             assert cap1.is_conformant(_vektor(e["id"]))
@@ -84,17 +84,17 @@ def test_meta_r0_faengt_ein_dokument_ohne_gestalt(monkeypatch):
                                    {"absence_assertions": "nein"}, {"absence_assertions": [None]}])
 def test_never_raise_auf_muell(muell):
     out = cap1.check_cap1_document(muell)
-    assert isinstance(out, list) and out, "Muell muss abgewiesen werden, nicht durchgewinkt"
+    assert isinstance(out, list) and out, "garbage has to be refused, not waved through"
     assert all(set(e) == {"rule", "reason"} for e in out)
 
 
 def test_doppelte_namen_werden_beim_lesen_abgewiesen():
-    """Mit dem EINEN strikten Leser des Pakets — nicht mit einem eigenen Hook."""
+    """With the package's ONE strict reader — not with a hook of its own."""
     from proofbundle.errors import BundleFormatError
     with pytest.raises(BundleFormatError, match="duplicate JSON key"):
         cap1.load_cap1_document(b'{"profile": "cap/1", "profile": "cap/2"}')
     with pytest.raises(BundleFormatError):
-        cap1.load_cap1_document('{"strata": [{"id": "a", "id": "b"}]}')  # auch in der Tiefe
+        cap1.load_cap1_document('{"strata": [{"id": "a", "id": "b"}]}')  # nested, too
     assert cap1.load_cap1_document(b'{"a": 1}') == {"a": 1}
 
 
@@ -105,8 +105,8 @@ def test_falscher_typ_ist_ein_typisierter_fehler(roh):
 
 
 def test_positivkontrolle_bleibt_nach_kleinster_aenderung_nicht_konform():
-    """Kontrolle gegen einen Verifizierer, der alles annimmt: eine Einheit aus der Buchfuehrung
-    entfernt, und PV-01 muss an R1 fallen."""
+    """A control against a verifier that accepts everything: remove one unit from the bookkeeping
+    and PV-01 has to fail at R1."""
     doc = _vektor("PV-01")
     s = doc["strata"][0]
     s["eligible"] = s["eligible"] + 1

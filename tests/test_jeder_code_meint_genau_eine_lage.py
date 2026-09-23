@@ -184,11 +184,11 @@ def _codes_im_modul() -> set[str]:
 #: Er steht hier statt in der Tafel, weil eine Tafelzeile eine ausloesende Eingabe braucht und es
 #: fuer den unqualifizierten Code keine gibt.
 NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT",
-                    # CAP-1 Teil B (05.09.2026): vergeben in `_cap1_abdeckung`, das `_validate_coverage`
-                    # ruft — `_mit_abschnitt` qualifiziert sie zu COVERAGE_CAP1_*; unqualifiziert
-                    # erscheinen sie nie. Ein Code je Regel R0-R8, einer fuer den Statuswiderspruch,
-                    # einer fuer eine Regel, die die Zuordnung (noch) nicht kennt. Ausloesbar je Code
-                    # in tests/test_cap1_im_predicate.py ueber die Autor-Vektoren.
+                    # CAP-1 part B (2026-09-05): issued in `_cap1_abdeckung`, which `_validate_coverage`
+                    # calls — `_mit_abschnitt` qualifies them into COVERAGE_CAP1_*; unqualified they
+                    # never appear. One code per rule R0-R8, one for the status contradiction, one
+                    # for a rule the mapping does not (yet) know. Triggerable per code in
+                    # tests/test_cap1_im_predicate.py through the author's vectors.
                     "CAP1_SHAPE", "CAP1_SILENT_REMAINDER", "CAP1_DISPOSITION_NOT_CLOSED",
                     "CAP1_WITHHELD_WITHOUT_DIGEST", "CAP1_BASIS_MISSING", "CAP1_COUNTS_MALFORMED",
                     "CAP1_ABSENCE_UNSCOPED", "CAP1_INCOMPLETE_CLAIMED_CLEAN", "CAP1_SUPPORTS_MISSING",

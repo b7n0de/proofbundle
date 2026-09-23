@@ -107,10 +107,10 @@ _DECLARATION_FIELDS = frozenset(
 # Konstante mit einem Zusatz-Parameter ist EINE Wahrheit mit einer Ausnahme; zwei kopierte Listen
 # waeren zwei Wahrheiten, die auseinanderlaufen.
 _DECLARATION_FIELDS_V02 = frozenset(("timeClaims",))
-# v0.2 ERWEITERT auch die Abdeckung, um die drei Felder aus CAP-1 (draft-hillier-coverage-attestation-00,
-# Profil cap/1): `strata`, `integrity`, `absenceAssertions`. Dieselbe Bauform wie bei `timeClaims` —
-# EINE gemeinsame Pruefung mit einem Zusatz je Fassung, keine zweite Liste. Die Regeln R0-R8 selbst
-# leben in `cap1.py` und werden von dort GELIEHEN, nicht nachgebaut.
+# v0.2 also EXTENDS coverage by the three fields from CAP-1 (draft-hillier-coverage-attestation-00,
+# profile cap/1): `strata`, `integrity`, `absenceAssertions`. Same construction as `timeClaims` —
+# ONE shared check with a per-revision addition, not a second list. The rules R0-R8 themselves live
+# in `cap1.py` and are BORROWED from there, not rebuilt.
 _COVERAGE_FIELDS_V02 = frozenset(("strata", "integrity", "absenceAssertions"))
 _COVERAGE_LEGACY_FIELDS = ("status", "window", "sources", "observedRuns", "expectedRuns",
                            "knownGaps", "collectionMethod")
@@ -660,24 +660,23 @@ def _validate_limitation_codes(v: Any) -> list[str]:
 
 
 def _cap1_abdeckung(cov: dict) -> list:
-    """Die Abdeckung in der Sprache von CAP-1 pruefen — mit den Regeln aus `cap1.py`, nicht mit einer Kopie.
+    """Check the coverage in CAP-1's language — with the rules from `cap1.py`, not with a copy.
 
-    Der Block unter `coverage` traegt `strata`, `integrity` und `absenceAssertions` in der Form von
-    draft-hillier-coverage-attestation-00; nur der oberste Schluessel folgt der camelCase-Konvention
-    des Predicates, die Felder IN den Strata bleiben die des Profils (`catalogue_digest`,
-    `withheld_digest`, `enumeration_method`), weil ein Leser, der CAP-1 kennt, sie so erwartet.
-    Daraus entsteht ein cap/1-Dokument mit einem synthetischen `subject` (der Gegenstand ist der
-    `subjectContext` des Predicates), und `cap1.check_cap1_document` urteilt.
+    The block under `coverage` carries `strata`, `integrity` and `absenceAssertions` in the form of
+    draft-hillier-coverage-attestation-00; only the topmost key follows the predicate's camelCase
+    convention, the fields INSIDE the strata stay those of the profile (`catalogue_digest`,
+    `withheld_digest`, `enumeration_method`), because a reader who knows CAP-1 expects them that
+    way. From this a cap/1 document is formed with a synthetic `subject` (the object is the
+    predicate's `subjectContext`), and `cap1.check_cap1_document` judges it.
 
-    JEDE REGEL BEKOMMT IHREN EIGENEN CODE — ein Code je Lage, wie die Tafel es verlangt — und die
-    Zuordnung steht als Kette von Literalen hier, weil der Sammler der Tafel nur Literale liest.
-    Eine Regel, die morgen in `cap1.RULES` dazukommt und hier nicht steht, faellt nicht weg: sie
-    wird als CAP1_RULE_UNMAPPED gemeldet, und ein Test haelt die Zuordnung vollstaendig.
+    EVERY RULE GETS ITS OWN CODE — one code per situation, as the board requires — and the mapping
+    stands here as a chain of literals, because the board's collector reads only literals. A rule
+    that joins `cap1.RULES` tomorrow and is not listed here does not drop out: it is reported as
+    CAP1_RULE_UNMAPPED, and a test holds the mapping complete.
 
-    STATUS WIRD ABGELEITET, NICHT GEGLAUBT. Mit Strata ist `integrity.complete` die Wahrheit ueber
-    die Vollstaendigkeit; ein gesetzter `status`, der ihr widerspricht, ist eine Behauptung, die
-    die eigene Buchfuehrung widerlegt. Ein fehlender oder ungueltiger `status` wird von den
-    Legacy-Pruefungen weiter gemeldet.
+    STATUS IS DERIVED, NOT BELIEVED. With strata present, `integrity.complete` is the truth about
+    completeness; a `status` set in contradiction to it is a claim refuted by its own bookkeeping.
+    A missing or invalid `status` continues to be reported by the legacy checks.
     """
     from . import cap1  # noqa: PLC0415
     doc: dict = {"profile": cap1.CAP1_PROFILE,
@@ -752,16 +751,16 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
             elif v < 0:
                 errs.append(f"{numf} must not be negative, got {v} — a negative run count describes "
                             f"nothing that can have happened")
-    # MIT STRATA GILT DIE BUCHFUEHRUNG, NICHT DIE ALTEN ZAEHLER (CAP-1 Teil B, v0.2). Sobald einer
-    # der drei CAP-1-Blocks da ist, urteilen R0-R8 ueber Vollstaendigkeit und Luecken; die
-    # Legacy-Regeln unten (COMPLETE braucht observedRuns/expectedRuns, PARTIAL braucht knownGaps)
-    # fragen nach einer Erwartung, die die Strata praeziser tragen. Die Typpruefungen der alten
-    # Felder oben laufen trotzdem: ein Alias darf gelesen werden, aber nicht falsch geformt sein.
-    # In v0.1 (kein Zusatz) sind die drei Felder oben bereits als unbekannt gemeldet.
-    # Als RUECKGABE verbunden, nicht per extend: die Ratsche der codelosen Fehlerstellen liest
-    # jedes append/extend, dessen Argument kein _shape_err-Literal ist, als Fehler ohne Code —
-    # und jede Meldung aus _cap1_abdeckung TRAEGT einen. Der Ratsche einen Eintrag hinzuzufuegen,
-    # nur um eine Form zu decken, die sie nicht meint, waere die falsche Richtung.
+    # WITH STRATA THE BOOKKEEPING GOVERNS, NOT THE OLD COUNTERS (CAP-1 part B, v0.2). As soon as one
+    # of the three CAP-1 blocks is present, R0-R8 judge completeness and gaps; the legacy rules below
+    # (COMPLETE needs observedRuns/expectedRuns, PARTIAL needs knownGaps) ask for an expectation that
+    # the strata carry more precisely. The type checks on the old fields above still run: an alias
+    # may be read, but it must not be malformed. In v0.1 (no addition) the three fields above are
+    # already reported as unknown.
+    # Joined as a RETURN VALUE rather than by extend: the ratchet for code-less error sites reads
+    # every append/extend whose argument is not a _shape_err literal as an error without a code —
+    # and every message out of _cap1_abdeckung CARRIES one. Adding an entry to the ratchet merely to
+    # cover a shape it does not mean would be the wrong direction.
     if _COVERAGE_FIELDS_V02 <= zusatz and any(k in cov for k in _COVERAGE_FIELDS_V02):
         return errs + _cap1_abdeckung(cov)
     # COMPLETE is a strong word. It needs a stated expectation that the observation actually met —
@@ -2508,11 +2507,11 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
         r.update(_zeitachsen(predicate))
-        # COVERAGE_LEGACY_FIELDS ist ein HINWEIS, kein Grund (CAP-1 Teil B): ein v0.2-Predicate,
-        # dessen Abdeckung nur die alten Zaehler traegt (observedRuns/expectedRuns/knownGaps/
-        # collectionMethod) und keine Strata, ist gueltig und behaelt seine Bedeutung — aber ein
-        # Leser soll sehen, dass die Abdeckung nicht in der Sprache von CAP-1 vorliegt. Die
-        # alten Namen sind Aliasse mit Verfall (COMPATIBILITY.md), kein Verhalten in dieser Fassung.
+        # COVERAGE_LEGACY_FIELDS is ADVISORY, not a reason (CAP-1 part B): a v0.2 predicate whose
+        # coverage carries only the old counters (observedRuns/expectedRuns/knownGaps/
+        # collectionMethod) and no strata is valid and keeps its meaning — but a reader should see
+        # that the coverage is not stated in CAP-1's language. The old names are aliases with an
+        # expiry (COMPATIBILITY.md), not behaviour in this revision.
         _cov = predicate.get("coverage")
         if isinstance(_cov, dict) and not any(k in _cov for k in _COVERAGE_FIELDS_V02):
             _adv = list(r.get("advisory_codes") or [])

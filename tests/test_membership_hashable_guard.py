@@ -66,7 +66,7 @@ def _hashing_containers(tree: ast.Module) -> dict[str, str]:
 
 
 def unguarded_membership_sites(quelle: str, name: str = "<quelle>") -> list[tuple[int, str, str]]:
-    """(Zeile, linker Ausdruck, Behälter) für jeden ungeschützten Mitgliedstest.
+    """(line, left expression, container) for every unguarded membership test.
 
     A CONSTANT left operand is skipped on purpose: ``"status" in predicate`` asks whether a KEY is
     present, the left side is a literal string, and a literal is always hashable. Flagging it would
@@ -89,23 +89,22 @@ def unguarded_membership_sites(quelle: str, name: str = "<quelle>") -> list[tupl
 
 
 def _liest_aus_geparsten_daten(knoten: ast.AST) -> bool:
-    """Heuristik, und sie wird hier als solche benannt: kommt dieser Ausdruck aus geparsten Daten?
+    """A heuristic, and it is named as one here: does this expression come from parsed data?
 
-    Gemessen wird ausschliesslich der ``.get(...)``-Aufruf, also genau das Idiom, mit dem dieses
-    Repository geparstes JSON liest.
+    Only the ``.get(...)`` call is measured — exactly the idiom with which this repository reads
+    parsed JSON.
 
-    WARUM NICHT AUCH DER INDEX ``x["k"]``, gemessen beim Bauen am 14.09.2026: die erste Fassung
-    zaehlte ihn mit und meldete sofort ``relation_statement.py:340``,
-    ``sorted({v["code"] for v in _viol})``. Das ist ein FEHLALARM — ``_viol`` wird sieben Zeilen
-    darueber im Haus selbst gebaut, mit den Literalen ``"code"`` und ``"message"``. Der Index sagt
-    nichts ueber die HERKUNFT des Werts, und ein Riegel, der bei hauseigenen Daten schreit, wird
-    abgeschaltet; genau davor warnt der Kommentar zu ``_ERSATZ_STAEMME`` in diesem Haus seit Wochen.
+    WHY NOT THE INDEX ``x["k"]`` AS WELL, measured while building this on 2026-09-14: the first
+    version counted it and immediately reported ``relation_statement.py:340``,
+    ``sorted({v["code"] for v in _viol})``. That is a FALSE ALARM — ``_viol`` is built seven lines
+    above, in-house, from the literals ``"code"`` and ``"message"``. An index says nothing about the
+    ORIGIN of a value, and a guard that shouts at in-house data gets switched off; the comment on
+    ``_ERSATZ_STAEMME`` in this house has warned about exactly that for weeks.
 
-    EHRLICHE UNTERGRENZE, als Vertrag festgehalten statt als Fussnote: ein Index auf wirklich
-    fremde Daten (``doc["x"]``) entgeht diesem Detektor, und wer den Wert vorher in eine Variable
-    legt, ebenfalls. Wer das schaerfen will, braucht eine Herkunftsverfolgung (ist die Basis ein
-    Parameter oder aus einem Parameter abgeleitet?) — das ist eine eigene Arbeit und keine
-    Nebenbei-Verschaerfung.
+    HONEST LOWER BOUND, held as a contract rather than a footnote: an index on genuinely foreign
+    data (``doc["x"]``) escapes this detector, and so does anyone who puts the value into a variable
+    first. Sharpening that needs origin tracking (is the base a parameter, or derived from one?) —
+    that is a piece of work in its own right, not a tightening done in passing.
     """
     for k in ast.walk(knoten):
         if (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
@@ -115,7 +114,7 @@ def _liest_aus_geparsten_daten(knoten: ast.AST) -> bool:
 
 
 def _durch_isinstance_gedeckt(ausdruck: ast.AST, generatoren: list) -> bool:
-    """Steht in den ``if``-Klauseln der Comprehension ein ``isinstance`` GENAU auf diesen Ausdruck?"""
+    """Do the comprehension's ``if`` clauses hold an ``isinstance`` on EXACTLY this expression?"""
     ziel = ast.unparse(ausdruck)
     for g in generatoren:
         for bed in g.ifs:
@@ -128,23 +127,23 @@ def _durch_isinstance_gedeckt(ausdruck: ast.AST, generatoren: list) -> bool:
 
 
 def unguarded_hashing_constructions(quelle: str, name: str = "<quelle>") -> list[tuple[int, str]]:
-    """(Zeile, gehashter Ausdruck) je Stelle, die beim AUFBAU eines Hash-Behaelters ungepruefte
-    Daten hasht.
+    """(line, hashed expression) for every site that hashes unchecked data while BUILDING a hash
+    container.
 
-    WARUM ES DIESEN ZWEITEN DETEKTOR GIBT, gemessen am 14.09.2026. ``unguarded_membership_sites``
-    besucht ausschliesslich ``ast.Compare`` mit ``in``/``not in`` und verlangt ausserdem, dass der
-    Behaelter ein MODULWEITER Name ist. Beide Bedingungen verfehlten dieselbe echte Stelle:
+    WHY THIS SECOND DETECTOR EXISTS, measured 2026-09-14. ``unguarded_membership_sites`` visits only
+    ``ast.Compare`` with ``in``/``not in``, and additionally requires the container to be a
+    MODULE-LEVEL name. Both conditions missed the same real site:
 
         zitiert = {a.get("stratum") for a in aa if isinstance(a, dict)}   # cap1.py:220
 
-    Der Behaelter entsteht LOKAL, und gehasht wird nicht im Test, sondern schon in der
-    Comprehension — ein unhashbarer ``stratum``-Wert loeste dort ein rohes ``TypeError`` aus. Gegen
-    den vollen Quelltext von ``cap1.py`` lieferte der alte Scanner NULL Treffer, waehrend der
-    Defekt ausfuehrbar reproduzierbar war. Ein Scanner, der eine Klasse nur in EINER ihrer Formen
-    kennt, meldet gruen und meint "diese Form kommt nicht vor".
+    The container is built LOCALLY, and the hashing happens not at the test but already in the
+    comprehension — an unhashable ``stratum`` value raised a bare ``TypeError`` there. Against the
+    full source of ``cap1.py`` the older scanner returned ZERO hits while the defect was
+    reproducible by execution. A scanner that knows a class in only ONE of its shapes reports green
+    and means "this shape does not occur".
 
-    Der Modulkopf von ``_membership.py`` sagt "with a scanner that fails on any new unguarded
-    site". Dieser Detektor ist der Teil dieser Zusage, der gefehlt hat.
+    The module header of ``_membership.py`` says "with a scanner that fails on any new unguarded
+    site". This detector is the part of that promise that was missing.
     """
     tree = ast.parse(quelle, filename=name)
     treffer: list[tuple[int, str]] = []
@@ -172,16 +171,16 @@ def _grundlinie() -> dict:
 
 
 def _umschliessende_definition(quelle: str) -> dict[int, str]:
-    """Zeile -> qualifizierter Name der umschliessenden def/class, sonst '<modulebene>'.
+    """line -> qualified name of the enclosing def/class, otherwise '<modulebene>'.
 
-    WARUM DIESER SCHLUESSELTEIL EXISTIERT, gemessen am 15.09.2026 von einer adversarialen Linse.
-    Eine Fassung dieses Riegels band auf (Datei, Ausdruck) mit Anzahl. Damit liess sich das Budget
-    WASCHEN: die getragene, angreiferexponierte Stelle in ``derive_limitation_codes`` schliessen und
-    anderswo in derselben Datei eine NEUE ungeschuetzte Konstruktion mit DEMSELBEN Ausdruck
-    aufmachen — die Anzahl blieb drei, der Riegel blieb gruen, und der neue Code warf nachweislich
-    ``TypeError: unhashable type: 'list'``. Die alte, zeilengebundene Regel HAETTE ihn gefangen.
-    Der Name der umschliessenden Definition ueberlebt eine Zeilenverschiebung und unterscheidet
-    trotzdem zwei Stellen: eine neue Stelle landet in einer anderen Definition und ist damit neu.
+    WHY THIS KEY COMPONENT EXISTS, measured 2026-09-15 by an adversarial lens. One version of this
+    guard keyed on (file, expression) with a count. That made the budget LAUNDERABLE: close the
+    carried, attacker-exposed site in ``derive_limitation_codes`` and open a NEW unguarded
+    construction with the SAME expression elsewhere in the same file — the count stayed three, the
+    guard stayed green, and the new code demonstrably raised
+    ``TypeError: unhashable type: 'list'``. The old, line-bound rule WOULD have caught it. The name
+    of the enclosing definition survives a line shift and still tells two sites apart: a new site
+    lands in a different definition and is therefore new.
     """
     baum = ast.parse(quelle)
     karte: dict[int, str] = {}
@@ -202,21 +201,20 @@ def _umschliessende_definition(quelle: str) -> dict[int, str]:
 
 
 def _gesehene_stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str, str], list[int]]:
-    """(Datei, umschliessende Definition, Ausdruck) -> Zeilen.
+    """(file, enclosing definition, expression) -> lines.
 
-    Die Zeilen werden MITGEFUEHRT, damit eine Meldung einen Menschen hinschickt — aber sie sind
-    NICHT der Schluessel. Wer sie zum Schluessel macht, baut ein Tor, das jeder Merge neu scharf
-    stellt, ohne dass sich eine einzige Stelle geaendert haette.
+    The lines are CARRIED ALONG so that a message can send a human to the right place — but they
+    are NOT the key. Whoever makes them the key builds a gate that every merge re-arms without a
+    single site having changed.
 
-    EIN LEERES quelltexte IST EIN FEHLER, kein leerer Baum (Linsenfund P3 vom 15.09.2026): die
-    Pruefung lautete ``is not None``, und ein leeres dict uebersprang damit still den GANZEN
-    Plattenlauf und meldete sauber. Ein kuenftiger Aufrufer, der nur geaenderte Dateien reicht,
-    waere genau so in ein stilles Gruen gelaufen.
+    AN EMPTY quelltexte IS AN ERROR, not an empty tree (lens finding P3, 2026-09-15): the check read
+    ``is not None``, so an empty dict silently skipped the ENTIRE on-disk run and reported clean. A
+    future caller passing only changed files would have walked into exactly that silent green.
     """
     if quelltexte is not None and not quelltexte:
         raise ValueError(
-            "leeres quelltexte: das waere ein stiller Freispruch ueber einen ungeprueften Baum. "
-            "Fuer den vollen Baum None uebergeben, nicht {}")
+            "empty quelltexte: that would be a silent acquittal over an unexamined tree. "
+            "For the full tree pass None, not {}")
     gesehen: dict[tuple[str, str, str], list[int]] = {}
     paare = (quelltexte.items() if quelltexte is not None
              else ((str(d.relative_to(SRC.parent)), d.read_text(encoding="utf-8"))
@@ -229,7 +227,7 @@ def _gesehene_stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[st
 
 
 def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str]:
-    """Was die Grundlinie NICHT deckt — je (Datei, Ausdruck) die Anzahl ueber dem getragenen Stand."""
+    """What the baseline does NOT cover — per (file, expression) the count above the carried state."""
     import collections  # noqa: PLC0415
     getragen = collections.Counter(
         (e["file"], e["qualname"], e["expr"]) for e in _grundlinie()["carried"])
@@ -238,7 +236,7 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
         ueberzaehlig = len(zeilen) - getragen.get(schluessel, 0)
         if ueberzaehlig > 0:
             funde.append(f"{schluessel[0]}  in {schluessel[1]}()  {schluessel[2]}  "
-                         f"{ueberzaehlig} von {len(zeilen)} nicht getragen, Zeilen {sorted(zeilen)}")
+                         f"{ueberzaehlig} of {len(zeilen)} not carried, lines {sorted(zeilen)}")
     return funde
 
 
@@ -257,70 +255,70 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
             "proofbundle._membership.is_member:\n  " + "\n  ".join(befunde))
 
     def test_no_source_file_builds_a_hash_container_from_unchecked_data(self):
-        """DER LIVE-GUARD FUER DIE ZWEITE FORM. Er faengt, was der Mitgliedstest-Scanner nicht sieht.
+        """THE LIVE GUARD FOR THE SECOND SHAPE. It catches what the membership scanner cannot see.
 
-        Gemessen 14.09.2026: `cap1.py:220` baute `{a.get("stratum") for a in aa ...}` aus
-        ungeprueften Dokumentwerten. Der aeltere Scanner lieferte gegen dieselbe Datei NULL
-        Treffer, weil er nur `in`/`not in` gegen MODULWEITE Behaelter kennt. Der Defekt war
-        gleichzeitig ausfuehrbar reproduzierbar. Gruen hiess dort nicht "kommt nicht vor",
-        sondern "diese Form wird nicht gemessen".
+        Measured 2026-09-14: `cap1.py:220` built `{a.get("stratum") for a in aa ...}` from unchecked
+        document values. The older scanner returned ZERO hits against the same file, because it
+        knows only `in`/`not in` against MODULE-LEVEL containers. The defect was reproducible by
+        execution at the same time. Green did not mean "does not occur" there, it meant "this shape
+        is not measured".
         """
         funde = _ueberzaehlige_stellen()
         self.assertEqual(funde, [], "\n".join(
-            ["ein Hash-Behaelter wird aus ungeprueften Daten gebaut — das hasht beim AUFBAU, "
-             "bevor irgendein Mitgliedstest laeuft. Die sieben Bestandsstellen stehen namentlich "
-             "in conformance/unguarded_hashing_constructions_baseline.json, gefuehrt als "
-             "(Datei, Ausdruck) mit Anzahl; UEBERZAEHLIG ist:"] + funde))
+            ["a hash container is built from unchecked data — that hashes at CONSTRUCTION time, "
+             "before any membership test runs. The seven pre-existing sites are named in "
+             "conformance/unguarded_hashing_constructions_baseline.json, carried as "
+             "(file, expression) with a count; IN EXCESS of that is:"] + funde))
 
     def test_die_grundlinie_weist_sich_als_luecke_aus_nicht_als_erlaubnis(self):
-        """Eine Grundlinie, die sich als Erlaubnis liest, wird zur Erlaubnis.
+        """A baseline that reads as permission becomes permission.
 
-        Sie muss (a) sagen, WARUM es sie gibt, (b) je Stelle die Exponiertheit benennen oder sie
-        ehrlich als NICHT GEMESSEN markieren, und (c) ihre eigene Untergrenze tragen.
+        It must (a) say WHY it exists, (b) name the exposure per site or honestly mark it as NOT
+        MEASURED, and (c) carry its own lower bound.
         """
         import json
         g = json.loads((REPO / "conformance" / "unguarded_hashing_constructions_baseline.json")
                        .read_text(encoding="utf-8"))
         self.assertIn("NAMED GAP, not permission", g["why_this_file_exists"])
-        self.assertTrue(g["honest_limit"], "die Untergrenze fehlt")
+        self.assertTrue(g["honest_limit"], "the lower bound is missing")
         for e in g["carried"]:
             marke = f"{e.get('file')}  {e.get('expr')}"
-            self.assertTrue(e.get("file"), f"{e}: kein Feld file")
-            self.assertTrue(e.get("expr"), f"{marke}: kein Feld expr — ohne Ausdruck ist der "
-                                           "Eintrag nicht zuordenbar, sobald Zeilen wandern")
-            self.assertTrue(e.get("qualname"), f"{marke}: kein Feld qualname — ohne die "
-                                               "umschliessende Definition laesst sich das Budget "
-                                               "waschen (Linsenfund 15.09.2026)")
-            self.assertTrue(e.get("exposure"), f"{marke}: keine Aussage zur Exponiertheit")
+            self.assertTrue(e.get("file"), f"{e}: no field file")
+            self.assertTrue(e.get("expr"), f"{marke}: no field expr — without the expression the "
+                                           "entry cannot be matched once lines move")
+            self.assertTrue(e.get("qualname"), f"{marke}: no field qualname — without the "
+                                               "enclosing definition the budget can be laundered "
+                                               "(lens finding 2026-09-15)")
+            self.assertTrue(e.get("exposure"), f"{marke}: no statement about exposure")
             if not e.get("exposure_measured"):
                 self.assertIn("NICHT GEMESSEN", e["exposure"],
-                              f"{marke}: ungemessen, sagt es aber nicht")
+                              f"{marke}: unmeasured, but does not say so")
 
     def test_die_grundlinie_ueberlebt_eine_zeilenverschiebung(self):
-        """DER FALL, DER AM 15.09.2026 ROT WAR — und der vor dem Klassenfix rot werden KONNTE.
+        """THE CASE THAT WAS RED ON 2026-09-15 — and that COULD go red before the class fix.
 
-        Gemessen an diesem Tag: der Merge von origin/main in diesen Zweig fuegte
-        ``agent_review.py`` 19 Zeilen hinzu. Keine einzige der sieben getragenen Stellen aenderte
-        sich, aber alle sieben wanderten — und der Riegel meldete seine EIGENE Grundlinie als
-        sieben neue Funde. Die alte Regel verglich ``datei:zeile``; eine Zeilennummer ist eine
-        Eigenschaft der umgebenden Datei, nicht der Stelle.
+        Measured that day: merging origin/main into this branch added 19 lines to
+        ``agent_review.py``. Not one of the seven carried sites changed, but all seven moved — and
+        the guard reported its OWN baseline as seven new findings. The old rule compared
+        ``file:line``; a line number is a property of the surrounding file, not of the site.
 
-        Dieser Fall haette mit der alten Regel sieben Funde ergeben und ist damit ein echter
-        Anti-Fall, kein gruener Zeuge: er kann fallen, sobald jemand wieder an die Zeile bindet.
+        Under the old rule this case would have produced seven findings, which makes it a genuine
+        anti-case rather than a green witness: it can fall the moment someone binds to lines again.
         """
         verschoben = {str(d.relative_to(SRC.parent)): "\n" * 40 + d.read_text(encoding="utf-8")
                       for d in sorted(SRC.rglob("*.py"))}
         self.assertEqual(
             _ueberzaehlige_stellen(verschoben), [],
-            "die Grundlinie haengt wieder an Zeilennummern — jeder Merge stellt das Tor neu scharf, "
-            "ohne dass sich eine Stelle geaendert haette")
+            "the baseline hangs on line numbers again — every merge re-arms the gate without a "
+            "single site having changed")
 
     def test_eine_vierte_stelle_derselben_form_gilt_als_neu(self):
-        """DIE GEGENRICHTUNG ZUR ANZAHL. Ohne sie waere der Klassenfix eine Erlaubnis.
+        """THE COUNTER-DIRECTION TO THE COUNT. Without it the class fix would be permission.
 
-        Der Schluessel ist (Datei, Definition, Ausdruck) — waere die Anzahl nicht dabei, deckte ein
-        getragener Eintrag beliebig viele weitere Vorkommen derselben Form in DERSELBEN Definition.
-        ``derive_limitation_codes`` traegt genau EIN ``i.get('assurance')``; ein zweites dort ist neu.
+        The key is (file, definition, expression) — were the count not part of it, one carried entry
+        would cover arbitrarily many further occurrences of the same shape in the SAME definition.
+        ``derive_limitation_codes`` carries exactly ONE ``i.get('assurance')``; a second one there
+        is new.
         """
         quelle = ("def derive_limitation_codes(xs):\n"
                   "    a = {i.get('assurance') for i in xs}\n"
@@ -328,21 +326,19 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
                   "    return a, b\n")
         funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
         self.assertEqual(len(funde), 1, funde)
-        self.assertIn("1 von 2 nicht getragen", funde[0])
+        self.assertIn("1 of 2 not carried", funde[0])
 
     def test_eine_neue_definition_mit_getragenem_ausdruck_gilt_als_neu(self):
-        """DER WASCHGANG, den eine adversariale Linse am 15.09.2026 ausgefuehrt hat.
+        """THE LAUNDERING RUN that an adversarial lens executed on 2026-09-15.
 
-        Sie schloss die getragene, angreiferexponierte Stelle in ``derive_limitation_codes`` und
-        machte anderswo in derselben Datei eine NEUE ungeschuetzte Konstruktion mit DEMSELBEN
-        Ausdruck auf. Bei einem Schluessel aus (Datei, Ausdruck) blieb die Anzahl gleich und der
-        Riegel gruen — im neuen Code lief nachweislich ``TypeError: unhashable type: 'list'``. Die
-        vorherige, zeilengebundene Regel haette ihn gefangen; die Reparatur war also auf DIESER
-        Achse schwaecher als das, was sie ersetzte.
+        It closed the carried, attacker-exposed site in ``derive_limitation_codes`` and opened a NEW
+        unguarded construction with the SAME expression elsewhere in the same file. Under a key of
+        (file, expression) the count stayed equal and the guard stayed green — while the new code
+        demonstrably raised ``TypeError: unhashable type: 'list'``. The previous, line-bound rule
+        would have caught it; on THIS axis the repair was therefore weaker than what it replaced.
 
-        Genau diese Bewegung wird hier nachgestellt: dieselbe Datei, derselbe Ausdruck, dieselbe
-        Gesamtzahl — nur eine andere umschliessende Definition. Bleibt dieser Test gruen, ist das
-        Budget wieder waschbar.
+        Exactly that movement is reproduced here: same file, same expression, same total — only a
+        different enclosing definition. If this test stays green, the budget is launderable again.
         """
         quelle = ("def derive_limitation_codes(xs):\n"
                   "    return set()\n"
@@ -352,24 +348,24 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
         self.assertEqual(
             len(funde), 1,
-            "eine neue Definition mit einem getragenen Ausdruck gilt nicht als neu — das Budget "
-            f"laesst sich waschen: {funde}")
+            "a new definition carrying an already-carried expression does not count as new — the "
+            f"budget can be laundered: {funde}")
         self.assertIn("_neu_und_ungeprueft", funde[0])
 
     def test_ein_leeres_quelltexte_ist_ein_fehler_kein_sauberer_baum(self):
-        """Linsenfund P3: ``is not None`` liess ein leeres dict den ganzen Plattenlauf still
-        ueberspringen und sauber melden. Ein Aufrufer, der nur geaenderte Dateien reicht und einmal
-        keine hat, haette damit einen ungeprueften Baum freigesprochen."""
+        """Lens finding P3: ``is not None`` let an empty dict silently skip the whole on-disk run
+        and report clean. A caller that passes only changed files and one day has none would have
+        acquitted an unexamined tree with it."""
         with self.assertRaises(ValueError):
             _ueberzaehlige_stellen({})
 
     def test_die_grundlinie_traegt_keine_stelle_die_es_nicht_mehr_gibt(self):
-        """Eine Grundlinie, die eine geschlossene Stelle weiter traegt, ist eine Erlaubnis auf Vorrat.
+        """A baseline that keeps carrying a closed site is permission held in reserve.
 
-        Die Datei sagt von sich: *jeder Eintrag muss noch geschlossen werden*. Wird einer
-        geschlossen und der Eintrag bleibt stehen, deckt er ab da eine Stelle, die es nicht mehr
-        gibt — und die naechste, die dieselbe Form wieder einfuehrt, faellt lautlos darunter.
-        Rot heisst hier: Eintrag entfernen, nicht Test entfernen.
+        The file says of itself: *every entry still has to be closed*. Close one and leave the entry
+        standing, and from then on it covers a site that no longer exists — and the next one to
+        reintroduce the same shape slips under it without a sound. Red here means: remove the entry,
+        not the test.
         """
         import collections  # noqa: PLC0415
         getragen = collections.Counter(
@@ -378,40 +374,40 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         tot = [f"{f}  in {q}()  {x}: getragen {n}, im Baum {gesehen.get((f, q, x), 0)}"
                for (f, q, x), n in sorted(getragen.items()) if gesehen.get((f, q, x), 0) < n]
         self.assertEqual(tot, [], "\n".join(
-            ["die Grundlinie traegt Stellen, die im Baum nicht mehr vorkommen — entfernen:"] + tot))
+            ["the baseline carries sites that no longer occur in the tree — remove them:"] + tot))
 
     def test_a_planted_unguarded_construction_is_found(self):
-        """PLANT-AND-MUST-CATCH fuer die zweite Form, woertlich die historische Zeile."""
+        """PLANT-AND-MUST-CATCH for the second shape, the historical line verbatim."""
         quelle = ('def r8(doc, aa):\n'
                   '    zitiert = {a.get("stratum") for a in aa if isinstance(a, dict)}\n'
                   '    return zitiert\n')
         self.assertEqual(len(unguarded_hashing_constructions(quelle)), 1,
-                         "die historische Form muss gefangen werden")
+                         "the historical shape has to be caught")
 
     def test_anti_parity_a_guarded_construction_is_not_flagged(self):
-        """DIE GEGENRICHTUNG. Wer den Wert vorher auf str prueft, hasht nichts Unhashbares."""
+        """THE COUNTER-DIRECTION. Check the value for str first and nothing unhashable is hashed."""
         quelle = ('def r8(aa):\n'
                   '    z = {a.get("stratum") for a in aa if isinstance(a.get("stratum"), str)}\n'
                   '    return z\n')
         self.assertEqual(unguarded_hashing_constructions(quelle), [])
 
     def test_anti_parity_a_literal_set_is_not_flagged(self):
-        """Ein Mengenliteral hasht nur, was im Quelltext steht — nie fremde Daten."""
+        """A set literal hashes only what stands in the source — never foreign data."""
         self.assertEqual(unguarded_hashing_constructions('X = {"a", "b"}\n'), [])
 
     def test_UNTERGRENZE_ein_index_auf_fremde_daten_entgeht_dem_detektor(self):
-        """DIE GRENZE ALS VERTRAG, absichtlich GRUEN obwohl der Fall echt waere.
+        """THE BOUND AS A CONTRACT, deliberately GREEN although the case would be real.
 
-        ``{doc["x"] for doc in docs}`` hasht fremde Daten genauso — der Detektor sieht es nicht,
-        weil ein Index nichts ueber die Herkunft sagt und die erste, weitere Fassung dadurch einen
-        nachgemessenen Fehlalarm erzeugte (``relation_statement.py:340``, hauseigene Liste).
-        Wer diesen Vertrag spaeter ROT bekommt, hat den Detektor um eine Herkunftsverfolgung
-        erweitert und darf ihn neu schreiben; wer ihn LOESCHT, weil er unbequem ist, hat die
-        Grenze verloren und merkt es nicht mehr.
+        ``{doc["x"] for doc in docs}`` hashes foreign data just the same — the detector does not see
+        it, because an index says nothing about origin, and the first, wider version produced a
+        false alarm that was measured afterwards (``relation_statement.py:340``, an in-house list).
+        Whoever later gets this contract RED has extended the detector with origin tracking and may
+        rewrite it; whoever DELETES it because it is inconvenient has lost the bound and will not
+        notice.
         """
         quelle = 'def f(docs):\n    return {doc["x"] for doc in docs}\n'
         self.assertEqual(unguarded_hashing_constructions(quelle), [],
-                         "die Untergrenze hat sich verschoben — Vertrag neu schreiben, nicht loeschen")
+                         "the lower bound has moved — rewrite the contract, do not delete it")
 
     def test_the_guard_is_actually_imported_where_it_is_used(self):
         # A call to a name that was never imported is a NameError at runtime, i.e. a crash in the

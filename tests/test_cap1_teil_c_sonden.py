@@ -1,15 +1,15 @@
-"""CAP-1 Teil C: die Sonden der unabhaengigen Umsetzung gegen `proofbundle.cap1`.
+"""CAP-1 part C: the probes of the independent implementation against `proofbundle.cap1`.
 
-`tools/cap1_unabhaengige_umsetzung/sonden.py` erzeugt aus den Autor-Vektoren fuenf Dokumente:
-zwei Sonden zu der Stelle, an der der Entwurf schweigt (doppelte JSON-Namen, RFC 8259 §4
-'unpredictable'), und drei Kontrollen. Das Werkzeug wird hier NUR AUSGEFUEHRT, nicht veraendert
-(Auftrag); die Sonden werden je Lauf frisch in ein Temp-Verzeichnis gebaut, nichts wird kopiert.
+`tools/cap1_unabhaengige_umsetzung/sonden.py` builds five documents from the author's vectors: two
+probes aimed at the place where the draft is silent (duplicate JSON names, RFC 8259 §4
+'unpredictable'), and three controls. The tool is ONLY EXECUTED here, never modified (per the
+order); the probes are rebuilt fresh into a temp directory on every run, nothing is copied.
 
-Was gemessen wird: unser Leser ist die STRENGE Lesart — ein doppelter Name ist ein Lesefehler,
-kein Urteil (S09, S10: BundleFormatError, nie CONFORMS und nie REFUSED). Die Kontrollen zeigen,
-dass die Sonden nicht 'alles verweigern': K1 und K2 (unveraenderte Vektoren) sind konform, K3
-(einfach gebrochenes R1, kein doppelter Name) faellt an genau R1 — Muss-Fehlschlag, Mengengleichheit.
-Ohne die Kontrollen misst der Lauf nichts (lauf.py sagt es woertlich), deshalb sind sie hier Tests.
+What is measured: our reader is the STRICT reading — a duplicate name is a read error, not a
+verdict (S09, S10: BundleFormatError, never CONFORMS and never REFUSED). The controls show that the
+probes do not 'refuse everything': K1 and K2 (unmodified vectors) are conformant, K3 (a singly
+broken R1, no duplicate name) fails at exactly R1 — a must-fail, set equality. Without the controls
+the run measures nothing (lauf.py says so verbatim), which is why they are tests here.
 """
 from __future__ import annotations
 
@@ -42,15 +42,15 @@ def sonden(tmp_path_factory) -> Path:
 
 @pytest.mark.parametrize("name", ["S09_doppelter_eligible.json", "S10_doppeltes_complete.json"])
 def test_eine_sonde_mit_doppeltem_namen_ist_ein_lesefehler_kein_urteil(sonden, name):
-    """Die drei Lesarten der unabhaengigen Umsetzung urteilen ueber dieselben Bytes verschieden
-    (last-wins CONFORMS/REFUSED, first-wins umgekehrt, streng JSON-Fehler). Unser Leser ist streng:
-    er urteilt gar nicht erst — und die Kontrolle daneben zeigt, dass die Standardbibliothek dasselbe
-    Dokument still annimmt."""
+    """The three readings of the independent implementation judge the same bytes differently
+    (last-wins CONFORMS/REFUSED, first-wins the other way round, strict a JSON error). Our reader is
+    strict: it does not judge at all — and the control beside it shows that the standard library
+    accepts the very same document silently."""
     roh = (sonden / name).read_bytes()
     with pytest.raises(BundleFormatError, match="duplicate JSON key"):
         cap1.load_cap1_document(roh)
     import json  # noqa: PLC0415
-    assert isinstance(json.loads(roh), dict), "Kontrolle: der Standard-Leser nimmt das Dokument an (last-wins)"
+    assert isinstance(json.loads(roh), dict), "control: the standard reader accepts the document (last-wins)"
 
 
 @pytest.mark.parametrize("name", ["K1_positivkontrolle_PV03.json", "K2_positivkontrolle_PV01.json"])
@@ -67,8 +67,8 @@ def test_die_negativkontrolle_faellt_an_genau_r1(sonden):
 
 
 def test_das_werkzeug_wurde_nicht_veraendert():
-    """Der Auftrag verbietet Aenderungen an tools/cap1_unabhaengige_umsetzung; die Fassung im
-    Zweig ist byte-gleich mit der auf der Basis 8b581d7 (gemessen ueber git, nicht behauptet)."""
+    """The order forbids changes to tools/cap1_unabhaengige_umsetzung; the version on the branch is
+    byte-identical to the one on base 8b581d7 (measured through git, not asserted)."""
     r = subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "8b581d7", "--",
                         "tools/cap1_unabhaengige_umsetzung"], capture_output=True, text=True)
     if r.returncode not in (0, 1):
