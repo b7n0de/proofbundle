@@ -128,16 +128,50 @@ _CURRENT_CLAIM = re.compile(
 # document, and `since v6.1.0` records history. Neither says "this is the release you get", and a
 # gate that demanded they be bumped would manufacture false claims — the rule the module head
 # states and this addition keeps.
+# DIE FORM ALLEIN BEHAUPTET NICHTS — die Zahl entscheidet. Gefunden 2026-09-23 von einer
+# Gegenlese-Linse, mit ausgefuehrten Gegenbeispielen:
+#
+#   "pip uninstall paket==<aeltere Fassung>"              eine Anleitung zum ENTFERNEN
+#   "[<aeltere Fassung> release notes](…/releases/tag/…)" eine Zitierung von GESCHICHTE
+#   ".../paket/v<aeltere Fassung>/examples/…"             dasselbe als Roh-URL
+#
+# (Platzhalter auch hier, aus demselben Grund wie oben: mit ausgeschriebenen Zahlen meldete der
+# Sweep diese drei Kommentarzeilen. Ein Beispiel, das die Form ausschreibt, IST die Form.)
+#
+# Die erste Fassung meldete alle drei. Fuer die zweite und dritte waeren **beide angebotenen
+# Abhilfen falsch**: anmelden hiesse, eine zutreffende historische Angabe kuenftig auf die
+# aktuelle Fassung heben zu lassen — aus einer Tatsache wird eine Luege, genau der Schaden, vor
+# dem der Modulkopf warnt. Umformulieren hiesse, richtige Geschichte grundlos umzuschreiben.
+#
+# DIE UNTERSCHEIDUNG, die traegt: ein WORT wie „current" behauptet Aktualitaet aus sich heraus,
+# gleich welche Zahl danebensteht — eine Zeile „current release: <aeltere Fassung>" ist eine
+# VERALTETE Aktualitaetsbehauptung und gehoert gemeldet. Eine FORM behauptet sie nur dann, wenn
+# die Zahl die aktuelle ist; steht dort eine aeltere, ist es Geschichte.
+#
+# (Auch dieses Beispiel steht als Platzhalter da, und zwar weil die Regel es beim ersten Lauf
+# selbst gefangen hat: mit einer ausgeschriebenen Zahl meldete der Sweep diese Zeile. Die
+# wortbasierte Form feuert ja gerade unabhaengig von der Zahl — ein Zitat ist fuer sie nicht von
+# einer Behauptung zu unterscheiden. Dritter Fall derselben Klasse an einem Tag.)
+#
+# Deshalb traegt jede Form ein Feld `nur_aktuelle`. Check 6 meldet eine Formzeile nur, wenn ihre
+# Zahl der Quellversion gleicht — dann ist es eine nicht angemeldete Aktualitaetsbehauptung, die
+# beim naechsten Heben veraltet. Was danach mit einer ANGEMELDETEN Stelle passiert, ist Aufgabe
+# von Check 4: der haelt sie aktuell. Die Arbeitsteilung war schon da, meine erste Fassung hat
+# sie uebergangen.
+#
+# `\binstall` mit Wortgrenze, weil `install\s+` sonst das Ende von `uninstall` trifft — gemessen
+# an „pip uninstall proofbundle==6.0.0", das als Aktualitaetsbehauptung gemeldet wurde.
 _CLAIM_SHAPES = [
-    ("install pin", re.compile(r"install\s+[^\s]*==\s*v?" + _SEMVER, re.IGNORECASE),
+    ("install pin", re.compile(r"\binstall\s+[^\s]*==\s*v?" + _SEMVER, re.IGNORECASE), True,
      "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
      "moment the version moves"),
-    ("release tag link", re.compile(r"/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
+    ("release tag link", re.compile(r"/releases?/tag/v?" + _SEMVER, re.IGNORECASE), True,
      "a link to a release tag, presented as the release this project is at"),
-    ("version-pinned URL", re.compile(r"/v" + _SEMVER + r"/", re.IGNORECASE),
+    ("version-pinned URL", re.compile(r"/v" + _SEMVER + r"/", re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
-    ("current/latest phrase", _CURRENT_CLAIM,
-     "a sentence stating the current release in words"),
+    ("current/latest phrase", _CURRENT_CLAIM, False,
+     "a sentence stating the current release in words — the wording claims currency whatever "
+     "number follows, so a stale one is a finding too"),
 ]
 # Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
 _SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/")
@@ -337,19 +371,45 @@ def _tracked_files(repo: Path) -> list[str]:
     return out.splitlines() if rc == 0 else []
 
 
-def check_undeclared_places(repo: Path) -> list[str]:
+def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
     """Find "this is the current release" claims outside _TRACKED_PLACES.
 
     Check 4 watches the places somebody declared. This one watches for places nobody did: a sentence
     that starts stating the current release is, from that moment, a place that can go stale, and
     nothing was looking at it. The finding asks for a decision (declare it, or reword it), because a
     sweep cannot know whether a claim is meant to be current.
+
+    `version` ist die Quellversion; ohne sie wird sie hier gelesen. Sie entscheidet ueber die
+    formbasierten Muster (siehe `_CLAIM_SHAPES`): eine Form mit einer AELTEREN Zahl zitiert
+    Geschichte und ist kein Fund.
     """
-    declared = {rel for rel, _, _ in _TRACKED_PLACES}
+    if version is None:
+        version, _ = _source_version(repo)
+    # EINE ANMELDUNG DECKT EIN MUSTER, NICHT EINE GANZE DATEI.
+    #
+    # GEFUNDEN 2026-09-23 von einer Gegenlese-Linse, ausgefuehrt und nicht vermutet: hier stand
+    # `declared = {rel for rel, _, _ in _TRACKED_PLACES}` und darunter `if rel in declared:
+    # continue`. Wer eine Datei fuer EIN Muster anmeldet, nimmt sie damit GANZ aus diesem Sweep.
+    #
+    # Die Linse hat das am naechstliegenden Fall gemessen: meldet man README.md fuer den
+    # Tag-Link an — genau die Abhilfe, die meine eigene Owner-Karte als Option A anbietet —,
+    # liefert `check_undeclared_places` danach NICHTS mehr, obwohl drei weitere Belege derselben
+    # Klasse unveraendert in derselben Datei stehen. Check 4 prueft dann nur das eine angemeldete
+    # Muster; die drei Geschwister sind ab diesem Moment unbeobachtet.
+    #
+    # Das ist SCHLIMMER als der Ausgangszustand: vorher waren sie unentdeckt, danach waeren sie
+    # per Anmeldung dauerhaft stillgelegt — und der Sweep meldete Ruhe.
+    #
+    # Ab jetzt deckt eine Anmeldung die ZEILE, auf die ihr Anker passt, und sonst nichts. Eine
+    # andere Behauptungsform in derselben Datei bleibt sichtbar.
+    declared_patterns: dict[str, list] = {}
+    for rel_d, pattern_d, _ in _TRACKED_PLACES:
+        declared_patterns.setdefault(rel_d, []).append(pattern_d)
     problems: list[str] = []
     for rel in _tracked_files(repo):
-        if rel in declared or rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
+        if rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
             continue
+        angemeldet = declared_patterns.get(rel, [])
         p = repo / rel
         try:
             text = p.read_text(encoding="utf-8")
@@ -357,9 +417,16 @@ def check_undeclared_places(repo: Path) -> list[str]:
             continue                      # binary or unreadable: no claim to read, not a failure
         gefunden = False
         for nr, zeile in enumerate(text.splitlines(), 1):
-            for form, muster, beschreibung in _CLAIM_SHAPES:
+            # Die ZEILE, auf die ein angemeldeter Anker passt, ist gedeckt — Check 4 haelt sie
+            # aktuell. Jede andere Zeile derselben Datei bleibt Gegenstand dieses Sweeps.
+            if any(p.search(zeile) for p in angemeldet):
+                continue
+            for form, muster, nur_aktuelle, beschreibung in _CLAIM_SHAPES:
                 treffer = muster.search(zeile)
                 if not treffer:
+                    continue
+                # Eine FORM mit einer aelteren Zahl ist Geschichte, keine Behauptung.
+                if nur_aktuelle and version and treffer.group(1) != version:
                     continue
                 problems.append(
                     f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
