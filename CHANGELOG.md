@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- **A bare install degrades to clean skips, and the gate that claims it now runs it**
+  (`tests/test_action_input_injection.py`, `.github/workflows/published-artifact-gate.yml`). One
+  unguarded `import yaml` aborted the whole pytest run on an install without extras, so 19 of some
+  four thousand tests were collected and the rest never ran. Five sibling modules guard the same
+  dependency correctly. The import now goes through `pytest.importorskip`.
+- The workflow step whose comment claimed this property installed the `[test]` extra and only then
+  ran pytest, so the bare case was never exercised there. It now collects on the `[eval]` state
+  BEFORE the `[test]` install. A gate whose promise is broader than what it executes reports green
+  about a case it did not attempt.
+
+Contract `tests/test_bare_install_degrades_to_clean_skips.py` checks the property over every test
+module and reads the optional set from the `test` extra in `pyproject.toml` rather than from a list
+typed here, because a typed list is a second statement about what is optional and two statements
+drift. Catch proof on a bare venv: with the guard rc 0 and 4948 tests collected, without it rc 2 and
+collection interrupted.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
