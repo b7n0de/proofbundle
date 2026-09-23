@@ -133,6 +133,14 @@ jobs:
           test ! -e audit_artifacts/findings_register_361.json  # confirm it really is pruned from the sdist
           # (2), now executed: on the bare [eval] venv, collection must SUCCEED. Missing optional
           # dependencies become module-level skips; an unguarded import would make this exit non-zero.
+          #
+          # pytest itself is installed first, and ONLY pytest. It is the RUNNER, not one of the
+          # optional dependencies the invariant is about: those are hypothesis, PyYAML, jsonschema
+          # and sd-jwt, and they stay absent here, which is what makes this the bare case. The first
+          # version of this step installed nothing and failed with `No module named pytest` — a
+          # check that cannot start is not a check that passes, and it would have been easy to read
+          # that red as a defect in the package rather than in the step.
+          /tmp/clean/bin/pip install --quiet "pytest>=7"
           /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider --collect-only >/dev/null
           # (1) and the green-suite invariant, unchanged.
           /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
