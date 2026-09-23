@@ -93,6 +93,52 @@ _TRACKED_PLACES = [
 # "as of X.Y.Z" record history and must never match, or the sweep would demand that facts be bumped.
 _CURRENT_CLAIM = re.compile(
     r"(?:current|latest)(?:\s+(?:release|version))?\s*:?\s*v?" + _SEMVER, re.IGNORECASE)
+
+# A CLAIM IS NOT A WORD. Measured 2026-09-23 against README.md at origin/main: it states the
+# current release in SEVEN lines and FOUR shapes, and `_CURRENT_CLAIM` matched none of them,
+# because not one carries the word "current" or "latest". Their forms, with the version written
+# as a placeholder — see the paragraph below on why this comment may not spell it out:
+#
+#     **[vX.Y.Z](…/releases/tag/vX.Y.Z) · Beta · …**
+#     python -m pip install proofbundle==X.Y.Z
+#     https://raw.githubusercontent.com/b7n0de/proofbundle/vX.Y.Z/examples/example_bundle.json
+#
+# AND THIS COMMENT ALMOST BECAME THE DEFECT IT DESCRIBES. Written with the real version in the
+# examples, the first run of the new rule reported TWO findings: README.md — the intended one —
+# and this file, line 101. The sweep cannot tell a claim from a quotation of one, and the module
+# head already says why that matters: an illustration that spells out this project's own release
+# becomes a place that goes stale. The existing example above obeys that rule by using a foreign
+# tool's version; this one obeys it with placeholders. No carve-out for this file: a checker that
+# exempts itself stops checking the file most likely to quote claims.
+#
+# Check 6 exists precisely so that "the place nobody declared" cannot go stale unwatched — and it
+# was watching for one sentence form while the most consequential statements in the project's
+# front page used three others. Bump the version and leave this file alone, and the gate stays
+# green while the README still tells a reader to install the old release.
+#
+# NAMED SHAPES, NOT ONE BIG PATTERN: the finding then says WHICH kind of claim it found, and the
+# reader knows whether to bump it, declare it, or reword it. One fused regex would report a hit
+# and leave that question open.
+#
+# THE PRICE IS MEASURED, because a sweep that floods gets switched off: over every tracked file
+# outside the excluded prefixes, these three shapes hit FOUR times, all of them in README.md.
+# That is the file the finding is about.
+#
+# WHAT IS DELIBERATELY NOT HERE: a bare mention like `docs/release_scope/6.1.0.md` names a
+# document, and `since v6.1.0` records history. Neither says "this is the release you get", and a
+# gate that demanded they be bumped would manufacture false claims — the rule the module head
+# states and this addition keeps.
+_CLAIM_SHAPES = [
+    ("install pin", re.compile(r"install\s+[^\s]*==\s*v?" + _SEMVER, re.IGNORECASE),
+     "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
+     "moment the version moves"),
+    ("release tag link", re.compile(r"/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
+     "a link to a release tag, presented as the release this project is at"),
+    ("version-pinned URL", re.compile(r"/v" + _SEMVER + r"/", re.IGNORECASE),
+     "a URL pinned to a version tag — it keeps serving the old content after a bump"),
+    ("current/latest phrase", _CURRENT_CLAIM,
+     "a sentence stating the current release in words"),
+]
 # Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
 _SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/")
 
@@ -309,13 +355,20 @@ def check_undeclared_places(repo: Path) -> list[str]:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue                      # binary or unreadable: no claim to read, not a failure
+        gefunden = False
         for nr, zeile in enumerate(text.splitlines(), 1):
-            treffer = _CURRENT_CLAIM.search(zeile)
-            if treffer:
+            for form, muster, beschreibung in _CLAIM_SHAPES:
+                treffer = muster.search(zeile)
+                if not treffer:
+                    continue
                 problems.append(
-                    f"{rel}:{nr}: states a current version ({treffer.group(1)}, in "
-                    f"\"{treffer.group(0).strip()}\") but is not a declared place. Either add it to "
-                    f"_TRACKED_PLACES so it is kept current, or reword it so it does not claim to be.")
+                    f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
+                    f"{beschreibung} — in \"{treffer.group(0).strip()}\", but is not a declared "
+                    f"place. Either add it to _TRACKED_PLACES so it is kept current, or reword it "
+                    f"so it does not claim to be.")
+                gefunden = True
+                break
+            if gefunden:
                 break                     # one finding per file is enough to force the decision
     return problems
 
