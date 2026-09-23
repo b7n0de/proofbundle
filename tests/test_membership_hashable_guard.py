@@ -524,10 +524,6 @@ class TestScannerOnADisposableTree(unittest.TestCase):
             self.assertEqual(len(unguarded_membership_sites(p.read_text(encoding="utf-8"), str(p))), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestTheGuardCannotRaiseItself(unittest.TestCase):
     """REGRESSION for the finding the mandatory review lane raised on 2026-08-26 (verdict REJECT).
 
@@ -562,3 +558,14 @@ class TestTheGuardCannotRaiseItself(unittest.TestCase):
         # Without this, an is_member that returned False for every tuple would pass the test above.
         self.assertTrue(self.is_member(("a", "b"), {("a", "b"), "x"}))
         self.assertFalse(self.is_member(("a", "b"), {"x"}))
+
+
+# THE ENTRY POINT BELONGS AT THE END, and this is not cosmetics. It used to sit above
+# `TestTheGuardCannotRaiseItself`, so `python tests/test_membership_hashable_guard.py` called
+# `unittest.main()` while that class did not exist yet. MEASURED 2026-09-23: direct invocation ran
+# 23 tests, pytest ran 26 — the three that vanished are the REGRESSION tests for a mandatory-review
+# finding whose verdict was REJECT. A guard against a rejected defect that silently does not run
+# under one invocation path is the same class this whole file is about, one level up: green did not
+# mean "the case holds", it meant "the case was not measured".
+if __name__ == "__main__":
+    unittest.main()
