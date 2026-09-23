@@ -376,9 +376,24 @@ def _tabellen(text: str) -> list[tuple[str, list[str]]]:
     literal strings `| Punkt |` and `| Eintrag |`, the columns were later renamed to `| Item |`,
     and from then on every header counted as a scope row. A reader that has to be taught each new
     spelling is a reader that goes quietly wrong on the next one.
+
+    FENCED CODE BLOCKS ARE NOT SCOPE, and that line is here because a counter-reading by the
+    foreign model family asked for it on 2026-09-24. Measured at the time: neither scope file
+    contains a table inside a fence, so this was a latent hole rather than a live defect — but a
+    measurement printed in a fence is exactly the kind of thing these files grow, and a scope row
+    invented out of one would be counted like any other.
     """
     zeilen = text.splitlines()
-    trenner = [i for i, z in enumerate(zeilen) if re.match(r"^\|[\s:|-]+\|\s*$", z)]
+    im_zaun = set()
+    zaun = False
+    for i, z in enumerate(zeilen):
+        if z.strip().startswith("```"):
+            zaun = not zaun
+            im_zaun.add(i)
+        elif zaun:
+            im_zaun.add(i)
+    trenner = [i for i, z in enumerate(zeilen)
+               if i not in im_zaun and re.match(r"^\|[\s:|-]+\|\s*$", z)]
     aus = []
     for t in trenner:
         if t == 0:
@@ -387,8 +402,9 @@ def _tabellen(text: str) -> list[tuple[str, list[str]]]:
         if not kopf.startswith("|"):
             continue
         daten = []
-        for z in zeilen[t + 1:]:
-            if not z.startswith("|") or re.match(r"^\|[\s:|-]+\|\s*$", z):
+        for j in range(t + 1, len(zeilen)):
+            z = zeilen[j]
+            if j in im_zaun or not z.startswith("|") or re.match(r"^\|[\s:|-]+\|\s*$", z):
                 break
             daten.append(z)
         aus.append((kopf.split("|")[1].strip(), daten))
@@ -461,13 +477,25 @@ class TestDieVierundfuenfzigSindNamentlichAuffindbar(unittest.TestCase):
                       REPO / "docs" / "release_scope" / "6.3.0.md"]
 
     def _marken(self) -> list[str]:
-        """The fifty-four, read out of the register's own sentence."""
-        for zeile in self.register.read_text(encoding="utf-8").splitlines():
-            treffer = re.findall(r"`([^`]+)`", zeile)
-            if len(treffer) >= 40 and all(re.match(r"^[A-Z]", t) for t in treffer):
-                return treffer
-        self.fail("the register no longer carries a line listing the moved identifiers; this "
-                  "class cannot invent one, and an empty list would read as a clean result")
+        """The fifty-four, read out of the register's own sentence.
+
+        EXACTLY ONE LINE MAY MATCH, and taking the first would have been the quieter bug. The
+        counter-reading of 2026-09-24 named it: add a second long backticked list to the register
+        and this reader silently picks whichever comes first, which may be the incomplete one.
+        Measured at the time, exactly one line qualified — so this is a hole being closed, not a
+        defect being fixed. Ambiguity fails instead of choosing.
+        """
+        treffer = [re.findall(r"`([^`]+)`", z)
+                   for z in self.register.read_text(encoding="utf-8").splitlines()]
+        kandidaten = [t for t in treffer if len(t) >= 40 and all(re.match(r"^[A-Z]", x) for x in t)]
+        if len(kandidaten) == 1:
+            return kandidaten[0]
+        if not kandidaten:
+            self.fail("the register no longer carries a line listing the moved identifiers; this "
+                      "class cannot invent one, and an empty list would read as a clean result")
+        self.fail(f"{len(kandidaten)} lines of the register could be the list of moved identifiers "
+                  f"({[len(k) for k in kandidaten]} entries each) — picking one would be a guess "
+                  f"about which is authoritative")
 
     def test_das_register_nennt_die_vierundfuenfzig(self):
         self.assertEqual(len(self._marken()), 54)
@@ -512,6 +540,87 @@ class TestDieVierundfuenfzigSindNamentlichAuffindbar(unittest.TestCase):
                    if len([x for x in o if "(accounting)" not in x]) > 1}
         self.assertEqual(doppelt, {}, "the same identifier is cast into two scope files; the "
                                       "landing card would count one line twice")
+
+    def test_ein_mitlaeufer_muss_in_BEIDEN_rechnungen_stehen(self):
+        """THE RIDER HOLE, NARROWED RATHER THAN DECLARED AWAY.
+
+        A counter-reading by the foreign model family (2026-09-24) called the rider exception a
+        hole: delete a scope row, name the identifier in an accounting table, and the by-name check
+        passes. Its own proposal was to forbid exceptions entirely, and that is refused with a
+        reason — S62 genuinely has no row of its own, it was delivered in 6.1.0, so a blanket rule
+        would produce a red over a file that is correct.
+
+        The narrowing uses what the two files already are: TWO independent statements of the same
+        arithmetic. A rider is only a rider if BOTH accounting tables say so. Deleting a row and
+        covering it in one file's accounting now fails, because the other file does not agree.
+        """
+        marken = self._marken()
+        rechnungen, sachmengen = [], []
+        for z in self.ziele:
+            sach, rechnung = _sach_und_rechnung(z)
+            sachmengen.append(sach)
+            rechnungen.append("\n".join(rechnung))
+        nur_rechnung = [m for m in marken
+                        if not any(_deckt(s, m) for sach in sachmengen for s in sach)]
+        self.assertGreater(len(nur_rechnung), 0,
+                           "no rider at all would mean this case measures nothing; S62 is one")
+        for m in nur_rechnung:
+            wo = [z.name for z, txt in zip(self.ziele, rechnungen)
+                  if re.search(rf"(?<![0-9A-Za-z.\-]){re.escape(m)}(?![0-9A-Za-z.\-])", txt)]
+            self.assertEqual(len(wo), len(self.ziele),
+                             f"{m} has no scope row and is named in {wo} only — a rider that only "
+                             f"one file's accounting knows is a deleted row, not a rider")
+
+    def test_eine_tabelle_im_zaun_zaehlt_nicht_eine_ohne_zaun_schon(self):
+        """THE FENCE SKIP MEASURED IN BOTH DIRECTIONS, because a skip that skips nothing is a
+        comment. Planted on a copy of the real 6.2.0 file on 2026-09-24:
+
+            as it is            24 scope rows
+            table inside ```    24 scope rows   (the fence is honoured)
+            table without ```   25 scope rows   (and it becomes a finding)
+
+        The second line alone would not distinguish a working fence from a reader that lost the
+        table for some other reason; the third is what makes it an argument about fences.
+        """
+        import tempfile
+        orig = self.ziele[0].read_text(encoding="utf-8")
+        tab = "| Item | What it is |\n|---|---|\n| ERFUNDEN | eine Zeile |"
+        ergebnis = {}
+        for name, text in (("blank", orig),
+                           ("im_zaun", orig + "\n```\n" + tab + "\n```\n"),
+                           ("ohne_zaun", orig + "\n" + tab + "\n")):
+            with tempfile.TemporaryDirectory() as d:
+                p = pathlib.Path(d) / "6.2.0.md"
+                p.write_text(text, encoding="utf-8")
+                ergebnis[name] = _sach_und_rechnung(p)[0]
+        self.assertEqual(len(ergebnis["im_zaun"]), len(ergebnis["blank"]),
+                         "a table inside a fence changed the scope-row count")
+        self.assertNotIn("ERFUNDEN", ergebnis["im_zaun"])
+        self.assertEqual(len(ergebnis["ohne_zaun"]), len(ergebnis["blank"]) + 1,
+                         "an unfenced table was NOT counted, so the fence case above proves "
+                         "nothing about fences")
+        self.assertIn("ERFUNDEN", ergebnis["ohne_zaun"])
+
+    def test_die_endstrich_formen_bleiben_erkannt(self):
+        """THE SEPARATORS IN THESE IDENTIFIERS ARE EN-DASHES, and the same counter-reading asked
+        what happens when they are not. Measured: the register writes `N2-3a–d` and `A5.1–A5.4`
+        with U+2013, the scope row writes `N2-3a–d, 3f, 3g`, and the match runs through the
+        trailing-comma rule. Swap either side to an ASCII hyphen and the identifier stops being
+        found, which surfaces as a red rather than as a quiet pass — this case pins that the form
+        in the tree today is the one that matches, so a change has to be deliberate."""
+        marken = self._marken()
+        strich = [m for m in marken if "–" in m]
+        self.assertGreater(len(strich), 0, "no en-dash identifier in the register: this case would "
+                                           "otherwise assert nothing")
+        alle = [s for z in self.ziele for s in _sach_und_rechnung(z)[0]]
+        for m in strich:
+            self.assertTrue(any(_deckt(s, m) for s in alle),
+                            f"{m!r} carries U+2013 and was not matched by any scope row")
+            with self.subTest(marke=m):
+                ascii_form = m.replace("–", "-")
+                self.assertFalse(any(_deckt(s, ascii_form) for s in alle),
+                                 f"{ascii_form!r} also matched, so the case cannot tell the two "
+                                 f"forms apart and proves nothing about either")
 
     def test_ein_geloeschter_posten_faellt_ROT(self):
         """COUNTER-DIRECTION, planted. Without it this class proves only that today's tree agrees
