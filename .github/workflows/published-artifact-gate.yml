@@ -127,8 +127,15 @@ jobs:
         # runs reports green over a case it did not try. The collection pass below runs BEFORE the [test]
         # install, on the [eval]-only venv, which is the state point (2) is about.
         run: |
+          # The tarball path is resolved ONCE, here, while the working directory is still the
+          # checkout that holds dist/. The first version of this change moved the [test] install
+          # below the `cd` and left it reading `$(ls dist/*.tar.gz)` from /tmp/sdisttree, where no
+          # dist/ exists; the subshell returned empty and pip saw the bare string "[test]". An
+          # unquoted path that works only from one directory is a dependency on the cwd that
+          # nothing states, so it is bound to a variable rather than repeated.
+          SDIST="$(readlink -f "$(ls dist/*.tar.gz)")"
           mkdir -p /tmp/sdisttree
-          tar -xzf "$(ls dist/*.tar.gz)" -C /tmp/sdisttree --strip-components=1
+          tar -xzf "$SDIST" -C /tmp/sdisttree --strip-components=1
           cd /tmp/sdisttree
           test ! -e audit_artifacts/findings_register_361.json  # confirm it really is pruned from the sdist
           # (2), now executed: on the bare [eval] venv, collection must SUCCEED. Missing optional
@@ -143,7 +150,7 @@ jobs:
           /tmp/clean/bin/pip install --quiet "pytest>=7"
           /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider --collect-only >/dev/null
           # (1) and the green-suite invariant, unchanged.
-          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
+          /tmp/clean/bin/pip install --quiet "${SDIST}[test]"
           /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider
 
   reusable-attest-dryrun:
