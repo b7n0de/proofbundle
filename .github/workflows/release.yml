@@ -117,12 +117,13 @@ jobs:
         # VOR DEM BAU UND VOR JEDER AUSSENWIRKUNG. Ein Formfehler im Text soll den Zug hier anhalten,
         # nicht nachdem ein Entwurf steht.
         #
-        # WAS ER PRUEFT UND WAS NICHT: die Notiz wird hier VORAB erzeugt (`generate-notes`) und
-        # geprueft. Der Entwurf weiter unten laesst GitHub sie ein zweites Mal erzeugen — bei
-        # identischem Bereich ist das derselbe Text, aber es ist NICHT bytegleich garantiert. Der
-        # Schritt ist damit eine Pruefung des Textes, den GitHub aus demselben Bereich komponiert,
-        # keine Bindung an genau die Bytes des Entwurfs. Ehrlicher Rest, aufgeschrieben statt
-        # geglaettet.
+        # WAS ER PRUEFT — und die frueherer Einschraenkung ist WEG. Bis zum 23.09.2026 stand hier:
+        # "die Notiz wird hier VORAB erzeugt (generate-notes) und geprueft. Der Entwurf weiter unten
+        # laesst GitHub sie ein zweites Mal erzeugen — bei identischem Bereich ist das derselbe Text,
+        # aber es ist NICHT bytegleich garantiert." Dieser ehrliche Rest ist jetzt geschlossen: der
+        # Body wird aus der versionierten Inhaltsquelle gerendert, GENAU DIESE Datei wird geprueft,
+        # und der Entwurf bekommt sie per `body_path` bei `generate_release_notes: false`. Es gibt
+        # nur noch einen Text, und der geprueft ist der veroeffentlichte.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -150,12 +151,30 @@ jobs:
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/tag_text.txt
           python scripts/release_text_hygiene.py --text-file /tmp/tag_text.txt \
             --label "tag $GITHUB_REF_NAME"
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body > /tmp/release_notes.txt
+          # DER GEPRUEFTE TEXT IST JETZT DERSELBE, DER VEROEFFENTLICHT WIRD. Bis heute erzeugte
+          # dieser Schritt die Notiz VORAB per `generate-notes` und pruefte sie, waehrend der
+          # Entwurf weiter unten GitHub die Notiz ein ZWEITES Mal bauen liess. Der Kommentar oben
+          # sagte das ehrlich: "bei identischem Bereich ist das derselbe Text, aber es ist NICHT
+          # bytegleich garantiert". Eine Pruefung, die einen anderen Text prueft als den
+          # veroeffentlichten, ist eine Pruefung ueber eine Flaeche, die niemand liest.
+          #
+          # Jetzt rendert `render_release.py` den Body aus der versionierten Inhaltsquelle, dieser
+          # Schritt prueft GENAU DIESE DATEI, und der Entwurf bekommt sie per `body_path` mit
+          # `generate_release_notes: false`. Damit gibt es nur noch einen Text.
+          #
+          # DER VORHERIGE TAG WIRD NICHT ERRATEN. Er steht in der Quelle, weil die API sonst selbst
+          # entscheidet, welcher Zeitraum gemeint ist — und diese Entscheidung gehoert in ein
+          # versioniertes Artefakt, nicht in eine Abfrage.
+          python scripts/render_release.py --version "${GITHUB_REF_NAME#v}" \
+            --aus /tmp/release_notes.md
           # LEER IST KEIN BESTEHEN — das Werkzeug bricht bei leerem Text selbst ab, und `-eo pipefail`
-          # (defaults-Block oben) laesst einen fehlgeschlagenen `gh`-Aufruf nicht durchrutschen.
-          python scripts/release_text_hygiene.py --text-file /tmp/release_notes.txt \
+          # (defaults-Block oben) laesst einen fehlgeschlagenen Aufruf nicht durchrutschen.
+          python scripts/release_text_hygiene.py --text-file /tmp/release_notes.md \
             --label "release-notes $GITHUB_REF_NAME"
+          # DER DIGEST WIRD FESTGEHALTEN, damit der Entwurfsschritt nachweislich dieselben Bytes
+          # bekommt. Liegt die Vorbereitung eines Tages in einem anderen Job, wandert die Datei als
+          # Artefakt und wird dort gegen genau diesen Wert geprueft.
+          sha256sum /tmp/release_notes.md | tee /tmp/release_notes.md.sha256
 
       - name: Build sdist and wheel (the ONLY build in this workflow)
         run: |
@@ -319,7 +338,12 @@ jobs:
             dist/*.tar.gz
             release-assets/SHA256SUMS
             release-assets/*-provenance.intoto.jsonl
-          generate_release_notes: true
+          # DIE GEPRUEFTEN BYTES, NICHT EINE ZWEITE ERZEUGUNG. `body_path` zeigt auf genau die
+          # Datei, die der Formpruefer-Schritt gerendert und geprueft hat;
+          # `generate_release_notes: false` verhindert, dass die Action eine eigene Liste anhaengt.
+          # Ohne das Paar waere der veroeffentlichte Text ein anderer als der gepruefte.
+          body_path: /tmp/release_notes.md
+          generate_release_notes: false
           draft: true
           prerelease: ${{ steps.relmeta.outputs.prerelease }}
           make_latest: ${{ steps.relmeta.outputs.make_latest }}
