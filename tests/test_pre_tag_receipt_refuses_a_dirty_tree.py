@@ -308,7 +308,15 @@ class DerAuditLiefAufDiesemBaum(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0,
                             f"a restored tree produced a payload:\n{r.stdout}\n{r.stderr}")
         meldung = r.stdout + r.stderr
-        self.assertIn("AFTER the audit output", meldung, meldung[-800:])
+        # TO THE SUBSTANCE, NOT TO THE WORDING. Until 2026-09-23 this line demanded the literal
+        # string "AFTER the audit output". The Codex P1 finding of the same day required EQUALITY
+        # to be refused too, which made the old phrasing wrong: the message now says "NOT OLDER".
+        # The case went red although its behaviour stayed correct — the behavioural assertion one
+        # line above passed throughout. What is bound here is therefore WHAT the message is about
+        # (the audit output and the order), not how it is phrased.
+        self.assertIn("audit output", meldung, meldung[-800:])
+        self.assertTrue(any(w in meldung for w in ("AFTER", "NOT OLDER")),
+                        f"die Meldung nennt keine Reihenfolge: {meldung[-800:]}")
         self.assertIn("datei.txt", meldung, "the refusal does not name the path that moved")
 
     def test_KONTROLLE_die_ehrliche_reihenfolge_geht_weiter_durch(self):

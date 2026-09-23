@@ -90,6 +90,18 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "candidate"], repo)
 
+    # THE AUDIT OUTPUT COMES INTO BEING AFTER THE TREE, and this fixture wrote both in one
+    # breath. Linux hands out file timestamps in coarse ticks, so `_privkey.b64` and
+    # `audit_artifacts/pre_tag_trusted_pubkeys.txt` carried the SAME stamp as `_audit.txt` —
+    # which went unnoticed until 2026-09-23, because the order check compared strictly `>` and
+    # read equality as "not after". That is the Codex P1 finding of that day: under `>=`
+    # equality is no longer an order, and the fixture has to model the sequence a real run has —
+    # first the tree, then the audit. Two seconds are enough for that and shorter than any real
+    # audit run.
+    import os as _os  # noqa: PLC0415
+    _later = _os.stat(repo / "_audit.txt").st_mtime + 2
+    _os.utime(repo / "_audit.txt", (_later, _later))
+
     # PB_INLINE_SIGNING: dieser Test prueft den INLINE-Signierweg — den Weg, den der Owner an seiner
     # eigenen Maschine geht. Seit dem Owner-Entscheid 2026-09-06 (Karte OA-8b1a31cc4f) verlangt der
     # Weg eine ausdrueckliche Freigabe, damit er auf dem Bau- und Pruefhost NICHT erreichbar ist. Der

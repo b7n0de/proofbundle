@@ -80,6 +80,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, sha256_text, subject_tree_digest  # noqa: E402
 
 
+#: Environment variables that RESELECT the repository a git command operates on. `git -C <dir>`
+#: sets the working directory and nothing else — an inherited `GIT_WORK_TREE` still wins, so the
+#: command answers about a DIFFERENT checkout than the one on the command line.
+#:
+#: Codex (P1, review of 2026-09-23 on 308b76b), reproduced here before it was fixed: with an
+#: untracked `evil.py` in `--repo` and `GIT_WORK_TREE` pointing at a clean alternate directory,
+#: `git status` reported `?? evil.py` when run plainly and the emit returned 0 and wrote a payload
+#: when the variable was set. Measured rc without it 1, rc with it 0.
+#:
+#: The list is the whole family, not the one variable that was reported. `GIT_DIR` reselects the
+#: object store, `GIT_INDEX_FILE` the index the status is computed against, the object-directory
+#: pair where blobs are read from, `GIT_CEILING_DIRECTORIES` where discovery stops and
+#: `GIT_NAMESPACE` which refs are visible. Fixing only the reported spelling would leave the class
+#: open one variable over, which is the defect this file keeps finding in itself.
+_GIT_UMGEBUNG_UEBERSTEUERUNGEN = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+)
+
+
+def _git_umgebung() -> dict:
+    """The environment for every git call in this file, with the repository-reselecting names gone.
+
+    Removed, not overwritten with a guess: an empty `GIT_WORK_TREE` is not the same as an absent
+    one, and this guard has already been bitten once by treating a set-but-empty variable as
+    absent (see `_inline_erlaubt_oder_stop`, where presence IS the signal). `pop` states the
+    intent — this process asks about the repository it was given on the command line, and nothing
+    else may answer for it.
+    """
+    import os  # noqa: PLC0415
+    umgebung = dict(os.environ)
+    for name in _GIT_UMGEBUNG_UEBERSTEUERUNGEN:
+        umgebung.pop(name, None)
+    return umgebung
+
+
+def _git(repo: Path, *argumente: str, text: bool = False, eingabe: bytes | None = None,
+         timeout: int = 120) -> subprocess.CompletedProcess:
+    """Every git call of this file goes through here, so the isolation cannot be forgotten at one.
+
+    The single funnel is the point. A second call site that builds its own `subprocess.run` would
+    reopen the hole for exactly one command, and that is the shape of the reported defect: the
+    status check was isolated in the reporter's mind while `ls-tree`, `ls-files` and `hash-object`
+    were not.
+    """
+    return subprocess.run(["git", "-C", str(repo), *argumente], capture_output=True, text=text,
+                          input=eingabe, timeout=timeout, env=_git_umgebung())
+
+
 def _tree_digest(repo: Path) -> str:
     return subject_tree_digest(repo)
 
@@ -248,9 +304,8 @@ def _arbeitsbaum_sauber_oder_stop(repo: Path, audit_output_path: Path | None = N
         # future rename of the switch cannot fall back to the configured value in silence. Two
         # spellings of one statement — not a second source of truth, a bolt against the
         # environment.
-        lauf = subprocess.run(["git", "-C", str(repo), "-c", "status.showUntrackedFiles=all",
-                               "status", "--porcelain", "--untracked-files=all"],
-                              capture_output=True, text=True, timeout=120)
+        lauf = _git(repo, "-c", "status.showUntrackedFiles=all",
+                    "status", "--porcelain", "--untracked-files=all", text=True)
     except (OSError, subprocess.SubprocessError) as fehler:
         raise SystemExit(
             f"emit: cannot determine whether {repo} is clean ({fehler}) — refusing to bind a tree "
@@ -295,8 +350,7 @@ def _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo: Path) -> None:
     tree is the only question there and the forced flag is the right tool for it.
     """
     try:
-        baum = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "HEAD"],
-                              capture_output=True, timeout=120)
+        baum = _git(repo, "ls-tree", "-r", "-z", "HEAD")
     except (OSError, subprocess.SubprocessError) as fehler:
         raise SystemExit(
             f"emit: cannot read the head tree of {repo} ({fehler}) — refusing, because the content "
@@ -306,6 +360,9 @@ def _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo: Path) -> None:
             f"emit: `git ls-tree -r HEAD` failed in {repo} — refusing, because the content of the "
             f"checkout cannot be compared with what the receipt would bind")
     erwartet: dict[str, bytes] = {}
+    #: The subset of `erwartet` whose mode is 120000 — checked by its LINK TEXT, not by its
+    #: target.
+    symlinks: dict[str, bytes] = {}
     for satz in baum.stdout.split(b"\0"):
         if not satz:
             continue
@@ -319,18 +376,55 @@ def _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo: Path) -> None:
                 f"— refusing rather than skipping it, because a skipped path is an unchecked path")
         if art != b"blob":
             continue
-        erwartet[pfad_roh.decode("utf-8", errors="replace")] = blob
-    fehlend = [rel for rel in erwartet if not (repo / rel).is_file()]
-    zu_hashen = [rel for rel in erwartet if rel not in set(fehlend)]
+        rel = pfad_roh.decode("utf-8", errors="replace")
+        erwartet[rel] = blob
+        # THE MODE DECIDES HOW THE BYTES ARE READ, and it was never looked at. A symlink is a blob
+        # too — mode 120000 — whose content is the LINK TEXT. Codex (P2, 2026-09-23 on 308b76b):
+        # `git ls-tree` records the hash of that text, while `git hash-object --stdin-paths`
+        # follows the link and hashes the TARGET. Reproduced before the fix: a clean repository
+        # with `link -> target`, `target` holding bytes other than the string `target`, empty
+        # `git status` — refused with `differs: link`, exit 1. A valid clean tree containing a
+        # symlink could not produce a receipt at all.
+        if felder[0] == b"120000":
+            symlinks[rel] = blob
+    import os  # noqa: PLC0415
+
+    def _fehlt(rel: str) -> bool:
+        p = repo / rel
+        # For a symlink the question is whether the LINK is there, not whether it resolves. A
+        # broken link is a legitimate tracked object; `is_file()` says False for it and it was
+        # classified `missing` — the sibling misreading named in the same finding.
+        return not os.path.islink(p) if rel in symlinks else not p.is_file()
+
+    fehlend = [rel for rel in erwartet if _fehlt(rel)]
+    fehlend_menge = set(fehlend)
+    zu_hashen = [rel for rel in erwartet if rel not in fehlend_menge and rel not in symlinks]
     abweichend = []
+    # The link text is hashed as the blob it is. `--stdin` instead of `--stdin-paths`, because the
+    # path form is exactly what follows the link; the bytes handed over here are `readlink`'s, so
+    # no target is read. One call per symlink: a tree carries a handful of them, while the regular
+    # files below stay in the single batched call they need.
+    for rel in sorted(set(symlinks) - fehlend_menge):
+        try:
+            ziel = os.readlink(repo / rel).encode("utf-8", errors="surrogateescape")
+        except OSError as fehler:
+            raise SystemExit(
+                f"emit: cannot read the symlink {rel} of {repo} ({fehler}) — refusing rather than "
+                f"skipping it, because a skipped path is an unchecked path")
+        h = _git(repo, "hash-object", "-t", "blob", "--stdin", eingabe=ziel)
+        if h.returncode != 0 or not h.stdout.split():
+            raise SystemExit(
+                f"emit: `git hash-object` could not hash the link text of {rel} "
+                f"(exit {h.returncode}) — refusing, because that path would stay unchecked")
+        if h.stdout.split()[0] != symlinks[rel]:
+            abweichend.append(rel)
     if zu_hashen:
         # ONE PROCESS, NOT ONE PER FILE. Measured on the real tree: 1475 tracked blobs, so the
         # per-file form would spawn 1475 subprocesses for a single guard. `--stdin-paths` hashes
         # the whole list in one go, and it still reads the FILES rather than the index, which is
         # the property this check exists for.
-        ist = subprocess.run(["git", "-C", str(repo), "hash-object", "--stdin-paths"],
-                             input="\n".join(zu_hashen).encode() + b"\n",
-                             capture_output=True, timeout=600)
+        ist = _git(repo, "hash-object", "--stdin-paths",
+                   eingabe="\n".join(zu_hashen).encode() + b"\n", timeout=600)
         zeilen = ist.stdout.split()
         if ist.returncode != 0 or len(zeilen) != len(zu_hashen):
             # A SHORT ANSWER IS NOT A CLEAN ONE. If git returned fewer hashes than paths, the
@@ -339,7 +433,10 @@ def _der_inhalt_stimmt_mit_dem_kopf_oder_stop(repo: Path) -> None:
                 f"emit: `git hash-object --stdin-paths` answered for {len(zeilen)} of "
                 f"{len(zu_hashen)} tracked path(s) (exit {ist.returncode}) — refusing, because a "
                 f"partial answer cannot show the checkout matches the head")
-        abweichend = [rel for rel, h in zip(zu_hashen, zeilen) if h != erwartet[rel]]
+        # APPEND, do not assign: the symlink check above has already recorded its findings.
+        # An assignment here would have discarded them silently — a green verdict over a set
+        # that is no longer being looked at.
+        abweichend += [rel for rel, h in zip(zu_hashen, zeilen) if h != erwartet[rel]]
     if fehlend or abweichend:
         zeilen = [f"  missing: {x}" for x in sorted(fehlend)[:10]] + \
                  [f"  differs: {x}" for x in sorted(abweichend)[:10]]
@@ -391,8 +488,7 @@ def _audit_lief_auf_diesem_baum_oder_stop(repo: Path, audit_output_path: Path | 
             f"emit: cannot read the modification time of the audit output {audit_output_path} "
             f"({fehler}) — refusing, because the order of audit and receipt is then unknown") from fehler
     try:
-        lauf = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
-                              capture_output=True, timeout=120)
+        lauf = _git(repo, "ls-files", "-z")
     except (OSError, subprocess.SubprocessError) as fehler:
         raise SystemExit(
             f"emit: cannot list the tracked files of {repo} ({fehler}) — refusing, because the "
@@ -401,23 +497,56 @@ def _audit_lief_auf_diesem_baum_oder_stop(repo: Path, audit_output_path: Path | 
         raise SystemExit(
             f"emit: `git ls-files` failed in {repo} — refusing, because the order of audit and "
             f"receipt cannot be established")
+    # THE AUDIT OUTPUT IS NOT YOUNGER THAN ITSELF. It may be tracked and live inside the tree;
+    # compared with its own timestamp it is then trivially equal, and the `>=` below would make
+    # it refuse itself. Measured while fixing this finding:
+    # `test_committed_receipt_verifies_and_src_change_is_rejected` hands `_audit.txt` in as a
+    # tracked audit output and failed on exactly that. A path compared with itself says nothing
+    # about an order.
+    try:
+        audit_echt = Path(audit_output_path).resolve()
+    except OSError:
+        audit_echt = None
     juenger = []
     for roh in lauf.stdout.split(b"\0"):
         if not roh:
             continue
         pfad = repo / roh.decode("utf-8", errors="replace")
         try:
-            if pfad.stat().st_mtime > audit_zeit:
-                juenger.append(str(pfad.relative_to(repo)))
+            if audit_echt is not None and pfad.resolve() == audit_echt:
+                continue
+        except OSError:
+            pass
+        try:
+            # `lstat`, NOT `stat`: for a symlink the question is when the LINK was written, and
+            # `stat` answers for its target — a restored link beside an untouched target would
+            # have read as old. A broken link raises under `stat` and was silently skipped by the
+            # `except` below, which turned the least inspectable case into the quietest one.
+            zeit = pfad.lstat().st_mtime
         except OSError:
             continue
+        # `>=`, NOT `>`. Codex (P1, 2026-09-23 on 308b76b): when the restored file and the audit
+        # output carry the SAME timestamp, the strict comparison reads the restore as "not after"
+        # and the emit proceeds. Reproduced before the fix in a throwaway repository — every
+        # tracked path at 11:00, the restored `datei.txt` and the audit output both at 12:00,
+        # `git status` empty: rc 0, payload written, `subject_tree_digest` 7084edf3… (the clean
+        # head) bound to `audit_output_digest` b3ccfeee… (computed over the dirty bytes).
+        #
+        # Equal is not "before". Two writes sharing a timestamp cannot be ordered from here at
+        # all, and a coarse filesystem or a fast sequence produces that constantly. The file's own
+        # doctrine settles which way to resolve it: not-determinable is not a clearance, and a
+        # release receipt is the last place to guess.
+        if zeit >= audit_zeit:
+            juenger.append(str(pfad.relative_to(repo)))
     if juenger:
         gezeigt = "\n  ".join(sorted(juenger)[:20])
         mehr = f"\n  … and {len(juenger) - 20} more" if len(juenger) > 20 else ""
         raise SystemExit(
-            f"emit: {len(juenger)} tracked path(s) were written AFTER the audit output "
-            f"{audit_output_path} — the audit therefore did not read the bytes this receipt would "
-            f"attest. Re-run the audit on the tree as it stands now:\n  {gezeigt}{mehr}")
+            f"emit: {len(juenger)} tracked path(s) are NOT OLDER than the audit output "
+            f"{audit_output_path} — so the audit cannot be shown to have read the bytes this "
+            f"receipt would attest. A path with the SAME timestamp counts here: two writes that "
+            f"share a timestamp cannot be ordered, and a release receipt does not guess. Re-run "
+            f"the audit on the tree as it stands now:\n  {gezeigt}{mehr}")
 
 
 def main(argv=None) -> int:
