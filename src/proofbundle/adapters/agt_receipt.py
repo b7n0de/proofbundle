@@ -82,6 +82,25 @@ _WAHLFELDER = ("parent_receipt_hash", "session_id")
 #: verifier that accepts "permit" would accept a receipt AGT never emits.
 _ENTSCHEIDUNGEN = frozenset({"allow", "deny"})
 
+#: EVERY field that speaks of an external authorization. The detector below reads ALL of them.
+#:
+#: Codex, review of this branch: the first version looked at only authorizer_id,
+#: authorization_signature and authorizer_public_key. All of these sit OUTSIDE the signed payload,
+#: so setting exactly those three to null left `assurance_level="externally_authorized"`,
+#: `authorization_expires_at` and `authorization_nonce` standing, kept the signature and the
+#: payload hash valid, and turned a receipt this verifier had REJECTED (exit 3) into one it
+#: ACCEPTED (ok=True, exit 0). Removable evidence must never improve a verdict.
+#:
+#: THE CLASS is a partial-shape detector over a field set an attacker can choose from: whichever
+#: subset the detector does not read is the subset that can be stripped. The fix is not three more
+#: names, it is reading the WHOLE set and demanding completeness once any member appears.
+_AUTORISIERUNGSFELDER = ("authorizer_id", "authorization_signature", "authorizer_public_key",
+                         "authorization_expires_at", "authorization_nonce")
+
+#: The assurance_level value that CLAIMS an external authorization. A receipt claiming it owes a
+#: complete and valid one, whatever else was stripped.
+_EXTERN_BEHAUPTET = "externally_authorized"
+
 
 class AGTReceiptError(ValueError):
     """Malformed input: the bytes are not a readable AGT receipt. Exit code 2, never 1.
@@ -223,8 +242,9 @@ def verify_agt_receipt(
         ergebnis.add("payload-hash-self-consistent", selbst == payload_hash(receipt),
                      f"receipt states {selbst[:16]}…")
 
-    hat_autorisierung = any(receipt.get(f) is not None for f in
-                            ("authorizer_id", "authorization_signature", "authorizer_public_key"))
+    behauptet_extern = receipt.get("assurance_level") == _EXTERN_BEHAUPTET
+    hat_autorisierung = behauptet_extern or any(
+        receipt.get(f) is not None for f in _AUTORISIERUNGSFELDER)
     if require_external_authorization and not hat_autorisierung:
         ergebnis.add("external-authorization", False,
                      "required by the caller, but the receipt carries none")
@@ -232,11 +252,22 @@ def verify_agt_receipt(
     if not hat_autorisierung:
         return ergebnis
 
+    # COMPLETENESS IS DEMANDED, not assumed. Once anything speaks of an authorization — a field, or
+    # an assurance_level claiming one — every part must be there. Otherwise the subset an attacker
+    # leaves standing decides the verdict.
+    fehlend = [f for f in _AUTORISIERUNGSFELDER if receipt.get(f) is None]
+    if fehlend:
+        grund = ("assurance_level claims an external authorization" if behauptet_extern
+                 else "some authorization fields are present")
+        ergebnis.add("external-authorization-complete", False,
+                     f"{grund}, but these are missing: {', '.join(sorted(fehlend))} — a receipt "
+                     f"whose authorization can be stripped field by field must not verify")
+        return ergebnis
     a_sig = receipt.get("authorization_signature")
     a_key = receipt.get("authorizer_public_key")
     if not isinstance(a_sig, str) or not isinstance(a_key, str) or not a_sig or not a_key:
-        ergebnis.add("external-authorization", False,
-                     "authorization metadata present but signature or authorizer key missing")
+        ergebnis.add("external-authorization-complete", False,
+                     "authorization signature or authorizer key is present but not a string")
         return ergebnis
     # RECORDED IN BOTH DIRECTIONS, and the reason is a test of mine that was wrong. It asserted
     # this check appears on a correctly authorized receipt; it did not, because the check was only
@@ -349,8 +380,15 @@ def exit_code(ergebnis: VerificationResult) -> int:
     for c in ergebnis.checks:
         if not c.ok and _blanker_name(c.name) in ("readable", "chain-readable"):
             return 2
+    # STRUCTURAL FAILURES ARE EXIT 1, and Codex was right to separate them. Exit 3 states "crypto
+    # sound but a relying-party requirement unmet", so a receipt that is structurally broken on its
+    # own — incomplete authorization, an authorizer equal to the signer — must not borrow that
+    # code: no relying party asked for anything. Only `external-authorization-trusted`, which is
+    # judged against a list the CALLER supplies, is a relying-party matter.
     krypto = {"signature", "external-authorization-signature", "payload-hash-self-consistent",
-              "decision-vocabulary", "chain-link", "chain-non-empty"}
+              "decision-vocabulary", "chain-link", "chain-non-empty",
+              "external-authorization", "external-authorization-complete",
+              "authorizer-key-distinct", "external-authorization-unexpired"}
     for c in ergebnis.checks:
         if c.ok:
             continue

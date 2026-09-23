@@ -277,3 +277,78 @@ class DerKettenpraefixWirdAlsPraefixAbgestreift(unittest.TestCase):
         from proofbundle.adapters.agt_receipt import _blanker_name
         self.assertEqual(_blanker_name("signature"), "signature")
         self.assertEqual(_blanker_name("[abc] signature"), "[abc] signature")
+
+
+class EntfernbareBelegeDuerfenEinUrteilNichtVERBESSERN(unittest.TestCase):
+    """Codex on this branch, and it is the most serious finding the verifier has had.
+
+    The authorization fields sit OUTSIDE the signed payload. Setting exactly the three the first
+    detector read — authorizer_id, authorization_signature, authorizer_public_key — to null left
+    assurance_level="externally_authorized", authorization_expires_at and authorization_nonce
+    standing, kept signature and payload hash valid, and turned a receipt this verifier had
+    REJECTED into one it ACCEPTED. Measured before the fix: ok=False exit=3 became ok=True exit=0.
+
+    THE CLASS is a partial-shape detector over a field set an attacker can choose from: whichever
+    subset the detector does not read is the subset that can be stripped. The fix reads the whole
+    set and demands completeness once any member appears.
+    """
+
+    def _r(self):
+        return json.loads(json.dumps(lade("03_extern_autorisiert")))
+
+    def test_fang_die_drei_felder_des_alten_detektors(self):
+        r = self._r()
+        for f in ("authorizer_id", "authorization_signature", "authorizer_public_key"):
+            r[f] = None
+        e = verify_agt_receipt(r)
+        self.assertFalse(e.ok, "stripping evidence must not produce a clean verdict")
+        self.assertEqual(exit_code(e), 1, "a stripped authorization is structural, not a policy miss")
+
+    def test_fang_jede_einzelne_luecke(self):
+        """THE PROPERTY over the whole field set, not over the three that were reported."""
+        for feld in ("authorizer_id", "authorization_signature", "authorizer_public_key",
+                     "authorization_expires_at", "authorization_nonce"):
+            with self.subTest(feld=feld):
+                r = self._r()
+                r[feld] = None
+                e = verify_agt_receipt(r, trusted_authorizer_keys=[r.get("authorizer_public_key") or "x"])
+                self.assertFalse(e.ok, f"a receipt missing {feld} must not verify")
+
+    def test_fang_assurance_level_allein_verlangt_vollstaendigkeit(self):
+        """A receipt CLAIMING external authorization owes one, whatever else was stripped."""
+        r = lade("01_allow")
+        r["assurance_level"] = "externally_authorized"
+        e = verify_agt_receipt(r)
+        self.assertFalse(e.ok)
+        self.assertEqual(exit_code(e), 1)
+
+    def test_gegenrichtung_die_heile_autorisierung_verifiziert_weiterhin(self):
+        """WITHOUT THIS CASE a completeness rule that refuses everything would pass above."""
+        r = self._r()
+        e = verify_agt_receipt(r, trusted_authorizer_keys=[r["authorizer_public_key"]])
+        self.assertTrue(e.ok, [c.detail for c in e.checks if not c.ok])
+        self.assertEqual(exit_code(e), 0)
+
+
+class StrukturIstExitEinsUndNichtExitDrei(unittest.TestCase):
+    """Exit 3 states "crypto sound but a relying-party requirement unmet". A receipt broken on its
+    own must not borrow that code, because no relying party asked for anything."""
+
+    def test_fang_nur_authorizer_id_angehaengt(self):
+        r = lade("01_allow")
+        r["authorizer_id"] = "did:key:claim"
+        e = verify_agt_receipt(r)
+        self.assertFalse(e.ok)
+        self.assertEqual(exit_code(e), 1, "incomplete metadata is structural")
+
+    def test_fang_autorisierer_gleich_signierer_ist_struktur(self):
+        r = lade("03_extern_autorisiert")
+        r["authorizer_public_key"] = r["signer_public_key"]
+        e = verify_agt_receipt(r, trusted_authorizer_keys=[r["signer_public_key"]])
+        self.assertEqual(exit_code(e), 1)
+
+    def test_gegenrichtung_die_vertrauensliste_bleibt_exit_drei(self):
+        """The ONE relying-party matter keeps exit 3, or the distinction would be gone."""
+        r = lade("03_extern_autorisiert")
+        e = verify_agt_receipt(r, trusted_authorizer_keys=["aa" * 32])
+        self.assertEqual(exit_code(e), 3, "an untrusted authorizer IS a relying-party requirement")
