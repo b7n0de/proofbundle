@@ -12,35 +12,35 @@ and the renderer never infers it.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 SKRIPT = REPO / "scripts" / "render_release.py"
 QUELLE = REPO / "release_notes" / "release-source.json"
 
-# A MISSING MAINTAINER SCRIPT IS A SKIP, NOT A COLLECTION ERROR. `render_release.py` is deliberately
-# NOT in the sdist: `MANIFEST.in` names every shipped `scripts/` file one by one, by owner
-# requirement of 2026-09-06, and a release-notes renderer is a maintainer tool that no consumer of
-# the package needs. Measured on 2026-09-24: the hermetic cleanroom job installs the extracted sdist
-# and runs `pytest --collect-only`, this module's module-level import of that absent file raised,
-# and the whole job exited 2. A check that cannot START is not a check that fails on its subject.
+# THE PATH FORM, NOT A BLANK IMPORT, and the house had already decided this before I arrived.
+# `render_release.py` is deliberately NOT in the sdist: `MANIFEST.in` names every shipped `scripts/`
+# file one by one, by owner requirement of 2026-09-06, and a release-notes renderer is a maintainer
+# tool no consumer of the package needs. Measured on 2026-09-24, the hermetic cleanroom job installed
+# the extracted sdist, ran `pytest --collect-only`, hit this module's blank `import render_release`
+# and exited 2. A check that cannot START is not a check that fails on its subject.
 #
-# The guard comes BEFORE the import, which is the same ordering rule the bare-install sweep
-# enforces for optional dependencies, and for the same reason: a guard placed after the import is
-# never reached.
-if not SKRIPT.is_file():
-    pytest.skip(f"NOT MEASURABLE: {SKRIPT.name} is not in this tree — it is a maintainer script and "
-                f"is not shipped in the sdist, so these cases have nothing to measure here",
-                allow_module_level=True)
-
-sys.path.insert(0, str(REPO / "scripts"))
-from render_release import lade, pruefe, rendere  # noqa: E402
+# MY FIRST FIX WAS A MODULE-LEVEL `pytest.skip`, AND IT WAS THE WRONG ONE. The full suite then failed
+# `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py`, which is the class guard for exactly
+# this and prescribes the path form: with `spec_from_file_location` the module name carries its
+# directory, so `conftest` can recognise the file as not-shipped and report an honest SKIP instead of
+# every module inventing its own. I built a neighbour rule without first looking for the rule that
+# was already there.
+_spec = importlib.util.spec_from_file_location("_render_release", SKRIPT)
+_rr = importlib.util.module_from_spec(_spec)
+sys.modules["_render_release"] = _rr
+_spec.loader.exec_module(_rr)
+lade, pruefe, rendere = _rr.lade, _rr.pruefe, _rr.rendere
 
 
 def _fahre(*args: str) -> subprocess.CompletedProcess:

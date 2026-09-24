@@ -100,6 +100,14 @@ include Makefile
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
 #
+# OUT, and deliberately decided (2026-09-24): scripts/render_release.py. It renders the release body
+# from `release_notes/release-source.json`, which no line of this list ships, and it measures the head
+# of a git tree to refuse a source that describes a different one. An installed package has neither
+# the source nor a tree, so the script would only fail to find its input — the same reason
+# `b7_release_scope_title_gate.py` and its two siblings stand outside. Its contract
+# `tests/test_render_release.py` therefore loads it through `spec_from_file_location`, so a run from
+# the unpacked sdist reports an honest skip instead of aborting collection.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der

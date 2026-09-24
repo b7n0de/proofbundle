@@ -30,6 +30,7 @@ it runs reports green over a case it did not try.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -312,8 +313,24 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
     reports green over the other, which is what happened.
 
     THE RULE: a test module may import a repository script, but it must not make COLLECTION depend on
-    one the sdist does not ship. The way through is the same as for dependencies, a module-level skip
-    placed BEFORE the import.
+    one the sdist does not ship. The way through is the PATH FORM,
+    `importlib.util.spec_from_file_location` against an absolute path.
+
+    WHY NOT A MODULE-LEVEL SKIP, WHICH IS WHAT I BUILT FIRST AND WHAT THIS CLASS ORIGINALLY SAID.
+    `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py` is the class guard for exactly this
+    incident, it predates this case, and it prescribes the path form. I did not look for it before
+    writing a neighbour rule, so the full suite of 2026-09-24 went red on it while this case was green
+    — two guards over one class, disagreeing on the remedy.
+
+    ITS REMEDY IS ALSO THE BETTER ONE, and the reason is measured rather than stylistic. The path form
+    raises `FileNotFoundError` carrying `.filename`, and `tests/conftest.py` turns that into a skip
+    ONLY after asking `_verteilung_sollte_enthalten`: a file the distribution list DOES name and that
+    is nevertheless absent stays loud, because that is a packaging error. A per-module
+    `if not SKRIPT.is_file(): pytest.skip(...)` cannot ask that question. It skips in both cases, so it
+    would convert a broken sdist into a green run — which is precisely what the docstring of
+    `_verteilung_sollte_enthalten` warns about, one level up: the guard against abandoned collection
+    would have disarmed the guard against false packaging. A module-level skip is therefore NOT
+    accepted here, and the case below pins that in all four spellings of it.
     """
 
     def _kandidaten(self, wurzel: Path | None = None) -> list[tuple[Path, str, int]]:
@@ -448,34 +465,25 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                         "green without having looked at anything")
 
     def test_keine_sammlung_haengt_an_einem_nicht_ausgelieferten_skript(self):
+        """A module-level import of an unshipped script is the finding, with no local way out.
+
+        THERE IS NO SKIP EXCEPTION HERE ANY MORE, and removing it is the reconciliation with the class
+        guard named in this class's docstring. An earlier version accepted a module-level
+        `skip(..., allow_module_level=True)` placed before the import, which made this case green on
+        a module the class guard still reported. Measured before the removal: of the 8 test modules
+        that import a repository script, all 8 import a SHIPPED one, so nothing in this tree relied on
+        that exception and dropping it turns nothing red.
+        """
         ausgeliefert = self._ausgeliefert()
-        verstoesse = []
-        for f, kand, stelle in self._kandidaten():
-            if kand in ausgeliefert:
-                continue
-            text = f.read_text(encoding="utf-8", errors="replace")
-            # THE POSITION COMES FROM THE SCAN, not from a second search. The first version searched
-            # for the import a second time with its own expression, so the shape the candidate scan
-            # found and the shape this check measured could differ — and once the scan learned
-            # `import_module` and `__import__`, they DID: those have no `import X` line to find, and
-            # the check skipped them in silence.
-            #
-            # BOTH SIDES ARE LINE NUMBERS. The scan reports `lineno`, so the guard's character offset
-            # is converted before the comparison. Comparing an offset to a line number would be the
-            # same defect one more time, a number measured on one scale and judged on another.
-            try:
-                schutz_zeile = _modul_skip_zeile(ast.parse(text, filename=str(f)))
-            except SyntaxError:
-                continue
-            if schutz_zeile is None or schutz_zeile > stelle:
-                wo = ("unguarded" if schutz_zeile is None else
-                      f"guarded only at line {schutz_zeile}, which is AFTER the import and "
-                      f"therefore never reached")
-                verstoesse.append(f"{f.relative_to(REPO)}:{stelle} imports {kand} {wo}")
+        verstoesse = [f"{f.relative_to(REPO)}:{stelle} imports {kand} at module level"
+                      for f, kand, stelle in self._kandidaten() if kand not in ausgeliefert]
         self.assertFalse(
             verstoesse,
             "the extracted sdist would abandon collection on these modules, because the script they "
-            "import is not in MANIFEST.in:\n  " + "\n  ".join(verstoesse))
+            "import is not in MANIFEST.in. The way through is the path form, "
+            "`importlib.util.spec_from_file_location`, which raises FileNotFoundError with a "
+            "filename, so tests/conftest.py can tell a never-shipped file from a packaging error:\n  "
+            + "\n  ".join(verstoesse))
 
     def test_die_drei_umgehungen_der_linse_werden_gefunden(self):
         """THE THREE SHAPES THAT REFUTED THE FIRST VERSION, each pinned as its own subtest.
@@ -556,30 +564,107 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                     f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
                     f"read {treffer}")
 
-    def test_der_modul_skip_wird_in_drei_schreibweisen_erkannt(self):
-        """THE SKIP SIDE READS THE TREE TOO, and un named the three spellings that escaped a regex.
+    def test_ein_modulweiter_skip_ist_KEIN_ausweg_in_vier_schreibweisen(self):
+        """THE DECISION AGAINST THE SKIP, stated over every spelling rather than over one.
 
-        Each of these is a correct module-level skip that the expression did not see, so the module
-        was reported unguarded although it skips cleanly.
+        A module-level skip DOES prevent the collection error, so this is not a claim that it fails to
+        work. It is a claim that it answers a narrower question than `tests/conftest.py` asks: the
+        module knows only whether the file is there, while conftest also asks whether the distribution
+        SAYS it should be there, and keeps a packaging error loud. A per-module skip cannot make that
+        distinction and would turn a broken sdist green.
+
+        un's cross-reading of 2026-09-24 named four spellings that escaped a regular expression, and
+        the detector still recognises all four — which is what makes these subtests worth something.
+        Each module here carries a CORRECT module-level skip before the import and is nevertheless
+        reported, so the finding cannot be explained away as a detector that missed the skip.
         """
-        formen = {
+        import tempfile
+        skips = {
             "pytest.skip mit Punkt": 'import pytest\npytest.skip("x", allow_module_level=True)\n',
             "from pytest import skip": 'from pytest import skip\nskip("x", allow_module_level=True)\n',
             "ueber mehrere Zeilen": 'import pytest\npytest.skip(\n    "x",\n    allow_module_level=True,\n)\n',
             "mit Leerzeichen um das Gleich": 'import pytest\npytest.skip("x", allow_module_level = True)\n',
         }
-        for name, quelle in formen.items():
+        for name, kopf in skips.items():
             with self.subTest(form=name):
-                self.assertIsNotNone(_modul_skip_zeile(ast.parse(quelle)),
-                                     f"{name}: a valid module-level skip was not recognised")
-        # COUNTER-DIRECTION. Without the keyword it is not a module-level skip, and a skip inside a
-        # function does not run during collection, so neither may be accepted as a guard.
+                self.assertIsNotNone(_modul_skip_zeile(ast.parse(kopf)),
+                                     f"{name}: the detector no longer sees this module-level skip, so "
+                                     f"the assertion below would pass for the wrong reason")
+                with tempfile.TemporaryDirectory() as d:
+                    (Path(d) / "test_erfunden.py").write_text(kopf + "import render_release\n",
+                                                              encoding="utf-8")
+                    self.assertTrue(self._kandidaten(wurzel=Path(d)),
+                                    f"{name}: a module-level skip must not buy an exception from this "
+                                    f"rule — the path form is the way through")
+        # COUNTER-DIRECTION for the detector itself: without the keyword it is not a module-level skip,
+        # and a skip inside a function does not run during collection at all.
         self.assertIsNone(_modul_skip_zeile(ast.parse('import pytest\npytest.skip("x")\n')),
                           "a skip without allow_module_level is not a module-level skip")
         self.assertIsNone(
             _modul_skip_zeile(ast.parse('import pytest\ndef f():\n    pytest.skip("x", '
                                         'allow_module_level=True)\n')),
             "a skip inside a function does not run during collection and guards nothing")
+
+    def test_gegenrichtung_die_pfadform_ist_kein_befund(self):
+        """THE REMEDY MUST PASS, or the rule above is a rule with no way to satisfy it.
+
+        Measured executably rather than assumed: `spec_from_file_location` against an absent path
+        raises `FileNotFoundError` whose `.filename` is that path, which is exactly the shape
+        `tests/conftest.py::_fehlende_datei_aus` reads before it decides between an honest skip and a
+        loud packaging error.
+        """
+        import tempfile
+        pfadform = ('import importlib.util, sys\nfrom pathlib import Path\n'
+                    'S = Path(__file__).parents[1] / "scripts" / "render_release.py"\n'
+                    '_spec = importlib.util.spec_from_file_location("_rr", S)\n'
+                    '_m = importlib.util.module_from_spec(_spec)\n'
+                    'sys.modules["_rr"] = _m\n_spec.loader.exec_module(_m)\n')
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "test_erfunden.py").write_text(pfadform, encoding="utf-8")
+            self.assertEqual(self._kandidaten(wurzel=Path(d)), [],
+                             "the prescribed remedy is reported as a violation, so the rule cannot be "
+                             "satisfied at all")
+        with tempfile.TemporaryDirectory() as d:
+            spec = importlib.util.spec_from_file_location("_weg", str(Path(d) / "fehlt.py"))
+            modul = importlib.util.module_from_spec(spec)
+            with self.assertRaises(FileNotFoundError) as gefangen:
+                spec.loader.exec_module(modul)
+        self.assertEqual(gefangen.exception.filename, str(Path(d) / "fehlt.py"),
+                         "the path form no longer names the missing file, so conftest could not tell "
+                         "a never-shipped file from a packaging error")
+
+    def test_die_zwei_wahrheiten_ueber_das_ausgelieferte_stimmen_ueberein(self):
+        """TWO GROUND TRUTHS FOR ONE CLASS, and they have drifted in this tree before.
+
+        This case derives the shipped set from `MANIFEST.in`, the DECLARATION. The class guard and
+        `tests/conftest.py` both read `*.egg-info/SOURCES.txt`, the RESULT of setuptools' computation,
+        because the two are recorded as having diverged here (Restrisiko S27: a deleted MANIFEST line
+        survived in an old SOURCES.txt). Each choice has its reason — the result is what a consumer
+        actually receives, the declaration is readable without a build having happened — and keeping
+        both means a divergence would make one guard green while the other is red, over the same file.
+
+        So the divergence is measured instead of left to be discovered. Without SOURCES.txt the
+        question is NOT MEASURABLE, and that is a skip with a reason, not a pass.
+        """
+        listen = (sorted(REPO.glob("*/*.egg-info/SOURCES.txt"))
+                  + sorted(REPO.glob("*.egg-info/SOURCES.txt")))
+        quelle = next((p for p in listen if p.read_text(encoding="utf-8").strip()), None)
+        if quelle is None:
+            self.skipTest("NOT MEASURABLE: no SOURCES.txt in the tree. One `python -m build --sdist` "
+                          "creates it. An absent basis is not a clearance.")
+        gelistet = {z.strip() for z in quelle.read_text(encoding="utf-8").splitlines() if z.strip()}
+        aus_manifest = self._ausgeliefert()
+        self.assertTrue(any(e.startswith("scripts/") for e in gelistet),
+                        f"{quelle.relative_to(REPO)} names no scripts/ entry at all, so the comparison "
+                        f"below would be green over an empty set")
+        nur_manifest = sorted(aus_manifest - gelistet)
+        nur_sources = sorted(e for e in gelistet if e.startswith("scripts/")
+                             and e not in aus_manifest)
+        self.assertEqual(
+            (nur_manifest, nur_sources), ([], []),
+            f"the declaration and the computed file list disagree about scripts/. Only in "
+            f"MANIFEST.in: {nur_manifest}. Only in {quelle.name}: {nur_sources}. One of the two "
+            f"guards over this class would be green while the other is red")
 
     def test_die_eigene_dokumentation_ist_kein_verstoss(self):
         """THE FALSE POSITIVE THE WIDENING PRODUCED, before `ast` replaced the expressions.
