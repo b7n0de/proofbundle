@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
-from ._membership import as_dict, is_member
+from ._membership import as_dict, is_member, same_json_value
 from ._verdict import require_bool_verdict
 
 SD_ALG = "sha-256"
@@ -249,8 +249,16 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # .get() (WP-C1 6-lens review): a missing field must yield a mismatch (unbound → False), never a
     # raw KeyError traceback out of the verify path. Guarding against `None == None` matching a genuinely
     # absent SD-JWT field would be a false bind, so a claim missing a required field can never bind.
+    #
+    # `same_json_value` and NOT `!=`, because "bit-exact" above was a promise this line did not keep.
+    # `bool` subclasses `int`, so `True == 1`: measured 2026-09-24 on `058ed6fc`, an SD-JWT issued for
+    # `passed: true` bound to a bundle claim carrying `passed: 1` — two claims `require_bool_verdict`
+    # declares incompatible, reported as one. Not only `passed`: this loop compares five fields the same
+    # way, and `threshold: 0` bound to `threshold: false` on the same measurement. R-B4's class on the
+    # one path the establisher never runs. See `_membership.same_json_value` for why the rule restores
+    # exactly the boolean/number distinction RFC 8785 makes and no other.
     for field in ("passed", "threshold", "comparator", "suite", "issuer"):
-        if field not in claim or p.get(field) != claim.get(field):
+        if field not in claim or not same_json_value(p.get(field), claim.get(field)):
             return False
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the

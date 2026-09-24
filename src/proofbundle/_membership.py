@@ -43,7 +43,15 @@ from __future__ import annotations
 from collections.abc import Hashable
 from typing import Any, Container, TypeGuard
 
-__all__ = ["is_member", "as_dict", "is_bool"]
+__all__ = ["is_member", "as_dict", "is_bool", "same_json_value"]
+
+# A pair budget for `same_json_value`. Exhausting it is a fail-closed "not equal", never a raise: the
+# one caller is a verify-side predicate whose whole contract is to return a bool. The bound does NOT
+# make this safe against arbitrary input on its own — the children of a node are pushed before the next
+# node is counted, so a single very wide dict is pushed in one go. It cannot amplify, because both
+# operands are already whole objects in the caller's memory, and in the real path both arrived through
+# `loads_strict`, which bounds node count and depth. What the budget removes is the unbounded WALK.
+_COMPARE_PAIR_BUDGET = 100_000
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -144,3 +152,74 @@ def as_dict(value: Any) -> dict:
     it as an assumption, not one line, and the scanner (tests/test_membership_hashable_guard.py) fails on a
     new unguarded ``(x or {}).get`` site."""
     return value if isinstance(value, dict) else {}
+
+
+def same_json_value(a: Any, b: Any, *, pair_budget: int = _COMPARE_PAIR_BUDGET) -> bool:
+    """``a == b`` for two decoded JSON values, without conflating a JSON boolean with a JSON number.
+
+    THE DEFECT CLASS, as the violated assumption: *two values that compare equal carry the same JSON
+    type.* They need not. ``bool`` subclasses ``int``, so ``True == 1`` and ``False == 0`` — the same
+    language fact ``is_bool`` above already names in its own docstring, four paragraphs about why an
+    ``int``-typed check would wrongly accept ``True``. The knowledge was in this module and did not
+    travel to the one place that COMPARES such a field: ``sdjwt_issue.check_binds_bundle``, whose
+    docstring promises the SD-JWT's always-open claims match the signed bundle payload *bit-exact* and
+    which, measured on 2026-09-24 against ``058ed6fc``, delivered loose equality instead:
+
+        SD-JWT ``passed: true``      vs bundle ``passed: 1``       -> bound
+        SD-JWT ``passed: true``      vs bundle ``passed: 1.0``     -> bound
+        SD-JWT ``threshold: 0``      vs bundle ``threshold: false`` -> bound
+        SD-JWT ``passed: true``      vs bundle ``passed: false``   -> not bound  (the control)
+
+    The first three pairs are two claims that ``require_bool_verdict`` declares incompatible, reported
+    as one and the same. It is the R-B4 class on the one path the establisher never runs.
+
+    WHAT THIS IS **NOT**, stated because overstating it was the first reading. No verdict flips: ``1``
+    and ``True`` are the same verdict, so nothing false-passes in the pass/fail sense. What breaks is
+    the binding attestation — a signed derived view is certified as this bundle's view when it is a
+    view of a differently-typed claim.
+
+    THE RULE IS DERIVED FROM RFC 8785 AND NOT INVENTED, which is what keeps it from over-refusing.
+    Measured with the ``rfc8785`` canonicalizer, JCS serialises ``true`` and ``1`` and ``1.0`` as
+    ``true``, ``1``, ``1`` — so ``true``/``1`` differ and MUST refuse, while ``1``/``1.0`` are the
+    SAME canonical bytes and must keep binding. Distinguishing int from float here would refuse pairs
+    the canonical form calls identical: a new defect in the other direction. Only the boolean/number
+    distinction is restored, because that is the only one JCS itself makes.
+
+    WHY NOT CALL THE CANONICALIZER, which would be the semantically exact answer. ``canonicalize_statement``
+    lives behind the optional ``[eval]`` extra and fail-closes with ``CanonicalizerUnavailable`` without
+    it. The caller sits inside the flagship ``verify_bundle`` path, which works on the base install
+    today; routing it through an extra would shrink that reach to buy exactness this comparison can
+    reach with stdlib alone.
+
+    ITERATIVE AND NOT RECURSIVE, with an explicit stack. The ``!=`` this replaces recurses in C, where
+    CPython guards the depth; a hand-written recursion would hit Python's much shallower limit and turn
+    a nested payload into a ``RecursionError`` out of a never-raise verify surface — the same class this
+    module exists for, one level down. Nesting is handled because a scalar rule alone would close the
+    instance and leave ``[true]`` against ``[1]`` open.
+    """
+    stack = [(a, b)]
+    pairs = 0
+    while stack:
+        pairs += 1
+        if pairs > pair_budget:
+            return False
+        x, y = stack.pop()
+        if isinstance(x, bool) or isinstance(y, bool):
+            # `x is y` and not `x == y`: this branch exists precisely because == is too forgiving here.
+            if not (isinstance(x, bool) and isinstance(y, bool)) or x is not y:
+                return False
+        elif isinstance(x, dict) or isinstance(y, dict):
+            if not (isinstance(x, dict) and isinstance(y, dict)) or x.keys() != y.keys():
+                return False
+            stack.extend((x[k], y[k]) for k in x)
+        elif isinstance(x, list) or isinstance(y, list):
+            if not (isinstance(x, list) and isinstance(y, list)) or len(x) != len(y):
+                return False
+            stack.extend(zip(x, y))
+        else:
+            try:
+                if x != y:
+                    return False
+            except Exception:       # noqa: BLE001 — a value whose __eq__ raises cannot be shown equal
+                return False
+    return True
