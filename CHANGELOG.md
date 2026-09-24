@@ -42,6 +42,29 @@ Contract `tests/test_codex_funde_248_20260923.py`, with a catch proof measured o
 reverting `cap1.py` to its `main` state turns 7 cases red, reverting `agent_review.py` turns 3 red,
 and both fixes present leave 268 passing with 14 subtests.
 
+- **An absent `contentRootAlg` and a present but unusable one are no longer the same thing**
+  (`src/proofbundle/intoto.py`). The guard read `isinstance(alg, str) and alg`, so a PRESENT value
+  that was not a non-empty string fell into the absence branch and resolved to the LEGACY algorithm
+  with `ok=true`. Measured before the fix, all six reported values resolved to legacy: `""`, `0`,
+  `True`, `[]`, `{}` and `null`. An unknown STRING id already failed closed one line later, and that
+  is what made the hole hard to see, because the obvious case behaved and only the type-confused one
+  did not.
+
+  Absent still means the key is not there, which is how released 2.0.0 receipts keep verifying.
+  Present and unusable resolves to a sentinel matching neither registered id, so the serializer
+  refuses it as it refuses any unknown algorithm, and the verdict names what was found.
+
+  THE HONEST BOUNDARY: `contentRootAlg` sits INSIDE the signed payload, so this is not a signature
+  bypass. The damage is that the verdict describes signed content wrongly, that a receipt the
+  contract says to reject is accepted, and that a stricter foreign verifier rules differently on
+  identical bytes.
+
+Contract `tests/test_s26_absent_is_not_present_but_unusable.py` binds the equivalence
+`(field ABSENT) == (resolved algorithm == LEGACY)` in both directions, with two counter-directions
+so a rule refusing everything could not pass as correct. Catch proof: restoring the old guard turns
+the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
+before and after.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
