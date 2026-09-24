@@ -108,6 +108,16 @@ include Makefile
 # `tests/test_render_release.py` therefore loads it through `spec_from_file_location`, so a run from
 # the unpacked sdist reports an honest skip instead of aborting collection.
 #
+# OUT, and deliberately decided (2026-09-24): scripts/render_pr_body.py. It renders a pull request
+# body or a house issue from a data source under `pr_bodies/`, which no line of this list ships, and
+# the surfaces it writes for exist only in this project's own GitHub repository. An installed package
+# has neither the source nor a use for the output, so the script would only fail to find its input —
+# the same reason `render_release.py` stands outside, three paragraphs up. Its contract
+# `tests/test_render_pr_body.py` therefore loads it through `spec_from_file_location` on module level,
+# so a run from the unpacked sdist reports an honest skip instead of aborting collection, and its two
+# fixtures under `tests/fixtures/pr_bodies/` stay outside for the same reason: the cases that read them
+# never run where the script is absent.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der

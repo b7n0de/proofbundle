@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -118,6 +119,52 @@ def lade(pfad: Path, kind: str) -> Dict[str, Any]:
     return daten
 
 
+#: Zeilenanfaenge, die eine BLOCKFORM eroeffnen: Tabelle, Ueberschrift, Liste, Zitat, HTML, Zaun.
+#: Ihre Zeilenumbrueche sind Absicht und keine umgebrochene Prosa.
+_BLOCKFORM_ANFANG = ("|", "#", "-", "*", "+", "`", ">", "<")
+
+#: Eine GEORDNETE Listenzeile: `1. `, `2) `, auch mehrstellig. Codex, Durchsicht von PR 261:
+#: eine Zeichen-Allowlist kennt `-` und `*`, und `1. erstens / 2. zweitens` faellt durch als
+#: Quell-Umbruch — obwohl der Docstring dieser Funktion Listen ausdruecklich als Blockform nennt.
+#: Eine Aufzaehlung von Formen ist nur so vollstaendig wie die Sprache, die sie beschreibt.
+_GEORDNETE_LISTE = re.compile(r"^\d+[.)]\s")
+
+
+def _ist_blockform(zeile: str) -> bool:
+    """Eroeffnet diese Zeile eine Blockform? Zeichen-Allowlist UND geordnete Liste."""
+    n = zeile.lstrip()
+    return n.startswith(_BLOCKFORM_ANFANG) or bool(_GEORDNETE_LISTE.match(n))
+
+
+def _ueberschriftfehler(feld: str, text: Any) -> List[str]:
+    """Setzt dieses FELD eine Blockgrenze, die dem Modul gehoert?
+
+    Codex, Durchsicht von PR 261: ein Feld mit dem Inhalt ``## Marking`` rendert einen ZWEITEN
+    Marking-Block, und der Fussblock steht danach doppelt — obwohl ``PR_BLOECKE`` ausdruecklich sagt,
+    dass Reihenfolge und Zugehoerigkeit dem Modul gehoeren und nicht der Quelle. Wer Struktur aus
+    Inhalt entstehen laesst, hat die Struktur nicht mehr.
+
+    ABGEWIESEN UND NICHT ENTSCHAERFT: entschaerfen hiesse, still etwas anderes zu drucken, als in der
+    Quelle steht. Tiefere Ueberschriften (``###`` und mehr) bleiben erlaubt; sie setzen keine
+    Blockgrenze dieses Formats.
+
+    EIGENE FUNKTION UND NICHT TEIL VON ``_absatzfehler``, weil die erste Fassung genau daran fiel:
+    die Gruenprobe PR 259 ist ein DOKUMENT und traegt ihre fuenf H2-Zeilen zu Recht, waehrend diese
+    Regel fuer FELDER gilt. Eine Feldregel auf ein Dokument angewandt meldet einen Defekt, der keiner
+    ist — dieselbe Klasse wie eine Zahl, die auf der falschen Flaeche gemessen wird.
+    """
+    if not isinstance(text, str):
+        return []
+    befunde = []
+    for i, z in enumerate(text.split("\n"), start=1):
+        n = z.lstrip()
+        if n.startswith("## ") and not n.startswith("### "):
+            befunde.append(
+                f"{feld} carries a top-level heading at line {i} ({n[:40]!r}); block order and "
+                f"membership belong to the renderer, so a content field may not open a block")
+    return befunde
+
+
 def _absatzfehler(feld: str, text: Any) -> List[str]:
     """Findings for one flowing-text field. Paragraphs are separated by a blank line; a paragraph
     itself is ONE line.
@@ -146,12 +193,18 @@ def _absatzfehler(feld: str, text: Any) -> List[str]:
             continue
         if not jetzt.strip() or not vorher.strip():
             continue
-        if jetzt.lstrip().startswith(("|", "#", "-", "*", "`", ">", "<")):
+        if _ist_blockform(jetzt):
             continue
         befunde.append(
             f"{feld} carries a source line break at line {i + 1} ({jetzt.strip()[:40]!r}...); "
             f"flowing text is one line per paragraph and is refused rather than re-flowed here")
     return befunde
+
+
+def _felderfehler(feld: str, text: Any) -> List[str]:
+    """Alle Befunde EINES Inhaltsfeldes: Absatzform und Blockgrenze. Ein Feld, zwei Eigenschaften,
+    ein Aufruf — damit keine Aufrufstelle die eine mitnimmt und die andere vergisst."""
+    return _absatzfehler(feld, text) + _ueberschriftfehler(feld, text)
 
 
 def pruefe(daten: Dict[str, Any], kind: str) -> List[str]:
@@ -164,7 +217,7 @@ def pruefe(daten: Dict[str, Any], kind: str) -> List[str]:
         if not isinstance(daten.get("head"), str) or not daten.get("head", "").strip():
             befunde.append("head is missing; the body must name the commit and the scope it describes")
         else:
-            befunde += _absatzfehler("head", daten["head"])
+            befunde += _felderfehler("head", daten["head"])
         hat_defect = bool(str(daten.get("defect") or "").strip())
         hat_change = bool(str(daten.get(DEFECT_ALTERNATIVE[0]) or "").strip())
         if hat_defect and hat_change:
@@ -174,18 +227,18 @@ def pruefe(daten: Dict[str, Any], kind: str) -> List[str]:
         for schluessel, _ in PR_BLOECKE:
             if schluessel in ("defect", "measured"):
                 continue
-            befunde += _absatzfehler(schluessel, daten.get(schluessel))
+            befunde += _felderfehler(schluessel, daten.get(schluessel))
         if hat_defect:
-            befunde += _absatzfehler("defect", daten.get("defect"))
+            befunde += _felderfehler("defect", daten.get("defect"))
         if hat_change:
-            befunde += _absatzfehler("change", daten.get("change"))
+            befunde += _felderfehler("change", daten.get("change"))
         befunde += _messfehler(daten.get("measured"))
     elif kind == "issue":
         for schluessel, _ in ISSUE_BLOECKE:
             if schluessel == "measured":
                 befunde += _messfehler(daten.get("measured"))
                 continue
-            befunde += _absatzfehler(schluessel, daten.get(schluessel))
+            befunde += _felderfehler(schluessel, daten.get(schluessel))
     else:
         befunde.append(f"unknown kind {kind!r}")
     return befunde
@@ -200,8 +253,20 @@ def _messfehler(eintraege: Any) -> List[str]:
             befunde.append(f"measured entry {i} is not an object")
             continue
         for spalte in MESSSPALTEN:
-            if not str(e.get(spalte) or "").strip():
+            # ANWESENHEIT IST NICHT WAHRHEITSWERT, und `e.get(spalte) or ""` verwechselt beides.
+            # Codex, Durchsicht von PR 261: `"value": 0` wurde als fehlend abgewiesen, obwohl die
+            # Null eine anwesende und gueltige Messung ist; `false` fiel aus demselben Grund.
+            # DAS IST DIE KLASSE R-B4 IN MEINEM EIGENEN NEUEN CODE, am selben Tag, an dem drei
+            # Commits dieses Zweigs sie anderswo geschlossen haben: ein Feld wird auf Wahrheitswert
+            # geprueft, wo Anwesenheit gemeint ist. Anwesend heisst: nicht `None` und, wenn Text,
+            # nicht leer. Eine Zahl, ein `False` und ein `0` sind anwesend.
+            wert = e.get(spalte)
+            if wert is None or (isinstance(wert, str) and not wert.strip()):
                 befunde.append(f"measured entry {i} lacks {spalte}")
+            elif isinstance(wert, str) and "\n" in wert:
+                # Eine Zelle mit Umbruch bricht die Tabelle auf und kann eine Ueberschrift
+                # einschmuggeln; siehe die Strukturpruefung der Fliesstextfelder.
+                befunde.append(f"measured entry {i} has a line break in {spalte}; a table cell is one line")
     return befunde
 
 
