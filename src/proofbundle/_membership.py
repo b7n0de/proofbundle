@@ -41,9 +41,9 @@ to the only question this function asks.
 from __future__ import annotations
 
 from collections.abc import Hashable
-from typing import Any, Container
+from typing import Any, Container, TypeGuard
 
-__all__ = ["is_member", "as_dict"]
+__all__ = ["is_member", "as_dict", "is_bool"]
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -65,6 +65,63 @@ def is_member(value: Any, container: Container) -> bool:
         # `__hash__` exists but failed — a tuple whose elements are unhashable is the reachable
         # shape. See the module docstring: the isinstance check alone was measurably not enough.
         return False
+
+def is_bool(value: Any) -> TypeGuard[bool]:
+    """True only for a genuine ``bool``. The verdict-bearing fields of a claim go through here.
+
+    THE DEFECT CLASS, as the violated assumption: *a field that carries a verdict holds a boolean.* It
+    does not have to. ``bool("false")`` is ``True``, and ``"false"`` is a non-empty string, so it also
+    survives every presence check of the shape ``claim.get(k) in (None, "")``. CWE-1287, improper
+    validation of the specified TYPE of an input: the field is recognised, its type is not.
+
+    WHAT THIS RESTORES IS MONOTONICITY, which is the stronger statement and the reason this is not
+    merely tidiness. The in-toto attestation spec calls a policy monotonic when ignoring an attestation
+    or a field within it can never turn a DENY into an ALLOW. Measured on 2026-09-24 on ``d8c9c61`` by
+    calling the exporters DIRECTLY, the opposite held there:
+
+        to_test_result_statement   False -> 'FAILED'   'false' -> 'PASSED'
+        to_eval_result_predicate   False -> False      'false' -> True
+        svr_properties             False -> []         'false' -> ['PROOFBUNDLE_THRESHOLD_MET']
+        to_intoto_statement        False -> False      'false' -> the string, passed through raw
+
+    WHERE IT DID **NOT** HOLD, stated because an earlier version of this docstring claimed it did. The
+    signed SVR path was never exposed: ``export_svr_dsse`` decodes first, and A-15 typed ``passed`` at
+    that boundary on 2026-09-19, so a string verdict is refused there and on every CLI path. The draft
+    that described a signed SVR carrying PROOFBUNDLE_THRESHOLD_MET for ``"false"`` had measured
+    ``/home/konrad/proofbundle``, a checkout 47 commits behind main and 9 ahead of it, where A-15 is
+    absent. The exposure is the DIRECT library caller, exactly as the register scoped it.
+
+    WHY A SHARED PREDICATE AND NOT FIVE ``isinstance`` LINES. The register entry that scheduled the work
+    names three sites; reading the file finds five in the same reach, and counting them is how this
+    class keeps coming back: ``intoto.py:99`` passes the raw value through, ``:246`` maps it through
+    ``_RESULT_ENUM[bool(...)]``, ``:251`` picks ``passedTests`` versus ``failedTests``, ``:424`` emits
+    ``bool(...)``, and ``:551`` tests truthiness. The module docstring above already argued this once
+    for the hashable class, after this repository paid for the instance fix three times. Same argument,
+    third class.
+
+    THE VERIFY BOUNDARY ROUTES THROUGH HERE TOO, and not because it was missing a check. A-15's inline
+    ``isinstance(claim.get("passed"), bool)`` was right and is why the signed paths held. It calls this
+    predicate now so the boundary and the exporters answer one question with one function; a second
+    check beside it would have been two promises for one invariant.
+
+    ``isinstance(value, bool)`` is the whole test and it is the right one: ``bool`` subclasses ``int``,
+    so an ``int``-typed check would accept ``True`` while this rejects ``1`` and ``0``, which is what a
+    JSON document that meant a number must not be allowed to mean.
+
+    A ``TypeGuard`` AND NOT A PLAIN ``bool``, because mypy said so and was right: a caller that has
+    just established the type should not have to assert it again. ``TypeGuard`` narrows the positive
+    branch, which is the one every caller here uses (``if not is_bool(x): refuse``), so the value is a
+    ``bool`` to the type checker from that line on. ``typing.TypeGuard`` exists from 3.10, which is this
+    package's floor.
+
+    STATED LIMIT, not an assurance. A ``numpy.bool_`` is NOT a ``bool`` subclass and is rejected here.
+    That is the safe direction for a signed attestation, and it is a real edge rather than a theoretical
+    one, because ``adapters/eee.py`` imports numpy: a harness that hands a numpy scalar straight into a
+    claim gets a refusal naming the type. The fix for that is a conversion at the harness boundary,
+    where the value is known, not a wider test here.
+    """
+    return isinstance(value, bool)
+
 
 def as_dict(value: Any) -> dict:
     """``value`` if it is a dict, else ``{}`` — the safe form of the ``(x or {}).get(...)`` idiom.

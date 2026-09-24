@@ -10,6 +10,29 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A verdict field must hold a verdict: five public exporters stopped coercing `passed`** (R-B4,
+  `src/proofbundle/intoto.py`, `src/proofbundle/_membership.py`). `bool("false")` is `True`, and
+  `"false"` is a non-empty string, so it also survived the presence check that made a required field
+  look validated. Called directly, `to_test_result_statement` reported `result: "PASSED"`,
+  `to_eval_result_predicate` emitted `passed: true`, `svr_properties` set
+  `PROOFBUNDLE_THRESHOLD_MET`, and `to_intoto_statement` passed the string through unexamined. All
+  five now go through one predicate (`_membership.is_bool`, a `TypeGuard`) via
+  `intoto._require_bool_verdict`, which refuses rather than coercing and names the field and the type
+  it received. The verify boundary already typed the field (A-15, 2026-09-19) and is why no signed SVR
+  and no CLI path was exposed; it calls the same predicate now instead of its own inline check, so one
+  invariant has one home rather than two.
+
+  What this restores is monotonicity, in the sense the in-toto attestation spec gives the word: a
+  value that merely looks like a non-pass must never produce a more permissive outcome than the
+  non-pass itself. `'False'`, `'FALSE'`, `'0'`, `'no'`, `1`, `[1]` and `{'a': 1}` behaved like
+  `'false'`; `1` is the one a type check written against `int` would have let through, because `bool`
+  subclasses `int`.
+
+  Contracts `tests/test_das_verdikt_muss_ein_bool_sein.py` and
+  `tests/test_verdikt_truthiness_scanner.py`. Catch proof measured against the parent commit without
+  the fix: 73 subtest failures and 3 test failures. Three cases carry `_REGRESSIONSWACHE` in their
+  names because they were already green there — a case that cannot fall is not evidence, and saying so
+  in the name keeps a reader from counting it.
 - **A bare install degrades to clean skips, and the gate that claims it now runs it**
   (`tests/test_action_input_injection.py`, `.github/workflows/published-artifact-gate.yml`). One
   unguarded `import yaml` aborted the whole pytest run on an install without extras, so 19 of some
