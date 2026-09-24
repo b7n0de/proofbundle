@@ -741,8 +741,8 @@ def _prozess_spitze(ruf) -> tuple[int, str]:
     wie hoch der Prozess insgesamt stand. Beide Zahlen zusammen sind ehrlich, eine allein nicht.
 
     EHRLICHE GRENZE, und sie ist der Grund, warum ``tracemalloc`` bleibt und nicht ersetzt wird:
-    ``VmHWM`` soll monoton sein. Ein frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft,
-    und die Differenz ist dann null, obwohl der aktuelle Lauf Speicher braucht.
+    ``VmHWM`` is supposed to be monotonic. An earlier, larger run in the same process raises it
+    permanently, and the difference is then zero although the current run does need memory.
     ("never falls" stood here as a fact and has been refuted; see the branch for a fallen difference
     below.) Er misst also eine
     OBERGRENZE des Prozesses, keine Zurechnung an diesen Aufruf. ``tracemalloc`` kann die Zurechnung,
@@ -1248,13 +1248,13 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         alloziert ausserhalb des Python-Allokators) fehlen darin. ``VmHWM`` aus ``/proc/self/status``
         kennt beides.
 
-        WAS HIER GEPRUEFT WIRD, ist bewusst NICHT eine zweite Obergrenze. Ein frueherer, groesserer
-        Lauf im selben Prozess hebt ``VmHWM`` dauerhaft, und die Differenz waere dann null, obwohl der
-        Lauf Speicher braucht. Eine Schranke darauf waere abhaengig von der Reihenfolge der Tests — ein
-        Riegel, der von der Laufreihenfolge abhaengt, misst die Umgebung und nicht die Eigenschaft.
-        Geprueft wird deshalb, dass die Zahl UEBERHAUPT ERHOBEN ist, dass sie ihren Messweg mitfuehrt,
-        und dass sie kein stiller Ausfall ist: ``-1`` heisst hier ausdruecklich "nicht messbar" und
-        traegt den Grund im Messweg.
+        WHAT IS CHECKED HERE is deliberately NOT a second upper bound. An earlier, larger run in the
+        same process raises ``VmHWM`` permanently, and the difference would then be zero although the
+        run does need memory. A bound on that would depend on the order the tests run in, and a guard
+        that depends on run order measures the environment rather than the property. What is checked is
+        therefore that the number is COLLECTED AT ALL, that it carries its measurement path, and that
+        it is not a silent failure: ``-1`` here means "not measurable" explicitly and carries the
+        reason in the path.
 
         "VmHWM NEVER FALLS" STOOD HERE AND HAS BEEN REFUTED. This docstring and the one on
         ``_prozess_spitze`` both stated the monotonicity as a fact. Measured 2026-09-24 in CI,
