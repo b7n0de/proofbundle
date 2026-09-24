@@ -741,8 +741,10 @@ def _prozess_spitze(ruf) -> tuple[int, str]:
     wie hoch der Prozess insgesamt stand. Beide Zahlen zusammen sind ehrlich, eine allein nicht.
 
     EHRLICHE GRENZE, und sie ist der Grund, warum ``tracemalloc`` bleibt und nicht ersetzt wird:
-    ``VmHWM`` faellt NIE. Ein frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und
-    die Differenz ist dann null, obwohl der aktuelle Lauf Speicher braucht. Er misst also eine
+    ``VmHWM`` soll monoton sein. Ein frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft,
+    und die Differenz ist dann null, obwohl der aktuelle Lauf Speicher braucht.
+    ("never falls" stood here as a fact and has been refuted; see the branch for a fallen difference
+    below.) Er misst also eine
     OBERGRENZE des Prozesses, keine Zurechnung an diesen Aufruf. ``tracemalloc`` kann die Zurechnung,
     ``VmHWM`` die Vollstaendigkeit — deshalb stehen beide im Rohausgang, mit ihrem jeweiligen Messweg.
 
@@ -772,6 +774,28 @@ def _prozess_spitze(ruf) -> tuple[int, str]:
     nachher = hwm()
     if nachher is None:                                        # pragma: no cover
         return -1, "NICHT MESSBAR: VmHWM war vorher lesbar, nachher nicht"
+    if nachher < vorher:
+        # A NEGATIVE PEAK IS NOT A MEASUREMENT, it is a refuted premise. The paragraph above used to
+        # state "VmHWM never falls" as a fact, and that is exactly what happened in CI on 2026-09-24:
+        # `test (3.14)` on pull request 256 failed with "negative Prozessspitze -290816", so 284 KiB
+        # had fallen. A rerun was green, so the value is rare, and rare is no reason to pass it on as
+        # a number.
+        #
+        # WHY IT FELL IS UNKNOWN and is not invented here. The kernel keeps the high-water mark
+        # monotonic per process, and Linux resets it only through /proc/self/clear_refs, which nothing
+        # in this tree calls. The cause stays UNEXPLAINED.
+        #
+        # The remedy does not need it. A difference that contradicts this measurement's own
+        # monotonicity assumption says nothing about what this run needed; it says the assumption did
+        # not hold here. That is a third state, not a number — the same shape as the two
+        # not-measurable paths above, and the reason this function returns (value, measurement path)
+        # rather than a bare number at all.
+        return -1, (
+            f"NICHT MESSBAR: VmHWM fell, before {vorher} B, after {nachher} B, difference "
+            f"{nachher - vorher} B. The high-water mark is supposed to be monotonic; when it falls, "
+            f"this measurement's assumption does not hold here and the difference is not a lower "
+            f"bound on demand. Cause UNEXPLAINED, measured 2026-09-24 in CI on Python 3.14 with "
+            f"-290816 B")
     return nachher - vorher, (
         f"VmHWM aus /proc/self/status: vorher {vorher} B, nachher {nachher} B, "
         f"Differenz {nachher - vorher} B — Obergrenze des GANZEN Prozesses, faellt nie, "
@@ -1224,13 +1248,25 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         alloziert ausserhalb des Python-Allokators) fehlen darin. ``VmHWM`` aus ``/proc/self/status``
         kennt beides.
 
-        WAS HIER GEPRUEFT WIRD, ist bewusst NICHT eine zweite Obergrenze. ``VmHWM`` faellt nie: ein
-        frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und die Differenz waere dann
-        null, obwohl der Lauf Speicher braucht. Eine Schranke darauf waere abhaengig von der
-        Reihenfolge der Tests — ein Riegel, der von der Laufreihenfolge abhaengt, misst die Umgebung
-        und nicht die Eigenschaft. Geprueft wird deshalb, dass die Zahl UEBERHAUPT ERHOBEN ist, dass
-        sie ihren Messweg mitfuehrt, und dass sie kein stiller Ausfall ist: ``-1`` heisst hier
-        ausdruecklich "nicht messbar" und traegt den Grund im Messweg.
+        WAS HIER GEPRUEFT WIRD, ist bewusst NICHT eine zweite Obergrenze. Ein frueherer, groesserer
+        Lauf im selben Prozess hebt ``VmHWM`` dauerhaft, und die Differenz waere dann null, obwohl der
+        Lauf Speicher braucht. Eine Schranke darauf waere abhaengig von der Reihenfolge der Tests — ein
+        Riegel, der von der Laufreihenfolge abhaengt, misst die Umgebung und nicht die Eigenschaft.
+        Geprueft wird deshalb, dass die Zahl UEBERHAUPT ERHOBEN ist, dass sie ihren Messweg mitfuehrt,
+        und dass sie kein stiller Ausfall ist: ``-1`` heisst hier ausdruecklich "nicht messbar" und
+        traegt den Grund im Messweg.
+
+        "VmHWM NEVER FALLS" STOOD HERE AND HAS BEEN REFUTED. This docstring and the one on
+        ``_prozess_spitze`` both stated the monotonicity as a fact. Measured 2026-09-24 in CI,
+        `test (3.14)` on pull request 256: this very case failed with "negative Prozessspitze
+        -290816", so 284 KiB had fallen. A rerun was green, so the value is rare and was not
+        reproduced. **The cause is UNEXPLAINED** and is not invented here; Linux resets the high-water
+        mark only through ``/proc/self/clear_refs``, which nothing in this tree calls.
+
+        What follows is not an explanation but a third state: ``_prozess_spitze`` now returns a fallen
+        difference as ``-1`` with ``NICHT MESSBAR`` instead of passing an impossible number on. The
+        branch below that checks exactly this was already here; it had simply never seen a value it
+        catches.
         """
         m = _messung(dim)
         assert "prozess_spitze_am_limit" in m, "die Prozessspitze wird gar nicht erhoben"
