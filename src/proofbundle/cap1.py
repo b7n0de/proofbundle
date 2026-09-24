@@ -26,6 +26,8 @@ werden beim LESEN abgewiesen, nicht hier — dieses Modul bekommt ein bereits ge
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from typing import Any, TypeGuard
 
 from ._membership import is_member
@@ -124,9 +126,33 @@ def _r1_no_silent_remainder(doc: dict, f) -> None:
         if not isinstance(un, list):
             f("R1-no-silent-remainder", f"{_sid(s)}: unexamined ist keine Liste")
             continue
-        if _is_int(el) and _is_int(ex) and el != ex + len(un):
+        # DISTINCT UNITS, NOT LIST ENTRIES. Codex (P1, review of 2026-09-23 on a8b93ca), reproduced
+        # before the fix: with both entries of the PV-01 stratum set to `unit: "pdf.ts"`,
+        # `eligible: 6` and `examined: 4` produced NO error, although only ONE unit is accounted
+        # for. The arithmetic worked out because two rows were counted, and a second eligible unit
+        # could therefore disappear while the rule's own property, "individually listed unexamined
+        # units", still read as satisfied. Counting rows measures the length of a list; the rule is
+        # about how many units the account covers.
+        einheiten = [u.get("unit") for u in un if isinstance(u, dict)]
+        benannt = [x for x in einheiten if isinstance(x, str) and x]
+        verschieden = len(set(benannt))
+        # A REPEATED UNIT IS SAID OUT LOUD. Without this line the count above would silently be one
+        # lower and the reader would see an arithmetic complaint whose cause is a duplicate row.
+        # Naming the duplicate is what makes the refusal actionable.
+        if len(benannt) != verschieden:
+            # ONE PASS, NOT ONE PASS PER ENTRY. `benannt.count(x)` inside a comprehension over
+            # `benannt` is quadratic in attacker-controlled input. Measured by Codex on this branch:
+            # a 1.37 MB document with 30,000 entries and ONE duplicate passes the default parser
+            # budgets, loads in 0.085 s, and then spends 10.49 s here. The refusal is correct and
+            # the cost of reaching it is the defect.
+            mehrfach = sorted(x for x, n in Counter(benannt).items() if n > 1)
             f("R1-no-silent-remainder",
-              f"{_sid(s)}: eligible {el} ist nicht examined {ex} plus {len(un)} einzeln gefuehrte unexamined")
+              f"{_sid(s)}: dieselbe Einheit ist mehrfach als unexamined gefuehrt ({', '.join(mehrfach)}) "
+              f"— zwei Zeilen ueber eine Einheit sind eine Einheit")
+        if _is_int(el) and _is_int(ex) and el != ex + verschieden:
+            f("R1-no-silent-remainder",
+              f"{_sid(s)}: eligible {el} ist nicht examined {ex} plus {verschieden} einzeln gefuehrte "
+              f"unexamined Einheit(en)")
 
 
 def _r2_closed_disposition(doc: dict, f) -> None:
@@ -254,6 +280,21 @@ def _r8_supports_bounds_citation(doc: dict, f) -> None:
             if not isinstance(sup, list) or not sup:
                 f("R8-supports-bounds-citation",
                   f"{_sid(s)}: von einer Abwesenheitsaussage zitiert, nennt aber keine supports")
+                continue
+            # THE CONTAINER WAS CHECKED, ITS ELEMENTS WERE NOT. Codex (P1, review of 2026-09-23 on
+            # a8b93ca), reproduced before the fix: `supports: [null]` produced NO error, although
+            # R8 requires the stratum to NAME the classes of claim it supports and `null` names
+            # none. A non-empty list of nothing is a list, not a naming.
+            #
+            # THE CLASS IS WIDER THAN THE REPORTED VALUE, measured in the same run before the fix:
+            # `[""]`, `[7]`, `[[]]`, `[{}]` and `["absence-of-secret", null]` all passed as well.
+            # Fixing only `null` would have left five neighbours of one class open, so what is
+            # demanded here is the property every element must have.
+            leer = [i for i, c in enumerate(sup) if not (isinstance(c, str) and c.strip())]
+            if leer:
+                f("R8-supports-bounds-citation",
+                  f"{_sid(s)}: supports[{', '.join(str(i) for i in leer)}] nennt keine Klasse "
+                  f"(kein nicht-leerer Text) — eine Liste aus Nichts ist keine Benennung")
 
 
 #: Regelregister in der Reihenfolge des Entwurfs. R5 laeuft VOR R1, weil R1 auf denselben Zahlen

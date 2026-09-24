@@ -126,15 +126,42 @@ def _canonical_body(statement: dict) -> bytes:
     return json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+#: What a PRESENT but unusable `contentRootAlg` resolves to. It is deliberately not a registered id,
+#: so `_serialize_statement` refuses it the same way it refuses any unknown one, and it names what was
+#: found so the verdict says more than "unknown".
+_PRESENT_BUT_UNUSABLE = "invalid-contentRootAlg"
+
+
 def _declared_content_root_alg(statement: Any) -> str:
     """The content-root algorithm a Statement DECLARES via its top-level `contentRootAlg`. ABSENT ⇒ legacy
     (`legacy-sortkeys-json-v0`) — this is how released 2.0.0 receipts, which carry no field, keep verifying.
-    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg)."""
-    if isinstance(statement, dict):
-        alg = statement.get("contentRootAlg")
-        if isinstance(alg, str) and alg:
-            return alg
-    return LEGACY_CONTENT_ROOT_ALG
+    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg).
+
+    ABSENT AND PRESENT-BUT-UNUSABLE ARE NOT THE SAME THING, and until 2026-09-23 they were. S26, deep
+    gate run 5, finding `L1-600-CRA-01`: the guard below was `isinstance(alg, str) and alg`, so a
+    PRESENT value that is not a non-empty string fell through to the absence branch and resolved to
+    LEGACY with `ok=true`. Measured before the fix, all six of `""`, `0`, `True`, `[]`, `{}` and
+    `null` resolved to legacy, while an unknown STRING id correctly failed closed one line later in
+    `_serialize_statement`. A document that declares something unusable was read as a document that
+    declares nothing.
+
+    THE HONEST BOUNDARY, because it belongs in the finding and not only in the fix: `contentRootAlg`
+    sits INSIDE the signed payload, so this is not a signature bypass. The damage is that the verdict
+    describes signed content wrongly, that a receipt which the contract says to reject is accepted,
+    and that a stricter foreign verifier rules differently on identical bytes.
+
+    THE CLASS: `(field ABSENT) == (resolved algorithm == LEGACY)` must hold strictly. Every algorithm
+    or selector field read from parsed content has this shape, in both languages, which is why the
+    guard here distinguishes the two states instead of widening the accepted type.
+    """
+    if not isinstance(statement, dict):
+        return LEGACY_CONTENT_ROOT_ALG
+    if "contentRootAlg" not in statement:
+        return LEGACY_CONTENT_ROOT_ALG          # genuinely absent — the 2.0.0 receipts
+    alg = statement["contentRootAlg"]
+    if isinstance(alg, str) and alg:
+        return alg                               # present and shaped like an id; registration is checked later
+    return _PRESENT_BUT_UNUSABLE                 # present and unusable — fail-closed, never legacy
 
 
 def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
@@ -168,7 +195,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
         f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
 
 
-def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
+def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
     """Verify the transmitted payload IS canonical for its OWN declared content-root algorithm. Fail-closed.
 
     Returns ``(ok, alg, detail)``. The verifier reads the DECLARED `contentRootAlg` (absent ⇒ legacy) and
@@ -180,8 +207,25 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
     needs the `[eval]` extra; without it this is fail-closed (never a silent pass over possibly non-canonical
     bytes). Legacy verification is stdlib-only, so released 2.0.0 receipts verify on a base install."""
     alg = _declared_content_root_alg(statement)
+    # THE SENTINEL DRIVES THE DECISION, IT DOES NOT GET REPORTED AS SIGNED CONTENT. Codex, review of
+    # 2026-09-23 on PR 254: for canonical bytes of `{"contentRootAlg":null}` the verdict correctly
+    # said ok=False, and then named `content_root_alg="invalid-contentRootAlg"` and "unknown
+    # contentRootAlg 'invalid-contentRootAlg'" — a string that appears NOWHERE in the signed
+    # payload, and the same for every unusable type. The shared builder below feeds all three
+    # verify_*_dsse surfaces, so one place fixed it for all three.
+    #
+    # The signature boundary and the fail-closed verdict were never in question; what was wrong is
+    # that the verdict claimed the document declared something it did not. `gemeldet` is therefore
+    # None (nothing usable was declared) and the detail names the type actually found.
+    unbrauchbar = alg is _PRESENT_BUT_UNUSABLE or alg == _PRESENT_BUT_UNUSABLE
+    gemeldet: Optional[str] = None if unbrauchbar else alg
+    if unbrauchbar:
+        roh = statement.get("contentRootAlg") if isinstance(statement, dict) else None
+        return False, gemeldet, (
+            f"contentRootAlg is present but unusable (found {type(roh).__name__} {roh!r}); a "
+            "declaration that names no algorithm is refused rather than read as absent")
     if not isinstance(statement, dict):
-        return False, alg, "payload is not a JSON in-toto Statement object"
+        return False, gemeldet, "payload is not a JSON in-toto Statement object"
     try:
         expected = _serialize_statement(statement, alg)
     except CanonicalizerUnavailable:
