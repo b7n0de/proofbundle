@@ -42,7 +42,21 @@ GRUNDLINIE = {
         "runs AFTER decode_eval_claim, which now refuses a non-boolean `passed` at the verify "
         "boundary, so the value reaching this line is already a bool. Kept in the baseline rather "
         "than guarded twice, because a second check here would suggest the first one is not trusted.",
+    ("hf_evals.py", "verify_eval_results_entry"):
+        "calls decode_eval_claim(bundle) before reading the field, so the A-15 boundary has already "
+        "refused a non-boolean. The `bool(...)` wrapper around it is redundant rather than wrong, and "
+        "it is left alone because removing it is a separate change with its own measurement.",
+    ("hf_evals.py", "to_eval_results_entry"):
+        "same shape and same reason: decode_eval_claim runs first. Its own comment already states "
+        "that argument for the comparator and the threshold, which is the sibling case of this one.",
 }
+
+# THESE TWO ENTRIES ARRIVED BY A REVIEWER'S QUESTION, and they arrived together with a defect in this
+# scanner. Asked to name a shape in this repository that carries a verdict and escapes the scan, the
+# cross-reading pointed at `hf_evals.py`. Measured, it does not escape the scan; it escaped the
+# GUARD, because `_etabliert_den_typ` accepted any `isinstance(..., bool)` in the enclosing function
+# and both functions carry one about a different variable. The question was about that file and the
+# answer was about this one.
 
 # WHAT THIS BASELINE LOOKED LIKE FIRST, because the correction is the argument for the stale-entry
 # case. It also carried ("evalclaim.py", "eval_evidence_class") with the reason that the function
@@ -57,18 +71,29 @@ def _dateien() -> dict[str, str]:
             for p in sorted(QUELLE.rglob("*.py"))}
 
 
-def _liest_passed(knoten: ast.AST) -> bool:
-    """Is this expression a read of the literal key ``passed`` off a subscript or ``.get``?"""
-    if isinstance(knoten, ast.Subscript):
-        s = knoten.slice
-        return isinstance(s, ast.Constant) and s.value == "passed"
+def _schluesselbezug(knoten: ast.AST) -> tuple[str, str] | None:
+    """(object source, key) for a read of a literal key, or None.
+
+    NORMALISED ACROSS THE TWO SPELLINGS, and that is a CORRECTION this file's own anti-parity case
+    forced. The first version compared the unparsed SOURCE of the two expressions, so
+    `claim.get("passed")` in the guard and `claim["passed"]` in the read counted as different
+    expressions and the guarded form was reported. They are the same field of the same object written
+    two ways; comparing the spelling would have made this scanner reject the very shape it asks for.
+    """
+    if isinstance(knoten, ast.Subscript) and isinstance(knoten.slice, ast.Constant):
+        return ast.unparse(knoten.value), knoten.slice.value
     if isinstance(knoten, ast.Call):
         f = knoten.func
         if (isinstance(f, ast.Attribute) and f.attr == "get" and knoten.args
-                and isinstance(knoten.args[0], ast.Constant)
-                and knoten.args[0].value == "passed"):
-            return True
-    return False
+                and isinstance(knoten.args[0], ast.Constant)):
+            return ast.unparse(f.value), knoten.args[0].value
+    return None
+
+
+def _liest_passed(knoten: ast.AST) -> bool:
+    """Is this expression a read of the literal key ``passed``?"""
+    bezug = _schluesselbezug(knoten)
+    return bezug is not None and bezug[1] == "passed"
 
 
 def _wahrheitswertig(baum: ast.AST) -> list[ast.AST]:
@@ -96,17 +121,37 @@ def _definitionen(baum: ast.Module) -> list[ast.FunctionDef | ast.AsyncFunctionD
             if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
-def _etabliert_den_typ(fn: ast.AST) -> bool:
+def _etabliert_den_typ(fn: ast.AST, ausdruck: ast.AST) -> bool:
+    """Does this function establish the type OF THIS EXPRESSION?
+
+    BOUND TO THE SAME EXPRESSION, and that is a CORRECTION of this scanner's first version, which
+    fell into the class it exists against. It accepted ANY `isinstance(..., bool)` anywhere in the
+    enclosing function, which is a FORM, not the property. Measured on 2026-09-24 in
+    `src/proofbundle/hf_evals.py`: `verify_eval_results_entry` reads `bool(claim["passed"])` at line
+    171 and carries `isinstance(_val, bool)` at line 149, about the PUBLISHED VALUE; the scanner read
+    that as "the type is established" and reported nothing. `to_eval_results_entry` is the same shape
+    at lines 241 and 213, where the checked name is `value`.
+
+    So two real sites of this class were passing, for the reason the class is about: a check bound to
+    a shape instead of to the thing. The reviewer asked one question about `hf_evals.py`, and
+    following it found the defect in my own guard rather than in that file.
+
+    `is_bool` and `_require_bool_verdict` still count wherever they appear, because both take the
+    CLAIM and answer for its verdict field; there is no other expression they could be about.
+    """
+    ziel = _schluesselbezug(ausdruck)
     for k in ast.walk(fn):
         if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in ETABLIERER:
             return True
         if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr in ETABLIERER:
             return True
-        # An inline `isinstance(..., bool)` counts too: it establishes the same thing, and demanding
-        # the shared helper would be a style rule dressed up as a safety one.
+        # An inline `isinstance(<the same expression>, bool)` counts too: it establishes the same
+        # thing, and demanding the shared helper would be a style rule dressed up as a safety one.
+        # It must be the SAME FIELD OF THE SAME OBJECT, compared as (object source, key), so
+        # `claim["passed"]` and `claim.get("passed")` count as one while `_val` and `value` do not.
         if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "isinstance"
                 and len(k.args) == 2 and isinstance(k.args[1], ast.Name)
-                and k.args[1].id == "bool"):
+                and k.args[1].id == "bool" and _schluesselbezug(k.args[0]) == ziel):
             return True
     return False
 
@@ -120,10 +165,8 @@ def _stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str], 
     for name, text in texte.items():
         baum = ast.parse(text)
         for fn in _definitionen(baum):
-            if _etabliert_den_typ(fn):
-                continue
             for ausdruck in _wahrheitswertig(fn):
-                if _liest_passed(ausdruck):
+                if _liest_passed(ausdruck) and not _etabliert_den_typ(fn, ausdruck):
                     gefunden.setdefault((name, fn.name), []).append(ausdruck.lineno)
     return gefunden
 
