@@ -356,6 +356,39 @@ class TestDasBudgetIstAbgeleitetNichtGewaehlt(unittest.TestCase):
                         f"refusing at a budget of 100 grew by {zuwachs} MB — the pairs were built "
                         "before the bound was consulted")
 
+    def test_das_budget_greift_auch_im_dict_zweig_vor_den_kosten(self):
+        """THE NEIGHBOUR THE FIRST ROUND LEFT STANDING, and it stood in the same function.
+
+        The case above moved the check before the pairs in the LIST branch and the commit called the
+        bound "checked before the cost". A lens measured the dict branch and it was untouched: the key
+        list and TWO sets are built before any count exists. At two million keys and a budget of 100 it
+        cost 206 MB and 0.449 s — IDENTICAL in the state before the fix and the state after, because
+        the fix reached the branch that was tested and not the one beside it.
+
+        `len()` is O(1) on a mapping and answers the question without building anything. Measured after:
+        0 MB, 0.000 s. Fresh process for the same reason as the case above — `ru_maxrss` is a
+        high-water mark and carries whatever ran before it.
+        """
+        programm = (
+            "import resource, sys\n"
+            "sys.path.insert(0, %r)\n"
+            "from proofbundle._membership import same_json_value\n"
+            "a = {str(i): i for i in range(2_000_000)}\n"
+            "b = dict(a)\n"                      # the copy BEFORE the measurement, so it is not counted
+            "vorher = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024\n"
+            "erg = same_json_value(a, b, pair_budget=100)\n"
+            "nachher = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024\n"
+            "print(erg, nachher - vorher)\n" % str(REPO / "src")
+        )
+        r = subprocess.run([sys.executable, "-c", programm],
+                           capture_output=True, text=True, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        erg, zuwachs = r.stdout.split()
+        self.assertEqual(erg, "False")
+        self.assertLess(int(zuwachs), 80,
+                        f"the dict branch grew by {zuwachs} MB at a budget of 100 — the key list and "
+                        "the sets were built before the bound was consulted")
+
     def test_eine_gegenseitige_referenz_terminiert_auch_schmal(self):
         """A second lens reproduced non-termination at width 1000, not only at 200_000, and for a
         MUTUAL reference as well. The first measurement named the widest case somebody tried; that is
@@ -434,6 +467,69 @@ class TestDerWaechterWirdNichtSelbstZumDefekt(unittest.TestCase):
                 raise RuntimeError("boom")
 
         self.assertIs(check_binds_bundle(echt, GetWirft(_claim(signer, passed=True)), ROOT), False)
+
+
+class TestDieKlassifikationIstEinProtokollaufruf(unittest.TestCase):
+    """ITERATION 3 DES GATES, und beide Faelle sind Regressionen der Iteration davor.
+
+    Iteration 2 zeigte, dass EIN breiter Schutz um den ganzen Lauf vier eingepflanzte Tippfehler als
+    sauberes `False` zurueckgab. Die Antwort darauf war: ein Schutz je Protokollaufruf, Buchhaltung
+    bleibt draussen. Die REGEL war richtig, die ZUORDNUNG nicht — zwei Operationen sahen aus wie
+    Buchhaltung und fassen ein fremdes Objekt an:
+
+        isinstance(x, dict)   liest `x.__class__`, sobald der `type(x)`-Fastpath nicht trifft
+        meine != andere       ruft `__eq__` der Schluessel, sobald zwei Hashes kollidieren
+
+    Beide lagen ausserhalb jedes Schutzes, und eine Linse liess beide als rohe Ausnahme aus
+    `check_binds_bundle` heraus — auf einem echt signierten Rezept, mit erzeugtem Ed25519-Schluessel.
+    Gegen die Fassung mit dem breiten Schutz kam an denselben Eingaben `False`. Die Reparatur ist
+    deshalb KEINE Rueckkehr zum breiten Schutz, sondern zieht die Klassifikation in `_art`, wo sie
+    einen eigenen bekommt.
+
+    GEMESSEN VOR DEM EINBAU, weil zwei Faelle an diesem Tag schon wie Fangnachweise aussahen und
+    keine waren: alle vier hier fallen gegen `00852efb` mit einer rohen Ausnahme und bestehen gegen
+    die Reparatur, waehrend die vier Waechter in BEIDEN Staenden gleich antworten.
+    """
+
+    def test_eine_werfende_klassenangabe_gibt_falsch_statt_zu_werfen(self):
+        class ClassWirft:
+            @property
+            def __class__(self):
+                raise RuntimeError("Boom")
+
+        for name, a, b in (("skalar", ClassWirft(), "x"),
+                           ("im dict", {"x": ClassWirft()}, {"x": 1}),
+                           ("in der liste", [ClassWirft()], [1])):
+            with self.subTest(form=name):
+                self.assertIs(same_json_value(a, b), False)
+
+    def test_ein_werfender_schluesselvergleich_gibt_falsch_statt_zu_werfen(self):
+        """Gleicher Hash erzwingt bei der Set-Gleichheit einen `__eq__`-Aufruf — ohne die Kollision
+        vergleicht CPython nur die gecachten Hashes und der Fall wuerde nichts messen."""
+        class EqWirft:
+            def __hash__(self):
+                return 42
+
+            def __eq__(self, andere):
+                raise RuntimeError("eq boom")
+
+        self.assertIs(same_json_value({EqWirft(): 1}, {EqWirft(): 1}), False)
+
+    def test_derselbe_wurf_bindet_auch_nicht(self):
+        """Bis in die Flaeche, deren Vertrag ein Urteil ist und keine Ausnahme."""
+        class ClassWirft:
+            @property
+            def __class__(self):
+                raise RuntimeError("Boom")
+
+        # BEIDE SEITEN MUESSEN DIESELBE ART TRAGEN, sonst weist der Vergleich schon an der Art ab und
+        # das feindliche Objekt wird nie angefasst. Eine erste Fassung dieses Falls stellte die SD-JWT
+        # mit `suite` als String aus und den Anspruch mit einem Dict; er bestand gegen BEIDE Staende
+        # und mass nichts. Handgebaut, weil `issue_sd_jwt` denselben Wert tragen muss.
+        signer = generate_signer()
+        echt = _sd_jwt_von_hand(_claim(signer, passed=True, suite={"x": 1}), signer)
+        self.assertIs(check_binds_bundle(echt, _claim(signer, passed=True,
+                                                      suite={"x": ClassWirft()}), ROOT), False)
 
 
 if __name__ == "__main__":

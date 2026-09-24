@@ -239,6 +239,32 @@ def same_json_value(a: Any, b: Any, *, pair_budget: int = _COMPARE_PAIR_BUDGET) 
     return _walk(stack, gesehen, pair_budget)
 
 
+def _art(x: Any, y: Any) -> str:
+    """Which branch a pair takes — a PROTOCOL call, not bookkeeping, which is why it has its own guard.
+
+    `isinstance(x, dict)` looks like arithmetic and is not. CPython tries the `type(x)` fast path and,
+    when that misses, READS `x.__class__` — the foreign object's code. A lens built one whose
+    `__class__` property raises and every `isinstance` line in the walk let it through as a raw
+    exception, out of `check_binds_bundle` on a genuinely signed receipt (measured 2026-09-24). The
+    previous version had the right RULE — a guard around each protocol call and nothing else — and the
+    wrong CLASSIFICATION: it counted `isinstance` and the key-set comparison as this function's own
+    bookkeeping. Both touch the caller's object. Pulling the decision in here puts it back under one
+    guard without widening that guard over the walk's arithmetic.
+
+    "ungleich" is a decision, not an error: the two sides are not the same JSON kind, or at least one
+    is not a decoded JSON value at all and so cannot be SHOWN equal.
+    """
+    if isinstance(x, bool) or isinstance(y, bool):
+        return "bool" if isinstance(x, bool) and isinstance(y, bool) else "ungleich"
+    if isinstance(x, dict) or isinstance(y, dict):
+        return "dict" if isinstance(x, dict) and isinstance(y, dict) else "ungleich"
+    if isinstance(x, list) or isinstance(y, list):
+        return "list" if isinstance(x, list) and isinstance(y, list) else "ungleich"
+    if isinstance(x, _JSON_SCALAR) and isinstance(y, _JSON_SCALAR):
+        return "skalar"
+    return "ungleich"
+
+
 def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
     """The walk itself, with a guard around EVERY protocol call and around nothing else.
 
@@ -260,13 +286,17 @@ def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
     """
     while stack:
         x, y = stack.pop()
-        if isinstance(x, bool) or isinstance(y, bool):
+        try:                    # protocol: `isinstance` READS `__class__` on a foreign object
+            art = _art(x, y)
+        except Exception:       # noqa: BLE001 — a value that raises when classified cannot be shown equal
+            return False
+        if art == "ungleich":
+            return False
+        if art == "bool":
             # `x is y` and not `x == y`: this branch exists precisely because == is too forgiving here.
-            if not (isinstance(x, bool) and isinstance(y, bool)) or x is not y:
+            if x is not y:
                 return False
-        elif isinstance(x, dict) or isinstance(y, dict):
-            if not (isinstance(x, dict) and isinstance(y, dict)):
-                return False
+        elif art == "dict":
             # THE KEYS ARE READ ONCE AND THE SAME LIST IS WALKED. The first version decided with
             # `x.keys() != y.keys()` and then walked `for k in x` — two different accessors on one
             # object. A lens built a dict subclass whose `keys()` is truthful while `__iter__` hides a
@@ -274,17 +304,32 @@ def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
             # at that key came back equal (measured 2026-09-24). This is the SAME class `_verdict`
             # states in its own docstring — "the accessor is read once and the value is returned" —
             # written a day earlier and not carried into the function that compares.
-            try:                    # protocol only: keys(), and the hashing the sets do
+            # THE CHEAP COUNT FIRST, and this is the half the previous round got wrong. It moved the
+            # check before `paare` and called the bound "checked before the cost" — true for the list
+            # branch, false here: a lens measured 286 MB for two million keys at a budget of 100,
+            # IDENTICAL in both states, because the key list and TWO sets are built before any count
+            # exists. `len()` is O(1) on a mapping and answers the question without building anything.
+            try:                    # protocol: __len__ on both sides
+                laenge_x = len(x)
+                gleich_lang = laenge_x == len(y)
+            except Exception:       # noqa: BLE001 — a mapping that raises when measured cannot bind
+                return False
+            if not gleich_lang:
+                return False
+            if gesehen + laenge_x > pair_budget:
+                return False
+            try:                    # protocol: keys(), the hashing the sets do, AND their comparison
                 schluessel = list(x.keys())
                 meine = set(schluessel)
                 andere = set(y.keys())
+                gleiche_schluessel = len(schluessel) == len(andere) and meine == andere
             except Exception:       # noqa: BLE001 — a mapping that raises when read cannot be shown equal
                 return False
-            if len(schluessel) != len(andere) or meine != andere:
+            if not gleiche_schluessel:
                 return False
-            # THE BUDGET IS CHECKED BEFORE THE PAIRS ARE BUILT. A lens set the budget to 100, handed
-            # in two million keys and measured 744 MB allocated before the refusal fired. The count
-            # is known from the key list, so nothing needs building to know it is too much.
+            # AND THE AUTHORITATIVE COUNT AFTER, because `__len__` is the caller's code and may
+            # under-report. The key list is the real number; the cheap check above only spares the
+            # honest large case from paying for its own refusal.
             if gesehen + len(schluessel) > pair_budget:
                 return False
             gesehen += len(schluessel)
@@ -293,9 +338,7 @@ def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
             except Exception:       # noqa: BLE001 — a key `keys()` reports and `[]` refuses cannot bind
                 return False
             stack.extend(paare)
-        elif isinstance(x, list) or isinstance(y, list):
-            if not (isinstance(x, list) and isinstance(y, list)):
-                return False
+        elif art == "list":
             try:                    # protocol only: __len__ on both sides
                 laenge = len(x)
                 gleich_lang = laenge == len(y)
@@ -311,10 +354,6 @@ def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
             except Exception:       # noqa: BLE001
                 return False
             stack.extend(paare)
-        elif not (isinstance(x, _JSON_SCALAR) and isinstance(y, _JSON_SCALAR)):
-            # Not a decoded JSON value, so it cannot be SHOWN equal. Refusing beats asking its `__eq__`,
-            # which is the attacker's code when the value is the attacker's object.
-            return False
         else:
             try:                    # protocol only: the comparison itself
                 ungleich = x != y
