@@ -57,10 +57,16 @@ QUELLE = pathlib.Path(__file__).resolve().parents[1] / "src" / "proofbundle"
 #: The helpers that ESTABLISH the type. A function that calls one of these may then read the field
 #: however it likes — that is the whole point of a shared predicate.
 #:
-#: `_require_export_fields` is in here because it CALLS `_require_bool_verdict` (intoto.py, measured
+#: `_require_export_fields` is in here because it CALLS the establisher (intoto.py, measured
 #: 2026-09-24), not because of its name. A name on this list that does not actually establish the type
 #: would be the exact defect this file is about, one level up — so each entry is a measurement.
-ETABLIERER = {"is_bool", "_require_bool_verdict", "_require_export_fields"}
+#:
+#: `require_bool_verdict` REPLACED the two private `_require_bool_verdict` copies on 2026-09-24. The
+#: old name stays in this set on purpose: a name that once established the type must not start counting
+#: as a plain read if it ever comes back, and dropping it would silently widen what this scanner lets
+#: through. `tests/test_ein_etablierer_nicht_zwei.py` is what makes sure the new one is the only
+#: implementation — this set says which NAMES establish, that file says how many DEFINITIONS exist.
+ETABLIERER = {"is_bool", "require_bool_verdict", "_require_bool_verdict", "_require_export_fields"}
 
 #: Sites that read the field as a truth value and are allowed to, each with its reason. The key is
 #: (relative path, enclosing definition) so a line shift does not break the file.

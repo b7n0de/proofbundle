@@ -16,7 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
-from ._membership import is_bool
+from ._verdict import require_bool_verdict
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
@@ -83,29 +83,6 @@ def _commit_hex(commit: str) -> str:
     return commit.split(":", 1)[1] if ":" in commit else commit
 
 
-def _require_bool_verdict(claim: Any, *, wo: str) -> bool:
-    """The claim's ``passed`` as a real bool, or a fail-closed refusal naming what arrived.
-
-    R-B4, the CLASS fix the register entry asks for instead of one guard per exporter. Every public
-    entry point of this module that reads ``passed`` goes through here, so the question "is the verdict
-    a verdict" is answered once. See ``_membership.is_bool`` for the measurement and for why this
-    restores monotonicity rather than merely validating a type.
-
-    A refusal, not a coercion. Guessing what ``"false"`` was meant to mean is how the string got a
-    verdict in the first place; the caller who produced it is the only one who knows, and they get told
-    which field and which type.
-    """
-    if not isinstance(claim, dict):
-        raise BundleFormatError(f"{wo}: needs a claim object, got {type(claim).__name__}")
-    wert = claim.get("passed")
-    if not is_bool(wert):
-        raise BundleFormatError(
-            f"{wo}: `passed` is {type(wert).__name__} {wert!r}, expected a boolean — refusing rather "
-            f"than coercing, because bool({wert!r}) would read a non-passing verdict as a PASS "
-            "(R-B4, CWE-1287)")
-    return wert
-
-
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -114,7 +91,7 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
-    verdikt = _require_bool_verdict(claim, wo="to_intoto_statement")
+    verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -283,7 +260,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
-    verdikt = _require_bool_verdict(claim, wo="to_test_result_statement")
+    verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -456,7 +433,7 @@ def _require_export_fields(claim: dict) -> bool:
     # PRESENCE IS NOT TYPE, and `passed` is in _EXPORT_REQUIRED, which is exactly why this was missed:
     # the field was required and therefore looked checked. `"false"` is a non-empty string, so it passes
     # the loop above; R-B4. The type check belongs here rather than at each caller of this function.
-    return _require_bool_verdict(claim, wo="refusing to export")
+    return require_bool_verdict(claim, wo="refusing to export")
 
 
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
@@ -638,7 +615,7 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
     # empty property list. This function is public, so the check belongs here and not only at
     # `export_svr_dsse`, whose `decode_eval_claim` now refuses a non-boolean one layer earlier. R-B4.
-    verdikt = _require_bool_verdict(claim, wo="svr_properties")
+    verdikt = require_bool_verdict(claim, wo="svr_properties")
     checks = {c.name: c.ok for c in result.checks}
     props = []
     if checks.get("ed25519-signature"):
