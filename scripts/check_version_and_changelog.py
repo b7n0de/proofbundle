@@ -128,39 +128,39 @@ _CURRENT_CLAIM = re.compile(
 # document, and `since v6.1.0` records history. Neither says "this is the release you get", and a
 # gate that demanded they be bumped would manufacture false claims — the rule the module head
 # states and this addition keeps.
-# DIE FORM ALLEIN BEHAUPTET NICHTS — die Zahl entscheidet. Gefunden 2026-09-23 von einer
-# Gegenlese-Linse, mit ausgefuehrten Gegenbeispielen:
+# THE SHAPE ALONE CLAIMS NOTHING — the number decides. Found 2026-09-23 by a cross-reading lens,
+# with executed counter-examples:
 #
-#   "pip uninstall paket==<aeltere Fassung>"              eine Anleitung zum ENTFERNEN
-#   "[<aeltere Fassung> release notes](…/releases/tag/…)" eine Zitierung von GESCHICHTE
-#   ".../paket/v<aeltere Fassung>/examples/…"             dasselbe als Roh-URL
+#   "pip uninstall package==<older release>"              an instruction to REMOVE
+#   "[<older release> release notes](…/releases/tag/…)"    a citation of HISTORY
+#   ".../package/v<older release>/examples/…"              the same as a raw URL
 #
-# (Platzhalter auch hier, aus demselben Grund wie oben: mit ausgeschriebenen Zahlen meldete der
-# Sweep diese drei Kommentarzeilen. Ein Beispiel, das die Form ausschreibt, IST die Form.)
+# (Placeholders here too, for the same reason as above: with the numbers spelled out, the sweep
+# reported these three comment lines. An example that spells out the shape IS the shape.)
 #
-# Die erste Fassung meldete alle drei. Fuer die zweite und dritte waeren **beide angebotenen
-# Abhilfen falsch**: anmelden hiesse, eine zutreffende historische Angabe kuenftig auf die
-# aktuelle Fassung heben zu lassen — aus einer Tatsache wird eine Luege, genau der Schaden, vor
-# dem der Modulkopf warnt. Umformulieren hiesse, richtige Geschichte grundlos umzuschreiben.
+# The first version reported all three. For the second and third, **both offered remedies would be
+# wrong**: declaring one would make a correct historical statement get raised to the current
+# release in future, turning a fact into a lie, exactly the damage the module head warns about.
+# Rewording would rewrite correct history for no reason.
 #
-# DIE UNTERSCHEIDUNG, die traegt: ein WORT wie „current" behauptet Aktualitaet aus sich heraus,
-# gleich welche Zahl danebensteht — eine Zeile „current release: <aeltere Fassung>" ist eine
-# VERALTETE Aktualitaetsbehauptung und gehoert gemeldet. Eine FORM behauptet sie nur dann, wenn
-# die Zahl die aktuelle ist; steht dort eine aeltere, ist es Geschichte.
+# THE DISTINCTION THAT CARRIES: a WORD such as "current" claims currency on its own, whatever
+# number stands beside it, so a line "current release: <older release>" is a STALE currency claim
+# and belongs in a report. A SHAPE claims it only when the number is the current one; if an older
+# one stands there, it is history.
 #
-# (Auch dieses Beispiel steht als Platzhalter da, und zwar weil die Regel es beim ersten Lauf
-# selbst gefangen hat: mit einer ausgeschriebenen Zahl meldete der Sweep diese Zeile. Die
-# wortbasierte Form feuert ja gerade unabhaengig von der Zahl — ein Zitat ist fuer sie nicht von
-# einer Behauptung zu unterscheiden. Dritter Fall derselben Klasse an einem Tag.)
+# (This example is a placeholder as well, because the rule caught it on its own first run: with a
+# spelled-out number the sweep reported this very line. The word-based shape fires independently of
+# the number, which is the point, so it cannot tell a quotation from a claim. Third case of the
+# same class in one day.)
 #
-# Deshalb traegt jede Form ein Feld `nur_aktuelle`. Check 6 meldet eine Formzeile nur, wenn ihre
-# Zahl der Quellversion gleicht — dann ist es eine nicht angemeldete Aktualitaetsbehauptung, die
-# beim naechsten Heben veraltet. Was danach mit einer ANGEMELDETEN Stelle passiert, ist Aufgabe
-# von Check 4: der haelt sie aktuell. Die Arbeitsteilung war schon da, meine erste Fassung hat
-# sie uebergangen.
+# Each shape therefore carries a `nur_aktuelle` field. Check 6 reports a shape line only when its
+# number equals the source version — then it is an undeclared currency claim that goes stale at the
+# next bump. What happens to a DECLARED place afterwards is Check 4's job: it keeps that one
+# current. The division of labour was already there; my first version walked past it.
 #
-# `\binstall` mit Wortgrenze, weil `install\s+` sonst das Ende von `uninstall` trifft — gemessen
-# an „pip uninstall proofbundle==6.0.0", das als Aktualitaetsbehauptung gemeldet wurde.
+# `\binstall` with a word boundary, because `install\s+` otherwise matches the tail of
+# `uninstall` — measured against "pip uninstall proofbundle==6.0.0", which was reported as a
+# currency claim.
 _CLAIM_SHAPES = [
     ("install pin", re.compile(r"\binstall\s+[^\s]*==\s*v?" + _SEMVER, re.IGNORECASE), True,
      "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
@@ -379,29 +379,29 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
     nothing was looking at it. The finding asks for a decision (declare it, or reword it), because a
     sweep cannot know whether a claim is meant to be current.
 
-    `version` ist die Quellversion; ohne sie wird sie hier gelesen. Sie entscheidet ueber die
-    formbasierten Muster (siehe `_CLAIM_SHAPES`): eine Form mit einer AELTEREN Zahl zitiert
-    Geschichte und ist kein Fund.
+    `version` is the source version; without it, it is read here. It decides the shape-based
+    patterns (see `_CLAIM_SHAPES`): a shape carrying an OLDER number cites history and is not a
+    finding.
     """
     if version is None:
         version, _ = _source_version(repo)
-    # EINE ANMELDUNG DECKT EIN MUSTER, NICHT EINE GANZE DATEI.
+    # A DECLARATION COVERS ONE PATTERN, NOT A WHOLE FILE.
     #
-    # GEFUNDEN 2026-09-23 von einer Gegenlese-Linse, ausgefuehrt und nicht vermutet: hier stand
-    # `declared = {rel for rel, _, _ in _TRACKED_PLACES}` und darunter `if rel in declared:
-    # continue`. Wer eine Datei fuer EIN Muster anmeldet, nimmt sie damit GANZ aus diesem Sweep.
+    # FOUND 2026-09-23 by a cross-reading lens, by execution rather than by guess: this used to read
+    # `declared = {rel for rel, _, _ in _TRACKED_PLACES}` with `if rel in declared: continue` below
+    # it. Declaring a file for ONE pattern took it out of this sweep ENTIRELY.
     #
-    # Die Linse hat das am naechstliegenden Fall gemessen: meldet man README.md fuer den
-    # Tag-Link an — genau die Abhilfe, die meine eigene Owner-Karte als Option A anbietet —,
-    # liefert `check_undeclared_places` danach NICHTS mehr, obwohl drei weitere Belege derselben
-    # Klasse unveraendert in derselben Datei stehen. Check 4 prueft dann nur das eine angemeldete
-    # Muster; die drei Geschwister sind ab diesem Moment unbeobachtet.
+    # The lens measured that on the nearest case: declare README.md for the tag link — exactly the
+    # remedy my own owner card offers as option A — and `check_undeclared_places` afterwards returns
+    # NOTHING, although three further places of the same class stand unchanged in the same file.
+    # Check 4 then checks only the one declared pattern; the three siblings are unobserved from that
+    # moment on.
     #
-    # Das ist SCHLIMMER als der Ausgangszustand: vorher waren sie unentdeckt, danach waeren sie
-    # per Anmeldung dauerhaft stillgelegt — und der Sweep meldete Ruhe.
+    # That is WORSE than the starting state: undetected before, permanently silenced by a
+    # declaration afterwards — and the sweep reported quiet.
     #
-    # Ab jetzt deckt eine Anmeldung die ZEILE, auf die ihr Anker passt, und sonst nichts. Eine
-    # andere Behauptungsform in derselben Datei bleibt sichtbar.
+    # From now on a declaration covers the LINE its anchor matches and nothing else. Another claim
+    # shape in the same file stays visible.
     declared_patterns: dict[str, list] = {}
     for rel_d, pattern_d, _ in _TRACKED_PLACES:
         declared_patterns.setdefault(rel_d, []).append(pattern_d)

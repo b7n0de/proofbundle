@@ -1,33 +1,33 @@
-"""Check 6 erkennt eine Release-Behauptung an ihrer FORM, nicht an einem Wort.
+"""Check 6 recognises a release claim by its SHAPE, not by one word.
 
-DER BEFUND, gemessen 2026-09-23 gegen `README.md` an `origin/main`: die Datei nennt die aktuelle
-Fassung in SIEBEN Zeilen und VIER Formen, und `_CURRENT_CLAIM` traf **keine einzige** davon —
-weil keine das Wort `current` oder `latest` traegt:
+THE FINDING, measured 2026-09-23 against `README.md` on `origin/main`: the file names the current
+release in SEVEN lines and FOUR shapes, and `_CURRENT_CLAIM` matched **none** of them, because none
+carries the word `current` or `latest`:
 
     **[vX.Y.Z](…/releases/tag/vX.Y.Z) · Beta · …**
     python -m pip install proofbundle==X.Y.Z
     https://raw.githubusercontent.com/b7n0de/proofbundle/vX.Y.Z/examples/example_bundle.json
 
-Check 6 ist genau dafuer da, dass „die Stelle, die niemand angemeldet hat" nicht unbeobachtet
-veraltet. Er beobachtete eine Satzform, waehrend die folgenreichsten Aussagen der Titelseite drei
-andere benutzten.
+Check 6 exists precisely so that "the place nobody declared" does not go stale unobserved. It was
+watching one sentence shape while the most consequential statements on the front page used three
+others.
 
-FANGNACHWEIS, end-to-end gefahren (nicht behauptet): Quellversion UND die verfolgte Prosa
-(`RELEASE.md`, `PROGRESS.md`) auf die naechste Fassung gehoben, CHANGELOG-Abschnitt ergaenzt,
-**README unveraendert gelassen**.
+CATCH PROOF, run end to end rather than asserted: the source version AND the tracked prose
+(`RELEASE.md`, `PROGRESS.md`) raised to the next release, a CHANGELOG section added, and the
+**README left untouched**.
 
-    ALTES Tor (origin/main)   rc=0  GRUEN  — „OK — source version <neu>"
-    NEUES Tor                 rc=1  ROT    — nennt README.md:27
+    OLD gate (origin/main)   rc=0  GREEN  — "OK — source version <new>"
+    NEW gate                 rc=1  RED    — names README.md:27
 
-Das alte Tor meldete gruen, waehrend die README die alte Fassung acht Mal zum Installieren
-anbot.
+The old gate reported green while the README offered the previous release for installation eight
+times.
 
-DIE GEGENRICHTUNG WIEGT HIER SCHWERER ALS DER FUND. Der Modulkopf sagt ausdruecklich, dass
-historische Aussagen NICHT angefasst werden duerfen: „since X.Y.Z" und „as of X.Y.Z" halten
-fest, WANN etwas wahr wurde, und ein Tor, das ihre Hebung verlangt, macht aus einer Tatsache
-eine Luege. Ein Muster, das zu viel faengt, ist hier teurer als eines, das zu wenig faengt.
+THE COUNTER-DIRECTION WEIGHS MORE HERE THAN THE FINDING. The module docstring says explicitly that
+historical statements must NOT be touched: "since X.Y.Z" and "as of X.Y.Z" record WHEN something
+became true, and a gate that demands they be raised turns a fact into a lie. A pattern that catches
+too much is more expensive here than one that catches too little.
 
-Lauf: python3 -m pytest tests/test_versionstor_sieht_nicht_nur_eine_satzform.py -q
+Run: python3 -m pytest tests/test_versionstor_sieht_nicht_nur_eine_satzform.py -q
 """
 from __future__ import annotations
 
@@ -50,21 +50,20 @@ def _gate():
     return m
 
 
-AKTUELL = "6.1.0"      # die Quellversion an origin/main, gegen die hier geurteilt wird
+AKTUELL = "6.1.0"      # the source version on origin/main, which the cases below judge against
 
 
 def _trifft(text: str, version: str = AKTUELL) -> str | None:
-    """Der NAME der Form, die der PRUEFER meldet — oder None.
+    """The NAME of the shape the CHECKER reports, or None.
 
-    GEHT DURCH DIE ECHTE FUNKTION, und das ist eine KORREKTUR, die der eigene Fangnachweis
-    erzwungen hat. Die erste Fassung dieses Helfers lief ueber `_CLAIM_SHAPES` und wendete die
-    Regel „nur die aktuelle Zahl zaehlt" SELBST an — eine zweite Umsetzung derselben Logik.
-    Gemessen: zwei von vier Pflanzungen blieben NICHT GEFANGEN, weil sie den Produktionspfad
-    aenderten und dieser Helfer seine eigene Kopie weiterbenutzte. Ein Test, der die Regel
-    nachbaut, prueft sich selbst.
+    IT GOES THROUGH THE REAL FUNCTION, and that is a CORRECTION this file's own catch proof forced.
+    The first version of this helper walked `_CLAIM_SHAPES` and applied the rule "only the current
+    number counts" ITSELF, a second implementation of the same logic. Measured: two of four planted
+    defects stayed NOT CAUGHT, because they changed the production path while this helper kept using
+    its own copy. A test that reimplements the rule tests itself.
 
-    Jetzt wird ein Wegwerf-Repo mit EINER Datei gebaut und `check_undeclared_places` darauf
-    gerufen — derselbe Weg, den auch das Tor geht.
+    Now a throwaway repository with ONE file is built and `check_undeclared_places` is called on it,
+    the same way the gate goes.
     """
     import tempfile
     with tempfile.TemporaryDirectory(prefix="u5_trifft_") as tmp:
@@ -82,7 +81,7 @@ def _trifft(text: str, version: str = AKTUELL) -> str | None:
     return "UNBEKANNTE_FORM"
 
 
-# ── DIE VIER FORMEN, die eine aktuelle Fassung behaupten ────────────────────────────────────
+# ── THE FOUR SHAPES that claim a current release ─────────────────────────────────────────────
 
 @pytest.mark.parametrize("text,erwartete_form", [
     ("python -m pip install proofbundle==6.1.0", "install pin"),
@@ -97,7 +96,7 @@ def test_jede_form_einer_release_behauptung_wird_erkannt(text, erwartete_form):
     assert _trifft(text) == erwartete_form
 
 
-# ── DIE GEGENRICHTUNG: Geschichte bleibt Geschichte ─────────────────────────────────────────
+# ── THE COUNTER-DIRECTION: history stays history ─────────────────────────────────────────────
 
 @pytest.mark.parametrize("text", [
     "since v6.1.0 the anchor has been stable",
@@ -106,50 +105,51 @@ def test_jede_form_einer_release_behauptung_wird_erkannt(text, erwartete_form):
     "see docs/release_scope/6.1.0.md for what belongs to that release",
     "## [6.1.0] - 2026-09-20",
     "audit_artifacts/610/pre_tag_receipt_v6.1.0.json",
-    # Von Gegenlese-Linse 1 ausgefuehrt gefunden: die erste Fassung meldete alle drei.
+    # Found by cross-reading lens 1, by execution: the first version reported all three.
     "pip uninstall proofbundle==6.0.0",
-    # UND die Fassung, auf die es bei der Wortgrenze ankommt: eine Anleitung, die AKTUELLE
-    # Version zu ENTfernen. Ohne `\\binstall` trifft das Muster das Ende von „uninstall", und
-    # der Zahlvergleich rettet hier nicht — die Zahl IST die aktuelle. Der eigene Fangnachweis
-    # hat das erzwungen: mit der alten Zahl blieb die Pflanzung „Wortgrenze entfernt"
-    # NICHT GEFANGEN.
+    # AND the case the word boundary turns on: an instruction to REMOVE the CURRENT release.
+    # Without `\\binstall` the pattern matches the tail of "uninstall", and the number comparison
+    # does not save it here, because the number IS the current one. This file's own catch proof
+    # forced it: with the older number the planted defect "word boundary removed" stayed
+    # NOT CAUGHT.
     "pip uninstall proofbundle==6.1.0",
     "[v5.0.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v5.0.0)",
     "https://raw.githubusercontent.com/b7n0de/proofbundle/v5.0.0/examples/x.json",
 ])
 def test_historische_und_benennende_formen_werden_NICHT_gefangen(text):
-    """Ein Tor, das die Hebung einer historischen Aussage verlangt, macht aus einer Tatsache
-    eine Luege — die Regel steht woertlich im Modulkopf."""
-    assert _trifft(text) is None, f"faelschlich gefangen als {_trifft(text)!r}: {text!r}"
+    """A gate that demands a historical statement be raised turns a fact into a lie. That rule is
+    in the module docstring, word for word."""
+    assert _trifft(text) is None, f"wrongly caught as {_trifft(text)!r}: {text!r}"
 
 
 def test_eine_release_scope_datei_ist_keine_behauptung_aber_ein_tag_link_schon():
-    """Die zwei liegen nah beieinander und muessen verschieden beurteilt werden."""
+    """These two sit close together and have to be judged differently."""
     assert _trifft("docs/release_scope/6.1.0.md") is None
     assert _trifft("…/releases/tag/v6.1.0") == "release tag link"
 
 
-# ── DER PREIS, weil ein flutender Sweep abgeschaltet wird ───────────────────────────────────
+# ── THE PRICE, because a flooding sweep gets switched off ─────────────────────────────────────
 
 def test_der_sweep_flutet_nicht():
-    """GEMESSEN vor dem Bau: ueber alle verfolgten Dateien ausserhalb der ausgenommenen Praefixe
-    treffen die drei neuen Formen VIER Mal, alle in README.md. Ein Melder, der beim ersten Lauf
-    Dutzende Stellen wirft, wird abgeschaltet, bevor er den ersten echten Fall zeigt.
+    """MEASURED BEFORE BUILDING: across every tracked file outside the excluded prefixes the three
+    new shapes match FOUR times, all of them in README.md. A reporter that throws dozens of places
+    on its first run gets switched off before it shows the first real case.
 
-    DIE VORBEDINGUNG STEHT ZUERST, und sie ist eine KORREKTUR (Gegenlese-Linse 2, 23.09.2026):
-    ohne sie leitete dieser Test seine Vergleichsmenge live aus `_CLAIM_SHAPES` ab und war
-    VAKUUM-WAHR, sobald die Reparatur ganz entfernt wird — leere Menge, Aussage trivial erfuellt.
-    Er bewachte damit nicht „die Reparatur ist da und flutet nicht", sondern nur „was uebrig ist,
-    flutet nicht". Gemessen an der Gegenprobe: bei entfernter Reparatur blieb er gruen.
+    THE PRECONDITION COMES FIRST, and it is a CORRECTION (cross-reading lens 2, 2026-09-23):
+    without it this case derived its comparison set live from `_CLAIM_SHAPES` and was VACUOUSLY
+    TRUE the moment the repair is removed entirely, because an empty set satisfies the statement
+    trivially. It then guarded "the repair is there and does not flood" no longer, only "whatever
+    is left does not flood". Measured by the counter-probe: with the repair removed it stayed
+    green.
     """
     rc = subprocess.run(["git", "-C", str(REPO), "ls-files"], capture_output=True, text=True)
     if rc.returncode != 0:
-        pytest.skip("kein git-Index lesbar")
+        pytest.skip("no readable git index")
     g = _gate()
     neue = [(f, m) for f, m, _n, _ in g._CLAIM_SHAPES if f != "current/latest phrase"]
     assert len(neue) >= 3, (
-        f"die Reparatur ist nicht da: nur {len(neue)} zusaetzliche Formen. Ohne diese Zeile "
-        f"waere der Rest des Tests vakuum-wahr")
+        f"the repair is not here: only {len(neue)} additional shapes. Without this line the rest "
+        f"of this case would be vacuously true")
     dateien = set()
     for rel in rc.stdout.splitlines():
         if rel.startswith(g._SWEEP_EXCLUDE_PREFIXES) or rel == str(TOR.relative_to(REPO)):
@@ -160,68 +160,65 @@ def test_der_sweep_flutet_nicht():
             continue
         if any(m.search(t) for _, m in neue):
             dateien.add(rel)
-    assert len(dateien) <= 3, f"der Sweep trifft {len(dateien)} Dateien: {sorted(dateien)}"
+    assert len(dateien) <= 3, f"the sweep matches {len(dateien)} files: {sorted(dateien)}"
 
 
 def test_das_tor_zitiert_sich_nicht_selbst_in_die_falle():
-    """Beim ersten Lauf meldete die neue Regel ZWEI Funde: README.md und diese Prueferdatei
-    selbst — ihr Kommentar zitierte die README mitsamt echter Versionsnummer. Ein Sweep kann eine
-    Behauptung nicht von ihrem Zitat unterscheiden; der Modulkopf sagt deshalb, dass eine
-    Veranschaulichung die eigene Fassung nicht ausschreiben darf. Kein Ausnahmepfad fuer diese
-    Datei — sie haelt die Regel ein, statt von ihr befreit zu sein."""
+    """On its first run the new rule reported TWO findings: README.md and the checker file itself,
+    whose comment quoted the README including a real version number. A sweep cannot tell a claim
+    from a quotation of one; the module docstring therefore says an illustration must not spell out
+    the file's own release. No exception path for this file: it keeps the rule instead of being
+    exempted from it."""
     g = _gate()
     assert len([f for f, _, _n, _ in g._CLAIM_SHAPES]) >= 4, (
-        "ohne die vollstaendige Formenliste waere dieser Test vakuum-wahr")
+        "without the complete list of shapes this case would be vacuously true")
     quelle = TOR.read_text(encoding="utf-8")
     version, _ = g._source_version(REPO)
-    assert version, "ohne Quellversion sagt dieser Test nichts"
-    # Die Prueferdatei darf die EIGENE aktuelle Fassung nicht in einer Behauptungsform tragen.
+    assert version, "without a source version this case says nothing"
+    # The checker file must not carry its OWN current release in a claim shape.
     for form, muster, _n, _ in g._CLAIM_SHAPES:
         for treffer in muster.findall(quelle):
             assert treffer != version, (
-                f"{TOR.name} traegt die eigene Fassung {version} als {form} — genau die Stelle, "
-                f"die der Sweep zu Recht meldet")
+                f"{TOR.name} carries its own release {version} as a {form} — exactly the place "
+                f"the sweep is right to report")
 
 
 def test_ein_ausnahmepfad_fuer_die_prueferdatei_existiert_nicht(tmp_path, monkeypatch):
-    """Ein Pruefer, der sich selbst ausnimmt, hoert auf, die Datei zu pruefen, die am ehesten
-    Behauptungen zitiert.
+    """A checker that exempts itself stops checking the file most likely to quote claims.
 
-    AN DIE WIRKUNG GEBUNDEN, NICHT AN DIE SCHREIBWEISE — und das ist eine KORREKTUR
-    (Gegenlese-Linse 2, 23.09.2026, mit ausgefuehrtem Gegenbeweis). Die erste Fassung suchte im
-    Quelltext nach `rel ==` plus dem Dateinamen. Die Linse hat eine ECHTE, funktionierende
-    Selbstausnahme gebaut — ueber einen `Path(__file__).resolve()`-Vergleich statt eines
-    Literals — und dieser Test blieb **gruen**, waehrend eine gepflanzte Behauptung in der
-    Prueferdatei nachweislich verschwand. Eine Bindung an die Textform prueft, wie jemand
-    schreibt, nicht was der Code tut.
+    BOUND TO THE EFFECT, NOT TO THE SPELLING — and that is a CORRECTION (cross-reading lens 2,
+    2026-09-23, with an executed counter-proof). The first version searched the source text for
+    `rel ==` plus the file name. The lens built a REAL, working self-exemption, through a
+    `Path(__file__).resolve()` comparison instead of a literal, and this case stayed **green**
+    while a planted claim in the checker file demonstrably disappeared. Binding to the textual form
+    tests how somebody writes, not what the code does.
 
-    Jetzt wird es GEMESSEN: eine Behauptung an genau dem Pfad der Prueferdatei muss gemeldet
-    werden. Wie eine Ausnahme geschrieben waere, ist damit gleichgueltig.
+    Now it is MEASURED: a claim at exactly the path of the checker file must be reported. How an
+    exemption would be written is thereby irrelevant.
 
-    DIE KOPIE WIRD GEPRUEFT, NICHT DAS ORIGINAL — und auch das ist eine Korrektur, gefunden vom
-    eigenen Fangnachweis. Die zweite Fassung dieses Tests legte die Behauptung in eine
-    Wegwerfdatei und liess das ORIGINALMODUL darueber laufen. Eine Ausnahme ueber
-    `Path(__file__)` vergleicht dann gegen den Pfad des Originals und greift nie: die Pflanzung
-    „Prueferdatei nimmt sich selbst aus" blieb **NICHT GEFANGEN**. Erst wenn das gepflanzte
-    Modul SELBST laeuft, zeigt sich seine Ausnahme.
+    THE COPY IS CHECKED, NOT THE ORIGINAL — and that too is a correction, found by this file's own
+    catch proof. The second version of this case put the claim into a throwaway file and let the
+    ORIGINAL MODULE run over it. An exemption through `Path(__file__)` then compares against the
+    original's path and never fires: the planted defect "checker file exempts itself" stayed
+    **NOT CAUGHT**. Only when the planted module runs ITSELF does its exemption show.
     """
     rel = "scripts/check_version_and_changelog.py"
     ziel = tmp_path / rel
     ziel.parent.mkdir(parents=True, exist_ok=True)
     quelle = TOR.read_text(encoding="utf-8")
-    # Die Behauptung steht IM Pruefer, und der Pruefer, der sie finden muss, ist diese Kopie.
-    ziel.write_text(quelle + "\n# gepflanzte Behauptung:\n"
+    # The claim sits IN the checker, and the checker that has to find it is this copy.
+    ziel.write_text(quelle + "\n# planted claim:\n"
                              "# python -m pip install proofbundle==9.9.9\n", encoding="utf-8")
     s = importlib.util.spec_from_file_location("_u5_gate_kopie", ziel)
     g = importlib.util.module_from_spec(s)
     s.loader.exec_module(g)
     monkeypatch.setattr(g, "_tracked_files", lambda _repo: [rel])
     funde = g.check_undeclared_places(tmp_path)
-    assert funde, ("die Prueferdatei wurde NICHT gesweept — sie nimmt sich selbst aus, gleich "
-                   "mit welcher Schreibweise")
-    # Geprueft wird, DASS die Datei gesweept wird, nicht WELCHE ihrer Zeilen zuerst meldet: der
-    # Sweep bricht nach dem ersten Fund je Datei ab, und welche Zeile das ist, haengt am Inhalt.
-    # Eine Selbstausnahme haette `funde` LEER gelassen — das ist die Eigenschaft.
+    assert funde, ("the checker file was NOT swept — it exempts itself, whichever spelling is "
+                   "used")
+    # What is checked is THAT the file gets swept, not WHICH of its lines reports first: the sweep
+    # stops after the first finding per file, and which line that is depends on the content.
+    # A self-exemption would have left `funde` EMPTY, and that is the property.
     assert rel in funde[0], funde
 
 
@@ -229,18 +226,18 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-# ── EINE ANMELDUNG DECKT EIN MUSTER, NICHT EINE DATEI ───────────────────────────────────────
+# ── A DECLARATION COVERS ONE PATTERN, NOT ONE FILE ───────────────────────────────────────────
 
 def test_eine_anmeldung_legt_die_geschwisterbelege_nicht_stumm(tmp_path, monkeypatch):
-    """DER SCHWERSTE FUND der Gegenlesung, und er traf nicht die Reparatur, sondern die Abhilfe.
+    """THE HEAVIEST FINDING of the cross-reading, and it hit the remedy rather than the repair.
 
-    `check_undeclared_places` verglich `rel in declared` — dateiweit. Wer eine Datei fuer EIN
-    Muster anmeldet (genau die Option A, die meine eigene Owner-Karte anbietet), nahm sie damit
-    GANZ aus dem Sweep. Gemessen an README.md: nach der Anmeldung des Tag-Links meldete der
-    Sweep NICHTS mehr, obwohl drei weitere Belege derselben Klasse unveraendert darin stehen.
+    `check_undeclared_places` compared `rel in declared`, file-wide. Declaring a file for ONE
+    pattern (exactly the option A my own owner card offers) took it out of the sweep ENTIRELY.
+    Measured against README.md: after declaring the tag link the sweep reported NOTHING any more,
+    although three further places of the same class stand in it unchanged.
 
-    Das ist schlimmer als der Ausgangszustand: vorher unentdeckt, danach per Anmeldung dauerhaft
-    stillgelegt — und der Sweep meldete Ruhe.
+    That is worse than the starting state: undetected before, permanently silenced by a declaration
+    afterwards, and the sweep reported quiet.
     """
     g = _gate()
     rel = "DOKU.md"
@@ -252,18 +249,17 @@ def test_eine_anmeldung_legt_die_geschwisterbelege_nicht_stumm(tmp_path, monkeyp
     ohne = g.check_undeclared_places(tmp_path)
     assert ohne and "DOKU.md:1" in ohne[0], ohne
 
-    # Die erste Zeile anmelden — die zweite MUSS sichtbar bleiben.
+    # Declare the first line — the second MUST stay visible.
     monkeypatch.setattr(g, "_TRACKED_PLACES",
-                        [(rel, re.compile(r"/releases/tag/v" + g._SEMVER), "der Tag-Link")])
+                        [(rel, re.compile(r"/releases/tag/v" + g._SEMVER), "the tag link")])
     mit = g.check_undeclared_places(tmp_path)
-    assert mit, ("die Anmeldung hat die ganze Datei stillgelegt — die zweite Behauptung ist "
-                 "unbeobachtet")
+    assert mit, ("the declaration silenced the whole file — the second claim is unobserved")
     assert "DOKU.md:2" in mit[0] and "install pin" in mit[0], mit
 
 
 def test_eine_veraltete_WORTbehauptung_bleibt_ein_fund():
-    """Die Unterscheidung, die Linse 1 erzwungen hat: ein WORT behauptet Aktualitaet aus sich
-    heraus, gleich welche Zahl danebensteht — eine veraltete Wortbehauptung ist deshalb SEHR
-    wohl ein Fund. Nur die FORM braucht die aktuelle Zahl, um eine Behauptung zu sein."""
+    """The distinction lens 1 forced: a WORD claims currency on its own, whatever number stands
+    beside it, so a stale word claim very much IS a finding. Only the SHAPE needs the current
+    number in order to be a claim."""
     assert _trifft("current release: 5.0.0") == "current/latest phrase"
     assert _trifft("latest version 5.0.0") == "current/latest phrase"
