@@ -261,12 +261,50 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         return aus
 
     def _ausgeliefert(self) -> set[str]:
-        text = (REPO / "MANIFEST.in").read_text(encoding="utf-8")
-        if re.search(r"^graft scripts\s*$", text, re.M):
-            self.fail("MANIFEST.in grafts all of `scripts`, so this case cannot tell a shipped file "
-                      "from an unshipped one — the owner requirement of 2026-09-06 replaced that "
-                      "graft with an explicit list, and its return is the finding")
-        return set(re.findall(r"^include (scripts/\S+)", text, re.M))
+        """The shipped `scripts/` set, read as DIRECTIVES rather than scraped with one expression.
+
+        WHY NOT THE ONE EXPRESSION IT STARTED AS. An adversarial lens ran this against a real
+        `python -m build --sdist` on 2026-09-24 and the sets matched, 36 of 36, symmetric difference
+        zero. It then named four forms that would make the same expression wrong LATER, and measured
+        each in isolation:
+
+            include scripts/a.py scripts/b.py     only the first path was seen
+            <two spaces>include scripts/c.py      the line dropped out entirely
+            recursive-include scripts *.py        the whole set went invisible
+            include scripts/e.py + exclude same   reported shipped although excluded
+
+        None of the four is in the file today, so this is a hole being closed rather than a defect
+        being fixed. But a derivation that is right only for the current spelling of its input is the
+        class this whole file stands against, so it now reads the directives: leading whitespace is
+        stripped, every path on a line counts, `exclude` and `prune` SUBTRACT, and a directive that
+        would make the set unknowable fails loudly instead of returning a smaller set.
+        """
+        return self._ausgeliefert_aus((REPO / "MANIFEST.in").read_text(encoding="utf-8"))
+
+    def _ausgeliefert_aus(self, text: str) -> set[str]:
+        """The parsing, separable from the file, so the four forms above can be measured."""
+        drin: set[str] = set()
+        draussen: set[str] = set()
+        for roh in text.splitlines():
+            zeile = roh.strip()
+            if not zeile or zeile.startswith("#"):
+                continue
+            teile = zeile.split()
+            direktive, pfade = teile[0], teile[1:]
+            if direktive in {"graft", "recursive-include", "recursive-exclude", "global-include",
+                             "global-exclude"} and any(
+                    p == "scripts" or p.startswith("scripts/") for p in pfade):
+                self.fail(
+                    f"MANIFEST.in line {roh.strip()!r} uses `{direktive}` over `scripts`, so this "
+                    f"case can no longer tell a shipped file from an unshipped one. The owner "
+                    f"requirement of 2026-09-06 replaced a `graft scripts` with an explicit list; a "
+                    f"return to a wildcard form is the finding, not something to work around here")
+            ziel = drin if direktive == "include" else (
+                draussen if direktive in {"exclude", "prune"} else None)
+            if ziel is None:
+                continue
+            ziel.update(p for p in pfade if p.startswith("scripts/"))
+        return drin - draussen
 
     def test_der_messaufbau_findet_ueberhaupt_etwas(self):
         """[ZAEHLT] An empty candidate list would make the case below pass over nothing."""
@@ -294,6 +332,59 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
             verstoesse,
             "the extracted sdist would abandon collection on these modules, because the script they "
             "import is not in MANIFEST.in:\n  " + "\n  ".join(verstoesse))
+
+    def test_die_vier_formen_der_linse_werden_richtig_gelesen(self):
+        """THE FOUR FORMS AN ADVERSARIAL LENS NAMED ON 2026-09-24, each as its own case.
+
+        The lens compared this derivation against a real `python -m build --sdist` and the sets
+        matched, 36 of 36. It then measured four spellings that would have made the one-expression
+        version wrong later. None of them is in the file today, which is why these cases carry
+        invented input rather than the real one: a hole is closed by showing the new reader handles
+        the shape, not by waiting for the shape to arrive.
+        """
+        faelle = {
+            "zwei Pfade auf einer Zeile": ("include scripts/a.py scripts/b.py\n",
+                                           {"scripts/a.py", "scripts/b.py"}),
+            "fuehrender Leerraum": ("  include scripts/c.py\n", {"scripts/c.py"}),
+            "exclude nimmt zurueck": ("include scripts/e.py\nexclude scripts/e.py\n", set()),
+            "prune nimmt zurueck": ("include scripts/f.py\nprune scripts/f.py\n", set()),
+            "ein Kommentar zaehlt nicht": ("# include scripts/g.py\n", set()),
+            "eine fremde Direktive zaehlt nicht": ("graft tests\ninclude scripts/h.py\n",
+                                                   {"scripts/h.py"}),
+        }
+        for name, (text, erwartet) in faelle.items():
+            with self.subTest(form=name):
+                self.assertEqual(self._ausgeliefert_aus(text), erwartet)
+
+    def test_ein_wildcard_ueber_scripts_faellt_laut(self):
+        """The fifth form, and the only one that must REFUSE rather than parse.
+
+        A wildcard over `scripts` makes the shipped set unknowable from the file, so returning a
+        smaller set would be the quiet wrong answer. The owner requirement of 2026-09-06 replaced a
+        `graft scripts` with an explicit list; a return to any wildcard form over that directory is
+        the finding.
+        """
+        for zeile in ("graft scripts", "recursive-include scripts *.py",
+                      "global-include scripts/*.py", "recursive-exclude scripts *.pyc"):
+            with self.subTest(direktive=zeile):
+                with self.assertRaises(AssertionError):
+                    self._ausgeliefert_aus(zeile + "\n")
+
+    def test_gegenrichtung_die_echte_datei_ergibt_dieselbe_menge_wie_der_alte_ausdruck(self):
+        """WITHOUT THIS the hardening could have changed the answer on the real input.
+
+        The lens's sdist comparison was made against the one-expression version. This pins that the
+        directive reader agrees with it on the file as it stands, so that measurement still covers
+        the code that is here now.
+        """
+        text = (REPO / "MANIFEST.in").read_text(encoding="utf-8")
+        alt = set(re.findall(r"^include (scripts/\S+)", text, re.M))
+        self.assertEqual(self._ausgeliefert_aus(text), alt,
+                         "the directive reader and the expression it replaces disagree on the real "
+                         "MANIFEST.in, so the sdist comparison no longer covers this code")
+        self.assertEqual(len(alt), 36,
+                         "the lens measured 36 shipped scripts against a real build; a different "
+                         "number here means the file moved and that measurement needs redoing")
 
     def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):
         """WITHOUT THIS a rule that rejected every script import would pass the catch above.
