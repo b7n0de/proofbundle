@@ -28,7 +28,15 @@ would be a new defect pointing the other way, and nothing in the red probe would
 AND THE BACKWARD-COMPATIBILITY ARM, stated because this changes a verify verdict. An honest issuance
 copies `passed` from the claim verbatim, so both sides always carried the SAME type and no honestly
 issued receipt is affected. A pre-establisher bundle whose claim held `passed: 1` had an SD-JWT holding
-`1` too; that pair must still bind. Only CROSS-type pairs change, and those arise from no honest path.
+`1` too; that pair must still bind. Only CROSS-type pairs change.
+
+AND THE SCOPE OF THAT SENTENCE, narrowed after an independent review refuted its first wording. It
+said cross-type pairs arise from no honest path. True for THIS library, whose issuance copies the
+field verbatim, and that is all the measurement supports. A FOREIGN implementation may normalise the
+two sides differently — emit `1` in the signed payload and `true` in the derived view, or the other
+way round — and such a pair binds today and refuses after. That is the correct direction (the two
+sides genuinely say different things in JSON), but it is a compatibility break against a third-party
+issuer, not "no honest path", and the difference belongs in the sentence rather than in a footnote.
 """
 from __future__ import annotations
 
