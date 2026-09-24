@@ -25,6 +25,22 @@ module and reads the optional set from the `test` extra in `pyproject.toml` rath
 typed here, because a typed list is a second statement about what is optional and two statements
 drift. Catch proof on a bare venv: with the guard rc 0 and 4948 tests collected, without it rc 2 and
 collection interrupted.
+- **R1 counts distinct units rather than list entries** (`src/proofbundle/cap1.py`). A coverage list
+  naming the same unit twice read as two covered units, so a report could claim a count it had not
+  earned. The verdict now names the duplicates, because a number that silently absorbs a duplicate
+  is a number nobody can check.
+- **R8 validates every element, not only the container** (`src/proofbundle/cap1.py`). The guard
+  accepted any list, including one holding `{}` or `None`. The failure now names the offending
+  element instead of the field.
+- **The CAP-1 early return no longer silences the legacy alias check**
+  (`src/proofbundle/agent_review.py`). `_widerspruch_in_altfeldern` ran on the v0.1 path only, so a
+  document taking the CAP-1 branch could report `complete` while its own legacy fields said `0 of
+  100` with a gap. The check runs on both branches, and `_is_zahl` returns `TypeGuard[int]` so the
+  narrowing holds at the call site.
+
+Contract `tests/test_codex_funde_248_20260923.py`, with a catch proof measured on the branch:
+reverting `cap1.py` to its `main` state turns 7 cases red, reverting `agent_review.py` turns 3 red,
+and both fixes present leave 268 passing with 14 subtests.
 
 ## [6.1.0] - 2026-09-19
 
