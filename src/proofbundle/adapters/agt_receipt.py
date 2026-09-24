@@ -51,6 +51,7 @@ import json
 import re
 from typing import Any, Dict, Optional, Sequence
 
+from .._membership import is_member
 from ..errors import VerificationResult
 
 __all__ = [
@@ -219,10 +220,16 @@ def verify_agt_receipt(
         ergebnis.add("readable", False, str(fehler))
         return ergebnis
 
+    # THROUGH `is_member`, NOT THROUGH `in`. `cedar_decision` comes out of the receipt, so it is
+    # attacker-controlled, and `_ENTSCHEIDUNGEN` hashes. An unhashable value would raise TypeError
+    # at a verify surface that promises never to raise; the house guard measures exactly this shape
+    # and it caught this line on 2026-09-23. `is_member` answers False for a value that cannot be
+    # an element, which is the correct answer and lets the rejection below fire as written.
     entscheidung = _text(receipt, "cedar_decision")
+    bekannt = is_member(entscheidung, _ENTSCHEIDUNGEN)
     ergebnis.add(
-        "decision-vocabulary", entscheidung in _ENTSCHEIDUNGEN,
-        f"cedar_decision={entscheidung!r}" if entscheidung in _ENTSCHEIDUNGEN else
+        "decision-vocabulary", bekannt,
+        f"cedar_decision={entscheidung!r}" if bekannt else
         f"cedar_decision={entscheidung!r} is not one of {sorted(_ENTSCHEIDUNGEN)} — note that the "
         f"AGT proposal document says permit/deny while the implementation says allow/deny")
 

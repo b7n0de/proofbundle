@@ -62,6 +62,15 @@ _MODULES = [
     # ein Urteil bekommen; die strikte Schicht bleibt `evidence_digest`, die Grenze benennt jetzt
     # `evidence.malformed` und faellt fail-closed auf `attestation_failure`.
     "experimental.attested_inference",
+    # 2026-09-23: das Offline-Pruefprofil fuer die Governance-Receipts eines FREMDEN Erzeugers.
+    # Der Populations-Riegel meldete `verify_agt_receipt` und `verify_agt_receipt_chain` ausserhalb
+    # der Eigenschaft, und er hatte recht. Von Hand gemessen fiel dabei eine ZWEITE Sache auf, die
+    # der Riegel nicht meldet: `cedar_decision in _ENTSCHEIDUNGEN` hasht einen angreiferkontrollierten
+    # Wert in ein frozenset, also waere eine rohe TypeError an einer Flaeche moeglich gewesen, die
+    # nie wirft. Diese Stelle laeuft jetzt ueber `_membership.is_member`. Die Flaeche gehoert in die
+    # Population, weil bei einem FREMDEN Format die Frage besonders wenig von Hand gestellt werden
+    # sollte — wir bestimmen nicht, welche Formen dort ankommen.
+    "adapters.agt_receipt",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -329,6 +338,21 @@ _OUT_OF_SCOPE = frozenset({
     "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
     "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
     "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",
+    # 2026-09-23, `proofbundle.adapters.agt_receipt` — vier Funktionen, drei verschiedene Gruende,
+    # und gemessen, dass kein anderes Modul einen dieser Namen oeffentlich fuehrt (die Menge
+    # vergleicht bare Namen, ein Eintrag hier wuerde eine gleichnamige Flaeche mitbefreien).
+    #   `canonical_payload` und `canonical_authorization_payload` sind die STRIKTE Schicht. Sie
+    #       bekommen ein fremdes Receipt und werfen `AGTReceiptError` auf eine Form, die sie nicht
+    #       ehrlich kanonisieren koennen — ein Payload aus einem halb gelesenen Receipt waere eine
+    #       Bytefolge, die wie eine Tatsache aussieht. `verify_agt_receipt` ruft sie und faengt
+    #       genau diese Ausnahme in den benannten Check `readable`, so bleibt die oeffentliche
+    #       Flaeche never-raise, ohne dass die Bausteine still werden.
+    #   `payload_hash` bekommt dasselbe Receipt und gibt es an `canonical_payload` weiter, traegt
+    #       also dieselbe Grenze und keine eigene.
+    #   `exit_code` bekommt UNSER eigenes `VerificationResult`, nichts Fremdes, und bildet es auf
+    #       den Vertrag des Hauses ab (0 ok, 1 Krypto/Struktur, 2 malformed, 3 Anforderung der
+    #       vertrauenden Seite unerfuellt).
+    "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
 })
 
 
