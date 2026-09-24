@@ -325,14 +325,24 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     no field)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
-    # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
-    binder = json.dumps({
-        "model_id_commit": claim["model_id_commit"],
-        "dataset_id_commit": claim.get("dataset_id_commit"),
-        "root_b64": root_b64,
-        "timestamp": claim["timestamp"],
-    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    subject_digest = {"sha256": hashlib.sha256(binder).hexdigest()}
+    # THE RECEIPT BINDER LIVES IN ONE PLACE, and until 2026-09-24 it lived in two. `resolve_subject`
+    # builds exactly this digest for the "receipt" profile — same fields, same `sort_keys` dump, same
+    # sha256 — and the two were measured byte-identical before this line changed. The difference was
+    # never the digest; it was the GUARD. `resolve_subject` refuses a claim without `model_id_commit`
+    # or `timestamp` with a typed `BundleFormatError`, and the copy here read both by raw subscript.
+    #
+    # WHAT THAT COST, measured on `058ed6fc`: a claim that is not a dict left this function as a bare
+    # `TypeError`, and one missing either field as a bare `KeyError`. Neither is a `ProofBundleError`
+    # and neither is a `ValueError`, so neither belongs to any of the three refusal forms
+    # `tests/test_abweisungsformen_sind_drei.py` measures. Nothing is signed before it — a signer proxy
+    # counted zero calls in every case — so this is a shape question and not an exposure, and saying
+    # otherwise would overstate it.
+    #
+    # THE CLASS: the same binder at three call sites, and the only one that hand-rolled it skipped the
+    # check the other two inherit. `export_eval_result_dsse` says so in its own comment one function
+    # below ("fail-closed BEFORE building the (receipt-profile) subject binder"), and `export_svr_dsse`
+    # routes through `resolve_subject` too. One builder, one guard, and the rule travels by itself.
+    subject_digest = resolve_subject("receipt", claim, root_b64=root_b64)[0]["digest"]
     statement = to_test_result_statement(claim, subject_digest=subject_digest, root_b64=root_b64,
                                          harness=harness, url=url, content_root_alg=content_root_alg)
     body = _serialize_statement(statement, content_root_alg)
@@ -448,6 +458,16 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
       lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
     """
     if profile == "receipt":
+        # A NON-DICT CLAIM IS REFUSED BY TYPE AND BY NAME, because the line below reads it. Without
+        # this, `claim.get` on `None`/`[]`/`1` left as a bare `AttributeError` — not a
+        # `ProofBundleError`, not a `ValueError`, so none of the three refusal forms
+        # `tests/test_abweisungsformen_sind_drei.py` measures, out of a builder three exporters share.
+        # `as_dict` would work and is deliberately not used: it turns the wrong type into an empty
+        # mapping, and the next line would then report a missing field for a claim that was never a
+        # claim. Naming the type is what `_verdict.require_bool_verdict` does for the same reason.
+        if not isinstance(claim, dict):
+            raise BundleFormatError(
+                f"receipt subject profile needs a claim object, got {type(claim).__name__}")
         if not claim.get("model_id_commit") or not claim.get("timestamp"):
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
