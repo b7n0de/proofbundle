@@ -123,15 +123,39 @@ DEFEKTE = [
 
 
 def lauf(quelltext: str) -> tuple[int, str]:
-    # The directory sits NEXT TO the source, not in /tmp: zwei_lesarten.py derives the repository
-    # root from the location of its own file, and outside the tree it no longer finds cbor_min.py.
-    # A candidate that dies on a load error instead of on the planted defect measures nothing, and
-    # that is exactly what happened here once.
-    with tempfile.TemporaryDirectory(dir=str(QUELLE.parent)) as d:
-        p = pathlib.Path(d) / "kandidat.py"
-        p.write_text(quelltext, encoding="utf-8")
+    """Run one mutated candidate and return (return code, output).
+
+    THE CANDIDATE LIVES IN THE SOURCE'S OWN DIRECTORY, and the reason is the whole point of this
+    function. `zwei_lesarten.py` derives everything it needs from the location of its own file: the
+    repository root by walking up for `.git`, and `cbor_min.py` as a sibling of its own directory. A
+    candidate placed anywhere else answers those questions differently, dies on a load error instead
+    of on the planted defect, and measures nothing.
+
+    THE FIRST VERSION KNEW THAT AND STILL GOT IT WRONG, which is why the reasoning stays here. It used
+    `TemporaryDirectory(dir=QUELLE.parent)`, a SUBDIRECTORY of the source directory, so the candidate
+    sat one level too deep: its sibling lookup resolved to
+    `scitt_ccf_merkle_lesarten/scitt_ccf_datahash_vector/cbor_min.py`, which does not exist. In this
+    repository the `.git` walk covered for it and everything looked fine. In a tree WITHOUT `.git` --
+    an exported `git archive`, an sdist, a downloaded zip -- both routes failed at once. Measured in a
+    clean export of this branch: `zwei_lesarten.py` exits 0, this proof exits 2 before planting
+    anything, with the baseline reporting every field as None. The comment above the old line named
+    the class correctly and the code below it was off by one directory, which is the more useful half
+    of this story: a correct comment is not a correct implementation. Found by the review lane, not by
+    re-reading, and confirmed by running the export.
+
+    SO THE FIX IS NOT A DEEPER PATH BUT NO PATH REASONING AT ALL: same directory as the source, unique
+    name, removed afterwards. Then the candidate resolves every lookup exactly as the original does,
+    and it keeps doing so if `_lade_cbor_min` is ever rewritten.
+    """
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".py", prefix="kandidat_",
+                                     dir=str(QUELLE.parent), delete=False) as f:
+        f.write(quelltext)
+        p = pathlib.Path(f.name)
+    try:
         r = subprocess.run([sys.executable, str(p)], capture_output=True, text=True, timeout=120)
         return r.returncode, r.stdout + r.stderr
+    finally:
+        p.unlink(missing_ok=True)
 
 
 def kennzahlen(ausgabe: str) -> dict:
@@ -179,6 +203,35 @@ def main() -> int:
         print("STOPPING: the baseline reports no result line — without a baseline every mutation "
               "count is meaningless.")
         return 2
+
+    # TRANSPORT CONTROL: the baseline above is the source text run through the CANDIDATE transport --
+    # written to a temporary file and executed from there. Every number below is compared against it,
+    # so if the transport changes what the source reports, every comparison is against a baseline that
+    # is nobody's behaviour. Running the source AT ITS OWN PLACE is the only way to see that, and the
+    # two measurands must be identical.
+    #
+    # STATED REACH, MEASURED, and it does NOT include the defect that prompted it. The candidate used
+    # to be written one directory BELOW the source, so it resolved its dependencies by a different
+    # route. Measured with that old transport restored in THIS repository: this control PASSES, because
+    # the `.git` walk produced the identical measurand by the other route. It fires only when the
+    # transport changes WHAT IS REPORTED, not when it merely takes a different path to the same report.
+    #
+    # So the pair is the protection, not this control alone. What catches a route difference that is
+    # invisible here is running the proof in a tree WITHOUT `.git`, where the second route does not
+    # exist -- and that run is recorded in RUNS.txt as its own case for exactly this reason. Writing
+    # this limit down rather than letting the control look complete is the point: a control whose reach
+    # is assumed instead of measured is the shape this whole tool exists against.
+    rc_direkt = subprocess.run([sys.executable, str(QUELLE)], capture_output=True, text=True,
+                               timeout=120)
+    direkt = kennzahlen(rc_direkt.stdout + rc_direkt.stderr)
+    if direkt != grund or rc_direkt.returncode != rc0:
+        print("STOPPING: the transport changes the measurement. The source run IN PLACE and the same "
+              "source run as a candidate do not agree, so the baseline every mutation is compared "
+              "against is not the source's behaviour.")
+        print(f"  in place  RC={rc_direkt.returncode}  {direkt}")
+        print(f"  as candidate RC={rc0}  {grund}")
+        return 2
+    print("  transport control: the source measures the same in place as it does as a candidate.")
     print()
 
     angesagt_zaehlt = sum(1 for d in DEFEKTE if d[3] == "COUNTS")
