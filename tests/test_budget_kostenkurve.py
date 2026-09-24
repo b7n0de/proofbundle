@@ -723,47 +723,46 @@ def _speicher_peak(ruf) -> int:
     return peak
 
 
-#: DREI ZUSTAENDE, DREI KENNZAHLEN — und bis zum 25.09.2026 waren es drei Zustaende mit EINER.
+#: THREE STATES, TWO NUMBERS - and until 2026-09-25 it was three states sharing ONE number.
 #:
-#: FUND EINER CODEX-GEGENLESUNG (PR 259, P2, 2026-09-24T22:11Z, Kommentar 4098990135): der Zweig, der
-#: eine gefallene Prozessspitze abfaengt, gab `-1` mit `NICHT MESSBAR` zurueck — dieselbe Kennzahl und
-#: dasselbe Wort wie die Plattformgrenze darueber. Die Zusicherung prueft bei `-1` nur, DASS ein Grund
-#: dasteht, und BESTEHT. Aus dem roten Fall vom 24.09. („negative Prozessspitze -290816") wurde damit
-#: ein gruener, und genau das nennt diese Datei an anderer Stelle beim Namen: „Eine Abstinenz, die
-#: durch die Zusicherung durchgeht, ist keine Abstinenz — sie ist ein stilles Gruen."
+#: FOUND BY A CODEX CROSS-READING (pull request 259, P2, 2026-09-24T22:11Z, comment 4098990135): the
+#: branch that catches a fallen process peak returned `-1` with `NICHT MESSBAR`, the same number and
+#: the same word as the platform limit above it. At `-1` the assertion only checks THAT a reason is
+#: present, and it PASSES. The red case of 2026-09-24 ("negative Prozessspitze -290816") therefore
+#: became a green one, and this file names that defect elsewhere in its own words: an abstention that
+#: goes through the assertion is not an abstention, it is a silent green.
 #:
-#: DER UNTERSCHIED, DEN DIE EINE KENNZAHL VERSCHLUCKTE:
+#: THE DIFFERENCE THE SINGLE NUMBER SWALLOWED:
 #:
-#:   PLATTFORM   `/proc/self/status` gibt es hier nicht (kein Linux). Die Umgebung KANN nicht messen;
-#:               daran ist nichts falsch, und ein Bestehen ist die richtige Antwort.
-#:   ANOMALIE    Die Messung widerspricht ihrer eigenen Annahme: der High-Water-Mark ist gefallen,
-#:               oder er war vorher lesbar und nachher nicht. Hier ist nicht die Umgebung begrenzt,
-#:               sondern etwas ist geschehen, das dem Modell widerspricht. Das darf nicht bestehen.
+#:   PLATFORM   `/proc/self/status` does not exist here (not Linux). The environment CANNOT measure;
+#:              nothing is wrong with that, and passing is the right answer.
+#:   ANOMALY    The measurement contradicts its own assumption: the high-water mark fell, or it was
+#:              readable before the call and not after. Here the environment is not limited; something
+#:              happened that contradicts the model. That must not pass.
 #:
-#: WARUM DIE ANOMALIE UEBERSPRUNGEN WIRD UND NICHT ROT: der Vorfall vom 24.09. war ein einmaliger
-#: Kernel-Befund (ein Wiederholungslauf war gruen), und die Ursache ist UNERKLAERT — Linux setzt den
-#: Marker nur ueber `/proc/self/clear_refs` zurueck, das in diesem Baum niemand ruft. Ein Rot daraus
-#: waere ein Urteil ueber proofbundle fuer etwas, das nicht in proofbundle passiert. Ein SICHTBARES
-#: Ueberspringen ist die dritte Antwort: es steht in der Skip-Zahl, es traegt seinen Grund, und es ist
-#: von einem Bestehen unterscheidbar. Dasselbe Muster wie `_referenzmaschinen_bindung` — „SICHTBAR,
-#: NICHT STUMM".
+#: WHY THE ANOMALY SKIPS RATHER THAN FAILS: the incident of 2026-09-24 was a single kernel observation
+#: (a rerun was green) and its cause is UNEXPLAINED - Linux resets that marker only through
+#: `/proc/self/clear_refs`, which nothing in this tree calls. A red verdict from it would judge
+#: proofbundle for something that does not happen in proofbundle. A VISIBLE skip is the third answer:
+#: it stands in the skip count, it carries its reason, and it can be told apart from a pass. The same
+#: pattern as `_referenzmaschinen_bindung` - visible, not silent.
 _SPITZE_PLATTFORM = -1
 _SPITZE_ANOMALIE = -2
 
-#: Das eigene Vokabular der Anomalie. Es darf mit KEINEM Erkennungswort der anderen Abstinenzen
-#: dieser Datei zusammenfallen (`NICHT MESSBAR`, `Streuung`, `Messreihe`, `Familie`, `ueber dem
-#: abgeleiteten Deckel`, `referenzmaschinengebunden`) — sonst haelt ein Fangnachweis, der auf deren
-#: Wortlaut prueft, diese hier fuer seinen eigenen Fund und geht blind. Gebunden in
+#: The anomaly's own vocabulary. It must share NO recognition word with the other abstentions of this
+#: file (`NICHT MESSBAR`, `Streuung`, `Messreihe`, `Familie`, `ueber dem abgeleiteten Deckel`,
+#: `referenzmaschinengebunden`) - otherwise a catch proof that tests their wording mistakes this one
+#: for its own finding and goes blind. Bound in
 #: `test_die_ANOMALIE_teilt_kein_erkennungswort_mit_den_anderen_abstinenzen`.
 _ANOMALIE_WORT = "ANNAHME WIDERLEGT"
 
 
 def _hwm_aus_proc() -> int | None:
-    """Der High-Water-Mark des Resident Set Size, oder `None`, wenn es ihn hier nicht gibt.
+    """The high-water mark of the resident set size, or `None` where it does not exist.
 
-    Herausgezogen, damit ein Fangnachweis die drei Zustaende von `_prozess_spitze` STELLEN kann,
-    ohne `/proc` zu faelschen. Ein Fangnachweis, der am Dateisystem statt am Messweg ansetzt,
-    prueft nicht die Stelle, die er benennt — dieselbe Lehre wie bei `_referenz_kostet`.
+    Extracted so a catch proof can STAGE the three states of `_prozess_spitze` without faking
+    `/proc`. A catch proof that works on the file system instead of the measurement path does not
+    test the place it names - the same lesson as `_referenz_kostet`.
     """
     try:
         for zeile in pathlib.Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
@@ -809,9 +808,9 @@ def _prozess_spitze(ruf, hwm=_hwm_aus_proc) -> tuple[int, str]:
         except ProofBundleError:
             pass
         return _SPITZE_PLATTFORM, (
-            "NICHT MESSBAR: /proc/self/status VmHWM ist hier nicht lesbar (kein Linux?). "
-            "Messflaeche: die Umgebung fuehrt diesen Zaehler nicht — das ist eine Grenze der "
-            "Plattform und kein Befund ueber den Code.")
+            "NICHT MESSBAR: /proc/self/status VmHWM is not readable here (not Linux?). "
+            "Messflaeche: the environment does not keep this counter, which is a limit of the "
+            "platform and not a finding about the code.")
     try:
         ruf()
     except ProofBundleError:
@@ -819,11 +818,11 @@ def _prozess_spitze(ruf, hwm=_hwm_aus_proc) -> tuple[int, str]:
     nachher = hwm()
     if nachher is None:                                        # pragma: no cover
         return _SPITZE_ANOMALIE, (
-            f"{_ANOMALIE_WORT}: VmHWM war VOR dem Aufruf lesbar ({vorher} B) und danach nicht. "
-            "Messflaeche: /proc/self/status im selben Prozess, zwei Ablesungen um denselben Aufruf. "
-            "Die Umgebung hat den Zaehler MITTEN in der Messung verloren; das widerspricht der "
-            "Annahme, unter der diese Messung gebaut ist, und ist damit kein Wert und keine "
-            "Plattformgrenze.")
+            f"{_ANOMALIE_WORT}: VmHWM was readable BEFORE the call ({vorher} B) and not after. "
+            "Messflaeche: /proc/self/status in the same process, two readings around the same "
+            "call. The environment lost the counter IN THE MIDDLE of the measurement; that "
+            "contradicts the assumption this measurement is built on, so it is neither a value "
+            "nor a platform limit.")
     if nachher < vorher:
         # A NEGATIVE PEAK IS NOT A MEASUREMENT, it is a refuted premise. The paragraph above used to
         # state "VmHWM never falls" as a fact, and that is exactly what happened in CI on 2026-09-24:
@@ -1323,35 +1322,34 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         weg = m["prozess_spitze_messweg"]
         assert isinstance(weg, str) and weg, "die Prozessspitze nennt ihren Messweg nicht"
         spitze = m["prozess_spitze_am_limit"]
-        # DREI ZUSTAENDE, DREI AUSGAENGE (Codex-Fund P2 an PR 259, 2026-09-24T22:11Z). Bis dahin
-        # standen hier zwei: `-1` prueffte nur, DASS ein Grund dasteht, und bestand — fuer die
-        # Plattformgrenze richtig, fuer eine widerlegte Annahme ein stilles Gruen.
+        # THREE STATES, THREE EXITS (Codex finding P2 on pull request 259, 2026-09-24T22:11Z).
+        # Until then there were two: at `-1` the branch only checked THAT a reason was present and
+        # passed - right for the platform limit, a silent green for a refuted assumption.
         if spitze == _SPITZE_ANOMALIE:
-            # SICHTBAR, NICHT STUMM und NICHT GRUEN. Ein Ueberspringen steht in der Skip-Zahl und
-            # traegt seinen Grund; eine bestehende Zusicherung traegt beides nicht. Warum nicht ROT:
-            # der Vorfall vom 24.09. war ein einmaliger Kernel-Befund mit UNERKLAERTER Ursache, und
-            # ein Rot daraus waere ein Urteil ueber proofbundle fuer etwas, das nicht in proofbundle
-            # geschieht.
+            # VISIBLE, NOT SILENT and NOT GREEN. A skip stands in the skip count and carries
+            # its reason; a passing assertion carries neither. Why not red: the incident of
+            # 2026-09-24 was a single kernel observation with an UNEXPLAINED cause, and a red verdict
+            # from it would judge proofbundle for something that does not happen in proofbundle.
             assert _ANOMALIE_WORT in weg, (
-                f"{dim.name}: die Prozessspitze meldet die Anomalie ohne ihr eigenes Wort: {weg!r}")
+                f"{dim.name}: the process peak reports the anomaly without its own word: {weg!r}")
             pytest.skip(
-                f"{_ANOMALIE_WORT} ({dim.name}): die Prozessspitze widerspricht der Annahme, unter "
-                f"der sie gemessen wird. MESSFLAECHE: /proc/self/status VmHWM, zwei Ablesungen um "
-                f"denselben Aufruf im selben Prozess. Grund im Messweg: {weg}")
+                f"{_ANOMALIE_WORT} ({dim.name}): the process peak contradicts the assumption it "
+                f"is measured under. MESSFLAECHE: /proc/self/status VmHWM, two readings around the "
+                f"same call in the same process. Reason in the measurement path: {weg}")
         if spitze == _SPITZE_PLATTFORM:
-            # Die Umgebung KANN nicht messen. Daran ist nichts falsch, und ein Bestehen ist die
-            # richtige Antwort — anders als bei der Anomalie darueber.
+            # The environment CANNOT measure. Nothing is wrong with that, and passing is the
+            # right answer - unlike the anomaly above.
             assert "NICHT MESSBAR" in weg, (
-                f"{dim.name}: die Prozessspitze meldet die Plattformgrenze ohne Grund: {weg!r}")
+                f"{dim.name}: the process peak reports the platform limit without a reason: {weg!r}")
             assert "Messflaeche" in weg, (
-                f"{dim.name}: die Plattformgrenze nennt ihre MESSFLAECHE nicht. Ein Urteil aus einem "
-                f"Werkzeug ohne die Flaeche, auf der es entstand, ist von einem Urteil ueber eine "
-                f"andere Flaeche nicht zu unterscheiden: {weg!r}")
+                f"{dim.name}: the platform limit does not name its MESSFLAECHE. A verdict from a "
+                f"tool without the surface it was taken on cannot be told apart from a verdict about "
+                f"a different surface: {weg!r}")
         else:
             assert spitze >= 0, (
-                f"{dim.name}: negative Prozessspitze {spitze}, und sie traegt keine der beiden "
-                f"erklaerten Kennzahlen ({_SPITZE_PLATTFORM} Plattform, {_SPITZE_ANOMALIE} "
-                f"Anomalie). Eine dritte negative Zahl ist ein Zustand ohne Namen: {weg!r}")
+                f"{dim.name}: negative process peak {spitze}, and it carries neither of the two "
+                f"declared numbers ({_SPITZE_PLATTFORM} platform, {_SPITZE_ANOMALIE} anomaly). A "
+                f"third negative number is a state without a name: {weg!r}")
             assert "VmHWM" in weg, (
                 f"{dim.name}: ein Wert ohne den Messweg, der ihn erzeugt hat: {weg!r}")
 
@@ -3614,30 +3612,27 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
 
 
 class TestDreiZustaendeDerProzessspitze:
-    """DER CODEX-FUND P2 AN PR 259 (2026-09-24T22:11:17Z, Kommentar 4098990135) als Vertrag.
+    """THE CODEX P2 ON PULL REQUEST 259 (2026-09-24T22:11:17Z, comment 4098990135) as a contract.
 
-    Sein Wortlaut: „Keep an unmeasurable peak from passing the gate. Defect class: an abstention
-    encoded as an accepted sentinel." Und er nannte die Stelle genau: eine gefallene Prozessspitze gab
-    `(-1, "NICHT MESSBAR…")` zurueck, der Zweig darunter prueffte bei `-1` nur, DASS ein Grund
-    dasteht, und bestand. Aus dem roten Fall vom 24.09. („negative Prozessspitze -290816") wurde ein
-    gruener.
+    Its wording: "Keep an unmeasurable peak from passing the gate. Defect class: an abstention encoded
+    as an accepted sentinel." And it named the place exactly: a fallen process peak returned
+    `(-1, "NICHT MESSBAR...")`, the branch below only checked THAT a reason was present at `-1`, and it
+    passed. The red case of 2026-09-24 ("negative Prozessspitze -290816") became a green one.
 
-    DIE DATEI VERURTEILT DAS MIT IHREN EIGENEN WORTEN, zwei Stellen weiter oben:
-    „Eine Abstinenz, die durch die Zusicherung durchgeht, ist keine Abstinenz — sie ist ein stilles
-    Gruen." Der Fund ist also nicht neu in seiner Klasse; neu ist nur, dass sie hier zugeschlagen hat,
-    und zwar in einem Fix, der unter CI-Druck entstand.
+    THIS FILE CONDEMNS THAT IN ITS OWN WORDS, a few hundred lines up: an abstention that goes through
+    the assertion is not an abstention, it is a silent green. So the finding is not new in its class;
+    what is new is that the class struck here, in a fix written under CI pressure.
 
-    WAS HIER GEBUNDEN WIRD, sind drei Zustaende mit drei Ausgaengen — und die Gegenrichtung, ohne die
-    ein Fix, der ALLES ueberspringt, jede Sperrpruefung bestuende.
+    WHAT IS BOUND HERE are three states with three exits - and the counter-direction, without which a
+    fix that skips EVERYTHING would satisfy every blocking case above.
     """
 
     @staticmethod
     def _spitze_mit(werte: list):
-        """`_prozess_spitze` mit einem gestellten Leser statt gefaelschtem Dateisystem.
+        """`_prozess_spitze` with a staged reader instead of a faked file system.
 
-        Ein Fangnachweis, der `/proc` faelscht, prueft die Umgebung; einer, der den LESER stellt,
-        prueft den Messweg. Dieselbe Lehre wie bei `_referenz_kostet` — am Pfad ansetzen, nicht am
-        Speicher.
+        A catch proof that fakes `/proc` tests the environment; one that stages the READER tests the
+        measurement path. The same lesson as `_referenz_kostet` - work on the path, not on the store.
         """
         rest = list(werte)
 
@@ -3647,72 +3642,71 @@ class TestDreiZustaendeDerProzessspitze:
         return _prozess_spitze(lambda: None, hwm=leser)
 
     def test_eine_GEFALLENE_spitze_besteht_NICHT_mehr(self):
-        """Der gemessene Fall des Fundes: 200 KiB vorher, 100 KiB nachher."""
+        """The measured case of the finding: 200 KiB before, 100 KiB after."""
         wert, weg = self._spitze_mit([200 * 1024, 100 * 1024])
         assert wert == _SPITZE_ANOMALIE, (
-            f"Eine gefallene Prozessspitze meldet {wert} statt {_SPITZE_ANOMALIE}. Traegt sie "
-            f"dieselbe Kennzahl wie die Plattformgrenze, kann die Zusicherung die beiden nicht "
-            f"trennen — genau der Fund: {weg!r}")
-        assert _ANOMALIE_WORT in weg, f"die Anomalie traegt ihr eigenes Wort nicht: {weg!r}"
+            f"A fallen process peak reports {wert} instead of {_SPITZE_ANOMALIE}. Carrying the same "
+            f"number as the platform limit means the assertion cannot separate the two, which is "
+            f"exactly the finding: {weg!r}")
+        assert _ANOMALIE_WORT in weg, f"the anomaly does not carry its own word: {weg!r}"
 
     def test_ein_VERLORENER_zaehler_ist_ebenfalls_eine_anomalie(self):
-        """Vorher lesbar, nachher nicht. Die Umgebung hat den Zaehler MITTEN in der Messung
-        verloren; das ist keine Plattformgrenze, denn vorher ging es."""
+        """Readable before, not after. The environment lost the counter IN THE MIDDLE of the
+        measurement; that is not a platform limit, because before the call it worked."""
         wert, weg = self._spitze_mit([200 * 1024, None])
         assert wert == _SPITZE_ANOMALIE, (
-            f"Ein mitten in der Messung verlorener Zaehler meldet {wert} statt "
-            f"{_SPITZE_ANOMALIE}: {weg!r}")
-        assert _ANOMALIE_WORT in weg, f"die Anomalie traegt ihr eigenes Wort nicht: {weg!r}"
+            f"A counter lost mid-measurement reports {wert} instead of {_SPITZE_ANOMALIE}: {weg!r}")
+        assert _ANOMALIE_WORT in weg, f"the anomaly does not carry its own word: {weg!r}"
 
     def test_die_PLATTFORMGRENZE_bleibt_eine_eigene_antwort(self):
-        """GEGENRICHTUNG, und ohne sie waere der Fix eine Verschaerfung auf allen Plattformen: wo
-        `/proc` fehlt, ist nichts falsch, und die Antwort darf nicht dieselbe sein wie bei einer
-        widerlegten Annahme."""
+        """COUNTER-DIRECTION, and without it the fix would be a tightening on every platform: where
+        `/proc` is missing nothing is wrong, and the answer must not be the same as for a refuted
+        assumption."""
         wert, weg = self._spitze_mit([None])
         assert wert == _SPITZE_PLATTFORM, (
-            f"Eine fehlende Messflaeche meldet {wert} statt {_SPITZE_PLATTFORM}: {weg!r}")
+            f"A missing measuring surface reports {wert} instead of {_SPITZE_PLATTFORM}: {weg!r}")
         assert "NICHT MESSBAR" in weg and _ANOMALIE_WORT not in weg, (
-            f"die Plattformgrenze traegt das Wort der Anomalie oder nennt ihren Grund nicht: {weg!r}")
+            f"the platform limit carries the anomaly's word or names no reason: {weg!r}")
         assert "Messflaeche" in weg, (
-            f"die Plattformgrenze nennt ihre MESSFLAECHE nicht: {weg!r}")
+            f"the platform limit does not name its MESSFLAECHE: {weg!r}")
 
     def test_ein_gewoehnlicher_wert_kommt_unveraendert_durch(self):
-        """ZWEITE GEGENRICHTUNG: ein Fix, der jede Messung zu einem Sonderzustand macht, bestuende
-        alle Faelle darueber und haette die Messung abgeschafft."""
+        """SECOND COUNTER-DIRECTION: a fix that turns every measurement into a special state would
+        satisfy all the cases above and would have abolished the measurement."""
         wert, weg = self._spitze_mit([100 * 1024, 300 * 1024])
-        assert wert == 200 * 1024, f"die Differenz wird nicht mehr berichtet: {wert}, {weg!r}"
+        assert wert == 200 * 1024, f"the difference is no longer reported: {wert}, {weg!r}"
         assert "VmHWM" in weg and _ANOMALIE_WORT not in weg, weg
 
     def test_eine_UNVERAENDERTE_spitze_ist_null_und_kein_sonderzustand(self):
-        """Die Grenze zwischen 'gefallen' und 'gleich geblieben'. Null ist ein gueltiger Messwert:
-        der Lauf brauchte nicht mehr als der Prozess ohnehin schon hielt. Wer die Grenze auf `<=`
-        verschiebt, macht aus einem messbaren Fall stillschweigend eine Anomalie."""
+        """The boundary between "fell" and "stayed the same". Zero is a valid measurement: the run
+        needed no more than the process already held. Moving the comparison to `<=` would silently
+        turn a measurable case into an anomaly."""
         wert, weg = self._spitze_mit([300 * 1024, 300 * 1024])
-        assert wert == 0, f"eine unveraenderte Spitze meldet {wert} statt 0: {weg!r}"
+        assert wert == 0, f"an unchanged peak reports {wert} instead of 0: {weg!r}"
         assert _ANOMALIE_WORT not in weg, weg
 
     def test_die_ANOMALIE_teilt_kein_erkennungswort_mit_den_anderen_abstinenzen(self):
-        """DIESELBE REGEL WIE FUER DIE REFERENZMASCHINEN-BINDUNG, hier fuer den neuen Zustand.
+        """THE SAME RULE AS FOR THE REFERENCE-MACHINE BINDING, here for the new state.
 
-        Diese Datei hat mehrere Wege, aus einer Zusicherung herauszukommen, und jeder Fangnachweis
-        prueft den WORTLAUT des Weges, den er sucht. Truege die Anomalie die Worte eines anderen,
-        hielte ein fremder Fangnachweis sie fuer seinen eigenen Fund und bliebe gruen, ohne etwas
-        gemessen zu haben — gemessen am 08.09.2026 an zwei blind bestandenen Faellen.
+        This file has several ways out of an assertion, and every catch proof tests the WORDING of the
+        way it seeks. If the anomaly carried another one's words, a foreign catch proof would mistake
+        it for its own finding and stay green without measuring anything - measured on 2026-09-08 on
+        two cases that passed blind.
         """
         _, weg = self._spitze_mit([200 * 1024, 100 * 1024])
         for wort in ("NICHT MESSBAR", "Streuung", "Messreihe", "Familie",
                      "ueber dem abgeleiteten Deckel", "referenzmaschinengebunden"):
             assert wort not in weg, (
-                f"Die Meldung der Prozessspitzen-Anomalie enthaelt {wort!r} — das Erkennungswort "
-                f"eines ANDEREN Ausgangs dieser Datei. Gemeldet: {weg!r}")
+                f"The process-peak anomaly message contains {wort!r}, the recognition word of ANOTHER "
+                f"exit of this file. Reported: {weg!r}")
 
     def test_der_zweig_der_ZUSICHERUNG_ueberspringt_statt_zu_bestehen(self):
-        """DER EIGENTLICHE FUND, am Pfad gemessen statt an der Funktion.
+        """THE ACTUAL FINDING, measured on the path rather than on the function.
 
-        Die Faelle darueber pruefen `_prozess_spitze`. Dieser prueft die ZUSICHERUNG: mit einer
-        Anomalie im Messergebnis muss sie UEBERSPRINGEN. Ohne diesen Fall bliebe der Fund offen —
-        die Funktion koennte korrekt unterscheiden und der Zweig darunter trotzdem bestehen, und
-        genau diese Trennung war der Defekt.
+        The cases above test `_prozess_spitze`. This one tests the ASSERTION: with an anomaly in the
+        measurement it must SKIP. Without this case the finding would stay open - the function could
+        separate the states correctly and the branch below still pass, and exactly that separation was
+        the defect.
         """
         dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
         vorher = dict(_MESSUNGEN)
@@ -3734,16 +3728,16 @@ class TestDreiZustaendeDerProzessspitze:
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher)
         assert ausgang.startswith("SKIP"), (
-            f"Eine Anomalie der Prozessspitze wurde nicht uebersprungen, sondern: {ausgang[:300]!r}. "
-            f"Ein STILLER PASS hier ist genau der Codex-Fund P2: eine Abstinenz, die durch die "
-            f"Zusicherung durchgeht, ist keine Abstinenz.")
+            f"A process-peak anomaly was not skipped but reported as: {ausgang[:300]!r}. A silent pass "
+            f"here is precisely the Codex finding P2: an abstention that goes through the assertion is "
+            f"not an abstention.")
         assert _ANOMALIE_WORT in ausgang and "MESSFLAECHE" in ausgang, (
-            f"Die Abstinenz nennt ihr Wort oder ihre Messflaeche nicht: {ausgang[:300]!r}")
+            f"The abstention names neither its word nor its measuring surface: {ausgang[:300]!r}")
 
     def test_eine_PLATTFORMGRENZE_besteht_die_zusicherung_weiterhin(self):
-        """DIE GEGENRICHTUNG AUF DER EBENE DER ZUSICHERUNG. Ohne sie waere ein Fix, der bei JEDER
-        negativen Kennzahl ueberspringt, von einem richtigen nicht zu unterscheiden — und auf jeder
-        Nicht-Linux-Plattform waere diese Achse stumm."""
+        """THE COUNTER-DIRECTION AT THE LEVEL OF THE ASSERTION. Without it a fix that skips on ANY
+        negative number would be indistinguishable from a correct one, and on every non-Linux platform
+        this axis would fall silent."""
         dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
         vorher = dict(_MESSUNGEN)
         try:
@@ -3764,5 +3758,5 @@ class TestDreiZustaendeDerProzessspitze:
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher)
         assert ausgang == "BESTANDEN", (
-            f"Eine fehlende Messflaeche (kein /proc) darf die Zusicherung nicht zum Schweigen "
-            f"bringen — dort ist nichts falsch. Gemeldet: {ausgang[:300]!r}")
+            f"A missing measuring surface (no /proc) must not silence the assertion - nothing is wrong "
+            f"there. Reported: {ausgang[:300]!r}")
