@@ -417,15 +417,15 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
             continue                      # binary or unreadable: no claim to read, not a failure
         gefunden = False
         for nr, zeile in enumerate(text.splitlines(), 1):
-            # Die ZEILE, auf die ein angemeldeter Anker passt, ist gedeckt — Check 4 haelt sie
-            # aktuell. Jede andere Zeile derselben Datei bleibt Gegenstand dieses Sweeps.
+            # The LINE a declared anchor matches is covered: Check 4 keeps that one current.
+            # Every other line of the same file stays the subject of this sweep.
             if any(p.search(zeile) for p in angemeldet):
                 continue
             for form, muster, nur_aktuelle, beschreibung in _CLAIM_SHAPES:
                 treffer = muster.search(zeile)
                 if not treffer:
                     continue
-                # Eine FORM mit einer aelteren Zahl ist Geschichte, keine Behauptung.
+                # A SHAPE carrying an older number is history, not a claim.
                 if nur_aktuelle and version and treffer.group(1) != version:
                     continue
                 problems.append(
