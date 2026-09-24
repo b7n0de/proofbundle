@@ -91,13 +91,23 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     ``/home/konrad/proofbundle``, a checkout 47 commits behind main and 9 ahead of it, where A-15 is
     absent. The exposure is the DIRECT library caller, exactly as the register scoped it.
 
-    WHY A SHARED PREDICATE AND NOT FIVE ``isinstance`` LINES. The register entry that scheduled the work
+    WHY A SHARED PREDICATE AND NOT SIX ``isinstance`` LINES. The register entry that scheduled the work
     names three sites; reading the file finds five in the same reach, and counting them is how this
     class keeps coming back: ``intoto.py:99`` passes the raw value through, ``:246`` maps it through
     ``_RESULT_ENUM[bool(...)]``, ``:251`` picks ``passedTests`` versus ``failedTests``, ``:424`` emits
     ``bool(...)``, and ``:551`` tests truthiness. The module docstring above already argued this once
     for the hashable class, after this repository paid for the instance fix three times. Same argument,
     third class.
+
+    AND THEN A SIXTH, found only after the first five were already fixed and pushed: ``sdjwt_issue.py``
+    copies ``passed`` into the always-open claims of an SD-JWT and SIGNS it. That one was missed because
+    the scanner beside this module looked for truthiness CONTEXTS -- ``if claim["passed"]``, ``bool(...)``,
+    a ternary -- and an unexamined pass-through into a signed artefact is none of those while being the
+    same violated assumption and a worse outcome. The count in this paragraph is therefore not decoration:
+    each number here was once the number someone believed was final. ``policy.py:269`` has carried
+    ``_require_bool`` with this reasoning in its docstring since before any of them, which is the sharper
+    embarrassment -- the knowledge existed in this package at one surface and never travelled to the
+    others.
 
     THE VERIFY BOUNDARY ROUTES THROUGH HERE TOO, and not because it was missing a check. A-15's inline
     ``isinstance(claim.get("passed"), bool)`` was right and is why the signed paths held. It calls this

@@ -7,23 +7,46 @@ entry points and the property test would stay green while the class came back. T
 sibling class already paid for: `_membership.py` says it in its own docstring, after this repository
 fixed the same assumption three times at three call sites.
 
-WHAT IT LOOKS FOR, stated narrowly so nobody reads it as more. A read of the literal key ``"passed"``
-off a subscript or ``.get`` that is used as a TRUTH VALUE: wrapped in ``bool(...)``, used as an ``if``
-or ``while`` condition, negated with ``not``, used as a ternary condition, or combined with
-``and``/``or``. Those are the shapes the six measured sites actually had.
+WHAT IT LOOKS FOR. A read of the literal key ``"passed"``, in a function that does not establish the
+field's type, used in either of the two ways that DEPEND on that type:
+
+1. AS A TRUTH VALUE -- wrapped in ``bool(...)``, an ``if``/``while`` condition, negated with ``not``, a
+   ternary condition, an operand of ``and``/``or``, a comprehension guard.
+2. PASSED THROUGH -- the value flows OUT of the function with its type unestablished: as a value in a
+   dict literal, an element of a list/tuple/set, an argument to a call, or a returned expression.
+
+THE SECOND KIND WAS ADDED AFTER IT COST A SITE, and that is the reason it is here rather than in the
+list of known holes below. The first version of this file looked only for truthiness contexts and
+therefore reported nothing about ``sdjwt_issue.issue_sd_jwt``, which did ``"passed": claim["passed"]``
+into the always-open claims of an SD-JWT and then SIGNED them. No ``bool()``, no ``if`` -- and the worst
+outcome of the six, because the artefact leaves the process with a valid signature over a value that is
+not a verdict, and every downstream reader that tests truthiness reads it as a pass. A scanner that
+models the class as "coercion" misses the case where the coercion happens in someone else's code.
+
+Kind 2 deliberately does NOT include a comparison: ``claim["passed"] == True`` is type-safe (a string
+is simply unequal) and flagging it would push authors toward the truthy form this file exists to
+discourage.
+
+ALIASING IS RESOLVED ONE LEVEL, and that closed a hole this file never stated. ``v = claim["passed"]``
+followed by ``if v:`` escaped the first version completely: the truthiness test saw a bare ``Name`` and
+the key-read test answered no. Measured 2026-09-24 on a planted case -- empty finding set. A single
+assignment now carries the reference, in both directions: a read THROUGH the alias is found, and an
+``isinstance(v, bool)`` ON the alias counts as establishing it (which is how
+``evalclaim.eval_evidence_class`` is correctly quiet rather than a false red).
 
 STATED REACH, AND IT IS A REAL HOLE, not a formality:
 
-* A field read through a VARIABLE (``schluessel = "passed"``; ``claim[schluessel]``) escapes it.
+* A field read through a VARIABLE KEY (``schluessel = "passed"``; ``claim[schluessel]``) escapes it.
+  This is the key being indirect, not the value; the alias resolution above does not reach it.
+* TWO OR MORE levels of aliasing escape it (``a = claim["passed"]``; ``b = a``; ``if b:``).
 * A DIFFERENT verdict-bearing field escapes it. The scanner knows one key name, not the concept.
 * A truth-value read via ``operator.truth`` or ``filter`` escapes it.
-* Equality comparisons (``claim["passed"] == True``) are NOT flagged, because they do not coerce.
 
-So this is a guard against the shapes that occurred, not a proof that the class is gone. The honest
-protection is the pair: this scanner for new sites, the property test for new paths behind old sites.
-The baseline below is a LIST OF KNOWN GAPS rather than a permission: every entry names why it is
-allowed to stand, and an entry that no longer exists makes this file fail rather than shrinking in
-silence.
+So this is a guard against the shapes that occurred plus the two that measurement added, not a proof
+that the class is gone. The honest protection is the pair: this scanner for new sites, the property test
+for new paths behind old sites. The baseline below is a LIST OF KNOWN GAPS rather than a permission:
+every entry names why it is allowed to stand, and an entry that no longer exists makes this file fail
+rather than shrinking in silence.
 """
 import ast
 import pathlib
@@ -33,7 +56,11 @@ QUELLE = pathlib.Path(__file__).resolve().parents[1] / "src" / "proofbundle"
 
 #: The helpers that ESTABLISH the type. A function that calls one of these may then read the field
 #: however it likes — that is the whole point of a shared predicate.
-ETABLIERER = {"is_bool", "_require_bool_verdict"}
+#:
+#: `_require_export_fields` is in here because it CALLS `_require_bool_verdict` (intoto.py, measured
+#: 2026-09-24), not because of its name. A name on this list that does not actually establish the type
+#: would be the exact defect this file is about, one level up — so each entry is a measurement.
+ETABLIERER = {"is_bool", "_require_bool_verdict", "_require_export_fields"}
 
 #: Sites that read the field as a truth value and are allowed to, each with its reason. The key is
 #: (relative path, enclosing definition) so a line shift does not break the file.
@@ -49,6 +76,14 @@ GRUNDLINIE = {
     ("hf_evals.py", "to_eval_results_entry"):
         "same shape and same reason: decode_eval_claim runs first. Its own comment already states "
         "that argument for the comparator and the threshold, which is the sibling case of this one.",
+    ("cli.py", "_cmd_show_eval"):
+        "the ONLY site the pass-through kind added, and it is a display line. Two reasons, both "
+        "measured: the claim comes from decode_eval_claim and the function returns 1 when that is "
+        "None (cli.py:406), so the A-15 boundary has already typed the field; and the use is "
+        "`_s(claim['passed'])` = `_safe_line(str(...))` into a printed line, which cannot turn a "
+        "non-pass into a pass — a string verdict would be PRINTED as that string, which is honest "
+        "output rather than a coerced one. It stays in the baseline instead of being guarded, because "
+        "a guard here would suggest the decode boundary is not trusted.",
 }
 
 # THESE TWO ENTRIES ARRIVED BY A REVIEWER'S QUESTION, and they arrived together with a defect in this
@@ -90,10 +125,46 @@ def _schluesselbezug(knoten: ast.AST) -> tuple[str, str] | None:
     return None
 
 
-def _liest_passed(knoten: ast.AST) -> bool:
-    """Is this expression a read of the literal key ``passed``?"""
-    bezug = _schluesselbezug(knoten)
-    return bezug is not None and bezug[1] == "passed"
+def _aliase(fn: ast.AST) -> dict[str, tuple[str, str]]:
+    """Names bound ONCE to a keyed read: ``wert = claim.get("passed")`` -> {"wert": ("claim", "passed")}.
+
+    A name assigned MORE THAN ONCE is dropped rather than kept with the first binding. Keeping it would
+    let ``v = claim["passed"]`` followed by ``v = something_else`` claim a reference the value no longer
+    has, which is a guess dressed as a measurement — and this file's whole subject is a check bound to a
+    form instead of to the thing.
+    """
+    treffer: dict[str, tuple[str, str]] = {}
+    mehrfach: set[str] = set()
+    for k in ast.walk(fn):
+        if isinstance(k, ast.Assign) and len(k.targets) == 1 and isinstance(k.targets[0], ast.Name):
+            name = k.targets[0].id
+            if name in treffer or name in mehrfach:
+                mehrfach.add(name)
+                treffer.pop(name, None)
+                continue
+            bezug = _schluesselbezug(k.value)
+            if bezug is not None:
+                treffer[name] = bezug
+        elif isinstance(k, (ast.AugAssign, ast.AnnAssign)) and isinstance(k.target, ast.Name):
+            mehrfach.add(k.target.id)
+            treffer.pop(k.target.id, None)
+    return treffer
+
+
+def _bezug(knoten: ast.AST, aliase: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
+    """(object source, key) for a direct keyed read OR for a name aliased to one."""
+    direkt = _schluesselbezug(knoten)
+    if direkt is not None:
+        return direkt
+    if isinstance(knoten, ast.Name):
+        return aliase.get(knoten.id)
+    return None
+
+
+def _liest_passed(knoten: ast.AST, aliase: dict[str, tuple[str, str]] | None = None) -> bool:
+    """Is this expression a read of the literal key ``passed``, directly or through one alias?"""
+    b = _bezug(knoten, aliase or {})
+    return b is not None and b[1] == "passed"
 
 
 def _wahrheitswertig(baum: ast.AST) -> list[ast.AST]:
@@ -113,6 +184,34 @@ def _wahrheitswertig(baum: ast.AST) -> list[ast.AST]:
             aus.append(k.args[0])
         elif isinstance(k, ast.comprehension):
             aus.extend(k.ifs)
+    return aus
+
+
+def _durchgereicht(baum: ast.AST) -> list[ast.AST]:
+    """Every expression in `baum` that LEAVES the function with its type unexamined.
+
+    THE KIND THAT COST A SITE. ``issue_sd_jwt`` wrote ``"passed": claim["passed"]`` into a dict it then
+    signed — a dict VALUE, and nothing a truthiness scan can see. The four shapes here are the ways a
+    value gets out of a function: into a mapping, into a sequence, into a call, or as the return value.
+
+    ``isinstance`` is excluded because a value handed to it is being examined, not passed on; that is the
+    opposite of this kind. The ``ETABLIERER`` are excluded for the same reason.
+    """
+    aus: list[ast.AST] = []
+    for k in ast.walk(baum):
+        if isinstance(k, ast.Dict):
+            aus.extend(w for w in k.values if w is not None)
+        elif isinstance(k, (ast.List, ast.Tuple, ast.Set)):
+            aus.extend(k.elts)
+        elif isinstance(k, ast.Return) and k.value is not None:
+            aus.append(k.value)
+        elif isinstance(k, ast.Call):
+            name = (k.func.id if isinstance(k.func, ast.Name)
+                    else k.func.attr if isinstance(k.func, ast.Attribute) else "")
+            if name in ETABLIERER or name == "isinstance":
+                continue
+            aus.extend(k.args)
+            aus.extend(w.value for w in k.keywords)
     return aus
 
 
@@ -139,7 +238,8 @@ def _etabliert_den_typ(fn: ast.AST, ausdruck: ast.AST) -> bool:
     `is_bool` and `_require_bool_verdict` still count wherever they appear, because both take the
     CLAIM and answer for its verdict field; there is no other expression they could be about.
     """
-    ziel = _schluesselbezug(ausdruck)
+    aliase = _aliase(fn)
+    ziel = _bezug(ausdruck, aliase)
     for k in ast.walk(fn):
         if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in ETABLIERER:
             return True
@@ -149,15 +249,23 @@ def _etabliert_den_typ(fn: ast.AST, ausdruck: ast.AST) -> bool:
         # thing, and demanding the shared helper would be a style rule dressed up as a safety one.
         # It must be the SAME FIELD OF THE SAME OBJECT, compared as (object source, key), so
         # `claim["passed"]` and `claim.get("passed")` count as one while `_val` and `value` do not.
+        # RESOLVED THROUGH ONE ALIAS on both sides, which is how `eval_evidence_class` -- it assigns
+        # `passed = claim.get("passed")` and then checks `isinstance(passed, bool)` -- is correctly
+        # quiet. Without that resolution the widened scan would have reported a function that does
+        # exactly the right thing, and a false red teaches readers to widen the baseline.
         if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "isinstance"
                 and len(k.args) == 2 and isinstance(k.args[1], ast.Name)
-                and k.args[1].id == "bool" and _schluesselbezug(k.args[0]) == ziel):
+                and k.args[1].id == "bool" and _bezug(k.args[0], aliase) == ziel):
             return True
     return False
 
 
 def _stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str], list[int]]:
-    """(file, enclosing definition) -> line numbers, for every unguarded truthy read of `passed`."""
+    """(file, enclosing definition) -> line numbers, for every unguarded read of `passed`.
+
+    Both kinds, in one set: a truthiness read and a pass-through are the same violated assumption, and
+    reporting them separately would invite closing one list and calling the class handled.
+    """
     texte = _dateien() if quelltexte is None else quelltexte
     if not texte:
         raise AssertionError("no source files read — an empty scan is not a clean one")
@@ -165,8 +273,9 @@ def _stellen(quelltexte: dict[str, str] | None = None) -> dict[tuple[str, str], 
     for name, text in texte.items():
         baum = ast.parse(text)
         for fn in _definitionen(baum):
-            for ausdruck in _wahrheitswertig(fn):
-                if _liest_passed(ausdruck) and not _etabliert_den_typ(fn, ausdruck):
+            aliase = _aliase(fn)
+            for ausdruck in (*_wahrheitswertig(fn), *_durchgereicht(fn)):
+                if _liest_passed(ausdruck, aliase) and not _etabliert_den_typ(fn, ausdruck):
                     gefunden.setdefault((name, fn.name), []).append(ausdruck.lineno)
     return gefunden
 
@@ -210,6 +319,53 @@ class TestDerScannerFAENGTAuchWasErFangenSoll(unittest.TestCase):
                 gefunden = _stellen({"gepflanzt.py": quelle})
                 self.assertIn(("gepflanzt.py", "neu"), gefunden,
                               f"the planted site was not found: {quelle!r}")
+
+    def test_die_durchgereichte_form_wird_gefunden_DIE_DIE_SECHSTE_STELLE_WAR(self):
+        """The shape `issue_sd_jwt` actually had, plus the other three ways a value leaves a function.
+
+        The first case is the real one, written as it stood: a dict value that is then signed. No
+        `bool()`, no `if` — and the first version of this scanner reported nothing for it.
+        """
+        for quelle in (
+            'def neu(claim, signer):\n    offen = {"passed": claim["passed"]}\n'
+            '    return signer.sign(offen)\n',
+            'def neu(claim):\n    return [claim["passed"]]\n',
+            'def neu(claim):\n    return claim.get("passed")\n',
+            'def neu(claim):\n    return emit(claim["passed"])\n',
+            'def neu(claim):\n    return emit(verdikt=claim["passed"])\n',
+        ):
+            with self.subTest(quelle=quelle.splitlines()[1].strip()):
+                gefunden = _stellen({"gepflanzt.py": quelle})
+                self.assertIn(("gepflanzt.py", "neu"), gefunden,
+                              f"a pass-through of the unexamined field was not found: {quelle!r}")
+
+    def test_die_alias_form_wird_gefunden_UND_WAR_EIN_UNGENANNTES_LOCH(self):
+        """`v = claim["passed"]` then `if v:` — measured empty on the first version of this file.
+
+        It was not even in the list of stated holes, which is the worse half: an unstated hole reads as
+        a covered case. Both directions are pinned, because alias resolution that only finds and never
+        exempts turns every correct local check into a false red.
+        """
+        for quelle, erwartet_fund in (
+            ('def neu(claim):\n    v = claim["passed"]\n    if v:\n        return 1\n', True),
+            ('def neu(claim):\n    v = claim.get("passed")\n    return bool(v)\n', True),
+            ('def neu(claim):\n    v = claim["passed"]\n    return {"passed": v}\n', True),
+            # exempted: the type is established ON THE ALIAS, which is what eval_evidence_class does
+            ('def neu(claim):\n    v = claim.get("passed")\n'
+             '    if not isinstance(v, bool):\n        raise ValueError\n    return {"passed": v}\n',
+             False),
+            # NOT exempted: the isinstance is about a DIFFERENT name, the hf_evals shape one level on
+            ('def neu(claim, other):\n    v = claim["passed"]\n'
+             '    if not isinstance(other, bool):\n        raise ValueError\n    if v:\n        return 1\n',
+             True),
+            # a name bound twice carries no reference any more, so the read is reported again
+            ('def neu(claim, x):\n    v = claim["passed"]\n    v = x\n    if v:\n        return 1\n',
+             False),
+        ):
+            with self.subTest(quelle=quelle.splitlines()[1].strip(), fund=erwartet_fund):
+                gefunden = _stellen({"gepflanzt.py": quelle})
+                self.assertEqual(("gepflanzt.py", "neu") in gefunden, erwartet_fund,
+                                 f"alias handling wrong for {quelle!r}: {gefunden}")
 
     def test_eine_gepflanzte_GESCHUETZTE_stelle_wird_nicht_gemeldet(self):
         """The other direction: if the guarded form were also flagged, the scanner would say nothing

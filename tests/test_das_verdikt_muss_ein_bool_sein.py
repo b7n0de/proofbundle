@@ -32,6 +32,17 @@ value through into the self-hosted predicate, and `:251` picks `passedTests` ver
 alongside the `:246` result mapping. It names the string `'false'`; `'False'`, `'FALSE'`, `'0'`, `'no'`,
 `1`, `[1]` and `{'a': 1}` behave the same way.
 
+AND A SIXTH SITE OUTSIDE THAT FILE, found only after the five were fixed, committed and pushed:
+`sdjwt_issue.issue_sd_jwt` copied `passed` into the always-open claims of an SD-JWT and SIGNED it, and
+`check_binds_bundle` then accepted that receipt as bound, because it compares the field to the bundle
+payload for EQUALITY and both sides carried the same string. Measured at tag `v6.1.0` (`dcac5aee`).
+So the count in the paragraph above was not the final count, and the reason it was not is worth more
+than the number: five of six sites were in one file, I swept that file, and a sweep of a FILE is not a
+sweep of a CLASS. The scanner beside this suite did not help, because it modelled the class as coercion
+and this site coerces nothing — it hands an unexamined value to someone else's truthiness test, under a
+valid signature. It looks for the pass-through shape too now, and its own catch proof is measured
+against this real site rather than against a planted one.
+
 WHICH CASES BELOW ARE CATCH PROOFS AND WHICH ARE CONTROLS, measured rather than assumed, because a
 case that was already green proves nothing about this change. Run against `d8c9c61` without the fix:
 the four `*_weist_ab` exporter cases fail (61 subtest failures), and so do the message-form case, the
@@ -52,6 +63,19 @@ from proofbundle.evalclaim import (EvalClaimError, build_eval_claim, decode_eval
                                    issuer_fingerprint)
 from proofbundle.intoto import (export_svr_dsse, svr_properties, to_eval_result_predicate,
                                 to_intoto_statement, to_test_result_statement)
+from proofbundle.sdjwt_issue import check_binds_bundle, issue_sd_jwt
+
+ROOT_B64 = "cm9vdA=="
+
+
+def _immer_offen(compact: str) -> dict:
+    """The always-open JWT claims of a compact SD-JWT, decoded here rather than via `_jwt_payload`.
+
+    Decoded in this file on purpose: the question is what went UNDER THE SIGNATURE, and routing it
+    through the module's own decoder would let a change in that decoder answer it.
+    """
+    nutzteil = compact.split("~", 1)[0].split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(nutzteil + "=" * (-len(nutzteil) % 4)))
 
 #: Values that are NOT booleans and that a truthiness test or `bool()` would read as a PASS.
 #: `'0'` and `1` are in here on purpose: `'0'` is a non-empty string, and `bool` subclasses `int`, so
@@ -81,7 +105,14 @@ class _Ergebnis:
 
 
 class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
-    """One case per public surface that reads `passed`. Six, not the three the register names."""
+    """One case per public surface that reads `passed`.
+
+    SIX CODE SITES ACROSS FIVE PUBLIC FUNCTIONS, and the register names three: `intoto.py` carries five
+    (`:99`, `:246`, `:251`, `:424`, `:551`) behind four entry points, and `sdjwt_issue.py:88` is the
+    sixth, in a fifth. The class name kept its number when the meaning of the number changed, which is
+    worth a line rather than a silent rename: it first meant "the five the file has plus the boundary",
+    and it now means the six sites of the class.
+    """
 
     def setUp(self):
         self.signer = generate_signer()
@@ -123,6 +154,45 @@ class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
             with self.subTest(passed=wert):
                 with self.assertRaises(BundleFormatError):
                     svr_properties(_Ergebnis(), self._mit(wert))
+
+    def test_issue_sd_jwt_weist_ab(self):
+        """THE SIXTH SITE, and the only one that puts a signature over the value itself.
+
+        Found after the other five were already fixed and pushed, which is why it has its own case
+        rather than a line in the loop above: `sdjwt_issue.py:88` copies `passed` into the always-open
+        claims and `signer.sign` runs three lines later. The four `intoto` sites BUILD a statement a
+        caller may sign; this one signs.
+        """
+        for wert in self._alle_fremden():
+            with self.subTest(passed=wert):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    issue_sd_jwt(self._mit(wert), self.signer, root_b64=ROOT_B64)
+                self.assertIn("passed", str(ctx.exception))
+
+    def test_kein_signiertes_sd_jwt_traegt_ein_verdikt_das_keines_ist(self):
+        """WHAT WAS ACTUALLY POSSIBLE BEFORE, written as the outcome and not as the call.
+
+        Measured at tag `v6.1.0` (`dcac5aee`) and at this branch's head before the guard: the string
+        `"false"` was issued verbatim into a signed SD-JWT, and `check_binds_bundle` then accepted that
+        receipt as bound — because it compares the field to the bundle payload for EQUALITY, and both
+        sides carried the same string. So the defect did not stop at issuance: it produced an artefact
+        that passes the binding check a relying party is told to run, whose always-open `passed` reads
+        as a pass under Python's truthiness.
+
+        The assertion is deliberately about the ARTEFACT, not about the exception. A case asserting
+        `assertRaises` would stay green if a later refactor moved the guard somewhere that still let one
+        value through; this one fails unless nothing non-boolean reaches the signature.
+        """
+        for wert in self._alle_fremden():
+            with self.subTest(passed=wert):
+                try:
+                    compact = issue_sd_jwt(self._mit(wert), self.signer, root_b64=ROOT_B64)
+                except BundleFormatError:
+                    continue
+                gesehen = _immer_offen(compact)["passed"]
+                self.fail(f"a SIGNED SD-JWT carries passed={gesehen!r}, and check_binds_bundle "
+                          f"accepts it as bound: "
+                          f"{check_binds_bundle(compact, self._mit(wert), ROOT_B64)}")
 
     def test_die_verify_schwelle_weist_ab_REGRESSIONSWACHE(self):
         """NOT A CATCH PROOF. Measured green on `d8c9c61` before this change, and it must stay green.
@@ -200,6 +270,20 @@ class TestDieGegenrichtungEinEchterBoolGehtWeiterDURCH(unittest.TestCase):
             export_svr_dsse(emit_eval_receipt(self._mit(False), self.signer), self.signer)
         self.assertIn("did not pass its threshold", str(ctx.exception))
 
+    def test_beide_booleans_werden_weiter_ausgestellt_und_binden(self):
+        """The sixth site's counter-direction: issuance and the binding check are UNCHANGED for a bool.
+
+        Both halves matter. Issuance alone would pass if the guard turned every verdict into `True`;
+        the binding check is what says the value in the signature is still the one in the claim.
+        """
+        for wert in (True, False):
+            with self.subTest(passed=wert):
+                c = self._mit(wert)
+                compact = issue_sd_jwt(c, self.signer, root_b64=ROOT_B64)
+                self.assertIs(_immer_offen(compact)["passed"], wert)
+                self.assertTrue(check_binds_bundle(compact, c, ROOT_B64),
+                                "a genuine boolean must still bind to its bundle")
+
     def test_die_passedTests_schluessel_folgen_dem_verdikt(self):
         """The second site inside `to_test_result_statement`, measured in both directions."""
         for wert, erwartet, verboten in ((True, "passedTests", "failedTests"),
@@ -250,6 +334,12 @@ class TestDieMonotonieIstDieEIGENTLICHEAussage(unittest.TestCase):
             lambda: to_eval_result_predicate(c)["claims"][0]["passed"] is True,
             lambda: "PROOFBUNDLE_THRESHOLD_MET" in svr_properties(_Ergebnis(), c),
             lambda: to_intoto_statement(c)["predicate"]["claims"][0]["passed"] is not False,
+            # THE SIXTH SITE JOINS THE PROPERTY, not just the instance list above. The property is the
+            # only part of this file that could have caught it without someone naming the function, and
+            # it did not, because it enumerated four surfaces. It enumerates five now, and that is still
+            # an enumeration — which is why `test_verdikt_truthiness_scanner` had to change too.
+            lambda: _immer_offen(
+                issue_sd_jwt(c, self.signer, root_b64=ROOT_B64))["passed"] is not False,
         ):
             try:
                 if lies():
