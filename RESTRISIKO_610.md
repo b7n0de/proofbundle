@@ -22,27 +22,11 @@ remaining 54 lines are weeks of work at today's rate.
 **A moved line is an open line.** That is what this section exists for. The cut takes away their
 due date, not their entry in the books.
 
-## Open — the 54 lines moved out of 6.1.0
+## Open — the 54 lines moved to 6.2.0
 
-THEY NO LONGER LIVE IN ONE FILE, and this section said they did until 2026-09-24. The cast of
-2026-09-19 moved all 54 into `docs/release_scope/6.2.0.md` unchanged, because the cut had to happen
-faster than the reading; byte equality was checked then, 54 expected, 54 present, none missing, none
-foreign. The recast of 2026-09-23 read them against the code and the register and split them, so the
-full text now stands in `docs/release_scope/6.2.0.md` AND `docs/release_scope/6.3.0.md`, each moved
-line carrying the sentence that says why it went where it did.
-
-Counted from the rows of those files rather than asserted: **24** scope rows in 6.2.0 and **34** in
-6.3.0, carrying 18 and 35 of the identifiers below, plus S62 which has no row of its own because it
-was delivered in 6.1.0. 18 + 35 + 1 = 54. Seven rows are new and not part of the 54: P29, P30 and
-Z146 from the four outcomes, and R-B1 to R-B4 from the entries this file targets at 6.2.0 by name.
-
-THE SPLIT IS ENFORCED, not just written down. `tests/test_release_scope_title_gate.py` reads the
-identifier list BELOW out of this file and requires each one to sit in a scope row of exactly one of
-the two files, or to be named as a rider in BOTH of their accounting tables. A line in two scopes
-and a line in none are the two failures the release rule of 2026-09-09 asks about, and they are the
-two the guard reports by name rather than as a count that got smaller.
-
-Identifiers, so this file can be read without a second one:
+Full text with its origin section in `docs/release_scope/6.2.0.md`, taken over word for word from
+the 6.1.0 scope at `79f66a2`; byte equality checked, 54 expected, 54 present, none missing, none
+foreign. Identifiers, so this file can be read without a second one:
 
 `A1`, `A2`, `A3`, `A5.1–A5.4`, `B1`, `B2`, `B3`, `C1`, `C2`, `N1-1a`, `N1-1c`, `N1-2a–2c`, `N2-1`, `N2-2`, `N2-3a–d`, `N3-1`, `N3-2`, `N3-3`, `N3-5`, `N3-4`, `B-2`, `B-3`, `B-7`, `B-8`, `B-9`, `Z.278`, `Z.715`, `R1`, `R2`, `R3`, `N14`, `N15`, `N17`, `N18`, `N20`, `R-A1`, `R-A2`, `R-A3`, `S5`, `S20`, `S22`, `S26`, `S27`, `S29`, `S30`, `S31`, `S32`, `S33`, `S59`, `S62`, `S64`, `S65-5`, `S76`, `S106`
 
