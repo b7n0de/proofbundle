@@ -29,6 +29,7 @@ it runs reports green over a case it did not try.
 """
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -246,18 +247,71 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
     placed BEFORE the import.
     """
 
-    _AUS_SCRIPTS = re.compile(r"^(?:from|import)\s+([a-z_][a-z0-9_]*)", re.M)
+    def _kandidaten(self, wurzel: Path | None = None) -> list[tuple[Path, str, int]]:
+        """Test modules that import something living in `scripts/`, and WHERE they do it.
 
-    def _kandidaten(self) -> list[tuple[Path, str]]:
-        """Test modules that put `scripts/` on the path and import something that lives there."""
+        THE FIRST VERSION REQUIRED A LITERAL `sys.path.insert(... "scripts" ...)` AND WAS WRONG.
+        An adversarial lens refuted it on 2026-09-24 with three shapes, each proven by a real
+        `pytest --collect-only` ending in `Interrupted: 1 error during collection`:
+
+            importlib.import_module("render_release")      not seen at all
+            sys.path.append(...) instead of .insert(...)   not seen at all
+            sys.path.insert(0, str(SKRIPT_ORDNER))         the word `scripts` was on the line
+                                                          ABOVE, so the expression missed it
+
+        All three abandon collection exactly as the reported incident did. A guard that recognises
+        one spelling of how a directory reaches `sys.path` is describing that spelling, not the
+        property — which is the class this whole file stands against, turned on the newest case in
+        it.
+
+        SO THE PATH MANIPULATION IS NO LONGER PART OF THE TEST. What matters is that a module-level
+        import names something that exists as `scripts/<name>.py`; HOW the path got there is the
+        caller's business and has as many spellings as Python allows. Measured before dropping it:
+        of the 41 modules under `scripts/`, none shadows a stdlib name, so widening this way adds no
+        false positive from a coincidental name.
+
+        AND IT READS THE SYNTAX TREE, NOT THE TEXT, because the widened expressions immediately
+        flagged this docstring. The examples above contain the literal call they describe, so a text
+        scanner reported the guard's own documentation as a violation — the same class one more time,
+        a reader that cannot tell prose from code. `ast` also answers something no expression can:
+        whether the import sits at MODULE level, where it runs during collection, or inside a
+        function, where it does not and therefore is not this property's business.
+        """
         aus = []
-        for f in sorted(TESTS.rglob("*.py")):
-            text = f.read_text(encoding="utf-8", errors="replace")
-            if not re.search(r"sys\.path\.insert\([^)]*scripts", text):
+        for f in sorted((wurzel or TESTS).rglob("*.py")):
+            try:
+                baum = ast.parse(f.read_text(encoding="utf-8", errors="replace"), filename=str(f))
+            except SyntaxError:
                 continue
-            for m in self._AUS_SCRIPTS.finditer(text):
-                if (REPO / "scripts" / f"{m.group(1)}.py").is_file():
-                    aus.append((f, f"scripts/{m.group(1)}.py"))
+            for knoten in baum.body:                       # MODULE LEVEL ONLY, by construction
+                for name, zeile in self._namen_im_knoten(knoten):
+                    if (REPO / "scripts" / f"{name}.py").is_file():
+                        aus.append((f, f"scripts/{name}.py", zeile))
+        return aus
+
+    @staticmethod
+    def _namen_im_knoten(knoten: ast.stmt) -> list[tuple[str, int]]:
+        """Imported names in one module-level statement, including the dynamic forms.
+
+        A statement at module level may be an `if`, a `try` or a `with` whose body still runs during
+        collection, so those are descended into. A `FunctionDef` or `ClassDef` body is NOT, because
+        an import there runs when the function is called, and this property is about collection.
+        """
+        aus: list[tuple[str, int]] = []
+        if isinstance(knoten, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return aus
+        for k in ast.walk(knoten):
+            if isinstance(k, ast.Import):
+                aus += [(a.name.split(".")[0], k.lineno) for a in k.names]
+            elif isinstance(k, ast.ImportFrom) and k.module and not k.level:
+                aus.append((k.module.split(".")[0], k.lineno))
+            elif isinstance(k, ast.Call) and k.args and isinstance(k.args[0], ast.Constant) \
+                    and isinstance(k.args[0].value, str):
+                ruf = k.func
+                gerufen = (ruf.attr if isinstance(ruf, ast.Attribute) else
+                           ruf.id if isinstance(ruf, ast.Name) else "")
+                if gerufen in {"import_module", "__import__"}:
+                    aus.append((k.args[0].value.split(".")[0], k.lineno))
         return aus
 
     def _ausgeliefert(self) -> set[str]:
@@ -315,23 +369,83 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
     def test_keine_sammlung_haengt_an_einem_nicht_ausgelieferten_skript(self):
         ausgeliefert = self._ausgeliefert()
         verstoesse = []
-        for f, kand in self._kandidaten():
+        for f, kand, stelle in self._kandidaten():
             if kand in ausgeliefert:
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
-            modul = kand.split("/")[-1].removesuffix(".py")
-            imp = re.search(rf"^(?:from {re.escape(modul)}\b|import {re.escape(modul)}\b)",
-                            text, re.M)
+            # THE POSITION COMES FROM THE SCAN, not from a second search. The first version searched
+            # for the import a second time with its own expression, so the shape the candidate scan
+            # found and the shape this check measured could differ — and once the scan learned
+            # `import_module` and `__import__`, they DID: those have no `import X` line to find, and
+            # the check skipped them in silence.
+            #
+            # BOTH SIDES ARE LINE NUMBERS. The scan reports `lineno`, so the guard's character offset
+            # is converted before the comparison. Comparing an offset to a line number would be the
+            # same defect one more time, a number measured on one scale and judged on another.
             schutz = re.search(r"^\s*pytest\.skip\(.*allow_module_level=True", text, re.M | re.S)
-            if imp and (not schutz or schutz.start() > imp.start()):
-                zeile = text[: imp.start()].count("\n") + 1
-                wo = ("unguarded" if not schutz else
-                      "guarded only AFTER the import, which is never reached")
-                verstoesse.append(f"{f.relative_to(REPO)}:{zeile} imports {kand} {wo}")
+            schutz_zeile = text[:schutz.start()].count("\n") + 1 if schutz else None
+            if schutz_zeile is None or schutz_zeile > stelle:
+                wo = ("unguarded" if schutz_zeile is None else
+                      f"guarded only at line {schutz_zeile}, which is AFTER the import and "
+                      f"therefore never reached")
+                verstoesse.append(f"{f.relative_to(REPO)}:{stelle} imports {kand} {wo}")
         self.assertFalse(
             verstoesse,
             "the extracted sdist would abandon collection on these modules, because the script they "
             "import is not in MANIFEST.in:\n  " + "\n  ".join(verstoesse))
+
+    def test_die_drei_umgehungen_der_linse_werden_gefunden(self):
+        """THE THREE SHAPES THAT REFUTED THE FIRST VERSION, each pinned as its own subtest.
+
+        An adversarial lens ran these on 2026-09-24 and proved every one with a real
+        `pytest --collect-only` ending in `Interrupted: 1 error during collection` — the same
+        abandonment as the incident this class exists for. The first version saw none of them,
+        because it required a literal `sys.path.insert(... "scripts" ...)` before it would look at a
+        file at all.
+
+        A fourth shape is here as the counter-direction, and it is the one that stops this from
+        becoming a blanket refusal: an import INSIDE a function does not run during collection, so it
+        is not this property's business and must NOT be reported.
+        """
+        import tempfile
+        formen = {
+            "importlib.import_module": (
+                "import importlib, sys\nfrom pathlib import Path\n"
+                "sys.path.insert(0, str(Path(__file__).parents[1] / 'scripts'))\n"
+                "m = importlib.import_module('render_release')\n", True),
+            "sys.path.append statt insert": (
+                "import sys\nfrom pathlib import Path\n"
+                "sys.path.append(str(Path(__file__).parents[1] / 'scripts'))\n"
+                "import render_release\n", True),
+            "Pfad ueber eine Variable": (
+                "import sys\nfrom pathlib import Path\n"
+                "ORDNER = Path(__file__).parents[1] / 'scripts'\n"
+                "sys.path.insert(0, str(ORDNER))\nimport render_release\n", True),
+            "Gegenrichtung, Import in einer Funktion": (
+                "def f():\n    import render_release\n    return render_release\n", False),
+        }
+        for name, (quelle, erwartet) in formen.items():
+            with self.subTest(form=name):
+                with tempfile.TemporaryDirectory() as d:
+                    p = Path(d) / "test_erfunden.py"
+                    p.write_text(quelle, encoding="utf-8")
+                    treffer = self._kandidaten(wurzel=Path(d))
+                self.assertEqual(
+                    bool(treffer), erwartet,
+                    f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
+                    f"read {treffer}")
+
+    def test_die_eigene_dokumentation_ist_kein_verstoss(self):
+        """THE FALSE POSITIVE THE WIDENING PRODUCED, before `ast` replaced the expressions.
+
+        The docstrings in this class quote the very calls they describe. A text scanner therefore
+        reported the guard's own documentation as a violation — the same class one more time, a
+        reader that cannot tell prose from code. Measured: this file is not among the candidates,
+        although its text contains both `import_module(` and an import of the script by name.
+        """
+        eigene = [str(f) for f, _, _ in self._kandidaten() if f.name == Path(__file__).name]
+        self.assertEqual(eigene, [],
+                         "this file's own prose is being read as code again")
 
     def test_die_vier_formen_der_linse_werden_richtig_gelesen(self):
         """THE FOUR FORMS AN ADVERSARIAL LENS NAMED ON 2026-09-24, each as its own case.
@@ -393,7 +507,7 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         finding. If that stops being true the sweep has become a blanket refusal.
         """
         ausgeliefert = self._ausgeliefert()
-        gedeckt = [k for _, k in self._kandidaten() if k in ausgeliefert]
+        gedeckt = [k for _, k, _ in self._kandidaten() if k in ausgeliefert]
         self.assertTrue(gedeckt,
                         "no test module imports a SHIPPED script, so the rule above cannot be shown "
                         "to distinguish shipped from unshipped")
