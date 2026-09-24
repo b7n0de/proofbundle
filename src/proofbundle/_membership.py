@@ -43,15 +43,41 @@ from __future__ import annotations
 from collections.abc import Hashable
 from typing import Any, Container, TypeGuard
 
-__all__ = ["is_member", "as_dict", "is_bool", "same_json_value"]
+__all__ = ["is_member", "as_dict", "is_bool", "same_json_value", "_MISSING"]
 
-# A pair budget for `same_json_value`. Exhausting it is a fail-closed "not equal", never a raise: the
-# one caller is a verify-side predicate whose whole contract is to return a bool. The bound does NOT
-# make this safe against arbitrary input on its own — the children of a node are pushed before the next
-# node is counted, so a single very wide dict is pushed in one go. It cannot amplify, because both
-# operands are already whole objects in the caller's memory, and in the real path both arrived through
-# `loads_strict`, which bounds node count and depth. What the budget removes is the unbounded WALK.
-_COMPARE_PAIR_BUDGET = 100_000
+# A pair budget for `same_json_value`, and the NUMBER IS DERIVED, not chosen. What it exists for is the
+# one input the walk cannot finish: a self-referential container, which `json.loads` never produces but
+# a direct caller can build. It must therefore sit ABOVE anything a legal document can reach.
+#
+# THE FIRST VALUE WAS 100_000 AND THAT WAS WRONG, recorded because the correction is the lesson. The
+# house's own parser admits `VerificationBudget.json_nodes = 200_000` nodes per document (`budget.py`),
+# so a bound of 100_000 pairs refused input the house considers legal — and it refused it wearing the
+# WRONG LABEL: a lens built an honest claim whose `suite` held 110_000 items, both sides bit-identical,
+# and `verify_bundle` reported "cross-receipt substitution; suite differ from the signed claim". There
+# was no substitution. A fail-closed stop that reports itself as a specific different finding is worse
+# than no stop, because the reader acts on the diagnosis.
+#
+# Two documents contribute at most their own nodes each, so twice the node budget clears every legal
+# pair with room to spare. The relationship is pinned in `tests/test_bindung_vergleicht_typen.py`, not
+# asserted here, because a number explained in a comment is exactly what goes stale in silence.
+#
+# IT COUNTS PAIRS PUSHED, NOT PAIRS POPPED, and that is the difference between a bound and a
+# decoration. The first version counted pops, so a self-referential node of width W pushed W new
+# pairs on EVERY pop while the counter rose by one: a lens measured a 200_000-wide self-referential
+# dict growing from 235 MB to 2988 MB in twelve seconds, monotone, with no end reachable. Raising
+# the bound made that WORSE. Counting what goes ON the stack stops it at the first pop.
+_COMPARE_PAIR_BUDGET = 400_000
+
+# Only these carry a JSON scalar. Anything else reaching the value branch is not a decoded JSON value,
+# and `==` cannot be trusted to answer for it: a lens passed an object whose `__eq__` returns True
+# unconditionally and got `same_json_value(obj, "an unrelated string") -> True` (measured 2026-09-24).
+# `bool` is absent on purpose — it is decided one branch earlier, and listing it here would re-admit
+# the int conflation this function exists to remove.
+_JSON_SCALAR = (str, int, float, type(None))
+
+# Read-once sentinel. `field in claim` followed by `claim.get(field)` are TWO reads of one object; see
+# `same_json_value`'s dict branch for the measured version of that mistake.
+_MISSING = object()
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -198,28 +224,57 @@ def same_json_value(a: Any, b: Any, *, pair_budget: int = _COMPARE_PAIR_BUDGET) 
     instance and leave ``[true]`` against ``[1]`` open.
     """
     stack = [(a, b)]
-    pairs = 0
+    gesehen = 1
+    try:
+        return _walk(stack, gesehen, pair_budget)
+    except Exception:           # noqa: BLE001 — see the docstring: a value whose protocol methods
+        return False            # raise cannot be SHOWN equal, and this surface must not raise
+
+
+def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
+    """The walk itself. Split out so ONE guard covers every protocol call in it.
+
+    A lens handed `same_json_value` dict and list subclasses whose `keys()`, `__getitem__` and
+    `__len__` raise, and each one left as a raw `RuntimeError` — out of `check_binds_bundle`, whose
+    contract is a verdict and never an exception, and out of a module that exists to remove exactly
+    that. A guard around only the scalar `!=` covered the one protocol call that was already obvious.
+    """
     while stack:
-        pairs += 1
-        if pairs > pair_budget:
-            return False
         x, y = stack.pop()
         if isinstance(x, bool) or isinstance(y, bool):
             # `x is y` and not `x == y`: this branch exists precisely because == is too forgiving here.
             if not (isinstance(x, bool) and isinstance(y, bool)) or x is not y:
                 return False
         elif isinstance(x, dict) or isinstance(y, dict):
-            if not (isinstance(x, dict) and isinstance(y, dict)) or x.keys() != y.keys():
+            if not (isinstance(x, dict) and isinstance(y, dict)):
                 return False
-            stack.extend((x[k], y[k]) for k in x)
+            # THE KEYS ARE READ ONCE AND THE SAME LIST IS WALKED. The first version decided with
+            # `x.keys() != y.keys()` and then walked `for k in x` — two different accessors on one
+            # object. A lens built a dict subclass whose `keys()` is truthful while `__iter__` hides a
+            # key; it passed the decision and the hidden key was never compared, so two dicts differing
+            # at that key came back equal (measured 2026-09-24). This is the SAME class `_verdict`
+            # states in its own docstring — "the accessor is read once and the value is returned" —
+            # written a day earlier and not carried into the function that compares.
+            schluessel = list(x.keys())
+            if len(schluessel) != len(y) or set(schluessel) != set(y.keys()):
+                return False
+            paare = [(x[k], y[k]) for k in schluessel]
+            gesehen += len(paare)
+            if gesehen > pair_budget:
+                return False
+            stack.extend(paare)
         elif isinstance(x, list) or isinstance(y, list):
             if not (isinstance(x, list) and isinstance(y, list)) or len(x) != len(y):
                 return False
-            stack.extend(zip(x, y))
-        else:
-            try:
-                if x != y:
-                    return False
-            except Exception:       # noqa: BLE001 — a value whose __eq__ raises cannot be shown equal
+            paare = list(zip(x, y))
+            gesehen += len(paare)
+            if gesehen > pair_budget:
                 return False
+            stack.extend(paare)
+        elif not (isinstance(x, _JSON_SCALAR) and isinstance(y, _JSON_SCALAR)):
+            # Not a decoded JSON value, so it cannot be SHOWN equal. Refusing beats asking its `__eq__`,
+            # which is the attacker's code when the value is the attacker's object.
+            return False
+        elif x != y:
+            return False
     return True

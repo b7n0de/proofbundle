@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
-from ._membership import as_dict, is_member, same_json_value
+from ._membership import _MISSING, as_dict, is_member, same_json_value
 from ._verdict import require_bool_verdict
 
 SD_ALG = "sha-256"
@@ -257,10 +257,28 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # way, and `threshold: 0` bound to `threshold: false` on the same measurement. R-B4's class on the
     # one path the establisher never runs. See `_membership.same_json_value` for why the rule restores
     # exactly the boolean/number distinction RFC 8785 makes and no other.
-    for field in ("passed", "threshold", "comparator", "suite", "issuer"):
-        if field not in claim or not same_json_value(p.get(field), claim.get(field)):
-            return False
+    #
+    # ONE READ OF `claim` PER FIELD. `field not in claim` followed by `claim.get(field)` asks the same
+    # object twice through two different accessors, and a lens built one that answers them differently:
+    # `__contains__` always True while `get` returns whatever matches the SD-JWT, so a claim holding
+    # nothing at all bound (measured 2026-09-24). `as_dict` first, because a non-dict `claim` made the
+    # membership test raise a bare TypeError out of the flagship verify path. A missing field still can
+    # never bind — the sentinel says absent, and absent is not a value.
+    #
+    # AND THE READ ITSELF IS GUARDED, because `claim` is the caller's object and `get` is the caller's
+    # code. `same_json_value` guards its own walk; that does nothing for an exception raised BEFORE the
+    # value reaches it. A lens handed a dict subclass whose `get` raises and the RuntimeError left this
+    # function raw (measured 2026-09-24) — out of a predicate whose whole contract is a verdict, which
+    # is the class `_membership` exists to remove, reproduced at its own call site.
+    anspruch = as_dict(claim)
+    try:
+        for field in ("passed", "threshold", "comparator", "suite", "issuer"):
+            wert = anspruch.get(field, _MISSING)
+            if wert is _MISSING or not same_json_value(p.get(field), wert):
+                return False
+    except Exception:           # noqa: BLE001 — a claim that raises when read cannot be shown to bind
+        return False
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
     # flagship verify_bundle path (deep gate iter9 Linse A). as_dict closes the class.
-    return as_dict(p.get("receipt")).get("root_b64") == root_b64
+    return same_json_value(as_dict(p.get("receipt")).get("root_b64"), root_b64)

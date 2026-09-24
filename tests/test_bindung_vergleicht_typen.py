@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -210,6 +211,180 @@ class TestDasPrimitivSelbst(unittest.TestCase):
                 raise RuntimeError("no comparison for you")
 
         self.assertIs(same_json_value(Bissig(), 1), False)
+
+
+class TestEinZugriffNichtZwei(unittest.TestCase):
+    """THE DEEP-GATE ROUND ON THIS CHANGE, and all three cases are defects of the fix itself.
+
+    Lens F2 attacked the new comparison and found the SAME class the fix was written against, one level
+    down: a decision taken through one accessor and a walk taken through another. `_verdict` states the
+    rule in its own docstring — "the accessor is read once and the value is returned" — written a day
+    before this function and not carried into it.
+    """
+
+    def test_der_schluesselsatz_und_der_lauf_lesen_dasselbe(self):
+        """CATCH PROOF. The first version decided with `keys()` and walked with `__iter__`."""
+
+        class IterLuegt(dict):
+            def __iter__(self):
+                return iter(["a"])          # hides "b"; keys() stays truthful
+
+        x = IterLuegt({"a": 1, "b": 999})
+        self.assertEqual(set(x.keys()), {"a", "b"}, "the probe itself is broken, not the function")
+        self.assertIs(same_json_value(x, {"a": 1, "b": 2}), False,
+                      "a key the walk never reached was reported equal")
+
+    def test_ein_luegendes_eq_ist_nicht_gleich(self):
+        """The existing case covers a RAISING `__eq__`. A LYING one is the other half."""
+
+        class EqLuegt:
+            def __eq__(self, andere):
+                return True
+
+            __hash__ = None
+
+        self.assertIs(same_json_value(EqLuegt(), "an unrelated string"), False)
+        self.assertIs(same_json_value("an unrelated string", EqLuegt()), False)
+
+    def test_ein_luegendes_contains_bindet_nicht(self):
+        """`field in claim` plus `claim.get(field)` asked one object twice. An object that says yes to
+        the first and holds nothing for the second used to reach the comparison; now the single read
+        reports absent, and absent never binds."""
+        signer = generate_signer()
+        echt = issue_sd_jwt(_claim(signer, passed=True), signer, root_b64=ROOT)
+
+        class ContainsLuegt(dict):
+            def __contains__(self, k):
+                return True                 # truthful `get`, so the object holds nothing
+
+        self.assertIs(check_binds_bundle(echt, ContainsLuegt(), ROOT), False)
+
+    def test_STATED_LIMIT_ein_durchgehend_erfundener_anspruch_ist_nicht_unterscheidbar(self):
+        """THE HONEST HALF, written as a case so nobody re-discovers it as a finding.
+
+        A lens reported that a `claim` whose `get` FABRICATES whatever the SD-JWT carries binds. It
+        does, and no read-once fix closes it: unlike the hidden-key case above, such an object holds no
+        contradicting value — there is no second source of truth for the comparison to consult. It is a
+        caller lying to itself with an object `json.loads` cannot produce, and `check_binds_bundle` has
+        exactly one production caller, which always hands it a plain dict from `loads_strict`.
+        Asserting that this refuses would be asserting something false.
+
+        AND THIS CASE IS A TRADE, NOT A PURE WIN, which is why it is spelled out rather than left as a
+        green line. On `c120c5a9` the two-accessor form REFUSED exactly this object, because its
+        `__contains__` was truthful and empty while only `get` lied. Reading once gives that accidental
+        catch up. It was accidental: the same cross-check is what the lens exploited in the other
+        direction, with an object whose `__contains__` says yes to everything, and that one bound on
+        both states. A cross-check between two accessors catches some liars and admits others by
+        coincidence; it is not a defense, and the raw TypeError it threw on a non-dict `claim` was a
+        real defect on the real path. The trade is: lose a coincidence, gain a verdict where there was
+        an exception. Neither half is reachable through `loads_strict`.
+        """
+        signer = generate_signer()
+        echt = issue_sd_jwt(_claim(signer, passed=True), signer, root_b64=ROOT)
+        p = json.loads(base64.urlsafe_b64decode(echt.split("~")[0].split(".")[1] + "=="))
+
+        class GetErfindet(dict):
+            def get(self, k, standard=None):
+                return p.get(k, standard)
+
+        self.assertIs(check_binds_bundle(echt, GetErfindet(), ROOT), True,
+                      "if this ever refuses, the limit above closed and the docstring must say how")
+
+    def test_ein_nicht_dict_anspruch_bindet_nicht_und_wirft_nicht(self):
+        for anspruch in (None, [], "x", 1, True):
+            with self.subTest(claim=anspruch):
+                signer = generate_signer()
+                echt = issue_sd_jwt(_claim(signer, passed=True), signer, root_b64=ROOT)
+                self.assertIs(check_binds_bundle(echt, anspruch, ROOT), False)
+
+
+class TestDasBudgetIstAbgeleitetNichtGewaehlt(unittest.TestCase):
+    """Lens F1 built an HONEST claim, both sides bit-identical, and the budget refused it — reported by
+    `verify_bundle` as "cross-receipt substitution". A fail-closed stop wearing another finding's label
+    is worse than no stop, because the reader acts on the diagnosis."""
+
+    def test_das_budget_liegt_ueber_dem_knotenbudget_des_hauses(self):
+        """THE PIN. The first value was 100_000 against a parser that admits 200_000 nodes per document,
+        so it refused input this package itself calls legal. This case fails if either number moves."""
+        from proofbundle._membership import _COMPARE_PAIR_BUDGET
+        from proofbundle.budget import VerificationBudget
+
+        knoten = VerificationBudget().json_nodes
+        self.assertGreaterEqual(_COMPARE_PAIR_BUDGET, 2 * knoten,
+                                f"the pair budget {_COMPARE_PAIR_BUDGET} sits under two documents of "
+                                f"{knoten} nodes — it would refuse a legal pair as a mismatch")
+
+    def test_ein_grosser_aber_ehrlicher_wert_wird_nicht_als_ungleich_gemeldet(self):
+        """The shape of F1's finding, without the crypto: above the OLD bound, below the new one."""
+        gross = list(range(150_000))
+        self.assertIs(same_json_value(gross, list(gross)), True)
+        self.assertIs(same_json_value(gross, list(range(149_999))), False)
+
+
+class TestDerWaechterWirdNichtSelbstZumDefekt(unittest.TestCase):
+    """Lens F3 attacked the guard the way the guard attacks its subject. Three of its four routes were
+    real and are cases here; the fourth is the one the fix got right and is kept as the guard.
+    """
+
+    def test_tiefe_wirft_nicht_wo_der_elternstand_wirft(self):
+        """THE ROUTE THAT HELD. Measured: the `!=` this replaces raises RecursionError from depth ~1000;
+        the explicit stack never does. Kept so a later 'simplification' back to `==` fails here."""
+        tief_a: object = "grund"
+        tief_b: object = "grund"
+        for _ in range(20_000):
+            tief_a = [tief_a]
+            tief_b = [tief_b]
+        self.assertIs(same_json_value(tief_a, tief_b), True)
+
+    def test_eine_breite_selbstreferenz_terminiert(self):
+        """CATCH PROOF. The budget counted POPS, so a self-referential node of width W pushed W pairs
+        on every pop while the counter rose by one. Measured before the fix: 235 MB to 2988 MB in
+        twelve seconds, monotone, no end. Counting pushes stops it at the first pop."""
+        d: dict = {}
+        for i in range(20_000):
+            d[str(i)] = d
+        start = time.monotonic()
+        self.assertIs(same_json_value(d, d), False)
+        self.assertLess(time.monotonic() - start, 10.0, "the walk did not terminate promptly")
+
+        schmal: list = []
+        schmal.append(schmal)
+        self.assertIs(same_json_value(schmal, schmal), False)
+
+    def test_ein_werfendes_protokoll_gibt_falsch_statt_zu_werfen(self):
+        """CATCH PROOF. A guard around only the scalar `!=` left `keys()`, `__getitem__` and `__len__`
+        raising straight out of a surface whose contract is a verdict."""
+
+        class KeysWirft(dict):
+            def keys(self):
+                raise RuntimeError("boom")
+
+        class GetItemWirft(dict):
+            def __getitem__(self, k):
+                raise RuntimeError("boom")
+
+        class LenWirft(list):
+            def __len__(self):
+                raise RuntimeError("boom")
+
+        for name, x, y in (("keys", KeysWirft({"a": 1}), {"a": 1}),
+                           ("getitem", GetItemWirft({"a": 1}), {"a": 1}),
+                           ("len", LenWirft([1]), [1]),
+                           ("verschachtelt", {"o": GetItemWirft({"a": 1})}, {"o": {"a": 1}})):
+            with self.subTest(protokoll=name):
+                self.assertIs(same_json_value(x, y), False)
+
+    def test_ein_werfender_anspruch_gibt_falsch_statt_zu_werfen(self):
+        """CATCH PROOF, and the sharper half: `same_json_value` guarding its own walk does nothing for
+        an exception raised BEFORE the value reaches it. This one left `check_binds_bundle` raw."""
+        signer = generate_signer()
+        echt = issue_sd_jwt(_claim(signer, passed=True), signer, root_b64=ROOT)
+
+        class GetWirft(dict):
+            def get(self, k, standard=None):
+                raise RuntimeError("boom")
+
+        self.assertIs(check_binds_bundle(echt, GetWirft(_claim(signer, passed=True)), ROOT), False)
 
 
 if __name__ == "__main__":
