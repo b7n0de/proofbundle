@@ -86,10 +86,27 @@ def _require_bool_verdict(claim: dict) -> bool:
     the fix is to make the premise TRUE here rather than to reclassify the function -- raising on a bad
     caller argument is, per that same line 190, the correct answer for a producer.
 
-    ``BundleFormatError`` and not ``ValueError``: ``issue_sd_jwt`` already raises ``ValueError`` for a
-    malformed ``status`` and a wrong-length holder key, but those are argument shapes of this function.
-    This one is a malformed CLAIM, the same condition and the same error type the four ``intoto`` sites
-    raise, so a caller that guards one guards all five with one ``except``.
+    ``BundleFormatError`` and not ``ValueError``, and the consequence spelled out because the first
+    wording here got it wrong on the day it landed. All five R-B4 sites raise ``BundleFormatError``, so
+    one ``except BundleFormatError`` covers THOSE FIVE — that much was right, and it is why the type
+    matches the four ``intoto`` sites. What the wording left out is what a reader takes from the
+    sentence before it: ``BundleFormatError`` is NOT a ``ValueError`` (``issubclass`` is False,
+    measured), while this same function raises a genuine ``ValueError`` for a malformed ``status`` and a
+    wrong-length holder key. ``issue_sd_jwt`` therefore has TWO DISJOINT refusal families, and **no
+    single ``except`` covers all of its refusals**: a caller who writes ``except ValueError`` lets the
+    R-B4 refusal through, and one who writes ``except ProofBundleError`` lets the ``status`` refusal
+    through. Both directions are executed in ``tests/test_abweisungsformen_sind_drei.py``.
+
+    A THIRD FORM EXISTS ONE LAYER OUT, and it is not an exception at all:
+    ``evalclaim.decode_eval_claim`` refuses a non-bool ``passed`` by RETURNING ``None`` (its documented
+    contract), so a caller guarding either family gets a bare ``TypeError`` from the following
+    subscript. Three disjoint forms, and the honest guard for "any refusal of this module" is the union,
+    not a single clause.
+
+    Found by an independent lens of the house deep-gate on 2026-09-24, as the refutation of a
+    pre-registered target; the types are pinned by a contract rather than restated here, because prose
+    about exception types goes stale without anything breaking — which is exactly what happened to the
+    sentence this paragraph replaces.
     """
     wert = claim.get("passed") if isinstance(claim, dict) else None
     if not is_bool(wert):
