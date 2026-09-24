@@ -32,7 +32,7 @@ from .emit import emit_bundle
 from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
-from ._membership import is_member
+from ._membership import is_bool, is_member
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -340,6 +340,11 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         _thr = claim.get("threshold")
         if not (isinstance(_thr, str) and _DECIMAL_RE.match(_thr)):
             return None
+        # The verdict field is typed FURTHER DOWN, by the A-15 block, and this line is deliberately not
+        # a second check of the same thing. The first version of this change added one here, because it
+        # was written against a measurement taken in a checkout 47 commits behind main, where A-15 was
+        # absent. Two gates for one invariant are two promises; the A-15 gate now routes through the
+        # shared predicate instead. R-B4.
         # assurance_level is issuer-declared and (since WP-B2) printed VERBATIM on the CLI's ASSURANCE
         # line. A value outside the enum — e.g. one carrying embedded newlines to forge extra fake
         # CRYPTO:/POLICY: lines (verify-lens L3, 2026-07-09) — must be rejected on the VERIFY path too:
@@ -364,7 +369,12 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         # omits the optional `samples` block skipped the check entirely. A presence-conditional check is
         # an option, not an invariant; it is unconditional now, and the one inside the samples branch
         # stays as the n == samples.n equality it was always for.
-        if not isinstance(claim.get("passed"), bool):
+        # Through the SHARED predicate since R-B4 (2026-09-24), not because the inline form was wrong —
+        # it was right and it is why `export_svr_dsse` and every CLI path refuse a string verdict today.
+        # It routes through `is_bool` so this boundary and the public exporters answer the question with
+        # one function; the exporters had no check at all, and a caller reaching them directly bypasses
+        # this line. See `_membership.is_bool`.
+        if not is_bool(claim.get("passed")):
             return None
         _n = claim.get("n")
         if isinstance(_n, bool) or not isinstance(_n, int):

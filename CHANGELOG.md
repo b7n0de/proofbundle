@@ -10,6 +10,65 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A verdict field must hold a verdict: five public exporters stopped coercing `passed`** (R-B4,
+  `src/proofbundle/intoto.py`, `src/proofbundle/_membership.py`). `bool("false")` is `True`, and
+  `"false"` is a non-empty string, so it also survived the presence check that made a required field
+  look validated. Called directly, `to_test_result_statement` reported `result: "PASSED"`,
+  `to_eval_result_predicate` emitted `passed: true`, `svr_properties` set
+  `PROOFBUNDLE_THRESHOLD_MET`, and `to_intoto_statement` passed the string through unexamined. All
+  five now go through one predicate (`_membership.is_bool`, a `TypeGuard`) via
+  `intoto._require_bool_verdict`, which refuses rather than coercing and names the field and the type
+  it received. The verify boundary already typed the field (A-15, 2026-09-19) and is why no signed SVR
+  and no CLI path was exposed; it calls the same predicate now instead of its own inline check, so one
+  invariant has one home rather than two.
+
+  What this restores is monotonicity, in the sense the in-toto attestation spec gives the word: a
+  value that merely looks like a non-pass must never produce a more permissive outcome than the
+  non-pass itself. `'False'`, `'FALSE'`, `'0'`, `'no'`, `1`, `[1]` and `{'a': 1}` behaved like
+  `'false'`; `1` is the one a type check written against `int` would have let through, because `bool`
+  subclasses `int`.
+
+  Contracts `tests/test_das_verdikt_muss_ein_bool_sein.py` and
+  `tests/test_verdikt_truthiness_scanner.py`. Catch proof measured against the parent commit without
+  the fix: 73 subtest failures and 3 test failures. Three cases carry `_REGRESSIONSWACHE` in their
+  names because they were already green there — a case that cannot fall is not evidence, and saying so
+  in the name keeps a reader from counting it.
+
+  **A sixth site, and it is the one that signs** (`src/proofbundle/sdjwt_issue.py`). `issue_sd_jwt`
+  copied `passed` into the always-open claims of an SD-JWT and signed them three lines later, and
+  `check_binds_bundle` then accepted that receipt as bound, because it compares the field to the bundle
+  payload for equality and both sides carried the same string. Measured at tag `v6.1.0` (`dcac5aee`) and
+  again at this branch's head before the guard. The four `intoto` sites build a statement a caller may
+  sign; this one produces a signed artefact whose `passed` is not a verdict, and no downstream reader can
+  repair that. It refuses now, through the same `is_bool` predicate and the same `BundleFormatError`.
+
+  Five of the six sites were in one file. Sweeping that file is not sweeping the class, and the scanner
+  did not close the gap because it modelled the class as coercion: this site coerces nothing, it hands an
+  unexamined value to somebody else's truthiness test. The scanner now also finds the **pass-through**
+  shape — a read of the field that leaves the function, as a dict value, a sequence element, a call
+  argument or a return — and resolves one level of aliasing, which closed a second, previously unstated
+  hole (`v = claim["passed"]` followed by `if v:` was measured as no finding). Its catch proof is the
+  real site restored to its `v6.1.0` form, not a planted one. The one site the wider rule newly reports,
+  `cli._cmd_show_eval`, is in the documented baseline with the measurement for why it may stand: the
+  claim comes from `decode_eval_claim`, and the use is a printed line.
+
+  `policy.py:269` has carried `_require_bool` with this exact reasoning in its docstring since before
+  any of this. The knowledge existed in the package at one surface and never travelled to the others,
+  which is the more useful lesson than the count.
+
+  **This corrects a sentence in the 6.1.0 release note, and the correction is the point of saying so
+  here.** That note reads "Malformed claim values are refused. A string such as passed: \"false\" is no
+  longer treated as a true verdict by the affected exporters", citing #231. #231 typed the verify
+  boundary; it changed no file in `intoto.py` and none in `sdjwt_issue.py`. Measured at tag `v6.1.0`
+  (`dcac5aee`) by calling the surfaces directly: `to_test_result_statement` returned `PASSED`,
+  `to_eval_result_predicate` emitted `passed: true`, `svr_properties` set `PROOFBUNDLE_THRESHOLD_MET`,
+  `to_intoto_statement` passed the string through, and `issue_sd_jwt` signed it. The CHANGELOG entry for
+  that release is narrower and holds — it says three exporters "are covered by it", meaning by the
+  boundary, which is true for every path that decodes first. The release note compressed that into a
+  statement about the exporters themselves and dropped the condition, and the exporters are public API,
+  so a caller who never decodes is exactly the caller it misleads. 6.1.0's own text is left as it was
+  published rather than rewritten: the sentence became true with this change, and a release note that
+  silently starts describing a later fix is a worse record than one carrying a correction.
 - **A bare install degrades to clean skips, and the gate that claims it now runs it**
   (`tests/test_action_input_injection.py`, `.github/workflows/published-artifact-gate.yml`). One
   unguarded `import yaml` aborted the whole pytest run on an install without extras, so 19 of some

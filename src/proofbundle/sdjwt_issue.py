@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
-from ._membership import as_dict, is_member
+from ._membership import as_dict, is_bool, is_member
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -64,6 +64,42 @@ def _make_disclosure(name: str, value, salt_b64: str) -> tuple[str, str]:
     return disclosure_b64, digest
 
 
+def _require_bool_verdict(claim: dict) -> bool:
+    """``claim["passed"]`` as a genuine boolean, or a refusal naming the type it found.
+
+    THE SIXTH SITE OF R-B4, and the one that SIGNS. The four sites in ``intoto.py`` build a statement a
+    caller may then sign; this one copies ``passed`` into the always-open JWT claims at line 88 and
+    ``signer.sign`` puts a signature over it three lines later. Measured on 2026-09-24 at tag ``v6.1.0``
+    (``dcac5aee``) and again at this branch's head before this guard: ``passed`` as the STRING ``"false"``
+    was issued verbatim into a signed SD-JWT, and ``check_binds_bundle`` accepted it as bound, because that
+    check compares the field to the bundle payload for EQUALITY and both sides carried the same string.
+    A relying party that reads the always-open ``passed`` the way Python reads truthiness gets a pass out
+    of a signature that is genuinely valid. Nothing downstream can repair that; the type has to be
+    established before the signature exists.
+
+    WHY THIS FUNCTION WAS NOT IN THE FIRST PASS OF R-B4, stated because the omission is the lesson.
+    ``tests/test_never_raise_surface_family_property.py:188`` classifies ``issue_*`` as an ERZEUGER that
+    "baut aus EIGENEN, bereits geprueften Werten ein Artefakt", and line 197 says whoever turns such a
+    function into a consumer of untrusted input must move it into the denominator. For ``claim`` that
+    premise was simply false: the dict comes from the caller, and no boundary stands between it and the
+    signature. The classification was right about the family and wrong about this argument, which is why
+    the fix is to make the premise TRUE here rather than to reclassify the function -- raising on a bad
+    caller argument is, per that same line 190, the correct answer for a producer.
+
+    ``BundleFormatError`` and not ``ValueError``: ``issue_sd_jwt`` already raises ``ValueError`` for a
+    malformed ``status`` and a wrong-length holder key, but those are argument shapes of this function.
+    This one is a malformed CLAIM, the same condition and the same error type the four ``intoto`` sites
+    raise, so a caller that guards one guards all five with one ``except``.
+    """
+    wert = claim.get("passed") if isinstance(claim, dict) else None
+    if not is_bool(wert):
+        raise BundleFormatError(
+            f"issue_sd_jwt: `passed` is {type(wert).__name__} {wert!r}, expected a boolean — refusing "
+            f"rather than signing, because bool({wert!r}) would read a non-passing verdict as a PASS "
+            "in the always-open claims of a validly signed SD-JWT (R-B4, CWE-1287)")
+    return wert
+
+
 def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                  exact_score: Optional[str] = None, ci95: Optional[Sequence[str]] = None,
                  model_id_opening: Optional[Sequence] = None,
@@ -85,7 +121,9 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     verifying a bundled list snapshot lives in :mod:`proofbundle.statuslist`.
     """
     always_open = {
-        "passed": claim["passed"], "threshold": claim["threshold"],
+        # NOT `claim["passed"]`: the value is signed three lines below, so its type is established
+        # here rather than assumed (R-B4, sixth site). See _require_bool_verdict.
+        "passed": _require_bool_verdict(claim), "threshold": claim["threshold"],
         "comparator": claim["comparator"], "suite": claim["suite"],
         "issuer": claim["issuer"], "receipt": {"root_b64": root_b64},
         "vct": vct,

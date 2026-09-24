@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ._membership import is_bool
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
@@ -82,6 +83,29 @@ def _commit_hex(commit: str) -> str:
     return commit.split(":", 1)[1] if ":" in commit else commit
 
 
+def _require_bool_verdict(claim: Any, *, wo: str) -> bool:
+    """The claim's ``passed`` as a real bool, or a fail-closed refusal naming what arrived.
+
+    R-B4, the CLASS fix the register entry asks for instead of one guard per exporter. Every public
+    entry point of this module that reads ``passed`` goes through here, so the question "is the verdict
+    a verdict" is answered once. See ``_membership.is_bool`` for the measurement and for why this
+    restores monotonicity rather than merely validating a type.
+
+    A refusal, not a coercion. Guessing what ``"false"`` was meant to mean is how the string got a
+    verdict in the first place; the caller who produced it is the only one who knows, and they get told
+    which field and which type.
+    """
+    if not isinstance(claim, dict):
+        raise BundleFormatError(f"{wo}: needs a claim object, got {type(claim).__name__}")
+    wert = claim.get("passed")
+    if not is_bool(wert):
+        raise BundleFormatError(
+            f"{wo}: `passed` is {type(wert).__name__} {wert!r}, expected a boolean — refusing rather "
+            f"than coercing, because bool({wert!r}) would read a non-passing verdict as a PASS "
+            "(R-B4, CWE-1287)")
+    return wert
+
+
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -90,13 +114,14 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
+    verdikt = _require_bool_verdict(claim, wo="to_intoto_statement")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
         "suite": claim["suite"],
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            "threshold": claim["threshold"], "passed": claim["passed"],
+            "threshold": claim["threshold"], "passed": verdikt,
         }],
         "datasetCommit": claim.get("dataset_id_commit"),
         "subject_digest_note": _SUBJECT_DIGEST_NOTE,
@@ -258,6 +283,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
+    verdikt = _require_bool_verdict(claim, wo="to_test_result_statement")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -266,7 +292,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
             "metric": claim["metric"],
             "comparator": claim["comparator"],
             "threshold": claim["threshold"],
-            "passed": claim["passed"],
+            "passed": verdikt,
             "evaluatedAt": claim["timestamp"],
             "note": ("digest is a SALTED COMMITMENT to the model id, not an artifact content hash; "
                      "proofbundle attests authenticity+integrity of the claimed result, not the correctness "
@@ -287,12 +313,15 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
             "digest": {DATASET_COMMIT_DIGEST_KEY: _commit_hex(dataset_commit)},
         })
     predicate: dict[str, Any] = {
-        "result": _RESULT_ENUM[bool(claim["passed"])],
+        # `_RESULT_ENUM[verdikt]` and not `[bool(...)]`: the enum is keyed by True/False, so an indexing
+        # KeyError would be the honest failure for anything else — but the refusal above says WHICH field
+        # and WHICH type, which a KeyError never could.
+        "result": _RESULT_ENUM[verdikt],
         "configuration": configuration,
     }
     suite = claim.get("suite")
     if suite:
-        key = "passedTests" if claim["passed"] else "failedTests"
+        key = "passedTests" if verdikt else "failedTests"
         predicate[key] = [str(suite)]
     if url:
         predicate["url"] = url
@@ -412,13 +441,22 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
             "commitment-only and must never carry a model/dataset name or a salt")
 
 
-def _require_export_fields(claim: dict) -> None:
-    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3)."""
+def _require_export_fields(claim: dict) -> bool:
+    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3).
+
+    RETURNS THE VALIDATED VERDICT, and that return type is the fix for a review finding rather than a
+    convenience. See the comment at the emit site: a caller that re-reads the field instead of using
+    this value can be handed a different value than the one that was checked.
+    """
     if not isinstance(claim, dict):
         raise BundleFormatError("eval-result export needs a claim object")
     missing = [k for k in _EXPORT_REQUIRED if claim.get(k) in (None, "")]
     if missing:
         raise BundleFormatError(f"refusing to export: claim is missing required field(s) {missing}")
+    # PRESENCE IS NOT TYPE, and `passed` is in _EXPORT_REQUIRED, which is exactly why this was missed:
+    # the field was required and therefore looked checked. `"false"` is a non-empty string, so it passes
+    # the loop above; R-B4. The type check belongs here rather than at each caller of this function.
+    return _require_bool_verdict(claim, wo="refusing to export")
 
 
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
@@ -457,7 +495,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    _require_export_fields(claim)
+    verdikt = _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
@@ -465,7 +503,17 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
         "suite": {"name": claim["suite"], "version": claim.get("suite_version")},
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            "threshold": claim["threshold"], "passed": bool(claim["passed"]),
+            # THE VALIDATED VALUE, NOT A SECOND READ -- and this comment replaces one that argued
+            # for the wrong thing. It said: `claim["passed"]` raw rather than `bool(...)`, because
+            # `_require_export_fields` above already refuses anything that is not a boolean. That
+            # argument was about COERCION and passed over the ACCESSOR: what was validated is
+            # `claim.get("passed")`, what was emitted is `claim["passed"]`. For a dict whose `get`
+            # and `__getitem__` disagree those are two values. Measured 2026-09-24 with a dict
+            # subclass whose `get("passed")` returns True while the stored item is `"false"`: the
+            # validation passed, the predicate carried the string, and the DSSE path signed it.
+            # THE CLASS: a check through one accessor and a use through another. The guard is not a
+            # third accessor but PASSING THE VALIDATED VALUE ON.
+            "threshold": claim["threshold"], "passed": verdikt,
         }],
         "sampleSize": claim["n"],
         "commitments": {
@@ -586,13 +634,18 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
     asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
     verified binding."""
+    # THE MOST LOAD-BEARING OF THE SIX SITES, because what it decides gets SIGNED. Measured 2026-09-24:
+    # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
+    # empty property list. This function is public, so the check belongs here and not only at
+    # `export_svr_dsse`, whose `decode_eval_claim` now refuses a non-boolean one layer earlier. R-B4.
+    verdikt = _require_bool_verdict(claim, wo="svr_properties")
     checks = {c.name: c.ok for c in result.checks}
     props = []
     if checks.get("ed25519-signature"):
         props.append("PROOFBUNDLE_SIGNATURE_VALID")
     if checks.get("merkle-inclusion"):
         props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
-    if claim.get("passed"):
+    if verdikt:
         props.append("PROOFBUNDLE_THRESHOLD_MET")
     if claim.get("samples"):
         props.append("PROOFBUNDLE_SAMPLE_ROOT_VALID")
