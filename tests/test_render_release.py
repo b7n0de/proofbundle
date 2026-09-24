@@ -18,9 +18,26 @@ import sys
 import unittest
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 SKRIPT = REPO / "scripts" / "render_release.py"
 QUELLE = REPO / "release_notes" / "release-source.json"
+
+# A MISSING MAINTAINER SCRIPT IS A SKIP, NOT A COLLECTION ERROR. `render_release.py` is deliberately
+# NOT in the sdist: `MANIFEST.in` names every shipped `scripts/` file one by one, by owner
+# requirement of 2026-09-06, and a release-notes renderer is a maintainer tool that no consumer of
+# the package needs. Measured on 2026-09-24: the hermetic cleanroom job installs the extracted sdist
+# and runs `pytest --collect-only`, this module's module-level import of that absent file raised,
+# and the whole job exited 2. A check that cannot START is not a check that fails on its subject.
+#
+# The guard comes BEFORE the import, which is the same ordering rule the bare-install sweep
+# enforces for optional dependencies, and for the same reason: a guard placed after the import is
+# never reached.
+if not SKRIPT.is_file():
+    pytest.skip(f"NOT MEASURABLE: {SKRIPT.name} is not in this tree — it is a maintainer script and "
+                f"is not shipped in the sdist, so these cases have nothing to measure here",
+                allow_module_level=True)
 
 sys.path.insert(0, str(REPO / "scripts"))
 from render_release import lade, pruefe, rendere  # noqa: E402

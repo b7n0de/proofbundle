@@ -225,3 +225,84 @@ class TheGuardMustPrecedeTheImport(unittest.TestCase):
 
     def test_counter_direction_no_use_at_all_is_no_finding(self):
         self.assertEqual(self._sweep("x = 1\n"), [])
+
+
+class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
+    """THE NEIGHBOUR OF THE RULE ABOVE, and it cost a red cleanroom job to find.
+
+    The sweep above protects collection from a missing optional DEPENDENCY. Collection can depend on
+    a missing REPOSITORY FILE in exactly the same way, and nothing said so. Measured 2026-09-24:
+    `tests/test_render_release.py` did `sys.path.insert(..., "scripts")` and then imported
+    `render_release` at module level. `MANIFEST.in` names every shipped `scripts/` file one by one,
+    by owner requirement of 2026-09-06, and it does not name that one — a release-notes renderer is a
+    maintainer tool no consumer needs. So the hermetic cleanroom installed the extracted sdist, ran
+    `pytest --collect-only`, hit the absent module and exited 2.
+
+    Same shape, same consequence, different missing thing. A guard that knows only one of the two
+    reports green over the other, which is what happened.
+
+    THE RULE: a test module may import a repository script, but it must not make COLLECTION depend on
+    one the sdist does not ship. The way through is the same as for dependencies, a module-level skip
+    placed BEFORE the import.
+    """
+
+    _AUS_SCRIPTS = re.compile(r"^(?:from|import)\s+([a-z_][a-z0-9_]*)", re.M)
+
+    def _kandidaten(self) -> list[tuple[Path, str]]:
+        """Test modules that put `scripts/` on the path and import something that lives there."""
+        aus = []
+        for f in sorted(TESTS.rglob("*.py")):
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if not re.search(r"sys\.path\.insert\([^)]*scripts", text):
+                continue
+            for m in self._AUS_SCRIPTS.finditer(text):
+                if (REPO / "scripts" / f"{m.group(1)}.py").is_file():
+                    aus.append((f, f"scripts/{m.group(1)}.py"))
+        return aus
+
+    def _ausgeliefert(self) -> set[str]:
+        text = (REPO / "MANIFEST.in").read_text(encoding="utf-8")
+        if re.search(r"^graft scripts\s*$", text, re.M):
+            self.fail("MANIFEST.in grafts all of `scripts`, so this case cannot tell a shipped file "
+                      "from an unshipped one — the owner requirement of 2026-09-06 replaced that "
+                      "graft with an explicit list, and its return is the finding")
+        return set(re.findall(r"^include (scripts/\S+)", text, re.M))
+
+    def test_der_messaufbau_findet_ueberhaupt_etwas(self):
+        """[ZAEHLT] An empty candidate list would make the case below pass over nothing."""
+        self.assertTrue(self._kandidaten(),
+                        "no test module imports a repository script, so the sweep below would be "
+                        "green without having looked at anything")
+
+    def test_keine_sammlung_haengt_an_einem_nicht_ausgelieferten_skript(self):
+        ausgeliefert = self._ausgeliefert()
+        verstoesse = []
+        for f, kand in self._kandidaten():
+            if kand in ausgeliefert:
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            modul = kand.split("/")[-1].removesuffix(".py")
+            imp = re.search(rf"^(?:from {re.escape(modul)}\b|import {re.escape(modul)}\b)",
+                            text, re.M)
+            schutz = re.search(r"^\s*pytest\.skip\(.*allow_module_level=True", text, re.M | re.S)
+            if imp and (not schutz or schutz.start() > imp.start()):
+                zeile = text[: imp.start()].count("\n") + 1
+                wo = ("unguarded" if not schutz else
+                      "guarded only AFTER the import, which is never reached")
+                verstoesse.append(f"{f.relative_to(REPO)}:{zeile} imports {kand} {wo}")
+        self.assertFalse(
+            verstoesse,
+            "the extracted sdist would abandon collection on these modules, because the script they "
+            "import is not in MANIFEST.in:\n  " + "\n  ".join(verstoesse))
+
+    def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):
+        """WITHOUT THIS a rule that rejected every script import would pass the catch above.
+
+        Measured: at least one test module imports a script MANIFEST.in does ship, and it is not a
+        finding. If that stops being true the sweep has become a blanket refusal.
+        """
+        ausgeliefert = self._ausgeliefert()
+        gedeckt = [k for _, k in self._kandidaten() if k in ausgeliefert]
+        self.assertTrue(gedeckt,
+                        "no test module imports a SHIPPED script, so the rule above cannot be shown "
+                        "to distinguish shipped from unshipped")
