@@ -111,3 +111,74 @@ def test_positivkontrolle_bleibt_nach_kleinster_aenderung_nicht_konform():
     s = doc["strata"][0]
     s["eligible"] = s["eligible"] + 1
     assert "R1-no-silent-remainder" in _gefeuert(doc)
+
+
+def _viele_einheiten(n: int, mit_duplikat: bool) -> dict:
+    namen = [f"unit.{i}" for i in range(n)]
+    if mit_duplikat and n >= 2:
+        namen[-1] = namen[0]
+    return {"schemaVersion": "0.1.0", "strata": [{
+        "id": "PV-01", "eligible": n, "examined": 0,
+        "unexamined": [{"unit": u, "reason": "not examined"} for u in namen]}]}
+
+
+def test_die_pruefung_bleibt_linear_in_der_zahl_der_einheiten():
+    """THE COST OF REFUSING MUST NOT GROW FASTER THAN THE INPUT.
+
+    Codex, review of 2026-09-23 on pull request 252: the duplicate report called `benannt.count(x)`
+    once per entry over the same list, so a 1.37 MB document with 30,000 entries and ONE duplicate
+    passed the parser budgets, loaded in 0.085 s, and then spent 10.49 s inside the check. The
+    refusal was correct; the cost of reaching it was the defect.
+
+    WHY THIS CASE IS HERE AND NOT IN THE COST-CURVE GUARD, and that is a correction of something I
+    wrote in the reply to that finding. I said the cap1 dimension would be wired into
+    `tests/test_budget_kostenkurve.py`. Measured afterwards, that does not fit: that file's
+    `test_keine_dimension_ohne_last` asserts SET EQUALITY between the fields of `VerificationBudget`
+    and its dimension list, so a cap1 entry there would need a new budget field — a change to a
+    public verification interface, which is not something to slip in alongside a test. The promise
+    named a mechanism whose shape I had not measured.
+
+    So the assurance is built here instead, with the guard's own METHOD: a doubling series, own-process
+    CPU time, the minimum of several runs, and the exponent over the series. Measured 2026-09-24 at
+    2500, 5000, 10000 and 20000 units — exponent 1.053 without a duplicate and 1.024 with one, both
+    under the 1.2 that file uses as its ceiling, and 20,000 units cost about 25 ms.
+
+    THE DUPLICATE ARM IS THE POINT. Without it this case would pass over the exact input the finding
+    was about, because the quadratic path only ran when a duplicate existed.
+    """
+    import math
+    import resource
+
+    def cpu() -> float:
+        r = resource.getrusage(resource.RUSAGE_SELF)
+        return r.ru_utime + r.ru_stime
+
+    def kosten(doc) -> float:
+        beste = math.inf
+        for _ in range(3):
+            a = cpu()
+            cap1.check_cap1_document(doc)
+            beste = min(beste, cpu() - a)
+        return beste
+
+    def exponent(paare):
+        xs = [math.log(n) for n, _ in paare]
+        ys = [math.log(max(k, 1e-9)) for _, k in paare]
+        mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+        ob = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+        un = sum((x - mx) ** 2 for x in xs)
+        return ob / un if un else 0.0
+
+    for mit_duplikat in (False, True):
+        reihe = [(n, kosten(_viele_einheiten(n, mit_duplikat)))
+                 for n in (2500, 5000, 10000, 20000)]
+        e = exponent(reihe)
+        assert e <= 1.35, (
+            f"mit_duplikat={mit_duplikat}: exponent {e:.3f} over {reihe} — the cost of the check "
+            f"grows faster than its input, which is the class the quadratic duplicate scan was")
+        # AND THE REFUSAL MUST STILL FIRE. A check that got fast because it stopped finding the
+        # duplicate would be the more expensive regression, and a cost measurement over a check that
+        # reports nothing measures nothing.
+        if mit_duplikat:
+            assert "R1-no-silent-remainder" in _gefeuert(_viele_einheiten(2500, True)), \
+                "the duplicate is no longer reported, so the measurement above is over nothing"
