@@ -276,8 +276,13 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
                      "of the computation"),
         },
     }
-    if claim.get("provenance"):
-        model_desc["annotations"]["provenance"] = claim["provenance"]
+    # READ ONCE, EMIT WHAT WAS READ. The neighbour of the class `to_eval_result_predicate` names for
+    # `passed` a few dozen lines down: checked through one accessor, used through another. Here the
+    # value lands in a SIGNED annotation, so a dict whose `get` and `__getitem__` disagree gets the
+    # unchecked half signed. `suite` below already does it right and is left alone.
+    herkunft = claim.get("provenance")
+    if herkunft:
+        model_desc["annotations"]["provenance"] = herkunft
     if harness:
         model_desc["annotations"]["harness"] = harness
     if root_b64:
@@ -468,13 +473,22 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         if not isinstance(claim, dict):
             raise BundleFormatError(
                 f"receipt subject profile needs a claim object, got {type(claim).__name__}")
-        if not claim.get("model_id_commit") or not claim.get("timestamp"):
+        # THE ACCESSOR IS READ ONCE AND THE VALUE IS USED, which is the whole guard and not a tidying.
+        # The first version of this check asked `claim.get(...)` and then put `claim["..."]` into the
+        # binder. For a dict subclass whose `get` and `__getitem__` disagree those are two values: a
+        # lens built one whose `get` reports a usable commitment while the stored item is empty, and
+        # the empty value went into a SIGNED binder digest past a guard that had just approved it
+        # (measured 2026-09-24). `_verdict.require_bool_verdict` closes exactly this class for
+        # `passed` and says so in its own docstring; the rule had not travelled here.
+        modell = claim.get("model_id_commit")
+        zeit = claim.get("timestamp")
+        if not modell or not zeit:
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
-            "model_id_commit": claim["model_id_commit"],
+            "model_id_commit": modell,
             "dataset_id_commit": claim.get("dataset_id_commit"),
             "root_b64": root_b64,
-            "timestamp": claim["timestamp"],
+            "timestamp": zeit,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return [{"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(binder).hexdigest()}}]
     if profile in ("public-model", "release-gate"):

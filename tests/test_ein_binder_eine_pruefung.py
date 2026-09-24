@@ -137,3 +137,98 @@ class TestDieWaechter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _ZweizuengigesDict(dict):
+    """`get` reports one value, the stored item is another.
+
+    THIS IS NOT AN EXOTIC SHAPE, it is the only shape in which "check" and "use" are two values at
+    all. A plain dict cannot exhibit the defect, which is exactly why reading twice looks harmless
+    in every test written with plain dicts — and why the establisher `_verdict.require_bool_verdict`
+    had to exist for `passed` in the first place. The defect needs no attacker: any `Mapping`
+    wrapper with a caching or defaulting `get` is the same divergence by accident.
+    """
+
+    def __init__(self, echt: dict, meldet: dict):
+        super().__init__(echt)
+        self._meldet = meldet
+
+    def get(self, key, default=None):
+        if key in self._meldet:
+            return self._meldet[key]
+        return super().get(key, default)
+
+
+class _StummesDict(dict):
+    """`get` answers, `__getitem__` raises. The other polarity: not a wrong value but a wrong
+    EXCEPTION TYPE, escaping past a guard that had just approved the claim."""
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+
+class TestGeprueftUndBenutztSindEINWert(unittest.TestCase):
+    """THE CATCH PROOF for the read-once class. Against the parent state every case here fails,
+    and it fails for the right reason: the value that went into the signed material was not the
+    value the guard had approved."""
+
+    def setUp(self):
+        self.signer = generate_signer()
+
+    def test_der_binder_traegt_den_geprueften_wert(self):
+        """`resolve_subject` checked `claim.get(...)` and bound `claim[...]`."""
+        echt = _claim(self.signer)
+        gemeldet = {"model_id_commit": "a" * 64, "timestamp": "2026-01-01T00:00:00Z"}
+        zweizuengig = _ZweizuengigesDict({**echt, "model_id_commit": "b" * 64,
+                                          "timestamp": "2026-12-31T23:59:59Z"}, gemeldet)
+        erwartet = intoto.resolve_subject("receipt", {**echt, **gemeldet}, root_b64=ROOT)
+        self.assertEqual(intoto.resolve_subject("receipt", zweizuengig, root_b64=ROOT)[0]["digest"],
+                         erwartet[0]["digest"])
+
+    def test_die_signierte_annotation_traegt_den_geprueften_wert(self):
+        """`to_test_result_statement` checked `claim.get("provenance")` and emitted
+        `claim["provenance"]` into an annotation that is part of the signed statement."""
+        echt = _claim(self.signer)
+        zweizuengig = _ZweizuengigesDict({**echt, "provenance": "nicht-geprueft"},
+                                         {"provenance": "geprueft"})
+        statement = intoto.to_test_result_statement(
+            zweizuengig, subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        self.assertEqual(
+            statement["predicate"]["configuration"][0]["annotations"]["provenance"], "geprueft")
+
+    def test_ein_stummes_getitem_kommt_nicht_als_keyerror_heraus(self):
+        """The guard approved the claim through `get`; the parent then subscripted it anyway."""
+        echt = _claim(self.signer)
+        subject = intoto.resolve_subject("receipt", _StummesDict(echt), root_b64=ROOT)
+        self.assertEqual(subject[0]["digest"],
+                         intoto.resolve_subject("receipt", echt, root_b64=ROOT)[0]["digest"])
+
+
+class TestDieWaechterDerLeseregel(unittest.TestCase):
+    """WITHOUT THESE the class above proves nothing: a builder that ignored the claim entirely, or
+    one that fabricated a field, would make every case green."""
+
+    def setUp(self):
+        self.signer = generate_signer()
+
+    def test_ein_fehlendes_provenance_wird_nicht_erfunden(self):
+        statement = intoto.to_test_result_statement(
+            _claim(self.signer), subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        self.assertNotIn("provenance",
+                         statement["predicate"]["configuration"][0]["annotations"])
+
+    def test_ein_echtes_provenance_kommt_unveraendert_durch(self):
+        statement = intoto.to_test_result_statement(
+            _claim(self.signer, provenance="slsa-l3"),
+            subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        self.assertEqual(
+            statement["predicate"]["configuration"][0]["annotations"]["provenance"], "slsa-l3")
+
+    def test_der_binder_haengt_weiterhin_an_seinen_feldern(self):
+        """A digest that ignored the claim would satisfy the cases above. Two claims that differ in
+        exactly one bound field must not share a digest."""
+        echt = _claim(self.signer)
+        anders = {**echt, "timestamp": "2020-01-01T00:00:00Z"}
+        self.assertNotEqual(
+            intoto.resolve_subject("receipt", echt, root_b64=ROOT)[0]["digest"],
+            intoto.resolve_subject("receipt", anders, root_b64=ROOT)[0]["digest"])
