@@ -62,6 +62,15 @@ _MODULES = [
     # ein Urteil bekommen; die strikte Schicht bleibt `evidence_digest`, die Grenze benennt jetzt
     # `evidence.malformed` und faellt fail-closed auf `attestation_failure`.
     "experimental.attested_inference",
+    # 2026-09-23: the offline profile for the governance receipts of a FOREIGN producer. The
+    # population guard reported `verify_agt_receipt` and `verify_agt_receipt_chain` as sitting
+    # outside the property, and it was right. Measuring them by hand turned up a SECOND thing the
+    # guard does not report: `cedar_decision in _ENTSCHEIDUNGEN` hashed an attacker-controlled value
+    # into a frozenset, so a raw TypeError was reachable at a surface that never raises. That site
+    # now runs through `_membership.is_member`. The surface belongs in the population because with a
+    # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
+    # arrive there.
+    "adapters.agt_receipt",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -329,6 +338,21 @@ _OUT_OF_SCOPE = frozenset({
     "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
     "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
     "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",
+    # 2026-09-23, `proofbundle.adapters.agt_receipt`. Four functions, three different reasons, and
+    # measured beforehand that no other module exports any of these names publicly: this set compares
+    # BARE names, so an entry here would quietly exempt a same-named surface elsewhere.
+    #   `canonical_payload` and `canonical_authorization_payload` are the STRICT layer. They take a
+    #       foreign receipt and raise `AGTReceiptError` on a shape they cannot honestly canonicalise,
+    #       because a payload derived from a half-read receipt would be a byte string that looks like
+    #       a fact. `verify_agt_receipt` calls them and catches exactly that exception into the named
+    #       `readable` check, so the public surface stays never-raise without the building blocks
+    #       going quiet.
+    #   `payload_hash` takes the same receipt and hands it to `canonical_payload`, so it carries that
+    #       same boundary and none of its own.
+    #   `exit_code` takes OUR own `VerificationResult`, nothing foreign, and maps it onto the house
+    #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
+    #       unmet).
+    "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
 })
 
 

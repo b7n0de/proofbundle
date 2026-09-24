@@ -1,0 +1,21 @@
+{
+  "agent_did": "did:key:z6MkZ179Demo",
+  "args_hash": "3516df63c022bf5a500bc448686321d2261e9dd4b5b1fdd786e24af263066641",
+  "assurance_level": "self_attested",
+  "authorization_expires_at": null,
+  "authorization_nonce": null,
+  "authorization_signature": null,
+  "authorizer_id": null,
+  "authorizer_public_key": null,
+  "cedar_decision": "allow",
+  "cedar_policy_id": "policy-allow-read",
+  "error": null,
+  "parent_receipt_hash": null,
+  "payload_hash": "f35ba4cf191963b91793ce38466ec9b339224b9c3b00c2cfeedeeef1c65966b0",
+  "receipt_id": "z179-01-allow",
+  "session_id": "z179",
+  "signature": "ffb5a7b8cef22f02b7b515d82bdb5b8cad177b9601d27183f909b12e1d574fa33ad415fb92d5a6e7ffb69dbee1af2b80688dec312059bbfed7fea1261a59f60c",
+  "signer_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+  "timestamp": 1758600000.0,
+  "tool_name": "read_file"
+}

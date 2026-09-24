@@ -7,6 +7,18 @@
     "PENDING"
   ],
   "entries": {
+    "proofbundle.adapters.agt_receipt.verify_agt_receipt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Offline verification of an Agent Governance Toolkit (AGT) MCP governance receipt: Ed25519 over the sort_keys-JSON canonical payload AGT actually signs, the optional external-authorizer signature, and the relying-party trusted-key requirement. Python-only; no Rust implementation. PENDING. A Rust second reader would be worth more here than on most surfaces, because this verifier reads a FOREIGN format whose documentation and implementation disagree on canonicalization (AGT documents RFC 8785 JCS, signs json.dumps(sort_keys=True); measured divergence on the timestamp field every receipt carries), and a second independent reading is the only thing that keeps our reading honest."
+    },
+    "proofbundle.adapters.agt_receipt.verify_agt_receipt_chain": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Chain verification over AGT receipts: every receipt plus every parent_receipt_hash link, with an empty sequence refused rather than read as a clean chain. Python-only. PENDING."
+    },
     "proofbundle.agent_review.validate_agent_review_predicate": {
       "status": "PENDING",
       "rust_subcommands": [],
