@@ -698,6 +698,19 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
 
         Measured here over TWO trees that differ in exactly one file, so the case says which side
         decides rather than only that something changed.
+
+        THE NEIGHBOURS WERE SWEPT IN THE SAME PASS, and there are none. Over the 351 test modules of
+        this tree, five helpers take a root as a parameter AND also name a module-level root. Two of
+        them, in `test_a_register_entry_promised_in_prose_exists.py`, use it only as the default
+        (`w = wurzel or REPO`) and read `w` afterwards. Two, in
+        `test_paketgrenze_zahlen_sind_abgeleitet.py` and `test_sammelabbruch_vor_dem_import.py`, use
+        it only for the `PYTHONPATH` of a throwaway tree, which is the interpreter's library path and
+        not a statement about the tree under test. The fifth was this one.
+
+        THE SWEEP'S OWN LIMIT, so it is not read as wider than it is: it recognises a root by the
+        PARAMETER NAME, from a short word list. A root passed under a name outside that list would not
+        be seen, and neither would a subject that reaches a module constant through a call rather than
+        by naming it.
         """
         import tempfile
         quelle = "import render_release\n"
