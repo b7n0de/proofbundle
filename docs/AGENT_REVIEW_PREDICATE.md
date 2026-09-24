@@ -52,6 +52,41 @@ The statement's subject digest is taken over the **subjectContext alone**. A rec
 another pull request therefore carries the old context and fails the binding check, while remaining
 cryptographically sound — which is precisely the failure this binding exists to expose.
 
+### `reviewedDiffDigest`, and why it needed writing down
+
+**The derivation belongs in this document, because a digest nobody can recompute is a number that
+looks like a fact.** The field is sha256 over the bytes of
+
+```
+git diff <baseSha>..<headSha>
+```
+
+in the repository the receipt names, with default options and no colour. Both shas are in the same
+`subjectContext`, so a reader holding the repository can reproduce the value without asking anyone
+what was meant.
+
+**THE HONEST PART, measured 2026-09-23.** The receipts issued before that date carry the field, and
+their derivation is recorded nowhere — not here, not in the emitter, not beside the published
+evidence. Three obvious candidates were measured against one of them, the receipt for pull request
+241, and none reproduced its value:
+
+| candidate | reproduces `3615bbbc…` |
+|---|---|
+| `git diff <base>..<head>` (two dots) | no, `32bdb8d8…` |
+| `git diff <base>...<head>` (three dots, merge base) | no, `32bdb8d8…` |
+| the API's own `.diff` rendering | no, `d1c0d967…` |
+| the API's own `.patch` rendering | no, `4410a943…` |
+
+So those earlier values are not checkable by a reader, and this document does not pretend otherwise.
+Rather than copy a number whose meaning is unknown, the receipts issued from 2026-09-23 on state the
+derivation above in their own `limitations` list, where a reader meets it, and this section is the
+place it is defined once.
+
+**What the field does NOT bind.** It is a digest over a diff, not over a tree. Two different trees
+with the same diff against their own bases produce the same value, and a diff that git renders
+differently under another version or configuration produces a different one for the same trees. The
+tree itself is bound by `headSha` and `baseSha`, which is where that question belongs.
+
 ### `bodyCoreDigest` and the self-reference problem
 
 The visible disclosure block contains the receipt digest, and the body containing that block is

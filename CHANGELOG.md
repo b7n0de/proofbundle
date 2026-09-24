@@ -6,6 +6,99 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- **A bare install degrades to clean skips, and the gate that claims it now runs it**
+  (`tests/test_action_input_injection.py`, `.github/workflows/published-artifact-gate.yml`). One
+  unguarded `import yaml` aborted the whole pytest run on an install without extras, so 19 of some
+  four thousand tests were collected and the rest never ran. Five sibling modules guard the same
+  dependency correctly. The import now goes through `pytest.importorskip`.
+- The workflow step whose comment claimed this property installed the `[test]` extra and only then
+  ran pytest, so the bare case was never exercised there. It now collects on the `[eval]` state
+  BEFORE the `[test]` install. A gate whose promise is broader than what it executes reports green
+  about a case it did not attempt.
+
+Contract `tests/test_bare_install_degrades_to_clean_skips.py` checks the property over every test
+module and reads the optional set from the `test` extra in `pyproject.toml` rather than from a list
+typed here, because a typed list is a second statement about what is optional and two statements
+drift. Catch proof on a bare venv: with the guard rc 0 and 4948 tests collected, without it rc 2 and
+collection interrupted.
+- **R1 counts distinct units rather than list entries** (`src/proofbundle/cap1.py`). A coverage list
+  naming the same unit twice read as two covered units, so a report could claim a count it had not
+  earned. The verdict now names the duplicates, because a number that silently absorbs a duplicate
+  is a number nobody can check.
+- **R8 validates every element, not only the container** (`src/proofbundle/cap1.py`). The guard
+  accepted any list, including one holding `{}` or `None`. The failure now names the offending
+  element instead of the field.
+- **The CAP-1 early return no longer silences the legacy alias check**
+  (`src/proofbundle/agent_review.py`). `_widerspruch_in_altfeldern` ran on the v0.1 path only, so a
+  document taking the CAP-1 branch could report `complete` while its own legacy fields said `0 of
+  100` with a gap. The check runs on both branches, and `_is_zahl` returns `TypeGuard[int]` so the
+  narrowing holds at the call site.
+
+Contract `tests/test_codex_funde_248_20260923.py`, with a catch proof measured on the branch:
+reverting `cap1.py` to its `main` state turns 7 cases red, reverting `agent_review.py` turns 3 red,
+and both fixes present leave 268 passing with 14 subtests.
+
+- **An absent `contentRootAlg` and a present but unusable one are no longer the same thing**
+  (`src/proofbundle/intoto.py`). The guard read `isinstance(alg, str) and alg`, so a PRESENT value
+  that was not a non-empty string fell into the absence branch and resolved to the LEGACY algorithm
+  with `ok=true`. Measured before the fix, all six reported values resolved to legacy: `""`, `0`,
+  `True`, `[]`, `{}` and `null`. An unknown STRING id already failed closed one line later, and that
+  is what made the hole hard to see, because the obvious case behaved and only the type-confused one
+  did not.
+
+  Absent still means the key is not there, which is how released 2.0.0 receipts keep verifying.
+  Present and unusable resolves to a sentinel matching neither registered id, so the serializer
+  refuses it as it refuses any unknown algorithm, and the verdict names what was found.
+
+  THE HONEST BOUNDARY: `contentRootAlg` sits INSIDE the signed payload, so this is not a signature
+  bypass. The damage is that the verdict describes signed content wrongly, that a receipt the
+  contract says to reject is accepted, and that a stricter foreign verifier rules differently on
+  identical bytes.
+
+Contract `tests/test_s26_absent_is_not_present_but_unusable.py` binds the equivalence
+`(field ABSENT) == (resolved algorithm == LEGACY)` in both directions, with two counter-directions
+so a rule refusing everything could not pass as correct. Catch proof: restoring the old guard turns
+the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
+before and after.
+
+### Added
+
+- **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
+  (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT
+  installed and without network access: Ed25519 over the canonical payload, the optional
+  external-authorizer signature, the `parent_receipt_hash` chain link, and the house exit-code
+  contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party
+  requirement unmet). No AGT code is copied; the wire format was read from the published tree at
+  commit `a917ad4ac04aff11a5e9e21f6a26b91642b750cd` and re-derived. AGT is MIT, Copyright (c)
+  Microsoft Corporation.
+
+  **A measured divergence is pinned by this work and belongs in the record.** AGT documents its
+  canonicalization as "RFC 8785 JCS canonical JSON" and implements
+  `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. The two disagree on
+  `timestamp`, which every receipt carries as a float. Measured on a receipt produced by AGT's own
+  signer, timestamp `1758600000.0`: the sort_keys form renders `1758600000.0`, RFC 8785 renders
+  `1758600000`, the receipt's own `payload_hash` matches the former, and the Ed25519 signature is
+  valid against the former and REJECTED against the latter. A verifier built from the documentation
+  therefore rejects valid receipts. This adapter verifies against the form AGT actually signs and
+  names that form in the verdict, rather than trying both and reporting whichever matched, which
+  would turn "the receipt is valid" into "one of two readings is valid" with no way to tell which.
+
+  Two further readings are kept apart rather than bridged. The proposal document says the decision
+  vocabulary is `permit`/`deny`; the implementation says `allow`/`deny`, and a `permit` receipt is
+  refused with the reason named. An external authorization is accepted only against a relying
+  party's own trusted-key list and only when that key differs from the receipt signer; with no list
+  supplied the check is recorded as NOT evaluated, which is not a pass.
+
+Conformance: `tests/test_agt_receipt_verifier.py`, 18 cases over five receipts produced by AGT's
+own signer (allow, deny, externally authorized, tampered after signing, wrong key), plus
+counter-directions so a verifier that accepts nothing could not pass. Catch proof: five mutations
+of the adapter (signature check always true, missing trust list read as acceptance, authorizer
+allowed to equal signer, `permit` accepted, empty chain read as clean) each turn the suite red.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
