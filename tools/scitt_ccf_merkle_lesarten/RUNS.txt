@@ -1,0 +1,68 @@
+RUNS - tools/scitt_ccf_merkle_lesarten
+
+Environment : CPython 3.10.12, Linux x86_64
+Dependencies: standard library only
+Date        : 2026-09-24 (re-measured; the first log of 2026-09-13 was German and its
+              tokens no longer match what the tools print)
+
+==============================================================================
+1) python3 zwei_lesarten.py                                   exit code 0
+==============================================================================
+
+source : draft-ietf-scitt-receipts-ccf-profile-04, sections 2.1/2.2 and 3.2
+CBOR   : tools/scitt_ccf_datahash_vector/cbor_min.py (working tree)
+
+COUNTER-PROBE: PASSED -- equal case, unequal case and positive control all correct [trace 01eea93b24a98936]
+
+ n  root, reading 2.1                                                   root, reading 3.2                                                   verdict
+ 0  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855    equal (3.2 knows no empty tree -- NOT APPLICABLE)
+ 1  8ddf769be748acf5e0c2e33e42c93aba7731837e918f5f1795bf8e94a100b7f2    a5f385d91bafccc641350beb91e091ad0dabbfad922679d3d24c0092432f5ecd    DIFFERS
+ 2  13a179f27706e6c8c72a511ba21816fc7c7bf24ce42d54e4857a63d2d1198b0a    19368153659ed653f8f9557244119387c5845077ed305c13eaf7c5c407c223f6    DIFFERS
+ 3  3ee77e02ae577ea58a7344fff508d8f69c8c03eeb80948830240395d556da10c    90526cd541619ab3c6f0d14245680508555b96dbef1113856aee5cc27ca4d869    DIFFERS
+ 4  2b25e229dbb531cc04adc74343de5f1335e1d88050173dc61c8107f22fbcdcc4    bbf260dd9c6c2748d0d5c255c7d7594b7d8b0dae94dbb36ec5c2f40d25cf28d8    DIFFERS
+ 5  e5de0dd32f2f602229a7f4413f315503cb09a4d2360d4e94c953201c45fed873    56ccd63e18f2c0a4cd42cdb7374cc9b40f2b8bbaf9fbc736819994cad77a8a5b    DIFFERS
+
+RESULT: 5 of 6 cases differ (n=0 to n=5).
+The difference sits exclusively in the leaf preimage; the node rule HASH(left || right) is the same in both readings.
+
+==============================================================================
+2) python3 fangnachweis.py                                    exit code 0
+==============================================================================
+
+The per-case measurand lines are omitted here: each planted defect prints the baseline
+dict and the measured dict in full, which is roughly 40 kB of hashes per run. They are
+what the proof COMPARES, not what a reader checks, and they are reproduced by running
+the tool. The verdict column is kept, because that is the claim.
+
+BASELINE, measured (not predicted):
+  RC=0  {'abweichend': 5, 'gesamt': 6, 'gegenprobe': 'PASSED', 'gegenprobe_grund': 'equal case, unequal case and positive control all correct', 'gegenprobe_spur': '01eea93b24a98936', 'cbor_herkunft': 'tools/scitt_ccf_datahash_vector/cbor_min.py (working tree)', 'wurzeln': ((0, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'), (1, '8ddf769be748acf5e0c2e33e42c93aba7731837e918f5f1795bf8e94a100b7f2', 'a5f385d91bafccc641350beb91e091ad0dabbfad922679d3d24c0092432f5ecd'), (2, '13a179f27706e6c8c72a511ba21816fc7c7bf24ce42d54e4857a63d2d1198b0a', '19368153659ed653f8f9557244119387c5845077ed305c13eaf7c5c407c223f6'), (3, '3ee77e02ae577ea58a7344fff508d8f69c8c03eeb80948830240395d556da10c', '90526cd541619ab3c6f0d14245680508555b96dbef1113856aee5cc27ca4d869'), (4, '2b25e229dbb531cc04adc74343de5f1335e1d88050173dc61c8107f22fbcdcc4', 'bbf260dd9c6c2748d0d5c255c7d7594b7d8b0dae94dbb36ec5c2f40d25cf28d8'), (5, 'e5de0dd32f2f602229a7f4413f315503cb09a4d2360d4e94c953201c45fed873', '56ccd63e18f2c0a4cd42cdb7374cc9b40f2b8bbaf9fbc736819994cad77a8a5b'))}
+
+PREDICTED: 9 COUNTS of 9 planted defects.
+
+  A1 leaf preimages made equal                           CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A2 inner HASH removed from reading 3.2                 CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A3 k boundary shifted                                  CAUGHT (run aborted)         predicted=COUNTS  measured=COUNTS  ok
+  A4 counter-probe defused                               CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A5 RFC 6962 prefixes in BOTH readings                  CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A8 comparison results removed from the measure         CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A9 mechanics disarmed (the pass reports fixed findings) CAUGHT (counter-probe fails) predicted=COUNTS  measured=COUNTS  ok
+  A7 counter-probe silenced (dead code)                  CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+  A6 concatenation order reversed                        CAUGHT                       predicted=COUNTS  measured=COUNTS  ok
+
+MEASURED: 9 COUNTS · 0 AGAINST · 0 not planted (of 9)
+of those, caught ONLY through the return code (the run aborted, the surface saw nothing but absence): 1
+of those, stopped by the counter-probe itself (it REPORTS the defect): 1
+PREDICTED was: 9 COUNTS.
+The prediction held.
+
+WHAT THIS PROOF LEARNED, and it stands here because it REFUTED the prediction: the first run predicted 4 COUNTS and measured 3. A2 slipped through because the measuring surface was only the NUMBER of deviations -- and A2, A5 and A6 all leave that number at 5. A checker that holds two readings AGAINST EACH OTHER is blind to every defect that hits BOTH equally; that is owed to its construction, not to a lack of care. The hardening is therefore not a stricter rule but a SECOND, independent quantity: the root values themselves. They bind the result to fixed bytes instead of to a comparison. After that: 6 of 6 -- which was every defect there was THEN. The table has since grown to 9, so read that 6 as a date and not as the current count.
+
+WHAT REMAINS NOT MEASURABLE, with the reason: whether our roots are the RIGHT ones. The draft names no test vectors, and no independent implementation is available here. This proof shows that the checker reacts to changes -- not that it reads the document correctly.
+
+==============================================================================
+NOT IN THIS LOG, with the reason
+==============================================================================
+
+Whether the roots are the RIGHT ones. The draft names no test vectors and no independent
+implementation was available here, so both tools measure the document and each other,
+never a reference. The catch proof shows that the checker reacts to changes.
