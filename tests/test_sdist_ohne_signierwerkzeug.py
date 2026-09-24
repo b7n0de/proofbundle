@@ -346,6 +346,12 @@ AUSGESCHLOSSEN = {
     # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
     # request, which does not exist in an installed package at all.
     "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # 2026-09-24: renders a pull request body or a house issue from a data source under `pr_bodies/`,
+    # which MANIFEST.in ships no line of, and the surfaces it writes for exist only in this project's
+    # own GitHub repository. An installed package has neither the source nor a use for the output, so
+    # the script could only fail to find its input. Same reasoning as `render_release.py`, which is
+    # already outside for the same shape; the two are siblings and this entry is short because of it.
+    "render_pr_body.py": "rendert PR- und Issue-Rumpfe aus pr_bodies/, das die sdist nicht ausliefert",
     # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
     # and the contract above went red on every required context. The landing card reads
     # docs/release_scope/ and the pull-request titles on main through gh; the language guard
