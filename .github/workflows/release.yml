@@ -165,6 +165,16 @@ jobs:
           # DER VORHERIGE TAG WIRD NICHT ERRATEN. Er steht in der Quelle, weil die API sonst selbst
           # entscheidet, welcher Zeitraum gemeint ist — und diese Entscheidung gehoert in ein
           # versioniertes Artefakt, nicht in eine Abfrage.
+          #
+          # `release_commit` DER QUELLE IST SEIT DEM 23.09.2026 TRAGEND, und wer eine Quelle fuer eine
+          # neue Version schreibt, muss das wissen. Der Aufruf unten misst HEAD dieses Checkouts und
+          # verweigert, wenn die Quelle einen ANDEREN Baum beschreibt. Grund, gemessen von Codex auf
+          # PR 256: die Quelle nannte den Baum immer, und nichts verglich ihn; ein Zweig 12 Commits
+          # hinter dem Tag rendert 48 Eintraege und laesst drei Merges unerwaehnt, waehrend die
+          # Artefakte aus dem spaeteren Baum kommen. Die Verweigerung ist fail-closed und laesst den
+          # Release-Lauf scheitern, was billiger ist als eine Notiz ueber einen Baum, den niemand
+          # ausgeliefert hat. Fuer einen neuen Release ist `release_commit` der Commit, der getaggt
+          # wird — die Spitze des Release-Zweigs, also bekannt, bevor der Tag faellt.
           python scripts/render_release.py --version "${GITHUB_REF_NAME#v}" \
             --aus /tmp/release_notes.md
           # LEER IST KEIN BESTEHEN — das Werkzeug bricht bei leerem Text selbst ab, und `-eo pipefail`

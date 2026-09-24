@@ -27,12 +27,25 @@ from render_release import lade, pruefe, rendere  # noqa: E402
 
 
 def _fahre(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(SKRIPT), *args],
+    """The CLI, with the tree binding satisfied unless a case sets it itself.
+
+    WHY THE HELPER STATES THE HEAD. Since 2026-09-23 the render refuses when the tree it runs in is
+    not the tree the source describes, which is the point of that check and correct here: these cases
+    run on a branch that sits beyond the release tag. A case about anything ELSE should not be
+    measuring that, so the helper passes the declared commit; the cases that ARE about the binding
+    pass their own `--kopf` and are named accordingly.
+    """
+    vorgabe = () if any(x == "--kopf" for x in args) else ("--kopf", _erklaerter_kopf())
+    return subprocess.run([sys.executable, str(SKRIPT), *args, *vorgabe],
                           capture_output=True, text=True, timeout=60)
 
 
 def _quelle() -> dict:
     return json.loads(QUELLE.read_text(encoding="utf-8"))
+
+
+def _erklaerter_kopf() -> str:
+    return _quelle()["release_commit"]
 
 
 class DieVersionsbindungIstKeineHoeflichkeit(unittest.TestCase):
@@ -53,6 +66,52 @@ class DieVersionsbindungIstKeineHoeflichkeit(unittest.TestCase):
         r = _fahre("--version", "6.1.0")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("## All changes", r.stdout)
+
+
+class DieQuelleNANNTEDenBaumUndNichtsVerglichIhn(unittest.TestCase):
+    """THE RECORDED COMMIT WAS NOT A BINDING until something compared it.
+
+    Codex, review of 2026-09-23 on this pull request. `release_commit` had always carried the commit
+    the 48 entries describe, and the render bound the VERSION and never the TREE. Measured on this
+    branch at the time: HEAD sat 12 commits beyond `dcac5aee`, including the first-parent merges
+    #245, #247 and #253, the source names none of the three, and the render exited 0 regardless. The
+    workflow triggers on a tag push, so a tag pushed from such a tree would ship those descendants
+    while publishing detail links for the older one.
+
+    It is the same class as the digest this pull request already closed one layer up, where a sha256
+    was written and nothing ran `sha256sum -c` over it. A value nobody compares is not a binding.
+    """
+
+    def test_fang_ein_fremder_baum_wird_abgewiesen(self):
+        r = _fahre("--version", "6.1.0", "--kopf", "0" * 40)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("different tree than the artefacts", r.stderr)
+        self.assertIn(_erklaerter_kopf()[:12], r.stderr, "the refusal must name the declared tree")
+        self.assertNotIn("## All changes", r.stdout, "nothing may be rendered on a refusal")
+
+    def test_gegenrichtung_der_erklaerte_baum_rendert(self):
+        """WITHOUT THIS a check that refuses every tree would pass the catch above."""
+        r = _fahre("--version", "6.1.0", "--kopf", _erklaerter_kopf())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("## All changes", r.stdout)
+
+    def test_fang_eine_quelle_ohne_release_commit_kann_den_baum_nicht_nennen(self):
+        d = _quelle()
+        d.pop("release_commit", None)
+        befunde = pruefe(d, kopf="a" * 40)
+        self.assertTrue(any("release_commit" in b for b in befunde), befunde)
+
+    def test_ohne_gemessenen_kopf_wird_die_bindung_NICHT_still_uebersprungen(self):
+        """The honest half of the design, stated as a case rather than as a comment.
+
+        `pruefe` without a head does not check the binding, because a caller that cannot measure the
+        tree has nothing to compare. That is only safe because the CLI always supplies one, and
+        `kopf_des_baums` returning None is itself treated as a finding by the check. This case pins
+        that second half: an unmeasurable tree is a refusal, not a pass.
+        """
+        self.assertEqual(pruefe(_quelle()), [], "no head given means the binding is not measured")
+        befunde = pruefe({**_quelle(), "release_commit": "kurz"}, kopf="b" * 40)
+        self.assertTrue(befunde, "a malformed release_commit with a measured head must be refused")
 
 
 class JederPullRequestGenauEinmal(unittest.TestCase):
@@ -254,3 +313,31 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
         text = rendere(d)
         zuerst = text.split("## All changes", 1)[1].split("<summary>", 1)[1].split(" ·", 1)[0]
         self.assertEqual(zuerst, "Dependencies", "the render followed the source order")
+
+    def test_ein_zweites_mal_derselbe_gruppenname_faellt(self):
+        """A MEMBERSHIP CHECK DOES NOT COUNT, and the two checks above are membership checks.
+
+        Codex, review of 2026-09-23 on this pull request. Appending a second empty group whose name
+        is ALREADY KNOWN passes both of them: nothing is missing, nothing is unknown. Reproduced
+        before the fix, `pruefe` returned no findings, the CLI exited 0, and the rendered note carried
+        that section twice — measured as two occurrences of the group heading in the output.
+
+        The five groups ARE the declared boundary of the release, so a sixth section widens what the
+        note claims to cover. The shape was already correct one level down, where pull-request numbers
+        are COUNTED rather than tested for membership; this is that rule at the group level.
+        """
+        d = _quelle()
+        zweite = dict(d["gruppen"][0])
+        zweite["eintraege"] = []
+        d["gruppen"] = list(d["gruppen"]) + [zweite]
+        befunde = pruefe(d)
+        self.assertTrue(any("more than once" in b for b in befunde), befunde)
+        self.assertTrue(any(d["gruppen"][0]["name"] in b for b in befunde),
+                        f"the finding must name the duplicated group: {befunde}")
+
+    def test_fang_die_unveraenderte_quelle_bleibt_ohne_befund(self):
+        """THE COUNTER-DIRECTION for the line above. A duplicate check that fires on the real
+        source would refuse every release, and a case that only ever sees the planted defect cannot
+        tell a working check from one that reports everything."""
+        self.assertEqual(pruefe(_quelle()), [],
+                         "the real source must still pass, or the duplicate rule is too wide")

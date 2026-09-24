@@ -85,10 +85,29 @@ def lade(pfad: Path, version: str) -> Dict[str, Any]:
     return daten
 
 
-def pruefe(daten: Dict[str, Any]) -> List[str]:
+def kopf_des_baums(repo: Path) -> str | None:
+    """The commit this tree is checked out at, or None when that is not measurable.
+
+    None is NOT the same as "matches". The caller treats it as a finding, because a note that
+    cannot say which tree it describes is the defect this function exists for.
+    """
+    import subprocess  # noqa: PLC0415 — only the CLI path needs it
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    kopf = r.stdout.strip()
+    return kopf if r.returncode == 0 and len(kopf) == 40 else None
+
+
+def pruefe(daten: Dict[str, Any], kopf: str | None = None) -> List[str]:
     """Structural findings, all of them, rather than the first one.
 
     A renderer that stops at the first problem makes a caller fix them one run at a time.
+
+    `kopf` is the commit of the tree being rendered IN. Pass it and the source's own
+    `release_commit` is checked against it. See the block at that check for why.
     """
     befunde: List[str] = []
     gruppen = daten.get("gruppen")
@@ -102,6 +121,38 @@ def pruefe(daten: Dict[str, Any]) -> List[str]:
     fremd = [n for n in namen if n not in ERWARTETE_GRUPPEN]
     if fremd:
         befunde.append(f"group(s) the renderer does not know: {', '.join(str(x) for x in fremd)}")
+    # A MEMBERSHIP CHECK DOES NOT COUNT, and the two above are membership checks. Codex, review of
+    # 2026-09-23 on PR 256: appending a second empty group with an ALREADY KNOWN name passes both —
+    # nothing is missing and nothing is unknown — so `pruefe` reported no findings, the CLI exited 0,
+    # and the rendered note carried that section TWICE. Reproduced before this line went in.
+    #
+    # The shape was already right one level down, where `nr in gesehen` counts pull requests instead
+    # of testing membership. This is the same rule at the group level, and it is the one that matters
+    # more: the five groups ARE the declared boundary of the release, so a sixth section widens what
+    # the note claims to cover without anything refusing it.
+    doppelt = sorted({str(n) for n in namen if namen.count(n) > 1})
+    if doppelt:
+        befunde.append(f"group name(s) declared more than once: {', '.join(doppelt)}")
+
+    # THE SOURCE NAMED THE TREE AND NOTHING COMPARED IT. Codex, review of 2026-09-23 on PR 256:
+    # `release_commit` has always carried the commit the 48 entries describe, and the render bound
+    # the VERSION and never the TREE. Measured on this branch at the time of the finding: HEAD sat
+    # 12 commits beyond `dcac5aee`, including the first-parent merges #245, #247 and #253, the source
+    # names none of the three, and the render exited 0 all the same. The workflow triggers on a tag
+    # push, so a tag pushed from such a tree would ship those descendants while publishing "All
+    # changes" and detail links for the older one.
+    #
+    # It is the same class as the digest this pull request already fixed one layer up: a value was
+    # recorded and nothing checked it. A recorded commit nobody compares is not a binding.
+    erklaert = daten.get("release_commit")
+    if kopf is not None:
+        if not isinstance(erklaert, str) or len(erklaert) != 40:
+            befunde.append("the source declares no 40-character release_commit, so the notes cannot "
+                           "say which tree they describe")
+        elif erklaert != kopf:
+            befunde.append(
+                f"the source describes tree {erklaert[:12]} but the render is running in {kopf[:12]}"
+                " — the notes would describe a different tree than the artefacts")
 
     gesehen: Dict[int, str] = {}
     for g in gruppen:
@@ -173,6 +224,10 @@ def main(argv: List[str] | None = None) -> int:
     p.add_argument("--version", required=True, help="the version the source must declare")
     p.add_argument("--quelle", type=Path, default=QUELLE)
     p.add_argument("--aus", type=Path, help="write here instead of stdout")
+    p.add_argument("--baum", type=Path, default=Path(__file__).resolve().parents[1],
+                   help="the tree whose HEAD the source's release_commit is checked against")
+    p.add_argument("--kopf", help="state that HEAD instead of measuring it; for cases that must "
+                                  "exercise both directions from one checkout")
     a = p.parse_args(argv)
 
     try:
@@ -180,7 +235,7 @@ def main(argv: List[str] | None = None) -> int:
     except QuellenFehler as fehler:
         print(f"  REFUSED: {fehler}", file=sys.stderr)
         return 2
-    befunde = pruefe(daten)
+    befunde = pruefe(daten, kopf=a.kopf or kopf_des_baums(a.baum))
     if befunde:
         print(f"  REFUSED: the source is not renderable ({len(befunde)} finding(s)):",
               file=sys.stderr)
