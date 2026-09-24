@@ -470,25 +470,24 @@ class TestDerWaechterWirdNichtSelbstZumDefekt(unittest.TestCase):
 
 
 class TestDieKlassifikationIstEinProtokollaufruf(unittest.TestCase):
-    """ITERATION 3 DES GATES, und beide Faelle sind Regressionen der Iteration davor.
+    """GATE ITERATION 3, and both cases are regressions of the round before it.
 
-    Iteration 2 zeigte, dass EIN breiter Schutz um den ganzen Lauf vier eingepflanzte Tippfehler als
-    sauberes `False` zurueckgab. Die Antwort darauf war: ein Schutz je Protokollaufruf, Buchhaltung
-    bleibt draussen. Die REGEL war richtig, die ZUORDNUNG nicht — zwei Operationen sahen aus wie
-    Buchhaltung und fassen ein fremdes Objekt an:
+    Iteration 2 showed that ONE broad guard around the whole walk returned four injected typos as a
+    clean `False`. The answer was a guard per protocol call, with bookkeeping outside. The RULE was
+    right and the CLASSIFICATION was not — two operations look like bookkeeping and touch a foreign
+    object:
 
-        isinstance(x, dict)   liest `x.__class__`, sobald der `type(x)`-Fastpath nicht trifft
-        meine != andere       ruft `__eq__` der Schluessel, sobald zwei Hashes kollidieren
+        isinstance(x, dict)   reads `x.__class__` as soon as the `type(x)` fast path misses
+        meine != andere       invokes the keys' `__eq__` as soon as two hashes collide
 
-    Beide lagen ausserhalb jedes Schutzes, und eine Linse liess beide als rohe Ausnahme aus
-    `check_binds_bundle` heraus — auf einem echt signierten Rezept, mit erzeugtem Ed25519-Schluessel.
-    Gegen die Fassung mit dem breiten Schutz kam an denselben Eingaben `False`. Die Reparatur ist
-    deshalb KEINE Rueckkehr zum breiten Schutz, sondern zieht die Klassifikation in `_art`, wo sie
-    einen eigenen bekommt.
+    Both sat outside every guard, and a lens let both leave `check_binds_bundle` as a raw exception —
+    on a genuinely signed receipt, with a generated Ed25519 key. The state with the broad guard
+    returned `False` for the same inputs. The repair is therefore NOT a return to the broad guard; it
+    moves the classification into `_art`, where it gets one of its own.
 
-    GEMESSEN VOR DEM EINBAU, weil zwei Faelle an diesem Tag schon wie Fangnachweise aussahen und
-    keine waren: alle vier hier fallen gegen `00852efb` mit einer rohen Ausnahme und bestehen gegen
-    die Reparatur, waehrend die vier Waechter in BEIDEN Staenden gleich antworten.
+    MEASURED BEFORE IT WAS APPLIED, because two cases that day already looked like catch proofs and
+    were not: all four here fall against `00852efb` with a raw exception and pass against the repair,
+    while the four guards answer the same in BOTH states.
     """
 
     def test_eine_werfende_klassenangabe_gibt_falsch_statt_zu_werfen(self):
@@ -504,8 +503,8 @@ class TestDieKlassifikationIstEinProtokollaufruf(unittest.TestCase):
                 self.assertIs(same_json_value(a, b), False)
 
     def test_ein_werfender_schluesselvergleich_gibt_falsch_statt_zu_werfen(self):
-        """Gleicher Hash erzwingt bei der Set-Gleichheit einen `__eq__`-Aufruf — ohne die Kollision
-        vergleicht CPython nur die gecachten Hashes und der Fall wuerde nichts messen."""
+        """An equal hash forces an `__eq__` call during the set comparison. Without the collision
+        CPython compares only the cached hashes and this case would measure nothing."""
         class EqWirft:
             def __hash__(self):
                 return 42
@@ -516,16 +515,16 @@ class TestDieKlassifikationIstEinProtokollaufruf(unittest.TestCase):
         self.assertIs(same_json_value({EqWirft(): 1}, {EqWirft(): 1}), False)
 
     def test_derselbe_wurf_bindet_auch_nicht(self):
-        """Bis in die Flaeche, deren Vertrag ein Urteil ist und keine Ausnahme."""
+        """All the way into the surface whose contract is a verdict and never an exception."""
         class ClassWirft:
             @property
             def __class__(self):
                 raise RuntimeError("Boom")
 
-        # BEIDE SEITEN MUESSEN DIESELBE ART TRAGEN, sonst weist der Vergleich schon an der Art ab und
-        # das feindliche Objekt wird nie angefasst. Eine erste Fassung dieses Falls stellte die SD-JWT
-        # mit `suite` als String aus und den Anspruch mit einem Dict; er bestand gegen BEIDE Staende
-        # und mass nichts. Handgebaut, weil `issue_sd_jwt` denselben Wert tragen muss.
+        # BOTH SIDES MUST CARRY THE SAME KIND, or the comparison refuses on kind and never touches
+        # the hostile object. A first version of this case issued the SD-JWT with `suite` as a string
+        # and the claim with a dict; it passed against BOTH states and measured nothing. Hand-built,
+        # because `issue_sd_jwt` has to carry the same value.
         signer = generate_signer()
         echt = _sd_jwt_von_hand(_claim(signer, passed=True, suite={"x": 1}), signer)
         self.assertIs(check_binds_bundle(echt, _claim(signer, passed=True,
