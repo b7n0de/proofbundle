@@ -31,14 +31,14 @@ FIXTUREN = pathlib.Path(__file__).resolve().parent / "fixtures" / "pr_bodies"
 QUELLE_260 = REPO / "pr_bodies" / "pr-260-source.json"
 
 
-# DER MODUL-LADEVORGANG STEHT AUF MODUL-EBENE UND IN DIESER FORM, weil es dafuer eine Hausregel gibt
-# und `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py` sie bewacht. `render_pr_body.py`
-# wird NICHT im sdist ausgeliefert (MANIFEST.in nennt den Grund), und mit `spec_from_file_location`
-# traegt der Modulname sein Verzeichnis, sodass `conftest` die Datei als nicht-ausgeliefert erkennt
-# und einen ehrlichen SKIP meldet, statt dass die Sammlung abbricht. Ein Laden je Testmethode wuerde
-# stattdessen `FileNotFoundError` werfen: ein Fehlschlag, der nach einem Defekt am Gegenstand aussieht
-# und keiner ist. Das Schwesterwerkzeug `test_render_release.py` traegt dieselbe Form mitsamt der
-# Notiz, dass ein modul-weiter `pytest.skip` hier die FALSCHE Loesung war.
+# THE MODULE LOAD SITS AT MODULE LEVEL AND IN THIS FORM, because there is a house rule for it and
+# `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py` guards it. `render_pr_body.py` is
+# NOT shipped in the sdist (MANIFEST.in names the reason), and with `spec_from_file_location` the
+# module name carries its directory, so `conftest` recognises the file as not-shipped and reports
+# an honest SKIP instead of aborting collection. Loading per test method would instead raise
+# `FileNotFoundError`: a failure that looks like a defect in the subject and is not one. The sibling
+# `test_render_release.py` carries the same form together with the note that a module-wide
+# `pytest.skip` was the WRONG answer here.
 _spec = importlib.util.spec_from_file_location("_render_pr_body", SKRIPT)
 _rp = importlib.util.module_from_spec(_spec)
 sys.modules["_render_pr_body"] = _rp
@@ -207,33 +207,33 @@ if __name__ == "__main__":
 
 
 class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
-    """Drei P2-Funde aus der Codex-Durchsicht dieses PR, je als Fangnachweis. Alle drei waren echt.
+    """Three P2 findings from the Codex review of this pull request, each as a catch proof.
 
-    Der zweite ist der unangenehmste: er ist die Klasse R-B4 in meinem eigenen neuen Code, am selben
-    Tag, an dem drei Commits desselben Zweiges sie anderswo geschlossen haben.
+    All three were real. The second is the sharpest: it is the R-B4 class inside my own new code,
+    on the same day three commits of a sibling branch closed that class elsewhere.
     """
 
     def test_ein_inhaltsfeld_darf_keine_blockgrenze_setzen(self):
-        """FUND 1. `fix: "## Marking"` rendert sonst einen ZWEITEN Marking-Block, und der Fussblock
-        steht danach doppelt — obwohl das Modul Reihenfolge und Zugehoerigkeit besitzt."""
+        """FINDING 1. `fix: "## Marking"` otherwise renders a SECOND marking block and the footer
+        then stands twice, although the module owns block order and membership."""
         m = _modul()
         befunde = m.pruefe(_quelle(fix="## Marking"), "pr")
         self.assertTrue(any("top-level heading" in b for b in befunde), befunde)
 
     def test_tiefere_ueberschriften_bleiben_erlaubt(self):
-        """GUARD zur Gegenrichtung: `###` setzt keine Blockgrenze dieses Formats und darf bleiben."""
+        """GUARD in the counter-direction: `###` opens no block boundary of this format."""
         m = _modul()
         self.assertEqual(m.pruefe(_quelle(fix="### a detail"), "pr"), [])
 
     def test_eine_messzelle_mit_umbruch_wird_abgewiesen(self):
-        """FUND 1, zweite Haelfte: `1\\n## Forged` in einer Zelle bricht die Tabelle auf."""
+        """FINDING 1, second half: a cell carrying a line break breaks the table open."""
         m = _modul()
         e = {"what": "a", "value": "1\n## Forged", "source": "c", "commit": "d"}
         self.assertTrue(any("line break" in b for b in m.pruefe(_quelle(measured=[e]), "pr")))
 
     def test_null_ist_ein_messwert_und_kein_fehlendes_feld(self):
-        """FUND 2, und er ist die Klasse R-B4: `e.get(spalte) or ""` verwechselt Wahrheitswert mit
-        Anwesenheit. Eine Null ist eine anwesende, gueltige Messung."""
+        """FINDING 2, and it is the R-B4 class: truthiness was conflated with presence.
+        A zero is a present and valid measurement."""
         m = _modul()
         for wert in (0, False, 0.0):
             with self.subTest(wert=wert):
@@ -241,7 +241,7 @@ class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
                 self.assertEqual(m.pruefe(_quelle(measured=[e]), "pr"), [])
 
     def test_ein_wirklich_fehlendes_feld_faellt_weiterhin(self):
-        """GUARD: die Lockerung darf nicht dazu fuehren, dass None oder Leertext durchgehen."""
+        """GUARD: loosening the check must not let None or blank text through."""
         m = _modul()
         for wert in (None, "", "   "):
             with self.subTest(wert=wert):
@@ -249,7 +249,7 @@ class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
                 self.assertTrue(any("lacks value" in b for b in m.pruefe(_quelle(measured=[e]), "pr")))
 
     def test_geordnete_listen_und_plus_sind_blockformen(self):
-        """FUND 3. `1. erstens / 2. zweitens` und `+ a / + b` sind Listen, keine umgebrochene Prosa."""
+        """FINDING 3. `1. first / 2. second` and `+ a / + b` are lists, not wrapped prose."""
         m = _modul()
         for text in ("1. first\n2. second", "1) first\n2) second", "+ first\n+ second",
                      "10. tenth\n11. eleventh"):
@@ -257,6 +257,6 @@ class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
                 self.assertEqual(m._absatzfehler("f", text), [])
 
     def test_umgebrochene_prosa_faellt_weiterhin(self):
-        """GUARD zur Gegenrichtung: die Erweiterung darf echte Umbrueche nicht durchlassen."""
+        """GUARD in the counter-direction: the widening must not let real breaks through."""
         m = _modul()
         self.assertTrue(m._absatzfehler("f", "a paragraph that was wrapped\nby hand at some width"))

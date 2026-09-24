@@ -119,39 +119,39 @@ def lade(pfad: Path, kind: str) -> Dict[str, Any]:
     return daten
 
 
-#: Zeilenanfaenge, die eine BLOCKFORM eroeffnen: Tabelle, Ueberschrift, Liste, Zitat, HTML, Zaun.
-#: Ihre Zeilenumbrueche sind Absicht und keine umgebrochene Prosa.
+#: Line starts that OPEN A BLOCK FORM: table, heading, list, quote, HTML, fence. Their line breaks
+#: are intentional and are not wrapped prose.
 _BLOCKFORM_ANFANG = ("|", "#", "-", "*", "+", "`", ">", "<")
 
-#: Eine GEORDNETE Listenzeile: `1. `, `2) `, auch mehrstellig. Codex, Durchsicht von PR 261:
-#: eine Zeichen-Allowlist kennt `-` und `*`, und `1. erstens / 2. zweitens` faellt durch als
-#: Quell-Umbruch — obwohl der Docstring dieser Funktion Listen ausdruecklich als Blockform nennt.
-#: Eine Aufzaehlung von Formen ist nur so vollstaendig wie die Sprache, die sie beschreibt.
+#: An ORDERED list line: `1. `, `2) `, multi-digit too. Codex, review of PR 261: a character
+#: allowlist knows `-` and `*`, and `1. first / 2. second` falls through as a source line break,
+#: although this function's own docstring names lists as block forms. An enumeration of forms is
+#: only as complete as the language it describes.
 _GEORDNETE_LISTE = re.compile(r"^\d+[.)]\s")
 
 
 def _ist_blockform(zeile: str) -> bool:
-    """Eroeffnet diese Zeile eine Blockform? Zeichen-Allowlist UND geordnete Liste."""
+    """Does this line open a block form? Character allowlist AND ordered list."""
     n = zeile.lstrip()
     return n.startswith(_BLOCKFORM_ANFANG) or bool(_GEORDNETE_LISTE.match(n))
 
 
 def _ueberschriftfehler(feld: str, text: Any) -> List[str]:
-    """Setzt dieses FELD eine Blockgrenze, die dem Modul gehoert?
+    """Does this FIELD open a block boundary that belongs to the module?
 
-    Codex, Durchsicht von PR 261: ein Feld mit dem Inhalt ``## Marking`` rendert einen ZWEITEN
-    Marking-Block, und der Fussblock steht danach doppelt — obwohl ``PR_BLOECKE`` ausdruecklich sagt,
-    dass Reihenfolge und Zugehoerigkeit dem Modul gehoeren und nicht der Quelle. Wer Struktur aus
-    Inhalt entstehen laesst, hat die Struktur nicht mehr.
+    Codex, review of PR 261: a field holding ``## Marking`` renders a SECOND marking block and the
+    footer then stands twice, although ``PR_BLOECKE`` says explicitly that block order and membership
+    belong to the module and not to the source. Whoever lets structure arise from content no longer
+    has the structure.
 
-    ABGEWIESEN UND NICHT ENTSCHAERFT: entschaerfen hiesse, still etwas anderes zu drucken, als in der
-    Quelle steht. Tiefere Ueberschriften (``###`` und mehr) bleiben erlaubt; sie setzen keine
-    Blockgrenze dieses Formats.
+    REFUSED AND NOT DEFUSED: defusing would mean quietly printing something other than what the
+    source says. Deeper headings (``###`` and more) stay allowed; they open no block boundary of this
+    format.
 
-    EIGENE FUNKTION UND NICHT TEIL VON ``_absatzfehler``, weil die erste Fassung genau daran fiel:
-    die Gruenprobe PR 259 ist ein DOKUMENT und traegt ihre fuenf H2-Zeilen zu Recht, waehrend diese
-    Regel fuer FELDER gilt. Eine Feldregel auf ein Dokument angewandt meldet einen Defekt, der keiner
-    ist — dieselbe Klasse wie eine Zahl, die auf der falschen Flaeche gemessen wird.
+    ITS OWN FUNCTION AND NOT PART OF ``_absatzfehler``, because the first version fell exactly there:
+    the green probe PR 259 is a DOCUMENT and carries its five H2 lines rightly, while this rule is for
+    FIELDS. A field rule applied to a document reports a defect that is not one, which is the same
+    class as a number measured on the wrong surface.
     """
     if not isinstance(text, str):
         return []
@@ -202,8 +202,8 @@ def _absatzfehler(feld: str, text: Any) -> List[str]:
 
 
 def _felderfehler(feld: str, text: Any) -> List[str]:
-    """Alle Befunde EINES Inhaltsfeldes: Absatzform und Blockgrenze. Ein Feld, zwei Eigenschaften,
-    ein Aufruf — damit keine Aufrufstelle die eine mitnimmt und die andere vergisst."""
+    """Every finding for ONE content field: paragraph form and block boundary. One field, two
+    properties, one call, so that no call site takes one and forgets the other."""
     return _absatzfehler(feld, text) + _ueberschriftfehler(feld, text)
 
 
@@ -253,19 +253,18 @@ def _messfehler(eintraege: Any) -> List[str]:
             befunde.append(f"measured entry {i} is not an object")
             continue
         for spalte in MESSSPALTEN:
-            # ANWESENHEIT IST NICHT WAHRHEITSWERT, und `e.get(spalte) or ""` verwechselt beides.
-            # Codex, Durchsicht von PR 261: `"value": 0` wurde als fehlend abgewiesen, obwohl die
-            # Null eine anwesende und gueltige Messung ist; `false` fiel aus demselben Grund.
-            # DAS IST DIE KLASSE R-B4 IN MEINEM EIGENEN NEUEN CODE, am selben Tag, an dem drei
-            # Commits dieses Zweigs sie anderswo geschlossen haben: ein Feld wird auf Wahrheitswert
-            # geprueft, wo Anwesenheit gemeint ist. Anwesend heisst: nicht `None` und, wenn Text,
-            # nicht leer. Eine Zahl, ein `False` und ein `0` sind anwesend.
+            # PRESENCE IS NOT TRUTHINESS, and `e.get(spalte) or ""` conflates the two. Codex,
+            # review of PR 261: `"value": 0` was refused as missing although zero is a present and
+            # valid measurement, and `false` fell for the same reason. THIS IS THE R-B4 CLASS INSIDE
+            # MY OWN NEW CODE, on the same day three commits of a sibling branch closed it elsewhere:
+            # a field is tested for truthiness where presence is meant. Present means not `None`,
+            # and for text not empty. A number, a `False` and a `0` are present.
             wert = e.get(spalte)
             if wert is None or (isinstance(wert, str) and not wert.strip()):
                 befunde.append(f"measured entry {i} lacks {spalte}")
             elif isinstance(wert, str) and "\n" in wert:
-                # Eine Zelle mit Umbruch bricht die Tabelle auf und kann eine Ueberschrift
-                # einschmuggeln; siehe die Strukturpruefung der Fliesstextfelder.
+                # A cell carrying a line break breaks the table open and can smuggle in a
+                # heading; see the structural check of the flowing-text fields.
                 befunde.append(f"measured entry {i} has a line break in {spalte}; a table cell is one line")
     return befunde
 
