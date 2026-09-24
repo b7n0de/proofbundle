@@ -1,0 +1,21 @@
+{
+  "agent_did": "did:key:z6MkZ179Demo",
+  "args_hash": "448bc233278a8b96e71fe372f36e0dc0d379e4f519cf3b2f23220bfcbbf9f69f",
+  "assurance_level": "externally_authorized",
+  "authorization_expires_at": 1790202406.3461964,
+  "authorization_nonce": "z179-nonce-0001",
+  "authorization_signature": "4c955e1b3f4ce0726ec5dce8eddccba6d5c08aa9c03cbdd71cc1d05893360f48ad09c4d53f26e22eebed3f3b219b4bb62777bed220d57789ab818e50b7628207",
+  "authorizer_id": "did:key:z6MkZ179Authorizer",
+  "authorizer_public_key": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+  "cedar_decision": "allow",
+  "cedar_policy_id": "policy-allow-write-authorized",
+  "error": null,
+  "parent_receipt_hash": "6b96b5f51493f7d37d977155f2c20e87b593ec9b96ee42a54e4e42bb06bc5d2d",
+  "payload_hash": "7100cf84367ae8c64885744fc2b02d13ecb4aac8cc83f66a10aabe4dc004e142",
+  "receipt_id": "z179-03-extern",
+  "session_id": "z179",
+  "signature": "7d369fcf450ae04a3923712c989357c0841fe1621c72d6dc0f364515497c1eeda6747f895219d4978028ccde5c9e2931334a3ec604d91fb28f6b7bc48b060a0a",
+  "signer_public_key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+  "timestamp": 1758600002.0,
+  "tool_name": "write_file"
+}
