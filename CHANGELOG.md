@@ -65,6 +65,40 @@ so a rule refusing everything could not pass as correct. Catch proof: restoring 
 the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
 before and after.
 
+### Added
+
+- **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
+  (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT
+  installed and without network access: Ed25519 over the canonical payload, the optional
+  external-authorizer signature, the `parent_receipt_hash` chain link, and the house exit-code
+  contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party
+  requirement unmet). No AGT code is copied; the wire format was read from the published tree at
+  commit `a917ad4ac04aff11a5e9e21f6a26b91642b750cd` and re-derived. AGT is MIT, Copyright (c)
+  Microsoft Corporation.
+
+  **A measured divergence is pinned by this work and belongs in the record.** AGT documents its
+  canonicalization as "RFC 8785 JCS canonical JSON" and implements
+  `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. The two disagree on
+  `timestamp`, which every receipt carries as a float. Measured on a receipt produced by AGT's own
+  signer, timestamp `1758600000.0`: the sort_keys form renders `1758600000.0`, RFC 8785 renders
+  `1758600000`, the receipt's own `payload_hash` matches the former, and the Ed25519 signature is
+  valid against the former and REJECTED against the latter. A verifier built from the documentation
+  therefore rejects valid receipts. This adapter verifies against the form AGT actually signs and
+  names that form in the verdict, rather than trying both and reporting whichever matched, which
+  would turn "the receipt is valid" into "one of two readings is valid" with no way to tell which.
+
+  Two further readings are kept apart rather than bridged. The proposal document says the decision
+  vocabulary is `permit`/`deny`; the implementation says `allow`/`deny`, and a `permit` receipt is
+  refused with the reason named. An external authorization is accepted only against a relying
+  party's own trusted-key list and only when that key differs from the receipt signer; with no list
+  supplied the check is recorded as NOT evaluated, which is not a pass.
+
+Conformance: `tests/test_agt_receipt_verifier.py`, 18 cases over five receipts produced by AGT's
+own signer (allow, deny, externally authorized, tampered after signing, wrong key), plus
+counter-directions so a verifier that accepts nothing could not pass. Catch proof: five mutations
+of the adapter (signature check always true, missing trust list read as acceptance, authorizer
+allowed to equal signer, `permit` accepted, empty chain read as clean) each turn the suite red.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
