@@ -34,6 +34,9 @@ from __future__ import annotations
 
 import base64
 import json
+import pathlib
+import subprocess
+import sys
 import time
 import unittest
 
@@ -46,6 +49,7 @@ from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
 from proofbundle.sdjwt_issue import check_binds_bundle, issue_sd_jwt
 from proofbundle._verdict import require_bool_verdict
 
+REPO = pathlib.Path(__file__).resolve().parents[1]
 ROOT = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 TS = "2026-09-19T12:00:00Z"
 
@@ -319,6 +323,51 @@ class TestDasBudgetIstAbgeleitetNichtGewaehlt(unittest.TestCase):
         gross = list(range(150_000))
         self.assertIs(same_json_value(gross, list(gross)), True)
         self.assertIs(same_json_value(gross, list(range(149_999))), False)
+
+    def test_das_budget_greift_bevor_die_paare_gebaut_werden(self):
+        """CATCH PROOF for the ordering. A lens set the budget to 100, handed in two million keys and
+        measured 744 MB allocated BEFORE the refusal fired — the bound cost exactly what it exists to
+        prevent, because the check sat after the materialisation. The count is knowable from the key
+        list, so nothing needs building to know it is too much.
+
+        IN A FRESH PROCESS, and that is the load-bearing detail rather than a precaution.
+        `ru_maxrss` is a HIGH-WATER MARK: measured inside this suite it carries whatever the tests
+        before it allocated, and the difference this case looks for (measured 153 MB against 15 MB)
+        disappears under a mark some earlier case already raised. A peak that cannot fall cannot
+        answer a question about one function. Time alone would not do either — measured 0.215 s
+        against 0.015 s, a gap a loaded machine can close.
+        """
+        programm = (
+            "import resource, sys\n"
+            "sys.path.insert(0, %r)\n"
+            "from proofbundle._membership import same_json_value\n"
+            "gross = list(range(2_000_000))\n"
+            "vorher = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024\n"
+            "erg = same_json_value(gross, list(gross), pair_budget=100)\n"
+            "nachher = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024\n"
+            "print(erg, nachher - vorher)\n" % str(REPO / "src")
+        )
+        r = subprocess.run([sys.executable, "-c", programm],
+                           capture_output=True, text=True, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        erg, zuwachs = r.stdout.split()
+        self.assertEqual(erg, "False")
+        self.assertLess(int(zuwachs), 80,
+                        f"refusing at a budget of 100 grew by {zuwachs} MB — the pairs were built "
+                        "before the bound was consulted")
+
+    def test_eine_gegenseitige_referenz_terminiert_auch_schmal(self):
+        """A second lens reproduced non-termination at width 1000, not only at 200_000, and for a
+        MUTUAL reference as well. The first measurement named the widest case somebody tried; that is
+        not the bound, and a case that only covers 200_000 would leave the reachable shape open."""
+        a: dict = {}
+        b: dict = {}
+        for i in range(1000):
+            a[str(i)] = b
+            b[str(i)] = a
+        start = time.monotonic()
+        self.assertIs(same_json_value(a, b), False)
+        self.assertLess(time.monotonic() - start, 10.0)
 
 
 class TestDerWaechterWirdNichtSelbstZumDefekt(unittest.TestCase):

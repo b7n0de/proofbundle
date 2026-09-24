@@ -270,14 +270,18 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # value reaches it. A lens handed a dict subclass whose `get` raises and the RuntimeError left this
     # function raw (measured 2026-09-24) — out of a predicate whose whole contract is a verdict, which
     # is the class `_membership` exists to remove, reproduced at its own call site.
+    # The guard sits around the READ and nothing else. A first version wrapped the whole loop,
+    # including the comparison and this function's own bookkeeping; a lens showed that such a guard
+    # turns a typo in the loop into a clean `False` on an honestly bound receipt. See
+    # `_membership._walk` for the measurement and for why narrow is the house form.
     anspruch = as_dict(claim)
-    try:
-        for field in ("passed", "threshold", "comparator", "suite", "issuer"):
+    for field in ("passed", "threshold", "comparator", "suite", "issuer"):
+        try:                    # protocol only: the caller's `get`
             wert = anspruch.get(field, _MISSING)
-            if wert is _MISSING or not same_json_value(p.get(field), wert):
-                return False
-    except Exception:           # noqa: BLE001 — a claim that raises when read cannot be shown to bind
-        return False
+        except Exception:       # noqa: BLE001 — a claim that raises when read cannot be shown to bind
+            return False
+        if wert is _MISSING or not same_json_value(p.get(field), wert):
+            return False
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
     # flagship verify_bundle path (deep gate iter9 Linse A). as_dict closes the class.

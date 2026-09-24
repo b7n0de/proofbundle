@@ -57,15 +57,26 @@ __all__ = ["is_member", "as_dict", "is_bool", "same_json_value", "_MISSING"]
 # was no substitution. A fail-closed stop that reports itself as a specific different finding is worse
 # than no stop, because the reader acts on the diagnosis.
 #
-# Two documents contribute at most their own nodes each, so twice the node budget clears every legal
-# pair with room to spare. The relationship is pinned in `tests/test_bindung_vergleicht_typen.py`, not
-# asserted here, because a number explained in a comment is exactly what goes stale in silence.
+# Twice the node budget clears every legal pair with room to spare, and the room is larger than the
+# first wording claimed. That wording said two documents contribute their own nodes EACH; a lens
+# measured the actual bound and it is ONE side's node count, because a container contributes
+# `len(container)` pairs here and `len(container)` nodes to `_strict_json`, so a comparison of two
+# same-shaped documents costs at most what ONE of them is allowed to be. 400_000 against a real edge
+# of ~200_000 is therefore conservative rather than tight — the safe direction, and now the measured
+# one. Confirmed at the edge: 199_992 items still bind; one more makes the document itself illegal
+# and it is refused as malformed, never as a mismatch. The relationship is pinned in
+# `tests/test_bindung_vergleicht_typen.py`, not asserted here, because a number explained in a
+# comment is exactly what goes stale in silence.
 #
 # IT COUNTS PAIRS PUSHED, NOT PAIRS POPPED, and that is the difference between a bound and a
 # decoration. The first version counted pops, so a self-referential node of width W pushed W new
 # pairs on EVERY pop while the counter rose by one: a lens measured a 200_000-wide self-referential
 # dict growing from 235 MB to 2988 MB in twelve seconds, monotone, with no end reachable. Raising
 # the bound made that WORSE. Counting what goes ON the stack stops it at the first pop.
+# The width needed is far smaller than that first measurement suggested: a second lens reproduced
+# non-termination at width 1000 (5.75 GB and growing when it was killed) and for a MUTUAL reference
+# a<->b at width 1000 as well. With the push count, every one of those returns False in under 0.2 s
+# and under 75 MB. A number that names the worst case somebody happened to try is not the bound.
 _COMPARE_PAIR_BUDGET = 400_000
 
 # Only these carry a JSON scalar. Anything else reaching the value branch is not a decoded JSON value,
@@ -225,19 +236,27 @@ def same_json_value(a: Any, b: Any, *, pair_budget: int = _COMPARE_PAIR_BUDGET) 
     """
     stack = [(a, b)]
     gesehen = 1
-    try:
-        return _walk(stack, gesehen, pair_budget)
-    except Exception:           # noqa: BLE001 — see the docstring: a value whose protocol methods
-        return False            # raise cannot be SHOWN equal, and this surface must not raise
+    return _walk(stack, gesehen, pair_budget)
 
 
 def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
-    """The walk itself. Split out so ONE guard covers every protocol call in it.
+    """The walk itself, with a guard around EVERY protocol call and around nothing else.
 
-    A lens handed `same_json_value` dict and list subclasses whose `keys()`, `__getitem__` and
-    `__len__` raise, and each one left as a raw `RuntimeError` — out of `check_binds_bundle`, whose
-    contract is a verdict and never an exception, and out of a module that exists to remove exactly
-    that. A guard around only the scalar `!=` covered the one protocol call that was already obvious.
+    WHY NOT ONE GUARD AROUND THE WHOLE WALK, which is what this was for one iteration of the gate.
+    A lens injected four separate typos into this function — one per branch, plus one in
+    `check_binds_bundle`'s own field loop — and every one of them left as a clean `False` on honest,
+    bit-identical input. Of the 137 tests that touch these functions, two to nineteen failed
+    depending on the branch, and not one of them is written for that class; they are over-refusal
+    guards that happened to notice. A `MemoryError` came back as "the documents differ".
+
+    The justification for the broad form said: a value whose protocol methods raise cannot be SHOWN
+    equal. That covers exceptions from the VALUE. It does not cover exceptions from THIS code, and
+    the broad form could not tell them apart. `is_member` above is the house precedent and it is
+    narrow for exactly this reason: it guards the one call its own docstring names.
+
+    So each `try` below contains protocol calls and nothing else. Bookkeeping sits outside, where a
+    defect of mine raises and is seen. That is not a breach of the never-raise contract: the contract
+    protects a caller from hostile INPUT, and a silent wrong verdict is worse than a visible crash.
     """
     while stack:
         x, y = stack.pop()
@@ -255,26 +274,52 @@ def _walk(stack: list, gesehen: int, pair_budget: int) -> bool:
             # at that key came back equal (measured 2026-09-24). This is the SAME class `_verdict`
             # states in its own docstring — "the accessor is read once and the value is returned" —
             # written a day earlier and not carried into the function that compares.
-            schluessel = list(x.keys())
-            if len(schluessel) != len(y) or set(schluessel) != set(y.keys()):
+            try:                    # protocol only: keys(), and the hashing the sets do
+                schluessel = list(x.keys())
+                meine = set(schluessel)
+                andere = set(y.keys())
+            except Exception:       # noqa: BLE001 — a mapping that raises when read cannot be shown equal
                 return False
-            paare = [(x[k], y[k]) for k in schluessel]
-            gesehen += len(paare)
-            if gesehen > pair_budget:
+            if len(schluessel) != len(andere) or meine != andere:
+                return False
+            # THE BUDGET IS CHECKED BEFORE THE PAIRS ARE BUILT. A lens set the budget to 100, handed
+            # in two million keys and measured 744 MB allocated before the refusal fired. The count
+            # is known from the key list, so nothing needs building to know it is too much.
+            if gesehen + len(schluessel) > pair_budget:
+                return False
+            gesehen += len(schluessel)
+            try:                    # protocol only: __getitem__ on both sides
+                paare = [(x[k], y[k]) for k in schluessel]
+            except Exception:       # noqa: BLE001 — a key `keys()` reports and `[]` refuses cannot bind
                 return False
             stack.extend(paare)
         elif isinstance(x, list) or isinstance(y, list):
-            if not (isinstance(x, list) and isinstance(y, list)) or len(x) != len(y):
+            if not (isinstance(x, list) and isinstance(y, list)):
                 return False
-            paare = list(zip(x, y))
-            gesehen += len(paare)
-            if gesehen > pair_budget:
+            try:                    # protocol only: __len__ on both sides
+                laenge = len(x)
+                gleich_lang = laenge == len(y)
+            except Exception:       # noqa: BLE001 — a sequence that raises when measured cannot bind
+                return False
+            if not gleich_lang:
+                return False
+            if gesehen + laenge > pair_budget:      # before building, as in the dict branch
+                return False
+            gesehen += laenge
+            try:                    # protocol only: iteration of both sides
+                paare = list(zip(x, y))
+            except Exception:       # noqa: BLE001
                 return False
             stack.extend(paare)
         elif not (isinstance(x, _JSON_SCALAR) and isinstance(y, _JSON_SCALAR)):
             # Not a decoded JSON value, so it cannot be SHOWN equal. Refusing beats asking its `__eq__`,
             # which is the attacker's code when the value is the attacker's object.
             return False
-        elif x != y:
-            return False
+        else:
+            try:                    # protocol only: the comparison itself
+                ungleich = x != y
+            except Exception:       # noqa: BLE001 — a value whose __eq__ raises cannot be shown equal
+                return False
+            if ungleich:
+                return False
     return True
