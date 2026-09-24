@@ -54,6 +54,75 @@ def _block(text: str, muster: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _faengt_importfehler(handler: ast.ExceptHandler) -> bool:
+    """Does this `except` clause catch a failing import?
+
+    `except ImportError`, `except ModuleNotFoundError`, `except Exception`, a tuple containing any of
+    them, and a bare `except` all do. Anything narrower does not, and then the import can still
+    abandon collection.
+    """
+    faengt = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+    if handler.type is None:                       # bare except
+        return True
+    kandidaten = (handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type])
+    for k in kandidaten:
+        name = (k.id if isinstance(k, ast.Name) else
+                k.attr if isinstance(k, ast.Attribute) else "")
+        if name in faengt:
+            return True
+    return False
+
+
+def _nur_fuer_typpruefer(test: ast.expr) -> bool:
+    """Is this branch dead at runtime, so an import inside it cannot break collection?
+
+    `if TYPE_CHECKING:` and `if typing.TYPE_CHECKING:` are the shapes that matter; `if False:` is
+    included because it is the same statement with the constant written out.
+    """
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
+        return True
+    return isinstance(test, ast.Constant) and test.value is False
+
+
+def _modul_skip_zeile(baum: ast.Module) -> int | None:
+    """The line of a module-level `skip(..., allow_module_level=True)`, or None.
+
+    READ FROM THE TREE, NOT FROM THE TEXT, and un's cross-reading of 2026-09-24 is why. The first
+    version searched `pytest\\.skip\\(.*allow_module_level=True` with a regular expression, and three
+    valid spellings escaped it: `from pytest import skip` then a bare `skip(...)`, a call split over
+    several lines, and `allow_module_level = True` written with spaces. Each of those is a correct
+    module-level skip reported as a violation — a false RED, which is the safer direction and still a
+    wrong answer.
+
+    It was also the same asymmetry as everywhere else in this round. One side of the comparison read
+    the syntax tree, the other scanned text. Both sides read the tree now.
+
+    MODULE LEVEL ONLY, and that was a gap I nearly wrote past. The first version walked the whole
+    tree, so a `skip(..., allow_module_level=True)` inside a FUNCTION would have counted, and a skip
+    in a function does not run during collection, so it guards nothing. I noticed it while writing the
+    case for this and started to dodge it with a disabled assertion instead of fixing it. The
+    statements are filtered the same way `_kandidaten` filters them.
+    """
+    for oben in baum.body:
+        if isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for knoten in ast.walk(oben):
+            if not isinstance(knoten, ast.Call):
+                continue
+            ruf = knoten.func
+            name = (ruf.attr if isinstance(ruf, ast.Attribute) else
+                    ruf.id if isinstance(ruf, ast.Name) else "")
+            if name != "skip":
+                continue
+            for kw in knoten.keywords:
+                if kw.arg == "allow_module_level" and isinstance(kw.value, ast.Constant) \
+                        and kw.value.value is True:
+                    return knoten.lineno
+    return None
+
+
 def _optionale_importnamen() -> set[str]:
     """The import names a BARE install does not provide.
 
@@ -300,6 +369,18 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         aus: list[tuple[str, int]] = []
         if isinstance(knoten, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             return aus
+        # A CAUGHT IMPORT DOES NOT ABANDON COLLECTION, so it is not this property's business. un,
+        # cross-reading of 2026-09-24: `try: import x` with an `except ImportError` around it was
+        # reported as a violation although the module collects fine. That is a false RED — the safer
+        # direction, but still a wrong answer, and a guard that cries over correct code gets ignored.
+        #
+        # THE SAME GOES FOR A BRANCH THAT NEVER RUNS. `if TYPE_CHECKING:` is deliberately dead at
+        # runtime, and an import there cannot break collection either.
+        if isinstance(knoten, ast.Try) and any(
+                _faengt_importfehler(h) for h in knoten.handlers):
+            return aus
+        if isinstance(knoten, ast.If) and _nur_fuer_typpruefer(knoten.test):
+            return aus
         for k in ast.walk(knoten):
             if isinstance(k, ast.Import):
                 aus += [(a.name.split(".")[0], k.lineno) for a in k.names]
@@ -382,8 +463,10 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
             # BOTH SIDES ARE LINE NUMBERS. The scan reports `lineno`, so the guard's character offset
             # is converted before the comparison. Comparing an offset to a line number would be the
             # same defect one more time, a number measured on one scale and judged on another.
-            schutz = re.search(r"^\s*pytest\.skip\(.*allow_module_level=True", text, re.M | re.S)
-            schutz_zeile = text[:schutz.start()].count("\n") + 1 if schutz else None
+            try:
+                schutz_zeile = _modul_skip_zeile(ast.parse(text, filename=str(f)))
+            except SyntaxError:
+                continue
             if schutz_zeile is None or schutz_zeile > stelle:
                 wo = ("unguarded" if schutz_zeile is None else
                       f"guarded only at line {schutz_zeile}, which is AFTER the import and "
@@ -434,6 +517,69 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                     bool(treffer), erwartet,
                     f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
                     f"read {treffer}")
+
+    def test_die_drei_falschen_rot_von_un_werden_nicht_mehr_gemeldet(self):
+        """THREE FALSE REDS un's CROSS-READING FOUND, each pinned with its counter-direction.
+
+        A false red is the safer direction and still a wrong answer: a guard that cries over correct
+        code gets ignored, and then it is no longer a guard. All three were reported as violations
+        although the module collects fine.
+
+        The fourth finding of that reading is NOT here, because it was measured and refuted:
+        `exclude-package-data` in `pyproject.toml` was said to remove a file from the sdist while
+        `MANIFEST.in` still lists it. Measured with two real `python -m build --sdist` runs over the
+        same tree, the file stays in the tarball both with and without that key — it governs the
+        installed package, not the sdist file list.
+        """
+        import tempfile
+        formen = {
+            "try/except ImportError faengt den Import": (
+                "try:\n    import render_release\nexcept ImportError:\n    render_release = None\n",
+                False),
+            "try/except Exception faengt auch": (
+                "try:\n    import render_release\nexcept Exception:\n    pass\n", False),
+            "if TYPE_CHECKING laeuft nie": (
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import render_release\n",
+                False),
+            "Gegenrichtung, try ohne passenden handler": (
+                "try:\n    import render_release\nexcept ValueError:\n    pass\n", True),
+            "Gegenrichtung, ein echtes if laeuft": (
+                "import os\nif os.environ.get('X'):\n    import render_release\n", True),
+        }
+        for name, (quelle, erwartet) in formen.items():
+            with self.subTest(form=name):
+                with tempfile.TemporaryDirectory() as d:
+                    (Path(d) / "test_erfunden.py").write_text(quelle, encoding="utf-8")
+                    treffer = self._kandidaten(wurzel=Path(d))
+                self.assertEqual(
+                    bool(treffer), erwartet,
+                    f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
+                    f"read {treffer}")
+
+    def test_der_modul_skip_wird_in_drei_schreibweisen_erkannt(self):
+        """THE SKIP SIDE READS THE TREE TOO, and un named the three spellings that escaped a regex.
+
+        Each of these is a correct module-level skip that the expression did not see, so the module
+        was reported unguarded although it skips cleanly.
+        """
+        formen = {
+            "pytest.skip mit Punkt": 'import pytest\npytest.skip("x", allow_module_level=True)\n',
+            "from pytest import skip": 'from pytest import skip\nskip("x", allow_module_level=True)\n',
+            "ueber mehrere Zeilen": 'import pytest\npytest.skip(\n    "x",\n    allow_module_level=True,\n)\n',
+            "mit Leerzeichen um das Gleich": 'import pytest\npytest.skip("x", allow_module_level = True)\n',
+        }
+        for name, quelle in formen.items():
+            with self.subTest(form=name):
+                self.assertIsNotNone(_modul_skip_zeile(ast.parse(quelle)),
+                                     f"{name}: a valid module-level skip was not recognised")
+        # COUNTER-DIRECTION. Without the keyword it is not a module-level skip, and a skip inside a
+        # function does not run during collection, so neither may be accepted as a guard.
+        self.assertIsNone(_modul_skip_zeile(ast.parse('import pytest\npytest.skip("x")\n')),
+                          "a skip without allow_module_level is not a module-level skip")
+        self.assertIsNone(
+            _modul_skip_zeile(ast.parse('import pytest\ndef f():\n    pytest.skip("x", '
+                                        'allow_module_level=True)\n')),
+            "a skip inside a function does not run during collection and guards nothing")
 
     def test_die_eigene_dokumentation_ist_kein_verstoss(self):
         """THE FALSE POSITIVE THE WIDENING PRODUCED, before `ast` replaced the expressions.
