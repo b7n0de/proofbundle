@@ -184,35 +184,6 @@ Target 6.2.0, and as a CLASS fix rather than three guards: one check that every 
 passes through, with the catch-proof at the public functions instead of at the CLI. Register entry
 `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01`.
 
-**Re-measured 2026-09-24 on `d8c9c61`, and the entry above holds. Two numbers in it are smaller than
-what the tree carries.** Measured by calling the exporters directly in a throwaway worktree of that
-commit:
-
-* **Five sites, not three.** Reading the file rather than the earlier lens report adds `intoto.py:99`,
-  where `to_intoto_statement` passes the raw value straight into the self-hosted predicate, so the
-  predicate carries the STRING `"false"` and any consumer testing truthiness reads a pass. The table
-  above already pairs `:246` with `:251`; `:251` is its own read (`passedTests` versus `failedTests`)
-  and is counted here as such.
-* **More values than `"false"`.** `'False'`, `'FALSE'`, `'0'`, `'no'`, `1`, `[1]` and `{'a': 1}` behave
-  identically. `1` matters on its own: `bool` subclasses `int`, so a type check written against `int`
-  would have accepted it.
-
-**And the entry's non-blocking argument is CONFIRMED, not weakened.** A-15's
-`isinstance(claim.get("passed"), bool)` at `evalclaim.py:367` refuses a string verdict at the boundary,
-and because `export_svr_dsse` decodes first, no signed SVR was ever exposed. An earlier draft of this
-paragraph claimed the opposite and described a signed SVR asserting `PROOFBUNDLE_THRESHOLD_MET` for
-`passed: "false"`. That measurement was taken in `/home/konrad/proofbundle`, a checkout 47 commits
-behind main and 9 ahead of it, where A-15 is absent — a real number about another tree. The exposure is
-the direct library caller, exactly as scoped here.
-
-Fixed by routing all five sites plus the A-15 boundary through one predicate
-(`_membership.is_bool`, a `TypeGuard`) via `intoto._require_bool_verdict`. Catch proof measured against
-`d8c9c61` WITHOUT the fix: 73 subtest failures and 3 test failures across the four exporter cases, the
-monotonicity property at the direct exporters, the refusal-message form, the numpy limit and the new
-scanner. Three cases in that file are named `*_REGRESSIONSWACHE` because they were already green — the
-boundary, the end-to-end SVR path, and monotonicity on the signed path — so nobody counts them as
-evidence for the change.
-
 ## Named state, not a backlog item — the tool binding ships without its door
 
 Owner word of 2026-09-20, option C: the due date for the tool binding falls without replacement,

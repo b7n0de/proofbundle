@@ -57,6 +57,44 @@ Four register entries the frozen file targets at 6.2.0 by name were in NEITHER s
 each with zero hits. They are the `R-B` rows of the 6.2.0 scope now. They are open work there, not
 closed by being written down.
 
+## R-B4 re-measured, and the register entry holds with two numbers corrected
+
+`DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01` is one of the four rows named above. It
+was re-measured on 2026-09-24 on `d8c9c61` in a throwaway worktree of that commit, and the entry in
+the frozen file holds. Two of its numbers are smaller than what the tree carries.
+
+**Five sites, not three.** Reading the file rather than the earlier lens report adds `intoto.py:99`,
+where `to_intoto_statement` passes the raw value straight into the self-hosted predicate, so the
+predicate carries the STRING `"false"` and any consumer testing truthiness reads a pass. The frozen
+entry already pairs `:246` with `:251`; `:251` is its own read (`passedTests` versus `failedTests`)
+and is counted here as such.
+
+**More values than the one string it names.** `'False'`, `'FALSE'`, `'0'`, `'no'`, `1`, `[1]` and
+`{'a': 1}` behave identically. The integer `1` matters on its own: `bool` subclasses `int`, so a check
+written against `int` would have accepted it.
+
+**And the entry's non-blocking argument is CONFIRMED, not weakened.** A-15's
+`isinstance(claim.get("passed"), bool)` at `evalclaim.py:367` refuses a string verdict at the
+boundary, and because `export_svr_dsse` decodes first, no signed SVR was ever exposed. An earlier
+draft of this section claimed the opposite and described a signed SVR asserting
+`PROOFBUNDLE_THRESHOLD_MET` for `passed: "false"`. That measurement was taken in a checkout 47
+commits behind main and 9 ahead of it, where A-15 is absent: a real number about another tree. The
+exposure is the direct library caller, exactly as the frozen entry scopes it.
+
+Fixed by routing all five sites plus the A-15 boundary through one predicate (`_membership.is_bool`,
+a `TypeGuard`) via `intoto._require_bool_verdict`. Catch proof measured against `d8c9c61` WITHOUT the
+fix: 73 subtest failures and 3 test failures. Three cases in that contract are named as regression
+guards because they were already green there, so nobody counts them as evidence for the change.
+
+**AND THIS SECTION IS HERE FOR THE SECOND TIME TODAY, for the reason the top of this file gives.**
+The correction above was first written directly into the frozen `RESTRISIKO_610.md`. The same test
+that caught the first breach caught this one: `RESTRISIKO_610.md: document says 869bda7b3ac0…, the
+file is 571c0ba56733…`. The edit is reverted, the digest matches again, and the statement stands
+here. Twice in one day, the same rule, the same file, the same test — and the first breach is
+documented in the opening paragraphs of this very file, which I had not read before editing its
+neighbour. A rule written down in the file next to the one you are editing is not a rule you have
+read.
+
 ## What this addendum does NOT do
 
 It does not change the frozen file, the pre-tag receipt, or any digest recorded about them. It does
