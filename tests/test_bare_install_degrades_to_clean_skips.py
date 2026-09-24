@@ -362,18 +362,43 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         a reader that cannot tell prose from code. `ast` also answers something no expression can:
         whether the import sits at MODULE level, where it runs during collection, or inside a
         function, where it does not and therefore is not this property's business.
+
+        THE ROOT IS A PARAMETER ON BOTH SIDES, and getting that wrong was a real defect, measured by
+        `hermetic-cleanroom` on 2026-09-24. This scan read its test modules from the root it was
+        GIVEN and then asked whether `REPO / "scripts" / <name>.py` exists, which is the module-level
+        constant. In a checkout that file is there, so every invented case produced a candidate and
+        every subtest passed. In the extracted sdist it is not there, so nine positive subtests
+        silently read `[]` and the job went red, on a run whose subject was something else entirely.
+
+        `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py` carries that same sentence in
+        the docstring of `_pfadeintraege`, about its own first version, and I would have had it for
+        free by reading the guard for this class before writing a neighbour for it.
         """
+        wurzel = wurzel or REPO
         aus = []
-        for f in sorted((wurzel or TESTS).rglob("*.py")):
+        for f in sorted((wurzel / "tests").rglob("*.py")):
             try:
                 baum = ast.parse(f.read_text(encoding="utf-8", errors="replace"), filename=str(f))
             except SyntaxError:
                 continue
             for knoten in baum.body:                       # MODULE LEVEL ONLY, by construction
                 for name, zeile in self._namen_im_knoten(knoten):
-                    if (REPO / "scripts" / f"{name}.py").is_file():
+                    if (wurzel / "scripts" / f"{name}.py").is_file():
                         aus.append((f, f"scripts/{name}.py", zeile))
         return aus
+
+    @staticmethod
+    def _erfundener_baum(d: Path, quelle: str) -> Path:
+        """A self-contained tree for one invented module, root-shaped like the repository.
+
+        Every invented case builds BOTH halves it needs, the test module and the script it imports,
+        so no case borrows a fact from the real tree. That borrowing is what broke in the cleanroom.
+        """
+        (d / "tests").mkdir(parents=True, exist_ok=True)
+        (d / "scripts").mkdir(parents=True, exist_ok=True)
+        (d / "scripts" / "render_release.py").write_text("WERT = 1\n", encoding="utf-8")
+        (d / "tests" / "test_erfunden.py").write_text(quelle, encoding="utf-8")
+        return d
 
     @staticmethod
     def _namen_im_knoten(knoten: ast.stmt) -> list[tuple[str, int]]:
@@ -518,9 +543,7 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         for name, (quelle, erwartet) in formen.items():
             with self.subTest(form=name):
                 with tempfile.TemporaryDirectory() as d:
-                    p = Path(d) / "test_erfunden.py"
-                    p.write_text(quelle, encoding="utf-8")
-                    treffer = self._kandidaten(wurzel=Path(d))
+                    treffer = self._kandidaten(wurzel=self._erfundener_baum(Path(d), quelle))
                 self.assertEqual(
                     bool(treffer), erwartet,
                     f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
@@ -557,8 +580,7 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         for name, (quelle, erwartet) in formen.items():
             with self.subTest(form=name):
                 with tempfile.TemporaryDirectory() as d:
-                    (Path(d) / "test_erfunden.py").write_text(quelle, encoding="utf-8")
-                    treffer = self._kandidaten(wurzel=Path(d))
+                    treffer = self._kandidaten(wurzel=self._erfundener_baum(Path(d), quelle))
                 self.assertEqual(
                     bool(treffer), erwartet,
                     f"{name}: expected {'a candidate' if erwartet else 'no candidate'}, "
@@ -591,9 +613,8 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                                      f"{name}: the detector no longer sees this module-level skip, so "
                                      f"the assertion below would pass for the wrong reason")
                 with tempfile.TemporaryDirectory() as d:
-                    (Path(d) / "test_erfunden.py").write_text(kopf + "import render_release\n",
-                                                              encoding="utf-8")
-                    self.assertTrue(self._kandidaten(wurzel=Path(d)),
+                    baum = self._erfundener_baum(Path(d), kopf + "import render_release\n")
+                    self.assertTrue(self._kandidaten(wurzel=baum),
                                     f"{name}: a module-level skip must not buy an exception from this "
                                     f"rule — the path form is the way through")
         # COUNTER-DIRECTION for the detector itself: without the keyword it is not a module-level skip,
@@ -620,8 +641,8 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                     '_m = importlib.util.module_from_spec(_spec)\n'
                     'sys.modules["_rr"] = _m\n_spec.loader.exec_module(_m)\n')
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "test_erfunden.py").write_text(pfadform, encoding="utf-8")
-            self.assertEqual(self._kandidaten(wurzel=Path(d)), [],
+            baum = self._erfundener_baum(Path(d), pfadform)
+            self.assertEqual(self._kandidaten(wurzel=baum), [],
                              "the prescribed remedy is reported as a violation, so the rule cannot be "
                              "satisfied at all")
         with tempfile.TemporaryDirectory() as d:
@@ -665,6 +686,29 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
             f"the declaration and the computed file list disagree about scripts/. Only in "
             f"MANIFEST.in: {nur_manifest}. Only in {quelle.name}: {nur_sources}. One of the two "
             f"guards over this class would be green while the other is red")
+
+    def test_der_uebergebene_baum_entscheidet_BEIDE_seiten(self):
+        """THE PROPERTY THAT BROKE IN THE CLEANROOM, pinned so it cannot break silently again.
+
+        The scan asks two questions, where the test modules are and whether the imported name exists
+        as a script. Until 2026-09-24 the first read the root it was given and the second read the
+        module-level `REPO`. A checkout satisfies both by accident, so nothing showed; the extracted
+        sdist has no `scripts/render_release.py`, and every invented case went quietly empty. Nine
+        subtests read `[]` and reported it as a failed expectation, on a job about something else.
+
+        Measured here over TWO trees that differ in exactly one file, so the case says which side
+        decides rather than only that something changed.
+        """
+        import tempfile
+        quelle = "import render_release\n"
+        with tempfile.TemporaryDirectory() as d:
+            baum = self._erfundener_baum(Path(d), quelle)
+            self.assertTrue(self._kandidaten(wurzel=baum),
+                            "with the script present in the GIVEN tree there must be a candidate")
+            (baum / "scripts" / "render_release.py").unlink()
+            self.assertEqual(self._kandidaten(wurzel=baum), [],
+                             "the script is absent from the given tree, so nothing may be reported; "
+                             "reading REPO here is what made the cleanroom run go red")
 
     def test_die_eigene_dokumentation_ist_kein_verstoss(self):
         """THE FALSE POSITIVE THE WIDENING PRODUCED, before `ast` replaced the expressions.
