@@ -226,6 +226,55 @@ class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
                     export_svr_dsse(bundle, self.signer)
 
 
+class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
+    """EINE PRUEFUNG DURCH EINEN ZUGRIFF UND EINE VERWENDUNG DURCH EINEN ANDEREN sind zwei Werte.
+
+    Review-Fund am 24.09.2026 auf PR 257, P2, und er traf eine Annahme, die auch in meinem eigenen
+    Scanner steht: `_require_export_fields` prueft `claim.get("passed")`, `to_eval_result_predicate`
+    gab `claim["passed"]` aus. Fuer ein dict sind das dieselben Werte -- fuer eine UNTERKLASSE nicht.
+
+    Gemessen mit einer dict-Unterklasse, deren `get("passed")` True liefert, waehrend das gespeicherte
+    Element `"false"` ist: die Pruefung ging durch, das Praedikat trug die Zeichenkette, und der
+    DSSE-Weg signierte sie. Der alte Kommentar an der Ausgabestelle begruendete das Gegenteil und
+    argumentierte ueber COERCION -- richtig im Punkt, am falschen Gegenstand.
+
+    Der Riegel ist nicht ein dritter Zugriff, sondern die Weitergabe: der Validator gibt den gepruefte
+    Wert ZURUECK, und die Ausgabestelle nimmt ihn. Damit gibt es nur noch EINEN Zugriff, und die Klasse
+    ist geschlossen statt geprueft.
+    """
+
+    class _Zweizuengig(dict):
+        """`get` und `__getitem__` widersprechen sich. Kein ehrlicher Erzeuger baut das; ein Angreifer
+        schon, und die Eigenschaft muss ohne Annahmen ueber den Erzeuger halten."""
+
+        def get(self, k, d=None):  # noqa: D102
+            return True if k == "passed" else super().get(k, d)
+
+    def setUp(self):
+        self.signer = generate_signer()
+        self.echt = _echter_anspruch(self.signer)
+
+    def test_der_export_gibt_den_gepruefte_wert_aus_nicht_ein_zweites_lesen(self):
+        c = self._Zweizuengig(self.echt)
+        c["passed"] = "false"
+        # Die Pruefung sieht True (ueber `get`). Ausgegeben werden MUSS genau dieser Wert, nicht das
+        # gespeicherte `"false"` -- sonst traegt ein signiertes Praedikat ein Verdikt, das nie geprueft
+        # wurde.
+        p = to_eval_result_predicate(c)
+        gesehen = p["claims"][0].get("passed")
+        self.assertIs(gesehen, True,
+                      f"das Praedikat traegt {gesehen!r}; geprueft wurde True. Eine Pruefung durch "
+                      f"einen Zugriff und eine Verwendung durch einen anderen sind zwei Werte.")
+
+    def test_beide_echten_booleans_bleiben_unveraendert(self):
+        """Ohne diesen Fall koennte die Stelle jeden Wert zu True machen und der Fall oben waere gruen."""
+        for wert in (True, False):
+            with self.subTest(passed=wert):
+                c = dict(self.echt)
+                c["passed"] = wert
+                self.assertIs(to_eval_result_predicate(c)["claims"][0].get("passed"), wert)
+
+
 class TestDieGegenrichtungEinEchterBoolGehtWeiterDURCH(unittest.TestCase):
     """WITHOUT THIS CLASS THE ONE ABOVE PROVES NOTHING.
 

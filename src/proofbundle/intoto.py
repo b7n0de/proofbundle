@@ -441,8 +441,13 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
             "commitment-only and must never carry a model/dataset name or a salt")
 
 
-def _require_export_fields(claim: dict) -> None:
-    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3)."""
+def _require_export_fields(claim: dict) -> bool:
+    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3).
+
+    RETURNS THE VALIDATED VERDICT, and that return type is the fix for a review finding rather than a
+    convenience. See the comment at the emit site: a caller that re-reads the field instead of using
+    this value can be handed a different value than the one that was checked.
+    """
     if not isinstance(claim, dict):
         raise BundleFormatError("eval-result export needs a claim object")
     missing = [k for k in _EXPORT_REQUIRED if claim.get(k) in (None, "")]
@@ -451,7 +456,7 @@ def _require_export_fields(claim: dict) -> None:
     # PRESENCE IS NOT TYPE, and `passed` is in _EXPORT_REQUIRED, which is exactly why this was missed:
     # the field was required and therefore looked checked. `"false"` is a non-empty string, so it passes
     # the loop above; R-B4. The type check belongs here rather than at each caller of this function.
-    _require_bool_verdict(claim, wo="refusing to export")
+    return _require_bool_verdict(claim, wo="refusing to export")
 
 
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
@@ -490,7 +495,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    _require_export_fields(claim)
+    verdikt = _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
@@ -498,9 +503,17 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
         "suite": {"name": claim["suite"], "version": claim.get("suite_version")},
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            # `claim["passed"]` raw, not `bool(...)`: _require_export_fields above has already refused
-            # anything that is not a boolean, so the coercion would only hide a future regression.
-            "threshold": claim["threshold"], "passed": claim["passed"],
+            # DER GEPRUEFTE WERT, NICHT EIN ZWEITES LESEN — und dieser Kommentar ersetzt einen, der
+            # das Falsche begruendete. Er sagte: `claim["passed"]` roh statt `bool(...)`, weil
+            # `_require_export_fields` oben schon alles abweist, was kein Boolean ist. Das Argument
+            # betraf die COERCION und ueberging den ZUGRIFF: geprueft wurde `claim.get("passed")`,
+            # ausgegeben `claim["passed"]`. Bei einem dict, dessen `get` und `__getitem__` sich
+            # unterscheiden, sind das zwei Werte. Gemessen am 24.09.2026 mit einer dict-Unterklasse,
+            # deren `get("passed")` True liefert, waehrend das Element `"false"` ist: die Pruefung ging
+            # durch, das Praedikat trug die Zeichenkette, und der DSSE-Weg signierte sie.
+            # KLASSE: eine Pruefung durch einen Zugriff, eine Verwendung durch einen anderen. Der
+            # Riegel ist nicht ein dritter Zugriff, sondern den gepruefte Wert WEITERZUGEBEN.
+            "threshold": claim["threshold"], "passed": verdikt,
         }],
         "sampleSize": claim["n"],
         "commitments": {

@@ -240,10 +240,26 @@ def _etabliert_den_typ(fn: ast.AST, ausdruck: ast.AST) -> bool:
     """
     aliase = _aliase(fn)
     ziel = _bezug(ausdruck, aliase)
+    # EIN ETABLIERER, DESSEN RUECKGABEWERT WEGGEWORFEN WIRD, ETABLIERT NICHTS FUER EIN ZWEITES LESEN —
+    # und diese Regel ist die Rechnung fuer einen Review-Fund vom 24.09.2026 (PR 257, P2), der eine
+    # Annahme DIESER Datei widerlegt hat. `_schluesselbezug` normalisiert `claim.get("passed")` und
+    # `claim["passed"]` zu einer Stelle, weil sie fuer ein dict dasselbe sind. Fuer eine UNTERKLASSE
+    # sind sie es nicht: gemessen mit einem dict, dessen `get("passed")` True liefert, waehrend das
+    # Element `"false"` ist, ging `_require_export_fields` durch (es prueft ueber `get`) und
+    # `to_eval_result_predicate` gab die Zeichenkette aus (es las ueber `[]`). Der Scanner sah dort
+    # nichts, weil er die Normalisierung fuer harmlos hielt.
+    #
+    # Die Normalisierung BLEIBT — ohne sie waere die geforderte Form selbst ein Befund. Was hinzukommt
+    # ist der Unterschied zwischen PRUEFEN und WEITERGEBEN: wird der geprueften Wert nicht gebunden,
+    # ist jedes spaetere Lesen ein ZWEITES Lesen, und ob die zwei Zugriffe uebereinstimmen, ist eine
+    # Eigenschaft des uebergebenen Objekts und nicht des Codes.
+    verworfen = {id(s.value) for s in ast.walk(fn) if isinstance(s, ast.Expr)}
     for k in ast.walk(fn):
-        if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in ETABLIERER:
+        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in ETABLIERER
+                and id(k) not in verworfen):
             return True
-        if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr in ETABLIERER:
+        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
+                and k.func.attr in ETABLIERER and id(k) not in verworfen):
             return True
         # An inline `isinstance(<the same expression>, bool)` counts too: it establishes the same
         # thing, and demanding the shared helper would be a style rule dressed up as a safety one.
@@ -366,6 +382,27 @@ class TestDerScannerFAENGTAuchWasErFangenSoll(unittest.TestCase):
                 gefunden = _stellen({"gepflanzt.py": quelle})
                 self.assertEqual(("gepflanzt.py", "neu") in gefunden, erwartet_fund,
                                  f"alias handling wrong for {quelle!r}: {gefunden}")
+
+    def test_ein_weggeworfener_rueckgabewert_etabliert_nichts_REVIEW_FUND(self):
+        """Der Review-Fund vom 24.09.2026, als Fall: pruefen und weitergeben sind zwei Dinge.
+
+        `_require_export_fields(claim)` als blosse Anweisung prueft ueber `get` und gibt seinen Befund
+        weg; das spaetere `claim["passed"]` ist dann ein ZWEITES Lesen, und ob die zwei Zugriffe
+        dasselbe liefern, ist eine Eigenschaft des uebergebenen Objekts. Gemessen mit einer
+        dict-Unterklasse taten sie es nicht.
+        """
+        verworfen = ('def neu(claim):\n    _require_export_fields(claim)\n'
+                     '    return {"passed": claim["passed"]}\n')
+        gefunden = _stellen({"gepflanzt.py": verworfen})
+        self.assertIn(("gepflanzt.py", "neu"), gefunden,
+                      "ein Etablierer mit weggeworfenem Rueckgabewert wurde als Schutz gezaehlt")
+
+    def test_ein_gebundener_rueckgabewert_etabliert_sehr_wohl(self):
+        """Die Gegenrichtung: ohne sie wuerde die Regel oben jede Pruefung fuer wertlos erklaeren und
+        die geforderte Form selbst zum Befund machen."""
+        gebunden = ('def neu(claim):\n    v = _require_export_fields(claim)\n'
+                    '    return {"passed": v}\n')
+        self.assertEqual(_stellen({"gepflanzt.py": gebunden}), {})
 
     def test_eine_gepflanzte_GESCHUETZTE_stelle_wird_nicht_gemeldet(self):
         """The other direction: if the guarded form were also flagged, the scanner would say nothing
