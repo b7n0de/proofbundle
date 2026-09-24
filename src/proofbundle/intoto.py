@@ -503,16 +503,16 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
         "suite": {"name": claim["suite"], "version": claim.get("suite_version")},
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            # DER GEPRUEFTE WERT, NICHT EIN ZWEITES LESEN — und dieser Kommentar ersetzt einen, der
-            # das Falsche begruendete. Er sagte: `claim["passed"]` roh statt `bool(...)`, weil
-            # `_require_export_fields` oben schon alles abweist, was kein Boolean ist. Das Argument
-            # betraf die COERCION und ueberging den ZUGRIFF: geprueft wurde `claim.get("passed")`,
-            # ausgegeben `claim["passed"]`. Bei einem dict, dessen `get` und `__getitem__` sich
-            # unterscheiden, sind das zwei Werte. Gemessen am 24.09.2026 mit einer dict-Unterklasse,
-            # deren `get("passed")` True liefert, waehrend das Element `"false"` ist: die Pruefung ging
-            # durch, das Praedikat trug die Zeichenkette, und der DSSE-Weg signierte sie.
-            # KLASSE: eine Pruefung durch einen Zugriff, eine Verwendung durch einen anderen. Der
-            # Riegel ist nicht ein dritter Zugriff, sondern den gepruefte Wert WEITERZUGEBEN.
+            # THE VALIDATED VALUE, NOT A SECOND READ -- and this comment replaces one that argued
+            # for the wrong thing. It said: `claim["passed"]` raw rather than `bool(...)`, because
+            # `_require_export_fields` above already refuses anything that is not a boolean. That
+            # argument was about COERCION and passed over the ACCESSOR: what was validated is
+            # `claim.get("passed")`, what was emitted is `claim["passed"]`. For a dict whose `get`
+            # and `__getitem__` disagree those are two values. Measured 2026-09-24 with a dict
+            # subclass whose `get("passed")` returns True while the stored item is `"false"`: the
+            # validation passed, the predicate carried the string, and the DSSE path signed it.
+            # THE CLASS: a check through one accessor and a use through another. The guard is not a
+            # third accessor but PASSING THE VALIDATED VALUE ON.
             "threshold": claim["threshold"], "passed": verdikt,
         }],
         "sampleSize": claim["n"],

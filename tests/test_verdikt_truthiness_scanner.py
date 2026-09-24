@@ -240,19 +240,19 @@ def _etabliert_den_typ(fn: ast.AST, ausdruck: ast.AST) -> bool:
     """
     aliase = _aliase(fn)
     ziel = _bezug(ausdruck, aliase)
-    # EIN ETABLIERER, DESSEN RUECKGABEWERT WEGGEWORFEN WIRD, ETABLIERT NICHTS FUER EIN ZWEITES LESEN —
-    # und diese Regel ist die Rechnung fuer einen Review-Fund vom 24.09.2026 (PR 257, P2), der eine
-    # Annahme DIESER Datei widerlegt hat. `_schluesselbezug` normalisiert `claim.get("passed")` und
-    # `claim["passed"]` zu einer Stelle, weil sie fuer ein dict dasselbe sind. Fuer eine UNTERKLASSE
-    # sind sie es nicht: gemessen mit einem dict, dessen `get("passed")` True liefert, waehrend das
-    # Element `"false"` ist, ging `_require_export_fields` durch (es prueft ueber `get`) und
-    # `to_eval_result_predicate` gab die Zeichenkette aus (es las ueber `[]`). Der Scanner sah dort
-    # nichts, weil er die Normalisierung fuer harmlos hielt.
+    # AN ESTABLISHER WHOSE RETURN VALUE IS DISCARDED ESTABLISHES NOTHING FOR A SECOND READ -- and this
+    # rule is the price of a review finding on 2026-09-24 (PR 257, P2) that refuted an assumption of
+    # THIS file. `_schluesselbezug` normalises `claim.get("passed")` and `claim["passed"]` to one
+    # reference, because for a dict they are the same. For a SUBCLASS they are not: measured with a
+    # dict whose `get("passed")` returns True while the stored item is `"false"`,
+    # `_require_export_fields` passed (it checks through `get`) and `to_eval_result_predicate` emitted
+    # the string (it read through `[]`). The scanner saw nothing there, because it held the
+    # normalisation to be harmless.
     #
-    # Die Normalisierung BLEIBT — ohne sie waere die geforderte Form selbst ein Befund. Was hinzukommt
-    # ist der Unterschied zwischen PRUEFEN und WEITERGEBEN: wird der geprueften Wert nicht gebunden,
-    # ist jedes spaetere Lesen ein ZWEITES Lesen, und ob die zwei Zugriffe uebereinstimmen, ist eine
-    # Eigenschaft des uebergebenen Objekts und nicht des Codes.
+    # The normalisation STAYS -- without it the required form would itself be a finding. What is added
+    # is the difference between CHECKING and PASSING ON: if the validated value is not bound, every
+    # later read is a SECOND read, and whether the two accessors agree is a property of the object
+    # handed in, not of the code.
     verworfen = {id(s.value) for s in ast.walk(fn) if isinstance(s, ast.Expr)}
     for k in ast.walk(fn):
         if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in ETABLIERER
@@ -384,12 +384,12 @@ class TestDerScannerFAENGTAuchWasErFangenSoll(unittest.TestCase):
                                  f"alias handling wrong for {quelle!r}: {gefunden}")
 
     def test_ein_weggeworfener_rueckgabewert_etabliert_nichts_REVIEW_FUND(self):
-        """Der Review-Fund vom 24.09.2026, als Fall: pruefen und weitergeben sind zwei Dinge.
+        """The review finding of 2026-09-24 as a case: checking and passing on are two things.
 
-        `_require_export_fields(claim)` als blosse Anweisung prueft ueber `get` und gibt seinen Befund
-        weg; das spaetere `claim["passed"]` ist dann ein ZWEITES Lesen, und ob die zwei Zugriffe
-        dasselbe liefern, ist eine Eigenschaft des uebergebenen Objekts. Gemessen mit einer
-        dict-Unterklasse taten sie es nicht.
+        `_require_export_fields(claim)` as a bare statement checks through `get` and throws its answer
+        away; the later `claim["passed"]` is then a SECOND read, and whether the two accessors deliver
+        the same value is a property of the object handed in. Measured with a dict subclass, they did
+        not.
         """
         verworfen = ('def neu(claim):\n    _require_export_fields(claim)\n'
                      '    return {"passed": claim["passed"]}\n')
@@ -398,8 +398,8 @@ class TestDerScannerFAENGTAuchWasErFangenSoll(unittest.TestCase):
                       "ein Etablierer mit weggeworfenem Rueckgabewert wurde als Schutz gezaehlt")
 
     def test_ein_gebundener_rueckgabewert_etabliert_sehr_wohl(self):
-        """Die Gegenrichtung: ohne sie wuerde die Regel oben jede Pruefung fuer wertlos erklaeren und
-        die geforderte Form selbst zum Befund machen."""
+        """The counter-direction: without it the rule above would declare every check worthless and
+        turn the required form itself into a finding."""
         gebunden = ('def neu(claim):\n    v = _require_export_fields(claim)\n'
                     '    return {"passed": v}\n')
         self.assertEqual(_stellen({"gepflanzt.py": gebunden}), {})

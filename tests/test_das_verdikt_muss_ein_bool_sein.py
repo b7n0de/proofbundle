@@ -227,25 +227,26 @@ class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
 
 
 class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
-    """EINE PRUEFUNG DURCH EINEN ZUGRIFF UND EINE VERWENDUNG DURCH EINEN ANDEREN sind zwei Werte.
+    """A CHECK THROUGH ONE ACCESSOR AND A USE THROUGH ANOTHER are two values.
 
-    Review-Fund am 24.09.2026 auf PR 257, P2, und er traf eine Annahme, die auch in meinem eigenen
-    Scanner steht: `_require_export_fields` prueft `claim.get("passed")`, `to_eval_result_predicate`
-    gab `claim["passed"]` aus. Fuer ein dict sind das dieselben Werte -- fuer eine UNTERKLASSE nicht.
+    Review finding on PR 257, P2, 2026-09-24, and it hit an assumption that also lives in my own
+    scanner: `_require_export_fields` validates `claim.get("passed")` while
+    `to_eval_result_predicate` emitted `claim["passed"]`. For a dict those are the same value; for a
+    SUBCLASS they are not.
 
-    Gemessen mit einer dict-Unterklasse, deren `get("passed")` True liefert, waehrend das gespeicherte
-    Element `"false"` ist: die Pruefung ging durch, das Praedikat trug die Zeichenkette, und der
-    DSSE-Weg signierte sie. Der alte Kommentar an der Ausgabestelle begruendete das Gegenteil und
-    argumentierte ueber COERCION -- richtig im Punkt, am falschen Gegenstand.
+    Measured with a dict subclass whose `get("passed")` returns True while the stored item is
+    `"false"`: the validation passed, the predicate carried the string, and the DSSE path signed it.
+    The old comment at the emit site argued the opposite and reasoned about COERCION -- right on that
+    point, aimed at the wrong thing.
 
-    Der Riegel ist nicht ein dritter Zugriff, sondern die Weitergabe: der Validator gibt den gepruefte
-    Wert ZURUECK, und die Ausgabestelle nimmt ihn. Damit gibt es nur noch EINEN Zugriff, und die Klasse
-    ist geschlossen statt geprueft.
+    The guard is not a third accessor but passing the value on: the validator RETURNS the validated
+    value and the emit site uses it. Then there is only ONE accessor left, and the class is closed
+    rather than tested.
     """
 
     class _Zweizuengig(dict):
-        """`get` und `__getitem__` widersprechen sich. Kein ehrlicher Erzeuger baut das; ein Angreifer
-        schon, und die Eigenschaft muss ohne Annahmen ueber den Erzeuger halten."""
+        """`get` and `__getitem__` disagree. No honest producer builds this; an attacker does, and
+        the property has to hold without assumptions about the producer."""
 
         def get(self, k, d=None):  # noqa: D102
             return True if k == "passed" else super().get(k, d)
@@ -257,9 +258,9 @@ class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
     def test_der_export_gibt_den_gepruefte_wert_aus_nicht_ein_zweites_lesen(self):
         c = self._Zweizuengig(self.echt)
         c["passed"] = "false"
-        # Die Pruefung sieht True (ueber `get`). Ausgegeben werden MUSS genau dieser Wert, nicht das
-        # gespeicherte `"false"` -- sonst traegt ein signiertes Praedikat ein Verdikt, das nie geprueft
-        # wurde.
+        # The validation sees True (through `get`). What MUST be emitted is exactly that value, not
+        # the stored `"false"` -- otherwise a signed predicate carries a verdict nobody ever
+        # validated.
         p = to_eval_result_predicate(c)
         gesehen = p["claims"][0].get("passed")
         self.assertIs(gesehen, True,
@@ -267,7 +268,7 @@ class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
                       f"einen Zugriff und eine Verwendung durch einen anderen sind zwei Werte.")
 
     def test_beide_echten_booleans_bleiben_unveraendert(self):
-        """Ohne diesen Fall koennte die Stelle jeden Wert zu True machen und der Fall oben waere gruen."""
+        """Without this case the site could turn every value into True and the case above would pass."""
         for wert in (True, False):
             with self.subTest(passed=wert):
                 c = dict(self.echt)
