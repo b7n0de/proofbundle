@@ -99,6 +99,36 @@ counter-directions so a verifier that accepts nothing could not pass. Catch proo
 of the adapter (signature check always true, missing trust list read as acceptance, authorizer
 allowed to equal signer, `permit` accepted, empty chain read as clean) each turn the suite red.
 
+- **The release body is rendered from a versioned content source and is the text that gets
+  published** (`scripts/render_release.py`, `release_notes/release-source.json`,
+  `.github/release.yml`). The grouping of a release comes from a reviewed file, not from the
+  conventional-commit prefix of a pull request title. Measured over all 48 entries of 6.1.0: five
+  prefixes span more than one group and `fix` alone spans three, so the prefix separates none of
+  them. Every entry keeps its editorial short form AND its original title, author and URL, because
+  a short form that replaces its original leaves a reader nothing to check it against.
+
+  **The gap this closes was named in the workflow's own comment.** The hygiene step generated the
+  notes ahead of time and checked them, while the draft step let GitHub build them a second time:
+  over an identical range that is the same text, but byte identity is not guaranteed. The
+  step now renders into `/tmp/release_notes.md`, checks that file, records its sha256, and the
+  draft receives it via `body_path` with `generate_release_notes: false`. One text, checked and
+  published.
+
+  The renderer refuses to run unless the source declares the version asked for. It is deliberately
+  not a general generator: a 6.1.0 source carries an audit status measured on the 6.1.0 tree, and
+  rendering it under a later tag would publish a claim about a tree nobody examined.
+
+  `.github/release.yml` orders GitHub's own generated notes as a fallback for hand-made releases.
+  Its `release:*` labels are proposed, not claimed to exist; the catch-all group is a finding that
+  a label is missing, not a home for unclassified entries; and bot or CI pull requests are NOT
+  excluded, because in this project a dependency bump can carry a verification property.
+
+Contract `tests/test_render_release.py`, 13 cases. The strongest one renders the real 6.1.0 source
+and compares it BYTE FOR BYTE against the independently written, owner-reviewed body in
+`release_notes/RELEASE_NOTES_v6.1.0.md`: a renderer measured only against fixtures it also shaped
+proves self-consistency and nothing more. Counter-directions included so that neither a renderer
+refusing everything nor a check reporting findings for everything could pass.
+
 ## [6.1.0] - 2026-09-19
 
 The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
