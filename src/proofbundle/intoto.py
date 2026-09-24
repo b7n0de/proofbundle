@@ -261,11 +261,18 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
     verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
+    # `suite` IS READ ONCE FOR BOTH USES, and the comment this replaces was wrong. It said "`suite`
+    # below already does it right and is left alone" — written hours earlier in this same function.
+    # Measured with a dict whose `get("suite")` reports "GEPRUEFT" while the stored item is
+    # "GESPEICHERT": the signed annotation carried "GESPEICHERT" and `passedTests` carried
+    # ["GEPRUEFT"]. ONE signed statement, one field, two values. The later `claim.get("suite")` used
+    # its own read correctly; what was wrong was that this line took a SECOND one.
+    suite = claim.get("suite")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
         "annotations": {
-            "suite": claim["suite"],
+            "suite": suite,
             "metric": claim["metric"],
             "comparator": claim["comparator"],
             "threshold": claim["threshold"],
@@ -301,7 +308,8 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
         "result": _RESULT_ENUM[verdikt],
         "configuration": configuration,
     }
-    suite = claim.get("suite")
+    # NO SECOND READ HERE EITHER: `suite` is bound at the top of this function, and rebinding it from
+    # the claim would reintroduce exactly the divergence the annotation above was fixed for.
     if suite:
         key = "passedTests" if verdikt else "failedTests"
         predicate[key] = [str(suite)]

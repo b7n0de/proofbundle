@@ -232,3 +232,52 @@ class TestDieWaechterDerLeseregel(unittest.TestCase):
         self.assertNotEqual(
             intoto.resolve_subject("receipt", echt, root_b64=ROOT)[0]["digest"],
             intoto.resolve_subject("receipt", anders, root_b64=ROOT)[0]["digest"])
+
+
+class TestDerFALSCHESATZIMKommentar(unittest.TestCase):
+    """The claim this file's own fix made about `suite` was wrong, and a cross-reading said so.
+
+    The first repair of `to_test_result_statement` left a comment reading "`suite` below already does
+    it right and is left alone". An adversarial cross-reading (third family, over the provider path)
+    refuted the claim that an unguarded raw subscript next to a checked read is a DIFFERENT class.
+    Measured: `claim["suite"]` went into the signed annotation while `claim.get("suite")` decided
+    `passedTests`, so ONE signed statement carried the same field under two values.
+
+    A comment is not a measurement. This case is the measurement.
+    """
+
+    def test_ein_feld_traegt_in_einem_statement_nicht_zwei_werte(self):
+        signer = generate_signer()
+        echt = _claim(signer)
+        zweizuengig = _ZweizuengigesDict({**echt, "suite": "gespeichert"},
+                                         {"suite": "geprueft"})
+        statement = intoto.to_test_result_statement(
+            zweizuengig, subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        annotation = statement["predicate"]["configuration"][0]["annotations"]["suite"]
+        liste = (statement["predicate"].get("passedTests")
+                 or statement["predicate"].get("failedTests") or [])
+        self.assertEqual([annotation], liste,
+                         "die signierte Annotation und passedTests tragen dasselbe Feld — sie "
+                         f"duerfen nicht auseinandergehen: {annotation!r} gegen {liste!r}")
+
+    def test_die_beiden_stellen_tragen_den_gemeldeten_wert(self):
+        """WHICH of the two values wins is part of the contract: the one the accessor reported,
+        because that is the value a guard would have seen."""
+        signer = generate_signer()
+        echt = _claim(signer)
+        zweizuengig = _ZweizuengigesDict({**echt, "suite": "gespeichert"},
+                                         {"suite": "geprueft"})
+        statement = intoto.to_test_result_statement(
+            zweizuengig, subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        self.assertEqual(
+            statement["predicate"]["configuration"][0]["annotations"]["suite"], "geprueft")
+
+    def test_ein_gewoehnlicher_anspruch_bleibt_unveraendert(self):
+        """THE GUARD: a plain dict must produce exactly what it produced before, or the fix is a
+        behaviour change dressed as a repair."""
+        signer = generate_signer()
+        statement = intoto.to_test_result_statement(
+            _claim(signer), subject_digest={"sha256": "a" * 64}, root_b64=ROOT)
+        self.assertEqual(
+            statement["predicate"]["configuration"][0]["annotations"]["suite"], "safety-refusal")
+        self.assertEqual(statement["predicate"].get("passedTests"), ["safety-refusal"])
