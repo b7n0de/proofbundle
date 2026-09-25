@@ -10,6 +10,34 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The parity registry states what the verifier does when no policy is named** (release scope line
+  R1, `scripts/rust_parity_registry.json`). The registry ships in the sdist and is what a second
+  implementation reads. Its v0.2 entry said the verifier "deliberately does not decide that for it
+  (policy_decision stays None)", which reads as a neutral outcome. Measured on 2026-09-25 against
+  `verify_agent_review_v02`: without a named policy the result carries `policy_decision: null`, the
+  advisory code `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false with that code as
+  its blocker; with the named default policy the same receipt is `accept` and released for
+  automation. The entry now says so. A new contract measures the no-policy state and requires every
+  registry note that speaks of `policy_decision` to name each blocker the verifier reports and the
+  false automation verdict; the old wording fails it. `docs/AGENT_REVIEW_PREDICATE.md` already
+  described the state correctly and is unchanged.
+
+- **A declared error marker is checked against both implementations** (release scope line S32,
+  `tools/pb_verify_rs`). A relation vector's `errorContains` read as a statement about the case,
+  and it was held against the Python output only: the Rust verifier printed `{"lineage": ...}` and
+  no reason, and the differential compared exit class and lineage. Measured on 2026-09-25: 21
+  relation vectors declare a marker, the Python output carried 21, the Rust output 0. So Rust could
+  reach the same verdict for a different reason and nothing would notice.
+
+  The Rust relation subcommands now print `reasons` beside `lineage`, in Python's wording and with
+  Python's stable codes: the reason of each failing edge, the structural errors, the successor
+  warning and the policy violation codes, which were computed and deliberately not printed. The
+  paths that returned exit 2 through a bare `Err(_)` now name what failed. The loader keeps the
+  target subject's state (present, absent, ambiguous, malformed) as Python does, so a failing
+  subject pin names its own code instead of one shared mismatch. `crosscheck.py` requires the
+  marker in both outputs: 21 of 21. Verdicts are unchanged, and the common vocabulary still reads
+  `lineage` only.
+
 - **A foreign identifier on the bundle itself is a refusal, not `invalid`** (release scope line
   Z.278, `src/proofbundle/evalclaim.py`). `classify_eval_claim` answered `invalid` for a bundle whose
   top-level `schema` names another format: `verify_bundle` raised the typed `UnsupportedError`, and
