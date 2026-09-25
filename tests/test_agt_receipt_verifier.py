@@ -64,7 +64,7 @@ class DieFuenfLagen(unittest.TestCase):
         self.assertEqual(exit_code(e), 1, "a broken signature is a crypto failure, not a policy one")
         sig = [c for c in e.checks if c.name == "signature"]
         self.assertEqual(len(sig), 1)
-        self.assertFalse(sig[0].ok)
+        self.assertIs(sig[0].ok, False)
 
     def test_fang_falscher_schluessel_faellt(self):
         """Signed with one key, the receipt names another. The verdict must not accept it."""
@@ -301,7 +301,7 @@ class EntfernbareBelegeDuerfenEinUrteilNichtVERBESSERN(unittest.TestCase):
         for f in ("authorizer_id", "authorization_signature", "authorizer_public_key"):
             r[f] = None
         e = verify_agt_receipt(r)
-        self.assertFalse(e.ok, "stripping evidence must not produce a clean verdict")
+        self.assertIs(e.ok, False, "stripping evidence must not produce a clean verdict")
         self.assertEqual(exit_code(e), 1, "a stripped authorization is structural, not a policy miss")
 
     def test_fang_jede_einzelne_luecke(self):
@@ -312,7 +312,7 @@ class EntfernbareBelegeDuerfenEinUrteilNichtVERBESSERN(unittest.TestCase):
                 r = self._r()
                 r[feld] = None
                 e = verify_agt_receipt(r, trusted_authorizer_keys=[r.get("authorizer_public_key") or "x"])
-                self.assertFalse(e.ok, f"a receipt missing {feld} must not verify")
+                self.assertIs(e.ok, False, f"a receipt missing {feld} must not verify")
 
     def test_fang_assurance_level_allein_verlangt_vollstaendigkeit(self):
         """A receipt CLAIMING external authorization owes one, whatever else was stripped."""

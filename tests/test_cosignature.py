@@ -75,18 +75,18 @@ class TestCosignAdversarial(unittest.TestCase):
         ts = int.from_bytes(payload[4:12], "big") + 1
         tampered_payload = payload[:4] + ts.to_bytes(8, "big") + payload[12:]
         lines[-1] = f"{cp.EM_DASH} {wname} " + base64.b64encode(tampered_payload).decode()
-        self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"], False)
 
     def test_red_note_body_tamper(self):
         note, _, [(_, _, wvkey)] = _witnessed(1)
         tampered = note.replace("\n7\n", "\n8\n")
-        self.assertFalse(cp.verify_cosignature(tampered, wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature(tampered, wvkey)["ok"], False)
 
     def test_red_wrong_witness_key(self):
         note, _, _ = _witnessed(1)
         other = generate_signer()
         other_vkey = cp.cosign_vkey("witness0.example.com/w", _raw_pub(other))
-        self.assertFalse(cp.verify_cosignature(note, other_vkey)["ok"])
+        self.assertIs(cp.verify_cosignature(note, other_vkey)["ok"], False)
 
     def test_red_log_vkey_is_not_a_witness_vkey(self):
         # Type confusion: a 0x01 log vkey must be rejected by the cosignature verifier.
@@ -107,7 +107,7 @@ class TestCosignAdversarial(unittest.TestCase):
     def test_red_same_witness_not_double_counted(self):
         note, log_vkey, [(_, _, wvkey)] = _witnessed(1)
         res = cp.verify_witnessed_checkpoint(note, log_vkey, [wvkey, wvkey], threshold=2)
-        self.assertFalse(res["ok"], "one witness listed twice must not satisfy threshold=2")
+        self.assertIs(res["ok"], False, "one witness listed twice must not satisfy threshold=2")
 
     def test_red_one_key_under_two_names_not_a_quorum(self):
         # HIGH (release review): quorum counts DISTINCT KEY MATERIAL, not names — one physical key registered
@@ -141,7 +141,7 @@ class TestCosignAdversarial(unittest.TestCase):
         lines = note.rstrip("\n").split("\n")
         payload = base64.b64decode(lines[-1].split(" ")[2]) + b"\x00"
         lines[-1] = f"{cp.EM_DASH} {wname} " + base64.b64encode(payload).decode()
-        self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"], False)
 
     def test_fremde_origin_unter_vertrautem_schluessel_wird_nur_mit_bindung_gefangen(self):
         """Der Schluessel bindet die ORIGIN-ZEILE NICHT — gemessen, nicht angenommen.

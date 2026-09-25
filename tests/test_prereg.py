@@ -61,7 +61,7 @@ class TestPrereg(unittest.TestCase):
         path = self._file(b"plan\n")
         try:
             claim = {"prereg_sha256": hashlib.sha256(b"plan").hexdigest()}   # committed without \n
-            self.assertFalse(verify_prereg(path, claim)["ok"])
+            self.assertIs(verify_prereg(path, claim)["ok"], False)
         finally:
             os.unlink(path)
 

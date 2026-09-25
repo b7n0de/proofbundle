@@ -258,8 +258,8 @@ class TestSdjwtVcProfileExternalVectors(unittest.TestCase):
 
     def test_cross_credential_type_is_fail_closed(self) -> None:
         # the identity-credential vct must not satisfy a PID-only allowlist and vice versa
-        self.assertFalse(check_vc_profile(self.examples[0], {"vctAllowlist": [_PID_VCT]})["ok"])
-        self.assertFalse(check_vc_profile(self.examples[3], {"vctAllowlist": [_IDENTITY_VCT]})["ok"])
+        self.assertIs(check_vc_profile(self.examples[0], {"vctAllowlist": [_PID_VCT]})["ok"], False)
+        self.assertIs(check_vc_profile(self.examples[3], {"vctAllowlist": [_IDENTITY_VCT]})["ok"], False)
 
 
 if __name__ == "__main__":

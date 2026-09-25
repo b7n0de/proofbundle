@@ -197,7 +197,7 @@ class TestMldsaRootKeyVerifies(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-mldsa-0": other_sk})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
 
 
 class TestMldsaAlgDispatchAgainstAcvpVector(unittest.TestCase):
@@ -257,7 +257,7 @@ class TestHybridRootThresholdRequiresBothLegs(unittest.TestCase):
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertEqual(r["root_signers"], [])
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
 
     def test_hybrid_key_valid_with_both_legs_signed(self):
         pred, ed_sk, m_sk = self._hybrid_pack()
@@ -275,7 +275,7 @@ class TestHybridRootThresholdRequiresBothLegs(unittest.TestCase):
         env["signatures"][0]["sigPq"] = base64.b64encode(bytes(sigpq)).decode("ascii")
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
 
     def test_hybrid_key_fails_if_classical_leg_tampered(self):
         pred, ed_sk, m_sk = self._hybrid_pack()
@@ -285,7 +285,7 @@ class TestHybridRootThresholdRequiresBothLegs(unittest.TestCase):
         env["signatures"][0]["sig"] = base64.b64encode(bytes(sig)).decode("ascii")
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
 
 
 @unittest.skipUnless(_HAS_MLDSA, "needs cryptography with FIPS 204 (ML-DSA) support")

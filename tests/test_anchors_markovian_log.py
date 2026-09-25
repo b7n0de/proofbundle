@@ -286,7 +286,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
             if entry["alg"] == "ml-dsa-44" and not HAVE_MLDSA:
                 # the recording was made WITH the [pq] extra; without it the same two lines must
                 # report the missing backend, fail-closed — never skip, never pretend to verify
-                self.assertFalse(live["ok"], name)
+                self.assertIs(live["ok"], False, name)
                 self.assertIn("[pq]", live.get("detail", ""), name)
             else:
                 self.assertTrue(live["ok"], name)

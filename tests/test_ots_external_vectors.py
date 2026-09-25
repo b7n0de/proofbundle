@@ -100,7 +100,7 @@ class TestOtsPendingPathExternalVectors(unittest.TestCase):
         checked = 0
         for name in _PENDING_NAMES:
             res = verify_opentimestamps(_proof(name), _root_of(name), frozen={})
-            self.assertFalse(res["ok"], f"{name}: a pending proof must never be ok=True")
+            self.assertIs(res["ok"], False, f"{name}: a pending proof must never be ok=True")
             self.assertTrue(res["warn"], f"{name}: a pending proof must be warn=True")
             self.assertEqual(res["status"], "pending", f"{name}: expected status=pending")
             checked += 1

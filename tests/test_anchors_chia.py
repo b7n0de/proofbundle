@@ -74,36 +74,36 @@ class TestChiaOfflineMerkle(unittest.TestCase):
     def test_tampered_other_hash_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["inclusion_layers"][0]["other_hash"] = "0x" + "00" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # 2b — tampered combined_hash must FAIL (self-consistency of each layer)
     def test_tampered_combined_hash_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["inclusion_layers"][1]["combined_hash"] = "0x" + "ab" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # tampered node_hash must FAIL
     def test_tampered_node_hash_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["node_hash"] = "0x" + "11" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # tampered published_root must FAIL (ascent no longer reproduces it)
     def test_tampered_published_root_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["published_root"] = "0x" + "de" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # 3 — key != canonicalRoot must FAIL (cross-target / relabel forgery, Lens 4): a valid proof for one
     # target cannot be relabelled to another, because the key (== the real canonicalRoot) will not match.
     def test_wrong_canonical_root_fails(self):
-        self.assertFalse(verify_chia_datalayer(_pbytes(self.obj), b"\xaa" * 32)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(self.obj), b"\xaa" * 32)["ok"], False)
 
     # the raw key MUST be present (it carries the binding) — a proof without it fails closed
     def test_missing_raw_key_fails(self):
         bad = copy.deepcopy(self.obj)
         del bad["key"]
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # anti-relabel forgery (6-lens HIGH, 2026-07-06): a proof whose key == canonicalRoot but whose
     # key_clvm_hash is a valid-but-WRONG clvm hash (of a DIFFERENT atom), with node_hash + root built
@@ -125,13 +125,13 @@ class TestChiaOfflineMerkle(unittest.TestCase):
         }
         # key==canonicalRoot (check 1) passes, leaf (check 3) + ascent (check 4) pass on the consistent
         # data; ONLY sha256(0x01||key) != key_clvm_hash rejects it. If that binding is dropped this verifies.
-        self.assertFalse(verify_chia_datalayer(_pbytes(forged), cr)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(forged), cr)["ok"], False)
 
     # raw value present but clvm hash mismatch -> FAIL
     def test_value_clvm_mismatch_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["value"] = "0x" + "cc" * 32   # a value whose clvm hash won't match value_clvm_hash
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # malformed proof: bad hex, wrong length, missing field -> FAIL, never raise
     def test_malformed_hex_fails_closed(self):
@@ -139,24 +139,24 @@ class TestChiaOfflineMerkle(unittest.TestCase):
             bad = copy.deepcopy(self.obj)
             bad[mut] = "0xzz"   # not hex
             r = verify_chia_datalayer(_pbytes(bad), self.root)
-            self.assertFalse(r["ok"], mut)
+            self.assertIs(r["ok"], False, mut)
 
     def test_missing_field_fails_closed(self):
         bad = copy.deepcopy(self.obj)
         del bad["published_root"]
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # non-JSON / non-object proof bytes -> FAIL
     def test_non_json_proof_fails(self):
-        self.assertFalse(verify_chia_datalayer(b"\x00\x01not json", self.root)["ok"])
-        self.assertFalse(verify_chia_datalayer(b"[1,2,3]", self.root)["ok"])
-        self.assertFalse(verify_chia_datalayer("not bytes", self.root)["ok"])  # type: ignore[arg-type]
+        self.assertIs(verify_chia_datalayer(b"\x00\x01not json", self.root)["ok"], False)
+        self.assertIs(verify_chia_datalayer(b"[1,2,3]", self.root)["ok"], False)
+        self.assertIs(verify_chia_datalayer("not bytes", self.root)["ok"], False)  # type: ignore[arg-type]
 
     # bad other_hash_side (not 0/1) -> FAIL
     def test_bad_side_fails(self):
         bad = copy.deepcopy(self.obj)
         bad["inclusion_layers"][0]["other_hash_side"] = 2
-        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(bad), self.root)["ok"], False)
 
     # 9 — trivial single-leaf tree: layers == [] means node_hash IS the root. key == canonicalRoot (32-byte).
     def test_trivial_single_leaf_tree(self):
@@ -174,7 +174,7 @@ class TestChiaOfflineMerkle(unittest.TestCase):
         self.assertTrue(r["ok"], r["detail"])
         # and with a wrong root it fails
         obj["published_root"] = "0x" + "00" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(obj), cr)["ok"])
+        self.assertIs(verify_chia_datalayer(_pbytes(obj), cr)["ok"], False)
 
     # DoS / fail-closed backstop (Lens 2): deeply nested JSON must NOT crash the verifier
     def test_deeply_nested_json_fails_closed(self):
@@ -192,7 +192,7 @@ class TestChiaOfflineMerkle(unittest.TestCase):
         invalid = json.loads((exdir / "chia-datalayer-invalid-root.json").read_text())
         self.assertTrue(verify_chia_datalayer(_pbytes(valid), _hb(valid["key"]))["ok"],
                         "the shipped chia-datalayer-valid.json example must verify (level i)")
-        self.assertFalse(verify_chia_datalayer(_pbytes(invalid), _hb(invalid["key"]))["ok"],
+        self.assertIs(verify_chia_datalayer(_pbytes(invalid), _hb(invalid["key"]))["ok"], False,
                          "the shipped chia-datalayer-invalid-root.json example must REJECT (tampered root)")
 
 

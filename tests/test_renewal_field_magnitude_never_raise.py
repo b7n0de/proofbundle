@@ -109,7 +109,7 @@ def test_verify_sequence_container_nested_giant_int(field):
                   else {field: CONTAINER_GIANT}))
     if field == "external_token_type":
         bad = _ats(external_token_type=CONTAINER_GIANT, external_token=b"x")
-    assert not verify_sequence([[bad]], DATA).ok
+    assert verify_sequence([[bad]], DATA).ok is False
     # the standalone never-raise bool surface must also survive it
     from proofbundle.renewal import _verify_ats_signature
     assert _verify_ats_signature(_ats(sig_alg=CONTAINER_GIANT), {"ed25519": b"\0" * 32}) is False

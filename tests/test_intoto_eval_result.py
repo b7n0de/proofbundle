@@ -149,14 +149,14 @@ class TestDSSERoundtrip(unittest.TestCase):
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["predicate_type"], EVAL_RESULT_PREDICATE_TYPE)
         # wrong key → fail
-        self.assertFalse(verify_eval_result_dsse(env, _raw_pub(generate_signer()))["ok"])
+        self.assertIs(verify_eval_result_dsse(env, _raw_pub(generate_signer()))["ok"], False)
         # tamper the payload → fail
         import base64
         tampered = dict(env)
         stmt = _statement_from(env)
         stmt["predicate"]["claims"][0]["passed"] = False
         tampered["payload"] = base64.b64encode(json.dumps(stmt).encode()).decode()
-        self.assertFalse(verify_eval_result_dsse(tampered, _raw_pub(s))["ok"])
+        self.assertIs(verify_eval_result_dsse(tampered, _raw_pub(s))["ok"], False)
 
     def test_verify_accepts_urlsafe_base64_payload(self):
         # DSSE verifiers MUST accept standard OR url-safe base64 (Paket 2 test 13, second half).
@@ -178,7 +178,7 @@ class TestDSSERoundtrip(unittest.TestCase):
         env = export_eval_result_dsse(CLAIM, s)
         raw = base64.b64decode(env["payload"])
         env["payload"] = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-        self.assertFalse(verify_eval_result_dsse(env, _raw_pub(s))["ok"])
+        self.assertIs(verify_eval_result_dsse(env, _raw_pub(s))["ok"], False)
 
 
 if __name__ == "__main__":

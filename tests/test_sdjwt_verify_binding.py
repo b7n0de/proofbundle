@@ -192,7 +192,7 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
         by = {c.name: c.ok for c in r.checks}
         self.assertIn("sd-jwt-bundle-binding", by, "an unbindable eval SD-JWT must add a FAILING binding check")
         self.assertFalse(by["sd-jwt-bundle-binding"])
-        self.assertFalse(r.ok, "an unbindable eval SD-JWT graft must fail the whole bundle (CRYPTO: FAILED)")
+        self.assertIs(r.ok, False, "an unbindable eval SD-JWT graft must fail the whole bundle (CRYPTO: FAILED)")
 
     def test_generic_sd_jwt_vc_on_non_eval_payload_stays_out_of_scope(self):
         # examples/example_bundle.json is a generic SD-JWT-VC (iss/vct, no eval fields) on a non-eval
@@ -242,7 +242,7 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
         by = {c.name: c.ok for c in r.checks}
         self.assertIn("sd-jwt-bundle-binding", by, "a root-committing eval SD-JWT graft must add a FAILING check")
         self.assertFalse(by["sd-jwt-bundle-binding"])
-        self.assertFalse(r.ok, "an unbindable eval root commitment must fail the whole bundle")
+        self.assertIs(r.ok, False, "an unbindable eval root commitment must fail the whole bundle")
 
     def test_empty_root_commitment_still_refused(self):
         # L1 pre-land audit F3: an always-open receipt.root_b64 == "" also carries the eval-binding SHAPE and

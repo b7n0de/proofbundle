@@ -267,7 +267,7 @@ class TestNullOpAndChainConfusionHardening(unittest.TestCase):
         proof = _serialize(DetachedTimestampFile(OpSHA256(), ts))
         rp = {"bitcoin_block_headers": {"800000": _multi_btc_root(1).hex()}}  # == sha256(_ROOT ‖ b"\x02")
         res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"], res)                   # a Litecoin branch is not a Bitcoin anchor
+        self.assertIs(res["ok"], False, res)                   # a Litecoin branch is not a Bitcoin anchor
         self.assertNotEqual(res["status"], "confirmed")
 
 

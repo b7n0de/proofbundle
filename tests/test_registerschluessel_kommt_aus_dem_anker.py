@@ -126,7 +126,7 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
             repo = _repo_mit_register(Path(t), _register(self.fremd))
             r = fr.verify_and_count(repo, expected_version="6.0.0",
                                     authorised_pubkeys={FRUEHERER_PIN})
-            self.assertFalse(r["ok"],
+            self.assertIs(r["ok"], False,
                              "ein Register, das nur der alte Farmer-Schluessel traegt, ist kein Beleg")
 
     # ── und die Gegenprobe: der richtige Schluessel geht durch ──────────────────────────────────

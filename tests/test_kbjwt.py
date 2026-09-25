@@ -90,8 +90,8 @@ class TestKbRoundtrip(unittest.TestCase):
         presented, _, _ = _issue_presented()
         self.assertTrue(verify_key_binding(presented, expected_aud="verifier.example",
                                            expected_nonce="n-1")["ok"])
-        self.assertFalse(verify_key_binding(presented, expected_aud="other.example")["ok"])
-        self.assertFalse(verify_key_binding(presented, expected_nonce="n-2")["ok"])
+        self.assertIs(verify_key_binding(presented, expected_aud="other.example")["ok"], False)
+        self.assertIs(verify_key_binding(presented, expected_nonce="n-2")["ok"], False)
 
     def test_aud_und_nonce_werden_EXAKT_verglichen(self):
         """Das Beinahe-Treffer-Korpus fuer beide Erwartungen — die Luecke, die ein Meta-Test fand.
@@ -142,7 +142,7 @@ class TestKbAdversarial(unittest.TestCase):
         parts = sd.split("~")
         self.assertGreaterEqual(len(parts), 3, "need at least one disclosure")
         tampered = "~".join([parts[0]] + parts[2:]) + kb
-        self.assertFalse(verify_key_binding(tampered)["ok"])
+        self.assertIs(verify_key_binding(tampered)["ok"], False)
 
     def test_red_disclosure_swapped(self):
         presented, _, _ = _issue_presented(exact_score="0.92")
@@ -150,7 +150,7 @@ class TestKbAdversarial(unittest.TestCase):
         sd_a, kb_a = split_key_binding(presented)
         sd_b, _ = split_key_binding(other)
         # graft A's KB-JWT onto B's disclosures
-        self.assertFalse(verify_key_binding(sd_b + kb_a)["ok"])
+        self.assertIs(verify_key_binding(sd_b + kb_a)["ok"], False)
 
     def test_red_wrong_typ(self):
         presented, _, holder = _issue_presented()
@@ -169,7 +169,7 @@ class TestKbAdversarial(unittest.TestCase):
         sd, kb = split_key_binding(presented)
         _, p, s = kb.split(".")
         h2 = _b64url(json.dumps({"alg": "none", "typ": "kb+jwt"}).encode())
-        self.assertFalse(verify_key_binding(sd + f"{h2}.{p}.{s}")["ok"])
+        self.assertIs(verify_key_binding(sd + f"{h2}.{p}.{s}")["ok"], False)
 
     def _mutate_payload(self, presented, holder, drop=None):
         sd, kb = split_key_binding(presented)
@@ -185,7 +185,7 @@ class TestKbAdversarial(unittest.TestCase):
             presented, _, holder = _issue_presented()
             mutated = self._mutate_payload(presented, holder, drop=claim)
             res = verify_key_binding(mutated)
-            self.assertFalse(res["ok"], f"missing {claim} must fail")
+            self.assertIs(res["ok"], False, f"missing {claim} must fail")
 
     def test_red_wrong_holder_key_signature(self):
         # KB signed by an attacker key, cnf points to the real holder → fail.
@@ -252,7 +252,7 @@ class TestBundleIntegration(unittest.TestCase):
         result = verify_bundle(self._bundle_with(bad, issuer))
         kb_checks = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
         self.assertEqual(len(kb_checks), 1)
-        self.assertFalse(kb_checks[0].ok)
+        self.assertIs(kb_checks[0].ok, False)
         self.assertIs(result.ok, False)
 
     def test_bundle_without_kb_unchanged(self):
@@ -275,7 +275,7 @@ class TestBundleIntegration(unittest.TestCase):
         result = verify_bundle(self._bundle_with(stripped, issuer))
         kb_checks = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
         self.assertEqual(len(kb_checks), 1, "cnf-bound credential without KB must add a failing check")
-        self.assertFalse(kb_checks[0].ok)
+        self.assertIs(kb_checks[0].ok, False)
         self.assertIs(result.ok, False)
 
     def test_bundle_verify_enforces_aud_nonce(self):
@@ -305,9 +305,9 @@ class TestBundleIntegration(unittest.TestCase):
         result = verify_bundle(b)
         kb = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
         self.assertEqual(len(kb), 1)
-        self.assertFalse(kb[0].ok)
+        self.assertIs(kb[0].ok, False)
         self.assertIn("NO issuer key", kb[0].detail)
-        self.assertFalse(result.ok, "cnf-bound SD-JWT without an issuer key must fail the bundle")
+        self.assertIs(result.ok, False, "cnf-bound SD-JWT without an issuer key must fail the bundle")
 
     def test_f4_expected_binding_without_kb_jwt_fails_closed(self):
         # F4 (v1.9.2): supplying expected_aud/expected_nonce requests RFC 9901 §7.3 replay/audience
@@ -320,10 +320,10 @@ class TestBundleIntegration(unittest.TestCase):
         for kwargs in ({"expected_aud": "verifier.example"}, {"expected_nonce": "n-1"},
                        {"expected_aud": "v", "expected_nonce": "n"}):
             res = verify_bundle(b, **kwargs)
-            self.assertFalse(res.ok, f"{kwargs}: no KB-JWT → must fail closed")
+            self.assertIs(res.ok, False, f"{kwargs}: no KB-JWT → must fail closed")
             kb = [c for c in res.checks if c.name == "sd-jwt-key-binding"]
             self.assertEqual(len(kb), 1, f"{kwargs}: must record exactly one refused binding check")
-            self.assertFalse(kb[0].ok)
+            self.assertIs(kb[0].ok, False)
 
     def test_bundle_no_issuer_key_now_fails_secure(self):
         # WP-C2 (6-lens review, Owner-GO breaking / secure-by-default): re-pinned from the former

@@ -87,7 +87,7 @@ class TestRfc3161Anchor(unittest.TestCase):
                    .not_valid_after(datetime.datetime(2030, 1, 1)).sign(key, hashes.SHA256()))
         rotated_rp = {"trusted_tsa_roots": [base64.b64encode(rotated.public_bytes(Encoding.DER)).decode()]}
         bad = verify_rfc3161(proof, canonical_root, frozen=anchor["frozen"], rp_trust=rotated_rp)
-        self.assertFalse(bad["ok"], "old token must NOT verify against a rotated relying-party root")
+        self.assertIs(bad["ok"], False, "old token must NOT verify against a rotated relying-party root")
 
     def test_missing_relying_party_root_fails_closed(self):   # WP-A1 re-pin
         from proofbundle.anchors_rfc3161 import verify_rfc3161
@@ -165,7 +165,7 @@ class TestRfc3161PolicyOid(unittest.TestCase):
         frozen["policyOid"] = real + ".999"   # a policy OID the token does NOT carry
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
                              base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
-        self.assertFalse(res["ok"], "a pinned policy OID that does not match the token must FAIL closed")
+        self.assertIs(res["ok"], False, "a pinned policy OID that does not match the token must FAIL closed")
         self.assertEqual(res["status"], "chain_fail")   # reached the pin (not short-circuited at needs_rp_trust)
 
     def test_malformed_policy_oid_fails_closed(self):   # WP-A1: supply rp roots so the OID parse actually runs
@@ -242,7 +242,7 @@ class TestRfc3161CertExpiration(unittest.TestCase):
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
                              base64.b64decode(anchor["canonicalRoot"]), frozen=anchor["frozen"],
                              rp_trust={"trusted_tsa_roots": [expired_b64]})
-        self.assertFalse(res["ok"], "an expired-at-gen-time relying-party root must fail closed")
+        self.assertIs(res["ok"], False, "an expired-at-gen-time relying-party root must fail closed")
         self.assertEqual(res["status"], "chain_fail")
 
 

@@ -72,7 +72,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
                 r = verify_trust_pack(env2)
             except ProofBundleError:
                 continue  # a typed rejection is also acceptable defended behaviour
-            self.assertFalse(r["ok"], f"payloadType={bad!r} must not be accepted")
+            self.assertIs(r["ok"], False, f"payloadType={bad!r} must not be accepted")
 
     def test_wrong_predicate_type_is_rejected(self):
         # A validly-SIGNED in-toto statement of a DIFFERENT predicateType presented to the trust-pack

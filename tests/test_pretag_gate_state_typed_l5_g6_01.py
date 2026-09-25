@@ -378,7 +378,7 @@ class TheGateReportsATypedState(unittest.TestCase):
             encoding="utf-8")
         _plant(d, "600", "receipt.json", json.dumps({"garbage": True}))
         r = self.pta.evaluate(d, "6.0.0")
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
         self.assertNotEqual(r["state"], "verified", r)
         self.assertNotIn("FORGED", json.dumps(r))
 

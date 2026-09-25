@@ -54,8 +54,8 @@ class TestCrossPredicateMatrix(unittest.TestCase):
                     self.assertTrue(res["ok"], f"{env_type} must verify under its own function")
                     self.assertTrue(res["predicate_type_ok"])
                 else:
-                    self.assertFalse(
-                        res["ok"],
+                    self.assertIs(
+                        res["ok"], False,
                         f"CONFUSION: a {env_type} envelope verified ok=True under the "
                         f"{verify_type} verifier")
                     self.assertFalse(res["predicate_type_ok"])

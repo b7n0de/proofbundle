@@ -59,7 +59,7 @@ class TestLint(unittest.TestCase):
         finally:
             os.unlink(p1), os.unlink(p2)
         self.assertEqual(rc1, 1)
-        self.assertFalse(json.loads(out1)["ok"])
+        self.assertIs(json.loads(out1)["ok"], False)
         self.assertEqual(rc2, 0)
         self.assertTrue(json.loads(out2)["ok"])
 
@@ -90,7 +90,7 @@ class TestLint(unittest.TestCase):
         finally:
             os.unlink(path)
         self.assertEqual(rc, 2)
-        self.assertFalse(json.loads(out)["ok"])
+        self.assertIs(json.loads(out)["ok"], False)
         self.assertIn("error", json.loads(out))
         self.assertEqual(rc2, 2)
         self.assertIn("error", json.loads(out2))

@@ -163,7 +163,7 @@ class TestF7PreTagAudit(unittest.TestCase):
         import tempfile  # noqa: PLC0415
         with tempfile.TemporaryDirectory() as td:
             result = self.gate.evaluate(Path(td), version="5.0.0")
-        self.assertFalse(result["ok"], result)
+        self.assertIs(result["ok"], False, result)
         # STRUKTURELLE Invariante statt Keyword (Gegenlesung un, Fund B): fail-closed muss WEIL 0 Belege
         # verifiziert wurden eintreten, nicht aus einem anderen Grund, dessen reason zufaellig "receipt"
         # enthaelt. Sonst waere gruen eine Tautologie.
@@ -184,7 +184,7 @@ class TestF7PreTagAudit(unittest.TestCase):
             rec.mkdir(parents=True)
             (rec / "note.md").write_text("# 7.7.0\n\nThe 6-lens adversarial audit did NOT run yet (pending).\n")
             self.assertEqual(self.gate.audit_records_for(Path(td), "7.7.0"), [])
-            self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+            self.assertIs(self.gate.evaluate(Path(td), version="7.7.0")["ok"], False)
 
     def test_negation_covers_never_deferred_postponed(self):
         # 6-lens gate: the negation guard must also reject 'never ran' / 'deferred' / 'postponed' /
@@ -202,7 +202,7 @@ class TestF7PreTagAudit(unittest.TestCase):
                 rec = Path(td) / "audit_artifacts" / "770"
                 rec.mkdir(parents=True)
                 (rec / "note.md").write_text(f"# 7.7.0\n\n{concession}\n")
-                self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"], concession)
+                self.assertIs(self.gate.evaluate(Path(td), version="7.7.0")["ok"], False, concession)
 
     def test_F6_eine_prosa_zeile_erteilt_keinen_pass_mehr(self):
         # counterpart: a genuine record IS accepted (discriminates the gate from a blanket reject).
@@ -221,7 +221,7 @@ class TestF7PreTagAudit(unittest.TestCase):
                 "Ran a 6-lens adversarial audit; all findings fixed.\n")
             # makellose-500 F6: eine .md-Prosa-Zeile (auch die kanonische) ist jetzt presentational und
             # erteilt NICHTS mehr — nur ein signierter, tree-gebundener Receipt tut es.
-            self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+            self.assertIs(self.gate.evaluate(Path(td), version="7.7.0")["ok"], False)
 
     def test_prosa_allein_erteilt_keinen_pass_mehr(self):
         # Die Kehrseite, neu: dieselbe Prosa OHNE Attestierung darf nichts mehr erteilen. Ohne diese Zeile
@@ -232,7 +232,7 @@ class TestF7PreTagAudit(unittest.TestCase):
             rec.mkdir(parents=True)
             (rec / "note.md").write_text("# 7.7.0\n\nRan a 6-lens adversarial audit; all findings fixed.\n")
             r = self.gate.evaluate(Path(td), version="7.7.0")
-            self.assertFalse(r["ok"], "eine Prosa-Notiz erteilt weiterhin einen PASS")
+            self.assertIs(r["ok"], False, "eine Prosa-Notiz erteilt weiterhin einen PASS")
 
 
 if __name__ == "__main__":

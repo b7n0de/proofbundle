@@ -136,7 +136,7 @@ class TestRunLedgerVerify(unittest.TestCase):
         s, _ = _keys()
         _, other = _keys()
         env = emit_run_ledger(_pred(), s)
-        self.assertFalse(verify_run_ledger(env, other)["ok"])
+        self.assertIs(verify_run_ledger(env, other)["ok"], False)
 
     def test_predicate_type_confusion_fails(self):
         s, pub = _keys()

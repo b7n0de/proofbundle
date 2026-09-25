@@ -120,7 +120,7 @@ class TestStatusList(unittest.TestCase):
         for bad_alg in ("none", "HS256", "ES256"):
             res = verify_status_snapshot(self._reheadered(alg=bad_alg), expected_uri=URI, index=0,
                                          issuer_pubkey=self.pub)
-            self.assertFalse(res["ok"], bad_alg)
+            self.assertIs(res["ok"], False, bad_alg)
             self.assertIsNone(res.get("status"), bad_alg)
 
     def test_red_wrong_length_issuer_key_never_crashes(self):

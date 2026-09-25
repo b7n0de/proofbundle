@@ -156,7 +156,7 @@ class SignierterVorTagEintrag(unittest.TestCase):
                                       time_verified="t", policy_uri="p")
         st["predicateType"] = "https://slsa.dev/verification_summary/v1"   # gueltig, aber fremd
         r = self._pruefe(self.pta.sign_statement(st, self.key))
-        self.assertFalse(r["ok"], "eine fremde Aussageform wurde als Vor-Tag-Attestierung genommen")
+        self.assertIs(r["ok"], False, "eine fremde Aussageform wurde als Vor-Tag-Attestierung genommen")
         self.assertFalse(r["predicate_type_ok"])
         self.assertIn("predicate_type_ok", r["reason"])
         # Gegenprobe im selben Test: die Signatur ist gueltig — es scheitert NUR am Typ.

@@ -194,7 +194,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._pending_proof(newest.covered_digest)
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA, require_external_token=True)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
         self.assertIs(r.ok, False)
 
     def test_confirmed_ots_token_verifies_with_rp_trust(self):
@@ -215,7 +215,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._upgraded_proof(newest.covered_digest, height=800000)
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
         self.assertIs(r.ok, False)
 
     def test_wrong_root_ots_token_fails_closed(self):
@@ -225,7 +225,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._pending_proof(("f" * 64))   # unrelated covered_digest
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
         self.assertIs(r.ok, False)
 
 
@@ -263,13 +263,13 @@ class TestNoRollbackDetection(unittest.TestCase):
         known = anchor_proof_digest(grown[0][1])          # the RP last saw the RENEWED newest ATS
         truncated = [[grown[0][0]]]                        # attacker replays only the original prefix
         r = verify_sequence(truncated, DATA, known_newest_token_digest=known)
-        self.assertFalse(_check(r, "renewal:no_rollback").ok)
+        self.assertIs(_check(r, "renewal:no_rollback").ok, False)
         self.assertIs(r.ok, False)
 
     def test_unrelated_digest_not_found_fails_closed(self):
         seq = _initial()
         r = verify_sequence(seq, DATA, known_newest_token_digest="00" * 32)
-        self.assertFalse(_check(r, "renewal:no_rollback").ok)
+        self.assertIs(_check(r, "renewal:no_rollback").ok, False)
         self.assertIs(r.ok, False)
 
 

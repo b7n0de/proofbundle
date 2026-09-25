@@ -190,8 +190,8 @@ class SdJwtFamilyBudgetNeverRaise(unittest.TestCase):
             self.assertIs(verify_status_snapshot(tok, expected_uri="x", index=0, issuer_pubkey=pub)["ok"], False)
             self.assertIsNot(verify_sd_jwt(tok)["sig_ok"], True)   # verify_sd_jwt reports sig_ok/structure_ok
         self.assertIs(verify_key_binding(wide + "~" + wide)["ok"], False)
-        self.assertIsNot(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
-                                         issuer_pubkey=b"\x00" * 32)["ok"], True)
+        self.assertIs(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
+                                         issuer_pubkey=b"\x00" * 32)["ok"], False)
         # persample.verify_sample_opening's BudgetExceeded fix (same except-ProofBundleError change) is
         # covered by the adversarial deep-gate reproducer (its opening/root_b64 shape validation runs before the
         # disclosure parse, so a self-contained budget-only probe here is brittle).

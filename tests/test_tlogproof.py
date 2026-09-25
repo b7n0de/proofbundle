@@ -151,7 +151,7 @@ class TestVerify(unittest.TestCase):
     def test_red_index_out_of_range(self):
         proof, payload, log_vkey, _, _ = _setup(0)
         tampered = proof.replace("index 3", "index 4")   # == tree_size → out of range
-        self.assertFalse(verify_tlog_proof(tampered, payload, log_vkey)["ok"])
+        self.assertIs(verify_tlog_proof(tampered, payload, log_vkey)["ok"], False)
 
     def test_red_bad_threshold(self):
         # RE-GATE never-raise (breadth sweep): a bad threshold is a fail-closed VERDICT (ok=False), not a

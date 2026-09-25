@@ -78,7 +78,7 @@ class TestEvalCard(unittest.TestCase):
         path = self._file(b"card\n")
         try:
             claim = {"evaluation_card_sha256": hashlib.sha256(b"card").hexdigest()}   # committed without \n
-            self.assertFalse(verify_evaluation_card(path, claim)["ok"])
+            self.assertIs(verify_evaluation_card(path, claim)["ok"], False)
         finally:
             os.unlink(path)
 

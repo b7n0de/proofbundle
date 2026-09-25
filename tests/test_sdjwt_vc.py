@@ -245,6 +245,6 @@ class TestForgedDisclosureRejected(unittest.TestCase):
         tampered = compact.rstrip("~") + "~" + forged + "~"     # nie-committete Disclosure mitpraesentiert
         r = verify_sdjwt_vc(tampered, {"vctAllowlist": [_VCT], "requireKeyBinding": False},
                             issuer_pubkey=_raw_pub(issuer))
-        self.assertFalse(r["ok"], "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
+        self.assertIs(r["ok"], False, "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
         self.assertFalse((r.get("issuer") or {}).get("structure_ok"),
                          "structure_ok muss False sein bei einer nicht-committeten Disclosure")

@@ -161,7 +161,7 @@ class TestTestManifestGate(unittest.TestCase):
             r = self.g.evaluate(tests_dir=d, lock_path=lock)
             self.assertTrue(any("uneinig" in pr.lower() for pr in r["problems"]), (
                 f"Die zwei Ableitungen widersprechen sich, aber das Tor sagt nichts: {r['problems']}"))
-            self.assertFalse(r["ok"], (
+            self.assertIs(r["ok"], False, (
                 "Das Tor meldet die Uneinigkeit, laesst den Lauf aber trotzdem durch. Ein Befund, "
                 "der nichts entscheidet, ist ein Bericht und kein Riegel."))
 
@@ -488,7 +488,7 @@ class TestCheckDiscrimination(unittest.TestCase):
                 "# six-lens adversarial notes touching 3.6.0\n\n**0 open P0 / P1.**\n")
             # C12.1: the existence locator finds no version-scoped record, evaluate() is not ok
             self.assertIsNone(pta.audit_artifact_for(Path(td), "3.6.0"))
-            self.assertFalse(pta.evaluate(Path(td), version="3.6.0")["ok"])
+            self.assertIs(pta.evaluate(Path(td), version="3.6.0")["ok"], False)
             # C12.2 (RT-10): no signed register in the temp repo -> FAIL (a fake note grants nothing)
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)

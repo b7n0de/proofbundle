@@ -120,7 +120,7 @@ class TestFindingsRegisterVerify(unittest.TestCase):
             r = self._run_with(reg)
         finally:
             self.fr._signature_ok = orig
-        self.assertFalse(r["ok"], "a hidden open P0 must fail closed, never PASS")
+        self.assertIs(r["ok"], False, "a hidden open P0 must fail closed, never PASS")
 
     def test_foreign_key_fails(self):
         from cryptography.hazmat.primitives import serialization
@@ -214,7 +214,7 @@ class TestResolveCurrent(unittest.TestCase):
                 (d / "audit_artifacts").mkdir()
                 (d / "audit_artifacts/findings_register_361.json").write_text(json.dumps(reg))
                 r = self.fr.verify_and_count(d)
-                self.assertFalse(r["ok"], "an open P0 hidden behind severity %r must not report 0-open" % hidden)
+                self.assertIs(r["ok"], False, "an open P0 hidden behind severity %r must not report 0-open" % hidden)
         finally:
             self.fr._signature_ok = orig
 

@@ -267,8 +267,8 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         fifo = os.path.join(d, "fifo")
         os.mkfifo(fifo)
         try:
-            self.assertFalse(verify_evaluation_card(fifo, {"evaluation_card_sha256": "bb"})["ok"])
-            self.assertFalse(verify_prereg(fifo, {"prereg_sha256": "aa"})["ok"])
+            self.assertIs(verify_evaluation_card(fifo, {"evaluation_card_sha256": "bb"})["ok"], False)
+            self.assertIs(verify_prereg(fifo, {"prereg_sha256": "aa"})["ok"], False)
         finally:
             os.unlink(fifo)
             os.rmdir(d)

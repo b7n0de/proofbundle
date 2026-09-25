@@ -298,7 +298,7 @@ class TestNichtEinDauerNein:
         seq[1][0] = ArchiveTimeStamp(seq[1][0].hash_alg, "cc" * 32, seq[1][0].time)
         res = verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
         assert res.ok is False
-        assert any(c.name.startswith("renewal:cover:") and not c.ok for c in res.checks)
+        assert any(c.name.startswith("renewal:cover:") and c.ok is False for c in res.checks)
 
 
 class TestAngemeldeteAlgorithmen:

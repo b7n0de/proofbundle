@@ -327,7 +327,7 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["rotation_authorized"])
-        self.assertFalse(r["ok"], r)   # the fail-open closes: was ok=True (warn only) before the fix
+        self.assertIs(r["ok"], False, r)   # the fail-open closes: was ok=True (warn only) before the fix
         self.assertTrue(any("rotation authorization was NOT verified" in e for e in r["errors"]), r["errors"])
 
     def test_rotation_claim_self_signature_only_opt_out(self):
