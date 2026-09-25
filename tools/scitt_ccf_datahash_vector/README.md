@@ -26,8 +26,10 @@ measured.
 
 ## What was measured
 
-All four published states reproduce, and the signature regenerates from the published seed
-byte for byte.
+All four published states (V1/A, V1/B, V2/A tagged, V2/C untagged) reproduce, and their
+signature regenerates from the published seed byte for byte. D is not a published state: it was
+derived here with A's signature taken over, and its signature is verified with the published
+public key rather than regenerated.
 
 | case | | size | outcome |
 |---|---|---|---|

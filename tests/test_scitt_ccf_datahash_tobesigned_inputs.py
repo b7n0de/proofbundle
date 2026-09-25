@@ -157,3 +157,12 @@ def test_a_signature_that_verifies_nowhere_proves_nothing_about_external_aad():
     assert probe["verifies_with_empty_external_aad"] is False
     assert probe["verifies_with_this_external_aad"] is False
     assert probe["caught"] is False
+
+
+def test_the_readme_never_calls_d_reproduced():
+    """A review lens found the summary sentence above the table read as if D were regenerated."""
+    text = (TOOL / "README.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.startswith("| D ") or " D is " in line or line.startswith("D is"):
+            assert "reproduced" not in line or "rather than regenerated" in line, line
+    assert "D is not a published state" in text
