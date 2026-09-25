@@ -328,6 +328,65 @@ Only the first option yields a CCF receipt for an own statement without an accou
 also close the gaps listed under the measured rule (detached payload, non-shortest heads), because
 the operator controls what is submitted. That is an owner decision, see ADR 0009.
 
+## REGISTERED HERE: A LOCAL scitt-ccf-ledger (owner answer Q6 a)
+
+`local_ledger_probe.py` registers eight forms of one statement on a scitt-ccf-ledger run locally, in
+virtual mode (no TEE, no account), and records what the service did with each. Run on 2026-09-25,
+twice with fresh keys, same outcome; the second run is recorded in `local_ledger_result.json`.
+
+The service:
+
+- source: https://github.com/microsoft/scitt-ccf-ledger at `00101f769d872711356e080fbb089ac48589c60a`
+- image built here from its `docker/Dockerfile`; the only change is that the base image carries
+  this sandbox's proxy CA so the build could download through it
+- CCF 7.0.17, RPM sha256 `789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e`,
+  `reproduce.json` sha256 `6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f`
+  (the image's own `build-inputs.json`)
+- one node, `cchost` in Docker on 127.0.0.1:8000, opened with the repository's own
+  `scitt governance local_development`: unauthenticated registration allowed, policy "any statement
+  with a CWT issuer"
+- signer made for the run: a P-256 CA and leaf with the extensions the ledger's own client gives its
+  test certificates, `did:x509` issuer pinned to the CA; the private key is not written anywhere
+- payload: the RFC 8785 root of `examples/example_bundle.json`,
+  `df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9`
+
+| form submitted | service | data-hash in the receipt equals |
+|---|---|---|
+| control: tagged, definite, shortest, embedded payload, empty unprotected | accepted | SHA-256 of the submitted bytes |
+| payload detached (nil) | refused: "Detached or empty payloads are not supported" | n/a |
+| untagged | refused: "COSE_Sign1 is not tagged" | n/a |
+| outer array indefinite | refused: "Signature verification failed" | n/a |
+| payload as an indefinite-length byte string | refused: "Detached or empty payloads are not supported" | n/a |
+| signature head non-shortest (`59 00 40`) | accepted, stored re-encoded in shortest form | the stored, re-encoded bytes, not the submitted ones |
+| unprotected map with label 99 | accepted, stored with the map emptied | the emptied form |
+| alg -7 as `38 06` inside the protected header | accepted, protected header kept as sent | the submitted bytes |
+
+Every accepted form's receipt verifies with the key set the service serves at
+`/.well-known/scitt-keys`. The control, the non-shortest signature head and the extra unprotected
+label are three submissions with **one** data-hash: the service hashes its own re-serialisation.
+
+The control is the first end-to-end ADR 0009 v1 control on real bytes. `--vector-out` wrote it,
+with the service key set, the signer's SPKI and the three accepted variants, to
+`tests/fixtures/scitt_ccf/local_ledger_control.json`; `proofbundle.scitt_ccf` confirms it, and
+refuses the protected-header variant in its pre-scan (ADR 0009, question N1).
+
+## AGAINST THE RUST VERIFIER (owner answer Q7 c)
+
+`rust_crosscheck.py` runs microsoft/scitt-verifier 0.4.0, built with
+`cargo build --release --locked -p scitt-verifier` at `bd6fb8ba79dbb521257b7f09682c03c6681dc3d0`
+(cargo and rustc 1.94.1), offline with local key sets, on twelve real statements: the eight
+fetched ones and the four the local ledger served. The production trust store is turned into a
+COSE_KeySet for it (EC2, kid = hex(SHA-256(SPKI))). Per receipt and statement it compares the Merkle
+root, the leaf data-hash, the recomputed data-hash, the receipt signature, the binding and the kid
+binding against `proofbundle.scitt_ccf`. Recorded in `rust_crosscheck.json`, 2026-09-25:
+
+- 58 values agree, 0 differ
+- 9 not comparable, all where v1 refuses a form scitt-verifier reads: the nested tag-18 statement,
+  the non-shortest protected header, the legacy receipt, and two kid bindings not reported for an
+  invalid signature
+- verdicts are recorded, not compared: scitt-verifier appraises a signer chain and a policy, v1
+  requires an RFC 9995 hash envelope over a proofbundle root
+
 ## NOT MEASURED, NOT MEASURABLE
 
 - NOT MEASURED: the published RFC texts and the IETF archive copy of -05 (hosts blocked); the WG
@@ -335,17 +394,20 @@ the operator controls what is submitted. That is an owner decision, see ADR 0009
 - NOT MEASURED: that the pinned key set is what the live service serves now (hosts blocked).
 - NOT MEASURABLE here: the production receipt's signature (no reachable trust material) and its
   binding (statement not published).
-- NOT MEASURABLE without registering: the data-hash of a statement submitted with non-shortest
-  heads, indefinite lengths, a detached payload, or other unprotected parameters.
+- Measured since the first version of this file: the forms that were NOT MEASURABLE without
+  registering (non-shortest heads, indefinite lengths, a detached payload, other unprotected
+  parameters), on a local ledger; see above. What a production service does with them is still
+  NOT MEASURED.
 - NOT MEASURED: the CCF version of the services that issued the receipts.
 - NOT MEASURABLE here: the artifact behind the production statement's SHA-384 payload (not
   published), so value 1 of that statement is measured for its structure only.
-- NOT MEASURED: an end-to-end ADR 0009 v1 control on real bytes. It needs a registered hash
-  envelope whose payload is the SHA-256 root of a proofbundle target; none exists publicly. It is
-  what option (a) of Q6 in ADR 0009 would produce.
-- NOT MEASURED: any COSE library beyond cbor2 5.9.0, cbor2 6.1.4 and pycose 1.1.0.
-- NOT ADDED: a hermetic test under `tests/`. `tools/` is pruned from the sdist and the collection
-  guard in `tests/conftest.py` needs care; the probes above are this tool's checks for now.
+- Measured since: an end-to-end v1 control on real bytes, from the local ledger. It is our own
+  registration, on a service attested by nothing; NOT MEASURED on a production service.
+- NOT MEASURED: any COSE reader beyond cbor2 5.9.0, cbor2 6.1.4, pycose 1.1.0 and
+  microsoft/scitt-verifier 0.4.0.
+- The library tests live under `tests/` (`test_scitt_ccf_profile.py`, `test_cbor_prescan.py`,
+  `test_scitt_ccf_without_extra.py`, `test_scitt_ccf_external_bytes.py`); the last one reads the
+  fetched bytes and skips where they are absent, which includes CI.
 
 ## REPRODUCING
 
@@ -355,6 +417,10 @@ the operator controls what is submitted. That is an owner decision, see ADR 0009
     python3 recompute.py                 # standard library + cryptography, offline
     python3 reader_crosscheck.py         # once per environment: cbor2 6.1.4 + pycose 1.1.0,
                                          # then cbor2 5.9.0 + pycose 1.1.0
+    python3 local_ledger_probe.py --service-cert CERT --ledger-commit SHA \
+        --build-inputs FILE --vector-out ../../tests/fixtures/scitt_ccf/local_ledger_control.json
+                                         # needs a scitt-ccf-ledger running and opened, see above
+    python3 rust_crosscheck.py --verifier-clone PATH   # a scitt-verifier checkout at the pin
 
 `fetch_external.py` exits 1 on a digest mismatch and 2 when a source is unreachable; the other
 two exit 2 when the fetched files are missing.
@@ -368,6 +434,10 @@ two exit 2 when the fetched files are missing.
 | `reader_crosscheck.py` | cbor2 and pycose facts per environment; writes `reader_crosscheck.json` |
 | `recompute_result.json` | the recorded run of 2026-09-25 |
 | `reader_crosscheck.json` | the recorded runs of 2026-09-25, cbor2 5.9.0 and 6.1.4 |
+| `local_ledger_probe.py` | registers eight statement forms on a local scitt-ccf-ledger, records what the service does |
+| `local_ledger_result.json` | the recorded run of 2026-09-25 |
+| `rust_crosscheck.py` | runs microsoft/scitt-verifier at its pin offline and compares with `proofbundle.scitt_ccf` |
+| `rust_crosscheck.json` | the recorded run of 2026-09-25 |
 | `.gitignore` | keeps `fetched/` out of the repository |
 
 ---
