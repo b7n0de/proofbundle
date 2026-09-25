@@ -3,7 +3,7 @@
     "system": "Linux",
     "machine": "x86_64",
     "python": "3.11.15",
-    "cryptography": "46.0.5",
+    "cryptography": "50.0.1",
     "cbor_leser": "eigener, definite+indefinite (cbor_min.py)"
   },
   "faelle": [
@@ -18,6 +18,7 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
       "signatur_aus_seed_reproduziert": true,
       "signatur_laenge": 64
     },
@@ -32,6 +33,7 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
       "signatur_aus_seed_reproduziert": true,
       "signatur_laenge": 64
     },
@@ -46,6 +48,7 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
       "signatur_aus_seed_reproduziert": true,
       "signatur_laenge": 64
     },
@@ -60,6 +63,22 @@
       "cbor_tag": null,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_aus_seed_reproduziert": true,
+      "signatur_laenge": 64
+    },
+    {
+      "name": "D  indefinite array (vektor_d.json)",
+      "size_gemessen": 166,
+      "size_erwartet": 166,
+      "size_trifft": true,
+      "sha256_gemessen": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+      "sha256_erwartet": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+      "sha256_trifft": true,
+      "cbor_tag": 18,
+      "aeusseres_array_indefinit": true,
+      "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
       "signatur_aus_seed_reproduziert": true,
       "signatur_laenge": 64
     },
@@ -72,5 +91,29 @@
       "sha256_trifft": true,
       "signatur_aus_seed_reproduziert": true
     }
-  ]
+  ],
+  "sig_structure_comparison": {
+    "cases": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "sha256_per_case": {
+      "A": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "B": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "C": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "D": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f"
+    },
+    "distinct_sha256": [
+      "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f"
+    ],
+    "all_identical": true
+  },
+  "falling_probe": {
+    "flipped": "B: byte 36 (last byte of the protected header), xor 0x01",
+    "all_identical_after_flip": false,
+    "distinct_sha256_after_flip": 2,
+    "caught": true
+  }
 }

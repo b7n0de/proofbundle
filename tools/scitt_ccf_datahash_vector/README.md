@@ -26,8 +26,8 @@ measured.
 
 ## What was measured
 
-All four published states reproduce, `Sig_structure` is 109 bytes throughout, and the
-signature regenerates from the published seed byte for byte.
+All four published states reproduce, and the signature regenerates from the published seed
+byte for byte.
 
 | case | | size | outcome |
 |---|---|---|---|
@@ -35,6 +35,28 @@ signature regenerates from the published seed byte for byte.
 | V1 / B | carrying receipt | 203 B | digest matches, signature reproduced |
 | V2 / A | tagged | 165 B | digest matches, signature reproduced |
 | V2 / C | untagged | 164 B | digest matches, signature reproduced |
+| D | indefinite outer array, derived here | 166 B | digest matches `vektor_d.json`, signature reproduced |
+
+### The Sig_structure bytes, compared across the cases
+
+Equal length is no proof of equal bytes. Until 2026-09-25 this script recorded the
+`Sig_structure` length per case (109 bytes each) and nothing across cases. It now compares the
+bytes themselves, by sha256 per case, and records the result as its own entry in
+`nachrechnung.json`:
+
+| case | Sig_structure | sha256 |
+|---|---|---|
+| A | 109 B | `60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f` |
+| B | 109 B | `60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f` |
+| C | 109 B | `60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f` |
+| D | 109 B | `60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f` |
+
+One distinct digest across all four. The comparison is checked against itself on every run: one
+byte in the protected header of B is flipped in the encoded bytes, the case goes through the same
+decode path, and the equality must break (`falling_probe` in `nachrechnung.json`, caught). A
+comparison that stayed identical after that flip would be comparing nothing. Because the
+`Sig_structure` bytes are identical in all four cases, the same signature verifies over A, B, C
+and D.
 
 The tag vector ships no bytes, only sizes, digests and the minter. `A_tagged` and
 `C_untagged` are therefore **derived** from the vector 1 bytes and held against its digests,
@@ -59,17 +81,34 @@ nobody untangles later.
 
 ### Why the axis is quieter than the tag axis
 
-Nothing rejects it. Measured with `cbor2` 5.9.0 and `pycose` 1.1.0 in a throwaway venv:
+Nothing rejects it. The full reader matrix over all four cases, run by `reader_matrix.py` with
+`cbor2` 5.9.0 and `pycose` 1.1.0 (`cryptography` 50.0.1, CPython 3.11.15) on 2026-09-25 and
+recorded in `reader_matrix.json`. "Accepted" means the call returned without raising; whether the
+signature verifies is its own column, checked with pycose against the published public key.
 
-    reader             A definite     D indefinite
-    cbor2 5.9.0        accepted       accepted
-    pycose 1.1.0       accepted       accepted
+| case | cbor2 5.9.0 `loads` | pycose 1.1.0 `CoseMessage.decode` | pycose `verify_signature` |
+|---|---|---|---|
+| A tagged, definite | accepted | accepted | true |
+| B carrying receipt | accepted | accepted | true |
+| C untagged | accepted | `AttributeError: Message was not tagged.` | not reached |
+| D indefinite array | accepted | accepted | true |
+
+`Sign1Message.decode` gives the same four outcomes; in pycose 1.1.0 it is the same function as
+`CoseMessage.decode`, which dispatches on the CBOR tag and therefore cannot read C at all. That
+reproduces the result an external reviewer reported for C on 2026-09-25. B had not been measured
+before this run.
+
+Re-serialisation, from the same run:
 
     A -> cbor2.dumps()             165 B  8595e4a4…  == A
     A -> cbor2.dumps(canonical)    165 B  8595e4a4…  == A
     D -> cbor2.dumps()             165 B  8595e4a4…  == A   <-- D disappears
     D -> cbor2.dumps(canonical)    165 B  8595e4a4…  == A   <-- D disappears
-    D -> pycose encode()           165 B  8595e4a4…  == A   <-- D disappears
+    D -> pycose encode(sign=False) 165 B  8595e4a4…  == A   <-- D disappears
+
+Both libraries first read back something they wrote themselves (the controls in
+`reader_matrix.json`); a failed control marks that library's rows NOT MEASURABLE instead of
+reporting them.
 
 So a party that registers D and a party that re-serialises get **different data-hashes**, and
 nothing signals it: the signature verifies over both, both readers accept both, and every
@@ -86,17 +125,31 @@ commit and checked byte for byte against the sizes and digests stated on the lis
     data-hash-vector.json       3243 B  e137d34fb25246c5f9e09fe8a293ac19…  matches
     data-hash-tag-vector.json   2415 B  d8a03d6aa7398c24bf8f902cd2253525…  matches
 
+The digests are the pin; the address is only transport. Measured 2026-09-25, the pinned commit
+answers HTTP 404 for both files, and the GitHub API answers 404 for the repository itself. The
+author's site, which his mail names as the vector's address
+(`https://councilof.ai/interop/scrapi-ccf/`), still serves both files, and they match the digests
+above byte for byte. `fetch_upstream_vectors.py` asks the pinned commit first and the author's
+site second, takes the first reachable source, and prints which one served each file. A source
+that serves different bytes stops the fetch; it does not fall through to the next source. The
+files are still fetched, never vendored: what this directory calls upstream is upstream.
+
 ## Reproducing
 
-    python3 fetch_upstream_vectors.py   # fetches both vectors at the pinned commit and
-                                        # verifies size and sha256; fail-closed on mismatch
-    python3 nachrechnen.py              # recomputes all four published states
+    python3 fetch_upstream_vectors.py   # fetches both vectors (pinned commit, then the author's
+                                        # site) and verifies size and sha256; fail-closed on mismatch
+    python3 nachrechnen.py              # recomputes all four published states and D, compares the
+                                        # Sig_structure bytes across A, B, C, D, runs the flip probe
     python3 mint_indefinite.py          # derives D, verifies the signature over both encodings
+    python3 reader_matrix.py            # needs cbor2 5.9.0 and pycose 1.1.0, see the table above
 
-The first step is not optional: the other two read the upstream vectors from this directory,
-and those are fetched rather than vendored (see below). Only the standard library plus
-`cryptography` for Ed25519. `nachrechnung.json` and `vektor_d.json` carry the recorded
-results of a run on 2026-09-04.
+The first step is not optional: the others read the upstream vectors from this directory,
+and those are fetched rather than vendored (see below). `nachrechnen.py` and
+`mint_indefinite.py` need only the standard library plus `cryptography` for Ed25519.
+`vektor_d.json` carries the recorded result of a run on 2026-09-04; `nachrechnung.json` and
+`reader_matrix.json` carry runs on 2026-09-25 with `cryptography` 50.0.1. The byte comparison and
+the fetch order are also held by two hermetic test files in `tests/`
+(`test_scitt_ccf_datahash_sig_structure_bytes.py`, `test_scitt_ccf_datahash_fetch_sources.py`).
 
 ## A control that failed first, and why the versions are named
 

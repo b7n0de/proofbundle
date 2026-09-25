@@ -13,6 +13,14 @@ in the mail itself.
 
 FAIL-CLOSED: a size or digest mismatch aborts and writes nothing. A vector that is not the
 published one is not a weaker input, it is a different question.
+
+THE DIGESTS ARE THE PIN, A SOURCE IS ONLY TRANSPORT. Measured 2026-09-25: the pinned commit
+answers HTTP 404 for both files, and so does the GitHub API for the repository itself. The
+author's site, which his mail names as the vector's address, still serves both files, and they
+match the digests below byte for byte. So the fetcher asks the sources in order and takes the
+first one that is reachable. An unreachable source moves on to the next one; a reachable source
+that serves different bytes stops everything, because that is a finding, not an outage. The
+output names which source served each file, so a line that says "upstream" is upstream.
 """
 from __future__ import annotations
 
@@ -22,8 +30,17 @@ import urllib.request
 from pathlib import Path
 
 COMMIT = "db33ff3ff8ed439b3ebd97e5ef96facd7f49b65a"
-BASE = (f"https://raw.githubusercontent.com/CSOAI-ORG/councilof-ai/{COMMIT}"
-        "/public/interop/scrapi-ccf")
+
+#: (label, base URL), asked in this order.
+SOURCES = (
+    ("pinned commit",
+     f"https://raw.githubusercontent.com/CSOAI-ORG/councilof-ai/{COMMIT}/public/interop/scrapi-ccf"),
+    ("author's site", "https://councilof.ai/interop/scrapi-ccf"),
+)
+
+#: Measured 2026-09-25: the author's site answers 403 to urllib's default User-Agent and 200 to
+#: this one, with the same bytes. The header names the tool instead of imitating a browser.
+USER_AGENT = "proofbundle-vector-fetch/1 (+https://github.com/b7n0de/proofbundle)"
 
 #: name -> (size in bytes, sha256) — as stated on the list and measured on 2026-09-04.
 EXPECTED = {
@@ -34,26 +51,51 @@ EXPECTED = {
 }
 
 
-def main() -> int:
-    here = Path(__file__).resolve().parent
-    for name, (size, digest) in EXPECTED.items():
-        url = f"{BASE}/{name}"
+def fetch_one(name: str, size: int, digest: str, sources=SOURCES, opener=urllib.request.urlopen):
+    """(bytes, label, unreachable) for the first reachable source, or (None, None, unreachable).
+
+    Raises ValueError when a reachable source serves bytes that do not match the pin.
+    """
+    unreachable = []
+    for label, base in sources:
         try:
-            with urllib.request.urlopen(url, timeout=30) as fh:   # noqa: S310 — pinned https
+            req = urllib.request.Request(f"{base}/{name}", headers={"User-Agent": USER_AGENT})
+            with opener(req, timeout=30) as fh:   # noqa: S310 — fixed https
                 raw = fh.read()
         except OSError as exc:
-            print(f"NOT MEASURABLE: {name} could not be fetched ({exc}). "
-                  "This is not a verdict about the vector.", file=sys.stderr)
-            return 2
+            unreachable.append(f"{label}: {exc}")
+            continue
         got = hashlib.sha256(raw).hexdigest()
         if len(raw) != size or got != digest:
-            print(f"MISMATCH for {name}: {len(raw)} B / {got}\n"
-                  f"  expected      {size} B / {digest}\n"
-                  "  Nothing written. These are not the bytes the list saw.", file=sys.stderr)
+            raise ValueError(f"MISMATCH for {name} from {label}: {len(raw)} B / {got}\n"
+                             f"  expected      {size} B / {digest}\n"
+                             "  Nothing written. These are not the bytes the list saw.")
+        return raw, label, unreachable
+    return None, None, unreachable
+
+
+def main() -> int:
+    here = Path(__file__).resolve().parent
+    fetched = {}
+    for name, (size, digest) in EXPECTED.items():
+        try:
+            raw, label, unreachable = fetch_one(name, size, digest)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
             return 1
+        if raw is None:
+            print(f"NOT MEASURABLE: {name} could not be fetched from any source "
+                  f"({'; '.join(unreachable)}). This is not a verdict about the vector.",
+                  file=sys.stderr)
+            return 2
+        fetched[name] = (raw, label, unreachable)
+    # Written only once BOTH are verified, so a half-fetched pair never lands on disk.
+    for name, (raw, label, unreachable) in fetched.items():
         (here / name).write_bytes(raw)
-        print(f"  {name:26s} {len(raw):5d} B  {got[:16]}…  matches")
-    print("Both vectors fetched at the pinned commit and verified.")
+        skipped = f", not reachable: {'; '.join(unreachable)}" if unreachable else ""
+        print(f"  {name:26s} {len(raw):5d} B  {hashlib.sha256(raw).hexdigest()[:16]}…  matches"
+              f"  (served by the {label}{skipped})")
+    print("Both vectors fetched and verified against the digests stated on the list.")
     return 0
 
 
