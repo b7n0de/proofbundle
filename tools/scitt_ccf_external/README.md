@@ -397,6 +397,27 @@ binding against `proofbundle.scitt_ccf`. Recorded in `rust_crosscheck.json`, 202
 - verdicts are recorded, not compared: scitt-verifier appraises a signer chain and a policy, v1
   requires an RFC 9995 hash envelope over a proofbundle root
 
+## CONSISTENCY RECEIPTS, -05 SECTION 4
+
+Measured on 2026-09-25 for the focused last call on section 4; the findings, with every MUST as a row
+and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
+
+- No code measured emits a consistency receipt: CCF 7.0.17, CCF main at `9f9ba74b` (2026-09-25),
+  scitt-ccf-ledger at `00101f76` (its main).
+- What is real: three signed states of one local ledger per run, each with its inclusion receipt, and
+  the ledger's own leaves, read from its files with the ccf package 7.0.17 (PyPI, Apache-2.0), whose
+  validator checks every root signature. The consistency receipt is the service's own COSE_Sign1 over
+  the newer root with a proof computed here from those leaves.
+- Third-party oracle: https://github.com/transparency-dev/merkle at
+  `fbbcd741c3d1c69d8498487baa8edc9e5824847c` (Apache-2.0), `testonly.Tree` and
+  `proof.VerifyConsistency` with CCF's hashing, driven by `rfc9162_oracle.go`, built offline from a
+  clone at that commit.
+- Exhaustive, every pair up to 257 leaves: 32896 canonical proofs equal RFC 9162 and start with a
+  right sibling; 31871 proofs with a deeper anchor pass the 4.2 algorithm and start with a left one.
+- Oracle, every pair up to 64 leaves: 2016 of 2016 equal, 1824 of 1824 deeper-anchor proofs rejected.
+- The verifier is `proofbundle.scitt_ccf.verify_consistency_receipt`, with its own status set; the
+  run-2 states are committed as `tests/fixtures/scitt_ccf/local_ledger_consistency.json`.
+
 ## NOT MEASURED, NOT MEASURABLE
 
 - NOT MEASURED: the published RFC texts and the IETF archive copy of -05 (hosts blocked); the WG
@@ -432,6 +453,12 @@ binding against `proofbundle.scitt_ccf`. Recorded in `rust_crosscheck.json`, 202
         --build-inputs FILE --vector-out ../../tests/fixtures/scitt_ccf/local_ledger_control.json
                                          # needs a scitt-ccf-ledger running and opened, see above
     python3 rust_crosscheck.py --verifier-clone PATH   # a scitt-verifier checkout at the pin
+    python3 consistency_probe.py register --service-cert CERT --out RUN   # a ledger running, as above
+    docker cp CONTAINER:/host/node/ledger LEDGER                           # the ledger's own files
+    python3 consistency_probe.py leaves --ledger-dir LEDGER --out RUN/leaves.json   # needs ccf==7.0.17
+    python3 consistency_probe.py measure --run RUN --leaves RUN/leaves.json \
+        --tdev-merkle-clone PATH --vector-out ../../tests/fixtures/scitt_ccf/local_ledger_consistency.json
+    python3 consistency_probe.py exhaustive --max-n 257 --tdev-merkle-clone PATH    # needs go
 
 `fetch_external.py` exits 1 on a digest mismatch and 2 when a source is unreachable; the other
 two exit 2 when the fetched files are missing.
@@ -449,6 +476,10 @@ two exit 2 when the fetched files are missing.
 | `local_ledger_result.json` | the recorded run of 2026-09-25 |
 | `rust_crosscheck.py` | runs microsoft/scitt-verifier at its pin offline and compares with `proofbundle.scitt_ccf` |
 | `rust_crosscheck.json` | the recorded run of 2026-09-25 |
+| `consistency_probe.py` | -05 section 4: registers three states, reads the ledger's leaves with the ccf package, measures the variants, runs the oracle and the exhaustive check |
+| `rfc9162_oracle.go` | the driver of the third-party RFC 9162 oracle, built by `consistency_probe.py` |
+| `consistency_result.json` | the recorded runs of 2026-09-25 (run 2 and the exhaustive check) |
+| `SECTION4_WGLC.md` | section 4 read rule by rule, the measurements, and the gaps as questions |
 | `.gitignore` | keeps `fetched/` out of the repository |
 
 ---

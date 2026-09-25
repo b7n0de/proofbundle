@@ -1,0 +1,351 @@
+{
+  "tool": "tools/scitt_ccf_external/consistency_probe.py",
+  "measured_on": "2026-09-25",
+  "draft": {
+    "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
+    "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
+    "tag": "draft-ietf-scitt-receipts-ccf-profile-05",
+    "file": "draft-ietf-scitt-receipts-ccf-profile.md",
+    "sha256": "7efdb7aa934ab0cfc1093e99932f7d2efd39bb66f5bf43594806d7b282ca0077",
+    "retrieved": "2026-09-25"
+  },
+  "environment": {
+    "python": "3.11.15",
+    "cryptography": "50.0.1",
+    "cbor2": "6.1.4"
+  },
+  "service": {
+    "issuer": "127.0.0.1:8000",
+    "registered": [
+      {
+        "name": "older",
+        "txids": [
+          "2.18"
+        ]
+      },
+      {
+        "name": "middle",
+        "txids": [
+          "2.21",
+          "2.20"
+        ]
+      },
+      {
+        "name": "newer",
+        "txids": [
+          "2.23"
+        ]
+      }
+    ],
+    "keyset_sha256": "3dd083821ff54b6d0b5db4fe78182b47a0fd9eeca145ec19c2266a7404be6dd6"
+  },
+  "ledger": {
+    "ccf_package": "7.0.17",
+    "transactions": 24,
+    "signatures_verified_by_ccf_package": 9,
+    "leaf_count": 25,
+    "leaf_zero_note": "leaf 0 is 32 zero bytes, not hashed, as the ccf package's validator starts its tree",
+    "leaves": [
+      "0000000000000000000000000000000000000000000000000000000000000000",
+      "9df0ce1dc5af7b504c809a113982aa52100235d7005217c219f55b936b78f2c3",
+      "aaf5924c4b65f9e4a82594c967e40887aad2c5ae3aec26afcf1571d1cffe8d17",
+      "e930c737bf2b8bfedb20c3131bb5e73f601e62d50fc9929653be5b3439be7ff1",
+      "d56b2fd0571e88b26740a1513f1f23263839ec2af3a57cbb7ef659693a976014",
+      "46533d874efafa41de3008f958def584f62fe02db07f8ce908335d0b76d8ef40",
+      "fcd57ed565de73bdc96d46dc3499e5ea801ada0d5fb5ea90f9bcc7b4c3b3dea7",
+      "35433b6eec7318cd289d5730f8a63985a95ad1cb6b1bc7ae62e0df4484f941a3",
+      "bf8dd086916f04b231582194f7075e1ce3f6a53c561454b8d853a16d9dd8bd66",
+      "5dfbe3a7e2b28bf5fe39367d2a659e05e6fa4a6ed6e3b925f6f88578a4a2b504",
+      "4e83c61859a3b2a9fb2f6cf6c4f73c294080efe8b3574ed5ddfb8e1ebc7e7c93",
+      "4c7a9d6a4baa6b6a3353c376c2fd020320daf3128309106abd823652e970af77",
+      "519f4147d92c1cf2e7f4b4869e574c9e389f40478325ee4a191d62de603f75de",
+      "aa875a3353de436381add59b978c596aff2b5b55657975d5b31c8922212d658c",
+      "c28428716f7a3361ad7797809592778b5c4d604eec0d1776eda1e734fac100c3",
+      "5ad460d045177ccae50d9395083550deed6b1a7894d1fe4c42149eb197eaca64",
+      "34f19d34eeabab99e8835ac5792718101468d7fb03e4dda2aa15940464b32cf7",
+      "671c21ccb5aa932b122277160bb502f64881630c1e856d16f6a9145f152f240b",
+      "edfce286806372de298d9c0f2f5abaa6a4fa01007f2df282bf7059637af04d63",
+      "d0acfb3aadbafc3e06d4072dbb050fad0c54f80159b319f40c314a8d1751cc7e",
+      "f7390b96cc4af6ac18df0e923f819bb8dc6870b31ab3e719f60174e83b9117e7",
+      "2c3f7ff0846d0179e3c084338b3330e26f0755a2d2d4bcd699b7e06d4804e2d8",
+      "6b8fa4251ab3e4f5017f43eea480501632886b413b334d9ce56cfed6b6e82046",
+      "bf94ba2b485de50517ec4716af993642d252f3d94380628ba989406862d27d8e",
+      "ef486248d6a4768b38161ffd9c55f86d92698b41b767dd4621987c134bd04f0e"
+    ]
+  },
+  "states": {
+    "older": {
+      "txid": "2.19",
+      "inclusion_status": "confirmed",
+      "root": "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2",
+      "tree_size": 19,
+      "ccf_package_signed_state": {
+        "seqno": 19,
+        "view": 2,
+        "tree_size": 19,
+        "root": "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2"
+      }
+    },
+    "middle": {
+      "txid": "2.22",
+      "inclusion_status": "confirmed",
+      "root": "5ca211b0c048e4a3eadc4ec67f196c8200dd3a77f087bebc85ae1250225dfb82",
+      "tree_size": 22,
+      "ccf_package_signed_state": {
+        "seqno": 22,
+        "view": 2,
+        "tree_size": 22,
+        "root": "5ca211b0c048e4a3eadc4ec67f196c8200dd3a77f087bebc85ae1250225dfb82"
+      }
+    },
+    "newer": {
+      "txid": "2.24",
+      "inclusion_status": "confirmed",
+      "root": "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01",
+      "tree_size": 24,
+      "ccf_package_signed_state": {
+        "seqno": 24,
+        "view": 2,
+        "tree_size": 24,
+        "root": "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01"
+      }
+    }
+  },
+  "proofs": {
+    "19->24": {
+      "anchor": "edfce286806372de298d9c0f2f5abaa6a4fa01007f2df282bf7059637af04d63",
+      "path": [
+        [
+          false,
+          "d0acfb3aadbafc3e06d4072dbb050fad0c54f80159b319f40c314a8d1751cc7e"
+        ],
+        [
+          true,
+          "2bc9d3cef51a34f7b7ec8695fc0a919299b7a6ba384a8768d894832bf4cb56f4"
+        ],
+        [
+          false,
+          "3e7aa797c6f4531c16abe04f50814cc4ef4f43b5d6b49b58a255850e68b3007f"
+        ],
+        [
+          true,
+          "c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73"
+        ]
+      ],
+      "rfc9162_digests_equal": true,
+      "fold": [
+        "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2",
+        "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01"
+      ]
+    },
+    "22->24": {
+      "anchor": "81664aa80b32d5f94e6d010361c11d4ac8e119a4b2cca71e97c2c8996f4ab56e",
+      "path": [
+        [
+          false,
+          "8bc0809a74445f27928c550f35c28cde784d7f9fdd0e37246bcdcd10285ae2d1"
+        ],
+        [
+          true,
+          "f950e61aca5467c11a3d2865bcb74df0aed683bf623ced867c7761c9c5ed4bd3"
+        ],
+        [
+          true,
+          "c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73"
+        ]
+      ],
+      "rfc9162_digests_equal": true,
+      "fold": [
+        "5ca211b0c048e4a3eadc4ec67f196c8200dd3a77f087bebc85ae1250225dfb82",
+        "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01"
+      ]
+    },
+    "19->22": {
+      "anchor": "edfce286806372de298d9c0f2f5abaa6a4fa01007f2df282bf7059637af04d63",
+      "path": [
+        [
+          false,
+          "d0acfb3aadbafc3e06d4072dbb050fad0c54f80159b319f40c314a8d1751cc7e"
+        ],
+        [
+          true,
+          "2bc9d3cef51a34f7b7ec8695fc0a919299b7a6ba384a8768d894832bf4cb56f4"
+        ],
+        [
+          false,
+          "81664aa80b32d5f94e6d010361c11d4ac8e119a4b2cca71e97c2c8996f4ab56e"
+        ],
+        [
+          true,
+          "c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73"
+        ]
+      ],
+      "rfc9162_digests_equal": true,
+      "fold": [
+        "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2",
+        "5ca211b0c048e4a3eadc4ec67f196c8200dd3a77f087bebc85ae1250225dfb82"
+      ]
+    }
+  },
+  "variants": [
+    {
+      "variant": "control: older state to newer state",
+      "proofbundle": "confirmed",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "control: middle state to newer state",
+      "proofbundle": "confirmed",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "wrong older root: the middle root held, the older proof carried",
+      "proofbundle": "consistency_older_root_mismatch",
+      "signature_valid": true,
+      "older_root_matches": false,
+      "algorithm_42_as_written": "assert len(payloads) > 0"
+    },
+    {
+      "variant": "wrong older root: one bit of the older root",
+      "proofbundle": "consistency_older_root_mismatch",
+      "signature_valid": true,
+      "older_root_matches": false,
+      "algorithm_42_as_written": "assert len(payloads) > 0"
+    },
+    {
+      "variant": "swapped states: the newer root held as the older one",
+      "proofbundle": "consistency_older_root_mismatch",
+      "signature_valid": true,
+      "older_root_matches": false,
+      "algorithm_42_as_written": "assert len(payloads) > 0"
+    },
+    {
+      "variant": "swapped states: the older-to-middle proof under the newer signature",
+      "proofbundle": "signature_invalid",
+      "signature_valid": false,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "assert verify_cose(consistency_receipt, payload)"
+    },
+    {
+      "variant": "altered anchor: one bit",
+      "proofbundle": "consistency_older_root_mismatch",
+      "signature_valid": false,
+      "older_root_matches": false,
+      "algorithm_42_as_written": "assert len(payloads) > 0"
+    },
+    {
+      "variant": "altered path: one tag flipped",
+      "proofbundle": "consistency_anchor_not_canonical",
+      "signature_valid": false,
+      "older_root_matches": false,
+      "algorithm_42_as_written": "assert len(payloads) > 0"
+    },
+    {
+      "variant": "multiple proofs: older and middle, both to the newer root",
+      "proofbundle": "confirmed",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "multiple proofs: the same proof twice",
+      "proofbundle": "confirmed",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "multiple proofs: a valid one and one to another newer root",
+      "proofbundle": "consistency_newer_roots_differ",
+      "signature_valid": null,
+      "older_root_matches": null,
+      "algorithm_42_as_written": "assert verify_cose(consistency_receipt, payload)"
+    },
+    {
+      "variant": "multiple proofs: a valid one and a corrupted one (one anchor bit flipped)",
+      "proofbundle": "consistency_newer_roots_differ",
+      "signature_valid": null,
+      "older_root_matches": null,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "anchor deeper than section 4 requires (middle state to newer state)",
+      "proofbundle": "consistency_anchor_not_canonical",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    },
+    {
+      "variant": "detached payload missing: the newer root attached",
+      "proofbundle": "consistency_payload_attached",
+      "signature_valid": null,
+      "older_root_matches": null,
+      "algorithm_42_as_written": "assert consistency_receipt.payload == nil"
+    },
+    {
+      "variant": "detached payload not recomputable: -2 is an empty array",
+      "proofbundle": "consistency_proof_missing",
+      "signature_valid": null,
+      "older_root_matches": null,
+      "algorithm_42_as_written": "assert len(proofs) > 0"
+    },
+    {
+      "variant": "inclusion and consistency proofs in one receipt",
+      "proofbundle": "confirmed",
+      "signature_valid": true,
+      "older_root_matches": true,
+      "algorithm_42_as_written": "accepts"
+    }
+  ],
+  "other_checks": {
+    "older root verified from another service's receipt": "consistency_issuer_mismatch",
+    "no relying-party key set": "needs_rp_trust"
+  },
+  "third_party_oracle": {
+    "pairs": 3,
+    "oracle_rfc9162_proof_equals_ours": 3,
+    "oracle_roots_equal_ours": 3,
+    "oracle_verifies_its_own_proofs": 3,
+    "canonical_05_digests_accepted_by_oracle": 3,
+    "deeper_anchor_proofs": 1,
+    "deeper_anchor_proofs_rejected_by_oracle": 1,
+    "oracle_refusal_texts": [
+      "wrong proof size 5, want 4"
+    ],
+    "real_proofs": {
+      "19->24": "ok",
+      "22->24": "ok",
+      "19->22": "ok"
+    }
+  },
+  "exhaustive": {
+    "max_n": 257,
+    "pairs": 32896,
+    "anchor_is_section4_anchor": 32896,
+    "digests_equal_rfc9162": 32896,
+    "folds_to_both_roots": 32896,
+    "canonical_first_sibling_right": 32896,
+    "deeper_anchor_proofs": 31871,
+    "deeper_pass_the_42_algorithm": 31871,
+    "deeper_first_sibling_left": 31871,
+    "third_party_oracle_n_le_64": {
+      "pairs": 2016,
+      "oracle_rfc9162_proof_equals_ours": 2016,
+      "oracle_roots_equal_ours": 2016,
+      "oracle_verifies_its_own_proofs": 2016,
+      "canonical_05_digests_accepted_by_oracle": 2016,
+      "deeper_anchor_proofs": 1824,
+      "deeper_anchor_proofs_rejected_by_oracle": 1824,
+      "oracle_refusal_texts": [
+        "wrong proof size 3, want 1",
+        "wrong proof size 4, want 1",
+        "wrong proof size 4, want 2"
+      ]
+    },
+    "measured_on": "2026-09-25"
+  }
+}
