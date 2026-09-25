@@ -76,7 +76,7 @@ of rendering options does not close. The receipts this repository issues from 20
 therefore take the digest over the raw record instead of the rendered patch:
 
 ```
-git diff-tree -r -z --no-renames --no-abbrev -O/dev/null <baseSha> <headSha>
+git --no-replace-objects diff-tree -r -z --no-renames --no-abbrev -O/dev/null <baseSha> <headSha>
 ```
 
 One NUL-separated record per changed path, with both modes, both full blob ids, the status and the
@@ -85,6 +85,15 @@ the same under fourteen settings, including the abbreviation length, `diff.nopre
 `diff.orderFile`, `diff.suppressBlankEmpty`, `diff.relative` and a global attributes file. The blob
 ids bind the content of every changed file exactly, which the patch text did only through its
 rendering. Each receipt states the command in its own known gaps.
+
+**`--no-replace-objects` was missing from the first version of this command**, the same day. Settings
+change how git renders an object; a replacement ref (`git replace`) changes which object git reads
+for a given id, and it is local to a clone. Measured in a scratch repository: the command without the
+switch gave `c137e097…` for two commits, then `a68fe623…` for the same two ids after one of them was
+replaced, and `c137e097…` again with the switch (and with `GIT_NO_REPLACE_OBJECTS=1`). So without it,
+a digest could be taken over objects no other reader has while the receipt names the original ids.
+In this repository no replacement refs exist, so no digest issued with the earlier command changes
+value; the receipts that state the command were reissued so that the command they state is this one.
 
 **THE HONEST PART, measured 2026-09-23.** The receipts issued before that date carry the field, and
 their derivation is recorded nowhere — not here, not in the emitter, not beside the published
