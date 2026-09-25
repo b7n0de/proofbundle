@@ -349,7 +349,10 @@ _CURRENT_CLAIM = re.compile(
 #: Round fourteen: `add` is a package command only after a tool that has one, and no command reaches
 #: across a shell control operator (`git add notes; echo proofbundle==X` is two commands, and
 #: "please add the text proofbundle==X" is prose).
-_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)\s+add\b)[^\n;&|]*?")
+#: Round fifteen: a tool takes global options before its command (`uv --no-cache add`, `uv [OPTIONS]
+#: <COMMAND>`), so `add` may stand anywhere after the tool within the same command.
+_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)\b[^\n;&|]*?\badd\b)"
+               r"[^\n;&|]*?")
 _KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
                        r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
                        r"(?![0-9A-Za-z])" + _PIN_ENDE)   # one end rule for pins, not two copies

@@ -1020,3 +1020,18 @@ def test_a_requirement_file_is_recognised_at_any_depth_and_by_name(datei):
 @pytest.mark.parametrize("datei", ["docs/requirements.md", "requirements/notes.rst"])
 def test_CONTROL_a_document_about_requirements_is_not_a_requirement_file(datei):
     assert _trifft("proofbundle==6.1.0", datei=datei) is None, datei
+
+
+# ── CODEX ON PR 266, ROUND FIFTEEN (2026-09-25): global options before the add command ────────────
+
+@pytest.mark.parametrize("text", [
+    "uv --no-cache add proofbundle==6.1.0",
+    "uv --directory app add 'proofbundle[eval]==6.1.0'",
+    "poetry -C app add proofbundle==6.1.0",
+])
+def test_global_options_before_add_do_not_hide_the_pin(text):
+    assert _trifft(text) == "project pin", (text, _trifft(text))
+
+
+def test_CONTROL_the_tool_and_add_in_different_commands_are_not_one_instruction():
+    assert _trifft("uv sync; git add notes proofbundle==6.1.0") is None
