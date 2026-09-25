@@ -148,10 +148,9 @@ def _relation_argv_common(case: dict, cdir: pathlib.Path) -> list[str]:
     return argv
 
 
-def _python_relation_label(verb: str, inp: str, pub_b64: str, common: list[str]) -> tuple[int, dict]:
-    """Run the REAL Python CLI verify (in-process) and project its --json output onto the common
-    label. This makes the relation differential a genuine Python<->Rust comparison, not merely
-    Rust-vs-declared-expectation."""
+def _python_relation(verb: str, inp: str, pub_b64: str, common: list[str]) -> tuple[int, dict, str]:
+    """Run the REAL Python CLI verify (in-process): exit code, common label, and the whole output
+    (report plus stderr), which is where a case's `errorContains` marker is looked for."""
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
     from proofbundle.cli import main as _cli_main  # noqa: PLC0415
@@ -162,7 +161,29 @@ def _python_relation_label(verb: str, inp: str, pub_b64: str, common: list[str])
         report = json.loads(out.getvalue())
     except ValueError:
         report = None
-    return rc, label_from_verify(rc, report)
+    return rc, label_from_verify(rc, report), out.getvalue() + err.getvalue()
+
+
+def marker_befunde(marker: str, py_blob: str, rust_blob: str) -> list[str]:
+    """What is wrong with a declared `errorContains` marker, per side; empty when both carry it.
+
+    Its own function so the rule is testable without a Rust build: the check that closes S32 is a
+    check on the checker, and a check nobody can make fail is not one."""
+    befunde = []
+    if marker not in py_blob:
+        befunde.append(f"errorContains {marker!r} is not in the Python output")
+    if marker not in rust_blob:
+        befunde.append(f"errorContains {marker!r} is not in the Rust output — exit class and "
+                       f"lineage may agree, the reason does not: {rust_blob.strip()[:200]!r}")
+    return befunde
+
+
+def _python_relation_label(verb: str, inp: str, pub_b64: str, common: list[str]) -> tuple[int, dict]:
+    """Run the REAL Python CLI verify (in-process) and project its --json output onto the common
+    label. This makes the relation differential a genuine Python<->Rust comparison, not merely
+    Rust-vs-declared-expectation."""
+    rc, label, _ = _python_relation(verb, inp, pub_b64, common)
+    return rc, label
 
 
 def main() -> int:
@@ -494,6 +515,8 @@ def main() -> int:
     #: kind -> Fall-Kennungen, die BENANNT nicht differentiell gefahren werden.
     nicht_gedeckt: dict[str, list[str]] = {}
     matrix_rows: list[dict] = []
+    marker_faelle = 0
+    marker_beide = 0
     for cid in manifest.get("cases", []):
         cdir = corpus / cid
         case = json.loads((cdir / "case.json").read_text())
@@ -533,13 +556,15 @@ def main() -> int:
             pub = (cdir / case.get("pub", "pub.b64")).read_text(encoding="utf-8").strip()
             inp = str(cdir / case.get("input", "receipt.json"))
             common = _relation_argv_common(case, cdir)
-            rust_rc, rust_out = _run(rust_sub, inp, pub, *common)
+            _p = subprocess.run([str(BIN), rust_sub, inp, pub, *common], capture_output=True, text=True)
+            rust_rc, rust_out = _p.returncode, (_p.stdout or "").strip()
+            rust_blob = (_p.stdout or "") + (_p.stderr or "")
             try:
                 rust_report = json.loads(rust_out)
             except ValueError:
                 rust_report = None
             rust_label = label_from_verify(rust_rc, rust_report)
-            py_rc, py_label = _python_relation_label(py_verb, inp, pub, common)
+            py_rc, py_label, py_blob = _python_relation(py_verb, inp, pub, common)
             exp_label = expected_label(expected)
             ok_pr, diffs_pr = compare(py_label, rust_label)   # Python<->Rust agreement
             ok_re, diffs_re = compare(exp_label, rust_label)   # Rust reproduces the declared expectation
@@ -547,6 +572,19 @@ def main() -> int:
                 failures.append(f"corpus {cid}: Python!=Rust differential — {'; '.join(diffs_pr)}")
             if not ok_re:
                 failures.append(f"corpus {cid}: Rust!=declared-expectation — {'; '.join(diffs_re)}")
+            # S32 (6.2.0 E1): THE DECLARED REASON, ON BOTH SIDES. A case's `errorContains` read as a
+            # statement about the case, and it was held against the Python output only: the Rust
+            # verifier printed `{"lineage": ...}` and no reason at all, so it could reach the same
+            # exit class for an entirely different reason and nothing noticed. Measured 2026-09-25:
+            # 21 relation vectors declare a marker, Python carried 21, Rust carried 0. Rust now
+            # prints `reasons`, and the marker must be in both outputs.
+            marker = expected.get("errorContains")
+            if marker is not None:
+                marker_faelle += 1
+                befunde = marker_befunde(marker, py_blob, rust_blob)
+                failures += [f"corpus {cid}: {b}" for b in befunde]
+                if not befunde:
+                    marker_beide += 1
             matrix_rows.append({
                 "caseId": case.get("caseId", cid), "kind": kind,
                 "expected": exp_label, "python": py_label, "rust": rust_label,
@@ -654,7 +692,9 @@ def main() -> int:
           f"{', '.join(budget_nur_python)}), "
           "trust-pack root-threshold (met+unmet) agree; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
-          f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage)"
+          f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
+          f"and the declared error marker found in both outputs on {marker_beide} of the "
+          f"{marker_faelle} that declare one)"
           f"{tail}")
     return 0
 

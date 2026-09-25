@@ -10,6 +10,38 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A declared error marker is checked against both implementations** (release scope line S32,
+  `tools/pb_verify_rs`). A relation vector's `errorContains` read as a statement about the case,
+  and it was held against the Python output only: the Rust verifier printed `{"lineage": ...}` and
+  no reason, and the differential compared exit class and lineage. Measured on 2026-09-25: 21
+  relation vectors declare a marker, the Python output carried 21, the Rust output 0. So Rust could
+  reach the same verdict for a different reason and nothing would notice.
+
+  The Rust relation subcommands now print `reasons` beside `lineage`, in Python's wording and with
+  Python's stable codes: the reason of each failing edge, the structural errors, the successor
+  warning and the policy violation codes, which were computed and deliberately not printed. The
+  paths that returned exit 2 through a bare `Err(_)` now name what failed. The loader keeps the
+  target subject's state (present, absent, ambiguous, malformed) as Python does, so a failing
+  subject pin names its own code instead of one shared mismatch. `crosscheck.py` requires the
+  marker in both outputs: 21 of 21. Verdicts are unchanged, and the common vocabulary still reads
+  `lineage` only.
+
+- **A foreign identifier on the bundle itself is a refusal, not `invalid`** (release scope line
+  Z.278, `src/proofbundle/evalclaim.py`). `classify_eval_claim` answered `invalid` for a bundle whose
+  top-level `schema` names another format: `verify_bundle` raised the typed `UnsupportedError`, and
+  the broad `except` above it folded that refusal into the invalid outcome. Measured 2026-09-05 in
+  issue 147 with an `inspect-receipts` 0.3 receipt. The envelope identifier is now read first, after
+  the verifier's resource limits, which a document given as a dict now meets as one given by path; a
+  present, non-empty identifier that is not `proofbundle/v0.1` returns `refused_unknown_schema`.
+  An absent identifier, and a present value that cannot be one (empty, a number, a list, null),
+  declare no other format and stay `invalid`; so does an unknown `signature.alg` or
+  `merkle.hash_alg` under our own identifier, which `verify_bundle` reports with the same exception
+  type. `decode_eval_claim` is unchanged.
+
+  Five vectors under `conformance/envelope_profile/`, fifteen there and 135 in the corpus. Seven
+  planted defects, all caught by the corpus; three escaped at first and each added a vector. The Rust
+  differential was re-measured over the new corpus: 61 of 135 reproduced, 74 named by kind.
+
 - **A verdict field must hold a verdict: five public exporters stopped coercing `passed`** (R-B4,
   `src/proofbundle/intoto.py`, `src/proofbundle/_membership.py`). `bool("false")` is `True`, and
   `"false"` is a non-empty string, so it also survived the presence check that made a required field
