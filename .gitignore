@@ -61,3 +61,18 @@ dist_rc/
 # Lauf in EINER Umgebung; committet waere er die Behauptung, die Drift-Pruefung sei in jedem
 # fremden Checkout gelaufen — genau die Sorte Aussage, gegen die dieses Tor gebaut ist.
 .required-checks-drift.json
+
+# render_site_data.py output. NOT tracked, and the reason belongs here rather than only in a PR:
+# nothing in this repository consumes it yet (no pages workflow, and the homepage takes its facts
+# through 2bedone's proofbundle_facts.json), while `generated_at` is a run time and would put a diff
+# in every regeneration. It becomes tracked together with its first consumer, in the change that adds
+# a regenerate-and-compare gate and moves `generated_at` out of the compared surface.
+#
+# AN un CROSS-READING PUT A THIRD CONDITION ON THAT CHANGE: an untracked artefact means nobody
+# notices when generation stops working, and a page would then show stale data as current. So the
+# consumer change also owes a staleness check. `generated_at` exists for exactly that - it is the one
+# field a consumer can compare against now - and a generator run that measures nothing already exits
+# 2 rather than writing a file that looks fine. What is NOT covered today is a PARTIAL failure, where
+# a few fields turn not_measurable and the run still exits 0; that is visible in the file and on
+# stdout, and it needs a threshold the moment someone renders it.
+docs/site/site-data.json

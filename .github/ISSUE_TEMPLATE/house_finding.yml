@@ -1,0 +1,51 @@
+name: House finding
+description: A finding reported by a b7n0de session, in the house form.
+title: "<one line that states the finding, not the symptom>"
+labels: ["house"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For findings a b7n0de session reports. Outside contributors should use the other templates.
+        One paragraph is one line. Measurements carry a source and a commit, so a reader can chase them.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+      description: What actually happened, in the order it happened. No interpretation yet.
+      placeholder: One paragraph per line.
+    validations:
+      required: true
+  - type: textarea
+    id: measured
+    attributes:
+      label: Measured
+      description: The numbers, each with where it came from and at which commit.
+      value: |
+        | What | Value | Source | Commit |
+        |---|---|---|---|
+        |  |  |  | `` |
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What the contract, the docstring or the standard says should have happened.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What this does and does not reach. An honest limit belongs here, not in a comment.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ## Marking
+
+        Written by an AI session of b7n0de under owner review.
+
+        Measurement, not certification.

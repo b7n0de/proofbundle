@@ -346,6 +346,19 @@ AUSGESCHLOSSEN = {
     # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
     # request, which does not exist in an installed package at all.
     "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # 2026-09-24: renders a pull request body or a house issue from a data source under `pr_bodies/`,
+    # which MANIFEST.in ships no line of, and the surfaces it writes for exist only in this project's
+    # own GitHub repository. An installed package has neither the source nor a use for the output, so
+    # the script could only fail to find its input. Same reasoning as `render_release.py`, which is
+    # already outside for the same shape; the two are siblings and this entry is short because of it.
+    "render_pr_body.py": "rendert PR- und Issue-Rumpfe aus pr_bodies/, das die sdist nicht ausliefert",
+    # 2026-09-25: measures THIS repository to render docs/site/site-data.json — the version from
+    # pyproject, the release date and commit from a git tag, the check count from a real verify run
+    # over a conformance bundle, the test count from tests/*.py, and the release receipts under
+    # audit_artifacts/. An installed package has no git tree, no conformance corpus and no audit
+    # artefacts, so every field would come back not_measurable and the run would write a file that
+    # says nothing. Same reasoning as its two siblings above.
+    "render_site_data.py": "measures a git tree, a conformance bundle and audit_artifacts/ — none of them exist in the package",
     # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
     # and the contract above went red on every required context. The landing card reads
     # docs/release_scope/ and the pull-request titles on main through gh; the language guard
@@ -374,6 +387,18 @@ AUSGESCHLOSSEN = {
     # kein Test laedt es, kein Workflow ruft es, die drei Fundstellen sind Doku-Verweise, die das
     # ERGEBNIS der Messung vom 05.09. belegen — und Herkunft darf auf einen Repo-Pfad zeigen.
     "interop/cedulon_leaked_refusal_adapter.py": "Einmal-Messwerkzeug; seine Fixture liegt in einem fremden Repo",
+    # 2026-09-24: renders the release body from `release_notes/release-source.json`, and the sdist
+    # ships neither that directory nor `graft docs`. Its subject is the act of publishing a release
+    # OF THIS REPOSITORY — it reads the source, measures the head of a git tree and refuses when the
+    # two disagree. An installed package has no release to publish and no tree to measure, so the
+    # script could only fail to find its input, which is the failure mode it is built against. Same
+    # reasoning as `b7_release_scope_title_gate.py` four entries up.
+    #
+    # THE DECISION HAD TO BE MADE HERE FIRST, and I made it the other way around: the contract
+    # `tests/test_render_release.py` imported the script at module level before this entry existed,
+    # so `hermetic-cleanroom` went red on a collection error. The undecided file was the cause; the
+    # broken collection was only where it became visible.
+    "render_release.py": "renders a release note of this repository from release_notes/, which the sdist does not ship; no input inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
