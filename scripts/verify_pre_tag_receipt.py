@@ -52,6 +52,7 @@ Exit codes: 0 VERIFIED · 1 NOT VERIFIED (absent, rejected, or bound to another 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import re
@@ -75,7 +76,8 @@ _CODE_PFADE = ("scripts", "src")
 
 
 #: Where Python keeps bytecode for THIS run: a fresh directory, never `__pycache__` next to the
-#: sources. Set once, before the first module of the judged tree is loaded.
+#: sources. Created once, and set again on every measurement, because the process-wide import state
+#: is restored when a measurement ends (see `_importzustand`).
 _CACHE_DIR: str | None = None
 
 
@@ -98,8 +100,24 @@ def _bytecode_cache_elsewhere() -> None:
     if _CACHE_DIR is None:
         import tempfile  # noqa: PLC0415
         _CACHE_DIR = tempfile.mkdtemp(prefix="verify_pre_tag_receipt_pyc_")
-        sys.pycache_prefix = _CACHE_DIR
-        sys.dont_write_bytecode = True
+    sys.pycache_prefix = _CACHE_DIR
+    sys.dont_write_bytecode = True
+
+
+@contextlib.contextmanager
+def _importzustand():
+    """The process-wide import state as it was before this script touched it, restored on every exit.
+
+    Same class and same fix as `pre_tag_audit_gate._importzustand` (2026-09-25): the judged tree's
+    `src/` goes in front of `sys.path` for the measurement, and a caller in the same process -- the
+    tests that import this module, `scripts/pre_tag_receipt.py` -- must not inherit it afterwards,
+    nor the bytecode switches."""
+    gesichert = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+    try:
+        yield
+    finally:
+        sys.path[:] = gesichert[0]
+        sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
 
 
 def _lib():
@@ -148,6 +166,12 @@ def _version_token(version: str) -> str:
 
 
 def measure(repo: Path, commit: str, version: str) -> dict:
+    """See `_measure`; the import state of the process is the same afterwards."""
+    with _importzustand():
+        return _measure(repo, commit, version)
+
+
+def _measure(repo: Path, commit: str, version: str) -> dict:
     """The whole measurement as one dict. ``verdict`` is VERIFIED, NOT_VERIFIED or NOT_MEASURABLE;
     every other field says what was read and from where. Never raises on a bad input -- a reader
     gets a verdict with a reason, not a traceback."""

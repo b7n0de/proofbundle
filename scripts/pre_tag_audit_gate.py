@@ -24,6 +24,7 @@ Exit code: 0 unless ``--strict`` and no audit record for the release version is 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -311,26 +312,48 @@ _CACHE_DIR = None
 
 
 def _bytecode_cache_elsewhere() -> None:
+    """Send this call's bytecode to a fresh directory. Set on EVERY call, not once per process: the
+    import state is restored when a call ends (see `_importzustand`), so a second call in the same
+    process would otherwise run without the protection the first one had."""
     global _CACHE_DIR
+    import tempfile as _tempfile  # noqa: PLC0415
     if _CACHE_DIR is None:
-        import sys as _sys  # noqa: PLC0415
-        import tempfile as _tempfile  # noqa: PLC0415
         _CACHE_DIR = _tempfile.mkdtemp(prefix="pre_tag_audit_gate_pyc_")
-        _sys.pycache_prefix = _CACHE_DIR
-        _sys.dont_write_bytecode = True
+    sys.pycache_prefix = _CACHE_DIR
+    sys.dont_write_bytecode = True
+
+
+@contextlib.contextmanager
+def _importzustand():
+    """The process-wide import state, as it was before the gate touched it, restored on every exit.
+
+    Measured 2026-09-25 on main: `evaluate` put the JUDGED tree's `src/` in front of `sys.path` and set
+    the bytecode switches, and never undid either. In the same process a later plain
+    `import pre_tag_receipt_lib` then resolved to a module the judged tree carried -- in the test file
+    of this gate, the forged library that the P1 case above plants, which fails eight other cases with
+    `cannot import name 'canonical_bytes'` under PYTHONHASHSEED 5 and 7. That is the class the by-path
+    load closed for the gate itself, left open for everyone who runs after it. A gate judges a tree; it
+    does not install it."""
+    gesichert = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+    try:
+        yield
+    finally:
+        sys.path[:] = gesichert[0]
+        sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
 
 
 def _lib():
     global _LIB
     if _LIB is None:
         import importlib.util as _ilu  # noqa: PLC0415
-        _bytecode_cache_elsewhere()
-        pfad = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
-        spec = _ilu.spec_from_file_location("_pre_tag_receipt_lib_by_path", pfad)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"no loader for {pfad}")
-        mod = _ilu.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        with _importzustand():
+            _bytecode_cache_elsewhere()
+            pfad = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
+            spec = _ilu.spec_from_file_location("_pre_tag_receipt_lib_by_path", pfad)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"no loader for {pfad}")
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)
         _LIB = mod
     return _LIB
 
@@ -360,6 +383,12 @@ _RECEIPT_SHAPED_FIELDS = ("subject_tree_digest", "gate_source_digest", "audit_ex
 
 
 def evaluate(repo: Path, version: str | None = None) -> dict:
+    """Judge the pre-tag receipt of `repo`; the import state of the process is the same afterwards."""
+    with _importzustand():
+        return _evaluate(repo, version)
+
+
+def _evaluate(repo: Path, version: str | None = None) -> dict:
     # F6 CLOSED (makellose-500 Phase 3): the verdict source is a SIGNED, TREE-BOUND RECEIPT, not a prose
     # line. A self-written CHANGELOG line can no longer grant ok=true; only a receipt that binds THIS tree
     # + version + gate source and is signed by a repo-pinned trusted key does. Fail-closed by default.
