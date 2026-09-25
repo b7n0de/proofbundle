@@ -66,7 +66,7 @@ class AThrowawayPullRequest(unittest.TestCase):
         self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("green", 0, 0), e)
 
     def test_a_reply_inside_the_thread_is_an_answer_too(self):
-        e = verdict([codex(10), reply(11, 10, f"Fixed at head {HEAD}.")], [])
+        e = verdict([codex(10), reply(11, 10, f"Fixed.\n\nCommit measured `{HEAD}`\n")], [])
         self.assertEqual(e["verdict"], "green", e)
 
     def test_an_answer_whose_commit_is_not_on_the_head_is_red(self):
@@ -82,6 +82,27 @@ class AThrowawayPullRequest(unittest.TestCase):
         text = f"Reproduced at `{OLD}`.\n\n" + register_answer(7, 10, HEAD)
         self.assertEqual(ct.answer_commit(text), HEAD)
         self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+
+class TheEvidenceStandsOnItsLine(unittest.TestCase):
+    """Codex on PR 275, round one: an id elsewhere in an answer is not the answer's commit, and a
+    thread id elsewhere in a comment does not make it an answer."""
+
+    def test_a_reply_that_names_the_head_in_prose_is_not_at_head(self):
+        e = verdict([codex(10), reply(11, 10, f"Reproduced at {HEAD}; still investigating")], [])
+        self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("red", 0, 1), e)
+
+    def test_the_measured_words_inside_a_sentence_are_not_the_line(self):
+        text = f"Thread `{R}#7:10`.\n\nWe will name the Commit measured {HEAD} next time."
+        self.assertIsNone(ct.answer_commit(text))
+        self.assertEqual(verdict([codex(10)], [issue(text)])["not_at_head"], 1)
+
+    def test_a_thread_id_in_prose_makes_no_answer(self):
+        text = f"See {R}#7:10 later.\n\nCommit measured `{HEAD}`\n"
+        self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+
+    def test_a_longer_id_does_not_answer_a_shorter_one(self):
+        self.assertEqual(verdict([codex(10)], [issue(register_answer(7, 100, HEAD))])["open"], 1)
 
 
 class WhoCounts(unittest.TestCase):
@@ -117,10 +138,12 @@ class ThePreviousState(unittest.TestCase):
 
     def test_the_state_before_the_answers_is_red_with_31_open(self):
         threads = [codex(4104495438 + i) for i in range(33)]
+        # The two replies of that evening named the head in prose and carried no `Commit measured`
+        # line, so they are answers whose commit is not established: not at head, and said so.
         replies = [reply(9000 + i, threads[31 + i]["id"], f"Fixed at head {HEAD}.") for i in range(2)]
         e = verdict(threads + replies, [issue("@codex review")] * 16, pr=266)
         self.assertEqual((e["verdict"], e["rounds"], e["open"], e["not_at_head"]),
-                         ("red", 16, 31, 0), e)
+                         ("red", 16, 31, 2), e)
 
     def test_the_state_after_the_answers_is_green(self):
         threads = [codex(4104495438 + i) for i in range(33)]
@@ -136,6 +159,31 @@ class TheOrigin(unittest.TestCase):
         def broken(url, token):
             raise ct.NotMeasurable(f"{url}: HTTP 502")
         with mock.patch.object(ct, "_get", broken):
+            self.assertEqual(ct.main(["--repo", R, "--pr", "7"]), 2)
+
+    def test_a_truncated_response_is_not_measurable(self):
+        """Codex on PR 275, round one, measured: `IncompleteRead` escaped `main`."""
+        import http.client
+
+        class Truncated:
+            headers: dict = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                raise http.client.IncompleteRead(b"{")
+
+        with mock.patch.object(ct.urllib.request, "urlopen", lambda *a, **k: Truncated()):
+            self.assertEqual(ct.main(["--repo", R, "--pr", "7"]), 2)
+
+    def test_an_error_nobody_foresaw_is_not_measurable_and_never_green(self):
+        def boom(*a, **k):
+            raise RuntimeError("unforeseen")
+        with mock.patch.object(ct, "measure_at_origin", boom):
             self.assertEqual(ct.main(["--repo", R, "--pr", "7"]), 2)
 
     def _origin(self, compare_status):

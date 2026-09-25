@@ -18,18 +18,23 @@ app's bot account, identified by its login (`chatgpt-codex-connector[bot]`). A n
 counts for nothing, and a thread a person opened is outside this check.
 
 WHAT COUNTS AS AN ANSWER. A reply of the owner's account inside the thread, or an issue comment of
-the owner's account that names the thread in the house register form `<owner>/<repo>#<pr>:<id>` or
-links its anchor `#discussion_r<id>`. A resolved thread without such an answer is still open:
-resolving is a click, an answer is a statement.
+the owner's account whose register line, a line that begins with `Thread`, names the thread in the
+house form `<owner>/<repo>#<pr>:<id>` or links its anchor `#discussion_r<id>`. A thread id that only
+stands in prose does not make a comment an answer, and a resolved thread without an answer is still
+open: resolving is a click, an answer is a statement.
 
-WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, or, where
-the answer has no such line, the first 40-hex id in it. An answer that names no commit is not at
+WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, a line
+that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
+something, not the answer's commit (Codex on PR 275: `Reproduced at <sha>; still investigating`
+made a thread green through a fallback to the first id). An answer without that line is not at
 head. A commit is at head when the compare API reports the head as identical to it or ahead of it;
 for a pull request that has landed, its merge commit counts as a head too. A commit the repository
 does not know is not at head.
 
 THREE STATES, NOT TWO. A page of the API that cannot be read makes the check red as NOT MEASURABLE
-(exit 2), never green: a thread nobody could read is not an answered one.
+(exit 2), never green: a thread nobody could read is not an answered one. The same holds for any
+error the check did not foresee (Codex on PR 275: a truncated response raised `IncompleteRead` out
+of `main`): it is reported as not measurable with its type, never as a traceback and never green.
 
 NAMED LIMIT. An answer posted after the last run is seen by the next run, which a push or a manual
 dispatch starts. Between the two, the reported state is the state of the last run.
@@ -42,6 +47,7 @@ GITHUB_TOKEN.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -51,8 +57,7 @@ import urllib.request
 
 CODEX_BOT = "chatgpt-codex-connector[bot]"
 API = "https://api.github.com"
-_SHA = re.compile(r"\b[0-9a-f]{40}\b")
-_MEASURED = re.compile(r"Commit measured\W*([0-9a-f]{40})\b")
+_MEASURED = re.compile(r"(?m)^[ \t]*Commit measured[ \t`:]*([0-9a-f]{40})\b")
 _NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
 
 
@@ -79,7 +84,8 @@ def _get(url: str, token: str | None) -> tuple[object, str | None]:
         if exc.code == 404:
             raise Missing(f"{url}: 404") from exc
         raise NotMeasurable(f"{url}: HTTP {exc.code}") from exc
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError,
+            TimeoutError) as exc:
         raise NotMeasurable(f"{url}: {type(exc).__name__}: {exc}") from exc
 
 
@@ -100,12 +106,16 @@ def _login(c: dict) -> str:
 
 
 def answer_commit(text: str) -> str | None:
-    """The commit an answer names: the `Commit measured` line, else the first 40-hex id."""
+    """The commit an answer names: the id on its `Commit measured` line, and nothing else."""
     m = _MEASURED.search(text or "")
-    if m:
-        return m.group(1)
-    m = _SHA.search(text or "")
-    return m.group(0) if m else None
+    return m.group(1) if m else None
+
+
+def names_thread(text: str, repo: str, pr: int, thread: int) -> bool:
+    """Does a line that begins with `Thread` name this thread? A mention in prose does not."""
+    form = re.compile(rf"(?:{re.escape(f'{repo}#{pr}:{thread}')}|#discussion_r{thread})(?!\d)")
+    return any(z.lstrip(" \t>*_-").startswith("Thread") and form.search(z)
+               for z in (text or "").splitlines())
 
 
 def is_round_request(text: str) -> bool:
@@ -130,7 +140,7 @@ def measure(repo: str, pr: int, owner: str, review_comments: list, issue_comment
             continue
         text = c.get("body") or ""
         for t in threads:
-            if f"{repo}#{pr}:{t}" in text or f"#discussion_r{t}" in text:
+            if names_thread(text, repo, pr, t):
                 answers[t].append(text)
     still_open, not_at_head, closed = [], [], []
     for t in sorted(threads):
@@ -212,8 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     try:
         e = measure_at_origin(a.repo, a.pr, owner, token)
-    except NotMeasurable as exc:
-        text = (f"## codex-threads: NOT MEASURABLE\n\n{exc}\n\n"
+    except Exception as exc:  # noqa: BLE001 (fail-closed: whatever went wrong, nothing is green)
+        text = (f"## codex-threads: NOT MEASURABLE\n\n{type(exc).__name__}: {exc}\n\n"
                 "A thread nobody could read is not an answered one.\n")
         print(text)
         if a.summary:
