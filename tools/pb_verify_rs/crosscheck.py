@@ -431,6 +431,53 @@ def main() -> int:
         if _py_rc2 != 2 or _rs_rc2 != 2:
             failures.append(f"policy without policy_id: python exit {_py_rc2}, rust exit {_rs_rc2} — expected 2 in both")
 
+    # (4g) S106 (6.2.0 E1): EIN LEERER BEHAELTER IST FEHLGEFORMT, auf beiden Seiten. Python
+    # `dsse.verify_envelope` und `trust_pack.verify_trust_pack` weisen `signatures: []` als
+    # "must be a non-empty list" ab; Rust lief mit null Elementen durch die Schleife zu "nicht
+    # verifiziert" (exit 1) bzw. "Schwelle nicht erreicht". Gemessen 2026-09-25 an vier Flaechen;
+    # hier drei davon differentiell, je mit dem Grund, nicht nur mit dem Exit.
+    _LEER = "must be a non-empty list"
+    env_leer = dict(env, signatures=[])
+    (tmp / "env_leer.json").write_text(json.dumps(env_leer))
+    try:
+        _verify_env(env_leer, decode_b64(pub))
+        py_leer = "accepted"
+    except Exception as exc:  # noqa: BLE001 — die typisierte Abweisung ist das Urteil
+        py_leer = f"{type(exc).__name__}: {exc}"
+    code, out = _run_mit_grund("verify-dsse", str(tmp / "env_leer.json"), pub)
+    if _LEER not in py_leer:
+        failures.append(f"empty signatures fixture bug: python did not refuse as malformed: {py_leer}")
+    if code != 2 or _LEER not in out:
+        failures.append(f"empty signatures (verify-dsse): python refuses as malformed ({py_leer}), "
+                        f"rust exit {code}: {out!r}")
+    tp_leer = {"payloadType": INTOTO_PT, "payload": env["payload"], "signatures": []}
+    (tmp / "tp_leer.json").write_text(json.dumps(tp_leer))
+    _py_tp = _verify_tp(tp_leer)
+    code, out = _run_mit_grund("verify-trust-pack-threshold", str(tmp / "tp_leer.json"))
+    if _py_tp.get("structure_ok") is not False or not any(_LEER in str(x) for x in _py_tp.get("errors", [])):
+        failures.append(f"empty signatures fixture bug (trust pack): python {_py_tp.get('errors')}")
+    if code != 2 or _LEER not in out:
+        failures.append(f"empty signatures (trust pack): python malformed, rust exit {code}: {out!r} "
+                        f"-- a threshold verdict over an envelope Python refuses to read")
+    _fall_r = ROOT / "conformance" / "relation" / "statement-supersedes-verified-blocked"
+    if (_fall_r / "case.json").is_file():
+        _case_r = json.loads((_fall_r / "case.json").read_text(encoding="utf-8"))
+        _pub_r = (_fall_r / "pub.b64").read_text(encoding="utf-8").strip()
+        _rel = (_case_r.get("related") or [None])[0]
+        if _rel:
+            _renv = json.loads((_fall_r / _rel).read_text(encoding="utf-8"))
+            _renv["signatures"] = []
+            (tmp / "rel_leer.json").write_text(json.dumps(_renv))
+            _common_r = ["--with-related", str(tmp / "rel_leer.json")]
+            _py_rc_r, _, _py_blob_r = _python_relation("relation-statement", str(_fall_r / "receipt.json"),
+                                                       _pub_r, _common_r)
+            _rs_rc_r, _rs_out_r = _run_mit_grund("verify-relation-statement", str(_fall_r / "receipt.json"),
+                                                 _pub_r, *_common_r)
+            if (_py_rc_r, _rs_rc_r) != (2, 2) or "cannot read --with-related" not in _rs_out_r \
+                    or _LEER not in _rs_out_r or _LEER not in _py_blob_r:
+                failures.append(f"empty signatures (attached target): python exit {_py_rc_r}, rust exit "
+                                f"{_rs_rc_r}: {_rs_out_r[:200]!r} -- both must refuse to read it, with the reason")
+
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
     budget_geteilt: list[str] = []
@@ -686,7 +733,8 @@ def main() -> int:
     # (over-limit refused by both)" und hielt die ganze Budget-Flaeche fuer gedeckt; gemessen war eine
     # Achse ueber die Huelle und nur der Exit-Code. Jetzt stehen die Achsen und die Grenze daneben.
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
-          "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection, policy-typo refusal (over-limit "
+          "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection, policy-typo refusal, "
+          "empty signature list malformed on verify-dsse, trust pack and an attached target (over-limit "
           "refused by both WITH the budget reason; schedules identical on "
           f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
           f"{', '.join(budget_nur_python)}), "
