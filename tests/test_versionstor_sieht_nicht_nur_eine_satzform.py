@@ -677,6 +677,10 @@ _NICHT_UNSER = [
     # round nine: a release tag that only starts with the version is another tag
     "https://github.com/b7n0de/proofbundle/releases/tag/v{v}-notes",
     "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v}_draft)",
+    # round ten: `,` `;` `!` are legal in a ref name, and followed by more of the name they continue it
+    "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v},notes)",
+    "https://github.com/b7n0de/proofbundle/releases/tag/v{v};notes",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}!x",
 ]
 
 
@@ -824,3 +828,36 @@ def test_a_command_substitution_is_not_lexed_and_the_error_is_loud():
     because the substitution is lexed, the limit was closed on purpose and the docstring says so."""
     assert _trifft('echo "$(pip install cbor2 # comment \\\nproofbundle==6.1.0)"') == "install pin"
 
+
+# ── CODEX ON PR 266, ROUND TEN (2026-09-25): what ends a ref is what cannot continue it ──────────
+
+_REF_ENDET = [
+    # prose punctuation as a trailing run: the comma, the semicolon and the full stop of a sentence
+    "see https://github.com/b7n0de/proofbundle/releases/tag/v{v}, the last release",
+    "https://github.com/b7n0de/proofbundle/tree/v{v};",
+    # neighbours the earlier end did not see, each a silent pass before this round
+    "(see https://github.com/b7n0de/proofbundle/tree/v{v}.)",
+    "see https://github.com/b7n0de/proofbundle/releases/tag/v{v}!",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}: the notes",
+    "| https://github.com/b7n0de/proofbundle/tree/v{v}| x |",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}<br>",
+    # the closers that were ends before and stay ends
+    '<a href="https://github.com/b7n0de/proofbundle/releases/tag/v{v}">Release</a>',
+    "`https://github.com/b7n0de/proofbundle/tree/v{v}`",
+]
+
+
+@pytest.mark.parametrize("zeile", _REF_ENDET)
+def test_a_ref_end_that_cannot_continue_the_ref_still_ends_it(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+    assert _trifft(zeile.format(v=AKTUELL)) is not None, zeile
+
+
+def test_a_closer_directly_followed_by_more_of_a_tag_name_is_read_as_the_version():
+    """NAMED, NOT CLOSED. Git allows `)` in a tag name, so `v6.1.0)x` can name another tag. The same
+    character closes a Markdown link, and reading it as part of the ref would pass `[x](…/vX)`
+    unseen. The case pins the DIRECTION of the error, loud rather than silent: the gate reports the
+    version. If it starts failing, the limit was closed on purpose and the comment on `_REF_ENDE`
+    says so."""
+    assert _trifft("https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0)x") == "release tag link"

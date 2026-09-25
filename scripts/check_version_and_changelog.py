@@ -187,11 +187,27 @@ _REPO_AT_TAG = (_AUTORITAET + r"(?:"
                 r"|raw\.githubusercontent\.com" + _PORT + r"/b7n0de/proofbundle/(?:refs/tags/)?"
                 r"|codeload\.github\.com" + _PORT + r"/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
                 r")v")
-#: The ref segment ends where the version ends: a path separator, a query, a fragment, the end of
-#: a Markdown link or of the text, an archive suffix, or the dots of a compare range. EVERY pattern
-#: that reads a version at a ref position of a URL ends with it (Codex round nine: the two
-#: release-tag patterns did not, and `…/releases/tag/vX-notes` read as release X).
-_REF_ENDE = r"(?=[/?#)\]>\s'\"`,;]|\.(?:tar\.gz|zip)\b|\.{2,3}|\.(?=\s|$)|$)"
+#: The ref segment ends where the version ends. EVERY pattern that reads a version at a ref position
+#: of a URL ends with `_REF_ENDE` (Codex round nine: the two release-tag patterns did not, and
+#: `…/releases/tag/vX-notes` read as release X). What ends it is decided by what could CONTINUE the
+#: ref, not by what looks like punctuation (Codex round ten, measured: `git check-ref-format` accepts
+#: `refs/tags/v6.1.0,notes`, and the comma counted as an end, so a different tag read as 6.1.0):
+#:
+#: 1. a character git forbids in a ref name (whitespace and control, `~ ^ : ? * [ \`), or one the URL
+#:    uses as structure (`/`, `#`). It cannot continue the ref, so it always ends it.
+#: 2. a character that closes the text around a URL: `)` of a Markdown link, `]` of a link label,
+#:    `<` and `>` of an HTML tag or an autolink, the quote of an attribute, the backtick of a code
+#:    span, `|` of a table cell. Git allows each of them in a ref name, so a tag that continues the
+#:    version with one of them directly is read as that version. THIS IS THE LIMIT, and its direction
+#:    is loud: a red finding, never a silent pass. The other reading would pass
+#:    `<a href="…/vX">` and `[x](…/vX)` unseen, and those pin the release.
+#: 3. prose punctuation git allows (`.`, `,`, `;`, `!`) ends the ref only as a TRAILING run, that is
+#:    when a closer, whitespace or the end of the text follows. `vX,notes` continues the ref.
+#:
+#: Also an archive suffix and the dots of a compare range.
+_SCHLIESSER = r"[)\]<>'\"`|]"
+_REF_ENDE = (r"(?=[/#\s\x00-\x1f\x7f~^:?*\[\\]|" + _SCHLIESSER
+             + r"|\.(?:tar\.gz|zip)\b|\.{2,3}|[.,;!]+(?:\s|" + _SCHLIESSER + r"|$)|$)")
 _PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
 
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
