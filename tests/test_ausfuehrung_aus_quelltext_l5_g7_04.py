@@ -447,7 +447,7 @@ def test_c5_die_marke_hat_ausser_der_darstellung_nur_test_aufrufer():
     assert sorted(aufrufer) == ["_evaluate", "audit_records_for"], (
         f"ein Aufrufer ausserhalb der bekannten zwei Funktionen: {aufrufer} — das ist ein neuer "
         "Befund dieser Klasse, keine Bestaetigung des alten")
-    # Die darstellende Zeile steht wirklich IN _evaluate() und nennt ihr Feld.
+    # The rendering line really stands IN _evaluate() and names its field.
     aufrufe_zeilen = [z.strip() for z in quelle.splitlines() if "_positive_audit_marker(" in z
                       and not z.strip().startswith(("#", '"', "def "))]
     assert any("changelog_ok" in z for z in aufrufe_zeilen), "die darstellende Zeile fehlt"
