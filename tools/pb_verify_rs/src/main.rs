@@ -874,9 +874,9 @@ fn verify_trust_pack_threshold(
         .and_then(|v| v.as_array())
         .filter(|a| !a.is_empty())
         .ok_or(LEERE_SIGNATURLISTE)?;
-    // Nachbar derselben Klasse: Python `verify_trust_pack` kappt auch die Signaturliste des
-    // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
-    // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
+    // A neighbour of the same class: Python `verify_trust_pack` also caps the envelope's signature
+    // list (trust_pack.py, DEFAULT_BUDGET.check "signatures"); otherwise an envelope with a million
+    // entries is a million Ed25519 checks.
     if sigs.len() > BUDGET_SIGNATURES {
         return Err(budget_ueberschritten(
             "signatures",
@@ -2925,39 +2925,43 @@ mod tests {
     }
 
     #[test]
-    fn ein_leerer_behaelter_ist_fehlgeformt_nicht_unverifiziert() {
-        // S106 (6.2.0 E1): Python `dsse.verify_envelope` wirft "must be a non-empty list/string",
-        // hier lief die leere Liste durch die Schleife zu Ok(false). Zwei Taxonomien fuer dieselben
-        // Bytes; jetzt eine.
+    fn an_empty_container_is_malformed_not_unverified() {
+        // S106 (6.2.0 E1): Python `dsse.verify_envelope` raises "must be a non-empty list/string",
+        // and here the empty list ran through the loop to Ok(false). Two taxonomies for the same
+        // bytes; now one.
         let leer = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
                                       "signatures": []});
         let e = verify_dsse(&leer, &gueltiger_pubkey_b64(), None)
-            .expect_err("eine leere Signaturliste wurde als 'nicht verifiziert' gefuehrt");
+            .expect_err("an empty signature list was reported as 'not verified'");
         assert_eq!(e, LEERE_SIGNATURLISTE);
         let ohne_typ = serde_json::json!({"payloadType": "", "payload": "e30=",
                                           "signatures": [{"sig": "AA=="}]});
         let e = verify_dsse(&ohne_typ, &gueltiger_pubkey_b64(), None)
-            .expect_err("ein leerer payloadType wurde angenommen");
+            .expect_err("an empty payloadType was accepted");
         assert_eq!(e, LEERER_PAYLOADTYPE);
-        // DIE GEGENRICHTUNG: eine vorhandene, nicht passende Signatur bleibt ein Urteil, kein Fehler.
+        // THE COUNTER-DIRECTION: a present signature that does not match stays a verdict, not an error.
         let muell = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
                                        "signatures": [{"sig": "AA=="}]});
-        assert_eq!(verify_dsse(&muell, &gueltiger_pubkey_b64(), None), Ok(false));
+        assert_eq!(
+            verify_dsse(&muell, &gueltiger_pubkey_b64(), None),
+            Ok(false)
+        );
     }
 
     #[test]
-    fn das_trust_pack_prueft_die_liste_vor_dem_statement() {
-        // Pythons Reihenfolge: Payload, Signaturliste, Kappe, DANN das Statement. Ein Payload ohne
-        // Praedikat darf den Grund nicht verdecken, wenn die Liste leer ist.
+    fn the_trust_pack_checks_the_list_before_the_statement() {
+        // Python's order: payload, signature list, cap, THEN the statement. A payload without a
+        // predicate must not hide the reason when the list is empty.
         let leer = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": []});
         let e = verify_trust_pack_threshold(&leer)
-            .expect_err("eine leere Signaturliste ergab eine Schwellenaussage");
+            .expect_err("an empty signature list produced a threshold verdict");
         assert_eq!(e, LEERE_SIGNATURLISTE);
-        // Mit einer vorhandenen Liste kommt das Statement an die Reihe, wie vorher.
+        // With a list present, the statement is judged next, as before.
         let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
-        let e = verify_trust_pack_threshold(&voll).expect_err("ein Statement ohne Praedikat ging durch");
+        let e =
+            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
     }
 

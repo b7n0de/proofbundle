@@ -431,18 +431,18 @@ def main() -> int:
         if _py_rc2 != 2 or _rs_rc2 != 2:
             failures.append(f"policy without policy_id: python exit {_py_rc2}, rust exit {_rs_rc2} — expected 2 in both")
 
-    # (4g) S106 (6.2.0 E1): EIN LEERER BEHAELTER IST FEHLGEFORMT, auf beiden Seiten. Python
-    # `dsse.verify_envelope` und `trust_pack.verify_trust_pack` weisen `signatures: []` als
-    # "must be a non-empty list" ab; Rust lief mit null Elementen durch die Schleife zu "nicht
-    # verifiziert" (exit 1) bzw. "Schwelle nicht erreicht". Gemessen 2026-09-25 an vier Flaechen;
-    # hier drei davon differentiell, je mit dem Grund, nicht nur mit dem Exit.
+    # (4g) S106 (6.2.0 E1): AN EMPTY CONTAINER IS MALFORMED, on both sides. Python
+    # `dsse.verify_envelope` and `trust_pack.verify_trust_pack` refuse `signatures: []` as
+    # "must be a non-empty list"; Rust ran zero elements through its loop to "not verified"
+    # (exit 1) or "threshold not met". Measured 2026-09-25 at four surfaces; three of them are
+    # held here differentially, each with its reason, not only with its exit.
     _LEER = "must be a non-empty list"
     env_leer = dict(env, signatures=[])
     (tmp / "env_leer.json").write_text(json.dumps(env_leer))
     try:
         _verify_env(env_leer, decode_b64(pub))
         py_leer = "accepted"
-    except Exception as exc:  # noqa: BLE001 — die typisierte Abweisung ist das Urteil
+    except Exception as exc:  # noqa: BLE001 — the typed refusal is the verdict
         py_leer = f"{type(exc).__name__}: {exc}"
     code, out = _run_mit_grund("verify-dsse", str(tmp / "env_leer.json"), pub)
     if _LEER not in py_leer:
