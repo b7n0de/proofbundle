@@ -674,6 +674,9 @@ _NICHT_UNSER = [
     "https://example.com#frag@github.com/b7n0de/proofbundle/tree/v{v}",
     "https://raw.githubusercontent.com/b7n0de/proofbundle/releases/tag/v{v}",
     "https://codeload.github.com/b7n0de/proofbundle/releases/tag/v{v}",
+    # round nine: a release tag that only starts with the version is another tag
+    "https://github.com/b7n0de/proofbundle/releases/tag/v{v}-notes",
+    "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v}_draft)",
 ]
 
 

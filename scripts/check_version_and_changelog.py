@@ -188,7 +188,9 @@ _REPO_AT_TAG = (_AUTORITAET + r"(?:"
                 r"|codeload\.github\.com" + _PORT + r"/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
                 r")v")
 #: The ref segment ends where the version ends: a path separator, a query, a fragment, the end of
-#: a Markdown link or of the text, an archive suffix, or the dots of a compare range.
+#: a Markdown link or of the text, an archive suffix, or the dots of a compare range. EVERY pattern
+#: that reads a version at a ref position of a URL ends with it (Codex round nine: the two
+#: release-tag patterns did not, and `…/releases/tag/vX-notes` read as release X).
 _REF_ENDE = r"(?=[/?#)\]>\s'\"`,;]|\.(?:tar\.gz|zip)\b|\.{2,3}|\.(?=\s|$)|$)"
 _PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
 
@@ -212,7 +214,8 @@ _TRACKED_PLACES = [
      re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE),
      "every URL into this repository pinned to a release tag `vX.Y.Z`"),
     ("README.md",
-     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER, re.IGNORECASE),
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER + _REF_ENDE,
+                re.IGNORECASE),
      "every link to a release tag of this project"),
 ]
 
@@ -305,7 +308,8 @@ _CLAIM_SHAPES = [
      "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
      "moment the version moves"),
     ("release tag link",
-     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER + _REF_ENDE,
+                re.IGNORECASE),
      True, "a link to a release tag, presented as the release this project is at"),
     ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
