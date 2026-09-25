@@ -31,6 +31,12 @@ turns a COSE_KeySet as served by ``/.well-known/scitt-keys`` into that form. A k
 among the keys the relying party already trusts for that issuer; a kid, a key embedded in the
 evidence, an ``x5chain`` certificate or an algorithm label in a key set is never trust.
 
+The statement's PROTECTED ``x5chain`` selects among the relying party's statement keys the same
+way (owner answer N4 b): only a key equal to the end-entity certificate's key is tried, no such
+key is ``needs_rp_trust``, and a selected key must verify. The certificate is never trust. An
+``x5chain`` in the unprotected bucket selects nothing, and a statement without a protected one has
+every relying-party statement key tried.
+
 RESULTS are three separate booleans -- ``readable``, ``signature_valid``, ``profile_satisfied`` --
 next to one status from a closed set (ADR 0009, Decisions 9 and 10). No result sets ``warn`` and
 none carries a trusted time; the receipt's signed ``iat`` is reported as ``receipt_iat``,
@@ -489,27 +495,87 @@ def verify_statement_signature(data: bytes, *, statement_keys=None) -> tuple:
     """
     try:
         st = decode_cose_sign1(data, role="statement")
+        selector = _statement_key_selector(st)
+        return _statement_signature(st, statement_keys, selector)[:2]
     except ScittUnavailable:
         return ("no_lib", None)
     except ScittFormatError as exc:
         return (exc.status, None)
     except BundleFormatError:
         return ("malformed", None)
-    return _statement_signature(st, statement_keys)[:2]
+    except Exception:  # noqa: BLE001 - a verifier must never crash its caller
+        return ("malformed", None)
 
 
-def _statement_signature(st: CoseSign1, statement_keys) -> tuple:
+def _statement_key_selector(st: CoseSign1) -> tuple:
+    """Owner answer N4 b: which relying-party statement keys are tried. A selector, never trust.
+
+    Returns ``(mode, spki, note)``. ``mode`` is ``"x5chain"`` when the protected header carries
+    label 33: then only a key equal to the end-entity certificate's key is tried (``spki``, None
+    when that key cannot be loaded, so none can match). Otherwise ``mode`` is ``"every"`` and every
+    key is tried. RFC 9360 (WG source, draft-ietf-cose-x509-08): ``COSE_X509 = bstr / [ 2*certs:
+    bstr ]``, the first certificate is the end-entity one, and it MUST be integrity protected, so
+    an unprotected ``x5chain`` selects nothing. Raises ``ScittFormatError`` for a protected
+    ``x5chain`` of another shape or whose end-entity certificate is not DER X.509.
+    """
+    if _X5CHAIN not in st.protected:
+        note = ("an x5chain in the unprotected header is not integrity protected and selects "
+                "nothing; " if _X5CHAIN in st.unprotected else "")
+        return ("every", None, note + "no protected x5chain, every relying-party statement key tried")
+    chain = st.protected[_X5CHAIN]
+    if isinstance(chain, bytes):
+        leaf = chain
+    elif isinstance(chain, list):
+        if len(chain) < 2 or not all(isinstance(c, bytes) for c in chain):
+            raise ScittFormatError("malformed", "x5chain is an array, but not of two or more "
+                                                "certificates as byte strings (RFC 9360)")
+        leaf = chain[0]
+    else:
+        raise ScittFormatError("malformed", "x5chain is neither a byte string nor an array (RFC 9360)")
+    from cryptography import x509  # noqa: PLC0415
+    try:
+        cert = x509.load_der_x509_certificate(leaf)
+    except Exception as exc:  # noqa: BLE001 - unreadable evidence is malformed, never a crash
+        raise ScittFormatError("malformed", "the x5chain end-entity certificate is not DER X.509 "
+                                            f"({type(exc).__name__})") from None
+    try:
+        key = cert.public_key()
+    except Exception as exc:  # noqa: BLE001 - e.g. UnsupportedAlgorithm, not a ValueError
+        return ("x5chain", None, "the x5chain end-entity key cannot be loaded "
+                                 f"({type(exc).__name__}), so no relying-party key can match")
+    return ("x5chain", _canonical_spki(key), "statement key selected by the protected x5chain")
+
+
+def _canonical_spki(key) -> bytes:
+    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+    return key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def _statement_signature(st: CoseSign1, statement_keys, selector: tuple) -> tuple:
+    """-> (status, valid, ignored trust, detail)."""
     if st.payload is None:
-        return ("outside_profile", None, [])
+        return ("outside_profile", None, [], "the payload is detached")
     keys, ignored = _normalize_keys(statement_keys)
     if not keys:
-        return ("needs_rp_trust", None, ignored)
+        return ("needs_rp_trust", None, ignored,
+                "no relying-party statement key (the statement signer is always required)")
+    mode, leaf_spki, note = selector
+    if mode == "x5chain":
+        # compared as keys, not as encodings: both sides re-encoded from the loaded key
+        candidates = [spki for spki, _kid in keys
+                      if leaf_spki is not None and _canonical_spki(_load_spki(spki)) == leaf_spki]
+        if not candidates:
+            return ("needs_rp_trust", None, ignored,
+                    f"{note}; no relying-party statement key is the x5chain end-entity key")
+    else:
+        candidates = [spki for spki, _kid in keys]
     tbs = _sig_structure(st.protected_raw, st.payload)
     alg = st.protected.get(_ALG)
-    for spki, _kid in keys:
+    for spki in candidates:
         if _verify(alg, spki, tbs, st.signature):
-            return (CONFIRMED, True, ignored)
-    return ("statement_signature_invalid", False, ignored)
+            return (CONFIRMED, True, ignored, "")
+    return ("statement_signature_invalid", False, ignored,
+            f"{note}; the statement signature fails under every key tried ({len(candidates)})")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -657,6 +723,7 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
     trust = rp_trust if isinstance(rp_trust, dict) else {}
     try:
         st = decode_cose_sign1(bytes(proof), role="statement")
+        selector = _statement_key_selector(st)
     except ScittFormatError as exc:
         return verdict(exc.status, detail=str(exc))
 
@@ -672,11 +739,8 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
     elif st.payload != bytes(canonical_root):
         statement_status, why = "unbound", "the statement's payload is not this target's root"
     else:
-        statement_status, stmt_valid, ignored = _statement_signature(st, trust.get("scitt_statement_keys"))
-        if statement_status == "needs_rp_trust":
-            why = "no relying-party statement key (the statement signer is always required)"
-        elif statement_status == "statement_signature_invalid":
-            why = "the statement signature fails under every relying-party statement key"
+        statement_status, stmt_valid, ignored, why = _statement_signature(
+            st, trust.get("scitt_statement_keys"), selector)
 
     receipts = st.unprotected.get(_RECEIPTS)
     if not isinstance(receipts, list) or not receipts:

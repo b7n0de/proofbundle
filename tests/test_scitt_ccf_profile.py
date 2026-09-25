@@ -253,6 +253,9 @@ def test_real_control_one_input_missing_or_wrong_never_satisfies():
         "needs_rp_trust (service)": dict(canonical_root=root,
                                          rp_trust={"scitt_statement_keys": rp["scitt_statement_keys"]}),
         "needs_rp_trust (none)": dict(canonical_root=root, rp_trust=None),
+        # owner answer N4 b: the protected x5chain names a key the RP no longer holds
+        "needs_rp_trust (statement key rotated away)": dict(canonical_root=root, rp_trust={
+            **rp, "scitt_statement_keys": [spki(ec.generate_private_key(ec.SECP256R1()))]}),
     }
     for label, kw in cases.items():
         r = S.verify_transparent_statement(ts, **kw)
@@ -708,6 +711,129 @@ def test_statement_signer_is_always_required():
     status, valid = S.verify_statement_signature(ts, statement_keys=None)
     assert (status, valid) == ("needs_rp_trust", None)
     assert S.verify_statement_signature(ts, statement_keys=[spki(STMT_KEY)]) == ("confirmed", True)
+
+
+# ------------------------------------------------------------------------------------------------
+# Class: statement key selection by the protected x5chain (owner answer N4 b)
+# A selector among the RP statement keys, never trust: no RP key equal to the end-entity
+# certificate's key is needs_rp_trust, a selected key must verify, and nothing else is tried.
+# ------------------------------------------------------------------------------------------------
+CA_KEY = ec.generate_private_key(ec.SECP256R1())
+KEY_B = ec.generate_private_key(ec.SECP256R1())
+_ID_EC_PUBLIC_KEY = bytes.fromhex("06072a8648ce3d0201")
+
+
+def cert_der(key, cn: str = "statement signer", issuer_key=None) -> bytes:
+    import datetime  # noqa: PLC0415
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
+    name = lambda c: x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, c)])  # noqa: E731
+    t = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    return (x509.CertificateBuilder().subject_name(name(cn)).issuer_name(name("test ca"))
+            .public_key(key.public_key()).serial_number(7).not_valid_before(t)
+            .not_valid_after(t + datetime.timedelta(days=365))
+            .sign(issuer_key or CA_KEY, hashes.SHA256()).public_bytes(serialization.Encoding.DER))
+
+
+def chain_of(key) -> list:
+    return [cert_der(key), cert_der(CA_KEY, "test ca")]
+
+
+def x5(x5chain, signer=None) -> Stmt:
+    return Stmt(prot_map={1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer"},
+                          33: x5chain}, key=signer)
+
+
+def ts_of(st: Stmt, extra_unprot: dict | None = None) -> bytes:
+    return transparent(st, [Rcpt(data_hash=dh_of(st)).build()], extra_unprot)
+
+
+def compressed_spki(key) -> bytes:
+    point = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.CompressedPoint)
+    alg_id = spki(key)[2:23]
+    return bytes([0x30, len(alg_id) + 3 + len(point)]) + alg_id + bytes([0x03, 1 + len(point), 0]) + point
+
+
+def test_x5chain_control_selects_the_signer_among_several_rp_keys():
+    ts = ts_of(x5(chain_of(STMT_KEY)))
+    r = verify(ts, rp=trust(statement_keys=[spki(KEY_B), spki(STMT_KEY)]))
+    assert (r.status, r.statement_signature_valid, r.profile_satisfied) == ("confirmed", True, True)
+    assert S.verify_statement_signature(ts, statement_keys=[spki(KEY_B), spki(STMT_KEY)]) == ("confirmed", True)
+
+
+def test_x5chain_a_key_the_rp_rotated_away_is_missing_trust_not_a_failed_signature():
+    new_key = ec.generate_private_key(ec.SECP256R1())
+    with_chain = ts_of(x5(chain_of(STMT_KEY)))
+    r = verify(with_chain, rp=trust(statement_keys=[spki(new_key)]))
+    assert (r.status, r.statement_signature_valid, r.profile_satisfied) == ("needs_rp_trust", None, False)
+    assert "x5chain end-entity key" in r.detail
+    # the same RP keys without a protected x5chain: every key is tried, and the entry fails
+    assert verify(control()[1], rp=trust(statement_keys=[spki(new_key)])).status == "statement_signature_invalid"
+
+
+def test_x5chain_a_selected_key_must_verify_and_no_other_key_is_tried():
+    signed_by_b = ts_of(x5(chain_of(STMT_KEY), signer=KEY_B))     # chain names STMT_KEY, KEY_B signed
+    r = verify(signed_by_b, rp=trust(statement_keys=[spki(STMT_KEY), spki(KEY_B)]))
+    assert (r.status, r.statement_signature_valid) == ("statement_signature_invalid", False)
+    # control: without the chain the same statement signed by KEY_B confirms under the same RP keys
+    assert verify(control(key=KEY_B)[1], rp=trust(statement_keys=[spki(STMT_KEY), spki(KEY_B)])).status == \
+        "confirmed"
+
+
+def test_x5chain_naming_an_untrusted_key_does_not_fall_back_to_the_trusted_one():
+    stranger = ec.generate_private_key(ec.SECP256R1())
+    r = verify(ts_of(x5(chain_of(stranger))), rp=trust(statement_keys=[spki(STMT_KEY)]))
+    assert (r.status, r.profile_satisfied) == ("needs_rp_trust", False)
+
+
+def test_x5chain_single_certificate_form_selects_too():
+    ts = ts_of(x5(cert_der(STMT_KEY)))
+    assert verify(ts, rp=trust(statement_keys=[spki(KEY_B), spki(STMT_KEY)])).status == "confirmed"
+    assert verify(ts, rp=trust(statement_keys=[spki(KEY_B)])).status == "needs_rp_trust"
+
+
+def test_x5chain_keys_are_compared_as_keys_not_as_encodings():
+    ts = ts_of(x5(chain_of(STMT_KEY)))
+    assert compressed_spki(STMT_KEY) != spki(STMT_KEY)
+    assert verify(ts, rp=trust(statement_keys=[compressed_spki(STMT_KEY)])).status == "confirmed"
+
+
+def test_x5chain_in_the_unprotected_header_selects_nothing():
+    st = Stmt()
+    stranger = ec.generate_private_key(ec.SECP256R1())
+    ts = ts_of(st, extra_unprot={33: chain_of(stranger)})
+    assert verify(ts).status == "confirmed"                              # every RP key tried
+    r = verify(ts, rp=trust(statement_keys=[spki(KEY_B)]))
+    assert r.status == "statement_signature_invalid" and "not integrity protected" in r.detail
+
+
+def test_x5chain_a_kid_in_the_statement_selects_nothing():
+    st = x5(chain_of(STMT_KEY))
+    st.prot_map[4] = kid_of(KEY_B)
+    assert verify(ts_of(st), rp=trust(statement_keys=[spki(KEY_B), spki(STMT_KEY)])).status == "confirmed"
+
+
+def test_x5chain_end_entity_key_that_cannot_be_loaded_matches_nothing():
+    leaf = cert_der(STMT_KEY)
+    assert leaf.count(_ID_EC_PUBLIC_KEY) == 1
+    unknown = leaf.replace(_ID_EC_PUBLIC_KEY, bytes.fromhex("06072a8648ce3d0209"))   # an unassigned key OID
+    r = verify(ts_of(x5([unknown, cert_der(CA_KEY, "test ca")])))
+    assert r.status == "needs_rp_trust" and "cannot be loaded" in r.detail
+
+
+@pytest.mark.parametrize("x5chain", [
+    5, "text", {1: b"x"}, [], None,
+    "ONE",                  # an array of one certificate: RFC 9360 wants a bstr or two or more
+    "LEAF_AND_INT", b"not a certificate", "JUNK_LEAF",
+], ids=["int", "text", "map", "empty", "null", "one-element", "non-bstr", "junk-bstr", "junk-leaf"])
+def test_x5chain_of_another_shape_is_malformed(x5chain):
+    good = chain_of(STMT_KEY)
+    x5chain = {"ONE": [good[0]], "LEAF_AND_INT": [good[0], 7], "JUNK_LEAF": [b"\x30\x03\x02\x01\x00", good[1]]}.get(
+        x5chain, x5chain) if isinstance(x5chain, str) else x5chain
+    ts = ts_of(x5(x5chain))
+    r = verify(ts)
+    assert (r.status, r.profile_satisfied) == ("malformed", False)
+    assert S.verify_statement_signature(ts, statement_keys=[spki(STMT_KEY)]) == ("malformed", None)
 
 
 # ------------------------------------------------------------------------------------------------
