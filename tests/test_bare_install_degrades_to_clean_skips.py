@@ -124,6 +124,16 @@ def _modul_skip_zeile(baum: ast.Module) -> int | None:
     return None
 
 
+def _conftest():
+    """tests/conftest.py loaded by path, for the one SOURCES.txt selector it holds."""
+    import sys  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("_cf_bare_install", TESTS / "conftest.py")
+    modul = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = modul
+    spec.loader.exec_module(modul)
+    return modul
+
+
 def _optionale_importnamen() -> set[str]:
     """The import names a BARE install does not provide.
 
@@ -437,7 +447,7 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
                     aus.append((k.args[0].value.split(".")[0], k.lineno))
         return aus
 
-    def _ausgeliefert(self) -> set[str]:
+    def _ausgeliefert(self, wurzel: Path | None = None) -> set[str]:
         """The shipped `scripts/` set, read as DIRECTIVES rather than scraped with one expression.
 
         WHY NOT THE ONE EXPRESSION IT STARTED AS. An adversarial lens ran this against a real
@@ -456,7 +466,10 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         stripped, every path on a line counts, `exclude` and `prune` SUBTRACT, and a directive that
         would make the set unknowable fails loudly instead of returning a smaller set.
         """
-        return self._ausgeliefert_aus((REPO / "MANIFEST.in").read_text(encoding="utf-8"))
+        # THE ROOT IS A PARAMETER HERE TOO. `_kandidaten` learned that on 2026-09-24 in the
+        # cleanroom; this sister reader still read REPO unconditionally, which a lens named as the
+        # same class one function over (finding of 2026-09-24).
+        return self._ausgeliefert_aus(((wurzel or REPO) / "MANIFEST.in").read_text(encoding="utf-8"))
 
     def _ausgeliefert_aus(self, text: str) -> set[str]:
         """The parsing, separable from the file, so the four forms above can be measured."""
@@ -667,12 +680,14 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         So the divergence is measured instead of left to be discovered. Without SOURCES.txt the
         question is NOT MEASURABLE, and that is a skip with a reason, not a pass.
         """
-        listen = (sorted(REPO.glob("*/*.egg-info/SOURCES.txt"))
-                  + sorted(REPO.glob("*.egg-info/SOURCES.txt")))
-        quelle = next((p for p in listen if p.read_text(encoding="utf-8").strip()), None)
+        # WHICH SOURCES.txt comes from the one selector in tests/conftest.py, by project name. This
+        # case used to take the first non-empty list in alphabetical order, and a foreign egg-info
+        # sorting first would have decided the comparison (lens finding, 2026-09-24).
+        quelle, grund = _conftest()._quellenliste_waehlen(REPO)
         if quelle is None:
-            self.skipTest("NOT MEASURABLE: no SOURCES.txt in the tree. One `python -m build --sdist` "
-                          "creates it. An absent basis is not a clearance.")
+            self.skipTest("NOT MEASURABLE: no SOURCES.txt of this distribution in the tree. One "
+                          "`python -m build --sdist` creates it. An absent basis is not a "
+                          f"clearance. Reason: {grund}")
         gelistet = {z.strip() for z in quelle.read_text(encoding="utf-8").splitlines() if z.strip()}
         aus_manifest = self._ausgeliefert()
         self.assertTrue(any(e.startswith("scripts/") for e in gelistet),
@@ -757,6 +772,20 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         for name, (text, erwartet) in faelle.items():
             with self.subTest(form=name):
                 self.assertEqual(self._ausgeliefert_aus(text), erwartet)
+
+    def test_the_shipped_set_is_read_from_the_given_tree(self):
+        """F4 of the lens of 2026-09-24: this reader ignored its tree and always read REPO.
+
+        Measured over two trees that differ only in MANIFEST.in, so the case shows which side
+        decides and not only that something was read.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            baum = Path(d)
+            (baum / "MANIFEST.in").write_text("include scripts/nur_hier.py\n", encoding="utf-8")
+            self.assertEqual(self._ausgeliefert(wurzel=baum), {"scripts/nur_hier.py"})
+            (baum / "MANIFEST.in").write_text("include scripts/anders.py\n", encoding="utf-8")
+            self.assertEqual(self._ausgeliefert(wurzel=baum), {"scripts/anders.py"})
 
     def test_ein_wildcard_ueber_scripts_faellt_laut(self):
         """The fifth form, and the only one that must REFUSE rather than parse.

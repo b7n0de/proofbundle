@@ -198,13 +198,27 @@ _SOURCES = ("MANIFEST.in\n"
             "scripts/mutation_check.py\n")
 
 
+def _dateiliste(ziel: Path, sources: str) -> None:
+    """The file list of the distribution, with what every real sdist carries beside it.
+
+    `pyproject.toml` names the project and `PKG-INFO` names the distribution the list belongs to.
+    conftest attributes a SOURCES.txt by that name since 2026-09-25 instead of taking the first one
+    in alphabetical order; a throwaway tree without both would have no basis, and every case here
+    that expects an honest SKIP would measure the fail-closed branch instead.
+    """
+    (ziel / "pyproject.toml").write_text('[project]\nname = "beispiel"\n', encoding="utf-8")
+    (ziel / "src" / "beispiel.egg-info").mkdir(parents=True)
+    (ziel / "src" / "beispiel.egg-info" / "PKG-INFO").write_text(
+        "Metadata-Version: 2.1\nName: beispiel\nVersion: 0\n", encoding="utf-8")
+    (ziel / "src" / "beispiel.egg-info" / "SOURCES.txt").write_text(sources, encoding="utf-8")
+
+
 def _baum(ziel: Path, module: dict[str, str], *, mit_conftest: bool = True,
           mit_dateiliste: bool = True) -> Path:
     """Ein Baum OHNE Repo-Marker — genau die Lage, in der eine entpackte sdist laeuft."""
     (ziel / "tests").mkdir(parents=True)
     if mit_dateiliste:
-        (ziel / "src" / "beispiel.egg-info").mkdir(parents=True)
-        (ziel / "src" / "beispiel.egg-info" / "SOURCES.txt").write_text(_SOURCES, encoding="utf-8")
+        _dateiliste(ziel, _SOURCES)
     if mit_conftest:
         shutil.copy2(CONFTEST, ziel / "tests" / "conftest.py")
     for name, quelle in module.items():
@@ -744,9 +758,7 @@ _ACHSEN_MODULE = {
 def _achsenbaum(ziel: Path, conftest_text: str) -> Path:
     (ziel / "tests").mkdir(parents=True)
     (ziel / "scripts").mkdir()
-    (ziel / "src" / "beispiel.egg-info").mkdir(parents=True)
-    (ziel / "src" / "beispiel.egg-info" / "SOURCES.txt").write_text(_ACHSEN_SOURCES,
-                                                                   encoding="utf-8")
+    _dateiliste(ziel, _ACHSEN_SOURCES)
     (ziel / "scripts" / "gelistet.py").write_text("x = 1\n", encoding="utf-8")
     unlesbar = ziel / "scripts" / "unlesbar.py"
     unlesbar.write_text("geheim = 1\n", encoding="utf-8")
