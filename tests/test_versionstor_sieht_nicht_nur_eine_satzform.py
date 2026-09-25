@@ -790,3 +790,29 @@ def test_a_comment_after_an_operator_joins_nothing(text):
     """The opposite direction: after an operator a new word starts, so the `#` opens a comment and
     the backslash in it continues nothing."""
     assert _trifft(text) is None, (text, _trifft(text))
+
+
+# ── CODEX ON PR 266, ROUND SEVEN (2026-09-25): a port is part of the authority; substitutions ─────
+
+@pytest.mark.parametrize("zeile", [
+    "https://github.com:443/b7n0de/proofbundle/tree/v{v}",
+    "https://user@github.com:443/b7n0de/proofbundle/releases/tag/v{v}",
+    "https://raw.githubusercontent.com:443/b7n0de/proofbundle/v{v}/examples/x.json",
+    "https://codeload.github.com:443/b7n0de/proofbundle/tar.gz/refs/tags/v{v}",
+])
+def test_an_explicit_port_does_not_hide_an_older_pin(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+def test_CONTROL_a_port_on_a_foreign_host_is_still_foreign():
+    assert _trifft("https://example.com:443/github.com/b7n0de/proofbundle/tree/v6.1.0") is None
+
+
+def test_a_command_substitution_is_not_lexed_and_the_error_is_loud():
+    """NAMED, NOT CLOSED. The shell lexes `$(...)` recursively; this reader keeps the outer quote
+    state. So the `#` below is read as text and the next line is joined: a finding the shell would
+    not make. The case pins the DIRECTION of the error, loud rather than silent. If it starts failing
+    because the substitution is lexed, the limit was closed on purpose and the docstring says so."""
+    assert _trifft('echo "$(pip install cbor2 # comment \\\nproofbundle==6.1.0)"') == "install pin"
+

@@ -133,7 +133,7 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 #                  (start, space, bracket, quote), optionally `scheme://` or a scheme-relative `//`,
 #                  optionally a userinfo `name@` inside that authority; then the hosts that serve
 #                  this repository's content: github.com, raw.githubusercontent.com,
-#                  codeload.github.com.
+#                  codeload.github.com, each with an optional `:port`.
 #   _REPO_AT_TAG   a reference to this repository AT A REF POSITION of its route: after `blob/`,
 #                  `tree/`, `raw/`, `commit(s)/`, `releases/tag/`, `releases/download/`, `archive/`,
 #                  `compare/`, codeload's `tar.gz/` and `zip/`, `refs/tags/`, directly after the
@@ -171,13 +171,16 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # version.
 _AUTORITAET = (r"(?<![^\s(<\[\"'`])"
                r"(?:(?:[A-Za-z][A-Za-z0-9+.\-]*:)?//(?:[^/\s@]*@)?)?")
+#: An explicit port is part of the authority too (Codex round seven, measured:
+#: `https://github.com:443/b7n0de/proofbundle/tree/vX` pinned an old release unseen).
+_PORT = r"(?::[0-9]{1,5})?"
 _REPO_HOST = (_AUTORITAET + r"(?:www\.)?"
-              r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/")
+              r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)" + _PORT + "/")
 _REPO_AT_TAG = (_AUTORITAET + r"(?:"
-                r"(?:www\.)?github\.com/b7n0de/proofbundle(?:(?:\.git)?@|/(?:blob|tree|raw|commits?"
+                r"(?:www\.)?github\.com" + _PORT + r"/b7n0de/proofbundle(?:(?:\.git)?@|/(?:blob|tree|raw|commits?"
                 r"|releases/tag|releases/download|compare|archive(?:/refs/tags)?)/)"
-                r"|raw\.githubusercontent\.com/b7n0de/proofbundle/(?:refs/tags/)?"
-                r"|codeload\.github\.com/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
+                r"|raw\.githubusercontent\.com" + _PORT + r"/b7n0de/proofbundle/(?:refs/tags/)?"
+                r"|codeload\.github\.com" + _PORT + r"/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
                 r")v")
 #: The ref segment ends where the version ends: a path separator, a query, a fragment, the end of
 #: a Markdown link or of the text, an archive suffix, or the dots of a compare range.
@@ -568,6 +571,14 @@ def _kommentar_beginnt(z: str) -> bool:
     word, and a word starts at the beginning of the line, after unquoted whitespace, or after an
     operator. This reads quotes and backslash escapes as the shell does; it does not expand
     anything.
+
+    NOT MODELLED, and the direction of the error is chosen (Codex round seven): a command
+    substitution, `$(...)` or backticks, is lexed recursively by the shell, so a `#` inside
+    `"$(cmd # note \\"` starts a comment there. This reader keeps the outer quote state and reads that
+    `#` as text, so it may JOIN a line the shell keeps apart. That errs loud, never silent: a joined
+    line can at most produce a finding to look at, and a real pin on the next line stays in the joined
+    text. The opposite error, a comment read where the shell reads text, would hide a pin, and the
+    module head already says which of the two costs more.
     """
     einfach = doppelt = False
     wortanfang = True
