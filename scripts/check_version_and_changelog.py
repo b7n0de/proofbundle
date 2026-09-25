@@ -222,7 +222,9 @@ _PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?
 #: EVERY pattern that reads a version at a pin position ends with it (Codex round thirteen: the README
 #: anchor did not, captured `6.1.0` out of `==6.1.0.0`, and Check 6 then blanked the declared text
 #: before its uncomparable-pin shape could see it).
-_PIN_ENDE = r"(?![.!+_-][0-9A-Za-z])"
+#: Round fourteen: a RUN of separators continues the spelling too (`6.1.0..foo`, `6.1.0--foo`,
+#: `6.1.0.+local`); only a separator run followed by the end, whitespace or punctuation ends a pin.
+_PIN_ENDE = r"(?![.!+_-]+[0-9A-Za-z])"
 
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
 # one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
@@ -344,10 +346,13 @@ _CURRENT_CLAIM = re.compile(
 # `==06.01.00` and `==6.1` as the current release; the gate runs on a bare interpreter without
 # `packaging` (release-integrity.yml installs nothing), and a comparison it cannot make it reports,
 # rather than letting a current pin pass as history. The fix it asks for is the three-number form.
-_PIN_BEFEHL = r"\b(?:install|add)\b[^\n]*?"
+#: Round fourteen: `add` is a package command only after a tool that has one, and no command reaches
+#: across a shell control operator (`git add notes; echo proofbundle==X` is two commands, and
+#: "please add the text proofbundle==X" is prose).
+_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)\s+add\b)[^\n;&|]*?")
 _KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
                        r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
-                       r"(?![0-9A-Za-z]|[.!+_-][0-9A-Za-z])")
+                       r"(?![0-9A-Za-z])" + _PIN_ENDE)   # one end rule for pins, not two copies
 _UNVERGLEICHBAR = r"(?!" + _KANONISCHE_VERSION + r")([0-9][0-9A-Za-z.!+_-]*[0-9A-Za-z]|[0-9])"
 _PIN_BESCHREIBUNG = ("a pin of this project to a version (an install or add command, a requirement "
                      "line) — a reader acts on it, so it goes stale the moment the version moves")
@@ -362,7 +367,7 @@ _CLAIM_SHAPES = [
      re.compile(_PIN_BEFEHL + _PROJECT_PIN + _UNVERGLEICHBAR, re.IGNORECASE), False,
      _UNVERGLEICHBAR_BESCHREIBUNG),
     ("release tag link",
-     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER + _REF_ENDE,
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER + _REF_ENDE,
                 re.IGNORECASE),
      True, "a link to a release tag, presented as the release this project is at"),
     ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE), True,
@@ -372,7 +377,11 @@ _CLAIM_SHAPES = [
      "number follows, so a stale one is a finding too"),
 ]
 #: A requirement file in pip's `-r` format: there a line that starts with the pin IS an instruction.
-_ANFORDERUNGSDATEI = re.compile(r"(?:^|/)(?:requirements|constraints)(?:[^/]*|/[^/]+)\.(?:txt|in)$")
+#: Round fourteen: pip reads `-r <file>` under any name, so the house reads what the ecosystem names
+#: that way: a file whose name carries `requirements` or `constraints` (`dev-requirements.txt`), and
+#: any `.txt`/`.in` below a `requirements/` or `constraints/` directory, at any depth.
+_ANFORDERUNGSDATEI = re.compile(r"(?:^|/)(?:[^/]*(?:requirements|constraints)[^/]*|"
+                                r"(?:requirements|constraints)/(?:[^/]+/)*[^/]+)\.(?:txt|in)$")
 _ANFORDERUNGS_FORMEN = [
     ("project pin", re.compile(r"^\s*" + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
      _PIN_BESCHREIBUNG),

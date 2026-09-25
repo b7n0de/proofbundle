@@ -682,6 +682,8 @@ _NICHT_UNSER = [
     "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v},notes)",
     "https://github.com/b7n0de/proofbundle/releases/tag/v{v};notes",
     "https://github.com/b7n0de/proofbundle/tree/v{v}!x",
+    # round fourteen: GitHub's route is `/releases/tag/`; a singular `/release/tag/` selects nothing
+    "https://github.com/b7n0de/proofbundle/release/tag/v{v}",
 ]
 
 
@@ -977,3 +979,44 @@ def test_check_6_is_not_blinded_by_the_declared_anchor(pin):
 def test_CONTROL_the_current_readme_pin_is_still_the_anchor(tmp_path):
     assert _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, AKTUELL, AKTUELL), version=AKTUELL) == []
     assert _trifft(f"python -m pip install proofbundle=={AKTUELL}", datei="README.md") is None
+
+
+# ── CODEX ON PR 266, ROUND FOURTEEN (2026-09-25): separator runs, command boundaries, routes, files ─
+
+@pytest.mark.parametrize("pin", ["6.1.0..foo", "6.1.0--foo", "6.1.0.+local"])
+def test_a_run_of_separators_continues_the_spelling(tmp_path, pin):
+    funde = _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, pin, AKTUELL), version=AKTUELL)
+    assert any("proofbundle==X.Y.Z" in f and "was not found" in f for f in funde), (pin, funde)
+    text = f"python -m pip install proofbundle=={pin}"
+    assert _trifft(text, datei="README.md") == "pin the gate cannot compare", pin
+    assert _trifft(text) == "pin the gate cannot compare", pin
+
+
+@pytest.mark.parametrize("text", [
+    "git add notes; echo proofbundle==6.1.0",
+    "Please add the text proofbundle==6.1.0 to the list.",
+    "pip install cbor2 && echo proofbundle==6.1.0",
+    "pip install cbor2 | tee log; proofbundle==6.1.0",
+])
+def test_a_pin_outside_the_install_or_add_command_is_not_its_argument(text):
+    assert _trifft(text) is None, (text, _trifft(text))
+
+
+@pytest.mark.parametrize("text", [
+    "cd project && pip install proofbundle==6.1.0",
+    "uv add proofbundle==6.1.0; uv sync",
+    "conda run pip install proofbundle==6.1.0",
+])
+def test_CONTROL_a_pin_inside_the_command_is_still_read(text):
+    assert _trifft(text) == "project pin", (text, _trifft(text))
+
+
+@pytest.mark.parametrize("datei", ["requirements/env/dev.txt", "dev-requirements.txt",
+                                   "ci/constraints-py312.txt", "requirements/a/b/c/lock.in"])
+def test_a_requirement_file_is_recognised_at_any_depth_and_by_name(datei):
+    assert _trifft("proofbundle==6.1.0", datei=datei) == "project pin", datei
+
+
+@pytest.mark.parametrize("datei", ["docs/requirements.md", "requirements/notes.rst"])
+def test_CONTROL_a_document_about_requirements_is_not_a_requirement_file(datei):
+    assert _trifft("proofbundle==6.1.0", datei=datei) is None, datei
