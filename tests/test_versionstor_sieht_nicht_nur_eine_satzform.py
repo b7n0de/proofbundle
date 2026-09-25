@@ -649,6 +649,11 @@ def test_an_older_pin_in_any_path_or_requirement_form_is_red(tmp_path, zeile):
 _NICHT_UNSER = [
     "https://notgithub.com/b7n0de/proofbundle/tree/v{v}",
     "https://notgithub.com/b7n0de/proofbundle/releases/tag/v{v}",
+    # round four: a host name inside another site's path, and a version-named file on a branch
+    "https://example.com/github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://github.com/b7n0de/proofbundle/blob/main/docs/v{v}-notes.md",
+    "https://raw.githubusercontent.com/b7n0de/proofbundle/main/docs/v{v}/x.md",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}-notes",
     "https://sub.github.com/b7n0de/proofbundle/tree/v{v}",
     "https://github.com.example/b7n0de/proofbundle/tree/v{v}",
     "https://github.com/b7n0de/proofbundle/blob/main/docs/release_scope/{v}.md",
@@ -686,3 +691,36 @@ def test_check_6_reads_the_same_host_and_segment(zeile):
 ])
 def test_check_6_sees_the_forms_check_4_sees(text, form):
     assert _trifft(text) == form, (text, _trifft(text))
+
+
+# ── CODEX ON PR 266, ROUND FOUR (2026-09-25): authority, ref position, logical lines ─────────────
+
+@pytest.mark.parametrize("zeile", [
+    "https://raw.githubusercontent.com/b7n0de/proofbundle/refs/tags/v{v}/examples/x.json",
+    "https://codeload.github.com/b7n0de/proofbundle/zip/refs/tags/v{v}",
+    "git+s" "sh://git@github.com/b7n0de/proofbundle.git@v{v}",
+    "(https://github.com/b7n0de/proofbundle/commits/v{v})",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}.",
+])
+def test_a_ref_at_its_route_position_is_still_a_pin(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+@pytest.mark.parametrize("text", [
+    "python -m pip install \\\n    proofbundle==6.1.0",
+    "pip install ^\n  proofbundle==6.1.0",
+    "python -m pip install --upgrade \\\n  'proofbundle[eval, docs]==6.1.0'",
+])
+def test_an_install_continued_across_lines_is_one_instruction(text):
+    assert _trifft(text) == "install pin", (text, _trifft(text))
+
+
+@pytest.mark.parametrize("text", [
+    "pip install cbor2\npip uninstall proofbundle==6.1.0",
+    "Run `pip install cbor2`\nthen read proofbundle==6.1.0 in the changelog.",
+])
+def test_CONTROL_lines_without_a_continuation_are_not_joined(text):
+    """Two instructions on two lines stay two. The second line alone names the pin without
+    `install`, so joining would invent an install instruction out of two unrelated lines."""
+    assert _trifft(text) is None, (text, _trifft(text))

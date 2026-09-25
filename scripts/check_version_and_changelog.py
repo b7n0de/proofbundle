@@ -129,21 +129,36 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # the fourth round of the same list. So the three pieces below state the property instead, and
 # Check 4 and Check 6 share them rather than each keeping a copy:
 #
-#   _REPO_HOST     a host boundary (nothing of a name before it) and the hosts that serve this
-#                  repository's content: github.com, raw.githubusercontent.com, codeload.github.com.
-#   _REPO_AT_TAG   any path into this repository in which one segment begins with `vX.Y.Z`, or a
-#                  VCS reference `…/proofbundle.git@vX.Y.Z`. A release tag is a `v` segment; a
-#                  document named after a release (`docs/release_scope/6.1.0.md`) is not one, and a
-#                  version in the middle of a file name (`pre_tag_receipt_v6.1.0.json`) does not begin
-#                  a segment.
+#   _REPO_HOST     the URL authority, not a host name anywhere in a string: it follows `://`, the
+#                  `@` of a `git@` user, or a token boundary (start, space, bracket, quote); then
+#                  the hosts that serve this repository's content: github.com, raw.githubusercontent.com,
+#                  codeload.github.com.
+#   _REPO_AT_TAG   a reference to this repository AT A REF POSITION of its route: after `blob/`,
+#                  `tree/`, `raw/`, `commit(s)/`, `releases/tag/`, `releases/download/`, `archive/`,
+#                  `compare/`, codeload's `tar.gz/` and `zip/`, `refs/tags/`, directly after the
+#                  repository on raw.githubusercontent.com, or a VCS reference `.git@`. The version is
+#                  that whole ref segment, optionally followed by an archive suffix, so
+#                  `blob/main/docs/v6.1.0-notes.md` is a file on `main`, not a pinned release.
 #   _PROJECT_PIN   this project's name, optional extras with any content, and an operator that pins:
 #                  `==`, `===`, or `~=`, which admits only the patch releases of the named one.
 #
+# ROUND FOUR (Codex, 2026-09-25, measured): the first host boundary only refused a name character
+# before the host, so `https://example.com/github.com/b7n0de/proofbundle/tree/vX` matched inside
+# the foreign site's path; and the path rule took the first segment beginning with `v` anywhere,
+# so a file named after a release on `main` read as a pinned tag. Both now bind the position the
+# URL grammar gives them, not a spelling found somewhere in the string.
+#
 # NOT COVERED, and said so: a range that excludes the current release without pinning one
 # (`proofbundle<6.2`) is a constraint rather than a pin, and reading it would need a version
-# comparator this gate does not carry.
-_REPO_HOST = r"(?<![\w.-])(?:www\.)?(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/"
-_REPO_AT_TAG = _REPO_HOST + r"b7n0de/proofbundle(?:\.git)?(?:@|/(?:[^\s/?#()<>'\"]+/)*?)v"
+# comparator this gate does not carry. A `compare/A...B` URL is read at its first ref only.
+_REPO_HOST = (r"(?:(?<=://)|(?<=@)|(?<![^\s(<\[\"'`]))(?:www\.)?"
+              r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/")
+_REF_ROUTE = (r"(?:(?:blob|tree|raw|commits?|releases/tag|releases/download|compare"
+              r"|archive(?:/refs/tags)?|(?:legacy\.)?(?:tar\.gz|zip)(?:/refs/tags)?|refs/tags)/)?")
+_REPO_AT_TAG = _REPO_HOST + r"b7n0de/proofbundle(?:\.git)?(?:@|/" + _REF_ROUTE + r")v"
+#: The ref segment ends where the version ends: a path separator, a query, a fragment, the end of
+#: a Markdown link or of the text, an archive suffix, or the dots of a compare range.
+_REF_ENDE = r"(?=[/?#)\]>\s'\"`,;]|\.(?:tar\.gz|zip)\b|\.{2,3}|\.(?=\s|$)|$)"
 _PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
 
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
@@ -163,7 +178,7 @@ _TRACKED_PLACES = [
      re.compile(_PROJECT_PIN + _SEMVER, re.IGNORECASE),
      "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
     ("README.md",
-     re.compile(_REPO_AT_TAG + _SEMVER, re.IGNORECASE),
+     re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE),
      "every URL into this repository pinned to a release tag `vX.Y.Z`"),
     ("README.md",
      re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER, re.IGNORECASE),
@@ -261,7 +276,7 @@ _CLAIM_SHAPES = [
     ("release tag link",
      re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
      True, "a link to a release tag, presented as the release this project is at"),
-    ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER, re.IGNORECASE), True,
+    ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
     ("current/latest phrase", _CURRENT_CLAIM, False,
      "a sentence stating the current release in words — the wording claims currency whatever "
@@ -469,6 +484,35 @@ def _tracked_files(repo: Path) -> list[str]:
     return out.splitlines() if rc == 0 else []
 
 
+#: Line-continuation markers of the shells an install instruction is written for: POSIX shells
+#: (`\`) and cmd.exe (`^`). A backtick at the end of a line is PowerShell's marker too, but in
+#: Markdown it closes inline code, and joining every such line would join prose; it is not read.
+_FORTSETZUNG = ("\\", "^")
+
+
+def _logische_zeilen(text: str):
+    """Physical lines joined into the instructions they form, each with its first line number.
+
+    Codex on PR 266, round four, measured: `python -m pip install \\` on one line and
+    `proofbundle==6.1.0` on the next is one instruction, and the sweep read it line by line, so
+    the install shape never saw the pin. A continued line is joined to the next with a space.
+    """
+    puffer: list[str] = []
+    start = 0
+    for nr, zeile in enumerate(text.splitlines(), 1):
+        if not puffer:
+            start = nr
+        roh = zeile.rstrip()
+        if roh.endswith(_FORTSETZUNG):
+            puffer.append(roh[:-1])
+            continue
+        puffer.append(zeile)
+        yield start, " ".join(puffer)
+        puffer = []
+    if puffer:
+        yield start, " ".join(puffer)
+
+
 def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
     """Find "this is the current release" claims outside _TRACKED_PLACES.
 
@@ -517,7 +561,7 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
         except (OSError, UnicodeDecodeError):
             continue                      # binary or unreadable: no claim to read, not a failure
         gefunden = False
-        for nr, zeile in enumerate(text.splitlines(), 1):
+        for nr, zeile in _logische_zeilen(text):
             # The TEXT a declared anchor matches is covered: Check 4 keeps that one current. It is
             # blanked with spaces of the same length, and the rest of the line is swept.
             for anker in angemeldet:
