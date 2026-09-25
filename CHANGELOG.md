@@ -10,6 +10,18 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The parity registry states what the verifier does when no policy is named** (release scope line
+  R1, `scripts/rust_parity_registry.json`). The registry ships in the sdist and is what a second
+  implementation reads. Its v0.2 entry said the verifier "deliberately does not decide that for it
+  (policy_decision stays None)", which reads as a neutral outcome. Measured on 2026-09-25 against
+  `verify_agent_review_v02`: without a named policy the result carries `policy_decision: null`, the
+  advisory code `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false with that code as
+  its blocker; with the named default policy the same receipt is `accept` and released for
+  automation. The entry now says so. A new contract measures the no-policy state and requires every
+  registry note that speaks of `policy_decision` to name each blocker the verifier reports and the
+  false automation verdict; the old wording fails it. `docs/AGENT_REVIEW_PREDICATE.md` already
+  described the state correctly and is unchanged.
+
 - **A verdict field must hold a verdict: five public exporters stopped coercing `passed`** (R-B4,
   `src/proofbundle/intoto.py`, `src/proofbundle/_membership.py`). `bool("false")` is `True`, and
   `"false"` is a non-empty string, so it also survived the presence check that made a required field
