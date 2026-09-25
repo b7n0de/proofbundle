@@ -23,6 +23,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   that does not verify is unchanged. The three remaining bare `MALFORMED` exits (`verify-bundle`
   twice, `verify-trust-pack-threshold` once) print their reason. `crosscheck.py` holds the empty list
   on three surfaces with the reason, not only the exit; the old behaviour turns all three red.
+  The per-target key is not the envelope (Codex on PR 272): key material that decodes but is no
+  Ed25519 key leaves the target attached-but-unverified, as Python's `verify_ed25519` answers False,
+  and only a `--related-pub` that is not base64 is refused, as "cannot decode --related-pub". The
+  checks before the key run in Python's order, the payload first.
 
 - **A declared error marker is checked against both implementations** (release scope line S32,
   `tools/pb_verify_rs`). A relation vector's `errorContains` read as a statement about the case,

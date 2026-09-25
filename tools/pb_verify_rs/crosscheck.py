@@ -478,6 +478,33 @@ def main() -> int:
                 failures.append(f"empty signatures (attached target): python exit {_py_rc_r}, rust exit "
                                 f"{_rs_rc_r}: {_rs_out_r[:200]!r} -- both must refuse to read it, with the reason")
 
+        # (4h) PR 272, Codex round one: the per-target KEY is not the envelope. Bytes that decode but
+        # are no Ed25519 key leave the target attached-but-unverified in Python (`verify_ed25519`
+        # returns False); only text that is not base64 is a usage error, "cannot decode --related-pub".
+        # The first S106 fold turned every key error into "cannot read --with-related".
+        if _rel:
+            _common_k = ["--with-related", str(_fall_r / _rel), "--policy", str(_fall_r / _case_r["policy"])]
+            for _name_k, _rp_k in (("one-byte key", "AA=="), ("key that is not base64", "@@@@")):
+                _argv_k = [*_common_k, "--related-pub", _rp_k]
+                _py_rc_k, _py_label_k, _py_blob_k = _python_relation(
+                    "relation-statement", str(_fall_r / "receipt.json"), _pub_r, _argv_k)
+                _rs_rc_k, _rs_out_k = _run_mit_grund(
+                    "verify-relation-statement", str(_fall_r / "receipt.json"), _pub_r, *_argv_k)
+                try:
+                    _rs_lineage_k = json.loads(_rs_out_k.splitlines()[0]).get("lineage")
+                except (ValueError, IndexError, AttributeError):
+                    _rs_lineage_k = None
+                if _rp_k == "AA==":
+                    _gleich = (_py_rc_k == _rs_rc_k and _py_label_k.get("lineage") == _rs_lineage_k
+                               and _py_label_k.get("lineage") is not None
+                               and "cannot read --with-related" not in _rs_out_k)
+                else:
+                    _gleich = (_py_rc_k == _rs_rc_k == 2 and "cannot decode --related-pub" in _py_blob_k
+                               and "cannot decode --related-pub" in _rs_out_k)
+                if not _gleich:
+                    failures.append(f"{_name_k} (attached target): python exit {_py_rc_k} lineage "
+                                    f"{_py_label_k.get('lineage')}, rust exit {_rs_rc_k}: {_rs_out_k[:200]!r}")
+
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
     budget_geteilt: list[str] = []
@@ -734,7 +761,8 @@ def main() -> int:
     # Achse ueber die Huelle und nur der Exit-Code. Jetzt stehen die Achsen und die Grenze daneben.
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
           "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection, policy-typo refusal, "
-          "empty signature list malformed on verify-dsse, trust pack and an attached target (over-limit "
+          "empty signature list malformed on verify-dsse, trust pack and an attached target, "
+          "per-target key: undecodable refused, no Ed25519 key unverified (over-limit "
           "refused by both WITH the budget reason; schedules identical on "
           f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
           f"{', '.join(budget_nur_python)}), "
