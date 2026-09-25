@@ -26,7 +26,8 @@ state. Its target is the next patch release.
 ## VERSION-GATE-AMBIGUOUS-REF-END-READS-LOUD-01
 
 Codex on PR 266, round eleven, thread 4106823987. `git check-ref-format` accepts `refs/tags/vX,`, so
-`[notes](…/releases/tag/vX,)` can select the tag `vX,`, and both URL shapes read it as release X.
+a Markdown link whose destination ends in `…/releases/tag/vX,` right before its closing parenthesis
+can select the tag `vX,`, and both URL shapes read it as release X.
 The same run before a closer is prose in `(released as …/vX!)`. The two texts differ only in what
 stands before the URL, and reading that context would need a second capture in every pattern that
 Check 4 and Check 6 read with one.
