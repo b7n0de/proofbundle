@@ -326,11 +326,38 @@ _CURRENT_CLAIM = re.compile(
 # THE SAME THREE PIECES AS CHECK 4 (round three): the URL shapes wanted a host of their own and had
 # none, so they reported any site with this repository's path in it, and they listed the path forms
 # Check 4 listed. Both read `_REPO_HOST`, `_REPO_AT_TAG` and `_PROJECT_PIN` now.
+#
+# A PIN STANDS IN MORE PLACES THAN AN INSTALL COMMAND (Codex round twelve, measured): the shape
+# wanted `install` before the pin, so `poetry add` and `uv add` with the pin were no claim, and
+# neither was a requirement file holding only `proofbundle==X`. The command word is `install` or
+# `add` now, and a requirement file (pip's `-r` format, see `_ANFORDERUNGSDATEI`) has a shape of
+# its own: a line that IS the pin. A bare pin in prose stays what it was, a mention, because it
+# does not tell a reader to install anything.
+#
+# And a pin whose version this gate cannot compare as text is a finding of its own. PEP 440 reads
+# `==06.01.00` and `==6.1` as the current release; the gate runs on a bare interpreter without
+# `packaging` (release-integrity.yml installs nothing), and a comparison it cannot make it reports,
+# rather than letting a current pin pass as history. The fix it asks for is the three-number form.
+_PIN_BEFEHL = r"\b(?:install|add)\b[^\n]*?"
+#: A pin ends where its version ends: `==6.1.0.0` and `==6.1.0-post1` are other spellings, and a
+#: shape that stopped at `6.1.0` read them as that release (round twelve, measured by the new cases).
+_PIN_ENDE = r"(?![.!+_-][0-9A-Za-z])"
+_KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+                       r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
+                       r"(?![0-9A-Za-z]|[.!+_-][0-9A-Za-z])")
+_UNVERGLEICHBAR = r"(?!" + _KANONISCHE_VERSION + r")([0-9][0-9A-Za-z.!+_-]*[0-9A-Za-z]|[0-9])"
+_PIN_BESCHREIBUNG = ("a pin of this project to a version (an install or add command, a requirement "
+                     "line) — a reader acts on it, so it goes stale the moment the version moves")
+_UNVERGLEICHBAR_BESCHREIBUNG = (
+    "a pin of this project in a version spelling the gate does not compare (leading zeros, fewer or "
+    "more than three release numbers, another suffix form) — PEP 440 may read it as the current "
+    "release, so it is reported instead of passed; write the three-number form")
 _CLAIM_SHAPES = [
-    ("install pin", re.compile(r"\binstall\b[^\n]*?" + _PROJECT_PIN + _SEMVER, re.IGNORECASE),
-     True,
-     "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
-     "moment the version moves"),
+    ("project pin", re.compile(_PIN_BEFEHL + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
+     _PIN_BESCHREIBUNG),
+    ("pin the gate cannot compare",
+     re.compile(_PIN_BEFEHL + _PROJECT_PIN + _UNVERGLEICHBAR, re.IGNORECASE), False,
+     _UNVERGLEICHBAR_BESCHREIBUNG),
     ("release tag link",
      re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER + _REF_ENDE,
                 re.IGNORECASE),
@@ -341,6 +368,20 @@ _CLAIM_SHAPES = [
      "a sentence stating the current release in words — the wording claims currency whatever "
      "number follows, so a stale one is a finding too"),
 ]
+#: A requirement file in pip's `-r` format: there a line that starts with the pin IS an instruction.
+_ANFORDERUNGSDATEI = re.compile(r"(?:^|/)(?:requirements|constraints)(?:[^/]*|/[^/]+)\.(?:txt|in)$")
+_ANFORDERUNGS_FORMEN = [
+    ("project pin", re.compile(r"^\s*" + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
+     _PIN_BESCHREIBUNG),
+    ("pin the gate cannot compare", re.compile(r"^\s*" + _PROJECT_PIN + _UNVERGLEICHBAR,
+                                               re.IGNORECASE), False, _UNVERGLEICHBAR_BESCHREIBUNG),
+]
+
+
+def _formen_fuer(rel: str) -> list:
+    """The claim shapes that apply to one tracked file: every file has `_CLAIM_SHAPES`, a
+    requirement file also its own line form."""
+    return (_ANFORDERUNGS_FORMEN + _CLAIM_SHAPES) if _ANFORDERUNGSDATEI.search(rel) else _CLAIM_SHAPES
 # Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
 # Signed receipts are frozen too: a version inside one cannot be kept current without breaking its
 # signature, so a finding there would ask for a remedy that does not exist. They are also exactly
@@ -553,8 +594,10 @@ def _logische_zeilen(text: str):
     """Physical lines joined into the instructions they form, each with its first line number.
 
     Codex on PR 266, round four, measured: `python -m pip install \\` on one line and
-    `proofbundle==6.1.0` on the next is one instruction, and the sweep read it line by line, so
+    `proofbundle==X` on the next is one instruction, and the sweep read it line by line, so
     the install shape never saw the pin. A continued line is joined to the next with a space.
+    (The example carries X, not the release: with the release spelled out, the pin shape of
+    round twelve reported this very docstring.)
     """
     puffer: list[str] = []
     start = 0
@@ -694,7 +737,7 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
             # blanked with spaces of the same length, and the rest of the line is swept.
             for anker in angemeldet:
                 zeile = anker.sub(lambda m: " " * len(m.group(0)), zeile)
-            for form, muster, nur_aktuelle, beschreibung in _CLAIM_SHAPES:
+            for form, muster, nur_aktuelle, beschreibung in _formen_fuer(rel):
                 # EVERY match of the line, not the first: an older pin before a current one on the
                 # same line is history, and the current one behind it is still a claim.
                 treffer = next((m for m in muster.finditer(zeile)

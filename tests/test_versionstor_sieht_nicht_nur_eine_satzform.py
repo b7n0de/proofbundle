@@ -53,7 +53,7 @@ def _gate():
 AKTUELL = "6.1.0"      # the source version on origin/main, which the cases below judge against
 
 
-def _trifft(text: str, version: str = AKTUELL) -> str | None:
+def _trifft(text: str, version: str = AKTUELL, datei: str = "DOKU.md") -> str | None:
     """The NAME of the shape the CHECKER reports, or None.
 
     IT GOES THROUGH THE REAL FUNCTION, and that is a CORRECTION this file's own catch proof forced.
@@ -69,9 +69,10 @@ def _trifft(text: str, version: str = AKTUELL) -> str | None:
     with tempfile.TemporaryDirectory(prefix="u5_trifft_") as tmp:
         repo = pathlib.Path(tmp)
         (repo / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n', encoding="utf-8")
-        (repo / "DOKU.md").write_text(text + "\n", encoding="utf-8")
+        (repo / datei).parent.mkdir(parents=True, exist_ok=True)
+        (repo / datei).write_text(text + "\n", encoding="utf-8")
         g = _gate()
-        g._tracked_files = lambda _repo: ["DOKU.md"]
+        g._tracked_files = lambda _repo: [datei]
         funde = g.check_undeclared_places(repo)
     if not funde:
         return None
@@ -84,8 +85,8 @@ def _trifft(text: str, version: str = AKTUELL) -> str | None:
 # ── THE FOUR SHAPES that claim a current release ─────────────────────────────────────────────
 
 @pytest.mark.parametrize("text,erwartete_form", [
-    ("python -m pip install proofbundle==6.1.0", "install pin"),
-    ("python -m pip install 'proofbundle[eval]==6.1.0'", "install pin"),
+    ("python -m pip install proofbundle==6.1.0", "project pin"),
+    ("python -m pip install 'proofbundle[eval]==6.1.0'", "project pin"),
     ("[v6.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0)", "release tag link"),
     ("https://raw.githubusercontent.com/b7n0de/proofbundle/v6.1.0/examples/x.json",
      "version-pinned URL"),
@@ -255,7 +256,7 @@ def test_eine_anmeldung_legt_die_geschwisterbelege_nicht_stumm(tmp_path, monkeyp
                           "the tag link")])
     mit = g.check_undeclared_places(tmp_path)
     assert mit, ("the declaration silenced the whole file — the second claim is unobserved")
-    assert "DOKU.md:2" in mit[0] and "install pin" in mit[0], mit
+    assert "DOKU.md:2" in mit[0] and "project pin" in mit[0], mit
 
 
 def test_eine_veraltete_WORTbehauptung_bleibt_ein_fund():
@@ -578,13 +579,13 @@ def test_a_claim_about_another_project_is_not_a_claim_about_this_one(text):
     "sudo -H pip install --no-cache-dir 'proofbundle[eval]==6.1.0'",
 ])
 def test_options_or_packages_before_the_pin_do_not_hide_it(text):
-    assert _trifft(text) == "install pin", _trifft(text)
+    assert _trifft(text) == "project pin", _trifft(text)
 
 
 def test_an_older_pin_before_a_current_one_on_the_same_line_does_not_hide_it():
     """Every match of a line counts; the first one being history says nothing about the second."""
     zeile = "upgrade from pip install proofbundle==6.0.0 with pip install proofbundle==6.1.0"
-    assert _trifft(zeile) == "install pin"
+    assert _trifft(zeile) == "project pin"
 
 
 def test_a_declaration_covers_its_text_not_the_rest_of_its_line(tmp_path, monkeypatch):
@@ -705,7 +706,7 @@ def test_check_6_reads_the_same_host_and_segment(zeile):
 
 
 @pytest.mark.parametrize("text,form", [
-    ("pip install 'proofbundle[eval, docs]==6.1.0'", "install pin"),
+    ("pip install 'proofbundle[eval, docs]==6.1.0'", "project pin"),
     ("https://github.com/b7n0de/proofbundle/releases/download/v6.1.0/x.whl", "version-pinned URL"),
     ("https://github.com/b7n0de/proofbundle/archive/refs/tags/v6.1.0.tar.gz", "version-pinned URL"),
     ("pip install git+https://github.com/b7n0de/proofbundle.git@v6.1.0", "version-pinned URL"),
@@ -734,7 +735,7 @@ def test_a_ref_at_its_route_position_is_still_a_pin(tmp_path, zeile):
     "python -m pip install --upgrade \\\n  'proofbundle[eval, docs]==6.1.0'",
 ])
 def test_an_install_continued_across_lines_is_one_instruction(text):
-    assert _trifft(text) == "install pin", (text, _trifft(text))
+    assert _trifft(text) == "project pin", (text, _trifft(text))
 
 
 @pytest.mark.parametrize("text", [
@@ -790,7 +791,7 @@ def test_an_authority_the_url_grammar_starts_is_still_read(tmp_path, zeile):
 ])
 def test_a_hash_the_shell_does_not_read_as_a_comment_does_not_stop_the_continuation(text):
     """A `#` in quotes, or after an escaped space, is part of a word; the shell joins the next line."""
-    assert _trifft(text) == "install pin", (text, _trifft(text))
+    assert _trifft(text) == "project pin", (text, _trifft(text))
 
 
 @pytest.mark.parametrize("text", [
@@ -826,7 +827,7 @@ def test_a_command_substitution_is_not_lexed_and_the_error_is_loud():
     state. So the `#` below is read as text and the next line is joined: a finding the shell would
     not make. The case pins the DIRECTION of the error, loud rather than silent. If it starts failing
     because the substitution is lexed, the limit was closed on purpose and the docstring says so."""
-    assert _trifft('echo "$(pip install cbor2 # comment \\\nproofbundle==6.1.0)"') == "install pin"
+    assert _trifft('echo "$(pip install cbor2 # comment \\\nproofbundle==6.1.0)"') == "project pin"
 
 
 # ── CODEX ON PR 266, ROUND TEN (2026-09-25): what ends a ref is what cannot continue it ──────────
@@ -892,3 +893,61 @@ def test_CONTROL_a_ref_name_cannot_end_with_a_full_stop():
     """Why the full stop is not part of the question above: git refuses the name it would make."""
     assert subprocess.run(["git", "check-ref-format", f"refs/tags/v{AKTUELL}."],
                           capture_output=True, timeout=30).returncode != 0
+
+
+# ── CODEX ON PR 266, ROUND TWELVE (2026-09-25): a pin without `install`, a pin the gate cannot read ─
+
+@pytest.mark.parametrize("text", [
+    "poetry add proofbundle==6.1.0",
+    'uv add "proofbundle[eval]==6.1.0"',
+    "pdm add proofbundle~=6.1.0",
+])
+def test_an_add_command_pins_like_an_install_command(text):
+    assert _trifft(text) == "project pin", (text, _trifft(text))
+
+
+@pytest.mark.parametrize("datei,text", [
+    ("requirements.txt", "proofbundle==6.1.0"),
+    ("requirements-dev.txt", "cbor2>=5\nproofbundle[eval]==6.1.0  # pinned for the demo"),
+    ("docs/constraints.txt", "proofbundle===6.1.0"),
+    ("requirements/base.in", "  proofbundle~=6.1.0"),
+])
+def test_a_requirement_line_is_a_pin_where_the_file_is_a_requirement_file(datei, text):
+    assert _trifft(text, datei=datei) == "project pin", (datei, text, _trifft(text, datei=datei))
+
+
+@pytest.mark.parametrize("datei,text", [
+    # the same line in prose is a mention, not an instruction
+    ("DOKU.md", "proofbundle==6.1.0"),
+    # an older pin in a requirement file is history, as everywhere else
+    ("requirements.txt", "proofbundle==6.0.0"),
+    # another project's pin in a requirement file is not this project's
+    ("requirements.txt", "proofbundle-extra==6.1.0"),
+])
+def test_CONTROL_a_requirement_shape_stays_in_its_file_and_its_project(datei, text):
+    assert _trifft(text, datei=datei) is None, (datei, text, _trifft(text, datei=datei))
+
+
+@pytest.mark.parametrize("datei,text", [
+    ("DOKU.md", "pip install proofbundle==06.01.00"),
+    ("DOKU.md", "pip install proofbundle==6.1"),
+    ("DOKU.md", "pip install proofbundle==6.1.0.0"),
+    ("DOKU.md", "uv add proofbundle==6.1.0-post1"),
+    ("requirements.txt", "proofbundle==6.1"),
+])
+def test_a_pin_the_gate_cannot_compare_is_reported_not_passed(datei, text):
+    """PEP 440 reads each of these as the current release or near it; the gate compares text and runs
+    without `packaging`, so it reports what it cannot compare. The direction is loud, and it holds
+    whatever number stands there."""
+    assert _trifft(text, datei=datei) == "pin the gate cannot compare", (datei, text,
+                                                                         _trifft(text, datei=datei))
+    assert _trifft(text.replace("6.1", "5.0"), datei=datei) == "pin the gate cannot compare"
+
+
+@pytest.mark.parametrize("text", [
+    "pip install proofbundle==6.1.0.",              # a sentence ends after a comparable version
+    "pip install proofbundle==6.0.0rc1",            # a pre-release in the form the gate reads
+    "pip install proofbundle==6.0.0.post1",         # a post-release in the form the gate reads
+])
+def test_CONTROL_a_comparable_version_is_not_reported_as_uncomparable(text):
+    assert _trifft(text) in (None, "project pin"), (text, _trifft(text))
