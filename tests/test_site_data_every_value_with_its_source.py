@@ -509,9 +509,15 @@ class TestAValueWithoutATimeSaysWhy:
         assert at_clean and note_clean is None and stable_clean is True, (at_clean, note_clean)
         (tmp_path / "pyproject.toml").write_text('version = "2.0.0"\n', encoding="utf-8")
         at_dirty, note_dirty, stable_dirty = RSD._source_time("pyproject.toml")
-        assert at_dirty != at_clean, (
-            "the time of the old commit is returned for content that has already changed: "
-            f"{at_dirty}")
+        # ASSERTED ON THE MEANING, NOT ON TWO STRINGS BEING DIFFERENT. The first form compared
+        # `at_dirty != at_clean`, and that was green here for the wrong reason: this machine runs at
+        # +02:00, so a commit time ends in `+02:00` while an mtime ends in `Z` - they could not be
+        # equal whatever the clock said. CI runs in UTC, both rendered as
+        # `2026-09-25T04:13:46Z`, and all five test jobs fell on it. What the code actually promises
+        # is that a dirty path carries the WORKING-TREE write time, so that is what is asserted.
+        assert at_dirty == RSD._mtime("pyproject.toml"), (
+            "a dirty path does not carry the working-tree write time, so the time and the value "
+            f"describe different content: {at_dirty}")
         assert at_dirty is not None, (
             "a bare null reads as unknown or pending, and the value is neither - it is current")
         assert stable_dirty is False, (
