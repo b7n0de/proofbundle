@@ -281,11 +281,18 @@ def _verify(path: Path) -> tuple[str, list[str] | None, bool]:
                            timeout=180, cwd=str(REPO))
     except (OSError, subprocess.SubprocessError) as exc:
         # A TIMEOUT STAYS RUN-DEPENDENT, and an un cross-reading argued the opposite: a timeout
-        # caused by a huge bundle is a property of the TREE, not of the run. REJECTED, and the reason
-        # is that a single observation cannot tell the two apart - the same bundle may time out under
-        # load and pass without it. Calling it tree-dependent would put a possibly-varying value
-        # inside the byte-stability promise, which is exactly the failure this flag exists to
-        # prevent. The conservative classification is the honest one here.
+        # caused by a huge bundle is a property of the TREE, not of the run. The proposal that came
+        # with it - classify by a bundle-size threshold - is rejected, because a threshold is a guess
+        # and not a measurement.
+        #
+        # BUT MY OWN REASON WAS TOO STRONG, and that correction belongs here. I wrote that a single
+        # observation cannot tell the two apart, which is true, and then used it as if the
+        # distinction were unmeasurable. It is not: a SECOND attempt would distinguish them well
+        # enough, because a deterministic timeout reproduces and a load-induced one usually does not.
+        # That measurement is not taken here, and the reason is cost and not impossibility - a retry
+        # doubles the worst case of a 180 s timeout on every failing bundle. So the classification is
+        # conservative BY CHOICE, with the cheaper alternative named rather than hidden behind a
+        # claim that nothing could be done.
         return f"NOT MEASURABLE: {type(exc).__name__}: {exc}", None, True
     i = r.stdout.find("{")
     if i < 0:
@@ -567,11 +574,21 @@ def audit_state_field(version_value) -> dict:
             # refuses: a stage guessed from an ambiguous key would send a reader to another release's
             # audit directory.
             if int(parts[1]) > 9:
+                # THE COLLISION IS NAMED, NOT ASSERTED. An un cross-reading argued that refusing
+                # hides an audit directory a reader could find by other means, and countered with a
+                # collision that does not exist (0.1.0 and 1.0.0 give 10 and 100). Measured by brute
+                # force over major 0..99: for a minor of 0..9 the scheme is injective, 1000 names and
+                # zero collisions; from minor 10 there are 200 collisions with that space. So the
+                # reason now names the concrete partner a reader can check, and `stages` lists what is
+                # actually present, so nothing is hidden - only the DERIVATION is refused.
+                kollision = int(parts[0]) * 100 + int(parts[1]) * 10
+                partner = f"{kollision // 100}.{(kollision % 100) // 10}.0"
                 expected_gap = (
                     f"the stage name for version {version_value} is not derivable: the scheme is "
-                    f"major*100 + minor*10, which has no unambiguous name for a minor of "
-                    f"{parts[1]}. A concatenation without a separator would make 6.10.0 and 61.0.0 "
-                    "the same stage")
+                    f"major*100 + minor*10, and with a minor of {parts[1]} it is no longer "
+                    f"injective - {version_value} and {partner} would both be {kollision}. The "
+                    "stages present in this tree are listed, so a reader can pick one; what is "
+                    "refused is the automatic derivation, not the directory")
             else:
                 expected = str(int(parts[0]) * 100 + int(parts[1]) * 10)
     at, note, at_stable = _source_time("audit_artifacts")

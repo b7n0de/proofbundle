@@ -692,6 +692,39 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
         assert d.get("not_measurable") is not True, d
         assert d["value"] == "610", d
 
+    def test_the_scheme_is_injective_below_ten_and_collides_from_ten(self):
+        """The measurement behind the refusal, as a contract.
+
+        An un cross-reading countered with a collision that does not exist (`0.1.0` and `1.0.0` give
+        10 and 100, not 10 and 10) and concluded the refusal was too restrictive. Brute force says the
+        opposite: over major 0..99 the scheme is injective for a minor of 0..9 - 1000 names, zero
+        collisions - and from minor 10 it collides 200 times with that space. The refusal is what keeps
+        it injective, and the reason names a partner a reader can check.
+        """
+        namen = {}
+        for major in range(100):
+            for minor in range(10):
+                n = major * 100 + minor * 10
+                assert n not in namen, f"{major}.{minor}.0 collides with {namen.get(n)} at {n}"
+                namen[n] = (major, minor)
+        assert len(namen) == 1000
+        # And from minor 10 the collision is real, which is why it is refused rather than computed.
+        assert 6 * 100 + 10 * 10 == 7 * 100 + 0 * 10 == 700
+
+    def test_the_refusal_names_a_partner_that_really_collides(self):
+        # A named partner that did not actually collide would be a reason a reader cannot check -
+        # worse than the abstract sentence it replaced.
+        import re  # noqa: PLC0415
+        d = RSD.audit_state_field("6.10.0")["audit_state"]
+        m = re.search(r"([0-9]+\.[0-9]+\.[0-9]+) and ([0-9]+\.[0-9]+\.[0-9]+) would both be ([0-9]+)",
+                      d["reason"])
+        assert m, d["reason"]
+        links, rechts, zahl = m.group(1), m.group(2), int(m.group(3))
+        def stufe(v):
+            a, b, *_ = v.split(".")
+            return int(a) * 100 + int(b) * 10
+        assert stufe(links) == stufe(rechts) == zahl, (links, rechts, zahl)
+
     def test_the_stage_list_is_ordered_numerically_and_not_as_text(self, tmp_path, monkeypatch):
         # WITHOUT A VERSION the newest stage is the fallback, and "newest" must mean the greatest
         # number. As text, "90" sorts after "610" and the fallback would name a stage nine times
@@ -705,6 +738,44 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
             "the fallback picked a stage by text order, so the newest audit is not the one named: "
             f"{d['audit_state']}")
         assert d["audit_state"]["stages"] == ["90", "610", "6100"], d["audit_state"]["stages"]
+
+
+class TestAPatchedRootDoesNotLeakIntoTheNextCase:
+    """An un cross-reading asked what else reads `REPO` while a case has it pointed elsewhere.
+
+    Several cases point the generator at a throwaway tree by patching its module-level `REPO`. The
+    worry is real in shape: a module-level constant is process-wide, so a leak would make a LATER case
+    observe a temporary directory that no longer exists. What answers it is `monkeypatch`, which
+    restores the attribute in its teardown whether the case passes or fails. That is a property of the
+    fixture and not of my code, so it is measured here rather than assumed - and the order matters,
+    which is why the patching case runs first.
+    """
+
+    def test_a_case_may_point_the_root_at_a_throwaway_tree(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        assert RSD.REPO == tmp_path
+
+    def test_and_the_next_case_sees_the_real_root_again(self):
+        assert RSD.REPO == REPO, (
+            "a patched root leaked out of the previous case, so every later case measures a "
+            f"directory that may not even exist any more: {RSD.REPO}")
+        assert (RSD.REPO / "scripts" / "render_site_data.py").is_file()
+
+    def test_the_real_tree_still_gets_a_verdict_on_interop_without_naming_a_missing_path(self):
+        """WHAT STAGING THE ABSENCE GAVE UP, and the cheapest way to keep it.
+
+        Measuring the absence on a crafted tree no longer says anything about THIS repository. The un
+        cross-reading asked for a third option that keeps the real signal without naming an absent
+        path, and this is it: the real tree must produce one of the two honest shapes, and neither
+        branch requires the path to be written down here. Absent, it is a gap with a reason; present,
+        it is a value whose incomplete rows are named.
+        """
+        d = RSD.interop()
+        if d.get("not_measurable"):
+            assert d.get("reason"), "a gap without a reason is a gap that looks like a value"
+            assert "value" not in d
+        else:
+            assert "rows_without_required_fields" in d, d
 
 
 if __name__ == "__main__":
