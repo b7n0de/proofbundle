@@ -861,3 +861,34 @@ def test_a_closer_directly_followed_by_more_of_a_tag_name_is_read_as_the_version
     version. If it starts failing, the limit was closed on purpose and the comment on `_REF_ENDE`
     says so."""
     assert _trifft("https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0)x") == "release tag link"
+
+
+# ── CODEX ON PR 266, ROUND ELEVEN (2026-09-25): an ambiguous text reads loud ─────────────────────
+
+_MEHRDEUTIG = [
+    "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v},)",
+    "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v};)",
+    "[notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v}!)",
+    "(released as https://github.com/b7n0de/proofbundle/releases/tag/v{v}!)",
+]
+
+
+@pytest.mark.parametrize("zeile", _MEHRDEUTIG)
+def test_a_terminal_run_before_a_closer_is_read_as_the_version(tmp_path, zeile):
+    """NAMED, NOT CLOSED. The run is part of a link destination in `[notes](…/vX,)` and prose in
+    `(released as …/vX!)`; the two differ only before the URL. Both read as the version, so the
+    error is a red finding over an unusual tag name, never a silent pass over a sentence. If this
+    starts failing, the context was read on purpose and the comment on `_REF_ENDE` says so."""
+    # PRECONDITION: the tag the run would name is a legal ref, so the case really is ambiguous.
+    endung = zeile.format(v=AKTUELL).split("/tag/")[1].rstrip(")")
+    assert subprocess.run(["git", "check-ref-format", f"refs/tags/{endung}"],
+                          capture_output=True, timeout=30).returncode == 0, endung
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+    assert _trifft(zeile.format(v=AKTUELL)) == "release tag link", zeile
+
+
+def test_CONTROL_a_ref_name_cannot_end_with_a_full_stop():
+    """Why the full stop is not part of the question above: git refuses the name it would make."""
+    assert subprocess.run(["git", "check-ref-format", f"refs/tags/v{AKTUELL}."],
+                          capture_output=True, timeout=30).returncode != 0

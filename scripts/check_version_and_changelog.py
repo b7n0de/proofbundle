@@ -204,6 +204,14 @@ _REPO_AT_TAG = (_AUTORITAET + r"(?:"
 #: 3. prose punctuation git allows (`.`, `,`, `;`, `!`) ends the ref only as a TRAILING run, that is
 #:    when a closer, whitespace or the end of the text follows. `vX,notes` continues the ref.
 #:
+#: WHERE THE TEXT IS AMBIGUOUS, THE READING IS THE LOUD ONE (Codex round eleven, measured:
+#: `[notes](…/vX,)` selects the tag `vX,`, which git accepts). A run before a closer is prose in
+#: `(see …/vX,)` and part of the link destination in `[notes](…/vX,)`; the two differ only in what
+#: stands BEFORE the URL, and a reading of that context would need a second capture per pattern. So
+#: both read as the version: a red finding over an unusual tag name, never a silent pass over a
+#: sentence. Where the text is not ambiguous (`vX,notes`: no sentence continues a word that way),
+#: the name continues. The full stop is not part of the question, a ref name cannot end with it.
+#:
 #: Also an archive suffix and the dots of a compare range.
 _SCHLIESSER = r"[)\]<>'\"`|]"
 _REF_ENDE = (r"(?=[/#\s\x00-\x1f\x7f~^:?*\[\\]|" + _SCHLIESSER
