@@ -186,17 +186,26 @@ class TestTheVerdictDoesNotDependOnTheTransport(unittest.TestCase):
         return per_pfad, classify_eval_claim(doc)[0]
 
     def test_a_foreign_document_over_a_structural_limit_is_judged_alike(self):
+        # Each load is a limit plus one, and each limit is capped by memory (LAUF11-L3): a mutant
+        # that raises a budget constant then makes "limit plus one" fall inside the limit, and this
+        # case fails instead of the runner dying.
         from proofbundle.budget import DEFAULT_BUDGET as B
+        from _lastdeckel import KOSTEN_JE_ELEMENT as K, gedeckelt
         tief: dict = {"schema": "foreign/v1"}
         knoten = tief
-        for _ in range(B.json_depth + 2):
+        for _ in range(gedeckelt(B.json_depth, bytes_je_element=K["json_depth"]) + 2):
             knoten["n"] = {}
             knoten = knoten["n"]
         faelle = {
-            "one string over string_len": {"schema": "foreign/v1", "pad": "x" * (B.string_len + 1)},
-            "the padding of the finding, past 8 MiB": {"schema": "foreign/v1",
-                                                       "pad": "x" * (B.input_bytes + 1)},
-            "too many nodes": {"schema": "foreign/v1", "pad": [0] * (B.json_nodes + 1)},
+            "one string over string_len": {
+                "schema": "foreign/v1",
+                "pad": "x" * (gedeckelt(B.string_len, bytes_je_element=K["string_len"]) + 1)},
+            "the padding of the finding, past 8 MiB": {
+                "schema": "foreign/v1",
+                "pad": "x" * (gedeckelt(B.input_bytes, bytes_je_element=K["input_bytes"]) + 1)},
+            "too many nodes": {
+                "schema": "foreign/v1",
+                "pad": [0] * (gedeckelt(B.json_nodes, bytes_je_element=K["json_nodes"]) + 1)},
             "too deep": tief,
         }
         for name, doc in faelle.items():
@@ -213,8 +222,9 @@ class TestTheVerdictDoesNotDependOnTheTransport(unittest.TestCase):
         dict it is refused. verify_bundle has the same asymmetry for our own format. If this case
         starts failing, the asymmetry was closed on purpose and the docstring has to say so."""
         from proofbundle.budget import DEFAULT_BUDGET as B
-        stueck = "x" * (B.string_len // 2)
-        n = B.input_bytes // len(stueck) + 2
+        from _lastdeckel import KOSTEN_JE_ELEMENT as K, gedeckelt
+        stueck = "x" * (gedeckelt(B.string_len, bytes_je_element=K["string_len"]) // 2)
+        n = gedeckelt(B.input_bytes, bytes_je_element=K["input_bytes"]) // len(stueck) + 2
         doc = {"schema": "foreign/v1", "pad": [stueck] * n}
         self.assertEqual(self._beide(doc), (CLAIM_INVALID, CLAIM_REFUSED_UNKNOWN_SCHEMA))
 
