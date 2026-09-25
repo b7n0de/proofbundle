@@ -1,0 +1,36 @@
+{
+  "suite": "scitt_ccf",
+  "note": "Fixtures of the scitt-ccf/v1 reader (ADR 0009). One file was made here; two carry third-party bytes, copied verbatim and labelled per entry with origin, source and licence (owner answer N3 b). tests/test_scitt_ccf_external_bytes.py holds every file in this directory to an entry here, and every entry to its sha256.",
+  "files": [
+    {
+      "filename": "local_ledger_control.json",
+      "origin": "made here",
+      "sha256": "960a0de0ce47f17b808f2cf956efde2db7756fa1124169a6bf45737ee23e7cce",
+      "source_url": "tools/scitt_ccf_external/local_ledger_probe.py, run against a local https://github.com/microsoft/scitt-ccf-ledger in virtual mode",
+      "source_ref_or_commit": "00101f769d872711356e080fbb089ac48589c60a (the ledger built and run)",
+      "fetched": "2026-09-25",
+      "license": "MIT (this repository); keys, statements and receipts were all generated in that run",
+      "note": "the one real end-to-end control CI runs (owner answer N2 a)"
+    },
+    {
+      "filename": "third_party_scitt_verifier.json",
+      "origin": "third-party bytes",
+      "sha256": "2687201d988f4d8b4f23bc067b9e354dd11e21a10ff4f7b699e0744282d1a15c",
+      "source_url": "https://github.com/microsoft/scitt-verifier/tree/bd6fb8ba79dbb521257b7f09682c03c6681dc3d0/corpus/fixtures",
+      "source_ref_or_commit": "bd6fb8ba79dbb521257b7f09682c03c6681dc3d0",
+      "fetched": "2026-09-25",
+      "license": "MIT",
+      "note": "7 files, licence text inside; written by tools/scitt_ccf_external/fetch_external.py --write-fixtures"
+    },
+    {
+      "filename": "third_party_scitt_ccf_ledger.json",
+      "origin": "third-party bytes",
+      "sha256": "3882ba2ee53ca96bec253c124973f4ac2ad33ac057091c632034a3e2553cf1b5",
+      "source_url": "https://github.com/microsoft/scitt-ccf-ledger/tree/00101f769d872711356e080fbb089ac48589c60a/test",
+      "source_ref_or_commit": "00101f769d872711356e080fbb089ac48589c60a",
+      "fetched": "2026-09-25",
+      "license": "MIT",
+      "note": "3 files, licence text inside; written by tools/scitt_ccf_external/fetch_external.py --write-fixtures"
+    }
+  ]
+}

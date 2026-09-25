@@ -75,10 +75,20 @@ https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/blob/e729
 |---|---|---|
 | `microsoft-mst-receipt.cbor` | 725 B | `db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5` |
 
-Why fetched and not committed. The two Microsoft repositories allow redistribution under MIT
-with their notice; the working group repository does not say so plainly; and this repository takes no new binary fixture
-files from agent work (`AGENTS.md`). `fetch_external.py` pins every file by size and sha256 and
-stops on a mismatch.
+What is committed, and what stays fetched (owner answer N3 b, 2026-09-25). The two Microsoft
+repositories allow redistribution under MIT with their notice (`LICENSE` of scitt-verifier, 1074 B,
+sha256 `7df20dcdf9197e9945c14858d41c60f11b52b93e5b69e2b63416b874d598d322`; `LICENSE.txt` of
+scitt-ccf-ledger, 1073 B, sha256 `fd532481d828e13a0b13ccb598e02338a3617740675a862ee6bdc1541b68e93d`;
+both read at the pinned commits, both "Copyright (c) Microsoft Corporation."). Their statements and
+key sets used by the tests are committed as JSON, not as binary files (`AGENTS.md`):
+`fetch_external.py --write-fixtures` writes `tests/fixtures/scitt_ccf/third_party_scitt_verifier.json`
+(7 files, 40091 B) and `third_party_scitt_ccf_ledger.json` (3 files, 27683 B) from bytes held
+against the pins. Every entry is labelled `"origin": "third-party bytes"` with its source address
+at the pinned commit and its licence, and each file carries the licence text verbatim.
+`tests/fixtures/scitt_ccf/PROVENANCE.json` names the origin of every file in that directory. The
+working group repository's terms are the IETF's, not a plain redistribution grant, so its sample
+stays fetch-only, as do the scitt-verifier files the tests do not read. `fetch_external.py` pins
+every file by size and sha256 and stops on a mismatch.
 
 Text read at source for the rules, not fetched by the tool:
 
@@ -407,13 +417,14 @@ binding against `proofbundle.scitt_ccf`. Recorded in `rust_crosscheck.json`, 202
   microsoft/scitt-verifier 0.4.0.
 - The library tests live under `tests/` (`test_scitt_ccf_profile.py`, `test_cbor_prescan.py`,
   `test_scitt_ccf_without_extra.py`, `test_scitt_ccf_external_bytes.py`); the last one reads the
-  fetched bytes and skips where they are absent, which includes CI.
+  committed third-party JSON fixtures, so CI runs it (owner answer N3 b).
 
 ## REPRODUCING
 
     python3 fetch_external.py            # network, or: --from-clone scitt-verifier=PATH
                                          #              --from-clone scitt-ccf-ledger=PATH
                                          #              --from-clone ccf-profile=PATH
+                                         # --write-fixtures also rewrites the two JSON fixtures
     python3 recompute.py                 # standard library + cryptography, offline
     python3 reader_crosscheck.py         # once per environment: cbor2 6.1.4 + pycose 1.1.0,
                                          # then cbor2 5.9.0 + pycose 1.1.0
@@ -429,7 +440,7 @@ two exit 2 when the fetched files are missing.
 
 | file | |
 |---|---|
-| `fetch_external.py` | fetches the fifteen files at the pinned commits and checks size and sha256 |
+| `fetch_external.py` | fetches the fifteen files and the two licence files at the pinned commits, checks size and sha256, and with `--write-fixtures` writes the labelled JSON fixtures of the MIT sources |
 | `recompute.py` | the four values, the candidate rules, the receipts, the probes; writes `recompute_result.json` |
 | `reader_crosscheck.py` | cbor2 and pycose facts per environment; writes `reader_crosscheck.json` |
 | `recompute_result.json` | the recorded run of 2026-09-25 |
