@@ -158,36 +158,35 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(decode_eval_claim(self._signed_with("metric", value)))
 
-    def test_a_string_passed_is_stopped_at_the_boundary_and_the_export_would_still_call_it_passed(self):
-        """One half is a catch-proof, the other half is a THREAT that is still open — and the
-        name has to say so.
+    def test_a_string_passed_is_stopped_at_the_boundary_AND_at_the_export(self):
+        """THE SECOND HALF TURNED AROUND ON 2026-09-24, exactly as its predecessor instructed.
 
-        Two review lenses hit this test in sequence. The first caught that it was named after the
-        export and never invoked it. The second caught what the NAME then still promised: "is
-        stopped before an export that would call it passed" reads as a defence at the export, and
-        half two proves the opposite — that `to_test_result_statement` would still answer PASSED,
-        and stays green precisely as long as that stays true. A test whose name claims a defence it
-        does not provide is the same defect this file is about, one level up.
+        This case used to assert that `to_test_result_statement` still answered PASSED for the
+        string `"false"`, and said so in its name: the boundary defended, the export did not. Half
+        two was a standing measurement of an OPEN hole, green in both directions by construction,
+        and it carried the line "if this ever stops being PASSED the export grew its own guard, and
+        the second half of this test should become the assertion that it did".
 
-        So: half one is the catch-proof (the boundary refuses the claim, red before the fix). Half
-        two is a standing measurement of an OPEN hole, green in both directions by construction,
-        and it is not counted. `RESTRISIKO_610.md` carries that hole, together with the two sibling
-        exporters a later lens found.
+        It did. R-B4 routed all five exporter sites through one predicate, so the export now refuses
+        instead of coercing, and this half is an assertion rather than a filed threat. The name lost
+        its "would still call it passed" with it — a name that outlives the state it describes is the
+        defect this file is about, one level up.
+
+        Half one is unchanged and still the catch-proof for A-15: the boundary refuses the claim, so
+        the export is never handed it on any path that decodes.
         """
         # Half one: the boundary refuses the claim, so the export is never handed it.
         self.assertIsNone(decode_eval_claim(self._signed_with("passed", "false")))
-        # Half two: what the export DOES with such a claim if it ever arrives. This commit does not
-        # change the coercion — `_RESULT_ENUM[bool("false")]` is still PASSED — and that is exactly
-        # why the boundary has to hold. A direct caller of this public function bypasses decode and
-        # keeps the hole; filed rather than widened here, because this release cut adds no scope.
+        # Half two: what the export does when a DIRECT caller hands it such a claim, bypassing
+        # decode. It refuses now, and the refusal names the field and the type rather than failing
+        # on an index deeper in.
         signer = generate_signer()
         geschmuggelt = dict(_valid_claim(signer))
         geschmuggelt["passed"] = "false"
-        statement = to_test_result_statement(geschmuggelt, subject_digest={"sha256": "0" * 64})
-        self.assertEqual(statement["predicate"]["result"], "PASSED",
-                         "if this ever stops being PASSED the export grew its own guard, and the "
-                         "second half of this test should become the assertion that it did")
-        self.assertIn("passedTests", statement["predicate"])
+        with self.assertRaises(BundleFormatError) as ctx:
+            to_test_result_statement(geschmuggelt, subject_digest={"sha256": "0" * 64})
+        self.assertIn("passed", str(ctx.exception))
+        self.assertIn("'false'", str(ctx.exception))
 
     def test_control_a_real_claim_still_exports_its_true_verdict(self):
         signer = generate_signer()

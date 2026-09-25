@@ -33,6 +33,7 @@ from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
+from ._verdict import require_bool_verdict
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -85,7 +86,38 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     verifying a bundled list snapshot lives in :mod:`proofbundle.statuslist`.
     """
     always_open = {
-        "passed": claim["passed"], "threshold": claim["threshold"],
+        # NOT `claim["passed"]`: the value is SIGNED a few lines below, so its type is established here
+        # rather than assumed, and the VALIDATED value is used rather than a second read of the field
+        # (R-B4, CWE-1287). The establisher lives in `_verdict` because it used to live here AND in
+        # `intoto.py` as two independent copies — see that module for why one file is not one class.
+        #
+        # WHY THIS SITE IS THE WORST OF THE SIX, kept here because `_verdict`'s shared message can no
+        # longer say it: the four `intoto` sites build a statement a caller MAY then sign; this one
+        # copies `passed` into the ALWAYS-OPEN JWT claims and `signer.sign` puts a signature over it
+        # immediately. Measured 2026-09-24 at tag `v6.1.0` (`dcac5aee`): `passed` as the STRING "false"
+        # was issued verbatim into a signed SD-JWT, and `check_binds_bundle` accepted it as bound,
+        # because that check compares the field to the bundle payload for EQUALITY and both sides
+        # carried the same string. A relying party that reads the always-open `passed` the way Python
+        # reads truthiness gets a pass out of a genuinely valid signature. Nothing downstream can
+        # repair that; the type has to be established before the signature exists.
+        #
+        # WHY IT WAS NOT IN THE FIRST PASS OF R-B4, stated because the omission is the lesson.
+        # `tests/test_never_raise_surface_family_property.py:188` classifies `issue_*` as a producer
+        # that "builds an artefact from its OWN already-checked values", and line 197 says whoever
+        # turns such a function into a consumer of untrusted input must move it into the denominator.
+        # For `claim` that premise was simply false: the dict comes from the caller and no boundary
+        # stands between it and the signature. The classification was right about the family and wrong
+        # about this argument, so the fix makes the premise TRUE here rather than reclassifying the
+        # function — raising on a bad caller argument is, per that same line 190, correct for a producer.
+        #
+        # AND THIS FUNCTION HAS TWO DISJOINT REFUSAL FAMILIES. The refusal above is a
+        # `BundleFormatError`, which is NOT a `ValueError` (measured), while the `status` and
+        # `holder_public_key` checks below raise a genuine `ValueError`. No single `except` covers all
+        # refusals of `issue_sd_jwt`, and a third form exists one layer out where
+        # `evalclaim.decode_eval_claim` refuses by returning None and raising nothing. The three are
+        # measured in `tests/test_abweisungsformen_sind_drei.py`; an earlier wording here promised the
+        # opposite and was wrong on the day it landed.
+        "passed": require_bool_verdict(claim, wo="issue_sd_jwt"), "threshold": claim["threshold"],
         "comparator": claim["comparator"], "suite": claim["suite"],
         "issuer": claim["issuer"], "receipt": {"root_b64": root_b64},
         "vct": vct,
