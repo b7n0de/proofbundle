@@ -2,7 +2,7 @@
 """Fetch the two upstream SCITT CCF vectors at their pinned commit, and verify them.
 
 WHY A FETCHER AND NOT A COPY. `data-hash-vector.json` and `data-hash-tag-vector.json` are
-Nicholas Vokes' artefacts, contributed to the `scitt@ietf.org` list. Re-publishing someone
+Nicholas Templeman's artefacts, contributed to the `scitt@ietf.org` list. Re-publishing someone
 else's files inside this repository would make this directory look like their source, and it
 is not. Fetching them at a pinned commit keeps the provenance where it belongs.
 
