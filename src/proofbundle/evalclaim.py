@@ -27,12 +27,13 @@ from typing import Optional, Sequence
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .bundle import load_bundle, verify_bundle
+from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
+from ._strict_json import enforce_structural_budget
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -438,26 +439,68 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         return None
 
 
+def _names_a_foreign_bundle_format(bundle) -> bool:
+    """True only for a bundle whose top-level `schema` is a present, non-empty string other than ours.
+
+    Read without walking the document: one key, one type check, one comparison, so it adds no work
+    that the structural budget in ``verify_bundle`` would otherwise have bounded.
+    """
+    if not isinstance(bundle, dict) or "schema" not in bundle:
+        return False
+    schema = bundle["schema"]
+    return isinstance(schema, str) and bool(schema) and schema != BUNDLE_SCHEMA
+
+
 def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tuple:
     """Three-outcome classification of a bundle: (outcome, claim-or-None).
 
     ``CLAIM_VALID`` — verified, and the claim is a sound eval claim (the claim is returned).
     ``CLAIM_REFUSED_UNKNOWN_SCHEMA`` — the bundle VERIFIES, but its payload declares a schema this
-    verifier does not know. That is not a defect of the receipt; it is the limit of this verifier,
-    and reporting it as `invalid` would put a wrong verdict on someone else's sound artifact.
+    verifier does not know; or the envelope itself declares a format that is not ours (see below).
+    That is not a defect of the receipt; it is the limit of this verifier, and reporting it as
+    `invalid` would put a wrong verdict on someone else's sound artifact.
     ``CLAIM_INVALID`` — everything genuinely judgeable and wrong: a broken signature, a payload that
     is not JSON, a known schema carrying a malformed claim.
 
     ORDER MATTERS AND IS DELIBERATE. Authenticity is decided FIRST: a bundle whose signature does not
-    verify is `invalid` no matter what schema it names, because a broken signature IS judgeable and
-    "I cannot judge this" would be the weaker, wrong answer. Only an AUTHENTIC payload can earn a
-    refusal.
+    verify is `invalid` no matter what schema its PAYLOAD names, because a broken signature IS
+    judgeable and "I cannot judge this" would be the weaker, wrong answer. Only an AUTHENTIC payload
+    can earn a refusal at the claim level.
+
+    ONE STEP COMES BEFORE AUTHENTICITY, and it is the envelope's own identifier. A bundle whose
+    top-level `schema` names a format that is not `proofbundle/v0.1` is `CLAIM_REFUSED_UNKNOWN_SCHEMA`
+    too. Its signature is not judgeable here, because this verifier does not know how that format is
+    signed, and judging it as a broken `proofbundle/v0.1` would be the best-effort reading R2 rules
+    out. Until 2026-09-25 this returned `invalid`: `verify_bundle` raises `UnsupportedError` for the
+    foreign identifier, and the broad `except` below folded that typed refusal into the invalid
+    outcome. Measured 2026-09-05 with an `inspect-receipts` 0.3 receipt in issue 147 (release scope
+    line Z.278).
+
+    THE REFUSAL NEEDS A DECLARATION. Only a PRESENT, non-empty string that is not ours counts as a
+    foreign identifier. An ABSENT `schema` declares no other format, and a present value that is not
+    a usable identifier (a number, a list, an empty string) declares nothing either; both stay
+    `invalid`, fail-closed, as `verify_bundle` rules them. An unknown `signature.alg` or
+    `merkle.hash_alg` INSIDE a `proofbundle/v0.1` bundle also stays `invalid`: our own schema fixes
+    both values, so a bundle that names ours and breaks it is judgeable. What renaming the envelope
+    identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`.
+
+    THE RESOURCE LIMITS COME BEFORE THE IDENTIFIER, in both transports (Codex on PR 268, measured).
+    A path is read through ``load_bundle``, which applies the byte cap and the structural limits
+    before any field can be looked at, so a foreign document over them was `invalid` by path and
+    refused as a dict. The dict path now applies the same structural limits (nodes, depth, string
+    length, integer size) first. What remains different, and is stated rather than hidden: a dict
+    carries no bytes, so the ``input_bytes`` cap cannot be applied to it. That is the same asymmetry
+    ``verify_bundle`` has for our own format on its dict path.
 
     Never raises — same never-raise contract as ``decode_eval_claim``.
     """
     try:
         if isinstance(bundle, str):
             bundle = load_bundle(bundle)
+        elif isinstance(bundle, dict):
+            enforce_structural_budget(bundle)
+        if _names_a_foreign_bundle_format(bundle):
+            return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
         if not verify_bundle(bundle).ok:
             return (CLAIM_INVALID, None)
         payload = decode_b64(bundle["payload_b64"])
