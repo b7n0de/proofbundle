@@ -1,9 +1,12 @@
 # ADR 0009: The `scitt-ccf` anchor, a narrow COSE profile over measured bytes
 
 - **Status:** proposed. Fixes the profile, the four values, the trust interface, the error states
-  and the test classes for the 6.4.0 anchor type `scitt-ccf`. Builds nothing under `src/`; the
-  implementation is a separate work package. Eight questions are left to the owner at the end.
-- **Date:** 2026-09-25
+  and the test classes for the 6.4.0 anchor type `scitt-ccf/v1`. The owner answered Q1 to Q8 on
+  2026-09-25 (section "Owner answers"); the reader, the statement signature and the receipt
+  verification are built under `src/` as `proofbundle.scitt_ccf` behind the `[scitt]` extra
+  (work packages AP2 to AP4). It is not registered as an anchor type and no verify path reaches it;
+  that is AP5, after 6.3.0. Five new questions are left to the owner at the end.
+- **Date:** 2026-09-25 (first version and the owner-answer revision)
 - **Deciders:** proofbundle maintainer
 - **Builds on:** ADR 0006 (anchor longevity, SCITT raised in rank), ADR 0007 (the algorithm label
   lives inside the signed bytes), the anchor layer in `src/proofbundle/anchors.py`
@@ -37,9 +40,15 @@ What was measured before writing this, on 2026-09-25 (all in `tools/scitt_ccf_ex
 - The data-hash input rule was measured by holding eight candidate byte strings against the
   receipt's data-hash. One byte string matches in all four; described as spliced or as
   re-encoded it is the same bytes for these inputs (see Decision 3).
-- No real statement found is a proofbundle anchor: the production hash envelope uses SHA-384 and
-  its artifact is unpublished, the others are not hash envelopes. An end-to-end v1 control on real
-  bytes is therefore NOT MEASURED (Q6).
+- No real statement found publicly is a proofbundle anchor: the production hash envelope uses
+  SHA-384 and its artifact is unpublished, the others are not hash envelopes. So, on the owner's
+  answer to Q6, one was made: a hash envelope over the root of `examples/example_bundle.json`,
+  registered on a local scitt-ccf-ledger in virtual mode, with seven other forms beside it
+  (Decision 3). It confirms end to end and is committed as
+  `tests/fixtures/scitt_ccf/local_ledger_control.json`.
+- microsoft/scitt-verifier (Rust, pinned at `bd6fb8ba79dbb521257b7f09682c03c6681dc3d0`) was run
+  offline on the same bytes as `proofbundle.scitt_ccf`: 58 values agree, 0 differ
+  (`tools/scitt_ccf_external/rust_crosscheck.json`, owner answer Q7 c).
 - The leaf rule of draft -05 was held against the two literal readings of -04: only the -05 form
   verifies against a real receipt.
 - cbor2 5.9.0 and 6.1.4 and pycose 1.1.0 were run against the same bytes; their version facts
@@ -49,7 +58,8 @@ What was measured before writing this, on 2026-09-25 (all in `tools/scitt_ccf_ex
 
 ### 1. Profile and version
 
-`scitt-ccf` profile **v1** verifies:
+The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/v1`). Profile
+**v1** verifies:
 
 - a Transparent Statement per RFC 9943 whose Signed Statement is an RFC 9995 COSE Hash Envelope,
   COSE_Sign1 per RFC 9052, with receipts per RFC 9942 under label 394;
@@ -78,7 +88,7 @@ re-read.
 | # | name | what it is | computed from | who defines the rule |
 |---|---|---|---|---|
 | 1 | hash envelope payload | the digest of the proofbundle target: the anchor's `canonicalRoot` | the target (receipt JCS root, `prereg_sha256`, statement content root) | RFC 9995: label 258 hash algorithm, 259 preimage content type, 260 location; label 3 forbidden |
-| 2 | local ToBeSigned ID | an identifier for what the statement's signer signed | the RFC 9052 Sig_structure of the statement | proofbundle, a local rule, versioned (`tbs-id/v1`, see Q4) |
+| 2 | local ToBeSigned ID | an identifier for what the statement's signer signed | the RFC 9052 Sig_structure of the statement | no API in 6.4.0 (owner answer Q4 c); a measured quantity in `tools/scitt_ccf_external` only |
 | 3 | CCF data-hash | the third component of the CCF leaf | the registered signed statement bytes | the Transparency Service; measured, Decision 3 |
 | 4 | CCF Merkle root | the root the receipt signs | the inclusion proof: leaf and path | draft -05 |
 
@@ -100,8 +110,9 @@ Rules:
 
 ### 3. The data-hash input rule, as measured
 
-Measured on four registered statements, one of them from the production ledger
-(`tools/scitt_ccf_external/README.md`, section "THE MEASURED DATA-HASH INPUT RULE"): value 3 is
+Measured on four statements others registered, one of them from the production ledger
+(`tools/scitt_ccf_external/README.md`, section "THE MEASURED DATA-HASH INPUT RULE"), and on eight
+forms registered here on a local ledger (below): value 3 is
 
     SHA-256( d2 84 || protected bstr as served || a0 || payload bstr as served || signature bstr as served )
 
@@ -120,19 +131,36 @@ map before the Signed Statement can be included in a Statement Sequence" (WG sou
 `ba7d23d40557f0206735592036532414139d9a57`, section "Registration of Signed Statements"; the task
 cites it as RFC 9943 section 6.3, NOT MEASURED against the published RFC).
 
-Where the measurement stops, and what v1 does about it:
+What the service does with other forms, measured on 2026-09-25 by registering them
+(`tools/scitt_ccf_external/local_ledger_probe.py`, `local_ledger_result.json`; scitt-ccf-ledger
+built from `docker/Dockerfile` at `00101f769d872711356e080fbb089ac48589c60a`, CCF 7.0.17, RPM
+sha256 `789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e`, virtual mode, one node,
+opened with the repository's own `scitt governance local_development`; two runs with fresh keys,
+same outcome):
 
-| input form | data-hash rule | v1 |
-|---|---|---|
-| tagged, definite, shortest-form heads, embedded payload | measured | accepted |
-| untagged | CCF 7.0.17 refuses it at registration (source); NOT MEASURED on a service | outside profile |
-| payload detached (nil) | NOT MEASURED | outside profile |
-| indefinite lengths or non-shortest heads | NOT MEASURABLE without registering such a statement; spliced and re-encoded bytes would differ | refused by the pre-scan |
-| other unprotected parameters besides 394 | the code empties the whole map; the measured statements carry only 394, so NOT MEASURED | accepted, with the whole map cleared |
+| form submitted | the service | data-hash equals | v1 on what the service serves back |
+|---|---|---|---|
+| control: tagged, definite, shortest, embedded payload, empty unprotected | accepted | SHA-256 of the submitted bytes | confirmed end to end |
+| payload detached (nil) | refused: "Detached or empty payloads are not supported" | n/a | outside profile |
+| untagged | refused: "COSE_Sign1 is not tagged" | n/a | outside profile |
+| outer array indefinite (`9f ... ff`) | refused: "Signature verification failed" | n/a | refused by the pre-scan |
+| payload as an indefinite-length byte string | refused: "Detached or empty payloads are not supported" | n/a | refused by the pre-scan |
+| signature head non-shortest (`59 00 40`) | accepted, **stored re-encoded** in shortest form | the service's re-encoded bytes, **not** the submitted ones | confirmed (the stored form is shortest) |
+| unprotected map carrying label 99 | accepted, stored with the map **emptied** | the emptied form | confirmed |
+| alg -7 as `38 06` inside the protected header | accepted, protected header **kept as sent** | the submitted bytes | **refused by the pre-scan** (see new question N1) |
 
-Requiring shortest-form, definite encoding is what makes the spliced rule and the re-encoded rule
-the same bytes, measured equal on all four statements. Widening v1 to any row marked NOT MEASURED
-needs a registered statement of that form first (see Q6).
+Three facts follow, each measured, not read from code:
+
+- the service hashes its own re-serialisation, not the submitted bytes: the control, the
+  non-shortest signature head and the extra unprotected parameter, three submissions, carry **one**
+  data-hash
+- the protected header is opaque to that re-serialisation: a non-shortest integer inside it survives
+- the whole unprotected map is cleared, not only label 394
+
+v1 therefore reads the statement **as the service serves it back**, and requires it to be tagged,
+definite and shortest-form, which is what makes the spliced rule and the re-encoded rule the same
+bytes (measured equal on all twelve statements that confirm). The one form the service accepts
+and v1 refuses is a non-shortest integer inside the protected header.
 
 ### 4. The leaf and the root
 
@@ -149,15 +177,20 @@ inclusion proof, every proof must compute the same root.
 ### 5. Trust interface: `rp_trust` only
 
 Trust comes from the relying party through `rp_trust`, as for every anchor type since WP-A1
-(`docs/ANCHORS.md`, "Trust model"). The shape proposed for 6.4.0:
+(`docs/ANCHORS.md`, "Trust model"). As built in `proofbundle.scitt_ccf`:
 
 - `rp_trust["scitt_ccf_services"]`: a mapping from the receipt issuer (the CWT `iss` claim, label 1
-  inside label 15 of the receipt's **protected** header, compared as an exact string) to a
-  COSE_KeySet, as served by the service's `/.well-known/scitt-keys` and pinned by the relying
-  party. CLI and policy spellings follow the existing `--trusted-tsa-root` /
-  `anchors.trusted_tsa_roots` pattern and are fixed in the implementation.
-- `rp_trust["scitt_statement_keys"]`, optional: keys the relying party accepts for the statement
-  signer (see Q3).
+  inside label 15 of the receipt's **protected** header, compared as an exact string) to a list of
+  keys. A key is SubjectPublicKeyInfo DER bytes or `{"spki": bytes, "kid": bytes}`;
+  `load_cose_keyset` turns a COSE_KeySet, as served by the service's `/.well-known/scitt-keys` and
+  pinned by the relying party, into that form. CLI and policy spellings are AP5.
+- `rp_trust["scitt_statement_keys"]`: keys the relying party accepts for the statement signer,
+  **always required** (owner answer Q3 b). Without them the entry is `needs_rp_trust`. If keys are
+  given and none verifies the statement, including a key of the wrong type or curve, it is
+  `statement_signature_invalid`. Statements carry no kid (none measured does), so every given key
+  is tried; see new question N4.
+- Malformed relying-party entries are skipped and reported in `ignored_trust`; they can only ever
+  be absent trust, never trust.
 
 Never a trust source, each named because each is present in real evidence:
 
@@ -170,8 +203,10 @@ Never a trust source, each named because each is present in real evidence:
 | the anchor's `frozen` field | the bundle | evidence (`frozenEvidence`), never trust; a producer may freeze the key set it used, and it is reported next to the RP result |
 | `anchoredAt` | the anchor entry | informative only |
 
-A receipt whose issuer has no RP key set, or whose kid selects no RP key, is `needs_rp_trust`:
-not verified, not failed, and never satisfying.
+A receipt whose issuer has no RP key set, or whose kid matches no RP key of that issuer (the key's
+own kid, or `hex(SHA-256(SPKI))` when it has none), is `needs_rp_trust`: not verified, not failed,
+and never satisfying. A key the relying party trusts for one issuer is never selected for
+another.
 
 The authenticity of a key set against its live service is the relying party's work. For the
 measured evidence it was NOT MEASURED (service host blocked); the pinned set is authenticated by
@@ -226,31 +261,35 @@ spans value 3 is computed from:
 | `internal-evidence` | 1..1024 bytes UTF-8 | -05 CDDL; real: 72, 76 and 77 bytes |
 | lengths | definite only | real: all definite |
 | heads | shortest form only | real: all shortest |
-| tags | 18 at the top of the statement and at the top of each receipt; 1 only around an integer CWT time claim (4, 5, 6) in the statement's protected CWT map (Q8); nowhere else | real: 18 in all; tag 1 around `iat` in two statements, one of them the production statement |
+| tags | 18 at the top of the statement and at the top of each receipt; 1 only around an integer CWT time claim (4, 5, 6) in the statement's protected CWT map (owner answer Q8 a); nowhere else | real: 18 in all; tag 1 around `iat` in two statements, one of them the production statement; a nested tag-18 COSE_Sign1 inside a protected header (`nested-sign1.cose`) is refused |
 | simple values | false, true, null; no floats | real: no floats |
 | map keys | integer or text string, unique | real: yes |
 | trailing bytes | none, in the statement, each receipt and each inclusion proof | real: none |
 
-The values in the v1 column are proposals the implementation pins in one place; the measured
-column is why they are not tighter or looser. The tag 1 allowance is the one place where a real
+The values in the v1 column are pinned in `proofbundle.scitt_ccf` (`MAX_STATEMENT_BYTES`,
+`MAX_DEPTH`, `MAX_RECEIPTS`, `MAX_INCLUSION_PROOFS`, `MAX_PATH`, `MAX_EVIDENCE_BYTES`) and in
+`proofbundle._cbor_prescan`; each is tested at L and L+1. The measured column is why they are not
+tighter or looser. The tag 1 allowance is the one place where a real
 production statement forced the profile wider than a clean reading of RFC 8392 would (NumericDate
 is the untagged form there); the claim stays informative and never becomes `trustedTime`.
 
 ### 9. Error states, a closed set
 
-Each receipt gets exactly one of these, and the anchor entry reports `confirmed` if at least one
-receipt is `confirmed`; otherwise the first state in this order across its receipts:
+Each receipt gets exactly one of these, and the anchor entry reports `confirmed` if the statement
+side holds and at least one receipt is `confirmed`; otherwise the first state in this order across
+the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
-| `malformed` | the pre-scan or the COSE structure refused the bytes | False | False |
+| `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes; also a statement with no receipt | False | False |
 | `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
-| `statement_signature_invalid` | an RP statement key was supplied and the statement signature fails with it | False | False |
+| `statement_signature_invalid` | RP statement keys were supplied and the statement signature fails with every one of them | False | False |
 | `root_mismatch` | inclusion proofs of one receipt compute different roots | False | False |
 | `signature_invalid` | an RP key was selected and the receipt signature fails over value 4, including algorithm and key mismatch | False | False |
 | `receipt_not_bound` | the receipt signature is valid, but the leaf's data-hash differs from value 3 recomputed from this statement | False | False |
-| `needs_rp_trust` | no RP key set for the issuer, or no RP key for the kid | False | False |
+| `needs_rp_trust` | no RP statement key, no RP key set for the receipt's issuer, or no RP key for its kid | False | False |
 | `confirmed` | profile satisfied, see Decision 10 | True | False |
 
 `warn` is never set by `scitt-ccf`. A CCF receipt exists only after commit, so v1 has no pending
@@ -260,7 +299,8 @@ RP material, `needs_rp_trust`, `frozenEvidence`.
 One receipt that fails next to one that is `confirmed` does not veto the entry; it is reported. The
 unprotected header that carries receipts is covered by no signature, so anyone handling the file can
 append one (the argument of the scitt-verifier corpus, `corpus/README.md` at the pinned commit). This
-is the same separation `verify_anchors` already keeps between `require_met` and `status`. See Q5.
+is the same separation `verify_anchors` already keeps between `require_met` and `status` (owner
+answer Q5 a).
 
 ### 10. Result semantics: three separate results
 
@@ -268,7 +308,7 @@ is the same separation `verify_anchors` already keeps between `require_met` and 
 |---|---|---|
 | **readable** | the proof passes the pre-scan and parses as a tagged COSE_Sign1 with at least one receipt that parses under the -05 CDDL | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
 | **signature valid** | a receipt's ES256/ES384 signature verifies over its computed root with a key selected from the RP key set of its issuer | `payload-tampered.cose`: signature valid, profile not satisfied, because the receipt belongs to another statement |
-| **profile satisfied** | signature valid, and for that receipt: vds 2, payload detached, all proofs one root, leaf data-hash equals value 3, the statement is a v1 hash envelope whose value 1 equals `canonicalRoot`, crit and header rules hold, and a supplied RP statement key verifies the statement | receipt side, real: the control and `uvm_0.2.10.cose` (production). Statement side: no real statement is a proofbundle anchor, so the end-to-end control is synthetic until Q6 is answered |
+| **profile satisfied** | signature valid, and for that receipt: vds 2, payload detached, all proofs one root, leaf data-hash equals value 3, the statement is a v1 hash envelope whose value 1 equals `canonicalRoot`, crit and header rules hold, and an RP statement key verifies the statement | end to end, real: the local-ledger control in `tests/fixtures/scitt_ccf/local_ledger_control.json`. Receipt side, real: the test-service control and `uvm_0.2.10.cose` (production) |
 
 Only "profile satisfied" sets the anchor's `ok`. The three are reported side by side, never folded
 into one boolean, because each alone has a real counterexample in the measured evidence. Carrying
@@ -279,8 +319,10 @@ them through `verify_anchor` needs an additive field there; that is implementati
 
 - `allow_pending` counts entries with `ok` or `warn` (`verify_anchors`). `scitt-ccf` never sets
   `warn`, so a missing receipt, a detached payload, missing trust or an unknown issuer cannot
-  satisfy `--require-anchor`, with or without `--allow-pending`. A regression case pins this, next
-  to its control, when the type is built.
+  satisfy `--require-anchor`, with or without `--allow-pending`. The results of
+  `proofbundle.scitt_ccf` carry no `warn` field at all (pinned by
+  `tests/test_scitt_ccf_profile.py`); the `allow_pending` regression case against `verify_anchors`
+  belongs to AP5, where the type is registered.
 - A statement without receipts is `malformed`: a Signed Statement is not a Transparent Statement.
 - An empty RP key set is missing trust, not trust in nothing.
 
@@ -288,8 +330,8 @@ them through `verify_anchor` needs an additive field there; that is implementati
 
 `anchoredAt` stays informative, as for every anchor type. v1 sets no `trustedTime` at all. The
 receipt's protected CWT `iat` is signed by the service key and is reported as `receiptIat`,
-informative, with its source named. What clock stands behind it is NOT MEASURED. Whether a later
-profile may lift it into `trustedTime` is Q2.
+informative, with its source named (`receipt_iat` in `proofbundle.scitt_ccf`). What clock stands
+behind it is NOT MEASURED. Owner answer Q2 a: v1 lifts nothing into `trustedTime`.
 
 ### 13. CBOR and COSE libraries: the chosen direction, confirmed and corrected
 
@@ -309,7 +351,7 @@ Corrected by measurement (`reader_crosscheck.json`, 2026-09-25, CPython 3.11.15)
 
 - cbor2 decodes the tag 1 of the production statement to a `datetime` (both versions), while the
   pre-scan sees an integer under tag 1. A differential between the two readers must map exactly
-  that one position and nothing else; one more argument in Q1.
+  that one position and nothing else, which is how it is built.
 - "Limits set" is not enough. cbor2 5.9.0 and 6.1.4 both interpret tags 1, 2, 28/29, 256/25 and
   55799 by default (datetime, bignum, shared and string references resolved, 55799 dropped).
   `tag_hook` is not called for tag 2 (measured on both versions). Refusing such a tag needs a
@@ -326,7 +368,7 @@ Corrected by measurement (`reader_crosscheck.json`, 2026-09-25, CPython 3.11.15)
   `isinstance(cose_obj, list)` and gets a `tuple`). Under cbor2 5.9.0 it works and verifies all
   three real test-service receipts over our recomputed roots. So pycose cannot share an environment with a
   cbor2 that rejects duplicate keys. As a comparison it needs its own environment pinned to cbor2
-  5.9.0, or it is dropped (Q7).
+  5.9.0, or it is dropped; the owner dropped it (Q7 c).
 
 Version facts, read at source on 2026-09-25:
 
@@ -343,10 +385,14 @@ Version facts, read at source on 2026-09-25:
   https://pypi.org/project/pycose/ has its last commit on 2025-10-09
   (`1458ddf14efffbd00bc4052d9026b63da725098e`) and no tag after `v1.1.0`.
 
-So the extra, if cbor2 stays in it, is qualified at 6.1.4 with `allow_duplicate_keys=False`,
-`allow_indefinite=False`, a `max_depth` equal to the pre-scan's, and only after the pre-scan passed;
-cbor2 then serves as the second reader whose decoded values must equal the pre-scan's. The pin
-form is Q1b.
+As built (owner answer Q1 b): `pyproject.toml` declares `scitt = ["cbor2==6.1.4"]`, and `dev`
+carries the same pin so CI runs the reader's tests; `test` does not, so the sdist run of `[test]`
+shows the suite without the extra. cbor2 is called with `allow_duplicate_keys=False`,
+`allow_indefinite=False` and a `max_depth` two above the pre-scan's, and only after the pre-scan
+passed; its decoded values must equal the pre-scan's, compared by content, with tag 1 mapped to the
+`datetime` cbor2 makes of it and nothing else mapped. A cbor2 without the strict options is refused
+at run time (`no_lib`). pycose is not used at all (owner answer Q7 c); its place as the comparison is
+taken by the Rust verifier of microsoft/scitt-verifier, Decision 14.
 
 ### 14. Python and Rust
 
@@ -355,13 +401,32 @@ form is Q1b.
 verdict and no exit code of a bundle without `--require-anchor`, as for every anchor type (SPEC
 section 7i), so it introduces no Python and Rust divergence on the verdicts the Rust side
 computes. When the Rust anchor slice is built, the byte vectors of Decision 3 and the probes of
-`tools/scitt_ccf_external/` are its parity cases.
+`tools/scitt_ccf_external/` are its parity cases. The two new `verify_` surfaces are registered as
+`PENDING` in `scripts/rust_parity_registry.json`.
+
+A foreign Rust reader was run instead, on the owner's answer to Q7: microsoft/scitt-verifier 0.4.0
+at `bd6fb8ba79dbb521257b7f09682c03c6681dc3d0`, built with `cargo build --release --locked`, run
+offline with local key sets on the twelve real statements (`tools/scitt_ccf_external/rust_crosscheck.py`,
+2026-09-25). Compared per receipt and statement: Merkle root, leaf data-hash, recomputed data-hash,
+receipt signature validity, binding, kid binding. 58 values agree, 0 differ, 9 not comparable,
+all nine where v1 refuses a form scitt-verifier reads (the nested tag-18 statement, the
+non-shortest protected header, the legacy receipt, and two kid bindings not reported for an
+invalid signature). Verdicts differ by design and are recorded, not compared: scitt-verifier
+appraises a signer chain and a policy, v1 requires a hash envelope over a proofbundle root.
 
 ## Test classes
 
 Each class has an unchanged control case that must pass before any of its negative cases counts.
-"Real" means the fetched bytes of `tools/scitt_ccf_external/`; "synthetic" means bytes made by the
-test with a key it generates, and says so.
+"Real" means bytes a CCF service produced: the committed local-ledger vector
+(`tests/fixtures/scitt_ccf/local_ledger_control.json`, always available) or the fetched bytes of
+`tools/scitt_ccf_external/` (available only after `fetch_external.py`). "Synthetic" means bytes made
+by the test with a key it generates, and says so.
+
+Where they are, as built: `tests/test_scitt_ccf_profile.py` (every class below, the synthetic
+control and the real local-ledger control, 86 cases), `tests/test_cbor_prescan.py` (the pre-scan
+alone, standard library, 44 cases), `tests/test_scitt_ccf_without_extra.py` (the `no_lib` refusal,
+runs with and without cbor2, 6 cases), `tests/test_scitt_ccf_external_bytes.py` (the fetched
+third-party bytes, 4 cases; a skip where they are not fetched, which includes CI).
 
 | class | property | control (unchanged) | negative cases, each a single change |
 |---|---|---|---|
@@ -370,7 +435,7 @@ test with a key it generates, and says so.
 | crit | crit is protected, non-empty, lists only present labels v1 processes | real control (no crit) | crit in unprotected; empty crit; crit listing an absent label; crit listing a present label v1 does not process |
 | resource and tag limits | the pre-scan refuses before any library decodes | real control within all limits; real `uvm_0.2.10.cose` with its tag 1 around `iat` accepted | each limit of Decision 8 exceeded by one; tag 1 around a non-time claim, around a float, or in a receipt; tags 2, 24, 28/29, 256/25, 55799 and an unregistered tag at depth 1 and inside a receipt; indefinite outer array (the `D` vector of `tools/scitt_ccf_datahash_vector/`); non-shortest head; one trailing byte after the statement, after a receipt, after an inclusion proof; a float |
 | signed bytes kept original | the protected header, payload and signature bytes that enter Sig_structure and value 3 are the bytes as served, never re-encoded from decoded values | real control | the protected map re-encoded with reordered keys (signature must fail, value 3 must change); one bit of the signature element (measured: value 3 no longer matches) |
-| external inputs | unknown is not empty | real control, AAD empty by profile, payload embedded | AAD `00` (measured: receipt fails); statement payload nil (outside profile, reported as missing, not as empty); embedded empty payload `h''` (unbound, a different state); receipt with an attached payload equal to the root (outside profile) |
+| external inputs | unknown is not empty | real control, AAD empty by profile, payload embedded | AAD `00` (measured: receipt fails); no AAD parameter on any entry point; statement payload nil (outside profile, reason "detached"); embedded empty payload `h''` (outside profile, its own reason "32 bytes, not 0"); receipt with an attached payload equal to the root (outside profile); `canonical_root` not 32 bytes (unbound) |
 | algorithm and key binding | the protected alg, the RP key type and curve belong together | real control ES384 over P-384; real production receipt verified with a store entry labelled `ES256` (label ignored) | ES384 label with a P-256 RP key; ES256 label with a P-384 key; an EC label with an RSA key; an unsupported alg (outside profile, not invalid); ECDSA signature of wrong length; PS256 with a different salt length (synthetic) |
 | identity and cache | value 2 never stands in for value 3; key identity is the RP key, not the kid | real control | synthetic: one ToBeSigned signed twice (measured: value 2 equal, value 3 different), the receipt of the first moved to the second must be `receipt_not_bound`; a second RP key under the same kid for another issuer must not be selected; a cached verdict for one proof must not be returned for a proof with equal value 2 and different bytes |
 | receipt verification | leaf per -05, fold, one root, detached payload, vds 2, signature over value 4 | real control, `cbor-header.cose`, `nested-sign1.cose`, and the production `uvm_0.2.10.cose` | one path bit flipped (measured: fails); one path left flag flipped; leaf by the -04 reading of 2.1 (measured: fails); evidence not hashed (measured: fails); vds 1; two inclusion proofs with different roots; key set of another service (`needs_rp_trust`, measured); no key set (`needs_rp_trust`, measured); `tampered-statement.cose` (`signature_invalid`) |
@@ -388,18 +453,19 @@ measured comparison fails once.
 
 ## Consequences
 
-- 6.4.0 gets one new optional-extra dependency at most (cbor2, Q1). The base install and every
-  bundle without a `scitt-ccf` anchor verify unchanged.
+- 6.4.0 gets one new optional-extra dependency, cbor2 pinned at 6.1.4 (Q1 b). The base install and
+  every bundle without a `scitt-ccf/v1` anchor verify unchanged; `proofbundle.scitt_ccf` imports
+  without the extra and refuses with `no_lib`.
 - The profile is deliberately narrower than what services may register. A statement registered in
-  a form v1 refuses is reported as `outside_profile`, not as forged; widening needs a measurement
-  first.
+  a form v1 refuses is reported as `outside_profile` or `malformed`, never as forged; widening needs
+  a measurement first. Measured instances today: a nested tag-18 statement in a protected header,
+  a non-shortest integer inside a protected header (N1), the legacy two-element receipt.
 - Trust setup becomes the relying party's work for each service it accepts: which issuer, which
   key set, pinned how. The anchor layer already asks the same for TSA roots and Bitcoin headers.
-- `verify_anchor` needs an additive pass-through for the three results and `receiptIat`; that is
-  the one change in `src/proofbundle/anchors.py` this design implies.
-- The byte vectors and probes in `tools/scitt_ccf_external/` are fetched, not vendored. Tests that
-  need them either fetch in a job with network or use synthetic bytes; that choice is part of the
-  implementation package.
+- `verify_anchor` needs an additive pass-through for the three results and `receipt_iat`; that is
+  the one change in `src/proofbundle/anchors.py` this design implies, and it belongs to AP5.
+- Third-party bytes stay fetched, not vendored (N3). The one real end-to-end control is our own
+  registration and is committed as a test fixture (N2).
 
 ## What this ADR does not claim
 
@@ -409,57 +475,51 @@ were registered on a service whose key the relying party chose to trust, at a le
 service signed. It does not claim the service is honest, that its ledger is consistent over time
 (consistency proofs are not evaluated in v1), or that the key set is current.
 
-## Open questions for the owner
+## Owner answers (2026-09-25)
 
-Q1. Type name and cbor2 pin.
-  a) type string `scitt-ccf`, profile version inside the verifier; cbor2 `>=6.1.4,<7`
-  b) type string `scitt-ccf/v1` (precedent `chia-datalayer/v1`); cbor2 pinned to the measured
-     `==6.1.4`, each bump measured, as the `inspect` extra does
-  c) `scitt-ccf/v1`, and no cbor2: the own pre-scan reader is the only reader, the extra adds no
-     CBOR dependency
+| question | answer | where it stands now |
+|---|---|---|
+| Q1 type name and cbor2 pin | b | type string `scitt-ccf/v1`; `scitt = ["cbor2==6.1.4"]`, every bump measured |
+| Q2 time from the receipt | a | no `trustedTime`; `receipt_iat` informative |
+| Q3 statement signer | b | always required; without RP statement keys `needs_rp_trust` |
+| Q4 local ToBeSigned ID | c | no API in 6.4.0; a measured quantity in `tools/scitt_ccf_external` only |
+| Q5 several receipts | a | one confirmed receipt confirms the entry, the others are reported |
+| Q6 the unmeasured forms | a | measured on a local ledger, Decision 3; the end-to-end control exists |
+| Q7 comparison | c | microsoft/scitt-verifier run offline on the same bytes, Decision 14 |
+| Q8 tag 1 | a | allowed only around an integer CWT time claim of the statement's protected header |
 
-Q2. Time from the receipt.
-  a) v1 sets no `trustedTime`; `receiptIat` is informative (proposed above)
-  b) v1 lifts the signed `iat` into `trustedTime` with source `scitt_ccf_receipt_iat`
-  c) postpone until the clock behind `iat` is measured on a service
+## New questions for the owner
 
-Q3. The statement signer.
-  a) not required; checked only when the relying party supplies statement keys, and then binding
-     (proposed above)
-  b) always required: without RP statement keys the anchor is `needs_rp_trust`
-  c) never checked in v1
+N1. A non-shortest integer inside the protected header. The service accepts it and keeps it as
+  sent; v1 refuses it in the pre-scan.
+  a) keep refusing: one wire form per statement, and no reader differential to reason about
+  b) accept non-shortest heads inside the protected bstr only, where the data-hash copies the bytes
+  c) accept them everywhere the service keeps them, and measure each position first
 
-Q4. The local ToBeSigned ID (value 2).
-  a) `tbs-id/v1 = SHA-256(Sig_structure)`, external_aad empty
-  b) domain-separated: `SHA-256("proofbundle/scitt-tbs-id/v1" || 0x00 || Sig_structure)`, so it
-     can never equal a plain SHA-256 another tool computes
-  c) no value 2 in 6.4.0 at all; introduce it when a consumer needs it
+N2. The committed local-ledger vector (`tests/fixtures/scitt_ccf/local_ledger_control.json`, 9849 B
+  of JSON with base64 fields, made here with keys generated for the run).
+  a) keep it as the one real end-to-end control CI runs
+  b) move it next to the tools and fetch or regenerate it, CI then has only synthetic controls
+  c) regenerate it in a CI job that runs the ledger in Docker
 
-Q5. Several receipts in one statement.
-  a) at least one confirmed receipt confirms the entry; the others are reported (proposed above)
-  b) any receipt whose issuer the relying party trusts must also be confirmed
-  c) exactly one receipt allowed in v1
+N3. Third-party real bytes in CI. Today `tests/test_scitt_ccf_external_bytes.py` skips where they
+  are not fetched, which includes CI.
+  a) leave it so; the recorded runs in `tools/scitt_ccf_external/` are the evidence
+  b) commit the MIT-licensed statements and key sets as JSON fixtures, as N2 does for our own
+  c) add a CI job with network that runs `fetch_external.py` first
 
-Q6. Closing the NOT MEASURED rows of Decision 3, and the missing end-to-end control.
-  a) run a local scitt-ccf-ledger in virtual mode (no account; see
-     `tools/scitt_ccf_external/README.md`), register a v1 hash envelope over a real proofbundle
-     root as the end-to-end control, and detached, untagged, indefinite and non-shortest
-     statements, then decide
-  b) keep v1 narrow and leave the rows open
-  c) ask the working group to state the data-hash input in the profile draft
+N4. Statements carry no kid, so every RP statement key is tried, and a statement signed by a key
+  the relying party has rotated away reads as `statement_signature_invalid`, not as missing trust.
+  a) keep it: a statement key is either trusted and verifies, or the entry fails
+  b) select statement keys by the SPKI of the `x5chain` leaf, as a selector only, never as trust:
+     no match is `needs_rp_trust`, a match must verify
+  c) require a kid in v1 statements
 
-Q7. pycose as comparison.
-  a) a separate test environment pinned to cbor2 5.9.0 and pycose 1.1.0
-  b) drop pycose; keep the recorded run in `reader_crosscheck.json` as the comparison
-  c) replace it with another independent implementation, for example the Rust verifier of
-     `microsoft/scitt-verifier`, run offline on the same bytes
-
-Q8. Tag 1 around CWT time claims in the statement's protected header (seen on the production
-  statement).
-  a) allowed only there, integer content, informative, never `trustedTime` (proposed above)
-  b) refused: proofbundle producers must not emit it, and statements that carry it are
-     `outside_profile`
-  c) allowed anywhere in the statement's protected header
+N5. Rust parity of `verify_statement_signature` and `verify_transparent_statement`, registered
+  `PENDING`.
+  a) stay `PENDING` until AP5 registers the anchor type
+  b) port both to `tools/pb_verify_rs` in 6.4.0 before AP5
+  c) port the receipt side only (leaf, root, signature), the statement side stays Python
 
 ---
 
