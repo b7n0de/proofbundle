@@ -53,6 +53,16 @@ def _write(name: str, case: dict, files: dict) -> None:
     print(f"  {name}")
 
 
+#: SPEC.md, named by URL in the five vectors below. The sdist ships the profile
+#: (MANIFEST.in includes docs/RECEIPT_ENVELOPE_PROFILE.md) but deliberately not SPEC.md, and
+#: tests/test_ausgelieferte_doku_haelt.py holds the number of specRefs that point at an unshipped
+#: file to a frozen baseline. Five relative `SPEC.md` references grew it from 149 to 154 on
+#: 2026-09-25 (CI hermetic-cleanroom, measured in the extracted sdist: SPEC.md 15 -> 20). Shipping
+#: SPEC.md is a packaging decision of the owner; an absolute URL names the same text without
+#: growing the gap.
+_SPEC_URL = "https://github.com/b7n0de/proofbundle/blob/main/SPEC.md"
+
+
 def r2_envelope_identifier(s) -> None:
     """R2 one level up: the identifier on the BUNDLE, added 2026-09-25 (release scope line Z.278).
 
@@ -75,7 +85,7 @@ def r2_envelope_identifier(s) -> None:
         "attribution": "receipt-envelope-profile v0.1 R2 — measured 2026-09-05 in issue 147: "
                        "classify_eval_claim answered invalid for a foreign bundle identifier",
         "expected": {"classification": "refused_unknown_schema"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", _SPEC_URL],
         "rationale": "The bundle's own `schema` names a format that is not proofbundle/v0.1, and "
                      "everything below it is a sound eval receipt. TWO wrong answers exist and the "
                      "case excludes BOTH: `valid` (a best-effort verifier that ignores the envelope "
@@ -93,7 +103,7 @@ def r2_envelope_identifier(s) -> None:
         "attribution": "receipt-envelope-profile v0.1 R2 — the boundary of the envelope refusal, "
                        "added with it on 2026-09-25",
         "expected": {"classification": "invalid"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", _SPEC_URL],
         "rationale": "The bundle names OUR identifier and then an algorithm our schema does not allow. "
                      "That is judgeable: proofbundle/v0.1 fixes `signature.alg`, so a bundle that "
                      "claims the format and breaks it is `invalid`. Our verifier raises the same "
@@ -114,7 +124,7 @@ def r2_envelope_identifier(s) -> None:
         "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
                        "2026-09-25",
         "expected": {"classification": "invalid"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", _SPEC_URL],
         "rationale": "The bundle carries no `schema` at all and is otherwise a sound eval receipt. "
                      "It declares no other format, so there is nothing to refuse on its behalf, and "
                      "our schema requires the field: `invalid`, fail-closed. An implementation that "
@@ -131,7 +141,7 @@ def r2_envelope_identifier(s) -> None:
         "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
                        "2026-09-25",
         "expected": {"classification": "invalid"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", _SPEC_URL],
         "rationale": "The field is present and empty. A present value that cannot be an identifier "
                      "declares nothing, the same as an absent one, and is a separate state from both "
                      "an absent field and a foreign identifier. The vector below carries a number; "
@@ -150,7 +160,7 @@ def r2_envelope_identifier(s) -> None:
         "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
                        "2026-09-25 after a planted defect escaped the empty-string vector",
         "expected": {"classification": "invalid"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", _SPEC_URL],
         "rationale": "The field is present and holds a number. A number is not an identifier of "
                      "any format, so it declares nothing and stays `invalid`. An implementation "
                      "that checked only for emptiness would read it as foreign and refuse.",

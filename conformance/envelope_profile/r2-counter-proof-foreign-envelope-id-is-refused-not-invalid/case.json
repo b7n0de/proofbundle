@@ -10,7 +10,7 @@
   },
   "specRefs": [
     "docs/RECEIPT_ENVELOPE_PROFILE.md",
-    "SPEC.md"
+    "https://github.com/b7n0de/proofbundle/blob/main/SPEC.md"
   ],
   "rationale": "The bundle's own `schema` names a format that is not proofbundle/v0.1, and everything below it is a sound eval receipt. TWO wrong answers exist and the case excludes BOTH: `valid` (a best-effort verifier that ignores the envelope identifier and checks the rest as its own) and `invalid` (a verdict on a document in a format this verifier does not know how to judge). The refusal is the outcome R2 names."
 }

@@ -10,7 +10,7 @@
   },
   "specRefs": [
     "docs/RECEIPT_ENVELOPE_PROFILE.md",
-    "SPEC.md"
+    "https://github.com/b7n0de/proofbundle/blob/main/SPEC.md"
   ],
   "rationale": "The bundle carries no `schema` at all and is otherwise a sound eval receipt. It declares no other format, so there is nothing to refuse on its behalf, and our schema requires the field: `invalid`, fail-closed. An implementation that read a missing identifier as an unknown one would refuse here, and anything stripped of its identifier would then buy a refusal."
 }
