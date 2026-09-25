@@ -116,7 +116,22 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 #     format did not move under us
 # The ceiling stays a ceiling: 0.3.262 and later remain UNMEASURED and therefore excluded. What was
 # measured is what is admitted, and the next release needs the same work again.
-inspect = ['inspect_ai>=0.3.112,<=0.3.263']
+#
+# 2026-09-25, THE MEASURED BUMP 0.3.261 -> 0.3.266. The line above was true on 2026-08-31 and stopped
+# being true on 2026-09-14, when Dependabot #195 moved this pin to 0.3.263 and the sentence stayed.
+# This paragraph measures 0.3.262 through 0.3.266 in one pass, so the widen that happened without a
+# measurement is covered by one now. Each version in its own FRESH env (python 3.10.12,
+# `inspect_ai==<version>` plus this package built from main at aa7dae3979eb, no mocks):
+#   * entry-point discovery finds `proofbundle`, `ProofbundleHooks` is a `Hooks` subclass, the API
+#     still has 17 `on_*` methods, and the one this package overrides, `on_task_end`, is among them
+#   * the two test files named above, run together: 19 passed, nothing skipped, nothing failed, in
+#     every one of the five versions. Their cases read the recorded `.eval` fixture through
+#     `read_eval_log`, so the fixture still reads under each version as well
+# The changelog for 0.3.264 to 0.3.266 was read at its source, not from the Dependabot excerpt, which
+# stops inside 0.3.264. The one entry marked breaking (0.3.266, the score payload of `inspect ctl`)
+# concerns a control channel this package does not call.
+# The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
+inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -168,7 +183,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.263']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.263']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
