@@ -276,5 +276,59 @@ class TheCleanupNeverRaisesAndLeavesNoLink(unittest.TestCase):
                     del sys.modules[n]
 
 
+class TheRestoreRunsFirstAndGivesBackWhatWasThere(unittest.TestCase):
+    """Codex on PR 274, round four, both measured."""
+
+    def test_an_entry_whose_spec_access_raises_neither_raises_nor_keeps_the_path(self):
+        import uuid
+
+        class Gift:
+            def __getattribute__(self, name):
+                if name == "__spec__":
+                    raise RuntimeError("spec access refused")
+                return object.__getattribute__(self, name)
+
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            schluessel = f"iz_gift_{uuid.uuid4().hex[:8]}"
+            src = str(pathlib.Path(tempfile.mkdtemp(prefix="iz_gift_")))
+            vorher = list(sys.path)
+            try:
+                with mod._importzustand():            # must not raise on the way out
+                    sys.path.insert(0, src)
+                    sys.modules[schluessel] = Gift()
+            finally:
+                sys.modules.pop(schluessel, None)
+            with self.subTest(verifier=rel):
+                self.assertEqual(sys.path, vorher, "the judged path must not stay installed")
+
+    def test_a_lasting_parent_gets_its_old_attribute_back(self):
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            paket = f"iz_waechter_{uuid.uuid4().hex[:8]}"
+            alt = pathlib.Path(tempfile.mkdtemp(prefix="iz_alt2_"))
+            neu = pathlib.Path(tempfile.mkdtemp(prefix="iz_neu2_"))
+            (alt / paket).mkdir()
+            (alt / paket / "gut.py").write_text("G = 1\n", encoding="utf-8")
+            (neu / paket).mkdir()
+            (neu / paket / "kind.py").write_text("K = 1\n", encoding="utf-8")
+            waechter = object()
+            sys.path.insert(0, str(alt))
+            try:
+                importlib.import_module(f"{paket}.gut")
+                sys.modules[paket].kind = waechter      # the lasting parent's own attribute
+                with mod._importzustand():
+                    sys.path.insert(0, str(neu))
+                    importlib.import_module(f"{paket}.kind")
+                    self.assertIsNot(sys.modules[paket].kind, waechter)   # PRECONDITION: overwritten
+                with self.subTest(verifier=rel):
+                    self.assertIs(getattr(sys.modules[paket], "kind", None), waechter)
+            finally:
+                sys.path.remove(str(alt))
+                for n in [n for n in sys.modules if n == paket or n.startswith(paket + ".")]:
+                    del sys.modules[n]
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

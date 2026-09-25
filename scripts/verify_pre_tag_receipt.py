@@ -110,7 +110,9 @@ def _modulorte(modul) -> list:
     that cannot be read is skipped; the cleanup that calls this runs in a `finally` and must not raise
     (Codex on PR 274, round three: `__file__ = 1` made `Path(...)` raise there)."""
     orte: list = []
-    spec = getattr(modul, "__spec__", None)
+    spec = None
+    with contextlib.suppress(Exception):
+        spec = getattr(modul, "__spec__", None)
     for quelle, name in ((modul, "__file__"), (spec, "origin")):
         with contextlib.suppress(Exception):
             orte.append(getattr(quelle, name, None))
@@ -140,34 +142,69 @@ def _importzustand():
     nor the bytecode switches."""
     gesichert = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
     module_vorher = set(sys.modules)
+    pakete_vorher = _paketattribute()
     try:
         yield
     finally:
-        # THE MODULES IT LOADED FROM THE JUDGED TREE LEAVE TOO (Codex on PR 274, measured): after the
-        # restore of the path, `proofbundle` and `proofbundle._wire_b64` stayed in `sys.modules`, loaded
-        # from the judged checkout, and a later import in the caller got that code. Removed is exactly
-        # what this call loaded for the first time from a path this call put on `sys.path`; a module
-        # first loaded from a path that was there before (the standard library, say) stays.
-        neue_pfade = [Path(p).resolve() for p in sys.path
-                      if isinstance(p, str) and p and p not in gesichert[0]]
-        for name in [n for n in list(sys.modules) if n not in module_vorher]:
+        neue_pfade = _neue_pfade(gesichert[0])
+        # THE PATH AND THE SWITCHES FIRST, before anything that reads a module (Codex on PR 274, round
+        # four: a module whose `__spec__` access raises made the cleanup raise, and the judged path
+        # stayed installed because the restore below it was never reached).
+        sys.path[:] = gesichert[0]
+        sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
+        _module_entfernen(module_vorher, pakete_vorher, neue_pfade)
+
+
+def _neue_pfade(vorher: list) -> list:
+    """The paths the call put on `sys.path`, resolved; one that cannot be resolved is skipped."""
+    aus = []
+    for p in sys.path:
+        if isinstance(p, str) and p and p not in vorher:
+            with contextlib.suppress(Exception):
+                aus.append(Path(p).resolve())
+    return aus
+
+
+def _paketattribute() -> dict:
+    """The attributes of every package present before the call, so that a child import that
+    overwrites one can be undone (round four: a lasting package's `child` sentinel was deleted)."""
+    aus = {}
+    for name, modul in list(sys.modules.items()):
+        with contextlib.suppress(Exception):
+            if getattr(modul, "__path__", None) is not None:
+                aus[name] = dict(vars(modul))
+    return aus
+
+
+def _module_entfernen(module_vorher: set, pakete_vorher: dict, neue_pfade: list) -> None:
+    """Remove what the call loaded for the first time from a path it added; never raises."""
+    # THE MODULES IT LOADED FROM THE JUDGED TREE LEAVE TOO (Codex on PR 274, measured): after the
+    # restore of the path, `proofbundle` and `proofbundle._wire_b64` stayed in `sys.modules`, loaded
+    # from the judged checkout, and a later import in the caller got that code. Removed is exactly
+    # what this call loaded for the first time from a path this call put on `sys.path`; a module
+    # first loaded from a path that was there before (the standard library, say) stays.
+    for name in [n for n in list(sys.modules) if n not in module_vorher]:
+        # One module that cannot be read must not keep the others (round four), so each is its own
+        # attempt.
+        with contextlib.suppress(Exception):
             modul = sys.modules.get(name)
             # A namespace package (PEP 420) has no `__file__`; its locations are its `__path__`
-            # (Codex on PR 274, round two: `pkg` stayed, and `import pkg.second` still loaded from
-            # the judged directory through the cached path). The spec is read too, because a module
-            # may overwrite its own `__file__` (round three: `__file__ = 1`).
+            # (round two). The spec is read too, because a module may overwrite its own `__file__`
+            # (round three: `__file__ = 1`).
             if not any(_liegt_unter(o, neue_pfade) for o in _modulorte(modul)):
                 continue
             del sys.modules[name]
             # Round three: a child of a parent that stays is also an attribute of that parent, set by
-            # the import system; without this, `pkg.child` still reached the judged code.
+            # the import system. Round four: if the parent had that attribute before, it gets its old
+            # value back instead of losing it.
             eltern, _, kind = name.rpartition(".")
             elter = sys.modules.get(eltern) if eltern else None
             if elter is not None and getattr(elter, kind, None) is modul:
-                with contextlib.suppress(AttributeError, TypeError):
+                alt = pakete_vorher.get(eltern)
+                if alt is not None and kind in alt:
+                    setattr(elter, kind, alt[kind])
+                else:
                     delattr(elter, kind)
-        sys.path[:] = gesichert[0]
-        sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
 
 
 def _lib():
