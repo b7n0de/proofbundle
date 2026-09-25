@@ -346,8 +346,12 @@ def _importzustand():
         # first loaded from a path that was there before (the standard library, say) stays.
         neue_pfade = [Path(p).resolve() for p in sys.path if p and p not in gesichert[0]]
         for name in [n for n in list(sys.modules) if n not in module_vorher]:
-            datei = getattr(sys.modules.get(name), "__file__", None)
-            if datei and any(Path(datei).resolve().is_relative_to(p) for p in neue_pfade):
+            modul = sys.modules.get(name)
+            # A namespace package (PEP 420) has no `__file__`; its locations are its `__path__`
+            # (Codex on PR 274, round two: `pkg` stayed, and `import pkg.second` still loaded from
+            # the judged directory through the cached path).
+            orte = [getattr(modul, "__file__", None), *(getattr(modul, "__path__", None) or [])]
+            if any(o and Path(o).resolve().is_relative_to(p) for o in orte for p in neue_pfade):
                 del sys.modules[name]
         sys.path[:] = gesichert[0]
         sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]

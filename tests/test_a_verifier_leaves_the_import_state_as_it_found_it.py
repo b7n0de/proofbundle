@@ -158,6 +158,27 @@ class TheModulesItLoadedFromTheJudgedTreeLeave(unittest.TestCase):
                 self.assertIn(std, sys.modules, "a module from a path that was there before must stay")
                 self.assertNotIn(str(src), sys.path)
 
+    def test_a_namespace_package_from_the_judged_path_leaves_too(self):
+        """Codex on PR 274, round two, measured: a PEP 420 package has no `__file__`, so it stayed, and
+        `import pkg.second` still loaded from the judged directory through its cached `__path__`."""
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            paket = f"iz_namensraum_{uuid.uuid4().hex[:8]}"
+            src = pathlib.Path(tempfile.mkdtemp(prefix="iz_ns_"))
+            (src / paket).mkdir()                     # no __init__.py: a namespace package
+            (src / paket / "teil.py").write_text("X = 1\n", encoding="utf-8")
+            (src / paket / "zweiter.py").write_text("Y = 2\n", encoding="utf-8")
+            with mod._importzustand():
+                sys.path.insert(0, str(src))
+                importlib.import_module(f"{paket}.teil")
+                # PRECONDITION: it really is a namespace package, the shape this case is about.
+                self.assertIsNone(getattr(sys.modules[paket], "__file__", None))
+            with self.subTest(verifier=rel):
+                self.assertNotIn(paket, sys.modules)
+                with self.assertRaises(ModuleNotFoundError):
+                    importlib.import_module(f"{paket}.zweiter")
+
     def test_a_measurement_in_a_fresh_interpreter_leaves_no_module_of_the_judged_tree(self):
         """End to end, as measured: a fresh interpreter, a committed tree whose own `src/proofbundle`
         is loaded by the receipt check. A marker file proves it WAS loaded; afterwards no module whose
