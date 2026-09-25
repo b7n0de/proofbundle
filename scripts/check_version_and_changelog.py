@@ -102,10 +102,22 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # recalling an older release's command, and would have turned it red at every bump. A declared line
 # is a command or a headline, and those start their line; a mention inside a sentence stays history.
 #
+# "THE START OF ITS LINE" MEANS AFTER THE MARKERS AN INSTRUCTION IS WRITTEN WITH. A third lens
+# showed the same day that the bare line start traded the false red for a silent miss: a stale
+# `- pip install …`, `1. …`, `> …`, `$ …`, `pip3`, `python3 -m pip` or `uv pip` line next to a raised
+# canonical one matched no anchor, and Check 6 reads an older number as history, so it passed both
+# checks. List, number, quote and prompt markers, an opening backtick and the usual command variants
+# are therefore part of the anchor. What remains unseen is an instruction written inside a sentence,
+# which cannot be told from a sentence recalling one.
+#
 # THE LIMIT, stated because the same lens executed it: the anchors trust that a matching line is a
 # visible one. A correct copy of the headline hidden in an HTML comment, next to a visible headline
 # reworded into another form, passes both checks. That is concealment rather than drift, and no
 # anchor over the text can tell a rendered line from an unrendered one.
+#: The start of a line as an instruction is written: indentation, then any list, number or quote
+#: markers, an optional shell prompt and an optional opening backtick.
+_ANWEISUNG = r"(?m)^\s*(?:(?:[-*+>]|\d+[.)])\s+)*(?:\$\s+)?`?"
+
 _TRACKED_PLACES = [
     ("RELEASE.md", re.compile(r"current:\s*v?" + _SEMVER), "the `(current: X.Y.Z)` note"),
     ("docs/readiness_pack/PROGRESS.md",
@@ -115,11 +127,12 @@ _TRACKED_PLACES = [
                 + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)"),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(r"(?m)^\s*(?:python\s+-m\s+)?pip\s+install\s+'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?"
-                r"\s*==\s*v?" + _SEMVER),
+     re.compile(_ANWEISUNG + r"(?:python3?\s+-m\s+)?(?:uv\s+)?pip3?\s+install\s+"
+                r"'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?\s*==\s*v?" + _SEMVER),
      "the pinned `pip install proofbundle==X.Y.Z` instructions"),
     ("README.md",
-     re.compile(r"(?m)^\s*https://(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
+     re.compile(_ANWEISUNG + r"(?:(?:curl|wget)\b[^\n]*?\s)?"
+                r"https://(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
                 r"(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/"),
      "the example URLs pinned to the release tag `vX.Y.Z`"),
 ]

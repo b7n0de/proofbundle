@@ -426,6 +426,12 @@ def _uebersprungen(ignore: list[str]) -> list[str]:
 def _workflow_befunde(d: dict) -> list[str]:
     """What keeps the workflow from running the gate on a change to a file the gate reads."""
     on = (d.get(True) or d.get("on") or {}) if isinstance(d, dict) else {}
+    # `on: push` and `on: [push, pull_request]` are valid forms without filters (a third lens,
+    # 2026-09-25: reading only the mapping form reported both triggers missing).
+    if isinstance(on, str):
+        on = {on: None}
+    elif isinstance(on, list):
+        on = {trig: None for trig in on}
     befunde: list[str] = []
     listen = {}
     for trig in ("push", "pull_request"):
@@ -437,6 +443,12 @@ def _workflow_befunde(d: dict) -> list[str]:
             befunde.append(f"{trig}: the inclusion filter `paths` {block['paths']} runs the workflow "
                            f"only for the files it lists, and the gate reads every tracked file")
         listen[trig] = block.get("paths-ignore", [])
+        # A string is not a list of patterns. Iterated, it yields one pattern per character and
+        # skips nothing, so the case passed while GitHub rejects the workflow (third lens).
+        if not (isinstance(listen[trig], list) and all(isinstance(g, str) for g in listen[trig])):
+            befunde.append(f"{trig}: `paths-ignore` is {listen[trig]!r}, not a list of patterns; "
+                           f"GitHub's schema requires one, and the filter is NOT measured")
+            continue
         befunde += [f"{trig}: skips {x}" for x in _uebersprungen(listen[trig])]
     if len(listen) == 2 and listen["push"] != listen["pull_request"]:
         befunde.append(f"the two triggers filter differently, so a pull request and the push to main "
@@ -468,6 +480,10 @@ _ALT = ["**/*.md", "docs/**", "audit_artifacts/**", "receipts/**", ".mailmap"]
     ({"push": {"branches": ["main"]}}, "pull_request: the trigger is missing"),
     ({"push": {"paths-ignore": []}, "pull_request": {"paths-ignore": ["receipts/**"]}},
      "filter differently"),
+    # the third lens, 2026-09-25
+    ({"push": {"paths-ignore": "README.md"}, "pull_request": {"paths-ignore": "README.md"}},
+     "not a list of patterns"),
+    ("push", "pull_request: the trigger is missing"),
 ])
 def test_CONTROL_each_way_of_skipping_the_gate_is_caught(on, erwartet):
     """THE COUNTER-DIRECTION. Without it the case above would also pass with a checker that finds
@@ -484,3 +500,28 @@ def test_CONTROL_the_glob_converter_matches_github_and_refuses_the_rest():
     for fremd in ("docs/?.md", "**/*.m+d", "docs/[ab].md", "!docs/**"):
         with pytest.raises(ValueError, match="NOT measured"):
             _glob_regex(fremd)
+
+
+def test_CONTROL_the_short_trigger_forms_carry_no_filter_and_no_finding():
+    """`on: [push, pull_request]` runs on every change; it must not read as two missing triggers."""
+    assert _workflow_befunde({True: ["push", "pull_request"]}) == []
+    assert _workflow_befunde({"on": ["push", "pull_request"]}) == []
+
+
+@pytest.mark.parametrize("zeile", [
+    "- pip install proofbundle=={v}",
+    "* pip install proofbundle=={v}",
+    "> pip install proofbundle=={v}",
+    "1. pip install proofbundle=={v}",
+    "$ pip install proofbundle=={v}",
+    "- `pip install proofbundle=={v}`",
+    "pip3 install proofbundle=={v}",
+    "python3 -m pip install proofbundle=={v}",
+    "uv pip install proofbundle=={v}",
+    "curl -fsSLo x.json https://raw.githubusercontent.com/b7n0de/proofbundle/v{v}/examples/x.json",
+])
+def test_a_stale_instruction_in_any_usual_form_is_red(tmp_path, zeile):
+    """The third lens, 2026-09-25: next to a raised canonical line, a stale instruction in one of
+    these forms passed both checks. Each must now be named by Check 4."""
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert len(funde) == 1 and AKTUELL in funde[0], (zeile, funde)
