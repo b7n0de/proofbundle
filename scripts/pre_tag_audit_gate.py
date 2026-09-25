@@ -335,9 +335,20 @@ def _importzustand():
     load closed for the gate itself, left open for everyone who runs after it. A gate judges a tree; it
     does not install it."""
     gesichert = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+    module_vorher = set(sys.modules)
     try:
         yield
     finally:
+        # THE MODULES IT LOADED FROM THE JUDGED TREE LEAVE TOO (Codex on PR 274, measured): after the
+        # restore of the path, `proofbundle` and `proofbundle._wire_b64` stayed in `sys.modules`, loaded
+        # from the judged checkout, and a later import in the caller got that code. Removed is exactly
+        # what this call loaded for the first time from a path this call put on `sys.path`; a module
+        # first loaded from a path that was there before (the standard library, say) stays.
+        neue_pfade = [Path(p).resolve() for p in sys.path if p and p not in gesichert[0]]
+        for name in [n for n in list(sys.modules) if n not in module_vorher]:
+            datei = getattr(sys.modules.get(name), "__file__", None)
+            if datei and any(Path(datei).resolve().is_relative_to(p) for p in neue_pfade):
+                del sys.modules[name]
         sys.path[:] = gesichert[0]
         sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
 

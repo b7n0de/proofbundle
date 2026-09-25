@@ -17,7 +17,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   judged tree carried under that name. Measured on main 166aec47: eight cases of
   `tests/test_pretag_gate_state_typed_l5_g6_01.py` failed with `cannot import name 'canonical_bytes'`
   under PYTHONHASHSEED 5 and 7, and in 1 of 8 unseeded runs. Each verifier now restores the three
-  settings when it returns and sets the bytecode protection on every call. The producer
+  settings when it returns and sets the bytecode protection on every call, and it removes the
+  modules it loaded for the first time from a path it put on `sys.path` (Codex on PR 274: after the
+  path was restored, `proofbundle` and `proofbundle._wire_b64` from the judged checkout stayed in
+  `sys.modules`). The producer
   `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
   it starts inherits them.
 
