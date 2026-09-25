@@ -34,6 +34,8 @@ def test_verify_refuses_with_no_lib(no_cbor2):
     assert (r.status, r.readable, r.signature_valid, r.profile_satisfied) == ("no_lib", False, False, False)
     assert "[scitt]" in r.detail
     assert S.verify_statement_signature(CONTROL_LIKE, statement_keys=[b"x"]) == ("no_lib", None)
+    c = S.verify_consistency_receipt(CONTROL_LIKE, older_root=b"\x00" * 32, older_issuer="x", rp_trust={})
+    assert (c.status, c.readable, c.signature_valid) == ("no_lib", False, None)
 
 
 @pytest.mark.parametrize("fn", [S.decode_cose_sign1, S.recompute_data_hash, S.load_cose_keyset])

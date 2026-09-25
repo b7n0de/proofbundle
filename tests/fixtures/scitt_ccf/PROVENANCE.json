@@ -31,6 +31,16 @@
       "fetched": "2026-09-25",
       "license": "MIT",
       "note": "3 files, licence text inside; written by tools/scitt_ccf_external/fetch_external.py --write-fixtures"
+    },
+    {
+      "filename": "local_ledger_consistency.json",
+      "origin": "made here",
+      "sha256": "945430d2372dbb779f0ceaf06adc23d1d9782d38386630bfd4b8f7db3493008c",
+      "source_url": "tools/scitt_ccf_external/consistency_probe.py, run against a local https://github.com/microsoft/scitt-ccf-ledger in virtual mode",
+      "source_ref_or_commit": "00101f769d872711356e080fbb089ac48589c60a (the ledger built and run)",
+      "fetched": "2026-09-25",
+      "license": "MIT (this repository); keys, statements and receipts were all generated in that run",
+      "note": "three signed states of one ledger and a consistency receipt: the service's own signature over the newer root with a -05 proof computed from the ledger's leaves, which the ccf package 7.0.17 validated"
     }
   ]
 }

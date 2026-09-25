@@ -70,6 +70,20 @@ MAX_PATH = 64
 MAX_EVIDENCE_BYTES = 1024
 MAX_TRUSTED_KEYS = 64
 
+#: The own statuses of a CCF consistency receipt (draft-ietf-scitt-receipts-ccf-profile-05, section
+#: 4), in the order that decides the result. A set of its own: a consistency receipt relates two roots
+#: of one ledger and says nothing about any statement, so none of these is a statement's status.
+CONSISTENCY_STATUS_ORDER = (
+    "no_lib", "malformed", "outside_profile",
+    "consistency_proof_missing",         # 4.1: vdp MUST carry -2 with one or more proofs
+    "consistency_payload_attached",      # 4.1: the payload (the newer root) MUST be detached
+    "consistency_newer_roots_differ",    # 4.1: every proof MUST compute to the same newer root
+    "consistency_anchor_not_canonical",  # 4: the anchor MUST be the largest complete subtree
+    "consistency_older_root_mismatch",   # 4.2: no proof recomputes the older root the caller holds
+    "consistency_issuer_mismatch",       # not in -05: the older root came from another service
+    "signature_invalid", "needs_rp_trust")
+MAX_CONSISTENCY_PROOFS = 8
+
 #: The closed set of statuses, in the order that decides an entry without a confirmed receipt.
 STATUS_ORDER = ("no_lib", "malformed", "outside_profile", "unbound", "statement_signature_invalid",
                 "root_mismatch", "signature_invalid", "receipt_not_bound", "needs_rp_trust")
@@ -446,6 +460,32 @@ class TransparentStatementCheck:
         return {k: conv(getattr(self, k)) for k in self.__dataclass_fields__}
 
 
+@dataclass(frozen=True)
+class ConsistencyCheck:
+    """One CCF consistency receipt against an older root the caller already holds (-05, section 4).
+
+    It relates two roots of one ledger and establishes nothing about ledger contents on its own."""
+
+    status: str
+    readable: bool = False
+    signature_valid: Optional[bool] = None
+    older_root_matches: Optional[bool] = None
+    newer_root: Optional[bytes] = None
+    proofs: int = 0
+    issuer: Optional[str] = None
+    kid: Optional[bytes] = None
+    kid_bound_to_key: Optional[bool] = None
+    receipt_iat: Optional[int] = None
+    ccf_txid: Optional[str] = None
+    inclusion_proofs_present: bool = False
+    detail: str = ""
+    profile: str = PROFILE
+
+    def to_dict(self) -> dict:
+        return {k: (v.hex() if isinstance(v, bytes) else v)
+                for k, v in ((k, getattr(self, k)) for k in self.__dataclass_fields__)}
+
+
 def _first(statuses) -> str:
     present = [s for s in statuses if s != CONFIRMED]
     for s in STATUS_ORDER:
@@ -581,6 +621,101 @@ def _statement_signature(st: CoseSign1, statement_keys, selector: tuple) -> tupl
 # ------------------------------------------------------------------------------------------------
 # Receipt side
 # ------------------------------------------------------------------------------------------------
+class _ProofRefused(Exception):
+    """A proof that violates the -05 CDDL; always ``malformed``."""
+
+
+def _receipt_head(rc: CoseSign1) -> tuple:
+    """(kid, issuer, iat, txid, vdp) of a receipt, each None (vdp: {}) where absent or mistyped."""
+    ph, uh = rc.protected, rc.unprotected
+    raw_kid, raw_cwt, raw_ccf, raw_vdp = ph.get(_KID), ph.get(_CWT), ph.get("ccf.v1"), uh.get(_VDP)
+    cwt: dict = raw_cwt if isinstance(raw_cwt, dict) else {}
+    ccf: dict = raw_ccf if isinstance(raw_ccf, dict) else {}
+    raw_iss, raw_iat, raw_txid = cwt.get(1), cwt.get(6), ccf.get("txid")
+    return (raw_kid if isinstance(raw_kid, bytes) else None,
+            raw_iss if isinstance(raw_iss, str) else None,
+            raw_iat if isinstance(raw_iat, int) and not isinstance(raw_iat, bool) else None,
+            raw_txid if isinstance(raw_txid, str) else None,
+            raw_vdp if isinstance(raw_vdp, dict) else {})
+
+
+def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) -> Optional[str]:
+    """The protected-header rules every -05 receipt shares, inclusion or consistency (3.1, 4.1)."""
+    ph = rc.protected
+    alg = ph.get(_ALG)
+    if not rc.tagged:
+        return "the receipt is not tagged 18"
+    if isinstance(alg, bool) or not isinstance(alg, int) or alg not in _RECEIPT_ALGS:
+        return f"receipt algorithm {alg!r} is not in scitt-ccf/v1"
+    if ph.get(_VDS) != _CCF_LEDGER_SHA256 or isinstance(ph.get(_VDS), bool):
+        return f"vds is {ph.get(_VDS)!r}, not {_CCF_LEDGER_SHA256} (CCF_LEDGER_SHA256)"
+    if kid is None:
+        return "the receipt has no kid"
+    if iss is None:
+        return "the receipt has no CWT issuer in its protected header"
+    return None
+
+
+def _receipt_crit(rc: CoseSign1) -> Optional[str]:
+    if _CRIT in rc.unprotected:
+        return "crit in the unprotected header"
+    return _crit_ok(rc.protected, _RECEIPT_CRIT_PROCESSED)
+
+
+def _proof_map(p: Any, what: str, keys: str) -> tuple:
+    article = "an" if what[0] in "aeiou" else "a"
+    if not isinstance(p, bytes):
+        raise _ProofRefused(f"{article} {what} is not a byte string")
+    try:
+        d = _read(p, tag_allowed=_no_tags).value
+    except ScittFormatError as exc:
+        raise _ProofRefused(f"{what}: {exc}") from None
+    if not isinstance(d, dict) or len(d) != 2 or 1 not in d or 2 not in d:
+        raise _ProofRefused(f"{article} {what} is exactly {keys}")
+    path = d[2]
+    if not (isinstance(path, list) and 1 <= len(path) <= MAX_PATH):
+        raise _ProofRefused(f"a path has 1 to {MAX_PATH} elements")
+    for e in path:
+        if not (isinstance(e, list) and len(e) == 2 and isinstance(e[0], bool)
+                and isinstance(e[1], bytes) and len(e[1]) == 32):
+            raise _ProofRefused("a path element is [bool, bstr .size 32]")
+    return d[1], path
+
+
+def _inclusion_root(p: Any) -> tuple:
+    """-05 section 3.2 compute_root of one ccf-inclusion-proof -> (root, data-hash of its leaf)."""
+    leaf, path = _proof_map(p, "inclusion proof", "{1: leaf, 2: path}")
+    if not (isinstance(leaf, list) and len(leaf) == 3):
+        raise _ProofRefused("a leaf has three components")
+    itx, ev, dh = leaf
+    if not (isinstance(itx, bytes) and len(itx) == 32 and isinstance(dh, bytes) and len(dh) == 32
+            and isinstance(ev, str) and 1 <= len(ev.encode("utf-8")) <= MAX_EVIDENCE_BYTES):
+        raise _ProofRefused("leaf components violate the -05 CDDL sizes")
+    h = hashlib.sha256(itx + hashlib.sha256(ev.encode("utf-8")).digest() + dh).digest()
+    for left, sib in path:
+        h = hashlib.sha256(sib + h if left else h + sib).digest()
+    return h, dh
+
+
+def _consistency_roots(p: Any) -> tuple:
+    """-05 section 4.2 compute_roots of one ccf-consistency-proof -> (older, newer, first tag).
+
+    Folding the anchor with the left siblings alone gives the older root, with all siblings the
+    newer one. The first tag is returned because it decides whether the anchor is the one section 4
+    requires: see ``verify_consistency_receipt``."""
+    anchor, path = _proof_map(p, "consistency proof", "{1: anchor, 2: path}")
+    if not (isinstance(anchor, bytes) and len(anchor) == 32):
+        raise _ProofRefused("the anchor is bstr .size 32")
+    older = newer = anchor
+    for left, sib in path:
+        if left:
+            older = hashlib.sha256(sib + older).digest()
+            newer = hashlib.sha256(sib + newer).digest()
+        else:
+            newer = hashlib.sha256(newer + sib).digest()
+    return older, newer, path[0][0]
+
+
 def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCheck:
     if not isinstance(raw, bytes):
         return ReceiptCheck(index, "malformed", detail="a receipt is a byte string")
@@ -588,16 +723,8 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         rc = decode_cose_sign1(raw, role="receipt")
     except ScittFormatError as exc:
         return ReceiptCheck(index, exc.status, detail=str(exc))
-    ph, uh = rc.protected, rc.unprotected
-    raw_kid, raw_cwt, raw_ccf, raw_vdp = ph.get(_KID), ph.get(_CWT), ph.get("ccf.v1"), uh.get(_VDP)
-    kid = raw_kid if isinstance(raw_kid, bytes) else None
-    cwt: dict = raw_cwt if isinstance(raw_cwt, dict) else {}
-    ccf: dict = raw_ccf if isinstance(raw_ccf, dict) else {}
-    vdp: dict = raw_vdp if isinstance(raw_vdp, dict) else {}
-    raw_iss, raw_iat, raw_txid = cwt.get(1), cwt.get(6), ccf.get("txid")
-    iss = raw_iss if isinstance(raw_iss, str) else None
-    iat = raw_iat if isinstance(raw_iat, int) and not isinstance(raw_iat, bool) else None
-    txid = raw_txid if isinstance(raw_txid, str) else None
+    ph = rc.protected
+    kid, iss, iat, txid, vdp = _receipt_head(rc)
     base: dict[str, Any] = dict(index=index, readable=True, issuer=iss, kid=kid, receipt_iat=iat,
                                 ccf_txid=txid, consistency_proofs_present=_CONSISTENCY in vdp)
 
@@ -608,23 +735,11 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         return ReceiptCheck(status=status, **merged)
 
     alg = ph.get(_ALG)
-    why = None
-    if not rc.tagged:
-        why = "the receipt is not tagged 18"
-    elif isinstance(alg, bool) or not isinstance(alg, int) or alg not in _RECEIPT_ALGS:
-        why = f"receipt algorithm {alg!r} is not in scitt-ccf/v1"
-    elif ph.get(_VDS) != _CCF_LEDGER_SHA256 or isinstance(ph.get(_VDS), bool):
-        why = f"vds is {ph.get(_VDS)!r}, not {_CCF_LEDGER_SHA256} (CCF_LEDGER_SHA256)"
-    elif kid is None:
-        why = "the receipt has no kid"
-    elif iss is None:
-        why = "the receipt has no CWT issuer in its protected header"
-    elif rc.payload is not None:
+    why = _receipt_outside(rc, kid, iss)
+    if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
-    elif _CRIT in uh:
-        why = "crit in the unprotected header"
-    else:
-        why = _crit_ok(ph, _RECEIPT_CRIT_PROCESSED)
+    if why is None:
+        why = _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)
     proofs = vdp.get(_INCLUSION)
@@ -635,29 +750,10 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
 
     roots, hashes_ = [], []
     for p in proofs:
-        if not isinstance(p, bytes):
-            return out("malformed", detail="an inclusion proof is not a byte string")
         try:
-            d = _read(p, tag_allowed=_no_tags).value
-        except ScittFormatError as exc:
-            return out("malformed", detail=f"inclusion proof: {exc}")
-        if not isinstance(d, dict) or len(d) != 2 or 1 not in d or 2 not in d:
-            return out("malformed", detail="an inclusion proof is exactly {1: leaf, 2: path}")
-        leaf, path = d[1], d[2]
-        if not (isinstance(leaf, list) and len(leaf) == 3):
-            return out("malformed", detail="a leaf has three components")
-        itx, ev, dh = leaf
-        if not (isinstance(itx, bytes) and len(itx) == 32 and isinstance(dh, bytes) and len(dh) == 32
-                and isinstance(ev, str) and 1 <= len(ev.encode("utf-8")) <= MAX_EVIDENCE_BYTES):
-            return out("malformed", detail="leaf components violate the -05 CDDL sizes")
-        if not (isinstance(path, list) and 1 <= len(path) <= MAX_PATH):
-            return out("malformed", detail=f"a path has 1 to {MAX_PATH} elements")
-        h = hashlib.sha256(itx + hashlib.sha256(ev.encode("utf-8")).digest() + dh).digest()
-        for e in path:
-            if not (isinstance(e, list) and len(e) == 2 and isinstance(e[0], bool)
-                    and isinstance(e[1], bytes) and len(e[1]) == 32):
-                return out("malformed", detail="a path element is [bool, bstr .size 32]")
-            h = hashlib.sha256(e[1] + h if e[0] else h + e[1]).digest()
+            h, dh = _inclusion_root(p)
+        except _ProofRefused as exc:
+            return out("malformed", detail=str(exc))
         roots.append(h)
         hashes_.append(dh)
     root = roots[0]
@@ -766,3 +862,122 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
                    receipts=checks,
                    ignored_trust=tuple(ignored),
                    detail=why or "")
+
+
+# ------------------------------------------------------------------------------------------------
+# Consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4)
+# ------------------------------------------------------------------------------------------------
+def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes, older_issuer: str,
+                               rp_trust: Optional[dict] = None) -> ConsistencyCheck:
+    """Verify a CCF consistency receipt against an older root the caller has already verified.
+
+    ``older_root`` must be a root the caller verified itself, typically ``merkle_root`` of a
+    ``confirmed`` inclusion receipt, and ``older_issuer`` that receipt's issuer. -05, section
+    "Consistency Receipts": verifiers MUST compare the recomputed older root with a root they have
+    already verified, not with one supplied alongside the receipt; this function cannot tell where
+    ``older_root`` came from, so that duty stays with the caller.
+
+    Never raises. ``confirmed`` holds only when every -05 section 4 rule this reader can check holds:
+    ``vdp`` carries one or more consistency proofs (4.1), the payload is detached (4.1), every proof,
+    and every inclusion proof beside them, computes the same newer root (4.1, section 5), every
+    proof's first path element is a right sibling, which is what the anchor section 4 requires
+    looks like (see below), at least one proof recomputes ``older_root`` (4.2), the receipt's issuer
+    is ``older_issuer`` (not in -05), and a relying-party key for that issuer and kid verifies the
+    receipt signature over the newer root (4.2). Anything else is one of
+    ``CONSISTENCY_STATUS_ORDER``, the first that applies.
+
+    THE ANCHOR CHECK. -05 says the anchor cannot be checked without knowing m. What can be checked
+    is the first tag: the required anchor is the largest complete subtree ending at T[m-1], so its
+    sibling in the newer tree is always on its right, while a smaller anchor further down the same
+    edge folds to the same two roots and always starts with a left sibling. Measured exhaustively in
+    tools/scitt_ccf_external/consistency_probe.py; a proof that starts with a left sibling also
+    covers the case m = n, which section 4 excludes (0 < m < n).
+    """
+    try:
+        return _verify_consistency(consistency_receipt, older_root, older_issuer, rp_trust)
+    except ScittUnavailable as exc:
+        return ConsistencyCheck(status="no_lib", detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - a verifier must never crash its caller
+        return ConsistencyCheck(status="malformed", detail=f"refused (fail-closed): {type(exc).__name__}")
+
+
+def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> ConsistencyCheck:
+    if not isinstance(receipt, (bytes, bytearray)):
+        return ConsistencyCheck(status="malformed", detail="the receipt is not bytes")
+    try:
+        rc = decode_cose_sign1(bytes(receipt), role="receipt")
+    except ScittFormatError as exc:
+        return ConsistencyCheck(status=exc.status, detail=str(exc))
+    kid, iss, iat, txid, _vdp = _receipt_head(rc)
+    raw_vdp = rc.unprotected.get(_VDP)
+    base: dict[str, Any] = dict(readable=True, issuer=iss, kid=kid, receipt_iat=iat, ccf_txid=txid,
+                                inclusion_proofs_present=isinstance(raw_vdp, dict) and _INCLUSION in raw_vdp)
+
+    def out(status: str, **kw) -> ConsistencyCheck:
+        merged = {**base, **kw}
+        if status == "malformed":
+            merged["readable"] = False
+        return ConsistencyCheck(status=status, **merged)
+
+    why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
+    if why:
+        return out("outside_profile", detail=why)
+    if raw_vdp is None:
+        return out("consistency_proof_missing", detail="no vdp (396) in the unprotected header")
+    if not isinstance(raw_vdp, dict):
+        return out("malformed", detail="vdp (396) is not a map")
+    unknown = [k for k in raw_vdp if k not in (_INCLUSION, _CONSISTENCY)]
+    if unknown:
+        return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
+    proofs = raw_vdp.get(_CONSISTENCY)
+    inclusion = raw_vdp.get(_INCLUSION)
+    for name, arr in (("consistency", proofs), ("inclusion", inclusion)):
+        if arr is not None and not isinstance(arr, list):
+            return out("malformed", detail=f"the {name} proofs are not an array")
+        if arr is not None and len(arr) > MAX_CONSISTENCY_PROOFS:
+            return out("malformed", detail=f"more than {MAX_CONSISTENCY_PROOFS} {name} proofs")
+    try:
+        computed = [_consistency_roots(p) for p in proofs or []]
+        inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]
+    except _ProofRefused as exc:
+        return out("malformed", detail=str(exc))
+    base.update(proofs=len(computed))
+    if not computed:
+        return out("consistency_proof_missing", detail="no consistency proof under 396 / -2 (4.1)")
+    if rc.payload is not None:
+        return out("consistency_payload_attached",
+                   detail="the payload is attached; 4.1 requires the newer root detached")
+    newer = computed[0][1]
+    base.update(newer_root=newer)
+    if any(n != newer for _o, n, _f in computed) or any(r != newer for r in inclusion_roots):
+        return out("consistency_newer_roots_differ",
+                   detail="the proofs of this receipt compute different newer roots (4.1, section 5)")
+    older_ok = (isinstance(older_root, (bytes, bytearray)) and len(older_root) == 32
+                and any(o == bytes(older_root) for o, _n, _f in computed))
+    base.update(older_root_matches=older_ok)
+
+    trusted = (rp_trust.get("scitt_ccf_services") if isinstance(rp_trust, dict) else None)
+    trusted = trusted.get(iss) if isinstance(trusted, dict) else None
+    keys, _ignored = _normalize_keys(trusted)
+    candidates = [spki for spki, k in keys if (k if k is not None else _derived_kid(spki)) == kid]
+    good = [spki for spki in candidates
+            if _verify(rc.protected.get(_ALG), spki, _sig_structure(rc.protected_raw, newer), rc.signature)]
+    if candidates:
+        base.update(signature_valid=bool(good),
+                    kid_bound_to_key=(_derived_kid(good[0]) == kid) if good else None)
+
+    if any(first_left for _o, _n, first_left in computed):
+        return out("consistency_anchor_not_canonical",
+                   detail="a proof starts with a left sibling: its anchor is not the largest complete "
+                          "subtree ending at the older tree's last transaction (section 4)")
+    if not older_ok:
+        return out("consistency_older_root_mismatch",
+                   detail="no proof recomputes the older root the caller holds (4.2)")
+    if not isinstance(older_issuer, str) or older_issuer != iss:
+        return out("consistency_issuer_mismatch",
+                   detail="the older root was verified from another service's receipt")
+    if not candidates:
+        return out("needs_rp_trust", detail="no relying-party key for this issuer and kid")
+    if not good:
+        return out("signature_invalid", detail="the receipt signature does not verify over the newer root")
+    return out(CONFIRMED)

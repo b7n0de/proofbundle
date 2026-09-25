@@ -470,6 +470,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "Fail-closed shape validation of the verifier block (P19, 6.1.0): closed field set, sha256 digests, selfDeclared assurance, testResult requires vectorSet. Python-only in 6.1.0; a Rust second reader is owed before the block is anything but selfDeclared. PENDING."
+    },
+    "proofbundle.scitt_ccf.verify_consistency_receipt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "draft-ietf-scitt-receipts-ccf-profile-05 section 4: a CCF consistency receipt against an older root the caller already verified; its own closed status set (CONSISTENCY_STATUS_ORDER). Not an anchor type and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING until AP5 (owner answer N5 a). The proofs were compared with a third-party RFC 9162 implementation (transparency-dev/merkle at fbbcd741, tools/scitt_ccf_external/consistency_result.json), which is not this repository's verifier and does not change this status."
     }
   }
 }
