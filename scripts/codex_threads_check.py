@@ -28,7 +28,10 @@ resolving is a click, an answer is a statement.
 
 WHAT A READER SEES IS WHAT COUNTS. Lines inside an HTML comment or a fenced code block are not read
 for either the register line or the measured line: GitHub does not show the first, and the second is
-an example, not a statement.
+an example, not a statement. Both are read as GitHub renders them: a fence closes only on a line of
+its own character at least as long as the one that opened it, and a fence or an HTML comment that is
+never closed runs to the end of the text. A register or measured line indented by four spaces or a
+tab is code as well. Where the rendering is in doubt, the check reads less, which errs to red.
 
 WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, a line
 that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
@@ -63,14 +66,17 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 CODEX_BOT = "chatgpt-codex-connector[bot]"
 API = "https://api.github.com"
-_MEASURED = re.compile(r"(?m)^[ \t]*Commit measured[ \t`:]*([0-9a-f]{40})\b")
-_REGISTER = re.compile(r"^[ \t]*Thread[ \t]")
+_MEASURED = re.compile(r"(?m)^ {0,3}Commit measured[ \t`:]*([0-9a-f]{40})\b")
+_REGISTER = re.compile(r"^ {0,3}Thread[ \t]")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_FENCE = re.compile(r"(?ms)^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$")
+_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+#: The four values the compare API documents. Any other value is an answer nobody can interpret.
+_COMPARE_STATES = ("identical", "ahead", "behind", "diverged")
 #: A pull request with more comments than this many pages holds is not read to the end, and a check
 #: that did not read to the end is not measured.
 MAX_PAGES = 50
@@ -105,16 +111,34 @@ def _get(url: str, token: str | None) -> tuple[object, str | None]:
         raise NotMeasurable(f"{url}: {type(exc).__name__}: {exc}") from exc
 
 
-def _pages(path: str, token: str | None) -> list:
+def _same_list(url: str, path: str, repo_id: int | None) -> bool:
+    """Is `url` a page of the list at `path`? Same host and scheme as the API, and the same list:
+    either the path itself, or the form GitHub writes into its own next links, measured on
+    2026-09-26 as `/repositories/<id>/issues/266/comments?page=2` for `repos/<owner>/<repo>/...`,
+    with the id of this repository. Only the query may differ."""
+    u, base = urllib.parse.urlsplit(url), urllib.parse.urlsplit(f"{API}/{path}")
+    if (u.scheme, u.netloc) != (base.scheme, base.netloc) or u.fragment:
+        return False
+    if u.path == base.path:
+        return True
+    teile = base.path.split("/", 4)             # ['', 'repos', owner, repo, rest]
+    return (repo_id is not None and len(teile) == 5 and teile[1] == "repos"
+            and u.path == f"/repositories/{repo_id}/{teile[4]}")
+
+
+def _pages(path: str, token: str | None, repo_id: int | None = None) -> list:
     """Every page of a list endpoint. A page that is not a list is not measurable."""
     out: list = []
-    url: str | None = f"{API}/{path}{'&' if '?' in path else '?'}per_page=100"
+    path = path.split("?", 1)[0]
+    url: str | None = f"{API}/{path}?per_page=100"
     seen: set[str] = set()
     while url:
-        # The next page comes from a header, so it is checked like input: it stays on the API host
-        # (the token goes with every request), it is new, and there is a last page.
-        if not url.startswith(API + "/") or url in seen or len(seen) >= MAX_PAGES:
-            raise NotMeasurable(f"{path}: pagination left the API, repeated or exceeded "
+        # The next page comes from a header, so it is checked like input: it is a page of the same
+        # list on the API host (the token goes with every request; deep gate iteration 2, lens 2: a
+        # next link into another repository on the same host was followed and its comments counted),
+        # it is new, and there is a last page.
+        if not _same_list(url, path, repo_id) or url in seen or len(seen) >= MAX_PAGES:
+            raise NotMeasurable(f"{path}: pagination left the list, repeated or exceeded "
                                 f"{MAX_PAGES} pages at {url[:80]}")
         seen.add(url)
         data, url = _get(url, token)
@@ -129,8 +153,29 @@ def _login(c: dict) -> str:
 
 
 def visible(text: str) -> str:
-    """The text as a reader sees it: without HTML comments and without fenced code blocks."""
-    return _FENCE.sub("", _HTML_COMMENT.sub("", text or ""))
+    """The text as a reader sees it: without HTML comments and without fenced code blocks.
+
+    As GitHub renders them, and in doubt reading less (deep gate iteration 2, lens 1: a fence and an
+    HTML comment that were never closed left their register and measured lines readable, and a
+    thread without a visible answer went green). A closed comment goes, an unclosed one hides the
+    rest; a fence closes on a line of its own character at least as long as its opener, with nothing
+    after it, and one that never closes runs to the end.
+    """
+    t = _HTML_COMMENT.sub("", text or "")
+    if "<!--" in t:
+        t = t[:t.index("<!--")]
+    out, fence = [], None
+    for line in t.split("\n"):
+        m = _FENCE_LINE.match(line)
+        if fence is None:
+            if m:
+                fence = m.group(1)
+            else:
+                out.append(line)
+        elif (m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+              and not line[m.end():].strip()):
+            fence = None
+    return "\n".join(out)
 
 
 def answer_commit(text: str) -> str | None:
@@ -191,7 +236,9 @@ def measure(repo: str, pr: int, owner: str, review_comments: list, issue_comment
 
 def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict:
     pull, _ = _get(f"{API}/repos/{repo}/pulls/{pr}", token)
-    head = ((pull or {}).get("head") or {}).get("sha") if isinstance(pull, dict) else None
+    if not isinstance(pull, dict):
+        raise NotMeasurable(f"pull request {pr}: the answer is not an object")
+    head = (pull.get("head") or {}).get("sha")
     if not head:
         raise NotMeasurable(f"pull request {pr}: no head sha in the answer")
     # A LANDED PULL REQUEST IS MEASURED ON MAIN. Measured on PR 264 on 2026-09-25: its answers
@@ -201,8 +248,10 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
     # from before the landing is contained in the merge commit and carries none of the fix. What
     # carries the fix is a commit that contains the merge commit.
     merged = pull.get("merge_commit_sha") if pull.get("merged") else None
-    review = _pages(f"repos/{repo}/pulls/{pr}/comments", token)
-    issue = _pages(f"repos/{repo}/issues/{pr}/comments", token)
+    repo_id = (((pull.get("base") or {}).get("repo") or {}).get("id"))
+    repo_id = repo_id if isinstance(repo_id, int) and not isinstance(repo_id, bool) else None
+    review = _pages(f"repos/{repo}/pulls/{pr}/comments", token, repo_id)
+    issue = _pages(f"repos/{repo}/issues/{pr}/comments", token, repo_id)
     seen: dict[str, bool] = {}
 
     def contains(base: str, tip: str) -> bool:
@@ -212,8 +261,10 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
         except Missing:
             return False                   # a commit the repository does not know is not at head
         status = data.get("status") if isinstance(data, dict) else None
-        if status is None:
-            raise NotMeasurable(f"compare {base[:12]}...{tip[:12]}: no status")
+        if status not in _COMPARE_STATES:
+            # deep gate iteration 2, lens 2: a value outside the four was read as "not ahead"
+            raise NotMeasurable(f"compare {base[:12]}...{tip[:12]}: status {status!r} is none of "
+                                f"{', '.join(_COMPARE_STATES)}")
         return status in ("identical", "ahead")
 
     def at_head(sha: str, reviewed: str | None) -> bool:
@@ -221,7 +272,7 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
         if key not in seen:
             # Open, or measured on the branch: on the head, and after the reviewed commit. Landed and
             # measured on main: after the merge commit, which came after every review of the branch.
-            on_branch = contains(sha, head) and bool(reviewed) and contains(reviewed, sha)
+            on_branch = bool(contains(sha, head) and reviewed and contains(reviewed, sha))
             seen[key] = on_branch or bool(merged and contains(merged, sha))
         return seen[key]
 

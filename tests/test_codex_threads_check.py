@@ -155,6 +155,38 @@ class WhoCounts(unittest.TestCase):
         text = register_answer(7, 10, HEAD) + f"\nCommit measured `{OLD}`\n"
         self.assertIsNone(ct.answer_commit(text))
 
+    def test_a_fence_or_comment_that_never_closes_hides_the_rest(self):
+        """Deep gate iteration 2, lens 1, P1: GitHub renders an unclosed fence as code and an unclosed
+        HTML comment as hidden, both to the end of the text. The regular expressions needed a closer,
+        so the register and measured lines after an unclosed opener were read, and a thread without a
+        visible answer went green."""
+        for opener in ("```", "~~~~", "<!-- draft"):
+            with self.subTest(opener=opener):
+                text = f"An example for context.\n\n{opener}\n" + register_answer(7, 10, HEAD)
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+
+    def test_a_fence_closes_only_on_its_own_kind_and_length(self):
+        """A shorter fence or the other character does not close it, as in GitHub's rendering; a
+        proper closer does, and the answer after it counts (the precondition of the red cases)."""
+        for inner in ("```", "~~~~"):
+            with self.subTest(inner=inner):
+                text = f"````\nexample\n{inner}\n" + register_answer(7, 10, HEAD)
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+        text = "````\nexample\n`````\n\n" + register_answer(7, 10, HEAD)
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+    def test_a_register_line_indented_like_code_is_code(self):
+        """Four spaces or a tab before the line make it code on GitHub; up to three do not."""
+        for pad in ("    ", "\t"):
+            with self.subTest(pad=repr(pad)):
+                text = register_answer(7, 10, HEAD).replace("Thread `", pad + "Thread `")
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+        text = register_answer(7, 10, HEAD).replace("Thread `", "   Thread `")
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+        # and the measured line: indented like code, it names no commit
+        text = register_answer(7, 10, HEAD).replace("Commit measured", "    Commit measured")
+        self.assertEqual(verdict([codex(10)], [issue(text)])["not_at_head"], 1)
+
     def test_the_bot_is_known_by_its_login_not_by_a_name_in_the_text(self):
         pretend = {"id": 30, "in_reply_to_id": None, "user": {"login": OWNER},
                    "body": f"posted by {ct.CODEX_BOT}"}
@@ -248,6 +280,39 @@ class TheOrigin(unittest.TestCase):
     def test_a_commit_on_another_line_is_not_at_head(self):
         with mock.patch.object(ct, "_get", self._origin("diverged")):
             self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+    def test_a_compare_status_the_api_does_not_document_is_not_measurable(self):
+        """Deep gate iteration 2, lens 2: a value outside identical, ahead, behind and diverged was
+        read as "not ahead", a verdict about an answer nobody could interpret."""
+        with mock.patch.object(ct, "_get", self._origin("quantum-entangled")):
+            with self.assertRaises(ct.NotMeasurable):
+                ct.measure_at_origin(R, 7, OWNER, None)
+        for known in ("behind", "diverged"):                 # PRECONDITION: documented values judge
+            with self.subTest(known=known), mock.patch.object(ct, "_get", self._origin(known)):
+                self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+    def test_a_next_page_of_another_list_is_not_followed(self):
+        """Deep gate iteration 2, lens 2: a next link on the API host into another repository was
+        followed, and its comments were counted for this pull request."""
+        for nxt in (f"{ct.API}/repos/acme/other/pulls/999/comments?page=2",
+                    f"{ct.API}/repositories/42/pulls/7/comments?page=2",
+                    f"{ct.API}/repositories/1285988816/issues/7/comments?page=2"):
+            def fake(url, token, nxt=nxt):
+                return ([codex(10)], nxt) if "page=2" not in url else ([codex(99)], None)
+            with self.subTest(next=nxt[23:60]), mock.patch.object(ct, "_get", fake):
+                with self.assertRaises(ct.NotMeasurable):
+                    ct._pages(f"repos/{R}/pulls/7/comments", None, 1285988816)
+
+    def test_the_next_link_github_writes_is_followed(self):
+        """Measured on 2026-09-26: GitHub writes the next page of `repos/<owner>/<repo>/...` as
+        `/repositories/<id>/...`. With this repository's id, that page belongs to the same list."""
+        nxt = f"{ct.API}/repositories/1285988816/pulls/7/comments?per_page=100&page=2"
+
+        def fake(url, token):
+            return ([codex(10)], nxt) if url.endswith("per_page=100") else ([codex(11)], None)
+        with mock.patch.object(ct, "_get", fake):
+            got = ct._pages(f"repos/{R}/pulls/7/comments", None, 1285988816)
+        self.assertEqual([c["id"] for c in got], [10, 11])
 
     def test_a_commit_from_before_the_reviewed_one_is_not_at_head(self):
         """Deep gate, lens 1: any ancestor of the head is on the head, the first commit of the
