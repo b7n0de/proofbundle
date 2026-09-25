@@ -436,6 +436,34 @@ non-shortest protected header, the legacy receipt, and two kid bindings not repo
 invalid signature). Verdicts differ by design and are recorded, not compared: scitt-verifier
 appraises a signer chain and a policy, v1 requires a hash envelope over a proofbundle root.
 
+### 15. Consistency receipts (-05 section 4), beside the anchor, not in it
+
+A consistency receipt relates two roots of one ledger; it proves nothing about a statement, so it
+never enters the anchor verdict. `proofbundle.scitt_ccf.verify_consistency_receipt` checks one
+against an older root the caller already verified (typically `merkle_root` of a `confirmed`
+inclusion receipt) and that receipt's issuer, with its own closed status set,
+`CONSISTENCY_STATUS_ORDER`, the first that applies deciding:
+
+| status | rule |
+|---|---|
+| `consistency_proof_missing` | no `vdp`, no -2, or an empty -2 (4.1, 4.2) |
+| `consistency_payload_attached` | the newer root is not detached (4.1) |
+| `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
+| `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
+| `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
+| `consistency_issuer_mismatch` | the older root came from another service's receipt; not a rule of -05 |
+| `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
+
+`malformed` and `outside_profile` keep their meaning; the protected header rules are those of
+inclusion receipts, as 4.1 says. Two of these go further than the 4.2 pseudo-code. That code accepts
+a receipt with a corrupted second proof, and one whose anchor lies below the section 4 anchor. Both
+were measured on the local ledger and in every tree pair up to 257 leaves, and they are refused here
+because 4 and 4.1 say MUST. The measurement, the third-party RFC 9162 oracle
+(transparency-dev/merkle at `fbbcd741`) and the questions for the working group are in
+`tools/scitt_ccf_external/SECTION4_WGLC.md`. No service measured emits a consistency receipt, so the
+real vector (`tests/fixtures/scitt_ccf/local_ledger_consistency.json`) is the service's own
+signature over the newer root with a proof computed from the ledger's leaves.
+
 ## Test classes
 
 Each class has an unchanged control case that must pass before any of its negative cases counts.
@@ -501,8 +529,9 @@ measured comparison fails once.
 It does not claim that a `confirmed` anchor makes any recorded number true, or that the statement
 signer is who they say. It proves that these statement bytes, whose payload is the target's digest,
 were registered on a service whose key the relying party chose to trust, at a ledger position the
-service signed. It does not claim the service is honest, that its ledger is consistent over time
-(consistency proofs are not evaluated in v1), or that the key set is current.
+service signed. It does not claim the service is honest, or that the key set is current. It does not
+claim that the ledger is consistent over time: the anchor verdict evaluates no consistency proof, and
+the separate consistency verifier of Decision 15 relates two roots only for a caller that holds them.
 
 ## Owner answers (2026-09-25)
 
