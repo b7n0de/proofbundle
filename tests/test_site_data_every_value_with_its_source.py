@@ -122,6 +122,10 @@ class TestTheReceiptIsCheckedWithITSOwnChecker:
             assert e["state"] == "not_checkable", f"{foreign} yielded {e['state']!r}"
             assert e["state"] != "failed"
             assert "reason" in e and e["reason"]
+            # The OTHER end of the severity distinction: this one really is neutral. If both ends
+            # carried the same severity the field would say nothing.
+            assert e["not_checkable_cause"] == "kind_has_no_declared_checker", e
+            assert e["severity"] == "neutral", e
 
     @pytest.mark.skipif(not REAL_RECEIPT.is_file(), reason="no genuine receipt in this tree")
     def test_the_tree_binding_is_named_not_checkable_instead_of_claimed(self):
@@ -379,6 +383,13 @@ class TestAMissingTrustAnchorIsAGapAndNotAnAccusation:
         assert "no trust anchor pinned" in e["reason"], e
         assert "not a statement about the receipt" in e["reason"], (
             "the reason blames the receipt for a missing anchor: " + e["reason"])
+        # AND THE CAUSE MUST SAY THAT IT IS ALARMING. An un cross-reading refuted the bare state: a
+        # reader takes `not_checkable` for "no data yet", which is neutral or even pending, while a
+        # missing trust anchor means the control is broken.
+        assert e["not_checkable_cause"] == "control_missing", e
+        assert e["severity"] == "alarming", (
+            "a broken control is reported with the same weight as an artefact nobody declared a "
+            f"checker for, so a reader reads an alarm as pending: {e}")
 
     def test_the_two_reasons_are_different_and_name_different_causes(self):
         # A single shared text would make the distinction unobservable, which is the same as not
@@ -406,7 +417,13 @@ class TestTheVersionBindingIsMeasuredAndNotClaimed:
         assert e["state"] == "failed", (
             "a receipt signed for one release passes under another, so the proof log could show it "
             f"next to the wrong version: {e}")
-        assert "different release" in e["reason"], e
+        assert e["failure_kind"] == "filing_mismatch", (
+            "a filing error and a broken signature wear the same label, so a reader concludes the "
+            f"audit failed when the signature held: {e}")
+        assert "filing error" in e["reason"], e
+        assert "the signature holds" in e["reason"], (
+            "the reason does not say that the signature held, which is the whole point of "
+            f"separating the two causes: {e}")
 
     @pytest.mark.skipif(not REAL_RECEIPT.is_file(), reason="no genuine receipt in this tree")
     def test_with_the_right_version_the_binding_is_named_among_the_checks(self):
@@ -451,8 +468,8 @@ class TestAValueWithoutATimeSaysWhy:
                 continue
             if v.get("not_measurable") or v.get("measured_at") is not None:
                 continue
-            assert v.get("measured_at_reason"), (
-                f"{k} carries a value with no time and no reason, so it reads as measured: {v}")
+            assert v.get("measured_at_note"), (
+                f"{k} carries a value with no time and no note, so it reads as measured: {v}")
 
     def test_no_field_falls_back_to_the_placeholder_reason(self):
         # The fallback in `_field` exists so a missing reason is visible rather than silent. If it
@@ -461,11 +478,16 @@ class TestAValueWithoutATimeSaysWhy:
         assert "the call site named no reason" not in d, (
             "a call site passed no time and no reason, and the placeholder went into the output")
 
-    def test_an_uncommitted_source_yields_no_time_and_names_that_as_the_reason(self, tmp_path,
-                                                                              monkeypatch):
-        # THE TRAP ITSELF, staged. A tracked-then-edited file is the case where value and time
-        # describe different content; the generator must refuse the time rather than name the old
-        # commit.
+    def test_an_uncommitted_source_gives_the_working_tree_time_and_leaves_the_promise(
+            self, tmp_path, monkeypatch):
+        """THE TRAP ITSELF, staged, and the second form of the fix.
+
+        A tracked-then-edited file is the case where value and commit time describe different
+        content, so the commit time must NOT be used. The first fix returned a bare `None`, and an un
+        cross-reading refuted that: the value is present and current, so a null time reads as unknown
+        or pending for something that is neither. What is honest is the working-tree write time plus
+        `stable: false` - a time that holds for this checkout and for no other.
+        """
         import subprocess  # noqa: PLC0415
         for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
             subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
@@ -475,14 +497,18 @@ class TestAValueWithoutATimeSaysWhy:
         subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "x"], check=True,
                        capture_output=True)
         monkeypatch.setattr(RSD, "REPO", tmp_path)
-        at_clean, why_clean = RSD._source_time("pyproject.toml")
-        assert at_clean and why_clean is None, (at_clean, why_clean)
+        at_clean, note_clean, stable_clean = RSD._source_time("pyproject.toml")
+        assert at_clean and note_clean is None and stable_clean is True, (at_clean, note_clean)
         (tmp_path / "pyproject.toml").write_text('version = "2.0.0"\n', encoding="utf-8")
-        at_dirty, why_dirty = RSD._source_time("pyproject.toml")
-        assert at_dirty is None, (
+        at_dirty, note_dirty, stable_dirty = RSD._source_time("pyproject.toml")
+        assert at_dirty != at_clean, (
             "the time of the old commit is returned for content that has already changed: "
             f"{at_dirty}")
-        assert "uncommitted" in (why_dirty or ""), why_dirty
+        assert at_dirty is not None, (
+            "a bare null reads as unknown or pending, and the value is neither - it is current")
+        assert stable_dirty is False, (
+            "a working-tree time is inside the byte-stability promise, which cannot hold")
+        assert "uncommitted" in (note_dirty or ""), note_dirty
 
 class TestNoAssertionNamesAStringTheSurfaceNeverProduces:
     """THE CLASS, not the two instances.
@@ -564,6 +590,71 @@ class TestNoAssertionNamesAStringTheSurfaceNeverProduces:
         assert not joined, (
             "an f-string is compared, and the key-shaped-literal guard cannot see through it; "
             f"write the operand as a plain literal instead. Lines: {sorted(set(joined))}")
+
+
+class TestEveryVerdictNamesItsCauseAndNotJustItsState:
+    """A state is not a cause, and two causes must not wear one label.
+
+    An un cross-reading refuted two places where they did: `failed` covered both a broken signature
+    and a receipt filed under the wrong release - and the file name is NOT part of the signed payload,
+    so the second is a filing error while the signature held. `not_checkable` covered both a missing
+    trust anchor (the control is broken, alarming) and an artefact kind nobody declared a checker for
+    (neutral). A reader who can only see the state draws the wrong conclusion in both directions.
+    """
+
+    @staticmethod
+    def _verdict_dicts(state: str) -> list[tuple[int, set[str]]]:
+        """Every dict literal in the generator whose `state` is `state`, with its key names.
+
+        BY AST AND NOT BY REGEX, and the first form of this guard is why. It matched
+        `{"state": "failed"` and demanded `"failure_kind"` immediately after, which is a rule about
+        LINE LAYOUT and not about the dict: the filing-mismatch return carries the key on the next
+        line and was reported as missing it. A pattern recognises a form, never an identity - the
+        recurring mistake this repository pays for, and this guard walked straight into it while being
+        built to catch exactly that shape of error.
+        """
+        import ast  # noqa: PLC0415
+        src = (REPO / "scripts" / "render_site_data.py").read_text(encoding="utf-8")
+        out = []
+        for n in ast.walk(ast.parse(src)):
+            if not isinstance(n, ast.Dict):
+                continue
+            keys = {k.value for k in n.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            for k, v in zip(n.keys, n.values):
+                if (isinstance(k, ast.Constant) and k.value == "state"
+                        and isinstance(v, ast.Constant) and v.value == state):
+                    out.append((n.lineno, keys))
+        return out
+
+    def test_every_failed_path_carries_a_failure_kind(self):
+        # Asserted on the source because not every failure path can be staged cheaply (an untrusted
+        # key needs a real anchor list plus a receipt signed by another key). Said here rather than
+        # left to look like a runtime measurement.
+        found = self._verdict_dicts("failed")
+        assert found, "no failed verdict found at all; the guard lost its subject"
+        bare = [ln for ln, keys in found if "failure_kind" not in keys]
+        assert not bare, (
+            "a failed verdict is returned without naming its kind, so a filing error and a broken "
+            f"signature read the same. Lines: {bare}")
+
+    def test_every_not_checkable_path_carries_a_cause_and_a_severity(self):
+        found = self._verdict_dicts("not_checkable")
+        assert len(found) >= 5, f"only {len(found)} not_checkable paths found; the guard lost its subject"
+        bare = [(ln, sorted(keys)) for ln, keys in found
+                if not {"not_checkable_cause", "severity"} <= keys]
+        assert not bare, (
+            "a not_checkable verdict names no cause or no severity, so a broken control reads like "
+            f"a pending measurement: {bare}")
+
+    @pytest.mark.skipif(not REAL_RECEIPT.is_file(), reason="no genuine receipt in this tree")
+    def test_a_passing_receipt_carries_no_failure_kind(self):
+        # The counter-control: a guard that demanded the key everywhere would also pass if the key
+        # were bolted onto every verdict including the good ones, which would make it meaningless.
+        e = RSD._check_receipt(_receipt())
+        assert e["state"] == "passed", e
+        assert "failure_kind" not in e, e
+        assert "not_checkable_cause" not in e, e
 
 
 if __name__ == "__main__":

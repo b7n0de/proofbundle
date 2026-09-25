@@ -95,28 +95,48 @@ def _git(*args: str, tree: Path | None = None) -> tuple[str, str]:
     return r.stdout.strip(), "measured"
 
 
-def _source_time(rel: str) -> tuple[str | None, str | None]:
-    """(time, reason). The time of the commit that last changed this path - not the run time.
+def _mtime(rel: str) -> str | None:
+    """The time the working-tree file was last written, or `None` if it is not there."""
+    try:
+        return datetime.fromtimestamp((REPO / rel).stat().st_mtime,
+                                      timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        return None
+
+
+def _source_time(rel: str) -> tuple[str | None, str | None, bool]:
+    """(time, note, stable). The time of the thing measured - never the time of the run.
 
     THE VALUE COMES FROM THE WORKING TREE AND THE TIME FROM THE HISTORY, and those two can describe
     different content. A review lens reproduced it: with an uncommitted edit `read_text()` returns
-    the NEW content while `git log` still names the OLD commit, so `measured_at` would name the time
-    of a value that is no longer the one written. That is worse than no time at all, because it looks
-    measured. A dirty or untracked path therefore yields `(None, reason)`, and the field carries the
-    reason where the time would have stood.
+    the NEW content while `git log` still names the OLD commit, so a commit time here would name a
+    value that is no longer the one written. That is worse than no time at all, because it looks
+    measured.
+
+    THE FIRST FIX RETURNED A BARE `None`, AND AN un CROSS-READING REFUTED IT: the value IS present
+    and IS current, so a null time reads as "unknown or pending" for something that is neither. The
+    honest time for a dirty or untracked path is the WORKING-TREE write time, together with
+    `stable: false`, because that time is a property of this checkout and of no other. A clean
+    tracked path never uses it: in a fresh clone the write time is the checkout time and would say
+    nothing about the content.
     """
     dirty, dirty_state = _git("status", "--porcelain", "--", rel)
     if dirty_state == "measured" and dirty.strip():
-        return None, ("the source has uncommitted changes, so its value comes from the working tree "
-                      "while its commit time would name superseded content")
+        return (_mtime(rel),
+                "the source has uncommitted changes, so this is the working-tree write time and not "
+                "a commit time; the value is current but it is not reproducible from history",
+                False)
     out, state = _git("log", "-1", "--format=%aI", "--", rel)
     if state != "measured" or not out:
-        return None, "the path is in no commit, so it has no source time a reader could check"
-    return out, None
+        return (_mtime(rel),
+                "the path is in no commit, so this is the working-tree write time; it holds for this "
+                "checkout and for no other",
+                False)
+    return out, None, True
 
 
 def _field(value, *, source: str, at: str | None, stable: bool = True,
-           time_reason: str | None = None, **rest) -> dict:
+           measured_at_note: str | None = None, **rest) -> dict:
     """A measured value with its source and its measurement time.
 
     A VALUE WITHOUT A TIME MUST SAY WHY. Without that the field reads as fully measured while its
@@ -126,9 +146,10 @@ def _field(value, *, source: str, at: str | None, stable: bool = True,
     own reason.
     """
     d = {"value": value, "source": source, "measured_at": at, "stable": stable}
-    if at is None:
-        d["measured_at_reason"] = (
-            time_reason or "no source time measured, and the call site named no reason")
+    if measured_at_note:
+        d["measured_at_note"] = measured_at_note
+    elif at is None:
+        d["measured_at_note"] = "no source time measured, and the call site named no reason"
     d.update(rest)
     return d
 
@@ -160,8 +181,9 @@ def version_and_release() -> dict:
                 "release_date": _gap(source="git tag", reason="no version, so no tag"),
                 "release_commit": _gap(source="git tag", reason="no version, so no tag")}
     v = m.group(1)
-    at, why = _source_time("pyproject.toml")
-    out = {"version": _field(v, source="pyproject.toml:version", at=at, time_reason=why)}
+    at, note, stable = _source_time("pyproject.toml")
+    out = {"version": _field(v, source="pyproject.toml:version", at=at, measured_at_note=note,
+                            stable=stable)}
 
     tag = f"v{v}"
     date, state = _git("tag", "--list", tag, "--format=%(creatordate:iso-strict)")
@@ -204,11 +226,13 @@ def verifier_checks() -> dict:
             results.append({"bundle": rel, "not_measurable": True, "reason": state,
                                "reason_is_run_dependent": run_dependent})
             continue
-        bundle_at, bundle_why = _source_time(rel)
+        bundle_at, bundle_note, bundle_stable = _source_time(rel)
         results.append({"bundle": rel, "count": len(names), "checks_measured": names,
-                           "at": bundle_at, "at_reason": bundle_why,
+                           "at": bundle_at, "at_note": bundle_note,
+                           "source_is_reproducible": bundle_stable,
                            "reason_is_run_dependent": False})
     measured = [e for e in results if "count" in e]
+    not_reproducible = [e for e in results if e.get("source_is_reproducible") is False]
     # A RUN-TIME HICCUP MUST NOT MOVE A FIELD THAT CALLS ITSELF STABLE. `_verify` spawns a
     # subprocess with a timeout, and its failure reason carries a return code and truncated stderr -
     # both run-dependent. A review lens found that the gap below inherited `stable: True` from
@@ -224,9 +248,9 @@ def verifier_checks() -> dict:
                                         "timeout or stderr - properties of the run, not of the tree"))
     return _field(measured[0]["count"],
                  source=f"proofbundle verify {measured[0]['bundle']}",
-                 at=measured[0]["at"], time_reason=measured[0].get("at_reason"),
+                 at=measured[0]["at"], measured_at_note=measured[0].get("at_note"),
                  checks_measured=measured[0]["checks_measured"],
-                 runs=results, stable=not unstable,
+                 runs=results, stable=not (unstable or not_reproducible),
                  unstable_reason=(None if not unstable else
                                   "a run failed for a reason that carries a return code, a timeout "
                                   "or stderr - properties of the run, not of the tree"),
@@ -256,6 +280,12 @@ def _verify(path: Path) -> tuple[str, list[str] | None, bool]:
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                            timeout=180, cwd=str(REPO))
     except (OSError, subprocess.SubprocessError) as exc:
+        # A TIMEOUT STAYS RUN-DEPENDENT, and an un cross-reading argued the opposite: a timeout
+        # caused by a huge bundle is a property of the TREE, not of the run. REJECTED, and the reason
+        # is that a single observation cannot tell the two apart - the same bundle may time out under
+        # load and pass without it. Calling it tree-dependent would put a possibly-varying value
+        # inside the byte-stability promise, which is exactly the failure this flag exists to
+        # prevent. The conservative classification is the honest one here.
         return f"NOT MEASURABLE: {type(exc).__name__}: {exc}", None, True
     i = r.stdout.find("{")
     if i < 0:
@@ -289,11 +319,11 @@ def test_surface() -> dict:
             n += len(re.findall(r"^\s*def test_", p.read_text(encoding="utf-8"), re.M))
         except OSError:
             continue
-    at, why = _source_time("tests")
-    return {"tests_files": _field(len(files), source="tests/*.py", at=at, time_reason=why,
-                                 counting_rule=_TEST_COUNTING_RULE),
-            "tests_functions": _field(n, source="tests/*.py", at=at, time_reason=why,
-                                     counting_rule=_TEST_COUNTING_RULE)}
+    at, note, stable = _source_time("tests")
+    return {"tests_files": _field(len(files), source="tests/*.py", at=at, measured_at_note=note,
+                                 stable=stable, counting_rule=_TEST_COUNTING_RULE),
+            "tests_functions": _field(n, source="tests/*.py", at=at, measured_at_note=note,
+                                     stable=stable, counting_rule=_TEST_COUNTING_RULE)}
 
 
 # ── interop ─────────────────────────────────────────────────────────────────────────────────────
@@ -313,8 +343,8 @@ def interop() -> dict:
     incomplete = [i for i, z in enumerate(rows)
                   if not (isinstance(z, dict) and z.get("state") and z.get("evidence")
                           and z.get("date"))]
-    at, why = _source_time(rel)
-    return _field(rows, source=rel, at=at, time_reason=why,
+    at, note, stable = _source_time(rel)
+    return _field(rows, source=rel, at=at, measured_at_note=note, stable=stable,
                  rows_without_required_fields=incomplete,
                  note=("each row is required to carry state, evidence and date; rows missing "
                        "any of the three stand in rows_without_required_fields and are not "
@@ -351,6 +381,8 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
     """
     if not isinstance(d, dict) or d.get("schema") != "b7n0de.pre_tag_audit_receipt.v1":
         return {"state": "not_checkable",
+                "not_checkable_cause": "kind_has_no_declared_checker",
+                "severity": "neutral",
                 "reason": (f"unknown artefact kind {(d or {}).get('schema')!r} - no checker is "
                           "declared for it here, and a verdict without a checker would be a guess")}
     try:
@@ -370,12 +402,14 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
         from proofbundle.signature import verify_ed25519  # noqa: PLC0415
     except Exception as exc:  # noqa: BLE001 - a checker that will not load is NOT MEASURABLE
         return {"state": "not_checkable",
+                "not_checkable_cause": "checker_unavailable", "severity": "alarming",
                 "reason": f"the checker will not load: {type(exc).__name__}: {exc}"}
 
     try:
         trusted = lib.load_trusted_pubkeys(REPO)
     except Exception as exc:  # noqa: BLE001
         return {"state": "not_checkable",
+                "not_checkable_cause": "control_unreadable", "severity": "alarming",
                 "reason": f"the trusted key list is unreadable: {exc}"}
 
     pub = d.get("signer_pubkey")
@@ -389,14 +423,21 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
         # that `failed` means checked and failed. A review lens fed it a fabricated receipt with a
         # junk key and got an accusation where a gap belonged. `not_checkable` is the honest state:
         # no measurement happened, and the reason names the anchor and not the receipt.
+        # AND THE CAUSE IS ALARMING, NOT NEUTRAL. An un cross-reading refuted the bare state: a
+        # reader takes `not_checkable` for "no data yet", which is neutral or even pending, while a
+        # missing trust anchor means the CONTROL is broken. Both causes were wearing one label again,
+        # so `not_checkable_cause` separates a broken control from an artefact kind nobody declared a
+        # checker for, and a consumer can render the first as an alarm.
         return {"state": "not_checkable",
+                "not_checkable_cause": "control_missing",
+                "severity": "alarming",
                 "reason": ("no trust anchor pinned: audit_artifacts/pre_tag_trusted_pubkeys.txt is "
-                           "absent or empty, so NOTHING about this signature was checked. This is "
-                           "not a statement about the receipt"),
+                           "absent or empty, so NOTHING about this signature was checked. The "
+                           "control is broken; this is not a statement about the receipt"),
                 "tree_binding": "not_checkable_without_checkout_at_tag"}
     pub = d.get("signer_pubkey")
     if pub not in trusted:
-        return {"state": "failed",
+        return {"state": "failed", "failure_kind": "untrusted_key",
                 "reason": ("the signing key is not in "
                            "audit_artifacts/pre_tag_trusted_pubkeys.txt"),
                 "tree_binding": "not_checkable_without_checkout_at_tag"}
@@ -410,22 +451,32 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
                             lib.canonical_bytes(d))
     except Exception as exc:  # noqa: BLE001
         return {"state": "not_checkable",
+                "not_checkable_cause": "signature_not_evaluable", "severity": "alarming",
                 "reason": f"the signature cannot be evaluated: {type(exc).__name__}: {exc}"}
     if not ok:
-        return {"state": "failed", "reason": "the ed25519 signature does not hold",
+        return {"state": "failed", "failure_kind": "signature",
+                "reason": "the ed25519 signature does not hold",
                 "tree_binding": "not_checkable_without_checkout_at_tag"}
     if d.get("audit_exit_code") != 0:
-        return {"state": "failed",
+        return {"state": "failed", "failure_kind": "audit_failed",
                 "reason": (f"audit_exit_code is {d.get('audit_exit_code')!r} and not 0 - the "
                            "receipt attests a FAILED run"),
                 "tree_binding": "not_checkable_without_checkout_at_tag"}
     checked = ["signature_by_trusted_key", "audit_exit_code_0"]
     if expected_version is not None:
         if d.get("version") != expected_version:
+            # TWO CAUSES MUST NOT WEAR ONE LABEL. An un cross-reading refuted the first form: the
+            # FILE NAME IS NOT PART OF THE SIGNED PAYLOAD, so a mismatch here is a FILING problem
+            # and not a broken signature - at this point the signature has already verified and the
+            # exit code is 0. A bare `failed` made a reader conclude the audit failed, when what is
+            # wrong is where the receipt was put. `failure_kind` carries the difference, and the
+            # reason says outright that the signature held.
             return {"state": "failed",
-                    "reason": (f"the signed version is {d.get('version')!r} but the receipt is "
-                               f"filed under {expected_version!r}, so it attests a different "
-                               "release than the one it is shown under"),
+                    "failure_kind": "filing_mismatch",
+                    "reason": (f"the signature holds and audit_exit_code is 0, but the signed "
+                               f"version is {d.get('version')!r} while the receipt is filed under "
+                               f"{expected_version!r}. The file name is not part of the signed "
+                               "payload, so this is a filing error and not a broken signature"),
                     "tree_binding": "not_checkable_without_checkout_at_tag"}
         checked.append("version_binding")
     return {"state": "passed",
@@ -452,7 +503,8 @@ def proof_log(*, check: bool = True) -> dict:
     # commit, which would credit a fresh `failed` to an older commit. The later of the two times is
     # the honest one.
     anchor_rel = "audit_artifacts/pre_tag_trusted_pubkeys.txt"
-    anchor_at, anchor_why = _source_time(anchor_rel)
+    anchor_at, anchor_note, anchor_stable = _source_time(anchor_rel)
+    reproducible = anchor_stable
     for p in sorted((REPO / "audit_artifacts").glob("*/pre_tag_receipt_*.json")):
         rel = str(p.relative_to(REPO))
         try:
@@ -461,7 +513,8 @@ def proof_log(*, check: bool = True) -> dict:
         except (OSError, ValueError) as exc:
             entries.append({"receipt": rel, "not_measurable": True, "reason": str(exc)[:140]})
             continue
-        receipt_at, receipt_why = _source_time(rel)
+        receipt_at, receipt_note, receipt_stable = _source_time(rel)
+        reproducible = reproducible and receipt_stable
         # The version the receipt is FILED UNDER comes from its file name, which is what a reader
         # sees next to it on the page. The signed `version` field must agree with that.
         m_v = re.search(r"pre_tag_receipt_v([0-9][^/]*)\.json$", rel)
@@ -475,8 +528,8 @@ def proof_log(*, check: bool = True) -> dict:
             "measured_at": max(x for x in (receipt_at or "", anchor_at or "")) or None,
             "measured_at_sources": [rel, anchor_rel],
         }
-        if e["measured_at"] is None:
-            e["measured_at_reason"] = receipt_why or anchor_why or "no source time measured"
+        if receipt_note or anchor_note:
+            e["measured_at_note"] = receipt_note or anchor_note
         e["check"] = (_check_receipt(content, expected_version=filed_under) if check else
                        {"state": "not_run", "reason": "--no-check was set"})
         entries.append(e)
@@ -484,7 +537,11 @@ def proof_log(*, check: bool = True) -> dict:
         return _gap(source="audit_artifacts/*/pre_tag_receipt_*.json",
                        reason="no pre-tag receipt in this tree")
     return _field(entries, source="audit_artifacts/*/pre_tag_receipt_*.json",
-                 at=max((e.get("measured_at") or "") for e in entries) or None)
+                 at=max((e.get("measured_at") or "") for e in entries) or None,
+                 stable=reproducible,
+                 measured_at_note=(None if reproducible else
+                                   "a receipt or the trust anchor is uncommitted, so at least one "
+                                   "time is a working-tree write time"))
 
 
 # ── audit_state / audit_link ────────────────────────────────────────────────────────────────────
@@ -499,7 +556,7 @@ def audit_state_field(version_value) -> dict:
         parts = version_value.split(".")
         if len(parts) >= 2 and all(t.isdigit() for t in parts[:2]):
             expected = f"{parts[0]}{parts[1]}0"
-    at, why = _source_time("audit_artifacts")
+    at, note, at_stable = _source_time("audit_artifacts")
     if expected and expected not in stages:
         return {"audit_state": _gap(
                     source="audit_artifacts/", stages=stages,
@@ -511,10 +568,10 @@ def audit_state_field(version_value) -> dict:
     if stage is None:
         return {"audit_state": _gap(source="audit_artifacts/", reason="no stage present"),
                 "audit_link": _gap(source="audit_artifacts/", reason="no stage present")}
-    return {"audit_state": _field(stage, source="audit_artifacts/", at=at, time_reason=why,
-                                 stages=stages),
+    return {"audit_state": _field(stage, source="audit_artifacts/", at=at, measured_at_note=note,
+                                 stable=at_stable, stages=stages),
             "audit_link": _field(f"audit_artifacts/{stage}/", source="audit_artifacts/",
-                                at=at, time_reason=why)}
+                                at=at, measured_at_note=note, stable=at_stable)}
 
 
 # ── scorecard ───────────────────────────────────────────────────────────────────────────────────
