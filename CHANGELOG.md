@@ -10,6 +10,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An empty container is malformed in both implementations, and every malformed exit names its
+  reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
+  and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
+  signature list through its loop to "not verified". Measured on 2026-09-25 at four surfaces: the
+  generic DSSE verify answered `FAIL`/exit 1 where Python refuses the envelope, the trust-pack
+  threshold reached the statement and reported on it, and an attached relation target with an empty
+  list was carried on as attached-but-unverified, the same exit class as Python with a different
+  reason. The empty list and the empty `payloadType` are now errors in Python's wording, the trust
+  pack judges the list before the statement as Python does, and a structural error of an attached
+  target ends the resolution with "cannot read --with-related", as in Python. A present signature
+  that does not verify is unchanged. The three remaining bare `MALFORMED` exits (`verify-bundle`
+  twice, `verify-trust-pack-threshold` once) print their reason. `crosscheck.py` holds the empty list
+  on three surfaces with the reason, not only the exit; the old behaviour turns all three red.
+  The per-target key is not the envelope (Codex on PR 272): key material that decodes but is no
+  Ed25519 key leaves the target attached-but-unverified, as Python's `verify_ed25519` answers False,
+  and only a `--related-pub` that is not base64 is refused, as "cannot decode --related-pub". The
+  checks before the key run in Python's order, the payload first.
+
 - **The parity registry states what the verifier does when no policy is named** (release scope line
   R1, `scripts/rust_parity_registry.json`). The registry ships in the sdist and is what a second
   implementation reads. Its v0.2 entry said the verifier "deliberately does not decide that for it
