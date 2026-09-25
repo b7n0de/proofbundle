@@ -18,6 +18,7 @@ import importlib.util
 import pathlib
 import unittest
 from unittest import mock
+from urllib.parse import urlsplit
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("_codex_threads_check",
@@ -287,7 +288,9 @@ class TheOrigin(unittest.TestCase):
             with self.subTest(case=label), mock.patch.object(ct, "_get", fake):
                 with self.assertRaises(ct.NotMeasurable):
                     ct._pages(f"repos/{R}/pulls/7/comments", "secret")
-                self.assertFalse(any("evil.example.com" in u for u in calls), calls[:3])
+                # the host is compared whole, since a substring test reads a foreign host as ours
+                api_host = urlsplit(ct.API).hostname
+                self.assertTrue(all(urlsplit(u).hostname == api_host for u in calls), calls[:3])
 
     def test_a_pr_number_that_is_not_a_number_is_not_measurable(self):
         self.assertEqual(ct.main(["--repo", R, "--pr", "abc"]), 2)
