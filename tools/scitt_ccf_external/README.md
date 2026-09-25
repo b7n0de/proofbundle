@@ -298,8 +298,8 @@ The pycose failure under cbor2 6 has a measured cause: pycose 1.1.0 checks
 
 Version facts read at source on 2026-09-25:
 
-- cbor2: latest release 6.1.4, uploaded 2026-08-01, MIT, requires Python >= 3.10
-  (https://pypi.org/pypi/cbor2/json). Changelog in the source repository linked from
+- cbor2: 6.1.4 was the newest release on PyPI on 2026-09-25, uploaded 2026-08-01, MIT, requires
+  Python >= 3.10 (https://pypi.org/pypi/cbor2/json). Changelog in the source repository linked from
   https://pypi.org/project/cbor2/ (`docs/versionhistory.rst`, head
   `7f84e3da1b60dcdd696c0d4bbcc7d4b9d0b4a2ff`, 2026-09-21): 5.9.0 (2026-03-22) added `max_depth`
   with default 400 (CVE-2026-26209); 6.0.0 (2026-04-28) is a rewrite in Rust, added
@@ -307,8 +307,8 @@ Version facts read at source on 2026-09-25:
   signatures, and dropped Python 3.9; 6.1.0 (2026-05-12) added `allow_duplicate_keys`, default
   True; 6.1.4 (2026-08-01) fixed, among others, acceptance of an indefinite-length map whose break
   follows a key without a value.
-- pycose: latest release 1.1.0, uploaded 2023-12-15, BSD 3-Clause, `requires_dist` names `cbor2`
-  without a bound (https://pypi.org/pypi/pycose/json). The source repository linked from
+- pycose: 1.1.0 was the newest release on PyPI on 2026-09-25, uploaded 2023-12-15, BSD 3-Clause,
+  `requires_dist` names `cbor2` without a bound (https://pypi.org/pypi/pycose/json). The source repository linked from
   https://pypi.org/project/pycose/ has its last commit on 2025-10-09
   (`1458ddf14efffbd00bc4052d9026b63da725098e`) and no tag after `v1.1.0`.
 
