@@ -36,10 +36,10 @@ everything would give a test that is red on every second run and therefore gets 
              the measured list together WITH the bundle it was measured on.
   interop    `docs/interop_status.json` does not exist. A curated list is knowledge someone keeps,
              not a measurement. Absent, it stands as not_measurable with a reason.
-  tests      A shell count said 4544, this generator says 4639, and the difference is indented
-             class methods. The counting rule therefore stands IN the field; without it the number
-             means nothing, and a later run with `--collect-only` names another one while nothing
-             has changed.
+  tests      Measured 2026-09-25: a shell count over the same files said 4544 while this generator
+             said 4639, and the difference is indented class methods. BOTH numbers move as tests are
+             added, so neither is named here as a current value; the counting rule stands IN the
+             field, because without it a later count is not comparable to this one.
 
 ═══ WHAT THIS FILE DOES NOT DO ═══
 
@@ -70,8 +70,8 @@ _MEASURED_BUNDLES = (
     "conformance/envelope_profile/r4-positive-control-issuer-is-the-signing-key/bundle.json",
 )
 
-#: The counting rule stands as DATA next to the number, not in a comment. A reader who sees 4639
-#: has to know what was counted.
+#: The counting rule stands as DATA next to the number, not in a comment. A reader who sees a
+#: four-digit count has to know what was counted.
 _TEST_COUNTING_RULE = (
     "Files: *.py directly under tests/. Functions: lines matching 'def test_', so ONE per "
     "function - parameterised cases count as one and class methods are not counted separately. A "
@@ -83,16 +83,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _git(*args: str, baum: Path | None = None) -> tuple[str, str]:
-    """(stdout, state). `state` is 'gemessen' or a NOT MEASURABLE sentence."""
+def _git(*args: str, tree: Path | None = None) -> tuple[str, str]:
+    """(stdout, state). `state` is 'measured' or a NOT MEASURABLE sentence."""
     try:
-        r = subprocess.run(["git", "-C", str(baum or REPO), *args],
+        r = subprocess.run(["git", "-C", str(tree or REPO), *args],
                            capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
-        return "", f"NICHT MESSBAR: {type(exc).__name__}: {exc}"
+        return "", f"NOT MEASURABLE: {type(exc).__name__}: {exc}"
     if r.returncode != 0:
-        return "", f"NICHT MESSBAR: git {' '.join(args)} rc={r.returncode}: {r.stderr.strip()[:120]}"
-    return r.stdout.strip(), "gemessen"
+        return "", f"NOT MEASURABLE: git {' '.join(args)} rc={r.returncode}: {r.stderr.strip()[:120]}"
+    return r.stdout.strip(), "measured"
 
 
 def _source_time(rel: str) -> str | None:
@@ -101,10 +101,10 @@ def _source_time(rel: str) -> str | None:
     `None` when the path is in no commit. That is a statement and not a placeholder: an untracked
     file has no source time a reader could check.
     """
-    aus, state = _git("log", "-1", "--format=%aI", "--", rel)
-    if state != "gemessen" or not aus:
+    out, state = _git("log", "-1", "--format=%aI", "--", rel)
+    if state != "measured" or not out:
         return None
-    return aus
+    return out
 
 
 def _field(value, *, source: str, at: str | None, stable: bool = True, **rest) -> dict:
@@ -131,33 +131,33 @@ def version_and_release() -> dict:
     """Version from pyproject, date and commit from the tag of that version."""
     p = REPO / "pyproject.toml"
     if not p.is_file():
-        return {"version": _gap(source="pyproject.toml", reason="pyproject.toml fehlt"),
-                "release_date": _gap(source="git tag", reason="ohne Version kein Tag"),
-                "release_commit": _gap(source="git tag", reason="ohne Version kein Tag")}
+        return {"version": _gap(source="pyproject.toml", reason="pyproject.toml is missing"),
+                "release_date": _gap(source="git tag", reason="no version, so no tag"),
+                "release_commit": _gap(source="git tag", reason="no version, so no tag")}
     m = re.search(r'^version\s*=\s*"([^"]+)"', p.read_text(encoding="utf-8"), re.M)
     if not m:
         return {"version": _gap(source="pyproject.toml",
-                                   reason="pyproject.toml traegt keine version-Zeile"),
-                "release_date": _gap(source="git tag", reason="ohne Version kein Tag"),
-                "release_commit": _gap(source="git tag", reason="ohne Version kein Tag")}
+                                   reason="pyproject.toml carries no version line"),
+                "release_date": _gap(source="git tag", reason="no version, so no tag"),
+                "release_commit": _gap(source="git tag", reason="no version, so no tag")}
     v = m.group(1)
     at = _source_time("pyproject.toml")
-    aus = {"version": _field(v, source="pyproject.toml:version", at=at)}
+    out = {"version": _field(v, source="pyproject.toml:version", at=at)}
 
     tag = f"v{v}"
-    datum, state = _git("tag", "--list", tag, "--format=%(creatordate:iso-strict)")
-    kopf, lage2 = _git("rev-list", "-n", "1", tag)
-    if state != "gemessen" or not datum:
-        aus["release_date"] = _gap(source=f"git tag {tag}",
-                                      reason=f"kein Tag {tag} in diesem Baum — die Version in "
-                                            "pyproject ist noch nicht veroeffentlicht")
-        aus["release_commit"] = _gap(source=f"git tag {tag}", reason=f"kein Tag {tag}")
-        return aus
-    aus["release_date"] = _field(datum, source=f"git tag {tag}", at=datum)
-    aus["release_commit"] = (_field(kopf, source=f"git rev-list -n1 {tag}", at=datum)
-                             if lage2 == "gemessen" and kopf else
-                             _gap(source=f"git rev-list -n1 {tag}", reason=lage2))
-    return aus
+    date, state = _git("tag", "--list", tag, "--format=%(creatordate:iso-strict)")
+    head, state2 = _git("rev-list", "-n", "1", tag)
+    if state != "measured" or not date:
+        out["release_date"] = _gap(source=f"git tag {tag}",
+                                      reason=f"no tag {tag} in this tree - the version in "
+                                            "pyproject is not released yet")
+        out["release_commit"] = _gap(source=f"git tag {tag}", reason=f"no tag {tag}")
+        return out
+    out["release_date"] = _field(date, source=f"git tag {tag}", at=date)
+    out["release_commit"] = (_field(head, source=f"git rev-list -n1 {tag}", at=date)
+                             if state2 == "measured" and head else
+                             _gap(source=f"git rev-list -n1 {tag}", reason=state2))
+    return out
 
 
 # ── checks ──────────────────────────────────────────────────────────────────────────────────────
@@ -169,32 +169,32 @@ def verifier_checks() -> dict:
     Measured on an envelope bundle it is TWO and not three, because a bundle without an anchor layer
     carries no anchor check.
     """
-    ergebnisse = []
+    results = []
     for rel in _MEASURED_BUNDLES:
         p = REPO / rel
         if not p.is_file():
-            ergebnisse.append({"bundle": rel, "not_measurable": True,
-                               "reason": "Buendel fehlt in diesem Baum"})
+            results.append({"bundle": rel, "not_measurable": True,
+                               "reason": "the bundle is missing in this tree"})
             continue
-        state, namen = _verify(p)
-        if namen is None:
-            ergebnisse.append({"bundle": rel, "not_measurable": True, "reason": state})
+        state, names = _verify(p)
+        if names is None:
+            results.append({"bundle": rel, "not_measurable": True, "reason": state})
             continue
-        ergebnisse.append({"bundle": rel, "count": len(namen), "checks_measured": namen,
+        results.append({"bundle": rel, "count": len(names), "checks_measured": names,
                            "at": _source_time(rel)})
-    measured = [e for e in ergebnisse if "count" in e]
+    measured = [e for e in results if "count" in e]
     if not measured:
-        return _gap(source="proofbundle verify ueber " + ", ".join(_MEASURED_BUNDLES),
-                       reason="kein Messbuendel lieferte ein Ergebnis", runs=ergebnisse)
+        return _gap(source="proofbundle verify over " + ", ".join(_MEASURED_BUNDLES),
+                       reason="no measuring bundle produced a result", runs=results)
     return _field(measured[0]["count"],
                  source=f"proofbundle verify {measured[0]['bundle']}",
                  at=measured[0]["at"], checks_measured=measured[0]["checks_measured"],
-                 runs=ergebnisse,
+                 runs=results,
                  note=("the count hangs on the bundle and not on the code; a bundle without an "
                        "anchor layer carries no anchor check"))
 
 
-def _verify(pfad: Path) -> tuple[str, list[str] | None]:
+def _verify(path: Path) -> tuple[str, list[str] | None]:
     """(state, check names). `None` means not measured, and the state says why.
 
     THE ENTRY POINT IS `proofbundle.cli.main` AND NOT `python -m proofbundle`: the package has no
@@ -204,46 +204,46 @@ def _verify(pfad: Path) -> tuple[str, list[str] | None]:
     code = (
         "import json,sys; sys.path.insert(0,'src');"
         "from proofbundle import cli; sys.argv=['proofbundle','verify',%r,'--json'];"
-        "\ntry: cli.main()\nexcept SystemExit: pass" % str(pfad)
+        "\ntry: cli.main()\nexcept SystemExit: pass" % str(path)
     )
     try:
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                            timeout=180, cwd=str(REPO))
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"NICHT MESSBAR: {type(exc).__name__}: {exc}", None
+        return f"NOT MEASURABLE: {type(exc).__name__}: {exc}", None
     i = r.stdout.find("{")
     if i < 0:
-        return (f"NICHT MESSBAR: verify gab kein JSON zurueck (rc={r.returncode}): "
+        return (f"NOT MEASURABLE: verify returned no JSON (rc={r.returncode}): "
                 f"{(r.stderr or r.stdout).strip()[:140]}"), None
     try:
         d = json.loads(r.stdout[i:])
     except ValueError as exc:
-        return f"NICHT MESSBAR: verify-Ausgabe ist kein JSON: {exc}", None
+        return f"NOT MEASURABLE: the verify output is not JSON: {exc}", None
     # `checks` carries `name`, `matrix` carries `check` - two shapes of one list. The source is
     # read, not the presentation.
-    namen = [c.get("name") for c in (d.get("checks") or []) if c.get("name")]
-    if not namen:
-        namen = [c.get("check") for c in (d.get("matrix") or []) if c.get("check")]
-    if not namen:
-        return "NICHT MESSBAR: die verify-Ausgabe traegt keine Pruefnamen", None
-    return "gemessen", namen
+    names = [c.get("name") for c in (d.get("checks") or []) if c.get("name")]
+    if not names:
+        names = [c.get("check") for c in (d.get("matrix") or []) if c.get("check")]
+    if not names:
+        return "NOT MEASURABLE: the verify output carries no check names", None
+    return "measured", names
 
 
 # ── tests ───────────────────────────────────────────────────────────────────────────────────────
 def test_surface() -> dict:
     d = REPO / "tests"
     if not d.is_dir():
-        return {"tests_files": _gap(source="tests/", reason="tests/ fehlt"),
-                "tests_functions": _gap(source="tests/", reason="tests/ fehlt")}
-    dateien = sorted(p for p in d.glob("*.py"))
+        return {"tests_files": _gap(source="tests/", reason="tests/ is missing"),
+                "tests_functions": _gap(source="tests/", reason="tests/ is missing")}
+    files = sorted(p for p in d.glob("*.py"))
     n = 0
-    for p in dateien:
+    for p in files:
         try:
             n += len(re.findall(r"^\s*def test_", p.read_text(encoding="utf-8"), re.M))
         except OSError:
             continue
     at = _source_time("tests")
-    return {"tests_files": _field(len(dateien), source="tests/*.py", at=at,
+    return {"tests_files": _field(len(files), source="tests/*.py", at=at,
                                  counting_rule=_TEST_COUNTING_RULE),
             "tests_functions": _field(n, source="tests/*.py", at=at,
                                      counting_rule=_TEST_COUNTING_RULE)}
@@ -255,18 +255,19 @@ def interop() -> dict:
     p = REPO / rel
     if not p.is_file():
         return _gap(source=rel,
-                       reason=("die gepflegte Liste fehlt in diesem Baum. Ihr Inhalt ist Wissen, "
-                              "das jemand pflegt, und keine Messung — der Erzeuger kann sie lesen "
-                              "und ihr Fehlen melden, ihren Inhalt nicht erfinden"))
+                       reason=("the curated list is missing in this tree. Its content is knowledge "
+                              "someone keeps and not a measurement; the generator can read it and "
+                              "report its absence, it cannot invent its content"))
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return _gap(source=rel, reason=f"unlesbar: {type(exc).__name__}: {exc}")
-    zeilen = d if isinstance(d, list) else (d.get("rows") or d.get("entries") or [])
-    fehlend = [i for i, z in enumerate(zeilen)
-               if not (isinstance(z, dict) and z.get("at") and z.get("beleg") and z.get("datum"))]
-    return _field(zeilen, source=rel, at=_source_time(rel),
-                 rows_without_required_fields=fehlend,
+        return _gap(source=rel, reason=f"unreadable: {type(exc).__name__}: {exc}")
+    rows = d if isinstance(d, list) else (d.get("rows") or d.get("entries") or [])
+    incomplete = [i for i, z in enumerate(rows)
+                  if not (isinstance(z, dict) and z.get("state") and z.get("evidence")
+                          and z.get("date"))]
+    return _field(rows, source=rel, at=_source_time(rel),
+                 rows_without_required_fields=incomplete,
                  note=("each row is required to carry state, evidence and date; rows missing "
                        "any of the three stand in rows_without_required_fields and are not "
                        "silently completed"))
@@ -282,7 +283,7 @@ def _check_receipt(d: dict) -> dict:
     and `signer_pubkey` - it is NOT a proofbundle bundle. `proofbundle verify` on it produces no
     check names, and that was read as a failure.
 
-    THREE STATES, NEVER TWO: `passed`, `failed`, `nicht_pruefbar` with a reason. `failed` means
+    THREE STATES, NEVER TWO: `passed`, `failed`, `not_checkable` with a reason. `failed` means
     checked and failed; writing it for an artefact kind touched with the wrong tool is an accusation
     without a measurement.
 
@@ -290,13 +291,13 @@ def _check_receipt(d: dict) -> dict:
     and `audit_exit_code == 0`. NOT checked is the binding to the tree - that would need the tree AT
     THE TAG and not today's, and holding a historical receipt against today's tree would have to
     fail because the tree moved on. That stands as
-    `baumbindung: nicht_gepruefbar_ohne_auscheckung_am_tag` in the result instead of silently
+    `tree_binding: not_checkable_without_checkout_at_tag` in the result instead of silently
     missing.
     """
     if not isinstance(d, dict) or d.get("schema") != "b7n0de.pre_tag_audit_receipt.v1":
         return {"state": "not_checkable",
-                "reason": (f"unbekannte Artefaktart {(d or {}).get('schema')!r} — fuer sie ist hier "
-                          "kein Pruefer erklaert, und ein Urteil ohne Pruefer waere geraten")}
+                "reason": (f"unknown artefact kind {(d or {}).get('schema')!r} - no checker is "
+                          "declared for it here, and a verdict without a checker would be a guess")}
     try:
         sys.path.insert(0, str(REPO / "src"))
         sys.path.insert(0, str(REPO / "scripts"))
@@ -308,20 +309,31 @@ def _check_receipt(d: dict) -> dict:
         from proofbundle.signature import verify_ed25519  # noqa: PLC0415
     except Exception as exc:  # noqa: BLE001 - a checker that will not load is NOT MEASURABLE
         return {"state": "not_checkable",
-                "reason": f"der Pruefer ist nicht ladbar: {type(exc).__name__}: {exc}"}
+                "reason": f"the checker will not load: {type(exc).__name__}: {exc}"}
 
     try:
-        vertraut = lib.load_trusted_pubkeys(REPO)
+        trusted = lib.load_trusted_pubkeys(REPO)
     except Exception as exc:  # noqa: BLE001
         return {"state": "not_checkable",
-                "reason": f"die Liste der vertrauten Schluessel ist nicht lesbar: {exc}"}
+                "reason": f"the trusted key list is unreadable: {exc}"}
 
     pub = d.get("signer_pubkey")
-    if pub not in (vertraut or []):
+    # AN EMPTY TRUST LIST IS NOT AN UNTRUSTED KEY, and that is why this is two branches. With no
+    # anchor pinned NOTHING was checked, and a reason saying "this key is not trusted" would blame
+    # the receipt for a missing anchor. Both block, but a reader has to be able to tell whether to
+    # add a key or to repair the anchor.
+    if not trusted:
         return {"state": "failed",
-                "reason": "der signierende Schluessel steht nicht in "
-                         "audit_artifacts/pre_tag_trusted_pubkeys.txt",
-                "tree_binding": "nicht_gepruefbar_ohne_auscheckung_am_tag"}
+                "reason": ("no trust anchor pinned: audit_artifacts/pre_tag_trusted_pubkeys.txt is "
+                           "absent or empty, so NOTHING about this signature was checked. This is "
+                           "not a statement about the receipt"),
+                "tree_binding": "not_checkable_without_checkout_at_tag"}
+    pub = d.get("signer_pubkey")
+    if pub not in trusted:
+        return {"state": "failed",
+                "reason": ("the signing key is not in "
+                           "audit_artifacts/pre_tag_trusted_pubkeys.txt"),
+                "tree_binding": "not_checkable_without_checkout_at_tag"}
     try:
         # THE ORDER IS (pubkey, signature, message) AND NOT (pubkey, message, signature). The
         # first draft had the last two swapped. The call succeeded, returned a bool, and the bool was
@@ -332,21 +344,21 @@ def _check_receipt(d: dict) -> dict:
                             lib.canonical_bytes(d))
     except Exception as exc:  # noqa: BLE001
         return {"state": "not_checkable",
-                "reason": f"die Signatur ist nicht auswertbar: {type(exc).__name__}: {exc}"}
+                "reason": f"the signature cannot be evaluated: {type(exc).__name__}: {exc}"}
     if not ok:
-        return {"state": "failed", "reason": "die ed25519-Signatur haelt nicht",
-                "tree_binding": "nicht_gepruefbar_ohne_auscheckung_am_tag"}
+        return {"state": "failed", "reason": "the ed25519 signature does not hold",
+                "tree_binding": "not_checkable_without_checkout_at_tag"}
     if d.get("audit_exit_code") != 0:
         return {"state": "failed",
-                "reason": f"audit_exit_code ist {d.get('audit_exit_code')!r} und nicht 0 — die "
-                         "Quittung bezeugt einen FEHLGESCHLAGENEN Lauf",
-                "tree_binding": "nicht_gepruefbar_ohne_auscheckung_am_tag"}
+                "reason": (f"audit_exit_code is {d.get('audit_exit_code')!r} and not 0 - the "
+                           "receipt attests a FAILED run"),
+                "tree_binding": "not_checkable_without_checkout_at_tag"}
     return {"state": "passed",
-            "checked": ["signatur_durch_vertrauten_schluessel", "audit_exit_code_0"],
-            "tree_binding": "nicht_gepruefbar_ohne_auscheckung_am_tag",
-            "tree_binding_reason": ("verify_receipt verlangt den erwarteten Baum-Digest; eine "
-                                  "historische Quittung gegen den HEUTIGEN Baum zu halten muesste "
-                                  "fehlschlagen, weil der Baum weitergelaufen ist")}
+            "checked": ["signature_by_trusted_key", "audit_exit_code_0"],
+            "tree_binding": "not_checkable_without_checkout_at_tag",
+            "tree_binding_reason": ("verify_receipt requires the expected tree digest; holding a "
+                                    "historical receipt against TODAY's tree would have to fail, "
+                                    "because the tree moved on")}
 
 
 def proof_log(*, check: bool = True) -> dict:
@@ -354,98 +366,98 @@ def proof_log(*, check: bool = True) -> dict:
 
     THE GENERATOR CHECKS ITSELF, and a failure stands as `failed` WITH its reason. A receipt listed
     in a proof log that nobody ran is a claim about a check. But `failed` is only written when a
-    check actually ran; otherwise `nicht_pruefbar`.
+    check actually ran; otherwise `not_run`.
     """
-    eintraege = []
+    entries = []
     for p in sorted((REPO / "audit_artifacts").glob("*/pre_tag_receipt_*.json")):
         rel = str(p.relative_to(REPO))
         try:
-            rohe = p.read_bytes()
-            inhalt = json.loads(rohe)
+            raw = p.read_bytes()
+            content = json.loads(raw)
         except (OSError, ValueError) as exc:
-            eintraege.append({"receipt": rel, "not_measurable": True, "reason": str(exc)[:140]})
+            entries.append({"receipt": rel, "not_measurable": True, "reason": str(exc)[:140]})
             continue
         e = {
             "receipt": rel,
-            "version": inhalt.get("version"),
-            "sha256": hashlib.sha256(rohe).hexdigest(),
+            "version": content.get("version"),
+            "sha256": hashlib.sha256(raw).hexdigest(),
             "recompute": f"sha256sum {rel}",
             "measured_at": _source_time(rel),
         }
-        e["check"] = (_check_receipt(inhalt) if check else
+        e["check"] = (_check_receipt(content) if check else
                        {"state": "not_run", "reason": "--no-check was set"})
-        eintraege.append(e)
-    if not eintraege:
+        entries.append(e)
+    if not entries:
         return _gap(source="audit_artifacts/*/pre_tag_receipt_*.json",
-                       reason="keine Pre-Tag-Quittung in diesem Baum")
-    return _field(eintraege, source="audit_artifacts/*/pre_tag_receipt_*.json",
-                 at=max((e.get("measured_at") or "") for e in eintraege) or None)
+                       reason="no pre-tag receipt in this tree")
+    return _field(entries, source="audit_artifacts/*/pre_tag_receipt_*.json",
+                 at=max((e.get("measured_at") or "") for e in entries) or None)
 
 
 # ── audit_state / audit_link ────────────────────────────────────────────────────────────────────
-def audit_state_field(version_wert) -> dict:
+def audit_state_field(version_value) -> dict:
     d = REPO / "audit_artifacts"
     if not d.is_dir():
-        return {"audit_state": _gap(source="audit_artifacts/", reason="audit_artifacts/ fehlt"),
-                "audit_link": _gap(source="audit_artifacts/", reason="audit_artifacts/ fehlt")}
-    stufen = sorted(p.name for p in d.iterdir() if p.is_dir() and p.name.isdigit())
-    erwartet = None
-    if isinstance(version_wert, str):
-        teile = version_wert.split(".")
-        if len(teile) >= 2 and all(t.isdigit() for t in teile[:2]):
-            erwartet = f"{teile[0]}{teile[1]}0"
+        return {"audit_state": _gap(source="audit_artifacts/", reason="audit_artifacts/ is missing"),
+                "audit_link": _gap(source="audit_artifacts/", reason="audit_artifacts/ is missing")}
+    stages = sorted(p.name for p in d.iterdir() if p.is_dir() and p.name.isdigit())
+    expected = None
+    if isinstance(version_value, str):
+        parts = version_value.split(".")
+        if len(parts) >= 2 and all(t.isdigit() for t in parts[:2]):
+            expected = f"{parts[0]}{parts[1]}0"
     at = _source_time("audit_artifacts")
-    if erwartet and erwartet not in stufen:
+    if expected and expected not in stages:
         return {"audit_state": _gap(
-                    source="audit_artifacts/", stages=stufen,
-                    reason=(f"fuer Version {version_wert} waere Stufe {erwartet} zu erwarten; sie "
-                           f"liegt nicht. Vorhanden sind {', '.join(stufen)}")),
+                    source="audit_artifacts/", stages=stages,
+                    reason=(f"for version {version_value} stage {expected} would be expected; it "
+                            f"is not there. Present are {', '.join(stages)}")),
                 "audit_link": _gap(source="audit_artifacts/",
-                                      reason=f"ohne Stufe {erwartet} kein Link")}
-    stufe = erwartet or (stufen[-1] if stufen else None)
-    if stufe is None:
-        return {"audit_state": _gap(source="audit_artifacts/", reason="keine Stufe vorhanden"),
-                "audit_link": _gap(source="audit_artifacts/", reason="keine Stufe vorhanden")}
-    return {"audit_state": _field(stufe, source="audit_artifacts/", at=at, stages=stufen),
-            "audit_link": _field(f"audit_artifacts/{stufe}/", source="audit_artifacts/",
+                                      reason=f"no link without stage {expected}")}
+    stage = expected or (stages[-1] if stages else None)
+    if stage is None:
+        return {"audit_state": _gap(source="audit_artifacts/", reason="no stage present"),
+                "audit_link": _gap(source="audit_artifacts/", reason="no stage present")}
+    return {"audit_state": _field(stage, source="audit_artifacts/", at=at, stages=stages),
+            "audit_link": _field(f"audit_artifacts/{stage}/", source="audit_artifacts/",
                                 at=at)}
 
 
 # ── scorecard ───────────────────────────────────────────────────────────────────────────────────
 def scorecard(*, network: bool = True) -> dict:
-    ziel = "https://api.scorecard.dev/projects/github.com/b7n0de/proofbundle"
+    target = "https://api.scorecard.dev/projects/github.com/b7n0de/proofbundle"
     if not network:
-        return _gap(source=ziel, reason="--no-network was set, so it was not asked", stable=False)
+        return _gap(source=target, reason="--no-network was set, so it was not asked", stable=False)
     try:
-        r = subprocess.run(["curl", "-sS", "--max-time", "25", ziel],
+        r = subprocess.run(["curl", "-sS", "--max-time", "25", target],
                            capture_output=True, text=True, timeout=40)
     except (OSError, subprocess.SubprocessError) as exc:
-        return _gap(source=ziel, reason=f"{type(exc).__name__}: {exc}", stable=False)
+        return _gap(source=target, reason=f"{type(exc).__name__}: {exc}", stable=False)
     if r.returncode != 0:
-        return _gap(source=ziel, reason=f"curl rc={r.returncode}: {r.stderr.strip()[:140]}",
+        return _gap(source=target, reason=f"curl rc={r.returncode}: {r.stderr.strip()[:140]}",
                        stable=False)
     try:
         d = json.loads(r.stdout or "null")
     except ValueError as exc:
-        return _gap(source=ziel, reason=f"Antwort ist kein JSON: {exc}", stable=False)
+        return _gap(source=target, reason=f"the answer is not JSON: {exc}", stable=False)
     if not isinstance(d, dict):
-        return _gap(source=ziel, reason=f"Antwort ist {type(d).__name__}, erwartet ein Objekt",
+        return _gap(source=target, reason=f"the answer is {type(d).__name__}, an object was expected",
                        stable=False)
-    pruefungen = d.get("checks") or []
+    checks_list = d.get("checks") or []
     # ALL values, not the overall score. How many there really are is said by the answer and not
     # by the requirement, so the measured count stands next to them.
     return _field({"score": d.get("score"),
                   "checks": [{"name": c.get("name"), "score": c.get("score"),
-                              "reason": c.get("reason")} for c in pruefungen]},
-                 source=ziel, at=_now(), stable=False,
-                 check_count=len(pruefungen),
+                              "reason": c.get("reason")} for c in checks_list]},
+                 source=target, at=_now(), stable=False,
+                 check_count=len(checks_list),
                  note=("from the network and therefore not byte-stable: a foreign answer has no "
                        "source time in the tree, its measurement time is the run time"))
 
 
 def build(*, network: bool = True, check: bool = True) -> dict:
     vr = version_and_release()
-    aus = {
+    out = {
         "schema": "b7n0de.proofbundle_site_data.v1",
         "generated_by": "scripts/render_site_data.py",
         "generated_at": _now(),
@@ -454,7 +466,7 @@ def build(*, network: bool = True, check: bool = True) -> dict:
         # counting the gaps therefore took the explanation block for a measured field without a
         # reason and ended in a KeyError, measured on the first run.
         #
-        # Fixed at the COLLISION and not at the single case: the keys now end in `..._bedeutet`, so
+        # Fixed at the COLLISION and not at the single case: the keys now end in `..._means`, so
         # neither a reader nor a loop can mistake them for a value. A special case in the loop would
         # have produced the same class at the next explanation block.
         "how_to_read": {
@@ -476,7 +488,7 @@ def build(*, network: bool = True, check: bool = True) -> dict:
         "proof_log": proof_log(check=check),
         "scorecard": scorecard(network=network),
     }
-    return aus
+    return out
 
 
 def tree_fields(d: dict) -> dict:
@@ -489,18 +501,18 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=REPO / "docs" / "site" / "site-data.json")
     ap.add_argument("--no-network", action="store_true",
-                    help="die Netzquellen nicht fragen; sie stehen dann als nicht_messbar mit "
-                         "genau diesem Grund")
+                    help="do not ask the network sources; they then stand as not_measurable with "
+                         "exactly that reason")
     ap.add_argument("--no-check", action="store_true",
-                    help="die Quittungen nicht selbst nachrechnen; ihr Zustand ist dann "
-                         "nicht_gefahren und ausdruecklich nicht passed")
+                    help="do not recompute the receipts; their state is then not_run and "
+                         "explicitly not passed")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
     d = build(network=not a.no_network, check=not a.no_check)
-    luecken = [k for k, v in d.items() if isinstance(v, dict) and v.get("not_measurable")]
-    if len(luecken) == len([k for k, v in d.items() if isinstance(v, dict) and "stable" in v]):
-        print("NICHT MESSBAR: keine einzige Quelle lesbar — nichts geschrieben", file=sys.stderr)
+    gaps = [k for k, v in d.items() if isinstance(v, dict) and v.get("not_measurable")]
+    if len(gaps) == len([k for k, v in d.items() if isinstance(v, dict) and "stable" in v]):
+        print("NOT MEASURABLE: not a single source is readable - nothing written", file=sys.stderr)
         return 2
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -512,10 +524,10 @@ def main(argv=None) -> int:
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2, sort_keys=True))
     else:
-        print(f"geschrieben: {a.out.relative_to(REPO) if a.out.is_relative_to(REPO) else a.out}")
-        print(f"  Felder: {len([k for k, v in d.items() if isinstance(v, dict) and 'stable' in v])} "
-              f"· nicht messbar: {len(luecken)}")
-        for k in luecken:
+        print(f"written: {a.out.relative_to(REPO) if a.out.is_relative_to(REPO) else a.out}")
+        print(f"  fields: {len([k for k, v in d.items() if isinstance(v, dict) and 'stable' in v])} "
+              f"· not measured: {len(gaps)}")
+        for k in gaps:
             print(f"  ! {k}: {d[k]['reason'][:110]}")
     return 0
 
