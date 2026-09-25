@@ -129,11 +129,12 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # the fourth round of the same list. So the three pieces below state the property instead, and
 # Check 4 and Check 6 share them rather than each keeping a copy:
 #
-#   _REPO_HOST     the URL authority, not a host name anywhere in a string: at a token boundary
-#                  (start, space, bracket, quote), optionally `scheme://` or a scheme-relative `//`,
-#                  optionally a userinfo `name@` inside that authority; then the hosts that serve
-#                  this repository's content: github.com, raw.githubusercontent.com,
-#                  codeload.github.com, each with an optional `:port`.
+#   _REPO_HOST     the URL authority of the one host that serves this repository's release pages,
+#                  github.com (optionally `www.`, optionally `:port`), not a host name anywhere in a
+#                  string: at a token boundary (start, space, bracket, quote), optionally `scheme://`
+#                  or a scheme-relative `//`, optionally a userinfo `name@` inside that authority.
+#                  The content hosts raw.githubusercontent.com and codeload.github.com serve files
+#                  and archives, never a release page; they are read by `_REPO_AT_TAG` below.
 #   _REPO_AT_TAG   a reference to this repository AT A REF POSITION of its route: after `blob/`,
 #                  `tree/`, `raw/`, `commit(s)/`, `releases/tag/`, `releases/download/`, `archive/`,
 #                  `compare/`, codeload's `tar.gz/` and `zip/`, `refs/tags/`, directly after the
@@ -170,12 +171,16 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # looked behind, because a scheme has no fixed width; it captures nothing, so group 1 stays the
 # version.
 _AUTORITAET = (r"(?<![^\s(<\[\"'`])"
-               r"(?:(?:[A-Za-z][A-Za-z0-9+.\-]*:)?//(?:[^/\s@]*@)?)?")
+               r"(?:(?:[A-Za-z][A-Za-z0-9+.\-]*:)?//(?:[^/?#\s@]*@)?)?")
 #: An explicit port is part of the authority too (Codex round seven, measured:
 #: `https://github.com:443/b7n0de/proofbundle/tree/vX` pinned an old release unseen).
 _PORT = r"(?::[0-9]{1,5})?"
-_REPO_HOST = (_AUTORITAET + r"(?:www\.)?"
-              r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)" + _PORT + "/")
+#: ROUND EIGHT (Codex, 2026-09-25, measured): the release-link anchor reused a three-host authority,
+#: so `raw.githubusercontent.com/b7n0de/proofbundle/releases/tag/vX` read as a release link, where on
+#: the raw host `releases` stands at the REF position and `/tag/vX` is a file path. A release page
+#: exists on one host only. And a userinfo may not run across `?` or `#`: those end the authority, so
+#: `https://example.com?next=user@github.com/...` is query data of example.com, not a GitHub URL.
+_REPO_HOST = (_AUTORITAET + r"(?:www\.)?github\.com" + _PORT + "/")
 _REPO_AT_TAG = (_AUTORITAET + r"(?:"
                 r"(?:www\.)?github\.com" + _PORT + r"/b7n0de/proofbundle(?:(?:\.git)?@|/(?:blob|tree|raw|commits?"
                 r"|releases/tag|releases/download|compare|archive(?:/refs/tags)?)/)"

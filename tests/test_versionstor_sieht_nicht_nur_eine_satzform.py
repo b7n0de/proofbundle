@@ -669,6 +669,11 @@ _NICHT_UNSER = [
     "https://example.com/x@github.com/b7n0de/proofbundle/tree/v{v}",
     "https://example.com/?next=//github.com/b7n0de/proofbundle/tree/v{v}",
     "https://example.com/?next=https://github.com/b7n0de/proofbundle/tree/v{v}",
+    # round eight: a userinfo cannot run across `?` or `#`, and a release page exists on github.com only
+    "https://example.com?next=user@github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://example.com#frag@github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://raw.githubusercontent.com/b7n0de/proofbundle/releases/tag/v{v}",
+    "https://codeload.github.com/b7n0de/proofbundle/releases/tag/v{v}",
 ]
 
 
