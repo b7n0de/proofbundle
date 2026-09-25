@@ -1,0 +1,283 @@
+{
+  "runs": {
+    "cbor2-5.9.0": {
+      "cbor2": {
+        "decoder_position_after_first_item": {
+          "input": 2,
+          "tell": 1,
+          "value": 1
+        },
+        "default_tag_handling": {
+          "tag 1 epoch time": {
+            "outcome": "returned",
+            "value": "datetime.datetime(2020, 9, 13, 12, 26, 40, tzinfo=datetime.timezone.utc)"
+          },
+          "tag 2 bignum": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 24 embedded CBOR": {
+            "outcome": "returned",
+            "value": "CBORTag(24, b'\\xf6')"
+          },
+          "tag 55799 self-describe": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 99999 unregistered": {
+            "outcome": "returned",
+            "value": "CBORTag(99999, 1)"
+          },
+          "tags 256/25 string reference": {
+            "outcome": "returned",
+            "value": "[b'abc', b'abc']"
+          },
+          "tags 28/29 shared reference": {
+            "outcome": "returned",
+            "value": "[[1], [1]]"
+          }
+        },
+        "duplicate_key_default": {
+          "outcome": "returned",
+          "value": "{1: 2}"
+        },
+        "duplicate_key_rejected_on_request": {
+          "detail": "'allow_duplicate_keys' is an invalid keyword argument for this function",
+          "outcome": "TypeError"
+        },
+        "indefinite_default": {
+          "outcome": "returned",
+          "value": "[1, 2]"
+        },
+        "indefinite_rejected_on_request": {
+          "detail": "'allow_indefinite' is an invalid keyword argument for this function",
+          "outcome": "TypeError"
+        },
+        "loads_signature": "not introspectable",
+        "max_depth_16_on_depth_20": {
+          "detail": "maximum container nesting depth (16) exceeded",
+          "outcome": "CBORDecodeError"
+        },
+        "non_shortest_head_0x1801": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "semantic_decoders_refuses_tag_2": {
+          "detail": "'semantic_decoders' is an invalid keyword argument for this function",
+          "outcome": "TypeError"
+        },
+        "tag_hook_called_for_tag_2": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "tag_hook_called_for_tag_99999": {
+          "detail": "tag refused",
+          "outcome": "ValueError"
+        },
+        "trailing_byte_after_item": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "type_of_map_inside_tag18": "dict",
+        "type_of_tag18_content": "list"
+      },
+      "datahash_via_cbor2": {
+        "cbor-header.cose": {
+          "equal": true,
+          "rebuilt_length": 2783,
+          "rebuilt_sha256": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "receipt_data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "strict_options_used": []
+        },
+        "nested-sign1.cose": {
+          "equal": true,
+          "rebuilt_length": 2725,
+          "rebuilt_sha256": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "receipt_data_hash": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "strict_options_used": []
+        },
+        "transparent-statement.cose": {
+          "equal": true,
+          "rebuilt_length": 4809,
+          "rebuilt_sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "receipt_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "strict_options_used": []
+        }
+      },
+      "environment": {
+        "cbor2": "5.9.0",
+        "cryptography": "50.0.1",
+        "pycose": "1.1.0",
+        "python": "3.11.15"
+      },
+      "pycose": {
+        "control_read_back_own_message": {
+          "outcome": "returned",
+          "value": "True"
+        },
+        "installed": true,
+        "statements": {
+          "cbor-header.cose": {
+            "decode_statement": {
+              "outcome": "returned",
+              "value": "<COSE_Sign1: [{'external-signature': [{1: -257, 4: b'example-external-key-1', 34: [-16, b'\\xc1\\xfd><&\\xb0\\x9c\\xb5,\\xbf\\x"
+            },
+            "receipt_signature_over_recomputed_root": {
+              "outcome": "returned",
+              "value": "True"
+            }
+          },
+          "nested-sign1.cose": {
+            "decode_statement": {
+              "outcome": "returned",
+              "value": "<COSE_Sign1: [{'external-statement': CBORTag(18, [b'\\xa2\\x019\\x01\\x00\\x18!\\x81Y\\x04n0\\x82\\x04j0\\x82\\x02\\xd2\\xa0\\x03\\x02\\"
+            },
+            "receipt_signature_over_recomputed_root": {
+              "outcome": "returned",
+              "value": "True"
+            }
+          },
+          "transparent-statement.cose": {
+            "decode_statement": {
+              "outcome": "returned",
+              "value": "<COSE_Sign1: [{'X5t': [-16, b'\\x11\\x8a\\xc1\\x1c\\xe5\\x07\\x95\\xae\"\\xee\\xb7S\\xb1\\xa4\"\\x9f\\xd3\\xa6DL\\x927\\xd8@oj\\xaa\\x1fs\\x16"
+            },
+            "receipt_signature_over_recomputed_root": {
+              "outcome": "returned",
+              "value": "True"
+            }
+          }
+        }
+      }
+    },
+    "cbor2-6.1.4": {
+      "cbor2": {
+        "decoder_position_after_first_item": {
+          "input": 2,
+          "tell": 1,
+          "value": 1
+        },
+        "default_tag_handling": {
+          "tag 1 epoch time": {
+            "outcome": "returned",
+            "value": "datetime.datetime(2020, 9, 13, 12, 26, 40, tzinfo=datetime.timezone.utc)"
+          },
+          "tag 2 bignum": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 24 embedded CBOR": {
+            "outcome": "returned",
+            "value": "CBORTag(24, b'\\xf6')"
+          },
+          "tag 55799 self-describe": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 99999 unregistered": {
+            "outcome": "returned",
+            "value": "CBORTag(99999, 1)"
+          },
+          "tags 256/25 string reference": {
+            "outcome": "returned",
+            "value": "[b'abc', b'abc']"
+          },
+          "tags 28/29 shared reference": {
+            "outcome": "returned",
+            "value": "[[1], [1]]"
+          }
+        },
+        "duplicate_key_default": {
+          "outcome": "returned",
+          "value": "{1: 2}"
+        },
+        "duplicate_key_rejected_on_request": {
+          "detail": "error decoding map: Duplicate map key: 1",
+          "outcome": "CBORDecodeError"
+        },
+        "indefinite_default": {
+          "outcome": "returned",
+          "value": "[1, 2]"
+        },
+        "indefinite_rejected_on_request": {
+          "detail": "error decoding array: encountered indefinite length but it has been disabled",
+          "outcome": "CBORDecodeError"
+        },
+        "loads_signature": "(data, *, tag_hook=None, object_hook=None, semantic_decoders=None, str_errors='strict', max_depth=400, allow_indefinite=True, allow_duplicate_keys=True, immutable=False)",
+        "max_depth_16_on_depth_20": {
+          "detail": "maximum container nesting depth (16) exceeded",
+          "outcome": "CBORDecodeError"
+        },
+        "non_shortest_head_0x1801": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "semantic_decoders_refuses_tag_2": {
+          "detail": "error decoding semantic tag 2",
+          "outcome": "CBORDecodeError"
+        },
+        "tag_hook_called_for_tag_2": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "tag_hook_called_for_tag_99999": {
+          "detail": "error decoding semantic tag 99999",
+          "outcome": "CBORDecodeError"
+        },
+        "trailing_byte_after_item": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "type_of_map_inside_tag18": "frozendict",
+        "type_of_tag18_content": "tuple"
+      },
+      "datahash_via_cbor2": {
+        "cbor-header.cose": {
+          "equal": true,
+          "rebuilt_length": 2783,
+          "rebuilt_sha256": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "receipt_data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        },
+        "nested-sign1.cose": {
+          "equal": true,
+          "rebuilt_length": 2725,
+          "rebuilt_sha256": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "receipt_data_hash": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        },
+        "transparent-statement.cose": {
+          "equal": true,
+          "rebuilt_length": 4809,
+          "rebuilt_sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "receipt_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        }
+      },
+      "environment": {
+        "cbor2": "6.1.4",
+        "cryptography": "50.0.1",
+        "pycose": "1.1.0",
+        "python": "3.11.15"
+      },
+      "pycose": {
+        "control_read_back_own_message": {
+          "detail": "Bytes cannot be decoded as COSE message",
+          "outcome": "TypeError"
+        },
+        "installed": true,
+        "statements": "NOT MEASURABLE: the control failed, so no row below would mean anything"
+      }
+    }
+  },
+  "tool": "tools/scitt_ccf_external/reader_crosscheck.py"
+}

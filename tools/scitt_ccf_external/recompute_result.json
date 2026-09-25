@@ -1,0 +1,1242 @@
+{
+  "tool": "tools/scitt_ccf_external/recompute.py",
+  "measured_on": "2026-09-25",
+  "environment": {
+    "python": "3.11.15",
+    "implementation": "CPython",
+    "machine": "x86_64",
+    "cryptography": "50.0.1"
+  },
+  "profile_basis": "draft-ietf-scitt-receipts-ccf-profile-05, leaf HASH(internal-transaction-hash || HASH(internal-evidence) || data-hash)",
+  "inputs": {
+    "transparent-statement.cose": {
+      "length": 5401,
+      "sha256": "4bb50fe1a92f74cd85405a15508f560f1bfd77a43e1d00d4b3d718cf5d112377",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/transparent-statement.cose"
+    },
+    "mst-test-scitt-keys.cbor": {
+      "length": 175,
+      "sha256": "b146b954b2ba79eec5e59748d96064b5f18dfe4b13f90cf5868207985d6faf0e",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/mst-test-scitt-keys.cbor"
+    },
+    "other-service-scitt-keys.cbor": {
+      "length": 523,
+      "sha256": "f113c423176de67543c5f8d55e18c5779506e3ab16d1f3122a4365f7d0301d40",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/other-service-scitt-keys.cbor"
+    },
+    "payload-tampered.cose": {
+      "length": 5401,
+      "sha256": "0b16482599ab0209bbb2b7cb605e71ab8df823cd865c1c172727ecad239503d1",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/payload-tampered.cose"
+    },
+    "tampered-statement.cose": {
+      "length": 5401,
+      "sha256": "075797b10f73d15f699f907c2ac7150ab87b4afe8d979238d650d497982cec2a",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/tampered-statement.cose"
+    },
+    "appended-receipt.cose": {
+      "length": 5989,
+      "sha256": "871109cfb997a19187df71106c7507abb39171194bf88a722dbdee0f0bdeb56c",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/appended-receipt.cose"
+    },
+    "cbor-header.cose": {
+      "length": 3411,
+      "sha256": "78c91991c8a92aa169da7a6e2ad43e5d5c7bd5165d0f306c3fca6af92a5bcb46",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/cbor-header.cose"
+    },
+    "nested-sign1.cose": {
+      "length": 3353,
+      "sha256": "9f04814fd5d21c4e921c72369d3b68ed01cdeef4dfed00965160dd56c88c42c1",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/nested-sign1.cose"
+    },
+    "hash-envelope.cose": {
+      "length": 702,
+      "sha256": "4a16941a117dff754fe5118e72f28bcabf9bda1312f959a0394b92e2073002f7",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/hash-envelope.cose"
+    },
+    "hash-envelope-artifact.spdx.json": {
+      "length": 57,
+      "sha256": "a3c890a2ef462e1629270e489f7d41ac02c285a556bd411fb58f5aebf9e51ce0",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/hash-envelope-artifact.spdx.json"
+    },
+    "hash-envelope-bad-artifact.spdx.json": {
+      "length": 44,
+      "sha256": "d6e26054fcf7385d419489e4029b751269568d96364cb697f73212fcab550300",
+      "source": "scitt-verifier",
+      "path": "corpus/fixtures/hash-envelope-bad-artifact.spdx.json"
+    },
+    "microsoft-mst-receipt.cbor": {
+      "length": 725,
+      "sha256": "db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5",
+      "source": "ccf-profile",
+      "path": "samples/microsoft-mst-receipt.cbor"
+    }
+  },
+  "trust_material": {
+    "key_set": "mst-test-scitt-keys.cbor",
+    "kids": [
+      "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70"
+    ],
+    "other_service_kids": [
+      "8e781a1b0434bfb1e80fd9b63287649dae18baa4f97066c631c13a2faa8ecbd4",
+      "c63e03890eddc8ebd3d7c300cf1f51a2fddc8a78180addf297c4ad3b5aa01536",
+      "deb76178a62dc389ed2642de1c0c31aa7ca553e91f76b357db475f4164d4eccf"
+    ],
+    "other_service_skipped_keys": []
+  },
+  "cases": {
+    "transparent-statement.cose": {
+      "length": 5401,
+      "sha256": "4bb50fe1a92f74cd85405a15508f560f1bfd77a43e1d00d4b3d718cf5d112377",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 4397
+        },
+        "unprotected": {
+          "offset": 4399,
+          "length": 593
+        },
+        "payload": {
+          "offset": 4992,
+          "length": 22
+        },
+        "signature": {
+          "offset": 5014,
+          "length": 387
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 21 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 4432,
+        "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4"
+      },
+      "statement_signature": {
+        "alg": -37,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 5401,
+            "sha256": "4bb50fe1a92f74cd85405a15508f560f1bfd77a43e1d00d4b3d718cf5d112377",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 4808,
+            "sha256": "0b0033b6f31dab879dc53efd210687659abc89f063764ae05682e54827c45233",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 4788,
+            "sha256": "bcfc21acac11dc22b7ef77bbca2992fda063eeea893254e614fa96b039732013",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 4432,
+            "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 21,
+            "sha256": "719398b40f3db83e1e19c610f6a05e54fe6980033076f724c99f132478f10036",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 4394,
+            "sha256": "1aa4166a852a5c39ae6578771ac42843ae75e66cfa64cc5372c5548275900aeb",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 585,
+          "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
+          "readable": true,
+          "signature_valid": true,
+          "profile_satisfied": true,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760850
+          },
+          "ccf_txid": "2.58",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "38a0005546f5ad45b13c524bab3ff6ee51e054460ad88d37345e14b02761fa89",
+              "internal_evidence": "ce:2.57:8ca6db966d022db054ac6bbf65769bde62ffc8c4007d52c1e6f193e709375d7b",
+              "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+              "leaf_input_length": 96,
+              "leaf_hash": "a83de56b672ccd20d95e527a916a59c85a36b46f5f496d4b839256a59bf60bbd",
+              "path_length": 4,
+              "path_left_bits": "1111",
+              "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      ]
+    },
+    "cbor-header.cose": {
+      "length": 3411,
+      "sha256": "78c91991c8a92aa169da7a6e2ad43e5d5c7bd5165d0f306c3fca6af92a5bcb46",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 2549
+        },
+        "unprotected": {
+          "offset": 2551,
+          "length": 629
+        },
+        "payload": {
+          "offset": 3180,
+          "length": 165
+        },
+        "signature": {
+          "offset": 3345,
+          "length": 66
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "external-signature"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 163 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 2727,
+        "sha256": "55553dae703d3f80e358b57022336c7d15688b3efdad75412f676cb23ebab5ea"
+      },
+      "statement_signature": {
+        "alg": -7,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 3411,
+            "sha256": "78c91991c8a92aa169da7a6e2ad43e5d5c7bd5165d0f306c3fca6af92a5bcb46",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 2783,
+            "sha256": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 2782,
+            "sha256": "12afa9660278bb8fde1035b34938bfc8acca4ad3ba0b28a2f49c5c3a25aa1cfe",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 2619,
+            "sha256": "8c8d592d21f9015fb7fffae75028088a6d228070fc62e5ff6ceed60f7772a514",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 2783,
+            "sha256": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 2727,
+            "sha256": "55553dae703d3f80e358b57022336c7d15688b3efdad75412f676cb23ebab5ea",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 163,
+            "sha256": "f1c315fd42402e5fc3c63c4d6ad6a3bcf33be3f7dc896128533866712903ecd3",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 2546,
+            "sha256": "26a68980b1385566961ab85fa37ebdc1c2726a830c8cb798630d5665c9d92b69",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 621,
+          "sha256": "6d45ce8ceba258cd459a38b6ba4b81af5b013bb135cc5e713f6400ab86bb57be",
+          "readable": true,
+          "signature_valid": true,
+          "profile_satisfied": true,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760854
+          },
+          "ccf_txid": "2.60",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "ee1761d6b5aa54ab31ab0d81d84747ba0b8eb9f0f27ec8d460fc691f45c958f1",
+              "internal_evidence": "ce:2.59:ae7992d33473caa67c0837a41f6d0da7b6641c6a3737c9ca08c155894171bea6",
+              "data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+              "leaf_input_length": 96,
+              "leaf_hash": "977e3667f33b8aff122f1e1648f8b72ad1b8f6c5ef00cf5d395b144d56781f43",
+              "path_length": 5,
+              "path_left_bits": "11111",
+              "merkle_root": "aa715eb972e1f8503014bda2257f61a295bb5936006850d427764d36263fd76a"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "aa715eb972e1f8503014bda2257f61a295bb5936006850d427764d36263fd76a"
+      ]
+    },
+    "nested-sign1.cose": {
+      "length": 3353,
+      "sha256": "9f04814fd5d21c4e921c72369d3b68ed01cdeef4dfed00965160dd56c88c42c1",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 2491
+        },
+        "unprotected": {
+          "offset": 2493,
+          "length": 629
+        },
+        "payload": {
+          "offset": 3122,
+          "length": 165
+        },
+        "signature": {
+          "offset": 3287,
+          "length": 66
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "external-statement"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 163 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 2669,
+        "sha256": "0007727f83199037cfd31f987ad2e3e8ee2985c4e7566a0ab588c2d851147bbe"
+      },
+      "statement_signature": {
+        "alg": -7,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 3353,
+            "sha256": "9f04814fd5d21c4e921c72369d3b68ed01cdeef4dfed00965160dd56c88c42c1",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 2725,
+            "sha256": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 2724,
+            "sha256": "b83e074ef08e75d97fa6cd5615ec7ddd3644d0872b12d86eb538bd819f366464",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 2561,
+            "sha256": "7322e9d247638ebf1e3aed66c6eb8eb048b4d9dbc5e7a5f60c762d0fa9f22e1d",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 2725,
+            "sha256": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 2669,
+            "sha256": "0007727f83199037cfd31f987ad2e3e8ee2985c4e7566a0ab588c2d851147bbe",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 163,
+            "sha256": "8603db12939d6a24d4461634cafcb073aeac140f16a27437e2048150ef3f925c",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 2488,
+            "sha256": "5cd4f6a6d3b3ed22c34c2ac6264b78ba43f9b69ac845dadccdaf079abbf5504a",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 621,
+          "sha256": "571f6928bb7619251f0d22b571bde1ea79e54c483a185aabf99ec901da4d07e8",
+          "readable": true,
+          "signature_valid": true,
+          "profile_satisfied": true,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760859
+          },
+          "ccf_txid": "2.62",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "a434bd192a615e11523b47083aec466cd85b6e3d555c05b95b43e8b41e26c2b9",
+              "internal_evidence": "ce:2.61:fcc5ca2ca926913d276abcb4f3b927521f478055dea9dd52f57a73352303de78",
+              "data_hash": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+              "leaf_input_length": 96,
+              "leaf_hash": "ffa18eada58c0eaf4f14f80f42de36aa3940252cbf796cb10a9e39dcdd4047d7",
+              "path_length": 5,
+              "path_left_bits": "11111",
+              "merkle_root": "e36ab9b08b8eec40232d78461bffa871eeaa3d978f22d8b70d4aded2266b92bd"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "e36ab9b08b8eec40232d78461bffa871eeaa3d978f22d8b70d4aded2266b92bd"
+      ]
+    },
+    "appended-receipt.cose": {
+      "length": 5989,
+      "sha256": "871109cfb997a19187df71106c7507abb39171194bf88a722dbdee0f0bdeb56c",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 4397
+        },
+        "unprotected": {
+          "offset": 4399,
+          "length": 1181
+        },
+        "payload": {
+          "offset": 5580,
+          "length": 22
+        },
+        "signature": {
+          "offset": 5602,
+          "length": 387
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 21 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 4432,
+        "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4"
+      },
+      "statement_signature": {
+        "alg": -37,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 5989,
+            "sha256": "871109cfb997a19187df71106c7507abb39171194bf88a722dbdee0f0bdeb56c",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 4808,
+            "sha256": "0b0033b6f31dab879dc53efd210687659abc89f063764ae05682e54827c45233",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 4788,
+            "sha256": "bcfc21acac11dc22b7ef77bbca2992fda063eeea893254e614fa96b039732013",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 4432,
+            "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 21,
+            "sha256": "719398b40f3db83e1e19c610f6a05e54fe6980033076f724c99f132478f10036",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 4394,
+            "sha256": "1aa4166a852a5c39ae6578771ac42843ae75e66cfa64cc5372c5548275900aeb",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 585,
+          "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
+          "readable": true,
+          "signature_valid": true,
+          "profile_satisfied": true,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760850
+          },
+          "ccf_txid": "2.58",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "38a0005546f5ad45b13c524bab3ff6ee51e054460ad88d37345e14b02761fa89",
+              "internal_evidence": "ce:2.57:8ca6db966d022db054ac6bbf65769bde62ffc8c4007d52c1e6f193e709375d7b",
+              "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+              "leaf_input_length": 96,
+              "leaf_hash": "a83de56b672ccd20d95e527a916a59c85a36b46f5f496d4b839256a59bf60bbd",
+              "path_length": 4,
+              "path_left_bits": "1111",
+              "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        },
+        {
+          "length": 585,
+          "sha256": "0089e4149abf114287e12d94dcec1bdba12c1cf934b20c7840ab3b8b615895ce",
+          "readable": true,
+          "signature_valid": false,
+          "profile_satisfied": false,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760850
+          },
+          "ccf_txid": "2.58",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "38a0005546f5ad45b13c524bab3ff6ee51e054460ad88d37345e14b02761fa89",
+              "internal_evidence": "ce:2.57:8ca6db966d022db054ac6bbf65769bde62ffc8c4007d52c1e6f193e709375d7b",
+              "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+              "leaf_input_length": 96,
+              "leaf_hash": "a83de56b672ccd20d95e527a916a59c85a36b46f5f496d4b839256a59bf60bbd",
+              "path_length": 4,
+              "path_left_bits": "1111",
+              "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      ]
+    },
+    "payload-tampered.cose": {
+      "length": 5401,
+      "sha256": "0b16482599ab0209bbb2b7cb605e71ab8df823cd865c1c172727ecad239503d1",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 4397
+        },
+        "unprotected": {
+          "offset": 4399,
+          "length": 593
+        },
+        "payload": {
+          "offset": 4992,
+          "length": 22
+        },
+        "signature": {
+          "offset": 5014,
+          "length": 387
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 21 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 4432,
+        "sha256": "fa5f19a9b64e57be0721b59fb8ed3fdc4265a7592832095ba6b2c74686ecb83c"
+      },
+      "statement_signature": {
+        "alg": -37,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": false,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 5401,
+            "sha256": "0b16482599ab0209bbb2b7cb605e71ab8df823cd865c1c172727ecad239503d1",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 4809,
+            "sha256": "aab9c1223e2ac88b5ea0dac8ce3a219e9be641ae14ce63250d03437e14329857",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 4808,
+            "sha256": "d1f355e230329b857bdeee7267802ddb7308811b9e596654053a855dc40f484d",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 4788,
+            "sha256": "bcfc21acac11dc22b7ef77bbca2992fda063eeea893254e614fa96b039732013",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 4809,
+            "sha256": "aab9c1223e2ac88b5ea0dac8ce3a219e9be641ae14ce63250d03437e14329857",
+            "equals_a_receipt_data_hash": false
+          },
+          "tobesigned": {
+            "length": 4432,
+            "sha256": "fa5f19a9b64e57be0721b59fb8ed3fdc4265a7592832095ba6b2c74686ecb83c",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 21,
+            "sha256": "f9afd019dbb0fa74658ba04ccbff80ff1a17a24cedd007aa0188f87358520069",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 4394,
+            "sha256": "1aa4166a852a5c39ae6578771ac42843ae75e66cfa64cc5372c5548275900aeb",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": []
+      },
+      "receipts": [
+        {
+          "length": 585,
+          "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
+          "readable": true,
+          "signature_valid": true,
+          "profile_satisfied": false,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760850
+          },
+          "ccf_txid": "2.58",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "38a0005546f5ad45b13c524bab3ff6ee51e054460ad88d37345e14b02761fa89",
+              "internal_evidence": "ce:2.57:8ca6db966d022db054ac6bbf65769bde62ffc8c4007d52c1e6f193e709375d7b",
+              "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+              "leaf_input_length": 96,
+              "leaf_hash": "a83de56b672ccd20d95e527a916a59c85a36b46f5f496d4b839256a59bf60bbd",
+              "path_length": 4,
+              "path_left_bits": "1111",
+              "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": false,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      ]
+    },
+    "tampered-statement.cose": {
+      "length": 5401,
+      "sha256": "075797b10f73d15f699f907c2ac7150ab87b4afe8d979238d650d497982cec2a",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 4397
+        },
+        "unprotected": {
+          "offset": 4399,
+          "length": 593
+        },
+        "payload": {
+          "offset": 4992,
+          "length": 22
+        },
+        "signature": {
+          "offset": 5014,
+          "length": 387
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "payload": "embedded, 21 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 4432,
+        "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4"
+      },
+      "statement_signature": {
+        "alg": -37,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 5401,
+            "sha256": "075797b10f73d15f699f907c2ac7150ab87b4afe8d979238d650d497982cec2a",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 4808,
+            "sha256": "0b0033b6f31dab879dc53efd210687659abc89f063764ae05682e54827c45233",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 4788,
+            "sha256": "bcfc21acac11dc22b7ef77bbca2992fda063eeea893254e614fa96b039732013",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 4809,
+            "sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 4432,
+            "sha256": "0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 21,
+            "sha256": "719398b40f3db83e1e19c610f6a05e54fe6980033076f724c99f132478f10036",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 4394,
+            "sha256": "1aa4166a852a5c39ae6578771ac42843ae75e66cfa64cc5372c5548275900aeb",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 585,
+          "sha256": "0089e4149abf114287e12d94dcec1bdba12c1cf934b20c7840ab3b8b615895ce",
+          "readable": true,
+          "signature_valid": false,
+          "profile_satisfied": false,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "4f874f204aba2d28087b7bccac1b50a9fdd2553b7da41af23e8ebd2ae00eeb70",
+          "crit_present": false,
+          "cwt": {
+            "iss": "mst-test-scitt-verifier.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1789760850
+          },
+          "ccf_txid": "2.58",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "38a0005546f5ad45b13c524bab3ff6ee51e054460ad88d37345e14b02761fa89",
+              "internal_evidence": "ce:2.57:8ca6db966d022db054ac6bbf65769bde62ffc8c4007d52c1e6f193e709375d7b",
+              "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+              "leaf_input_length": 96,
+              "leaf_hash": "a83de56b672ccd20d95e527a916a59c85a36b46f5f496d4b839256a59bf60bbd",
+              "path_length": 4,
+              "path_left_bits": "1111",
+              "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      ]
+    },
+    "hash-envelope.cose": {
+      "length": 702,
+      "sha256": "4a16941a117dff754fe5118e72f28bcabf9bda1312f959a0394b92e2073002f7",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 599
+        },
+        "unprotected": {
+          "offset": 601,
+          "length": 1
+        },
+        "payload": {
+          "offset": 602,
+          "length": 34
+        },
+        "signature": {
+          "offset": 636,
+          "length": 66
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "258",
+        "259",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [],
+      "payload": "embedded, 32 B",
+      "value_1_hash_envelope": {
+        "present": true,
+        "258_in_protected": -16,
+        "258_in_unprotected": false,
+        "259_preimage_content_type": "application/spdx+json",
+        "260_location_present": false,
+        "label_3_present": false,
+        "payload_length": 32,
+        "artifacts": {
+          "hash-envelope-artifact.spdx.json": {
+            "sha256": "a3c890a2ef462e1629270e489f7d41ac02c285a556bd411fb58f5aebf9e51ce0",
+            "equals_payload": true
+          },
+          "hash-envelope-bad-artifact.spdx.json": {
+            "sha256": "d6e26054fcf7385d419489e4029b751269568d96364cb697f73212fcab550300",
+            "equals_payload": false
+          }
+        }
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 646,
+        "sha256": "d50a043023bfd135ca64e2c927ed07a6faae02be0464f18848410589412b5e6c"
+      },
+      "statement_signature": {
+        "alg": -7,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": false,
+        "reason": "no receipt (label 394 absent)"
+      }
+    },
+    "microsoft-mst-receipt.cbor": {
+      "note": "a receipt without its statement and without reachable trust material",
+      "receipt": {
+        "length": 725,
+        "sha256": "db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5",
+        "readable": true,
+        "signature_valid": null,
+        "profile_satisfied": false,
+        "problems": [
+          "signature NOT EVALUATED: no trust material"
+        ],
+        "tagged": true,
+        "protected_labels": [
+          "1",
+          "15",
+          "395",
+          "4",
+          "ccf.v1"
+        ],
+        "alg": -35,
+        "vds": 2,
+        "kid": "a7ad3b7729516ca443fa472a0f2faa4a984ee3da7eafd17f98dcffbac4a6a10f",
+        "crit_present": false,
+        "cwt": {
+          "iss": "esrp-cts-cp.confidential-ledger.azure.com",
+          "sub": "scitt.ccf.signature.v1",
+          "iat": 1750370741
+        },
+        "ccf_txid": "138.3388",
+        "payload_detached": true,
+        "inclusion_proofs": [
+          {
+            "internal_transaction_hash": "dc97103b209ac1d5844e3ea367faf03f38b3fae64f3e56d81377655c5893ee78",
+            "internal_evidence": "ce:138.3387:c4b331033a7e29d01a76755d534f201a8ae893abf44bedae12fabc116818eb42",
+            "data_hash": "ad2c00a990a1b0a4f8ea765b58eb64b207b94ec52ff6baeb8a79fffe7bc2bfcd",
+            "leaf_input_length": 96,
+            "leaf_hash": "95c9bdc37716bc210cff38361bdeb1b5fc917c905e591d3fef283e53038616e2",
+            "path_length": 8,
+            "path_left_bits": "11111111",
+            "merkle_root": "9bfd2a8598ec12cfbcb827c6279fd29538665f33e2c6017c909bbb7c800ac083"
+          }
+        ],
+        "all_proofs_same_root": true,
+        "trust": "none supplied"
+      }
+    }
+  },
+  "probes_on_transparent_statement": [
+    {
+      "probe": "control, unchanged statement and receipt",
+      "signature_valid": true,
+      "bound_to_statement": true,
+      "profile_satisfied": true
+    },
+    {
+      "probe": "one bit of the statement's signature element flipped",
+      "data_hash_rule_still_matches": false,
+      "statement_signature_valid": false,
+      "receipt_signature_valid": true,
+      "profile_satisfied": false
+    },
+    {
+      "probe": "one bit of the first path hash flipped",
+      "receipt_signature_valid": false
+    },
+    {
+      "probe": "external_aad one byte 0x00 instead of empty",
+      "receipt_signature_valid": false
+    },
+    {
+      "probe": "leaf = HASH(CBOR(ccf-leaf)), the -04 reading of section 2.1",
+      "receipt_signature_valid": false
+    },
+    {
+      "probe": "leaf = HASH(itx || internal-evidence || data-hash), evidence not hashed (hybrid)",
+      "receipt_signature_valid": false
+    },
+    {
+      "probe": "leaf = HASH(itx || HASH(internal-evidence) || data-hash), -05 and -04 section 3.2",
+      "receipt_signature_valid": true
+    },
+    {
+      "probe": "synthetic: one ToBeSigned signed twice with ECDSA P-256 (key made here)",
+      "value_2_equal": true,
+      "value_3_equal": false,
+      "both_signatures_valid": true
+    },
+    {
+      "probe": "trust material of another service (kid absent)",
+      "signature_valid": null,
+      "trust": "kid not in the relying party's key set",
+      "profile_satisfied": false
+    },
+    {
+      "probe": "no trust material at all",
+      "signature_valid": null,
+      "trust": "none supplied",
+      "profile_satisfied": false
+    }
+  ],
+  "upstream_pins": {
+    "transparent-statement.cose": {
+      "upstream": {
+        "signed_statement_length": 4809,
+        "claim_digest": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      },
+      "ours": {
+        "signed_statement_length": 4809,
+        "claim_digest": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "merkle_root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14"
+      },
+      "equal": true
+    }
+  }
+}
