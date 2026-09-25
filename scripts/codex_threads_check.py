@@ -28,10 +28,15 @@ resolving is a click, an answer is a statement.
 
 WHAT A READER SEES IS WHAT COUNTS. Lines inside an HTML comment or a fenced code block are not read
 for either the register line or the measured line: GitHub does not show the first, and the second is
-an example, not a statement. Both are read as GitHub renders them: a fence closes only on a line of
-its own character at least as long as the one that opened it, and a fence or an HTML comment that is
-never closed runs to the end of the text. A register or measured line indented by four spaces or a
-tab is code as well. Where the rendering is in doubt, the check reads less, which errs to red.
+an example, not a statement. The check does not reimplement GitHub's renderer; it models exactly
+the forms a house answer uses and reads nothing past a form it does not model. Modelled: a closed
+HTML comment, and a fence of three or more backticks or tildes at the start of a line (at most three
+spaces in), whose info string holds no backtick, closed by a line of its own character at least as
+long; a fence or comment that never closes hides the rest. Not modelled, so everything after it is
+unread: three backticks or tildes anywhere else on a line (a fence in a list item or a quote, an
+info string with a backtick) and a raw HTML block that hides or preformats text (`<details>`,
+`<pre>` and their kind). A register or measured line indented by four spaces or a tab is code. Each
+of these reads less than GitHub may show, which errs to red, never to green.
 
 WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, a line
 that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
@@ -74,7 +79,12 @@ API = "https://api.github.com"
 _MEASURED = re.compile(r"(?m)^ {0,3}Commit measured[ \t`:]*([0-9a-f]{40})\b")
 _REGISTER = re.compile(r"^ {0,3}Thread[ \t]")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+#: A form this check does not model: past such a line nothing is read (deep gate iteration 3, lens 1:
+#: a fence in a list item, an info string with a backtick and a collapsed <details> were each shown
+#: to the check while GitHub hid them).
+_UNMODELLED = re.compile(r"`{3}|~{3}|<(?:details|pre|code|textarea|script|style|template|xmp|"
+                         r"plaintext|noscript|iframe|object|table)\b", re.I)
 #: The four values the compare API documents. Any other value is an answer nobody can interpret.
 _COMPARE_STATES = ("identical", "ahead", "behind", "diverged")
 #: A pull request with more comments than this many pages holds is not read to the end, and a check
@@ -168,12 +178,13 @@ def visible(text: str) -> str:
     for line in t.split("\n"):
         m = _FENCE_LINE.match(line)
         if fence is None:
-            if m:
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
                 fence = m.group(1)
+            elif _UNMODELLED.search(line):
+                break                          # a form this check does not model: read no further
             else:
                 out.append(line)
-        elif (m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
-              and not line[m.end():].strip()):
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
             fence = None
     return "\n".join(out)
 

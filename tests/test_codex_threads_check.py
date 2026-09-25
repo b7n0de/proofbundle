@@ -174,6 +174,26 @@ class WhoCounts(unittest.TestCase):
                 self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
         text = "````\nexample\n`````\n\n" + register_answer(7, 10, HEAD)
         self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+        # The most common fence of all, closed by one of the same length (deep gate iteration 3, lens 3:
+        # a closer that had to be LONGER than its opener survived every case above).
+        for fence in ("```", "~~~"):
+            with self.subTest(equal=fence):
+                text = f"{fence}\nexample\n{fence}\n\n" + register_answer(7, 10, HEAD)
+                self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+    def test_a_form_the_check_does_not_model_hides_the_rest(self):
+        """Deep gate iteration 3, lens 1, three P1: a fence in a list item, a backtick fence whose info
+        string holds a backtick (not an opener in CommonMark, so the NEXT bare fence opens one that
+        never closes) and a collapsed <details> were shown to the check while GitHub hid them. The
+        check does not chase the renderer; past a form it does not model, it reads nothing."""
+        answer = register_answer(7, 10, HEAD)
+        for before in ("- ```\n  ", "> ```\n> ", "```see `x` here\ncode\n```\n\n",
+                       "<details>\n<summary>Register</summary>\n\n", "<pre>\n", "Use ```x``` inline.\n\n"):
+            with self.subTest(before=before[:14]):
+                self.assertEqual(verdict([codex(10)], [issue(before + answer)])["open"], 1)
+        # PRECONDITION: a house answer with a proper fence before its register line is read
+        text = "## Fix\n\n```\ngit diff-tree -r -z a b\n```\n\n" + answer
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
 
     def test_a_register_line_indented_like_code_is_code(self):
         """Four spaces or a tab before the line make it code on GitHub; up to three do not."""
