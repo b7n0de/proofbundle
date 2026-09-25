@@ -622,3 +622,67 @@ def test_case_and_a_missing_trailing_slash_do_not_hide_an_older_pin(tmp_path, ze
 
 def test_a_tag_root_url_is_a_version_pinned_url_in_check_6():
     assert _trifft("https://github.com/b7n0de/proofbundle/tree/v6.1.0") == "version-pinned URL"
+
+
+# ── CODEX ON PR 266, ROUND THREE (2026-09-25): the host and the path are read, not listed ────────
+
+@pytest.mark.parametrize("zeile", [
+    # the three measured findings
+    "pip install 'proofbundle[eval, docs]=={v}'",
+    "https://github.com/b7n0de/proofbundle/releases/download/v{v}/proofbundle-{v}-py3-none-any.whl",
+    "https://github.com/b7n0de/proofbundle/archive/refs/tags/v{v}.tar.gz",
+    # their neighbours: the same property, other spellings of it
+    "pip install \"proofbundle [eval]=={v}\"",
+    "pip install proofbundle==={v}",
+    "pip install 'proofbundle~={v}'",
+    "https://github.com/b7n0de/proofbundle/archive/v{v}.zip",
+    "https://codeload.github.com/b7n0de/proofbundle/tar.gz/refs/tags/v{v}",
+    "pip install git+https://github.com/b7n0de/proofbundle.git@v{v}",
+    "https://www.github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://github.com/b7n0de/proofbundle/compare/v{v}...main",
+])
+def test_an_older_pin_in_any_path_or_requirement_form_is_red(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+_NICHT_UNSER = [
+    "https://notgithub.com/b7n0de/proofbundle/tree/v{v}",
+    "https://notgithub.com/b7n0de/proofbundle/releases/tag/v{v}",
+    "https://sub.github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://github.com.example/b7n0de/proofbundle/tree/v{v}",
+    "https://github.com/b7n0de/proofbundle/blob/main/docs/release_scope/{v}.md",
+    "https://github.com/b7n0de/proofbundle/blob/main/audit_artifacts/610/pre_tag_receipt_v{v}.json",
+    "pip install 'proofbundle>={v}'",
+    "pip install proofbundle-extra=={v}",
+]
+
+
+def test_a_foreign_host_or_a_segment_that_is_not_a_tag_is_not_a_pin(tmp_path):
+    """The counter-direction of the case above. Each line carries this repository's path or name and
+    an older number, so an anchor that did not read the host, the segment or the operator would
+    turn a raised README red over it."""
+    g = _gate()
+    # PRECONDITION: a pattern blind to host and segment finds each of them, so the case can fail.
+    blind = re.compile(r"(?:b7n0de/proofbundle/.*?|proofbundle\S*?[=~>]=+\s*v?)v?" + g._SEMVER)
+    for zeile in _NICHT_UNSER:
+        treffer = blind.search(zeile.format(v=AKTUELL))
+        assert treffer and treffer.group(1) == AKTUELL, f"not a decoy: {zeile!r}"
+    koeder = "".join(z.format(v=AKTUELL) + "\n" for z in _NICHT_UNSER)
+    assert _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + koeder) == []
+
+
+@pytest.mark.parametrize("zeile", _NICHT_UNSER)
+def test_check_6_reads_the_same_host_and_segment(zeile):
+    """With the CURRENT number, where Check 6 reports a shape: a foreign host is not this project."""
+    assert _trifft(zeile.format(v=AKTUELL)) is None, (zeile, _trifft(zeile.format(v=AKTUELL)))
+
+
+@pytest.mark.parametrize("text,form", [
+    ("pip install 'proofbundle[eval, docs]==6.1.0'", "install pin"),
+    ("https://github.com/b7n0de/proofbundle/releases/download/v6.1.0/x.whl", "version-pinned URL"),
+    ("https://github.com/b7n0de/proofbundle/archive/refs/tags/v6.1.0.tar.gz", "version-pinned URL"),
+    ("pip install git+https://github.com/b7n0de/proofbundle.git@v6.1.0", "version-pinned URL"),
+])
+def test_check_6_sees_the_forms_check_4_sees(text, form):
+    assert _trifft(text) == form, (text, _trifft(text))

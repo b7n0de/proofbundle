@@ -120,6 +120,32 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # ignore case. A URL that ends at the tag, `…/tree/vX.Y.Z`, is pinned as much as one that goes on
 # into a path; the version pattern's own boundary ends the match, not a slash.
 #
+# THE HOST AND THE PATH ARE READ, NOT LISTED (Codex on PR 266, round three, 2026-09-25, three
+# measured findings). The URL anchor named the path shapes it knew, `blob`, `tree`, `raw` and the
+# tag root, so `releases/download/vX/…` and `archive/refs/tags/vX.tar.gz` pinned an old release
+# unseen; it matched from `github.com` on, so `notgithub.com/b7n0de/proofbundle/tree/vX` turned the
+# gate red over a foreign domain; and the pin anchor allowed no space inside the extras, so
+# `proofbundle[eval, docs]==X`, which pip accepts, was not a pin to it. Three more shapes would be
+# the fourth round of the same list. So the three pieces below state the property instead, and
+# Check 4 and Check 6 share them rather than each keeping a copy:
+#
+#   _REPO_HOST     a host boundary (nothing of a name before it) and the hosts that serve this
+#                  repository's content: github.com, raw.githubusercontent.com, codeload.github.com.
+#   _REPO_AT_TAG   any path into this repository in which one segment begins with `vX.Y.Z`, or a
+#                  VCS reference `…/proofbundle.git@vX.Y.Z`. A release tag is a `v` segment; a
+#                  document named after a release (`docs/release_scope/6.1.0.md`) is not one, and a
+#                  version in the middle of a file name (`pre_tag_receipt_v6.1.0.json`) does not begin
+#                  a segment.
+#   _PROJECT_PIN   this project's name, optional extras with any content, and an operator that pins:
+#                  `==`, `===`, or `~=`, which admits only the patch releases of the named one.
+#
+# NOT COVERED, and said so: a range that excludes the current release without pinning one
+# (`proofbundle<6.2`) is a constraint rather than a pin, and reading it would need a version
+# comparator this gate does not carry.
+_REPO_HOST = r"(?<![\w.-])(?:www\.)?(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/"
+_REPO_AT_TAG = _REPO_HOST + r"b7n0de/proofbundle(?:\.git)?(?:@|/(?:[^\s/?#()<>'\"]+/)*?)v"
+_PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
+
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
 # one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
 # into another form, passes both checks. That is concealment rather than drift, and no anchor over
@@ -134,14 +160,13 @@ _TRACKED_PLACES = [
                 re.IGNORECASE),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?" + _SEMVER, re.IGNORECASE),
+     re.compile(_PROJECT_PIN + _SEMVER, re.IGNORECASE),
      "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
     ("README.md",
-     re.compile(r"(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
-                r"(?:(?:blob|tree|raw)/)?v" + _SEMVER, re.IGNORECASE),
+     re.compile(_REPO_AT_TAG + _SEMVER, re.IGNORECASE),
      "every URL into this repository pinned to a release tag `vX.Y.Z`"),
     ("README.md",
-     re.compile(r"github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER, re.IGNORECASE),
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER, re.IGNORECASE),
      "every link to a release tag of this project"),
 ]
 
@@ -224,16 +249,19 @@ _CURRENT_CLAIM = re.compile(
 # otherpackage==X` whenever X happened to equal this release, and a tag link or URL of another
 # repository the same way. An install shape that wanted the pin as the next token after `install`
 # missed `pip install --upgrade proofbundle==X`, `-U` and a second package before the pin.
-_DIESES_PROJEKT_PIN = r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?"
+#
+# THE SAME THREE PIECES AS CHECK 4 (round three): the URL shapes wanted a host of their own and had
+# none, so they reported any site with this repository's path in it, and they listed the path forms
+# Check 4 listed. Both read `_REPO_HOST`, `_REPO_AT_TAG` and `_PROJECT_PIN` now.
 _CLAIM_SHAPES = [
-    ("install pin", re.compile(r"\binstall\b[^\n]*?" + _DIESES_PROJEKT_PIN + _SEMVER, re.IGNORECASE),
+    ("install pin", re.compile(r"\binstall\b[^\n]*?" + _PROJECT_PIN + _SEMVER, re.IGNORECASE),
      True,
      "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
      "moment the version moves"),
-    ("release tag link", re.compile(r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
+    ("release tag link",
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
      True, "a link to a release tag, presented as the release this project is at"),
-    ("version-pinned URL",
-     re.compile(r"b7n0de/proofbundle/(?:(?:blob|tree|raw)/)?v" + _SEMVER, re.IGNORECASE), True,
+    ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER, re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
     ("current/latest phrase", _CURRENT_CLAIM, False,
      "a sentence stating the current release in words — the wording claims currency whatever "
