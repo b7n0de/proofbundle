@@ -125,7 +125,7 @@ class TestBundle(unittest.TestCase):
         result = verify_bundle(bundle)
         by_name = {c.name: c.ok for c in result.checks}
         self.assertTrue(by_name.get("sd-jwt-issuer-signature"))
-        self.assertFalse(by_name["sd-jwt-issuer-identity"])
+        self.assertIs(by_name["sd-jwt-issuer-identity"], False)
 
 
 if __name__ == "__main__":

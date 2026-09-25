@@ -509,7 +509,7 @@ class CallerPathTypedErrors(unittest.TestCase):
                 self.fail(f"expected_tree_size case {label} leaked a raw {type(exc).__name__}: {exc}")
             checks = {c.name: c.ok for c in res.checks}
             self.assertIn("tree-size", checks)
-            self.assertFalse(checks["tree-size"], f"case {label} must record a tree-size FAIL, not pass")
+            self.assertIs(checks["tree-size"], False, f"case {label} must record a tree-size FAIL, not pass")
         # a genuine matching int still passes — the safe-render guard is not over-broad.
         self.assertTrue({c.name: c.ok for c in verify_bundle(bundle, expected_tree_size=1).checks}["tree-size"])
 

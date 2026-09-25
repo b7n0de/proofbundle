@@ -63,20 +63,20 @@ class TestExpectedRootGate(unittest.TestCase):
         by = {c.name: c.ok for c in r.checks}
         self.assertTrue(by["ed25519-signature"])
         self.assertTrue(by["merkle-inclusion"])
-        self.assertFalse(by["root-authenticity"])
+        self.assertIs(by["root-authenticity"], False)
 
     def test_tree_size_substitution_is_caught(self):
         orig, rewrap = _make_orig_and_coherent_rewrap()
         # the rewrap claims tree_size 2; pinning the original size 1 catches it
         r = verify_bundle(rewrap, expected_tree_size=1)
         self.assertIs(r.ok, False)
-        self.assertFalse({c.name: c.ok for c in r.checks}["tree-size"])
+        self.assertIs({c.name: c.ok for c in r.checks}["tree-size"], False)
         self.assertTrue(verify_bundle(orig, expected_tree_size=1).ok)
 
     def test_expected_tree_size_rejects_bool_and_float(self):
         orig, _ = _make_orig_and_coherent_rewrap()  # tree_size 1; True==1 and 1.0==1 must NOT satisfy it
-        self.assertFalse({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=True).checks}["tree-size"])
-        self.assertFalse({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=1.0).checks}["tree-size"])
+        self.assertIs({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=True).checks}["tree-size"], False)
+        self.assertIs({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=1.0).checks}["tree-size"], False)
         self.assertTrue({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=1).checks}["tree-size"])
 
 
