@@ -108,7 +108,8 @@ answered `invalid` for a bundle whose own top-level `schema` names another forma
 underneath raised its typed unsupported-schema error, and a broad exception handler above it folded
 that refusal into `invalid`. Every R2 vector at the time put the foreign identifier into the claim of
 a sound bundle, none onto the bundle itself, so the corpus could not see it. A foreign envelope
-identifier is now a refusal, read before anything else, and four vectors carry it. One has a
+identifier is now a refusal, read before anything else but the verifier's own resource limits,
+which apply to every input whatever it names and in both transports, and four vectors carry it. One has a
 foreign identifier over an otherwise sound receipt and must be refused. One has our identifier
 and a signature algorithm our schema does not allow, and stays `invalid`; it exists because our
 verifier raises the same exception type in both cases, so a fix that turned every such exception

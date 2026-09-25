@@ -171,6 +171,54 @@ class TestTheEnvelopeIdentifierIsReadFirst(unittest.TestCase):
         self.assertIsNone(decode_eval_claim(self._mit(schema="acme/other-envelope/v9")))
 
 
+class TestTheVerdictDoesNotDependOnTheTransport(unittest.TestCase):
+    """Codex on PR 268, measured: a foreign document over the structural limits was `invalid` by
+    path and refused as a dict, because only the path went through the limits before the
+    identifier was read. The limits now come first in both transports."""
+
+    def _beide(self, doc: dict) -> tuple:
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "doc.json"
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            per_pfad = classify_eval_claim(str(p))[0]
+        return per_pfad, classify_eval_claim(doc)[0]
+
+    def test_a_foreign_document_over_a_structural_limit_is_judged_alike(self):
+        from proofbundle.budget import DEFAULT_BUDGET as B
+        tief: dict = {"schema": "foreign/v1"}
+        knoten = tief
+        for _ in range(B.json_depth + 2):
+            knoten["n"] = {}
+            knoten = knoten["n"]
+        faelle = {
+            "one string over string_len": {"schema": "foreign/v1", "pad": "x" * (B.string_len + 1)},
+            "the padding of the finding, past 8 MiB": {"schema": "foreign/v1",
+                                                       "pad": "x" * (B.input_bytes + 1)},
+            "too many nodes": {"schema": "foreign/v1", "pad": [0] * (B.json_nodes + 1)},
+            "too deep": tief,
+        }
+        for name, doc in faelle.items():
+            with self.subTest(case=name):
+                self.assertEqual(self._beide(doc), (CLAIM_INVALID, CLAIM_INVALID))
+
+    def test_CONTROL_a_small_foreign_document_is_refused_in_both(self):
+        self.assertEqual(self._beide({"schema": "foreign/v1", "pad": "x" * 100}),
+                         (CLAIM_REFUSED_UNKNOWN_SCHEMA, CLAIM_REFUSED_UNKNOWN_SCHEMA))
+
+    def test_the_one_remaining_difference_is_the_byte_cap(self):
+        """NAMED, NOT CLOSED. A dict has no bytes, so `input_bytes` cannot apply to it; many strings,
+        each within `string_len`, can together pass the byte cap. By path that is `invalid`, as a
+        dict it is refused. verify_bundle has the same asymmetry for our own format. If this case
+        starts failing, the asymmetry was closed on purpose and the docstring has to say so."""
+        from proofbundle.budget import DEFAULT_BUDGET as B
+        stueck = "x" * (B.string_len // 2)
+        n = B.input_bytes // len(stueck) + 2
+        doc = {"schema": "foreign/v1", "pad": [stueck] * n}
+        self.assertEqual(self._beide(doc), (CLAIM_INVALID, CLAIM_REFUSED_UNKNOWN_SCHEMA))
+
+
 class TestKorpusDeckung(unittest.TestCase):
     """Die Vektorfamilie ist die AEUSSERE Autoritaet fuer diese Regeln — sie muss existieren und
     je Regel eine Gegenprobe UND eine Positivkontrolle fuehren."""

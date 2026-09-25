@@ -14,7 +14,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   Z.278, `src/proofbundle/evalclaim.py`). `classify_eval_claim` answered `invalid` for a bundle whose
   top-level `schema` names another format: `verify_bundle` raised the typed `UnsupportedError`, and
   the broad `except` above it folded that refusal into the invalid outcome. Measured 2026-09-05 in
-  issue 147 with an `inspect-receipts` 0.3 receipt. The envelope identifier is now read first, and a
+  issue 147 with an `inspect-receipts` 0.3 receipt. The envelope identifier is now read first, after
+  the verifier's resource limits, which a document given as a dict now meets as one given by path; a
   present, non-empty identifier that is not `proofbundle/v0.1` returns `refused_unknown_schema`.
   An absent identifier, and a present value that cannot be one (empty, a number, a list, null),
   declare no other format and stay `invalid`; so does an unknown `signature.alg` or

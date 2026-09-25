@@ -33,6 +33,7 @@ from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
+from ._strict_json import enforce_structural_budget
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -483,11 +484,21 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
     both values, so a bundle that names ours and breaks it is judgeable. What renaming the envelope
     identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`.
 
+    THE RESOURCE LIMITS COME BEFORE THE IDENTIFIER, in both transports (Codex on PR 268, measured).
+    A path is read through ``load_bundle``, which applies the byte cap and the structural limits
+    before any field can be looked at, so a foreign document over them was `invalid` by path and
+    refused as a dict. The dict path now applies the same structural limits (nodes, depth, string
+    length, integer size) first. What remains different, and is stated rather than hidden: a dict
+    carries no bytes, so the ``input_bytes`` cap cannot be applied to it. That is the same asymmetry
+    ``verify_bundle`` has for our own format on its dict path.
+
     Never raises — same never-raise contract as ``decode_eval_claim``.
     """
     try:
         if isinstance(bundle, str):
             bundle = load_bundle(bundle)
+        elif isinstance(bundle, dict):
+            enforce_structural_budget(bundle)
         if _names_a_foreign_bundle_format(bundle):
             return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
         if not verify_bundle(bundle).ok:
