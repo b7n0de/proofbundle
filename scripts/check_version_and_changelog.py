@@ -129,9 +129,10 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # the fourth round of the same list. So the three pieces below state the property instead, and
 # Check 4 and Check 6 share them rather than each keeping a copy:
 #
-#   _REPO_HOST     the URL authority, not a host name anywhere in a string: it follows `://`, the
-#                  `@` of a `git@` user, or a token boundary (start, space, bracket, quote); then
-#                  the hosts that serve this repository's content: github.com, raw.githubusercontent.com,
+#   _REPO_HOST     the URL authority, not a host name anywhere in a string: at a token boundary
+#                  (start, space, bracket, quote), optionally `scheme://` or a scheme-relative `//`,
+#                  optionally a userinfo `name@` inside that authority; then the hosts that serve
+#                  this repository's content: github.com, raw.githubusercontent.com,
 #                  codeload.github.com.
 #   _REPO_AT_TAG   a reference to this repository AT A REF POSITION of its route: after `blob/`,
 #                  `tree/`, `raw/`, `commit(s)/`, `releases/tag/`, `releases/download/`, `archive/`,
@@ -158,7 +159,18 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # as a pinned tag although GitHub selects no ref there. Each host now has the routes its own URL
 # grammar gives: github.com a route (or a VCS `@`), raw.githubusercontent.com the ref directly after
 # the repository (or under `refs/tags/`), codeload.github.com an archive route.
-_AUTORITAET = r"(?:(?<=//)|(?<=@)|(?<![^\s(<\[\"'`]))"
+#
+# ROUND SIX (Codex, 2026-09-25, measured): round five accepted ANY `//` and any `@` as the start of
+# an authority, so `https://example.com/path//github.com/b7n0de/proofbundle/tree/vX` and a path
+# segment `/@github.com/...` read as this repository although github.com stays inside the foreign
+# site's path. A `//` or `@` is a delimiter shape, not an authority. The authority now starts where
+# the URL grammar starts one: a token boundary, then an optional `scheme:`, then `//`, then an
+# optional userinfo that contains neither `/` nor `@`. A URL inside another URL's query (`?u=//…`)
+# does not start at a token boundary and is part of the foreign URL. The prefix is consumed, not
+# looked behind, because a scheme has no fixed width; it captures nothing, so group 1 stays the
+# version.
+_AUTORITAET = (r"(?<![^\s(<\[\"'`])"
+               r"(?:(?:[A-Za-z][A-Za-z0-9+.\-]*:)?//(?:[^/\s@]*@)?)?")
 _REPO_HOST = (_AUTORITAET + r"(?:www\.)?"
               r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/")
 _REPO_AT_TAG = (_AUTORITAET + r"(?:"
@@ -536,7 +548,52 @@ def _setzt_fort(zeile: str) -> bool:
     for zeichen in _FORTSETZUNG:
         lauf = len(z) - len(z.rstrip(zeichen))
         if lauf % 2 == 1:
-            return not (zeichen == "\\" and re.search(r"(?:^|\s)#", z) is not None)
+            return not (zeichen == "\\" and _kommentar_beginnt(z))
+    return False
+
+
+#: Characters after which a POSIX shell starts a new word even without a space: the control and
+#: redirection operators. A `#` right after one of them begins a comment (`cmd;# note`).
+_WORTGRENZE = frozenset(";&|()<>")
+
+
+def _kommentar_beginnt(z: str) -> bool:
+    """Does a comment begin on this line, as a POSIX shell reads it?
+
+    Round six (Codex, 2026-09-25, measured): the first reading took every `#` after a space for a
+    comment, so `echo " # "; python -m pip install \\` did not continue, although the `#` stands in
+    quotes and the shell joins the next line; and it took a `#` after an operator for part of a
+    word, so `cmd;# note \\` joined a line the shell never reads. The comment marker is a lexical
+    fact, not a spelling: a `#` begins a comment only outside quotes, unescaped, at the start of a
+    word, and a word starts at the beginning of the line, after unquoted whitespace, or after an
+    operator. This reads quotes and backslash escapes as the shell does; it does not expand
+    anything.
+    """
+    einfach = doppelt = False
+    wortanfang = True
+    i = 0
+    while i < len(z):
+        c = z[i]
+        if einfach:
+            if c == "'":
+                einfach = False
+        elif doppelt:
+            if c == "\\":
+                i += 1                    # the escaped character cannot close the quote
+            elif c == '"':
+                doppelt = False
+        elif c == "\\":
+            i += 2                        # an escaped character is part of a word, never a marker
+            wortanfang = False
+            continue
+        elif c == "'":
+            einfach = True
+        elif c == '"':
+            doppelt = True
+        elif c == "#" and wortanfang:
+            return True
+        wortanfang = not (einfach or doppelt) and (c.isspace() or c in _WORTGRENZE)
+        i += 1
     return False
 
 

@@ -663,6 +663,12 @@ _NICHT_UNSER = [
     "https://github.com/b7n0de/proofbundle/blob/main/audit_artifacts/610/pre_tag_receipt_v{v}.json",
     "pip install 'proofbundle>={v}'",
     "pip install proofbundle-extra=={v}",
+    # round six: a `//` or an `@` inside another site's path or query is a delimiter, not an authority
+    "https://example.com/path//github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://example.com/@github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://example.com/x@github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://example.com/?next=//github.com/b7n0de/proofbundle/tree/v{v}",
+    "https://example.com/?next=https://github.com/b7n0de/proofbundle/tree/v{v}",
 ]
 
 
@@ -749,3 +755,38 @@ def test_a_scheme_relative_url_has_the_same_authority(tmp_path, zeile):
 def test_a_marker_the_shell_does_not_read_as_continuation_joins_nothing(text):
     assert _trifft(text) is None, (text, _trifft(text))
 
+
+# ── CODEX ON PR 266, ROUND SIX (2026-09-25): an authority by grammar, a comment by lexing ─────────
+
+@pytest.mark.parametrize("zeile", [
+    "https://user@github.com/b7n0de/proofbundle/tree/v{v}",
+    "<https://github.com/b7n0de/proofbundle/tree/v{v}>",
+    "\"https://github.com/b7n0de/proofbundle/tree/v{v}\"",
+    "github.com/b7n0de/proofbundle/tree/v{v}",
+])
+def test_an_authority_the_url_grammar_starts_is_still_read(tmp_path, zeile):
+    """The counter-direction of the round-six decoys: a userinfo inside a real authority, and a URL
+    that starts at a bracket, a quote or the line itself, still pin this repository."""
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+@pytest.mark.parametrize("text", [
+    'echo " # "; python -m pip install \\\nproofbundle==6.1.0',
+    "echo '#'; pip install \\\nproofbundle==6.1.0",
+    "pip install a\\ #b \\\nproofbundle==6.1.0",
+])
+def test_a_hash_the_shell_does_not_read_as_a_comment_does_not_stop_the_continuation(text):
+    """A `#` in quotes, or after an escaped space, is part of a word; the shell joins the next line."""
+    assert _trifft(text) == "install pin", (text, _trifft(text))
+
+
+@pytest.mark.parametrize("text", [
+    "pip install cbor2;# note \\\nproofbundle==6.1.0",
+    "pip install cbor2&&# note \\\nproofbundle==6.1.0",
+    "pip install cbor2|# note \\\nproofbundle==6.1.0",
+])
+def test_a_comment_after_an_operator_joins_nothing(text):
+    """The opposite direction: after an operator a new word starts, so the `#` opens a comment and
+    the backslash in it continues nothing."""
+    assert _trifft(text) is None, (text, _trifft(text))
