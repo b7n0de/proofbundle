@@ -230,5 +230,51 @@ class TheModulesItLoadedFromTheJudgedTreeLeave(unittest.TestCase):
         self.assertEqual(ergebnis["rest"], [], ergebnis)
 
 
+class TheCleanupNeverRaisesAndLeavesNoLink(unittest.TestCase):
+    """Codex on PR 274, round three, both measured."""
+
+    def test_a_module_with_a_non_path_file_is_cleaned_without_an_exception(self):
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            paket = f"iz_kaputt_{uuid.uuid4().hex[:8]}"
+            src = pathlib.Path(tempfile.mkdtemp(prefix="iz_kaputt_"))
+            (src / f"{paket}.py").write_text("__file__ = 1\n", encoding="utf-8")
+            with mod._importzustand():                # must not raise on the way out
+                sys.path.insert(0, str(src))
+                importlib.import_module(paket)
+                self.assertEqual(sys.modules[paket].__file__, 1)   # PRECONDITION: the malformed shape
+            with self.subTest(verifier=rel):
+                self.assertNotIn(paket, sys.modules, "found through its spec, it leaves too")
+
+    def test_a_judged_child_of_a_parent_that_stays_is_unlinked_from_it(self):
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            paket = f"iz_eltern_{uuid.uuid4().hex[:8]}"
+            alt = pathlib.Path(tempfile.mkdtemp(prefix="iz_alt_"))
+            neu = pathlib.Path(tempfile.mkdtemp(prefix="iz_neu_"))
+            (alt / paket).mkdir()
+            (alt / paket / "gut.py").write_text("G = 1\n", encoding="utf-8")
+            (neu / paket).mkdir()
+            (neu / paket / "boese.py").write_text("B = 1\n", encoding="utf-8")
+            sys.path.insert(0, str(alt))
+            try:
+                importlib.import_module(f"{paket}.gut")    # the parent exists before the call
+                with mod._importzustand():
+                    sys.path.insert(0, str(neu))
+                    importlib.import_module(f"{paket}.boese")
+                    self.assertTrue(hasattr(sys.modules[paket], "boese"))   # PRECONDITION
+                with self.subTest(verifier=rel):
+                    self.assertIn(paket, sys.modules, "the parent was there before and stays")
+                    self.assertNotIn(f"{paket}.boese", sys.modules)
+                    self.assertFalse(hasattr(sys.modules[paket], "boese"),
+                                     "the judged child must not stay reachable as an attribute")
+            finally:
+                sys.path.remove(str(alt))
+                for n in [n for n in sys.modules if n == paket or n.startswith(paket + ".")]:
+                    del sys.modules[n]
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

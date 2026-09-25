@@ -55,6 +55,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -104,6 +105,31 @@ def _bytecode_cache_elsewhere() -> None:
     sys.dont_write_bytecode = True
 
 
+def _modulorte(modul) -> list:
+    """Every location a module names: `__file__`, `__path__`, and the same two from its spec. A value
+    that cannot be read is skipped; the cleanup that calls this runs in a `finally` and must not raise
+    (Codex on PR 274, round three: `__file__ = 1` made `Path(...)` raise there)."""
+    orte: list = []
+    spec = getattr(modul, "__spec__", None)
+    for quelle, name in ((modul, "__file__"), (spec, "origin")):
+        with contextlib.suppress(Exception):
+            orte.append(getattr(quelle, name, None))
+    for quelle, name in ((modul, "__path__"), (spec, "submodule_search_locations")):
+        with contextlib.suppress(Exception):
+            orte.extend(list(getattr(quelle, name, None) or []))
+    return orte
+
+
+def _liegt_unter(ort, pfade) -> bool:
+    """True iff `ort` is a path below one of `pfade`; anything that is not a path is no location."""
+    if not isinstance(ort, (str, os.PathLike)):
+        return False
+    try:
+        return any(Path(ort).resolve().is_relative_to(p) for p in pfade)
+    except (OSError, ValueError, RuntimeError, TypeError):
+        return False
+
+
 @contextlib.contextmanager
 def _importzustand():
     """The process-wide import state as it was before this script touched it, restored on every exit.
@@ -122,15 +148,24 @@ def _importzustand():
         # from the judged checkout, and a later import in the caller got that code. Removed is exactly
         # what this call loaded for the first time from a path this call put on `sys.path`; a module
         # first loaded from a path that was there before (the standard library, say) stays.
-        neue_pfade = [Path(p).resolve() for p in sys.path if p and p not in gesichert[0]]
+        neue_pfade = [Path(p).resolve() for p in sys.path
+                      if isinstance(p, str) and p and p not in gesichert[0]]
         for name in [n for n in list(sys.modules) if n not in module_vorher]:
             modul = sys.modules.get(name)
             # A namespace package (PEP 420) has no `__file__`; its locations are its `__path__`
             # (Codex on PR 274, round two: `pkg` stayed, and `import pkg.second` still loaded from
-            # the judged directory through the cached path).
-            orte = [getattr(modul, "__file__", None), *(getattr(modul, "__path__", None) or [])]
-            if any(o and Path(o).resolve().is_relative_to(p) for o in orte for p in neue_pfade):
-                del sys.modules[name]
+            # the judged directory through the cached path). The spec is read too, because a module
+            # may overwrite its own `__file__` (round three: `__file__ = 1`).
+            if not any(_liegt_unter(o, neue_pfade) for o in _modulorte(modul)):
+                continue
+            del sys.modules[name]
+            # Round three: a child of a parent that stays is also an attribute of that parent, set by
+            # the import system; without this, `pkg.child` still reached the judged code.
+            eltern, _, kind = name.rpartition(".")
+            elter = sys.modules.get(eltern) if eltern else None
+            if elter is not None and getattr(elter, kind, None) is modul:
+                with contextlib.suppress(AttributeError, TypeError):
+                    delattr(elter, kind)
         sys.path[:] = gesichert[0]
         sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
 
