@@ -27,9 +27,11 @@ WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measur
 that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
 something, not the answer's commit (Codex on PR 275: `Reproduced at <sha>; still investigating`
 made a thread green through a fallback to the first id). An answer without that line is not at
-head. A commit is at head when the compare API reports the head as identical to it or ahead of it;
-for a pull request that has landed, its merge commit counts as a head too. A commit the repository
-does not know is not at head.
+head. A commit is at head when the compare API reports the head as identical to it or ahead of it,
+that is when the head contains it. For a pull request that has landed, a commit that CONTAINS its
+merge commit is at head too: an answer measured on main after the landing measured the fix where it
+now lives, while a commit of main from before the landing does not carry the fix at all. A commit
+the repository does not know is not at head.
 
 THREE STATES, NOT TWO. A page of the API that cannot be read makes the check red as NOT MEASURABLE
 (exit 2), never green: a thread nobody could read is not an answered one. The same holds for any
@@ -164,29 +166,31 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
     head = ((pull or {}).get("head") or {}).get("sha") if isinstance(pull, dict) else None
     if not head:
         raise NotMeasurable(f"pull request {pr}: no head sha in the answer")
-    # A LANDED PULL REQUEST HAS TWO HEADS. Measured on PR 264 on 2026-09-25: its answers written
-    # after the squash name the commit on main, which is no ancestor of the old branch head, and the
-    # first version of this check called all four of them not at head. For a merged pull request the
-    # merge commit counts as a head too.
+    # A LANDED PULL REQUEST IS MEASURED ON MAIN. Measured on PR 264 on 2026-09-25: its answers
+    # written after the squash name a commit on main, which is no ancestor of the old branch head,
+    # and the first version of this check called all four of them not at head. The second version
+    # accepted a commit the merge commit CONTAINS, which is the wrong direction: a commit of main
+    # from before the landing is contained in the merge commit and carries none of the fix. What
+    # carries the fix is a commit that contains the merge commit.
     merged = pull.get("merge_commit_sha") if pull.get("merged") else None
-    targets = [head] + ([merged] if merged else [])
     review = _pages(f"repos/{repo}/pulls/{pr}/comments", token)
     issue = _pages(f"repos/{repo}/issues/{pr}/comments", token)
     seen: dict[str, bool] = {}
 
-    def on(sha: str, target: str) -> bool:
+    def contains(base: str, tip: str) -> bool:
+        """Does `tip` contain `base`? The compare API reports `tip` identical to or ahead of it."""
         try:
-            data, _ = _get(f"{API}/repos/{repo}/compare/{sha}...{target}", token)
+            data, _ = _get(f"{API}/repos/{repo}/compare/{base}...{tip}", token)
         except Missing:
             return False                   # a commit the repository does not know is not at head
         status = data.get("status") if isinstance(data, dict) else None
         if status is None:
-            raise NotMeasurable(f"compare {sha[:12]}...{target[:12]}: no status")
+            raise NotMeasurable(f"compare {base[:12]}...{tip[:12]}: no status")
         return status in ("identical", "ahead")
 
     def at_head(sha: str) -> bool:
         if sha not in seen:
-            seen[sha] = any(on(sha, t) for t in targets)
+            seen[sha] = contains(sha, head) or bool(merged and contains(merged, sha))
         return seen[sha]
 
     result = measure(repo, pr, owner, review, issue, at_head)

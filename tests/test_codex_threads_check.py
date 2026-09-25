@@ -237,6 +237,32 @@ class TheOrigin(unittest.TestCase):
         with mock.patch.object(ct, "_get", fake):
             self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
 
+    def test_after_landing_a_later_main_commit_carries_the_fix_and_an_earlier_one_does_not(self):
+        """The direction of the merged case. An answer measured on main after the landing names a
+        commit that CONTAINS the merge commit; a commit of main from before the landing is contained
+        in it and carries none of the fix. The second version of this check had it backwards."""
+        merge, later, earlier = "c" * 40, "d" * 40, "e" * 40
+        status = {f"{merge}...{later}": "ahead", f"{merge}...{earlier}": "behind"}
+
+        def fake_for(answer_sha):
+            pages = {
+                f"{ct.API}/repos/{R}/pulls/7": {"head": {"sha": HEAD}, "merged": True,
+                                                "merge_commit_sha": merge},
+                f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100": [codex(10)],
+                f"{ct.API}/repos/{R}/issues/7/comments?per_page=100":
+                    [issue(register_answer(7, 10, answer_sha))],
+            }
+
+            def fake(url, token):
+                if "/compare/" in url:
+                    return {"status": status.get(url.rsplit("/", 1)[1], "diverged")}, None
+                return pages[url], None
+            return fake
+        with mock.patch.object(ct, "_get", fake_for(later)):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["verdict"], "green")
+        with mock.patch.object(ct, "_get", fake_for(earlier)):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
 
 class TheWorkflow(unittest.TestCase):
     """The workflow runs this check on every pull request, read-only, with no event value spliced
