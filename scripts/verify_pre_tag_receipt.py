@@ -52,8 +52,10 @@ Exit codes: 0 VERIFIED · 1 NOT VERIFIED (absent, rejected, or bound to another 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -75,7 +77,8 @@ _CODE_PFADE = ("scripts", "src")
 
 
 #: Where Python keeps bytecode for THIS run: a fresh directory, never `__pycache__` next to the
-#: sources. Set once, before the first module of the judged tree is loaded.
+#: sources. Created once, and set again on every measurement, because the process-wide import state
+#: is restored when a measurement ends (see `_importzustand`).
 _CACHE_DIR: str | None = None
 
 
@@ -98,8 +101,116 @@ def _bytecode_cache_elsewhere() -> None:
     if _CACHE_DIR is None:
         import tempfile  # noqa: PLC0415
         _CACHE_DIR = tempfile.mkdtemp(prefix="verify_pre_tag_receipt_pyc_")
-        sys.pycache_prefix = _CACHE_DIR
-        sys.dont_write_bytecode = True
+    sys.pycache_prefix = _CACHE_DIR
+    sys.dont_write_bytecode = True
+
+
+def _modulorte(modul) -> list:
+    """Every location a module names: `__file__`, `__path__`, and the same two from its spec. A value
+    that cannot be read is skipped; the cleanup that calls this runs in a `finally` and must not raise
+    (Codex on PR 274, round three: `__file__ = 1` made `Path(...)` raise there)."""
+    orte: list = []
+    spec = None
+    with contextlib.suppress(Exception):
+        spec = getattr(modul, "__spec__", None)
+    for quelle, name in ((modul, "__file__"), (spec, "origin")):
+        with contextlib.suppress(Exception):
+            orte.append(getattr(quelle, name, None))
+    for quelle, name in ((modul, "__path__"), (spec, "submodule_search_locations")):
+        with contextlib.suppress(Exception):
+            orte.extend(list(getattr(quelle, name, None) or []))
+    return orte
+
+
+def _liegt_unter(ort, pfade) -> bool:
+    """True iff `ort` is a path below one of `pfade`; anything that is not a path is no location."""
+    if not isinstance(ort, (str, os.PathLike)):
+        return False
+    try:
+        return any(Path(ort).resolve().is_relative_to(p) for p in pfade)
+    except (OSError, ValueError, RuntimeError, TypeError):
+        return False
+
+
+@contextlib.contextmanager
+def _importzustand():
+    """The process-wide import state as it was before this script touched it, restored on every exit.
+
+    Same class and same fix as `pre_tag_audit_gate._importzustand` (2026-09-25): the judged tree's
+    `src/` goes in front of `sys.path` for the measurement, and a caller in the same process -- the
+    tests that import this module, `scripts/pre_tag_receipt.py` -- must not inherit it afterwards,
+    nor the bytecode switches."""
+    gesichert = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+    module_vorher = set(sys.modules)
+    pakete_vorher = _paketattribute()
+    try:
+        yield
+    finally:
+        neue_pfade = _neue_pfade(gesichert[0])
+        # THE PATH AND THE SWITCHES FIRST, before anything that reads a module (Codex on PR 274, round
+        # four: a module whose `__spec__` access raises made the cleanup raise, and the judged path
+        # stayed installed because the restore below it was never reached).
+        sys.path[:] = gesichert[0]
+        sys.pycache_prefix, sys.dont_write_bytecode = gesichert[1], gesichert[2]
+        _module_entfernen(module_vorher, pakete_vorher, neue_pfade)
+
+
+def _neue_pfade(vorher: list) -> list:
+    """The paths the call put on `sys.path`, resolved; one that cannot be resolved is skipped."""
+    aus = []
+    for p in sys.path:
+        if isinstance(p, str) and p and p not in vorher:
+            with contextlib.suppress(Exception):
+                aus.append(Path(p).resolve())
+    return aus
+
+
+def _paketattribute() -> dict:
+    """The attributes of every package present before the call, so that a child import that
+    overwrites one can be undone (round four: a lasting package's `child` sentinel was deleted)."""
+    aus = {}
+    for name, modul in list(sys.modules.items()):
+        with contextlib.suppress(Exception):
+            if getattr(modul, "__path__", None) is not None:
+                aus[name] = dict(vars(modul))
+    return aus
+
+
+def _module_entfernen(module_vorher: set, pakete_vorher: dict, neue_pfade: list) -> None:
+    """Remove what the call loaded for the first time from a path it added; never raises."""
+    # THE MODULES IT LOADED FROM THE JUDGED TREE LEAVE TOO (Codex on PR 274, measured): after the
+    # restore of the path, `proofbundle` and `proofbundle._wire_b64` stayed in `sys.modules`, loaded
+    # from the judged checkout, and a later import in the caller got that code. Removed is exactly
+    # what this call loaded for the first time from a path this call put on `sys.path`; a module
+    # first loaded from a path that was there before (the standard library, say) stays.
+    for name in [n for n in list(sys.modules) if n not in module_vorher]:
+        # One module that cannot be read must not keep the others (round four), so each is its own
+        # attempt.
+        with contextlib.suppress(Exception):
+            modul = sys.modules.get(name)
+            # A namespace package (PEP 420) has no `__file__`; its locations are its `__path__`
+            # (round two). The spec is read too, because a module may overwrite its own `__file__`
+            # (round three: `__file__ = 1`).
+            orte = [o for o in _modulorte(modul) if isinstance(o, (str, os.PathLike))]
+            # Round five (R4): a module may replace its own entry with an object that names no
+            # location at all, a proxy without `__file__`, `__path__` and `__spec__`. Such an entry
+            # is new to this call and cannot be shown to come from a path that stays, so when the
+            # call added a path it leaves too. If it came from elsewhere, the cost is one import the
+            # next caller runs again; the other error would keep the judged code installed.
+            if not neue_pfade or (orte and not any(_liegt_unter(o, neue_pfade) for o in orte)):
+                continue
+            del sys.modules[name]
+            # Round three: a child of a parent that stays is also an attribute of that parent, set by
+            # the import system. Round four: if the parent had that attribute before, it gets its old
+            # value back instead of losing it.
+            eltern, _, kind = name.rpartition(".")
+            elter = sys.modules.get(eltern) if eltern else None
+            if elter is not None and getattr(elter, kind, None) is modul:
+                alt = pakete_vorher.get(eltern)
+                if alt is not None and kind in alt:
+                    setattr(elter, kind, alt[kind])
+                else:
+                    delattr(elter, kind)
 
 
 def _lib():
@@ -148,6 +259,12 @@ def _version_token(version: str) -> str:
 
 
 def measure(repo: Path, commit: str, version: str) -> dict:
+    """See `_measure`; the import state of the process is the same afterwards."""
+    with _importzustand():
+        return _measure(repo, commit, version)
+
+
+def _measure(repo: Path, commit: str, version: str) -> dict:
     """The whole measurement as one dict. ``verdict`` is VERIFIED, NOT_VERIFIED or NOT_MEASURABLE;
     every other field says what was read and from where. Never raises on a bad input -- a reader
     gets a verdict with a reason, not a traceback."""

@@ -83,18 +83,330 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # Each entry: (path, anchor regex with one capture group, human description of the anchor).
 # Only add a place here if it means "this is the current release". Never add a "since"/"as of"
 # statement: those are history, and a gate that bumps history manufactures false claims.
+#
+# README.md IS DECLARED, by an owner decision on 2026-09-23. Check 6 found its four release claims
+# and asked for exactly this choice: declare them, reword them, or name an exception. Declared, they
+# are kept current by Check 4 at every bump instead of being reported as undeclared.
+#
+# EACH ANCHOR NAMES THIS PROJECT, not just a shape. Check 4 reads every match in the file and
+# demands the source version of each, so an anchor as wide as the Check 6 shape would demand that
+# `pip install <another package>==<its version>` be raised to this release. The shape asks "is this
+# a release claim?"; the anchor asks "is this OUR release claim?".
+#
+# THE HEADLINE CARRIES THE VERSION TWICE, as link text and in the tag URL, and the anchor captures
+# both. Bound to the URL alone, a headline raised halfway (new URL, old text) would read as current,
+# and the front page would name one release while linking to another.
+#
+# THE PROPERTY IS "README PINS NO RELEASE OF THIS PROJECT BUT THE CURRENT ONE", in whatever form.
+# Three review lenses on 2026-09-25 showed why it is stated that way and not as a list of
+# instruction forms. The first found that an unbound install anchor turned a prose sentence
+# recalling an older command red. Binding the anchors to the start of an instruction line then
+# traded that false red for a silent miss: a stale `- pip install`, `pip3`, `sudo pip`,
+# `pip install -U`, `pipx`, `poetry add`, `py -m pip` or table-cell instruction next to a raised
+# canonical line matched no anchor, and Check 6 reads an older number as history. Each round closed
+# the forms the last lens named, and the next lens named more. A list of forms does not close; a
+# property does, and a silent miss costs more than a loud red.
+#
+# So every pinned reference to this project in README.md must name the current release: a
+# `proofbundle==X.Y.Z` pin in whatever command it stands, a URL into this repository at tag
+# `vX.Y.Z`, and a link to a release tag. A sentence that recalls an older release with a pin turns
+# red at the next bump, and the remedy is to reword it, for example by linking the changelog,
+# never to raise it. That keeps the rule above: history is not bumped, it is simply not written as a
+# pin on the front page.
+#
+# CASE DOES NOT DECIDE, and neither does a trailing slash (Codex on PR 266, 2026-09-25). pip reads
+# distribution names without regard to case and GitHub reads owner and repository the same way, so
+# `pip install ProofBundle==X` pins this project as much as the lower-case form does; the anchors
+# ignore case. A URL that ends at the tag, `…/tree/vX.Y.Z`, is pinned as much as one that goes on
+# into a path; the version pattern's own boundary ends the match, not a slash.
+#
+# THE HOST AND THE PATH ARE READ, NOT LISTED (Codex on PR 266, round three, 2026-09-25, three
+# measured findings). The URL anchor named the path shapes it knew, `blob`, `tree`, `raw` and the
+# tag root, so `releases/download/vX/…` and `archive/refs/tags/vX.tar.gz` pinned an old release
+# unseen; it matched from `github.com` on, so `notgithub.com/b7n0de/proofbundle/tree/vX` turned the
+# gate red over a foreign domain; and the pin anchor allowed no space inside the extras, so
+# `proofbundle[eval, docs]==X`, which pip accepts, was not a pin to it. Three more shapes would be
+# the fourth round of the same list. So the three pieces below state the property instead, and
+# Check 4 and Check 6 share them rather than each keeping a copy:
+#
+#   _REPO_HOST     the URL authority of the one host that serves this repository's release pages,
+#                  github.com (optionally `www.`, optionally `:port`), not a host name anywhere in a
+#                  string: at a token boundary (start, space, bracket, quote), optionally `scheme://`
+#                  or a scheme-relative `//`, optionally a userinfo `name@` inside that authority.
+#                  The content hosts raw.githubusercontent.com and codeload.github.com serve files
+#                  and archives, never a release page; they are read by `_REPO_AT_TAG` below.
+#   _REPO_AT_TAG   a reference to this repository AT A REF POSITION of its route: after `blob/`,
+#                  `tree/`, `raw/`, `commit(s)/`, `releases/tag/`, `releases/download/`, `archive/`,
+#                  `compare/`, codeload's `tar.gz/` and `zip/`, `refs/tags/`, directly after the
+#                  repository on raw.githubusercontent.com, or a VCS reference `.git@`. The version is
+#                  that whole ref segment, optionally followed by an archive suffix, so
+#                  `blob/main/docs/v6.1.0-notes.md` is a file on `main`, not a pinned release.
+#   _PROJECT_PIN   this project's name, optional extras with any content, and an operator that pins:
+#                  `==`, `===`, or `~=`, which admits only the patch releases of the named one.
+#
+# ROUND FOUR (Codex, 2026-09-25, measured): the first host boundary only refused a name character
+# before the host, so `https://example.com/github.com/b7n0de/proofbundle/tree/vX` matched inside
+# the foreign site's path; and the path rule took the first segment beginning with `v` anywhere,
+# so a file named after a release on `main` read as a pinned tag. Both now bind the position the
+# URL grammar gives them, not a spelling found somewhere in the string.
+#
+# NOT COVERED, and said so: a range that excludes the current release without pinning one
+# (`proofbundle<6.2`) is a constraint rather than a pin, and reading it would need a version
+# comparator this gate does not carry. A `compare/A...B` URL is read at its first ref only.
+#
+# ROUND FIVE (Codex, 2026-09-25, measured): a scheme-relative URL `//github.com/...` has the same
+# authority and was not seen, because the boundary wanted `://`; it now follows `//`. And the ref
+# position was one optional route for every host, so `github.com/b7n0de/proofbundle/vX/docs` read
+# as a pinned tag although GitHub selects no ref there. Each host now has the routes its own URL
+# grammar gives: github.com a route (or a VCS `@`), raw.githubusercontent.com the ref directly after
+# the repository (or under `refs/tags/`), codeload.github.com an archive route.
+#
+# ROUND SIX (Codex, 2026-09-25, measured): round five accepted ANY `//` and any `@` as the start of
+# an authority, so `https://example.com/path//github.com/b7n0de/proofbundle/tree/vX` and a path
+# segment `/@github.com/...` read as this repository although github.com stays inside the foreign
+# site's path. A `//` or `@` is a delimiter shape, not an authority. The authority now starts where
+# the URL grammar starts one: a token boundary, then an optional `scheme:`, then `//`, then an
+# optional userinfo that contains neither `/` nor `@`. A URL inside another URL's query (`?u=//…`)
+# does not start at a token boundary and is part of the foreign URL. The prefix is consumed, not
+# looked behind, because a scheme has no fixed width; it captures nothing, so group 1 stays the
+# version.
+_AUTORITAET = (r"(?<![^\s(<\[\"'`])"
+               r"(?:(?:[A-Za-z][A-Za-z0-9+.\-]*:)?//(?:[^/?#\s@]*@)?)?")
+#: An explicit port is part of the authority too (Codex round seven, measured:
+#: `https://github.com:443/b7n0de/proofbundle/tree/vX` pinned an old release unseen).
+_PORT = r"(?::[0-9]{1,5})?"
+#: ROUND EIGHT (Codex, 2026-09-25, measured): the release-link anchor reused a three-host authority,
+#: so `raw.githubusercontent.com/b7n0de/proofbundle/releases/tag/vX` read as a release link, where on
+#: the raw host `releases` stands at the REF position and `/tag/vX` is a file path. A release page
+#: exists on one host only. And a userinfo may not run across `?` or `#`: those end the authority, so
+#: `https://example.com?next=user@github.com/...` is query data of example.com, not a GitHub URL.
+_REPO_HOST = (_AUTORITAET + r"(?:www\.)?github\.com" + _PORT + "/")
+_REPO_AT_TAG = (_AUTORITAET + r"(?:"
+                r"(?:www\.)?github\.com" + _PORT + r"/b7n0de/proofbundle(?:(?:\.git)?@|/(?:blob|tree|raw|commits?"
+                r"|releases/tag|releases/download|compare|archive(?:/refs/tags)?)/)"
+                r"|raw\.githubusercontent\.com" + _PORT + r"/b7n0de/proofbundle/(?:refs/tags/)?"
+                r"|codeload\.github\.com" + _PORT + r"/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
+                r")v")
+#: The ref segment ends where the version ends. EVERY pattern that reads a version at a ref position
+#: of a URL ends with `_REF_ENDE` (Codex round nine: the two release-tag patterns did not, and
+#: `…/releases/tag/vX-notes` read as release X). What ends it is decided by what could CONTINUE the
+#: ref, not by what looks like punctuation (Codex round ten, measured: `git check-ref-format` accepts
+#: `refs/tags/v6.1.0,notes`, and the comma counted as an end, so a different tag read as 6.1.0):
+#:
+#: 1. a character git forbids in a ref name (whitespace and control, `~ ^ : ? * [ \`), or one the URL
+#:    uses as structure (`/`, `#`). It cannot continue the ref, so it always ends it.
+#: 2. a character that closes the text around a URL: `)` of a Markdown link, `]` of a link label,
+#:    `<` and `>` of an HTML tag or an autolink, the quote of an attribute, the backtick of a code
+#:    span, `|` of a table cell. Git allows each of them in a ref name, so a tag that continues the
+#:    version with one of them directly is read as that version. THIS IS THE LIMIT, and its direction
+#:    is loud: a red finding, never a silent pass. The other reading would pass
+#:    `<a href="…/vX">` and `[x](…/vX)` unseen, and those pin the release.
+#: 3. prose punctuation git allows (`.`, `,`, `;`, `!`) ends the ref only as a TRAILING run, that is
+#:    when a closer, whitespace or the end of the text follows. `vX,notes` continues the ref.
+#:
+#: WHERE THE TEXT IS AMBIGUOUS, THE READING IS THE LOUD ONE (Codex round eleven, measured:
+#: `[notes](…/vX,)` selects the tag `vX,`, which git accepts). A run before a closer is prose in
+#: `(see …/vX,)` and part of the link destination in `[notes](…/vX,)`; the two differ only in what
+#: stands BEFORE the URL, and a reading of that context would need a second capture per pattern. So
+#: both read as the version: a red finding over an unusual tag name, never a silent pass over a
+#: sentence. Where the text is not ambiguous (`vX,notes`: no sentence continues a word that way),
+#: the name continues. The full stop is not part of the question, a ref name cannot end with it.
+#:
+#: Also an archive suffix and the dots of a compare range.
+_SCHLIESSER = r"[)\]<>'\"`|]"
+_REF_ENDE = (r"(?=[/#\s\x00-\x1f\x7f~^:?*\[\\]|" + _SCHLIESSER
+             + r"|\.(?:tar\.gz|zip)\b|\.{2,3}|[.,;!]+(?:\s|" + _SCHLIESSER + r"|$)|$)")
+_PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
+#: A pin ends where its version ends: `==6.1.0.0` and `==6.1.0-post1` are other spellings, and a
+#: shape that stopped at `6.1.0` read them as that release (round twelve, measured by the new cases).
+#: EVERY pattern that reads a version at a pin position ends with it (Codex round thirteen: the README
+#: anchor did not, captured `6.1.0` out of `==6.1.0.0`, and Check 6 then blanked the declared text
+#: before its uncomparable-pin shape could see it).
+#: Round fourteen: a RUN of separators continues the spelling too (`6.1.0..foo`, `6.1.0--foo`,
+#: `6.1.0.+local`); only a separator run followed by the end, whitespace or punctuation ends a pin.
+_PIN_ENDE = r"(?![.!+_-]+[0-9A-Za-z])"
+
+# THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
+# one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
+# into another form, passes both checks. That is concealment rather than drift, and no anchor over
+# the text can tell a rendered line from an unrendered one.
 _TRACKED_PLACES = [
     ("RELEASE.md", re.compile(r"current:\s*v?" + _SEMVER), "the `(current: X.Y.Z)` note"),
     ("docs/readiness_pack/PROGRESS.md",
      re.compile(r"current release:\s*v?" + _SEMVER), "the `(current release: X.Y.Z)` note"),
+    ("README.md",
+     re.compile(r"(?m)^\*\*\[v?" + _SEMVER
+                + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)",
+                re.IGNORECASE),
+     "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
+    ("README.md",
+     re.compile(_PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE),
+     "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
+    ("README.md",
+     re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE),
+     "every URL into this repository pinned to a release tag `vX.Y.Z`"),
+    ("README.md",
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER + _REF_ENDE,
+                re.IGNORECASE),
+     "every link to a release tag of this project"),
 ]
 
 # Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and
 # "as of X.Y.Z" record history and must never match, or the sweep would demand that facts be bumped.
 _CURRENT_CLAIM = re.compile(
     r"(?:current|latest)(?:\s+(?:release|version))?\s*:?\s*v?" + _SEMVER, re.IGNORECASE)
+
+# A CLAIM IS NOT A WORD. Measured 2026-09-23 against README.md at origin/main: it states the
+# current release in SEVEN lines and FOUR shapes, and `_CURRENT_CLAIM` matched none of them,
+# because not one carries the word "current" or "latest". Their forms, with the version written
+# as a placeholder — see the paragraph below on why this comment may not spell it out:
+#
+#     **[vX.Y.Z](…/releases/tag/vX.Y.Z) · Beta · …**
+#     python -m pip install proofbundle==X.Y.Z
+#     https://raw.githubusercontent.com/b7n0de/proofbundle/vX.Y.Z/examples/example_bundle.json
+#
+# AND THIS COMMENT ALMOST BECAME THE DEFECT IT DESCRIBES. Written with the real version in the
+# examples, the first run of the new rule reported TWO findings: README.md — the intended one —
+# and this file, line 101. The sweep cannot tell a claim from a quotation of one, and the module
+# head already says why that matters: an illustration that spells out this project's own release
+# becomes a place that goes stale. The existing example above obeys that rule by using a foreign
+# tool's version; this one obeys it with placeholders. No carve-out for this file: a checker that
+# exempts itself stops checking the file most likely to quote claims.
+#
+# Check 6 exists precisely so that "the place nobody declared" cannot go stale unwatched — and it
+# was watching for one sentence form while the most consequential statements in the project's
+# front page used three others. Bump the version and leave this file alone, and the gate stays
+# green while the README still tells a reader to install the old release.
+#
+# NAMED SHAPES, NOT ONE BIG PATTERN: the finding then says WHICH kind of claim it found, and the
+# reader knows whether to bump it, declare it, or reword it. One fused regex would report a hit
+# and leave that question open.
+#
+# THE PRICE IS MEASURED, because a sweep that floods gets switched off: over every tracked file
+# outside the excluded prefixes, these three shapes hit FOUR times, all of them in README.md.
+# That is the file the finding is about. Those four lines are declared places now (see
+# _TRACKED_PLACES), so on the real tree this sweep reports none of them and Check 4 keeps them.
+#
+# WHAT IS DELIBERATELY NOT HERE: a bare mention like `docs/release_scope/6.1.0.md` names a
+# document, and `since v6.1.0` records history. Neither says "this is the release you get", and a
+# gate that demanded they be bumped would manufacture false claims — the rule the module head
+# states and this addition keeps.
+# THE SHAPE ALONE CLAIMS NOTHING — the number decides. Found 2026-09-23 by a cross-reading lens,
+# with executed counter-examples:
+#
+#   "pip uninstall package==<older release>"              an instruction to REMOVE
+#   "[<older release> release notes](…/releases/tag/…)"    a citation of HISTORY
+#   ".../package/v<older release>/examples/…"              the same as a raw URL
+#
+# (Placeholders here too, for the same reason as above: with the numbers spelled out, the sweep
+# reported these three comment lines. An example that spells out the shape IS the shape.)
+#
+# The first version reported all three. For the second and third, **both offered remedies would be
+# wrong**: declaring one would make a correct historical statement get raised to the current
+# release in future, turning a fact into a lie, exactly the damage the module head warns about.
+# Rewording would rewrite correct history for no reason.
+#
+# THE DISTINCTION THAT CARRIES: a WORD such as "current" claims currency on its own, whatever
+# number stands beside it, so a line "current release: <older release>" is a STALE currency claim
+# and belongs in a report. A SHAPE claims it only when the number is the current one; if an older
+# one stands there, it is history.
+#
+# (This example is a placeholder as well, because the rule caught it on its own first run: with a
+# spelled-out number the sweep reported this very line. The word-based shape fires independently of
+# the number, which is the point, so it cannot tell a quotation from a claim. Third case of the
+# same class in one day.)
+#
+# Each shape therefore carries a `nur_aktuelle` field. Check 6 reports a shape line only when its
+# number equals the source version — then it is an undeclared currency claim that goes stale at the
+# next bump. What happens to a DECLARED place afterwards is Check 4's job: it keeps that one
+# current. The division of labour was already there; my first version walked past it.
+#
+# `\binstall` with a word boundary, because `install\s+` otherwise matches the tail of
+# `uninstall` — measured against "pip uninstall proofbundle==6.0.0", which was reported as a
+# currency claim.
+#
+# EACH SHAPE NAMES THIS PROJECT, and the install word may stand anywhere before the pin (Codex on
+# PR 266, 2026-09-25, both measured). A shape that named no project reported `pip install
+# otherpackage==X` whenever X happened to equal this release, and a tag link or URL of another
+# repository the same way. An install shape that wanted the pin as the next token after `install`
+# missed `pip install --upgrade proofbundle==X`, `-U` and a second package before the pin.
+#
+# THE SAME THREE PIECES AS CHECK 4 (round three): the URL shapes wanted a host of their own and had
+# none, so they reported any site with this repository's path in it, and they listed the path forms
+# Check 4 listed. Both read `_REPO_HOST`, `_REPO_AT_TAG` and `_PROJECT_PIN` now.
+#
+# A PIN STANDS IN MORE PLACES THAN AN INSTALL COMMAND (Codex round twelve, measured): the shape
+# wanted `install` before the pin, so `poetry add` and `uv add` with the pin were no claim, and
+# neither was a requirement file holding only `proofbundle==X`. The command word is `install` or
+# `add` now, and a requirement file (pip's `-r` format, see `_ANFORDERUNGSDATEI`) has a shape of
+# its own: a line that IS the pin. A bare pin in prose stays what it was, a mention, because it
+# does not tell a reader to install anything.
+#
+# And a pin whose version this gate cannot compare as text is a finding of its own. PEP 440 reads
+# `==06.01.00` and `==6.1` as the current release; the gate runs on a bare interpreter without
+# `packaging` (release-integrity.yml installs nothing), and a comparison it cannot make it reports,
+# rather than letting a current pin pass as history. The fix it asks for is the three-number form.
+#: Round fourteen: `add` is a package command only after a tool that has one, and no command reaches
+#: across a shell control operator (`git add notes; echo proofbundle==X` is two commands, and
+#: "please add the text proofbundle==X" is prose).
+#: Round fifteen: a tool takes global options before its command (`uv --no-cache add`, `uv [OPTIONS]
+#: <COMMAND>`), so `add` may stand anywhere after the tool within the same command.
+#: Round sixteen (R4, after the budget): `add` must be the tool's SUBCOMMAND, so only options, each
+#: with an optional value, may stand between the tool and it. `uv run echo add ...` selects `run`,
+#: and `add` there is an argument of `echo`.
+_WERKZEUG_OPTION = r"""\s+-[^\s;&|]+(?:\s+(?!-)(?:'[^'\n]*'|"[^"\n]*"|[^\s;&|'"]+))?"""
+_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)(?:" + _WERKZEUG_OPTION
+               + r")*\s+add\b)[^\n;&|]*?")
+_KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+                       r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
+                       r"(?![0-9A-Za-z])" + _PIN_ENDE)   # one end rule for pins, not two copies
+_UNVERGLEICHBAR = r"(?!" + _KANONISCHE_VERSION + r")([0-9][0-9A-Za-z.!+_-]*[0-9A-Za-z]|[0-9])"
+_PIN_BESCHREIBUNG = ("a pin of this project to a version (an install or add command, a requirement "
+                     "line) — a reader acts on it, so it goes stale the moment the version moves")
+_UNVERGLEICHBAR_BESCHREIBUNG = (
+    "a pin of this project in a version spelling the gate does not compare (leading zeros, fewer or "
+    "more than three release numbers, another suffix form) — PEP 440 may read it as the current "
+    "release, so it is reported instead of passed; write the three-number form")
+_CLAIM_SHAPES = [
+    ("project pin", re.compile(_PIN_BEFEHL + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
+     _PIN_BESCHREIBUNG),
+    ("pin the gate cannot compare",
+     re.compile(_PIN_BEFEHL + _PROJECT_PIN + _UNVERGLEICHBAR, re.IGNORECASE), False,
+     _UNVERGLEICHBAR_BESCHREIBUNG),
+    ("release tag link",
+     re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER + _REF_ENDE,
+                re.IGNORECASE),
+     True, "a link to a release tag, presented as the release this project is at"),
+    ("version-pinned URL", re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE), True,
+     "a URL pinned to a version tag — it keeps serving the old content after a bump"),
+    ("current/latest phrase", _CURRENT_CLAIM, False,
+     "a sentence stating the current release in words — the wording claims currency whatever "
+     "number follows, so a stale one is a finding too"),
+]
+#: A requirement file in pip's `-r` format: there a line that starts with the pin IS an instruction.
+#: Round fourteen: pip reads `-r <file>` under any name, so the house reads what the ecosystem names
+#: that way: a file whose name carries `requirements` or `constraints` (`dev-requirements.txt`), and
+#: any `.txt`/`.in` below a `requirements/` or `constraints/` directory, at any depth.
+_ANFORDERUNGSDATEI = re.compile(r"(?:^|/)(?:[^/]*(?:requirements|constraints)[^/]*|"
+                                r"(?:requirements|constraints)/(?:[^/]+/)*[^/]+)\.(?:txt|in)$")
+_ANFORDERUNGS_FORMEN = [
+    ("project pin", re.compile(r"^\s*" + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
+     _PIN_BESCHREIBUNG),
+    ("pin the gate cannot compare", re.compile(r"^\s*" + _PROJECT_PIN + _UNVERGLEICHBAR,
+                                               re.IGNORECASE), False, _UNVERGLEICHBAR_BESCHREIBUNG),
+]
+
+
+def _formen_fuer(rel: str) -> list:
+    """The claim shapes that apply to one tracked file: every file has `_CLAIM_SHAPES`, a
+    requirement file also its own line form."""
+    return (_ANFORDERUNGS_FORMEN + _CLAIM_SHAPES) if _ANFORDERUNGSDATEI.search(rel) else _CLAIM_SHAPES
 # Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
-_SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/")
+# Signed receipts are frozen too: a version inside one cannot be kept current without breaking its
+# signature, so a finding there would ask for a remedy that does not exist. They are also exactly
+# what release-integrity.yml does not run for, and a gate that reads files its only runner skips
+# gives a verdict that depends on what else happened to change in the same push.
+_SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/", "receipts/")
 
 _PYPI_JSON = "https://pypi.org/pypi/proofbundle/json"
 _PROJECT_PAGE = "https://b7n0de.com/proofbundle/"
@@ -291,31 +603,204 @@ def _tracked_files(repo: Path) -> list[str]:
     return out.splitlines() if rc == 0 else []
 
 
-def check_undeclared_places(repo: Path) -> list[str]:
+#: Line-continuation markers of the shells an install instruction is written for: POSIX shells
+#: (`\`) and cmd.exe (`^`). A backtick at the end of a line is PowerShell's marker too, but in
+#: Markdown it closes inline code, and joining every such line would join prose; it is not read.
+_FORTSETZUNG = ("\\", "^")
+
+
+def _ohne_quotierte_trenner(zeile: str) -> str:
+    """The line with every `;`, `&` and `|` the shell does not read as an operator replaced by `_`:
+    inside single or double quotes, or escaped with a backslash. Same length, so every position of a
+    match still points into the original line (round sixteen, R4: `uv --directory 'foo&bar' add ...`
+    was cut at the quoted ampersand, and the pin behind it was never read)."""
+    aus: list[str] = []
+    quote = None
+    i = 0
+    while i < len(zeile):
+        c = zeile[i]
+        if c == "\\" and quote != "'" and i + 1 < len(zeile):
+            n = zeile[i + 1]
+            aus.append(c)
+            aus.append("_" if n in ";&|" else n)
+            i += 2
+            continue
+        if quote is None:
+            if c in ("'", '"'):
+                quote = c
+            aus.append(c)
+        elif c == quote:
+            quote = None
+            aus.append(c)
+        else:
+            aus.append("_" if c in ";&|" else c)
+        i += 1
+    return "".join(aus)
+
+
+def _logische_zeilen(text: str):
+    """Physical lines joined into the instructions they form, each with its first line number.
+
+    Codex on PR 266, round four, measured: `python -m pip install \\` on one line and
+    `proofbundle==X` on the next is one instruction, and the sweep read it line by line, so
+    the install shape never saw the pin. A continued line is joined to the next with a space.
+    (The example carries X, not the release: with the release spelled out, the pin shape of
+    round twelve reported this very docstring.)
+    """
+    puffer: list[str] = []
+    start = 0
+    for nr, zeile in enumerate(text.splitlines(), 1):
+        if not puffer:
+            start = nr
+        if _setzt_fort(zeile):
+            puffer.append(zeile.rstrip("\r")[:-1])
+            continue
+        puffer.append(zeile)
+        yield start, " ".join(puffer)
+        puffer = []
+    if puffer:
+        yield start, " ".join(puffer)
+
+
+def _setzt_fort(zeile: str) -> bool:
+    """Does this physical line continue the instruction onto the next, as the shell reads it?
+
+    Round five (Codex, measured): the first version joined on any trailing marker. A shell does not:
+    two backslashes are one literal backslash, a backslash followed by a space escapes the space and
+    not the newline, and a backslash inside a `#` comment is part of the comment. cmd.exe reads `^^`
+    as a literal caret the same way. So the marker must be the very last character, in an odd run,
+    and a backslash must not stand in a comment.
+    """
+    z = zeile.rstrip("\r")
+    for zeichen in _FORTSETZUNG:
+        lauf = len(z) - len(z.rstrip(zeichen))
+        if lauf % 2 == 1:
+            return not (zeichen == "\\" and _kommentar_beginnt(z))
+    return False
+
+
+#: Characters after which a POSIX shell starts a new word even without a space: the control and
+#: redirection operators. A `#` right after one of them begins a comment (`cmd;# note`).
+_WORTGRENZE = frozenset(";&|()<>")
+
+
+def _kommentar_beginnt(z: str) -> bool:
+    """Does a comment begin on this line, as a POSIX shell reads it?
+
+    Round six (Codex, 2026-09-25, measured): the first reading took every `#` after a space for a
+    comment, so `echo " # "; python -m pip install \\` did not continue, although the `#` stands in
+    quotes and the shell joins the next line; and it took a `#` after an operator for part of a
+    word, so `cmd;# note \\` joined a line the shell never reads. The comment marker is a lexical
+    fact, not a spelling: a `#` begins a comment only outside quotes, unescaped, at the start of a
+    word, and a word starts at the beginning of the line, after unquoted whitespace, or after an
+    operator. This reads quotes and backslash escapes as the shell does; it does not expand
+    anything.
+
+    NOT MODELLED, and the direction of the error is chosen (Codex round seven): a command
+    substitution, `$(...)` or backticks, is lexed recursively by the shell, so a `#` inside
+    `"$(cmd # note \\"` starts a comment there. This reader keeps the outer quote state and reads that
+    `#` as text, so it may JOIN a line the shell keeps apart. That errs loud, never silent: a joined
+    line can at most produce a finding to look at, and a real pin on the next line stays in the joined
+    text. The opposite error, a comment read where the shell reads text, would hide a pin, and the
+    module head already says which of the two costs more.
+    """
+    einfach = doppelt = False
+    wortanfang = True
+    i = 0
+    while i < len(z):
+        c = z[i]
+        if einfach:
+            if c == "'":
+                einfach = False
+        elif doppelt:
+            if c == "\\":
+                i += 1                    # the escaped character cannot close the quote
+            elif c == '"':
+                doppelt = False
+        elif c == "\\":
+            i += 2                        # an escaped character is part of a word, never a marker
+            wortanfang = False
+            continue
+        elif c == "'":
+            einfach = True
+        elif c == '"':
+            doppelt = True
+        elif c == "#" and wortanfang:
+            return True
+        wortanfang = not (einfach or doppelt) and (c.isspace() or c in _WORTGRENZE)
+        i += 1
+    return False
+
+
+def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
     """Find "this is the current release" claims outside _TRACKED_PLACES.
 
     Check 4 watches the places somebody declared. This one watches for places nobody did: a sentence
     that starts stating the current release is, from that moment, a place that can go stale, and
     nothing was looking at it. The finding asks for a decision (declare it, or reword it), because a
     sweep cannot know whether a claim is meant to be current.
+
+    `version` is the source version; without it, it is read here. It decides the shape-based
+    patterns (see `_CLAIM_SHAPES`): a shape carrying an OLDER number cites history and is not a
+    finding.
     """
-    declared = {rel for rel, _, _ in _TRACKED_PLACES}
+    if version is None:
+        version, _ = _source_version(repo)
+    # A DECLARATION COVERS ONE PATTERN, NOT A WHOLE FILE.
+    #
+    # FOUND 2026-09-23 by a cross-reading lens, by execution rather than by guess: this used to read
+    # `declared = {rel for rel, _, _ in _TRACKED_PLACES}` with `if rel in declared: continue` below
+    # it. Declaring a file for ONE pattern took it out of this sweep ENTIRELY.
+    #
+    # The lens measured that on the nearest case: declare README.md for the tag link — exactly the
+    # remedy my own owner card offers as option A — and `check_undeclared_places` afterwards returns
+    # NOTHING, although three further places of the same class stand unchanged in the same file.
+    # Check 4 then checks only the one declared pattern; the three siblings are unobserved from that
+    # moment on.
+    #
+    # That is WORSE than the starting state: undetected before, permanently silenced by a
+    # declaration afterwards — and the sweep reported quiet.
+    #
+    # From now on a declaration covers the TEXT its anchor matches and nothing else. The first
+    # version of this fix covered the whole LINE, and Codex measured on PR 266 what that hides: a
+    # README line `current release: <older> — pip install proofbundle==<current>` reported nothing,
+    # because the valid declared pin skipped the line before the stale word claim was read. The
+    # matched text is blanked, and the rest of the line is swept like any other.
+    declared_patterns: dict[str, list] = {}
+    for rel_d, pattern_d, _ in _TRACKED_PLACES:
+        declared_patterns.setdefault(rel_d, []).append(pattern_d)
     problems: list[str] = []
     for rel in _tracked_files(repo):
-        if rel in declared or rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
+        if rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
             continue
+        angemeldet = declared_patterns.get(rel, [])
         p = repo / rel
         try:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue                      # binary or unreadable: no claim to read, not a failure
-        for nr, zeile in enumerate(text.splitlines(), 1):
-            treffer = _CURRENT_CLAIM.search(zeile)
-            if treffer:
+        gefunden = False
+        for nr, zeile in _logische_zeilen(text):
+            # The TEXT a declared anchor matches is covered: Check 4 keeps that one current. It is
+            # blanked with spaces of the same length, and the rest of the line is swept.
+            for anker in angemeldet:
+                zeile = anker.sub(lambda m: " " * len(m.group(0)), zeile)
+            maskiert = _ohne_quotierte_trenner(zeile)
+            for form, muster, nur_aktuelle, beschreibung in _formen_fuer(rel):
+                # EVERY match of the line, not the first: an older pin before a current one on the
+                # same line is history, and the current one behind it is still a claim.
+                treffer = next((m for m in muster.finditer(maskiert)
+                                if not (nur_aktuelle and version and m.group(1) != version)), None)
+                if not treffer:
+                    continue
                 problems.append(
-                    f"{rel}:{nr}: states a current version ({treffer.group(1)}, in "
-                    f"\"{treffer.group(0).strip()}\") but is not a declared place. Either add it to "
-                    f"_TRACKED_PLACES so it is kept current, or reword it so it does not claim to be.")
+                    f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
+                    f"{beschreibung} — in \"{zeile[treffer.start():treffer.end()].strip()}\", but is not a declared "
+                    f"place. Either add it to _TRACKED_PLACES so it is kept current, or reword it "
+                    f"so it does not claim to be.")
+                gefunden = True
+                break
+            if gefunden:
                 break                     # one finding per file is enough to force the decision
     return problems
 
@@ -332,7 +817,10 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
         if not path.is_file():
             problems.append(f"{rel}: tracked version place is missing (expected {beschreibung})")
             continue
-        found = pattern.findall(_read(path))
+        # An anchor with two captures (the README headline) yields pairs; every captured number is
+        # a statement of the version, so each one is compared, not only the first.
+        found = [v for hit in pattern.findall(_read(path))
+                 for v in (hit if isinstance(hit, tuple) else (hit,))]
         if not found:
             problems.append(
                 f"{rel}: {beschreibung} was not found — the anchor moved or was reworded, so this "

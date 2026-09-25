@@ -382,6 +382,55 @@ class TheGateReportsATypedState(unittest.TestCase):
         self.assertNotEqual(r["state"], "verified", r)
         self.assertNotIn("FORGED", json.dumps(r))
 
+    def test_the_gate_leaves_the_import_state_as_it_found_it(self):
+        """A gate judges a tree; it does not install it (2026-09-25, measured on main).
+
+        `evaluate` put the judged tree's `src/` in front of `sys.path` and set the bytecode switches,
+        and never undid either. The case above plants a forged `src/pre_tag_receipt_lib.py`; in the
+        same process a later plain `from pre_tag_receipt_lib import ...` then found the forgery, and
+        eight cases of this file failed with `cannot import name 'canonical_bytes'` under
+        PYTHONHASHSEED 5 and 7, the order in which they happened to run. The gate itself was safe
+        (it loads the library by path); everyone who ran after it was not."""
+        import importlib
+        d = _tree()
+        (d / "src").mkdir()
+        (d / "src" / "pre_tag_receipt_lib.py").write_text("RECEIPT_SCHEMA = 'forged'\n",
+                                                          encoding="utf-8")
+        vorher = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+        self.pta.evaluate(d, "6.0.0")
+        self.assertEqual((list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode), vorher,
+                         "evaluate changed the process-wide import state and left it changed")
+        alt = sys.modules.pop("pre_tag_receipt_lib", None)
+        try:
+            lib = importlib.import_module("pre_tag_receipt_lib")
+            self.assertTrue(hasattr(lib, "canonical_bytes"), lib.__file__)
+            self.assertNotIn(str(d), str(lib.__file__))
+        finally:
+            sys.modules.pop("pre_tag_receipt_lib", None)
+            if alt is not None:
+                sys.modules["pre_tag_receipt_lib"] = alt
+
+    def test_every_call_runs_with_the_bytecode_protection(self):
+        """The counter-direction of the restore: the protection that sends bytecode away from the
+        judged tree used to be set once per process. Restored after each call, a second call would run
+        without it. Measured inside the call, for two calls in a row."""
+        gesehen = []
+        echt = self.pta._gate_tree_digest     # runs inside the evaluation, after its setup
+
+        def spion(repo):
+            gesehen.append((sys.pycache_prefix, sys.dont_write_bytecode))
+            return echt(repo)
+
+        self.pta._gate_tree_digest = spion
+        d = _tree()
+        self.pta.evaluate(d, "6.0.0")
+        self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(len(gesehen), 2)
+        for praefix, kein_schreiben in gesehen:
+            self.assertEqual(praefix, self.pta._CACHE_DIR)
+            self.assertIsNotNone(praefix)
+            self.assertTrue(kein_schreiben)
+
     def test_a_rejected_candidate_outranks_other_tree(self):
         """One known-bad artefact in the folder is a finding, whatever lies beside it."""
         priv, pub = _keypaar()
