@@ -8,8 +8,8 @@ encoding of the same Signed Statement.
 
 An independent check, on a third platform, in a second language. The two vectors were
 published by Nicholas Templeman (mail of 2026-09-03, pinned at commit
-`db33ff3ff8ed439b3ebd97e5ef96facd7f49b65a`); Emek Küçükkaya recomputed them on node,
-Henri Birecki on aarch64. This is Linux x86_64 with CPython 3.11.15.
+`db33ff3ff8ed439b3ebd97e5ef96facd7f49b65a`); Emek Can Doğru recomputed them on node,
+Henri Sirkkavaara on aarch64. This is Linux x86_64 with CPython 3.11.15.
 
 The reader (`cbor_min.py`) is written here from RFC 8949 and handles **definite and
 indefinite** lengths. It is deliberately not a COSE library: recomputing a vector with the
@@ -185,7 +185,9 @@ and those are fetched rather than vendored (see below). `nachrechnen.py` and
 `vektor_d.json` carries the recorded result of a run on 2026-09-04, with one line corrected on
 2026-09-25: its `not_independently_derived` text named the author of the vectors wrongly, and
 this README did too, under a second wrong surname. Both now read Nicholas Templeman; no measured
-value in the file changed. `nachrechnung.json` and
+value in the file changed. The same correction gave the two people who recomputed the vectors on
+node and on aarch64 their names, Emek Can Doğru and Henri Sirkkavaara, each as it stands in the
+header or signature of their mail to the list. `nachrechnung.json` and
 `reader_matrix.json` carry runs on 2026-09-25 with `cryptography` 50.0.1. The byte comparison and
 the fetch order are also held by two hermetic test files in `tests/`
 (`test_scitt_ccf_datahash_sig_structure_bytes.py`, `test_scitt_ccf_datahash_fetch_sources.py`).
