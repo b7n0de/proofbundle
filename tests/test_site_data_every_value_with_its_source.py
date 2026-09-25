@@ -509,15 +509,30 @@ class TestAValueWithoutATimeSaysWhy:
         assert at_clean and note_clean is None and stable_clean is True, (at_clean, note_clean)
         (tmp_path / "pyproject.toml").write_text('version = "2.0.0"\n', encoding="utf-8")
         at_dirty, note_dirty, stable_dirty = RSD._source_time("pyproject.toml")
-        # ASSERTED ON THE MEANING, NOT ON TWO STRINGS BEING DIFFERENT. The first form compared
-        # `at_dirty != at_clean`, and that was green here for the wrong reason: this machine runs at
-        # +02:00, so a commit time ends in `+02:00` while an mtime ends in `Z` - they could not be
-        # equal whatever the clock said. CI runs in UTC, both rendered as
-        # `2026-09-25T04:13:46Z`, and all five test jobs fell on it. What the code actually promises
-        # is that a dirty path carries the WORKING-TREE write time, so that is what is asserted.
-        assert at_dirty == RSD._mtime("pyproject.toml"), (
-            "a dirty path does not carry the working-tree write time, so the time and the value "
-            f"describe different content: {at_dirty}")
+        # ASSERTED AGAINST A TIME SET FROM OUTSIDE, and the second form had to be replaced too.
+        #
+        # The FIRST form compared `at_dirty != at_clean`. That was green here for a reason that has
+        # nothing to do with the property: the two strings are rendered differently, so they could
+        # not be equal whatever the clock said, while CI reported both operands as
+        # `2026-09-25T04:13:46Z` and five test jobs fell. Which difference in rendering it is - the
+        # machine's UTC offset, or the granularity of the file system's mtime - is NOT MEASURED here;
+        # an un cross-reading named the second and it is not excluded.
+        #
+        # The SECOND form asserted `at_dirty == RSD._mtime(...)`, and the same cross-reading refuted
+        # it as tautological: `_source_time` PRODUCES the dirty branch by calling `_mtime`, so the
+        # case compared a function with itself and would pass even if `_mtime` returned a constant.
+        #
+        # So the write time is set from OUTSIDE with `os.utime` and the field must carry exactly that
+        # instant. That is ground truth this file did not compute, which is what makes it a
+        # measurement rather than a restatement.
+        import os  # noqa: PLC0415
+        gesetzt = 1_600_000_000            # 2020-09-13T12:26:40Z, weit weg von jeder Laufzeit
+        os.utime(tmp_path / "pyproject.toml", (gesetzt, gesetzt))
+        at_gesetzt, _n, stabil_gesetzt = RSD._source_time("pyproject.toml")
+        assert at_gesetzt == "2020-09-13T12:26:40Z", (
+            "the dirty branch does not carry the working-tree write time that was set from outside, "
+            f"so its time and its value describe different content: {at_gesetzt}")
+        assert stabil_gesetzt is False
         assert at_dirty is not None, (
             "a bare null reads as unknown or pending, and the value is neither - it is current")
         assert stable_dirty is False, (
