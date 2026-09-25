@@ -1,12 +1,12 @@
 # ADR 0009: The `scitt-ccf` anchor, a narrow COSE profile over measured bytes
 
 - **Status:** proposed. Fixes the profile, the four values, the trust interface, the error states
-  and the test classes for the 6.4.0 anchor type `scitt-ccf/v1`. The owner answered Q1 to Q8 on
-  2026-09-25 (section "Owner answers"); the reader, the statement signature and the receipt
+  and the test classes for the 6.4.0 anchor type `scitt-ccf/v1`. The owner answered Q1 to Q8 and
+  N1 to N6 on 2026-09-25 (section "Owner answers"); the reader, the statement signature and the receipt
   verification are built under `src/` as `proofbundle.scitt_ccf` behind the `[scitt]` extra
   (work packages AP2 to AP4). It is not registered as an anchor type and no verify path reaches it;
-  that is AP5, after 6.3.0. Five new questions are left to the owner at the end.
-- **Date:** 2026-09-25 (first version and the owner-answer revision)
+  that is AP5, after 6.3.0. One new question is left to the owner at the end.
+- **Date:** 2026-09-25 (first version and two owner-answer revisions)
 - **Deciders:** proofbundle maintainer
 - **Builds on:** ADR 0006 (anchor longevity, SCITT raised in rank), ADR 0007 (the algorithm label
   lives inside the signed bytes), the anchor layer in `src/proofbundle/anchors.py`
@@ -187,8 +187,27 @@ Trust comes from the relying party through `rp_trust`, as for every anchor type 
 - `rp_trust["scitt_statement_keys"]`: keys the relying party accepts for the statement signer,
   **always required** (owner answer Q3 b). Without them the entry is `needs_rp_trust`. If keys are
   given and none verifies the statement, including a key of the wrong type or curve, it is
-  `statement_signature_invalid`. Statements carry no kid (none measured does), so every given key
-  is tried; see new question N4.
+  `statement_signature_invalid`.
+- Which statement key is tried (owner answer N4 b): statements carry no kid (none measured does),
+  so the statement's **protected** `x5chain` selects. Only an RP statement key equal to the key of
+  its end-entity certificate is tried, compared as keys (both sides re-encoded as SPKI DER, so a
+  compressed and an uncompressed point are one key). No such key is `needs_rp_trust`: a key the
+  relying party rotated away is missing trust, not a failed signature. A selected key that does
+  not verify is `statement_signature_invalid`, and no other key is tried. The certificate is never
+  trust. Measured on 2026-09-25: all eight real statements the reader reads carry a protected
+  `x5chain` of 2 to 4 certificates (seven third-party, four of them one statement and its mutants,
+  and the local-ledger control), and each verifies under its end-entity key except
+  `payload-tampered.cose`.
+- The shape comes from RFC 9360, read in its WG source (https://github.com/cose-wg/X509 at
+  `4228b190f3682cf21e45ffb8037158ed97d1f743`, `draft-ietf-cose-x509.md`, which is
+  draft-ietf-cose-x509-08, sha256 `10dd06b1960d081b11247ab45c0d029ba0f477d000380ada8b3471c746150b3d`,
+  retrieved 2026-09-25; the published RFC text NOT MEASURED, rfc-editor.org is blocked in this
+  environment): `COSE_X509 = bstr / [ 2*certs: bstr ]`, the certificates are untrusted input, and
+  the end-entity certificate MUST be integrity protected. So a protected `x5chain` of another shape,
+  or whose end-entity certificate is not DER X.509, is `malformed`; an end-entity key the
+  cryptography library cannot load matches no RP key (`needs_rp_trust`); and an `x5chain` in the
+  unprotected bucket selects nothing. A statement without a protected `x5chain` has every RP
+  statement key tried, as before; none measured is such a statement (new question N7).
 - Malformed relying-party entries are skipped and reported in `ignored_trust`; they can only ever
   be absent trust, never trust.
 
@@ -199,7 +218,7 @@ Never a trust source, each named because each is present in real evidence:
 | `kid` of the receipt | receipt protected header | selects candidate keys **within** the issuer's RP key set; RFC 9052, section "Common COSE Header Parameters" (WG source): kid values are hints and not unique, so every RP key with that kid is tried. Measured: `hex(SHA-256(SPKI))` equals the kid on every -05 receipt, test service and production; reported, not required |
 | algorithm labels in a key set or trust store | RP material | never used; measured: the production trust store labels its P-384 keys `ES256` while the receipts they verify say ES384 |
 | keys embedded in the statement or receipt | any header | ignored for trust |
-| `x5chain` certificates | statement protected header (measured: a four-certificate chain in the control) | used only to report a consistency check of the statement signature, labelled as such; never trust |
+| `x5chain` certificates | statement protected header (measured: 2 to 4 certificates in every real statement) | the end-entity certificate's key selects among the RP statement keys (owner answer N4 b); never trust; the unprotected bucket selects nothing |
 | the anchor's `frozen` field | the bundle | evidence (`frozenEvidence`), never trust; a producer may freeze the key set it used, and it is reported next to the RP result |
 | `anchoredAt` | the anchor entry | informative only |
 
@@ -269,7 +288,9 @@ spans value 3 is computed from:
 The values in the v1 column are pinned in `proofbundle.scitt_ccf` (`MAX_STATEMENT_BYTES`,
 `MAX_DEPTH`, `MAX_RECEIPTS`, `MAX_INCLUSION_PROOFS`, `MAX_PATH`, `MAX_EVIDENCE_BYTES`) and in
 `proofbundle._cbor_prescan`; each is tested at L and L+1. The measured column is why they are not
-tighter or looser. The tag 1 allowance is the one place where a real
+tighter or looser. Owner answer N1 a: a non-shortest head stays refused everywhere, also inside the
+protected bstr, where the local ledger accepted one and kept it as sent (Decision 3); one wire form
+per statement leaves no reader differential to reason about. The tag 1 allowance is the one place where a real
 production statement forced the profile wider than a clean reading of RFC 8392 would (NumericDate
 is the untagged form there); the claim stays informative and never becomes `trustedTime`.
 
@@ -282,14 +303,14 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
-| `malformed` | the pre-scan or the COSE structure refused the bytes; also a statement with no receipt | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; also a statement with no receipt | False | False |
 | `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
-| `statement_signature_invalid` | RP statement keys were supplied and the statement signature fails with every one of them | False | False |
+| `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
 | `root_mismatch` | inclusion proofs of one receipt compute different roots | False | False |
 | `signature_invalid` | an RP key was selected and the receipt signature fails over value 4, including algorithm and key mismatch | False | False |
 | `receipt_not_bound` | the receipt signature is valid, but the leaf's data-hash differs from value 3 recomputed from this statement | False | False |
-| `needs_rp_trust` | no RP statement key, no RP key set for the receipt's issuer, or no RP key for its kid | False | False |
+| `needs_rp_trust` | no RP statement key, no RP statement key equal to the protected `x5chain`'s end-entity key, no RP key set for the receipt's issuer, or no RP key for its kid | False | False |
 | `confirmed` | profile satisfied, see Decision 10 | True | False |
 
 `warn` is never set by `scitt-ccf`. A CCF receipt exists only after commit, so v1 has no pending
@@ -402,7 +423,8 @@ verdict and no exit code of a bundle without `--require-anchor`, as for every an
 section 7i), so it introduces no Python and Rust divergence on the verdicts the Rust side
 computes. When the Rust anchor slice is built, the byte vectors of Decision 3 and the probes of
 `tools/scitt_ccf_external/` are its parity cases. The two new `verify_` surfaces are registered as
-`PENDING` in `scripts/rust_parity_registry.json`.
+`PENDING` in `scripts/rust_parity_registry.json` and stay so until AP5 registers the anchor type
+(owner answer N5 a).
 
 A foreign Rust reader was run instead, on the owner's answer to Q7: microsoft/scitt-verifier 0.4.0
 at `bd6fb8ba79dbb521257b7f09682c03c6681dc3d0`, built with `cargo build --release --locked`, run
@@ -418,15 +440,20 @@ appraises a signer chain and a policy, v1 requires a hash envelope over a proofb
 
 Each class has an unchanged control case that must pass before any of its negative cases counts.
 "Real" means bytes a CCF service produced: the committed local-ledger vector
-(`tests/fixtures/scitt_ccf/local_ledger_control.json`, always available) or the fetched bytes of
-`tools/scitt_ccf_external/` (available only after `fetch_external.py`). "Synthetic" means bytes made
-by the test with a key it generates, and says so.
+(`tests/fixtures/scitt_ccf/local_ledger_control.json`, our own registration, the one end-to-end
+control CI runs, owner answer N2 a) or the third-party bytes committed as JSON fixtures beside it
+(`third_party_scitt_verifier.json`, `third_party_scitt_ccf_ledger.json`, owner answer N3 b: every
+entry labelled "third-party bytes" with its source at the pinned commit and its licence, MIT, whose
+text each file carries; written by `tools/scitt_ccf_external/fetch_external.py --write-fixtures`;
+`PROVENANCE.json` names the origin of every file in the directory). "Synthetic" means bytes made by
+the test with a key it generates, and says so.
 
 Where they are, as built: `tests/test_scitt_ccf_profile.py` (every class below, the synthetic
-control and the real local-ledger control, 86 cases), `tests/test_cbor_prescan.py` (the pre-scan
+control and the real local-ledger control, 104 cases), `tests/test_cbor_prescan.py` (the pre-scan
 alone, standard library, 44 cases), `tests/test_scitt_ccf_without_extra.py` (the `no_lib` refusal,
-runs with and without cbor2, 6 cases), `tests/test_scitt_ccf_external_bytes.py` (the fetched
-third-party bytes, 4 cases; a skip where they are not fetched, which includes CI).
+runs with and without cbor2, 6 cases), `tests/test_scitt_ccf_external_bytes.py` (the committed
+third-party bytes, 12 cases: the labels and pins in both environments, the reader cases with the
+extra).
 
 | class | property | control (unchanged) | negative cases, each a single change |
 |---|---|---|---|
@@ -439,6 +466,7 @@ third-party bytes, 4 cases; a skip where they are not fetched, which includes CI
 | algorithm and key binding | the protected alg, the RP key type and curve belong together | real control ES384 over P-384; real production receipt verified with a store entry labelled `ES256` (label ignored) | ES384 label with a P-256 RP key; ES256 label with a P-384 key; an EC label with an RSA key; an unsupported alg (outside profile, not invalid); ECDSA signature of wrong length; PS256 with a different salt length (synthetic) |
 | identity and cache | value 2 never stands in for value 3; key identity is the RP key, not the kid | real control | synthetic: one ToBeSigned signed twice (measured: value 2 equal, value 3 different), the receipt of the first moved to the second must be `receipt_not_bound`; a second RP key under the same kid for another issuer must not be selected; a cached verdict for one proof must not be returned for a proof with equal value 2 and different bytes |
 | receipt verification | leaf per -05, fold, one root, detached payload, vds 2, signature over value 4 | real control, `cbor-header.cose`, `nested-sign1.cose`, and the production `uvm_0.2.10.cose` | one path bit flipped (measured: fails); one path left flag flipped; leaf by the -04 reading of 2.1 (measured: fails); evidence not hashed (measured: fails); vds 1; two inclusion proofs with different roots; key set of another service (`needs_rp_trust`, measured); no key set (`needs_rp_trust`, measured); `tampered-statement.cose` (`signature_invalid`) |
+| statement key selection | the protected `x5chain` selects among RP statement keys, never trust (N4 b) | synthetic chain naming the signer among two RP keys; real: three third-party statements (PS256, PS384) and the local-ledger control | RP holds only another key (`needs_rp_trust`, real and synthetic); chain names key A, key B signed, RP holds both (`statement_signature_invalid`, B not tried); chain names an untrusted key (`needs_rp_trust`); single-certificate form; RP key as a compressed point (confirms); `x5chain` only unprotected (selects nothing); a statement kid (selects nothing); end-entity key of an unknown algorithm (`needs_rp_trust`); `x5chain` an int, text, map, null, empty array, one-element array, a non-bstr element, a junk certificate (each `malformed`); real `payload-tampered.cose` under its selected key (`statement_signature_invalid`) |
 | crossed statement and receipt | a valid receipt proves nothing about another statement | real control | real `payload-tampered.cose` (measured: signature valid, not bound); the control's receipt moved into `cbor-header.cose`; `appended-receipt.cose` (one confirmed and one failing receipt: entry confirmed, failure reported); a statement whose value 1 is the root of another target (`unbound`) |
 
 "Real control" is the receipt side on the real bytes. Where a class checks the statement side as
@@ -464,8 +492,9 @@ measured comparison fails once.
   key set, pinned how. The anchor layer already asks the same for TSA roots and Bitcoin headers.
 - `verify_anchor` needs an additive pass-through for the three results and `receipt_iat`; that is
   the one change in `src/proofbundle/anchors.py` this design implies, and it belongs to AP5.
-- Third-party bytes stay fetched, not vendored (N3). The one real end-to-end control is our own
-  registration and is committed as a test fixture (N2).
+- The statements and key sets of the two MIT sources are committed as labelled JSON fixtures
+  (N3 b), 40091 B and 27683 B; the ccf-profile sample stays fetch-only, its terms are the IETF's.
+  The one real end-to-end control is our own registration, committed as a test fixture (N2 a).
 
 ## What this ADR does not claim
 
@@ -487,39 +516,22 @@ service signed. It does not claim the service is honest, that its ledger is cons
 | Q6 the unmeasured forms | a | measured on a local ledger, Decision 3; the end-to-end control exists |
 | Q7 comparison | c | microsoft/scitt-verifier run offline on the same bytes, Decision 14 |
 | Q8 tag 1 | a | allowed only around an integer CWT time claim of the statement's protected header |
+| N1 non-shortest integer inside the protected header | a | refused everywhere, Decision 8 |
+| N2 the local-ledger vector | a | kept as the one real end-to-end control CI runs; 9753 B (the question said 9849 B, which was wrong) |
+| N3 third-party real bytes in CI | b | committed as JSON fixtures, each entry labelled third-party bytes with source and licence, section "Test classes" |
+| N4 statement key selection | b | the protected `x5chain` selects, never trust, Decision 5 |
+| N5 Rust parity of the two new surfaces | a | `PENDING` until AP5, Decision 14 |
+| N6 unsigned agent commits | a | accepted as Unverified; a process question, not part of this profile |
 
 ## New questions for the owner
 
-N1. A non-shortest integer inside the protected header. The service accepts it and keeps it as
-  sent; v1 refuses it in the pre-scan.
-  a) keep refusing: one wire form per statement, and no reader differential to reason about
-  b) accept non-shortest heads inside the protected bstr only, where the data-hash copies the bytes
-  c) accept them everywhere the service keeps them, and measure each position first
-
-N2. The committed local-ledger vector (`tests/fixtures/scitt_ccf/local_ledger_control.json`, 9849 B
-  of JSON with base64 fields, made here with keys generated for the run).
-  a) keep it as the one real end-to-end control CI runs
-  b) move it next to the tools and fetch or regenerate it, CI then has only synthetic controls
-  c) regenerate it in a CI job that runs the ledger in Docker
-
-N3. Third-party real bytes in CI. Today `tests/test_scitt_ccf_external_bytes.py` skips where they
-  are not fetched, which includes CI.
-  a) leave it so; the recorded runs in `tools/scitt_ccf_external/` are the evidence
-  b) commit the MIT-licensed statements and key sets as JSON fixtures, as N2 does for our own
-  c) add a CI job with network that runs `fetch_external.py` first
-
-N4. Statements carry no kid, so every RP statement key is tried, and a statement signed by a key
-  the relying party has rotated away reads as `statement_signature_invalid`, not as missing trust.
-  a) keep it: a statement key is either trusted and verifies, or the entry fails
-  b) select statement keys by the SPKI of the `x5chain` leaf, as a selector only, never as trust:
-     no match is `needs_rp_trust`, a match must verify
-  c) require a kid in v1 statements
-
-N5. Rust parity of `verify_statement_signature` and `verify_transparent_statement`, registered
-  `PENDING`.
-  a) stay `PENDING` until AP5 registers the anchor type
-  b) port both to `tools/pb_verify_rs` in 6.4.0 before AP5
-  c) port the receipt side only (leaf, root, signature), the statement side stays Python
+N7. A v1 statement without a protected `x5chain`. None measured is one; today every RP statement
+  key is tried for it, so for such a statement a rotated-away key still reads as
+  `statement_signature_invalid`.
+  a) keep it: without a selector every trusted key is tried, and one must verify
+  b) require a protected `x5chain` in v1, a statement without one is `outside_profile`
+  c) also accept a protected `x5t` (label 34) as the selector, and measure a statement carrying one
+     first
 
 ---
 
