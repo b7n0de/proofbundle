@@ -102,6 +102,25 @@ field. That ordering was documented and unproven until a planted defect removing
 corpus green; the vector that discriminates it exists because the meta-test found the hole, not
 because writing the vectors found it.
 
+**The envelope carries an identifier too, and until 2026-09-25 we did not read it as R2 asks.**
+Measured 2026-09-05 in issue 147 with an `inspect-receipts` 0.3 receipt: `classify_eval_claim`
+answered `invalid` for a bundle whose own top-level `schema` names another format. The verifier
+underneath raised its typed unsupported-schema error, and a broad exception handler above it folded
+that refusal into `invalid`. Every R2 vector at the time put the foreign identifier into the claim of
+a sound bundle, none onto the bundle itself, so the corpus could not see it. A foreign envelope
+identifier is now a refusal, read before anything else, and four vectors carry it. One has a
+foreign identifier over an otherwise sound receipt and must be refused. One has our identifier
+and a signature algorithm our schema does not allow, and stays `invalid`; it exists because our
+verifier raises the same exception type in both cases, so a fix that turned every such exception
+into a refusal would pass the first vector and fail this one. Three carry the rule below.
+
+**A refusal needs a declaration.** Only a present, non-empty identifier that is not ours earns one.
+An absent identifier declares no other format, and neither does a present value that cannot be an
+identifier (a number, a list, an empty string); both stay `invalid`. The corpus carries the
+absent, the empty and a numeric identifier; the unit tests also pin a list and null. What renaming the envelope
+identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`, and a consumer
+that treats a refusal as acceptance is wrong whatever the reason for it.
+
 ## R3 — a reported binding is a binding that was performed
 
 `binding_checked` is set only when the binding was complete. A binding of type content-hash without
@@ -161,21 +180,32 @@ control each. Detection rate 100 percent, otherwise the profile counts as unmet.
 
 A profile without shipped counter-proofs is a statement of intent.
 
-**Shipped since 2026-08-30.** `conformance/envelope_profile/` — ten vectors (R1 three, R2 three, R3 two, R4 two), at least one
+**Shipped since 2026-08-30.** `conformance/envelope_profile/` — fifteen vectors (R1 three, R2 eight, R3 two, R4 two), at least one
 counter-proof and one positive control per rule **R1 to R4**, all running through our own emit and
 verify path rather than a purpose-built mock. **R5 carries none**, deliberately: see R5 above.
 
-Detection rate is MEASURED, not asserted. Final state: **nine effective planted defects, nine
-caught** — seven in the full round over the corpus, two more for the R1 vectors added afterwards. The
+Detection rate is MEASURED, not asserted. Final state: **sixteen effective planted defects, sixteen
+caught** — seven in the full round over the corpus, two more for the R1 vectors added afterwards,
+and seven on 2026-09-25 against the envelope-identifier fix under R2. The
 path there matters more than the number, so it is written out rather than summarised. (This count was
 itself wrong once: an earlier draft said eight, and the error was found by recounting the vectors
 against the manifest rather than trusting the sentence.)
+
+- **Three of the seven of 2026-09-25 escaped at first**, and each bought a vector. With only the
+  foreign-identifier vector and its algorithm boundary in the corpus, a defect that read an absent
+  identifier as a foreign one and a defect that read any non-matching value as foreign both left the
+  corpus green; only unit tests saw them. That produced the absent and the empty vector. A defect that
+  dropped only the type check then still escaped, because the empty string is a string, and that
+  produced the numeric vector. The seven are: the state before the fix, a best-effort reading of the
+  foreign envelope as ours, every unsupported-value error turned into a refusal, absence read as
+  foreign, any non-matching value read as foreign, only the emptiness check dropped, only the type
+  check dropped.
 
 - **Two escaped on the first attempt**, and each escape bought a vector that was missing: the
   authenticity ordering under R2 (no vector was both unverifiable *and* foreign-schema, so removing
   the ordering changed no verdict), and a hand-signed coverage block under R5 (the unit tests caught
   it, the corpus did not — and the corpus is the outward authority).
-- **Two further attempts were ineffective rather than escaped** — they are NOT in the nine, because
+- **Two further attempts were ineffective rather than escaped** — they are NOT in the count, because
   a mutation that changes nothing is not a defect the corpus failed to catch. It looks identical in
   the output and is not the same thing at all. One replaced a branch whose neighbour carried the same
   effect; one removed the float branch, after which the value was still refused by the next clause —

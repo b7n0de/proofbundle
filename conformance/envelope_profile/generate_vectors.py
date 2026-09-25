@@ -2,7 +2,9 @@
 """Generate the receipt-envelope-profile conformance vectors (run ONCE, fixtures are committed bytes).
 
 Provenance: docs/RECEIPT_ENVELOPE_PROFILE.md (v0.1, PROPOSED — an Owner decision, not adopted).
-Ten vectors, one COUNTER-PROOF and one POSITIVE CONTROL per rule R1 to R5. R6 has no vector of its
+Fifteen vectors, at least one COUNTER-PROOF and one POSITIVE CONTROL per rule R1 to R4; R5 carries
+none, for the reason written at the end of `main`. (This line said "ten, one of each per rule R1 to
+R5" until 2026-09-25, a count and a rule range that had both stopped being true.) R6 has no vector of its
 own: R6 says every rule ships its counter-proof, so R6 is satisfied BY this corpus existing, not by
 a case inside it — a case asserting "the cases exist" would be the tautology the profile warns about.
 
@@ -49,6 +51,110 @@ def _write(name: str, case: dict, files: dict) -> None:
     for fn, obj in files.items():
         (d / fn).write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"  {name}")
+
+
+def r2_envelope_identifier(s) -> None:
+    """R2 one level up: the identifier on the BUNDLE, added 2026-09-25 (release scope line Z.278).
+
+    The three R2 vectors above put a foreign schema into the claim of a sound bundle. None put one on
+    the bundle itself, and there `classify_eval_claim` answered `invalid`: `verify_bundle` raised the
+    typed `UnsupportedError` and a broad `except` folded it into the invalid outcome. Measured
+    2026-09-05 with an inspect-receipts 0.3 receipt in issue 147.
+
+    Written as its own function so the five vectors could be generated without regenerating the ten
+    that were already committed; `main` calls it in its place, so a full rerun produces all fifteen.
+    """
+    sound = emit_eval_receipt(_base(s), s)
+
+    foreign = json.loads(json.dumps(sound))
+    foreign["schema"] = "acme/other-envelope/v9"
+    _write("r2-counter-proof-foreign-envelope-id-is-refused-not-invalid", {
+        "caseId": "envelope-profile-r2-counter-proof-foreign-envelope-id-is-refused-not-invalid",
+        "kind": "envelope_profile_rule", "rule": "R2", "role": "counter_proof",
+        "input": "bundle.json",
+        "attribution": "receipt-envelope-profile v0.1 R2 — measured 2026-09-05 in issue 147: "
+                       "classify_eval_claim answered invalid for a foreign bundle identifier",
+        "expected": {"classification": "refused_unknown_schema"},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "rationale": "The bundle's own `schema` names a format that is not proofbundle/v0.1, and "
+                     "everything below it is a sound eval receipt. TWO wrong answers exist and the "
+                     "case excludes BOTH: `valid` (a best-effort verifier that ignores the envelope "
+                     "identifier and checks the rest as its own) and `invalid` (a verdict on a "
+                     "document in a format this verifier does not know how to judge). The refusal is "
+                     "the outcome R2 names.",
+    }, {"bundle.json": foreign})
+
+    wrong_alg = json.loads(json.dumps(sound))
+    wrong_alg["signature"]["alg"] = "rsa-pss"
+    _write("r2-counter-proof-unknown-alg-under-our-id-is-invalid-not-refused", {
+        "caseId": "envelope-profile-r2-counter-proof-unknown-alg-under-our-id-is-invalid-not-refused",
+        "kind": "envelope_profile_rule", "rule": "R2", "role": "counter_proof",
+        "input": "bundle.json",
+        "attribution": "receipt-envelope-profile v0.1 R2 — the boundary of the envelope refusal, "
+                       "added with it on 2026-09-25",
+        "expected": {"classification": "invalid"},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "rationale": "The bundle names OUR identifier and then an algorithm our schema does not allow. "
+                     "That is judgeable: proofbundle/v0.1 fixes `signature.alg`, so a bundle that "
+                     "claims the format and breaks it is `invalid`. Our verifier raises the same "
+                     "exception type here as for a foreign identifier, so an implementation that "
+                     "turned every such exception into a refusal would pass the vector above and "
+                     "fail this one. A refusal needs a foreign identifier, not an unsupported value.",
+    }, {"bundle.json": wrong_alg})
+
+    # A REFUSAL NEEDS A DECLARATION. Planted defects measured on 2026-09-25 that read an absent or
+    # an empty identifier as a foreign one left the first two vectors green; only unit tests saw
+    # them. The profile states the rule, so the corpus carries it (R6).
+    absent = json.loads(json.dumps(sound))
+    del absent["schema"]
+    _write("r2-counter-proof-absent-envelope-id-is-invalid-not-refused", {
+        "caseId": "envelope-profile-r2-counter-proof-absent-envelope-id-is-invalid-not-refused",
+        "kind": "envelope_profile_rule", "rule": "R2", "role": "counter_proof",
+        "input": "bundle.json",
+        "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
+                       "2026-09-25",
+        "expected": {"classification": "invalid"},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "rationale": "The bundle carries no `schema` at all and is otherwise a sound eval receipt. "
+                     "It declares no other format, so there is nothing to refuse on its behalf, and "
+                     "our schema requires the field: `invalid`, fail-closed. An implementation that "
+                     "read a missing identifier as an unknown one would refuse here, and anything "
+                     "stripped of its identifier would then buy a refusal.",
+    }, {"bundle.json": absent})
+
+    empty = json.loads(json.dumps(sound))
+    empty["schema"] = ""
+    _write("r2-counter-proof-empty-envelope-id-is-invalid-not-refused", {
+        "caseId": "envelope-profile-r2-counter-proof-empty-envelope-id-is-invalid-not-refused",
+        "kind": "envelope_profile_rule", "rule": "R2", "role": "counter_proof",
+        "input": "bundle.json",
+        "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
+                       "2026-09-25",
+        "expected": {"classification": "invalid"},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "rationale": "The field is present and empty. A present value that cannot be an identifier "
+                     "declares nothing, the same as an absent one, and is a separate state from both "
+                     "an absent field and a foreign identifier. The vector below carries a number; "
+                     "our unit tests also pin a list and null in this position.",
+    }, {"bundle.json": empty})
+
+    # The empty string alone did not carry the rule: a planted defect that dropped only the TYPE
+    # check (a number read as a foreign identifier, "" still not) left the corpus green and was
+    # caught by a unit test alone. Measured 2026-09-25, and the reason this vector exists.
+    number = json.loads(json.dumps(sound))
+    number["schema"] = 1
+    _write("r2-counter-proof-numeric-envelope-id-is-invalid-not-refused", {
+        "caseId": "envelope-profile-r2-counter-proof-numeric-envelope-id-is-invalid-not-refused",
+        "kind": "envelope_profile_rule", "rule": "R2", "role": "counter_proof",
+        "input": "bundle.json",
+        "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added "
+                       "2026-09-25 after a planted defect escaped the empty-string vector",
+        "expected": {"classification": "invalid"},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "SPEC.md"],
+        "rationale": "The field is present and holds a number. A number is not an identifier of "
+                     "any format, so it declares nothing and stays `invalid`. An implementation "
+                     "that checked only for emptiness would read it as foreign and refuse.",
+    }, {"bundle.json": number})
 
 
 def main() -> int:
@@ -169,6 +275,8 @@ def main() -> int:
                      "planted defect removing the authenticity-first ordering left all ten other "
                      "vectors green — the ordering was documented and unproven.",
     }, {"bundle.json": kaputt})
+
+    r2_envelope_identifier(s)
 
     # ── R3 a reported binding is a performed binding ───────────────────────────────────────────
     tree_n = 500

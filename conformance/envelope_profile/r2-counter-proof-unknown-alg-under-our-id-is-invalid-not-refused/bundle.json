@@ -1,0 +1,16 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY29tbWl0X2FsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJjb21wYXJhdG9yIjoiPj0iLCJkYXRhc2V0X2lkX2NvbW1pdCI6InNoYTI1NjpjODViNWMzZTQyNzc4YTQwZTlkZTUwOTkzMTQ0ZWJkOTE2ZWYzNzllNGI2ODUwNDYzYzlhMjEzYTAyOTJhMTYwIiwiaXNzdWVyIjoiZWQyNTUxOTpsV1dCZmtRWlBuakN6cGcxSXpTQzQwcjBnSTdlZkVheitMemx0TlE0dE13PSIsIm1ldHJpYyI6InJlZnVzYWxfcmF0ZSIsIm1vZGVsX2lkX2NvbW1pdCI6InNoYTI1Njo0Mzc5NWZjYjYzYWRkMGVhNzY5ZWFkZGUwYzFmYjc1OTE0ZmU4YjAxNDVkZTZjMzI0Y2Q0MmQ1YjQ0YmU2MzQwIiwibiI6NTAwLCJwYXNzZWQiOnRydWUsInNjaGVtYSI6InByb29mYnVuZGxlL2V2YWwtY2xhaW0vdjAuMSIsInN1aXRlIjoic2FmZXR5LXJlZnVzYWwiLCJzdWl0ZV92ZXJzaW9uIjoidjEiLCJ0aHJlc2hvbGQiOiIwLjgwIiwidGltZXN0YW1wIjoiMjAyNi0wOC0zMFQwMDowMDowMFoifQ==",
+  "signature": {
+    "alg": "rsa-pss",
+    "public_key_b64": "lWWBfkQZPnjCzpg1IzSC40r0gI7efEaz+LzltNQ4tMw=",
+    "sig_b64": "iQQIaYJOO05CoVMCQGDuOqdDWNUaJW81mdOXGOKllVPKKcwZ6pQ5S/nsczSqBdqtJm4ktEuLdrdsrAmRhRmWAw=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 1,
+    "inclusion_proof_b64": [],
+    "root_b64": "O8XSeEBOVnqTU+xopQbY5RihZJBbGtOp1bsWKENLXmo="
+  }
+}

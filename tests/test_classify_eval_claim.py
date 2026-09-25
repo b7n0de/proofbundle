@@ -67,8 +67,13 @@ class TestDreiAusgaenge(unittest.TestCase):
         self.assertEqual(classify_eval_claim(b)[0], CLAIM_INVALID)
 
     def test_niemals_werfen(self):
+        # The last entry named `"schema": "x"` until 2026-09-25 and was pinned to invalid. A present
+        # foreign envelope identifier is a refusal since Z.278, so that dict moved to
+        # TestTheEnvelopeIdentifierIsReadFirst, where its outcome is asserted as what it now is.
+        # This entry keeps the malformed body under OUR identifier, which is still invalid.
         for schrott in ({"not": "a bundle"}, [1, 2, 3], "/kein/pfad.json", "", None, 42, True,
-                        {"payload_b64": "!!!", "signature": {}, "merkle": {}, "schema": "x"}):
+                        {"payload_b64": "!!!", "signature": {}, "merkle": {},
+                         "schema": "proofbundle/v0.1"}):
             outcome, claim = classify_eval_claim(schrott)
             self.assertEqual(outcome, CLAIM_INVALID, f"{schrott!r}")
             self.assertIsNone(claim)
@@ -88,6 +93,82 @@ class TestDreiAusgaenge(unittest.TestCase):
         kaputt = emit_bundle(canonicalize(dict(c, threshold="inf")), s)
         self.assertIsNone(decode_eval_claim(fremd))
         self.assertIsNone(decode_eval_claim(kaputt))
+
+
+class TestTheEnvelopeIdentifierIsReadFirst(unittest.TestCase):
+    """Z.278: a foreign identifier on the BUNDLE, not in the claim, is a refusal and not `invalid`.
+
+    Measured 2026-09-05 with an inspect-receipts 0.3 receipt in issue 147: `verify_bundle` raised the
+    typed `UnsupportedError` for the foreign identifier, and the broad `except` in
+    `classify_eval_claim` folded it into `invalid`. The ten corpus vectors covered a foreign schema in
+    the claim of a sound bundle and none on the bundle itself, which is how it stayed unseen.
+    """
+
+    def setUp(self):
+        self.s = generate_signer()
+        self.b = _good(self.s)
+
+    def _mit(self, **felder):
+        b = json.loads(json.dumps(self.b))
+        b.update(felder)
+        return b
+
+    def test_a_foreign_envelope_identifier_is_refused(self):
+        for fremd in ("acme/other-envelope/v9", "csoai.inspect-receipt/0.3", "proofbundle/v0.2"):
+            with self.subTest(schema=fremd):
+                outcome, claim = classify_eval_claim(self._mit(schema=fremd))
+                self.assertEqual(outcome, CLAIM_REFUSED_UNKNOWN_SCHEMA)
+                self.assertIsNone(claim)
+
+    def test_the_refusal_does_not_depend_on_the_rest_of_the_document(self):
+        # The dict test_niemals_werfen pinned to invalid until 2026-09-25. Under a foreign
+        # identifier its body is not judged at all, because judging it as a broken proofbundle
+        # would be the best-effort reading R2 rules out.
+        schrott = {"payload_b64": "!!!", "signature": {}, "merkle": {}, "schema": "x"}
+        self.assertEqual(classify_eval_claim(schrott)[0], CLAIM_REFUSED_UNKNOWN_SCHEMA)
+
+    def test_what_renaming_the_envelope_buys_a_forger_is_a_refusal_never_valid(self):
+        b = self._mit(schema="acme/other-envelope/v9")
+        sig = b["signature"]["sig_b64"]
+        b["signature"] = dict(b["signature"], sig_b64=("B" + sig[1:]) if sig[0] != "B" else ("C" + sig[1:]))
+        outcome, claim = classify_eval_claim(b)
+        self.assertEqual(outcome, CLAIM_REFUSED_UNKNOWN_SCHEMA)
+        self.assertNotEqual(outcome, CLAIM_VALID)
+        self.assertIsNone(claim)
+
+    def test_an_identifier_that_declares_nothing_stays_invalid(self):
+        # Absent, and present but not a usable identifier, are two states and neither is a foreign
+        # one. The refusal needs a declaration; without one the answer stays fail-closed.
+        ohne = json.loads(json.dumps(self.b))
+        del ohne["schema"]
+        faelle = {"absent": ohne, "empty": self._mit(schema=""), "number": self._mit(schema=5),
+                  "list": self._mit(schema=["proofbundle/v0.1"]), "null": self._mit(schema=None)}
+        for name, b in faelle.items():
+            with self.subTest(state=name):
+                self.assertEqual(classify_eval_claim(b)[0], CLAIM_INVALID)
+
+    def test_an_unknown_algorithm_under_our_identifier_stays_invalid(self):
+        # `verify_bundle` raises the SAME exception type for these two, so a fix that turned every
+        # UnsupportedError into a refusal would pass the tests above and fail here. Our schema fixes
+        # both values; a bundle that names ours and breaks it is judgeable.
+        sig = json.loads(json.dumps(self.b))
+        sig["signature"]["alg"] = "rsa-pss"
+        mk = json.loads(json.dumps(self.b))
+        mk["merkle"]["hash_alg"] = "sha3-256"
+        for name, b in (("signature.alg", sig), ("merkle.hash_alg", mk)):
+            with self.subTest(field=name):
+                self.assertEqual(classify_eval_claim(b)[0], CLAIM_INVALID)
+
+    def test_the_path_form_reads_the_identifier_too(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "fremd.json"
+            p.write_text(json.dumps(self._mit(schema="acme/other-envelope/v9")), encoding="utf-8")
+            self.assertEqual(classify_eval_claim(str(p))[0], CLAIM_REFUSED_UNKNOWN_SCHEMA)
+
+    def test_the_released_decode_contract_is_unchanged(self):
+        self.assertIsNone(decode_eval_claim(self._mit(schema="acme/other-envelope/v9")))
 
 
 class TestKorpusDeckung(unittest.TestCase):

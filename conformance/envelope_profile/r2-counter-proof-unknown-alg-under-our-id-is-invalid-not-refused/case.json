@@ -1,0 +1,16 @@
+{
+  "caseId": "envelope-profile-r2-counter-proof-unknown-alg-under-our-id-is-invalid-not-refused",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — the boundary of the envelope refusal, added with it on 2026-09-25",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "SPEC.md"
+  ],
+  "rationale": "The bundle names OUR identifier and then an algorithm our schema does not allow. That is judgeable: proofbundle/v0.1 fixes `signature.alg`, so a bundle that claims the format and breaks it is `invalid`. Our verifier raises the same exception type here as for a foreign identifier, so an implementation that turned every such exception into a refusal would pass the vector above and fail this one. A refusal needs a foreign identifier, not an unsupported value."
+}

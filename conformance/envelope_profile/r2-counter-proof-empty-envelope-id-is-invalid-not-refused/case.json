@@ -1,0 +1,16 @@
+{
+  "caseId": "envelope-profile-r2-counter-proof-empty-envelope-id-is-invalid-not-refused",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — a refusal needs a declaration, added 2026-09-25",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "SPEC.md"
+  ],
+  "rationale": "The field is present and empty. A present value that cannot be an identifier declares nothing, the same as an absent one, and is a separate state from both an absent field and a foreign identifier. The vector below carries a number; our unit tests also pin a list and null in this position."
+}
