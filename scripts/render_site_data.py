@@ -550,13 +550,34 @@ def audit_state_field(version_value) -> dict:
     if not d.is_dir():
         return {"audit_state": _gap(source="audit_artifacts/", reason="audit_artifacts/ is missing"),
                 "audit_link": _gap(source="audit_artifacts/", reason="audit_artifacts/ is missing")}
-    stages = sorted(p.name for p in d.iterdir() if p.is_dir() and p.name.isdigit())
-    expected = None
+    # NUMERICALLY, NOT LEXICOGRAPHICALLY. `sorted()` on the names made "90" the last of
+    # ["610", "90"] and would make "700" the last of ["6100", "700"], although 6100 is the later
+    # stage. Today every stage name has three digits, so the two orders agree and the defect is
+    # latent; it fires with the first four-digit stage. Found while reading the one function no
+    # review lens had looked at.
+    stages = [p.name for p in d.iterdir() if p.is_dir() and p.name.isdigit()]
+    stages.sort(key=int)
+    expected, expected_gap = None, None
     if isinstance(version_value, str):
         parts = version_value.split(".")
         if len(parts) >= 2 and all(t.isdigit() for t in parts[:2]):
-            expected = f"{parts[0]}{parts[1]}0"
+            # THE STAGE NAME IS major*100 + minor*10, AND THAT SCHEME HAS NO UNAMBIGUOUS NAME FOR A
+            # MINOR OF 10 OR MORE. The first form concatenated the digits without a separator, so
+            # 6.10.0 and 61.0.0 both produced "6100". Rather than pick one reading, the generator
+            # refuses: a stage guessed from an ambiguous key would send a reader to another release's
+            # audit directory.
+            if int(parts[1]) > 9:
+                expected_gap = (
+                    f"the stage name for version {version_value} is not derivable: the scheme is "
+                    f"major*100 + minor*10, which has no unambiguous name for a minor of "
+                    f"{parts[1]}. A concatenation without a separator would make 6.10.0 and 61.0.0 "
+                    "the same stage")
+            else:
+                expected = str(int(parts[0]) * 100 + int(parts[1]) * 10)
     at, note, at_stable = _source_time("audit_artifacts")
+    if expected_gap:
+        return {"audit_state": _gap(source="audit_artifacts/", stages=stages, reason=expected_gap),
+                "audit_link": _gap(source="audit_artifacts/", reason=expected_gap)}
     if expected and expected not in stages:
         return {"audit_state": _gap(
                     source="audit_artifacts/", stages=stages,

@@ -657,5 +657,47 @@ class TestEveryVerdictNamesItsCauseAndNotJustItsState:
         assert "not_checkable_cause" not in e, e
 
 
+class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
+    """Found by reading the one function no review lens had looked at.
+
+    Two latent defects sat in `audit_state_field`. The stage name was built by concatenating the
+    major and minor digits and appending a zero, so 6.10.0 and 61.0.0 both produced "6100" - and the
+    naming scheme (major*100 + minor*10) has no unambiguous name for a minor of 10 or more at all. And
+    the stage list was sorted as TEXT, which makes "90" the last of ["610", "90"] and "700" the last
+    of ["6100", "700"], although 6100 is the later stage. Today every stage name has three digits, so
+    both orders agree and neither defect shows; they fire with the first four-digit stage, which is
+    version 6.10.0.
+    """
+
+    def test_a_minor_of_ten_or_more_is_refused_instead_of_guessed(self):
+        d = RSD.audit_state_field("6.10.0")["audit_state"]
+        assert d.get("not_measurable") is True, (
+            "a stage is derived from an ambiguous key, which would send a reader to another "
+            f"release's audit directory: {d}")
+        assert "not derivable" in d["reason"], d
+        assert "value" not in d, d
+
+    def test_a_single_digit_minor_still_yields_its_stage(self):
+        # COUNTER-CONTROL. Without it a generator that refused EVERY version would pass the case
+        # above, and the refusal would measure nothing.
+        d = RSD.audit_state_field("6.1.0")["audit_state"]
+        assert d.get("not_measurable") is not True, d
+        assert d["value"] == "610", d
+
+    def test_the_stage_list_is_ordered_numerically_and_not_as_text(self, tmp_path, monkeypatch):
+        # WITHOUT A VERSION the newest stage is the fallback, and "newest" must mean the greatest
+        # number. As text, "90" sorts after "610" and the fallback would name a stage nine times
+        # smaller.
+        (tmp_path / "audit_artifacts" / "90").mkdir(parents=True)
+        (tmp_path / "audit_artifacts" / "610").mkdir(parents=True)
+        (tmp_path / "audit_artifacts" / "6100").mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        d = RSD.audit_state_field(None)
+        assert d["audit_state"]["value"] == "6100", (
+            "the fallback picked a stage by text order, so the newest audit is not the one named: "
+            f"{d['audit_state']}")
+        assert d["audit_state"]["stages"] == ["90", "610", "6100"], d["audit_state"]["stages"]
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
