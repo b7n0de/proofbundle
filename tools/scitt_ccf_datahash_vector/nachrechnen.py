@@ -44,6 +44,80 @@ def zerlege(roh: bytes) -> dict:
             "payload": wert[2], "signature": wert[3]}
 
 
+def sig_structure_bytes(raw: bytes) -> bytes:
+    """The Sig_structure of one encoded COSE_Sign1, built from its own decoded elements."""
+    t = zerlege(raw)
+    return sig_structure(t["protected"], t["payload"])
+
+
+def compare_sig_structures(cases: dict[str, bytes]) -> dict:
+    """Are the Sig_structure BYTES the same across the cases, not just their length?
+
+    Equal length is no proof of equal bytes (`GLEICHE-LAENGE-IST-KEIN-NACHWEIS-GLEICHER-BYTES-01`).
+    Every case here has 109 bytes, and until 2026-09-25 that length was all this script
+    recorded across cases. The comparison is by sha256 per case; one case alone compares with
+    nothing and is never reported as identical.
+    """
+    digests = {name: hashlib.sha256(ss).hexdigest() for name, ss in cases.items()}
+    distinct = sorted(set(digests.values()))
+    return {"cases": list(digests), "sha256_per_case": digests, "distinct_sha256": distinct,
+            "all_identical": len(digests) > 1 and len(distinct) == 1}
+
+
+def _last_protected_byte(raw: bytes) -> int:
+    """Offset of the last byte of the protected header, read from the CBOR structure.
+
+    Not searched for: a first version used `raw.find(protected)`, and a review lens showed that
+    a search finds a pattern, not the field (`count` does not see overlapping occurrences, and a
+    self-similar header moved the position by one). Here the heads are parsed: an optional tag,
+    the array head, then the first element, whose end is where the protected header ends.
+    """
+    mt, _arg, i, _indef = C._kopf(raw, 0)
+    if mt == 6:                                   # tag 18, then the array head follows
+        mt, _arg, i, _indef = C._kopf(raw, i)
+    if mt != 4:
+        raise ValueError("not a CBOR array after the optional tag")
+    _protected, end = C.lade(raw, i)
+    return end - 1
+
+
+def falling_probe(cases_raw: dict[str, bytes], flip_case: str) -> dict:
+    """Flip one byte in the protected header of one case: the comparison MUST break.
+
+    The byte is flipped in the ENCODED case, then the case goes through the same decode and
+    Sig_structure path as every other case. A comparison that stays identical after this compares
+    nothing, whatever it reported before.
+
+    "caught" needs both: the cases were identical BEFORE the flip, and the comparison broke AFTER
+    it. A review lens showed on 2026-09-25 that "broke after" alone certifies nothing: with an
+    empty protected header the flip lands in the signature, and a difference that already existed
+    made the probe look caught. A probe whose preconditions do not hold raises instead of
+    reporting. Once they hold, the flipped byte lies inside the protected header, which enters
+    the Sig_structure verbatim; a separate "did the flip reach it" check could never fail and is
+    therefore not made.
+    """
+    if len(cases_raw) < 2 or flip_case not in cases_raw:
+        raise ValueError("the probe needs the flipped case and at least one other case")
+    flipped_name = f"{flip_case} (flipped)"
+    if flipped_name in cases_raw:
+        raise ValueError(f"case name {flipped_name!r} already exists; it would be overwritten")
+    raw = bytearray(cases_raw[flip_case])
+    protected = zerlege(bytes(raw))["protected"]
+    if not protected:
+        raise ValueError(f"{flip_case} has an empty protected header; there is no byte to flip")
+    before = compare_sig_structures({n: sig_structure_bytes(b) for n, b in cases_raw.items()})
+    at = _last_protected_byte(bytes(raw))
+    raw[at] ^= 0x01
+    flipped = {name: sig_structure_bytes(b) for name, b in cases_raw.items() if name != flip_case}
+    flipped[flipped_name] = sig_structure_bytes(bytes(raw))
+    after = compare_sig_structures(flipped)
+    return {"flipped": f"{flip_case}: byte {at} (last byte of the protected header), xor 0x01",
+            "all_identical_before_flip": before["all_identical"],
+            "all_identical_after_flip": after["all_identical"],
+            "distinct_sha256_after_flip": len(after["distinct_sha256"]),
+            "caught": before["all_identical"] and not after["all_identical"]}
+
+
 def pruefe(name: str, hex_bytes: str, erwartet_size: int, erwartet_sha: str, seed_hex: str) -> dict:
     roh = bytes.fromhex(hex_bytes)
     got_sha = hashlib.sha256(roh).hexdigest()
@@ -60,6 +134,7 @@ def pruefe(name: str, hex_bytes: str, erwartet_size: int, erwartet_sha: str, see
         "cbor_tag": t["tag"],
         "aeusseres_array_indefinit": t["aeusseres_array_indefinit"],
         "sig_structure_laenge": len(ss),
+        "sig_structure_sha256": hashlib.sha256(ss).hexdigest(),
         "signatur_aus_seed_reproduziert": neu == t["signature"],
         "signatur_laenge": len(t["signature"]),
     }
@@ -90,6 +165,12 @@ def main() -> int:
     c_bytes = a_bytes[1:]
     aus.append(pruefe("V2 / C  untagged (A ohne 0xd2)", c_bytes.hex(),
                       v2["C_untagged"]["size_bytes"], v2["C_untagged"]["sha256"], seed))
+    # D, the outer array in indefinite length, from the recorded vektor_d.json in this directory
+    # (minted by mint_indefinite.py). Its expected size and digest are that record, not the list.
+    vd = json.load(open(HIER / "vektor_d.json", encoding="utf-8"))["D_indefinite_array"]
+    d_bytes = bytes.fromhex(vd["hex"])
+    aus.append(pruefe("D  indefinite array (vektor_d.json)", d_bytes.hex(),
+                      vd["size_bytes"], vd["sha256"], seed))
     aus.append({"name": "delta A gegen C",
                 "suffix_identisch": a_bytes[1:] == c_bytes,
                 "bytes_unterschied": len(a_bytes) - len(c_bytes),
@@ -97,17 +178,31 @@ def main() -> int:
                 "size_trifft": True, "sha256_trifft": True,
                 "signatur_aus_seed_reproduziert": True})
 
+    # The four cases A, B, C, D, compared byte for byte over their Sig_structure.
+    cases_raw = {"A": a_bytes,
+                 "B": bytes.fromhex(v1["B_same_statement_carrying_a_receipt"]["bytes_hex"]),
+                 "C": c_bytes, "D": d_bytes}
+    comparison = compare_sig_structures({k: sig_structure_bytes(b) for k, b in cases_raw.items()})
+    probe = falling_probe(cases_raw, "B")
+
     bericht = {
         "plattform": {"system": platform.system(), "machine": platform.machine(),
                       "python": platform.python_version(),
                       "cryptography": cryptography.__version__,
                       "cbor_leser": "eigener, definite+indefinite (cbor_min.py)"},
         "faelle": aus,
+        "sig_structure_comparison": comparison,
+        "falling_probe": probe,
     }
     print(json.dumps(bericht, indent=2))
+    return exit_code(aus, comparison, probe)
+
+
+def exit_code(rows: list[dict], comparison: dict, probe: dict) -> int:
+    """0 only if every case reproduces, the Sig_structure bytes agree, AND the probe was caught."""
     ok = all(f["size_trifft"] and f["sha256_trifft"] and f["signatur_aus_seed_reproduziert"]
-             for f in aus)
-    return 0 if ok else 1
+             for f in rows)
+    return 0 if ok and comparison["all_identical"] and probe["caught"] else 1
 
 
 if __name__ == "__main__":
