@@ -211,13 +211,22 @@ _CURRENT_CLAIM = re.compile(
 # `\binstall` with a word boundary, because `install\s+` otherwise matches the tail of
 # `uninstall` — measured against "pip uninstall proofbundle==6.0.0", which was reported as a
 # currency claim.
+#
+# EACH SHAPE NAMES THIS PROJECT, and the install word may stand anywhere before the pin (Codex on
+# PR 266, 2026-09-25, both measured). A shape that named no project reported `pip install
+# otherpackage==X` whenever X happened to equal this release, and a tag link or URL of another
+# repository the same way. An install shape that wanted the pin as the next token after `install`
+# missed `pip install --upgrade proofbundle==X`, `-U` and a second package before the pin.
+_DIESES_PROJEKT_PIN = r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?"
 _CLAIM_SHAPES = [
-    ("install pin", re.compile(r"\binstall\s+[^\s]*==\s*v?" + _SEMVER, re.IGNORECASE), True,
+    ("install pin", re.compile(r"\binstall\b[^\n]*?" + _DIESES_PROJEKT_PIN + _SEMVER, re.IGNORECASE),
+     True,
      "an install instruction pinned to a version — a reader acts on it, so it goes stale the "
      "moment the version moves"),
-    ("release tag link", re.compile(r"/releases?/tag/v?" + _SEMVER, re.IGNORECASE), True,
-     "a link to a release tag, presented as the release this project is at"),
-    ("version-pinned URL", re.compile(r"/v" + _SEMVER + r"/", re.IGNORECASE), True,
+    ("release tag link", re.compile(r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
+     True, "a link to a release tag, presented as the release this project is at"),
+    ("version-pinned URL",
+     re.compile(r"b7n0de/proofbundle/(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/", re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
     ("current/latest phrase", _CURRENT_CLAIM, False,
      "a sentence stating the current release in words — the wording claims currency whatever "
@@ -454,8 +463,11 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
     # That is WORSE than the starting state: undetected before, permanently silenced by a
     # declaration afterwards — and the sweep reported quiet.
     #
-    # From now on a declaration covers the LINE its anchor matches and nothing else. Another claim
-    # shape in the same file stays visible.
+    # From now on a declaration covers the TEXT its anchor matches and nothing else. The first
+    # version of this fix covered the whole LINE, and Codex measured on PR 266 what that hides: a
+    # README line `current release: <older> — pip install proofbundle==<current>` reported nothing,
+    # because the valid declared pin skipped the line before the stale word claim was read. The
+    # matched text is blanked, and the rest of the line is swept like any other.
     declared_patterns: dict[str, list] = {}
     for rel_d, pattern_d, _ in _TRACKED_PLACES:
         declared_patterns.setdefault(rel_d, []).append(pattern_d)
@@ -471,16 +483,16 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
             continue                      # binary or unreadable: no claim to read, not a failure
         gefunden = False
         for nr, zeile in enumerate(text.splitlines(), 1):
-            # The LINE a declared anchor matches is covered: Check 4 keeps that one current.
-            # Every other line of the same file stays the subject of this sweep.
-            if any(p.search(zeile) for p in angemeldet):
-                continue
+            # The TEXT a declared anchor matches is covered: Check 4 keeps that one current. It is
+            # blanked with spaces of the same length, and the rest of the line is swept.
+            for anker in angemeldet:
+                zeile = anker.sub(lambda m: " " * len(m.group(0)), zeile)
             for form, muster, nur_aktuelle, beschreibung in _CLAIM_SHAPES:
-                treffer = muster.search(zeile)
+                # EVERY match of the line, not the first: an older pin before a current one on the
+                # same line is history, and the current one behind it is still a claim.
+                treffer = next((m for m in muster.finditer(zeile)
+                                if not (nur_aktuelle and version and m.group(1) != version)), None)
                 if not treffer:
-                    continue
-                # A SHAPE carrying an older number is history, not a claim.
-                if nur_aktuelle and version and treffer.group(1) != version:
                     continue
                 problems.append(
                     f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "

@@ -125,7 +125,7 @@ def test_historische_und_benennende_formen_werden_NICHT_gefangen(text):
 def test_eine_release_scope_datei_ist_keine_behauptung_aber_ein_tag_link_schon():
     """These two sit close together and have to be judged differently."""
     assert _trifft("docs/release_scope/6.1.0.md") is None
-    assert _trifft("…/releases/tag/v6.1.0") == "release tag link"
+    assert _trifft("https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0") == "release tag link"
 
 
 # ── THE PRICE, because a flooding sweep gets switched off ─────────────────────────────────────
@@ -242,8 +242,8 @@ def test_eine_anmeldung_legt_die_geschwisterbelege_nicht_stumm(tmp_path, monkeyp
     g = _gate()
     rel = "DOKU.md"
     (tmp_path / rel).write_text(
-        "[v6.1.0](https://github.com/x/y/releases/tag/v6.1.0)\n"
-        "python -m pip install paket==6.1.0\n", encoding="utf-8")
+        "[v6.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0)\n"
+        "python -m pip install proofbundle==6.1.0\n", encoding="utf-8")
     monkeypatch.setattr(g, "_tracked_files", lambda _repo: [rel])
 
     ohne = g.check_undeclared_places(tmp_path)
@@ -251,7 +251,8 @@ def test_eine_anmeldung_legt_die_geschwisterbelege_nicht_stumm(tmp_path, monkeyp
 
     # Declare the first line — the second MUST stay visible.
     monkeypatch.setattr(g, "_TRACKED_PLACES",
-                        [(rel, re.compile(r"/releases/tag/v" + g._SEMVER), "the tag link")])
+                        [(rel, re.compile(r"\[v" + g._SEMVER + r"\]\([^)]*/releases/tag/v" + g._SEMVER + r"\)"),
+                          "the tag link")])
     mit = g.check_undeclared_places(tmp_path)
     assert mit, ("the declaration silenced the whole file — the second claim is unobserved")
     assert "DOKU.md:2" in mit[0] and "install pin" in mit[0], mit
@@ -366,11 +367,13 @@ def test_the_readme_anchors_name_this_project_not_a_shape(tmp_path):
               "See docs/release_scope/6.0.0.md for what belonged to that release.\n"
               "Since v6.0.0 the anchor has been stable.\n")
     g = _gate()
-    # PRECONDITION: the first three ARE release-claim shapes with a non-current number, so this
-    # case can fail; measured through the Check 6 shapes, which carry no project name.
+    # PRECONDITION: the first three carry a version in a pin or URL form, so an anchor blind to the
+    # project would match them and this case can fail. Measured with a project-free pattern here,
+    # because since 2026-09-25 the Check 6 shapes name this project too.
+    blind = re.compile(r"(?:==\s*v?|/v)" + g._SEMVER)
     for zeile in koeder.splitlines()[:3]:
-        treffer = [m.search(zeile) for _f, m, _n, _b in g._CLAIM_SHAPES]
-        assert any(t and t.group(1) != NEU for t in treffer), f"not a decoy: {zeile!r}"
+        treffer = blind.search(zeile)
+        assert treffer and treffer.group(1) != NEU, f"not a decoy: {zeile!r}"
     assert _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + koeder) == []
 
 
@@ -554,3 +557,49 @@ def test_an_older_pin_of_this_project_is_red_wherever_it_stands(tmp_path, zeile)
     README, each line below carries the previous release as a pin and must be named by Check 4."""
     funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
     assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+# ── CODEX ON PR 266, ROUND ONE (2026-09-25): three shapes of Check 6, each measured ──────────────
+
+@pytest.mark.parametrize("text", [
+    "pip install otherpackage==6.1.0",
+    "[v6.1.0](https://github.com/other/project/releases/tag/v6.1.0)",
+    "https://raw.githubusercontent.com/other/project/v6.1.0/examples/x.json",
+])
+def test_a_claim_about_another_project_is_not_a_claim_about_this_one(text):
+    """The number equals this release by coincidence; the shape names another package or repo."""
+    assert _trifft(text) is None, _trifft(text)
+
+
+@pytest.mark.parametrize("text", [
+    "pip install --upgrade proofbundle==6.1.0",
+    "pip install -U proofbundle==6.1.0",
+    "pip install cbor2 proofbundle==6.1.0",
+    "sudo -H pip install --no-cache-dir 'proofbundle[eval]==6.1.0'",
+])
+def test_options_or_packages_before_the_pin_do_not_hide_it(text):
+    assert _trifft(text) == "install pin", _trifft(text)
+
+
+def test_an_older_pin_before_a_current_one_on_the_same_line_does_not_hide_it():
+    """Every match of a line counts; the first one being history says nothing about the second."""
+    zeile = "upgrade from pip install proofbundle==6.0.0 with pip install proofbundle==6.1.0"
+    assert _trifft(zeile) == "install pin"
+
+
+def test_a_declaration_covers_its_text_not_the_rest_of_its_line(tmp_path, monkeypatch):
+    """Codex measured: a README line with a stale word claim beside a valid declared pin reported
+    nothing, because the declaration skipped the whole line."""
+    g = _gate()
+    (tmp_path / "README.md").write_text(
+        "current release: 5.0.0 — python -m pip install proofbundle==6.1.0\n", encoding="utf-8")
+    monkeypatch.setattr(g, "_tracked_files", lambda _repo: ["README.md"])
+    funde = g.check_undeclared_places(tmp_path, "6.1.0")
+    assert funde and "README.md:1" in funde[0] and "current/latest phrase" in funde[0], funde
+
+
+def test_CONTROL_a_declared_line_alone_stays_quiet(tmp_path, monkeypatch):
+    g = _gate()
+    (tmp_path / "README.md").write_text("python -m pip install proofbundle==6.1.0\n", encoding="utf-8")
+    monkeypatch.setattr(g, "_tracked_files", lambda _repo: ["README.md"])
+    assert g.check_undeclared_places(tmp_path, "6.1.0") == []
