@@ -102,6 +102,13 @@
           "rebuilt_sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
           "receipt_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
           "strict_options_used": []
+        },
+        "uvm_0.2.10.cose": {
+          "equal": true,
+          "rebuilt_length": 5519,
+          "rebuilt_sha256": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "receipt_data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "strict_options_used": []
         }
       },
       "environment": {
@@ -109,6 +116,10 @@
         "cryptography": "50.0.1",
         "pycose": "1.1.0",
         "python": "3.11.15"
+      },
+      "production_statement_iat_in_protected_header": {
+        "outcome": "returned",
+        "value": "'datetime'"
       },
       "pycose": {
         "control_read_back_own_message": {
@@ -261,6 +272,16 @@
             "allow_duplicate_keys",
             "allow_indefinite"
           ]
+        },
+        "uvm_0.2.10.cose": {
+          "equal": true,
+          "rebuilt_length": 5519,
+          "rebuilt_sha256": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "receipt_data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
         }
       },
       "environment": {
@@ -268,6 +289,10 @@
         "cryptography": "50.0.1",
         "pycose": "1.1.0",
         "python": "3.11.15"
+      },
+      "production_statement_iat_in_protected_header": {
+        "outcome": "returned",
+        "value": "'datetime'"
       },
       "pycose": {
         "control_read_back_own_message": {

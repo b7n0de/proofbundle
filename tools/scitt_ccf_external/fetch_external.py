@@ -8,6 +8,11 @@ WHAT IS FETCHED. Two public sources, each at a pinned commit:
     the service's COSE_KeySet, a second service's key set, three mutants of the first statement,
     two further registered statements and an RFC 9995 hash envelope with its artifact.
     Licence: MIT (the repository's LICENSE file, Copyright (c) Microsoft Corporation).
+  * microsoft/scitt-ccf-ledger, test data: a transparent statement from the production
+    Microsoft Signing Transparency ledger (issuer esrp-cts-db.confidential-ledger.azure.com)
+    whose signed statement is an RFC 9995 hash envelope, the service trust store it is checked
+    against in that repository's own tests, and a statement carrying a receipt in the legacy,
+    pre-RFC 9942 form. Licence: MIT (the repository's LICENSE.txt).
   * ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile at the commit tagged -05:
     samples/microsoft-mst-receipt.cbor, a receipt issued by the production Microsoft Signing
     Transparency ledger. Licence: contributions to the IETF under BCP 78/79 and the IETF Trust
@@ -44,6 +49,7 @@ REPOSITORIES = {
     "scitt-verifier": ("microsoft/scitt-verifier", "bd6fb8ba79dbb521257b7f09682c03c6681dc3d0"),
     "ccf-profile": ("ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
                     "e729c2ec037ac763d0cf422bb58a219f8d6a02f4"),
+    "scitt-ccf-ledger": ("microsoft/scitt-ccf-ledger", "00101f769d872711356e080fbb089ac48589c60a"),
 }
 
 #: local file name -> (source name, path in the repository, size in bytes, sha256)
@@ -81,6 +87,15 @@ EXPECTED = {
     "hash-envelope-bad-artifact.spdx.json": (
         "scitt-verifier", "corpus/fixtures/hash-envelope-bad-artifact.spdx.json", 44,
         "d6e26054fcf7385d419489e4029b751269568d96364cb697f73212fcab550300"),
+    "uvm_0.2.10.cose": (
+        "scitt-ccf-ledger", "test/transparent_statements/uvm_0.2.10.cose", 6145,
+        "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc"),
+    "esrp-cts-db.json": (
+        "scitt-ccf-ledger", "test/transparent_statements/esrp-cts-db.json", 6505,
+        "295b5824129179cb6a0699b2759ce408c0fe13b364e7a59ad226a68f7265a490"),
+    "cts-hashv-cwtclaims-b64url.cose": (
+        "scitt-ccf-ledger", "test/payloads/cts-hashv-cwtclaims-b64url.cose", 5624,
+        "213105fdc0da9022c20e8f49195d0bb621cedf87fdee29aad80e2e605af94c87"),
     "microsoft-mst-receipt.cbor": (
         "ccf-profile", "samples/microsoft-mst-receipt.cbor", 725,
         "db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5"),
@@ -123,8 +138,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent / "fetched"))
     ap.add_argument("--from-clone", action="append", default=[], metavar="SOURCE=PATH",
-                    help="read SOURCE (scitt-verifier or ccf-profile) from a local clone "
-                         "checked out at the pinned commit")
+                    help="read SOURCE (scitt-verifier, scitt-ccf-ledger or ccf-profile) from a "
+                         "local clone checked out at the pinned commit")
     args = ap.parse_args(argv)
     clones = {}
     for item in args.from_clone:

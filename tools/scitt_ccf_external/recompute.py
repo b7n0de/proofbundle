@@ -26,9 +26,9 @@ rule that matches is recorded, and so is every rule that does not.
 
 WHAT THIS IS NOT. Not a basis for src/: the CBOR reader below is a measuring aid, deliberately
 narrow (definite lengths only, no floats, no duplicate keys, no trailing bytes, depth 16),
-and it refuses rather than guesses. The trust material is the key set published next to the
-statements at the pinned commit; its authenticity against the live service is NOT MEASURED
-here (see README.md).
+and it refuses rather than guesses. The trust material is the key set or trust store published
+next to the statements at the pinned commits; its authenticity against the live services is
+NOT MEASURED here (see README.md).
 
 Standard library plus `cryptography`. No network.
 """
@@ -326,6 +326,61 @@ def cose_keyset(raw: bytes) -> dict:
     return {"keys": out, "skipped": skipped}
 
 
+def _no_duplicate_keys(pairs):
+    seen = {}
+    for k, v in pairs:
+        if k in seen:
+            raise Refused(f"duplicate JSON key {k!r}")
+        seen[k] = v
+    return seen
+
+
+def _strict_b64():
+    """The repository's one strict base64 decoder. tests/test_wire_bytes_strict.py and
+    tests/test_lauf11_l2_scripts_dekodieren_strikt.py refuse a stdlib decode anywhere else, because
+    only the wrapper refuses non-canonical input (one wire form per artefact)."""
+    try:
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        return decode_b64
+    except ImportError:
+        import importlib.util  # noqa: PLC0415
+        path = HERE.parents[1] / "src" / "proofbundle" / "_wire_b64.py"
+        spec = importlib.util.spec_from_file_location("_wire_b64_for_tool", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.decode_b64
+
+
+def service_trust_store(raw: bytes) -> dict:
+    """The JSON trust store of scitt-ccf-ledger's tests: CCF service certificates.
+
+    Each certificate's key is filed under kid = hex(SHA-256(SubjectPublicKeyInfo)), the
+    self-binding the receipts use. The store's own `signatureAlgorithm` label is recorded,
+    never used: the algorithm comes from the protected header of what was signed.
+    """
+    decode_b64 = _strict_b64()
+    x509, _inv, _h, serialization, *_ = _crypto()
+    doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
+    keys, entries = {}, []
+    for p in doc["parameters"]:
+        der = decode_b64(p["serviceCertificate"])
+        cert = x509.load_der_x509_certificate(der)
+        pub = cert.public_key()
+        spki = pub.public_bytes(serialization.Encoding.DER,
+                                serialization.PublicFormat.SubjectPublicKeyInfo)
+        kid = sha(spki).hex().encode("ascii")
+        keys[kid] = (pub, spki)
+        entries.append({
+            "kid": kid.decode("ascii"),
+            "curve": getattr(getattr(pub, "curve", None), "name", None),
+            "not_before": cert.not_valid_before_utc.isoformat(),
+            "not_after": cert.not_valid_after_utc.isoformat(),
+            "store_label_signatureAlgorithm": p.get("signatureAlgorithm"),
+            "store_label_treeAlgorithm": p.get("treeAlgorithm"),
+            "serviceId_equals_sha256_of_certificate": sha(der).hex() == p.get("serviceId")})
+    return {"keys": keys, "skipped": [], "entries": entries}
+
+
 # ------------------------------------------------------------------------------------------
 # The four values
 # ------------------------------------------------------------------------------------------
@@ -361,7 +416,12 @@ def value_1_hash_envelope(st: Sign1, artifacts: dict) -> dict:
         "payload_length": None if st.payload is None else len(st.payload),
         "artifacts": {},
     }
-    if ph.get(PAYLOAD_HASH_ALG) == SHA256_COSE and st.payload is not None:
+    sizes = {SHA256_COSE: 32, -43: 48, -44: 64}
+    out["payload_length_matches_hash_alg"] = (st.payload is not None and
+                                              sizes.get(ph.get(PAYLOAD_HASH_ALG)) == len(st.payload))
+    if not artifacts:
+        out["artifacts"] = "NOT MEASURABLE: the hashed artifact is not published with the statement"
+    elif ph.get(PAYLOAD_HASH_ALG) == SHA256_COSE and st.payload is not None:
         for name, raw in artifacts.items():
             out["artifacts"][name] = {"sha256": sha(raw).hex(), "equals_payload": sha(raw) == st.payload}
     return out
@@ -405,9 +465,10 @@ def fold(leaf_hash: bytes, path) -> bytes:
 
 
 def receipt(raw_receipt: bytes, keyset: dict | None, expected_data_hash: bytes | None) -> dict:
-    """Three separate results: readable, signature_valid, profile_satisfied."""
+    """Three separate results: readable, signature_valid, receipt_profile_satisfied."""
     r = {"length": len(raw_receipt), "sha256": sha(raw_receipt).hex(),
-         "readable": False, "signature_valid": None, "profile_satisfied": False, "problems": []}
+         "readable": False, "signature_valid": None, "receipt_profile_satisfied": False,
+         "problems": []}
     try:
         rc = parse_sign1(raw_receipt)
     except Refused as exc:
@@ -484,11 +545,28 @@ def receipt(raw_receipt: bytes, keyset: dict | None, expected_data_hash: bytes |
                     r["alg"], pub, sig_structure(rc.protected_raw, root), rc.signature)
             except Refused as exc:
                 r["problems"].append(f"signature NOT EVALUATED: {exc}")
-    r["profile_satisfied"] = bool(
+    # The RECEIPT side of the profile only. The statement side (value 1 as an RFC 9995 hash
+    # envelope equal to a proofbundle root) is reported per statement, not folded in here.
+    r["receipt_profile_satisfied"] = bool(
         r["readable"] and r["vds"] == CCF_LEDGER_SHA256 and r["payload_detached"]
         and r["all_proofs_same_root"] and r["signature_valid"] is True
         and r.get("bound_to_statement") is True)
     return r
+
+
+def _tags(v, path="") -> list:
+    """Every CBOR tag inside a decoded value, with where it sits."""
+    out = []
+    if isinstance(v, Tag):
+        out.append({"at": path or "/", "tag": v.number})
+        out += _tags(v.value, f"{path}/tag{v.number}")
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            out += _tags(x, f"{path}[{i}]")
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            out += _tags(x, f"{path}/{k}")
+    return out
 
 
 def statement_case(raw: bytes, keyset: dict | None, artifacts: dict) -> dict:
@@ -508,6 +586,7 @@ def statement_case(raw: bytes, keyset: dict | None, artifacts: dict) -> dict:
                                             st.spans)}
     out["protected_labels"] = sorted(map(str, st.protected))
     out["unprotected_labels"] = sorted(map(str, st.unprotected))
+    out["tags_inside_protected_header"] = _tags(st.protected)
     out["payload"] = "detached" if st.payload is None else f"embedded, {len(st.payload)} B"
     out["value_1_hash_envelope"] = value_1_hash_envelope(st, artifacts)
     out["value_2_local_tobesigned"] = value_2_local_tbs(st)
@@ -554,7 +633,7 @@ def probes(raw: bytes, keyset: dict, other_keyset: dict) -> list:
     out = [{"probe": "control, unchanged statement and receipt",
             "signature_valid": control["signature_valid"],
             "bound_to_statement": control.get("bound_to_statement"),
-            "profile_satisfied": control["profile_satisfied"]}]
+            "receipt_profile_satisfied": control["receipt_profile_satisfied"]}]
 
     a, b = st.spans[3]                                   # last byte of the statement signature
     flipped = parse_sign1(_flip(raw, b - 1))
@@ -565,7 +644,7 @@ def probes(raw: bytes, keyset: dict, other_keyset: dict) -> list:
                 "statement_signature_valid":
                     statement_signature(flipped).get("valid_with_embedded_leaf_key"),
                 "receipt_signature_valid": r2["signature_valid"],
-                "profile_satisfied": r2["profile_satisfied"]})
+                "receipt_profile_satisfied": r2["receipt_profile_satisfied"]})
 
     rc = parse_sign1(rr)
     prf, _ = loads(rc.unprotected[VDP][INCLUSION][0])
@@ -619,11 +698,11 @@ def probes(raw: bytes, keyset: dict, other_keyset: dict) -> list:
     r3 = receipt(rr, other_keyset, dh)
     out.append({"probe": "trust material of another service (kid absent)",
                 "signature_valid": r3["signature_valid"], "trust": r3.get("trust"),
-                "profile_satisfied": r3["profile_satisfied"]})
+                "receipt_profile_satisfied": r3["receipt_profile_satisfied"]})
     r4 = receipt(rr, None, dh)
     out.append({"probe": "no trust material at all",
                 "signature_valid": r4["signature_valid"], "trust": r4.get("trust"),
-                "profile_satisfied": r4["profile_satisfied"]})
+                "receipt_profile_satisfied": r4["receipt_profile_satisfied"]})
     return out
 
 
@@ -661,6 +740,12 @@ def main() -> int:
     cases["microsoft-mst-receipt.cbor"] = {
         "note": "a receipt without its statement and without reachable trust material",
         "receipt": receipt(files["microsoft-mst-receipt.cbor"], None, None)}
+    # Production Microsoft Signing Transparency, via scitt-ccf-ledger's own test data: a hash
+    # envelope statement and the service trust store that repository checks it against.
+    store = service_trust_store(files["esrp-cts-db.json"])
+    cases["uvm_0.2.10.cose"] = statement_case(files["uvm_0.2.10.cose"], store, {})
+    cases["cts-hashv-cwtclaims-b64url.cose"] = statement_case(
+        files["cts-hashv-cwtclaims-b64url.cose"], None, {})
 
     pins = {}
     for name, pin in UPSTREAM_PINS.items():
@@ -690,7 +775,8 @@ def main() -> int:
             "kids": sorted(k.decode("ascii", "replace") for k in keyset["keys"]),
             "other_service_kids": sorted(k.decode("ascii", "replace") if isinstance(k, bytes)
                                          else str(k) for k in other["keys"]),
-            "other_service_skipped_keys": other["skipped"]},
+            "other_service_skipped_keys": other["skipped"],
+            "esrp_cts_db_trust_store": store["entries"]},
         "cases": cases,
         "probes_on_transparent_statement": probes(files["transparent-statement.cose"], keyset,
                                                   other),
@@ -706,7 +792,7 @@ def main() -> int:
             print(f"  {name:28s} receipt {i}: readable={r['readable']!s:5} "
                   f"signature_valid={r['signature_valid']!s:5} "
                   f"bound={r.get('bound_to_statement')!s:5} "
-                  f"profile_satisfied={r['profile_satisfied']}")
+                  f"receipt_profile_satisfied={r['receipt_profile_satisfied']}")
     print("upstream pins equal:", {k: v["equal"] for k, v in pins.items()})
     print(f"written: {RESULT.relative_to(HERE.parents[1])}")
     return 0

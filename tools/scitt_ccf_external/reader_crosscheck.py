@@ -37,6 +37,8 @@ HERE = Path(__file__).resolve().parent
 FETCHED = HERE / "fetched"
 OUT = HERE / "reader_crosscheck.json"
 STATEMENTS = ("transparent-statement.cose", "cbor-header.cose", "nested-sign1.cose")
+#: the production statement is checked for its data-hash only; its key lives in a JSON trust store
+DATAHASH_STATEMENTS = (*STATEMENTS, "uvm_0.2.10.cose")
 
 
 def _version(dist: str):
@@ -175,14 +177,18 @@ def main() -> int:
         print("NOT MEASURABLE: cbor2 is not installed in this environment.", file=sys.stderr)
         return 2
     files = {p.name: p.read_bytes() for p in FETCHED.glob("*") if p.is_file()}
-    missing = [n for n in (*STATEMENTS, "mst-test-scitt-keys.cbor") if n not in files]
+    missing = [n for n in (*DATAHASH_STATEMENTS, "mst-test-scitt-keys.cbor") if n not in files]
     if missing:
         print(f"NOT MEASURABLE: {missing} missing; run fetch_external.py first.", file=sys.stderr)
         return 2
     env = {"python": platform.python_version(), "cbor2": _version("cbor2"),
            "pycose": _version("pycose"), "cryptography": _version("cryptography")}
     entry = {"environment": env, "cbor2": cbor2_facts(cbor2),
-             "datahash_via_cbor2": {n: datahash_via_cbor2(cbor2, files[n]) for n in STATEMENTS},
+             "datahash_via_cbor2": {n: datahash_via_cbor2(cbor2, files[n])
+                                    for n in DATAHASH_STATEMENTS},
+             "production_statement_iat_in_protected_header": _try(
+                 lambda: type(cbor2.loads(cbor2.loads(files["uvm_0.2.10.cose"]).value[0])[15][6])
+                 .__name__),
              "pycose": pycose_rows(files)}
     doc = json.loads(OUT.read_text(encoding="utf-8")) if OUT.is_file() else {}
     doc.setdefault("tool", "tools/scitt_ccf_external/reader_crosscheck.py")

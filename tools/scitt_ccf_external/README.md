@@ -2,10 +2,11 @@
 
 This directory fetches real transparent statements with CCF receipts at pinned commits and
 recomputes, offline, the data-hash, the leaf, the Merkle root and the receipt signature.
-Verdict: the data-hash of every real receipt measured here is SHA-256 over the statement with
-tag 18 kept, the unprotected header replaced by an empty map, and protected header, payload and
-signature as served; the receipt signature verifies over the recomputed root with the published
-key set, and every comparison fails when one input bit is changed.
+Verdict: on four registered statements, one of them from the production Microsoft Signing
+Transparency ledger, the data-hash is SHA-256 over the statement with tag 18 kept, the
+unprotected header replaced by an empty map, and protected header, payload and signature as
+served; every receipt signature verifies over the recomputed root with the published trust
+material, and every comparison fails when one input bit is changed.
 
 It is a measuring aid for ADR 0009 (`docs/adr/0009-scitt-anchor-cose-profile.md`), not a basis
 for `src/`. Nothing here touches the library.
@@ -50,6 +51,19 @@ https://github.com/microsoft/scitt-verifier/tree/bd6fb8ba79dbb521257b7f09682c03c
 | `mst-test-scitt-keys.cbor` | 175 B | `b146b954b2ba79eec5e59748d96064b5f18dfe4b13f90cf5868207985d6faf0e` | the service's COSE_KeySet, the trust material |
 | `other-service-scitt-keys.cbor` | 523 B | `f113c423176de67543c5f8d55e18c5779506e3ab16d1f3122a4365f7d0301d40` | key set of another service |
 
+A transparent statement from the production Microsoft Signing Transparency ledger (issuer
+`esrp-cts-db.confidential-ledger.azure.com`) whose signed statement is an RFC 9995 hash envelope,
+the service trust store the repository's own test `test_validate_structured_output` checks it
+against, and a statement carrying a receipt in the legacy pre-RFC 9942 form. MIT licence
+(`LICENSE.txt`, Copyright (c) Microsoft Corporation):
+https://github.com/microsoft/scitt-ccf-ledger/tree/00101f769d872711356e080fbb089ac48589c60a/test
+
+| file | size | sha256 | role here |
+|---|---|---|---|
+| `uvm_0.2.10.cose` | 6145 B | `f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc` | production statement: PS384 hash envelope (258 = SHA-384), one ES384 receipt |
+| `esrp-cts-db.json` | 6505 B | `295b5824129179cb6a0699b2759ce408c0fe13b364e7a59ad226a68f7265a490` | its trust material: eight CCF service certificates |
+| `cts-hashv-cwtclaims-b64url.cose` | 5624 B | `213105fdc0da9022c20e8f49195d0bb621cedf87fdee29aad80e2e605af94c87` | PS256 statement whose receipt is in the legacy two-element form |
+
 A receipt from the production Microsoft Signing Transparency ledger, without its statement,
 from the working group's repository of the CCF profile at the commit tagged
 `draft-ietf-scitt-receipts-ccf-profile-05`, added there by commit
@@ -61,8 +75,8 @@ https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/blob/e729
 |---|---|---|
 | `microsoft-mst-receipt.cbor` | 725 B | `db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5` |
 
-Why fetched and not committed. The first source allows redistribution under MIT with its
-notice; the second does not say so plainly; and this repository takes no new binary fixture
+Why fetched and not committed. The two Microsoft repositories allow redistribution under MIT
+with their notice; the working group repository does not say so plainly; and this repository takes no new binary fixture
 files from agent work (`AGENTS.md`). `fetch_external.py` pins every file by size and sha256 and
 stops on a mismatch.
 
@@ -88,7 +102,7 @@ was reachable; a difference between them and the published RFC is not excluded.
 Environment: CPython 3.11.15, x86_64, `cryptography` 50.0.1, 2026-09-25. Recorded in full in
 `recompute_result.json`.
 
-| statement | alg | receipt txid | receipt iat (signed) | data-hash (value 3) | Merkle root (value 4) | readable | signature valid | bound to statement | profile satisfied |
+| statement | alg | receipt txid | receipt iat (signed) | data-hash (value 3) | Merkle root (value 4) | readable | signature valid | bound to statement | receipt profile satisfied |
 |---|---|---|---|---|---|---|---|---|---|
 | transparent-statement | PS256 | 2.58 | 2026-09-18T19:47:30Z | `6f7607e4…0e6d11` | `c8dee06d…788c14` | yes | yes | yes | yes |
 | cbor-header | ES256 | 2.60 | 2026-09-18T19:47:34Z | `8e465c29…3e1392` | `aa715eb9…3fd76a` | yes | yes | yes | yes |
@@ -97,17 +111,32 @@ Environment: CPython 3.11.15, x86_64, `cryptography` 50.0.1, 2026-09-25. Recorde
 | appended-receipt, receipt 1 | PS256 | 2.58 | same as control | `6f7607e4…0e6d11` | `c8dee06d…788c14` | yes | **no** | yes | no |
 | payload-tampered | PS256 | 2.58 | same as control | receipt `6f7607e4…`, statement `aab9c122…` | `c8dee06d…788c14` | yes | yes | **no** | no |
 | tampered-statement | PS256 | 2.58 | same as control | `6f7607e4…0e6d11` | `c8dee06d…788c14` | yes | **no** | yes | no |
+| **uvm_0.2.10, production** | PS384 | 458.12441 | 2025-12-22T21:11:28Z | `a60138fb…612649` | `9a9b4394…3b0466` | yes | yes | yes | yes |
+| cts-hashv-cwtclaims (legacy receipt) | PS256 | n/a | n/a | not in the legacy leaf | n/a | **no** | NOT EVALUATED | NOT EVALUATED | no |
 | microsoft-mst-receipt (receipt only) | n/a | 138.3388 | 2025-06-19T22:05:41Z | `ad2c00a9…bfcd` (statement not published) | `9bfd2a85…ac083` | yes | NOT EVALUATED | NOT MEASURABLE | no |
 
 Readable, signature valid and profile satisfied are three separate results, as ADR 0009 requires.
-"Profile satisfied" here means: readable, vds 2, payload detached, every inclusion proof
-computes the same root, the ES384 signature verifies over that root with a key selected from the
-relying party's key set, and the leaf's data-hash equals value 3 recomputed from the statement.
+The last column is the **receipt side** of the profile (`receipt_profile_satisfied` in the JSON):
+readable, vds 2, payload detached, every inclusion proof computes the same root, the ES384
+signature verifies over that root with a key selected from the trust material, and the leaf's
+data-hash equals value 3 recomputed from the statement. The statement side (value 1 as a hash
+envelope equal to a proofbundle root) is reported per statement and is not folded in: no real
+statement here is a proofbundle anchor, so none can satisfy ADR 0009's v1 end to end.
 
-The receipts carry: alg -35 (ES384), kid (label 4) as 64 ASCII hex characters, vds (395) 2,
-CWT claims (15) with iss `mst-test-scitt-verifier.confidential-ledger.azure.com` and sub
-`scitt.ccf.signature.v1`, a `ccf.v1` map with `txid`, no crit (label 2), payload nil, and
-the inclusion proof under 396 / -1. The leaf input is 96 bytes in every case.
+The legacy receipt of `cts-hashv-cwtclaims-b64url.cose` is a two-element array (a protected map
+with text keys such as `tree_alg: "CCF"`, then signature, node certificate, path and a leaf of two
+components without a data-hash). It is not a COSE_Sign1 and not the -05 form, so it is not
+readable under this profile, by design.
+
+The -05 receipts carry: alg -35 (ES384), kid (label 4) as 64 ASCII hex characters, vds (395) 2,
+CWT claims (15) with iss (`mst-test-scitt-verifier.confidential-ledger.azure.com`, or
+`esrp-cts-db.confidential-ledger.azure.com` for the production one) and sub
+`scitt.ccf.signature.v1`, a `ccf.v1` map with `txid`, no crit (label 2), payload nil, and the
+inclusion proof under 396 / -1. The leaf input is 96 bytes in every case.
+
+The production statement carries CBOR **tag 1** (epoch date) around its CWT `iat` (label 6 inside
+label 15 of the protected header). No other statement or receipt measured carries a tag besides
+the outer 18. cbor2 5.9.0 and 6.1.4 both decode that value to a `datetime`.
 
 Held against the upstream project's own pinned values for `transparent-statement.cose`
 (`corpus/README.md` at the pinned commit, computed there with other code): signed statement
@@ -118,6 +147,9 @@ Value 1, measured on `hash-envelope.cose` (a real RFC 9995 statement, not regist
 is -16 (SHA-256) in the protected header and absent from the unprotected one, 259 is
 `application/spdx+json`, 260 and label 3 are absent in both buckets, the 32-byte payload equals
 SHA-256 of `hash-envelope-artifact.spdx.json` and differs from SHA-256 of the bad artifact.
+On the registered production statement `uvm_0.2.10.cose`: 258 is -43 (SHA-384) in the protected
+header only, 259 is `application/octet-stream`, 260 and label 3 absent, the payload is 48 bytes;
+the hashed artifact is not published, so its match is NOT MEASURABLE.
 
 Value 2, per statement, SHA-256 over the Sig_structure with an empty external_aad, for example
 `0efd79b69cd4f4d4e99be43be33ae5e4ea9626426f77488567f0fee66d3106c4` (4432 B ToBeSigned) for the
@@ -126,16 +158,17 @@ control. It equals none of the data-hashes.
 ## THE MEASURED DATA-HASH INPUT RULE
 
 Eight candidate byte strings per statement, each hashed and held against the data-hash in the
-receipt's leaf. Measured on the three registered statements and the three mutants that share
-the control's receipt:
+receipt's leaf. Measured on the four registered statements with a -05 receipt (three from the
+test service, `uvm_0.2.10.cose` from the production ledger) and on the three mutants that share
+the control's receipt. Lengths for the control:
 
 | candidate | control length | equals the receipt's data-hash |
 |---|---|---|
 | file as served (receipt still inside) | 5401 B | no |
-| **tag 18, unprotected header replaced by `a0`, other elements as served** | **4809 B** | **yes, in all three statements** |
+| **tag 18, unprotected header replaced by `a0`, other elements as served** | **4809 B** | **yes, in all four statements** |
 | same, untagged | 4808 B | no |
 | same, tagged, payload replaced by nil (`f6`) | 4788 B | no |
-| tag 18, re-encoded from the decoded values in shortest form | 4809 B | yes, in all three statements |
+| tag 18, re-encoded from the decoded values in shortest form | 4809 B | yes, in all four statements |
 | ToBeSigned (Sig_structure) | 4432 B | no |
 | payload alone | 21 B | no |
 | protected header alone | 4394 B | no |
@@ -160,7 +193,8 @@ included in a Statement Sequence" (WG source, section "Registration of Signed St
 Where the measurement stops:
 
 - Every measured statement uses shortest-form heads and definite lengths, so the spliced rule and
-  the re-encoded rule give the same bytes. Which of the two a service applies to a non-shortest
+  the re-encoded rule give the same bytes (the production statement's tag 1 is inside the
+  protected bstr and therefore copied, not re-encoded, under both rules). Which of the two a service applies to a non-shortest
   or indefinite-length submission is NOT MEASURABLE without registering such a statement; the CCF
   source suggests re-serialisation, the serializer's treatment of head widths was not traced.
 - Every measured statement is tagged. An untagged submission is refused by the CCF 7.0.17 code
@@ -170,8 +204,7 @@ Where the measurement stops:
   stay nil.
 - Every measured statement carries only label 394 in its unprotected header, so "emptied" and
   "receipts removed" cannot be told apart by these bytes. The code empties the whole map.
-- Which CCF version the service `mst-test-scitt-verifier` runs is NOT MEASURED; the receipt does
-  not carry it.
+- Which CCF version either service runs is NOT MEASURED; the receipts do not carry it.
 
 ## THE LEAF, AGAINST THE TWO READINGS OF -04
 
@@ -189,16 +222,25 @@ control, with the rest unchanged:
 
 ## TRUST MATERIAL
 
-- The key set is the one published next to the statements at the pinned commit. The key is
-  selected by kid from that set; the kid is not trust.
-- `hex(SHA-256(SubjectPublicKeyInfo))` of the key equals its kid (measured, all receipts of the
-  first source). This is the self-binding the upstream tool `tools/scitt-keys.py` asserts when it
-  fetches the set (`docs/trust-material.md` at the pinned commit).
+- For the test service: the COSE_KeySet published next to the statements at the pinned commit.
+  For the production ledger: the JSON trust store of eight CCF service certificates next to the
+  statement in scitt-ccf-ledger, two distinct P-384 keys, each re-certified several times. The key
+  is selected by kid; the kid is not trust.
+- `hex(SHA-256(SubjectPublicKeyInfo))` of the key equals its kid on every -05 receipt measured,
+  test service and production alike. This is the self-binding the upstream tool
+  `tools/scitt-keys.py` asserts when it fetches a set (`docs/trust-material.md` in
+  microsoft/scitt-verifier at the pinned commit). In the trust store, `serviceId` equals SHA-256
+  of each certificate, measured for all eight.
+- The trust store labels every entry `"signatureAlgorithm": "ES256"`, while every key is P-384 and
+  the receipt it verifies says ES384 (-35) in its protected header. The label disagrees with the
+  key; verification works only because the algorithm is taken from the receipt, never from the
+  store. This is a real instance of why ADR 0009 binds the algorithm to the signed object.
 - NOT MEASURED: that this key set is what the live service serves today. The upstream document
   records a fetch of 175 B with sha256 `b146b954…`, equal to the pinned file, but the service
   (`mst-test-scitt-verifier.confidential-ledger.azure.com`) and the Azure identity service
   (`identity.confidential-ledger.core.azure.com`) are blocked here, so no independent fetch was
-  made. Authenticity rests on the GitHub commit.
+  made. Authenticity rests on the GitHub commit. The same holds for the production trust store:
+  NOT MEASURED against `esrp-cts-db.confidential-ledger.azure.com`.
 - NOT MEASURABLE here: the signature of the production receipt `microsoft-mst-receipt.cbor`
   (issuer `esrp-cts-cp.confidential-ledger.azure.com`, kid `a7ad3b77…a10f`). No trust material
   for it is in reach: the service host is blocked, and no pinned copy of its key was found in the
@@ -215,7 +257,7 @@ Each comparison is shown to fail once, next to an unchanged control. From
 
 | probe | outcome |
 |---|---|
-| control, unchanged | signature valid, bound, profile satisfied |
+| control, unchanged | signature valid, bound, receipt profile satisfied |
 | one bit of the statement's signature flipped | data-hash rule no longer matches; statement signature invalid; receipt signature still valid over its own root; profile not satisfied |
 | one bit of the first path hash flipped | receipt signature invalid |
 | external_aad `00` instead of empty | receipt signature invalid |
@@ -246,7 +288,8 @@ once per environment. Two environments on 2026-09-25, CPython 3.11.15, `cryptogr
 | tags 1, 2, 28/29, 256/25, 55799 by default | interpreted (datetime, int, shared and string references resolved, 55799 dropped) | same |
 | `tag_hook` called for tag 2 | no | no |
 | `semantic_decoders` to refuse tag 2 | option absent | refuses |
-| data-hash recomputed from cbor2's values equals the receipt's | yes, 3 of 3 | yes, 3 of 3, strict options on |
+| data-hash recomputed from cbor2's values equals the receipt's | yes, 4 of 4 | yes, 4 of 4, strict options on |
+| the tag 1 around the production statement's CWT `iat` | decoded to `datetime` | decoded to `datetime` |
 | pycose 1.1.0 reads back its own message (control) | yes | **no**, `TypeError: Bytes cannot be decoded as COSE message` |
 | pycose verifies the three receipts over the recomputed root | yes, 3 of 3 | NOT MEASURABLE, control failed |
 
@@ -279,7 +322,7 @@ beyond reading public repositories.
 | self-hosted scitt-ccf-ledger, *virtual* mode (no TEE) | CCF (`CCF_LEDGER_SHA256`, the same registration code as measured above) | Docker and Python on Linux; `./docker/build.sh`, `./docker/run-dev.sh`, then `scitt submit … --development --url https://localhost:8000 --transparent-statement output.cose`; no account | https://github.com/microsoft/scitt-ccf-ledger/blob/00101f769d872711356e080fbb089ac48589c60a/README.md |
 | an Azure Confidential Ledger instance with a SCITT service, like the one that issued the receipts above | CCF (measured: vds 2) | an Azure subscription, so an account; not pursued | https://github.com/microsoft/scitt-verifier/blob/bd6fb8ba79dbb521257b7f09682c03c6681dc3d0/corpus/README.md (the fixtures were registered with `corpus/tools/generate_fixtures.py --ledger mst-test-scitt-verifier.confidential-ledger.azure.com`) |
 | Microsoft Signing Transparency, production ledger | CCF (measured on the sample receipt: vds 2, issuer `esrp-cts-cp.confidential-ledger.azure.com`) | whether third parties can register at all is NOT MEASURED: the documentation (https://learn.microsoft.com/en-us/azure/confidential-ledger/about-microsoft-signing-transparency-ledger) is blocked here and was only seen as a search result title | search result, 2026-09-25 |
-| DataTrails SCITT API (preview) | **not CCF**: MMRIVER receipts (`draft-bryce-cose-merkle-mountain-range-proofs`), vds 3 in the sample code | client id and secret (`DATATRAILS_CLIENT_ID`, `DATATRAILS_CLIENT_SECRET`), so an account; endpoint `POST https://app.datatrails.ai/archivist/v1/publicscitt/entries` in the samples; the leaf includes data beyond the signed statement, per the samples' own note | https://github.com/datatrails/datatrails-scitt-samples/tree/d2d66c5e807b66202d1c471a0a26ba60190c15c9 (last commit 2024-12-12; the current service documentation at docs.datatrails.ai is blocked here, so its present state is NOT MEASURED) |
+| DataTrails SCITT API (preview) | **not CCF**: MMRIVER receipts, a Merkle mountain range proof format from an individual COSE draft, vds 3 in the sample code | client id and secret (`DATATRAILS_CLIENT_ID`, `DATATRAILS_CLIENT_SECRET`), so an account; endpoint `POST https://app.datatrails.ai/archivist/v1/publicscitt/entries` in the samples; the leaf includes data beyond the signed statement, per the samples' own note | https://github.com/datatrails/datatrails-scitt-samples/tree/d2d66c5e807b66202d1c471a0a26ba60190c15c9 (last commit 2024-12-12; the current service documentation at docs.datatrails.ai is blocked here, so its present state is NOT MEASURED) |
 
 Only the first option yields a CCF receipt for an own statement without an account. It would
 also close the gaps listed under the measured rule (detached payload, non-shortest heads), because
@@ -294,7 +337,12 @@ the operator controls what is submitted. That is an owner decision, see ADR 0009
   binding (statement not published).
 - NOT MEASURABLE without registering: the data-hash of a statement submitted with non-shortest
   heads, indefinite lengths, a detached payload, or other unprotected parameters.
-- NOT MEASURED: the CCF version of the service that issued the receipts.
+- NOT MEASURED: the CCF version of the services that issued the receipts.
+- NOT MEASURABLE here: the artifact behind the production statement's SHA-384 payload (not
+  published), so value 1 of that statement is measured for its structure only.
+- NOT MEASURED: an end-to-end ADR 0009 v1 control on real bytes. It needs a registered hash
+  envelope whose payload is the SHA-256 root of a proofbundle target; none exists publicly. It is
+  what option (a) of Q6 in ADR 0009 would produce.
 - NOT MEASURED: any COSE library beyond cbor2 5.9.0, cbor2 6.1.4 and pycose 1.1.0.
 - NOT ADDED: a hermetic test under `tests/`. `tools/` is pruned from the sdist and the collection
   guard in `tests/conftest.py` needs care; the probes above are this tool's checks for now.
@@ -302,6 +350,7 @@ the operator controls what is submitted. That is an owner decision, see ADR 0009
 ## REPRODUCING
 
     python3 fetch_external.py            # network, or: --from-clone scitt-verifier=PATH
+                                         #              --from-clone scitt-ccf-ledger=PATH
                                          #              --from-clone ccf-profile=PATH
     python3 recompute.py                 # standard library + cryptography, offline
     python3 reader_crosscheck.py         # once per environment: cbor2 6.1.4 + pycose 1.1.0,
@@ -314,7 +363,7 @@ two exit 2 when the fetched files are missing.
 
 | file | |
 |---|---|
-| `fetch_external.py` | fetches the twelve files at the pinned commits and checks size and sha256 |
+| `fetch_external.py` | fetches the fifteen files at the pinned commits and checks size and sha256 |
 | `recompute.py` | the four values, the candidate rules, the receipts, the probes; writes `recompute_result.json` |
 | `reader_crosscheck.py` | cbor2 and pycose facts per environment; writes `reader_crosscheck.json` |
 | `recompute_result.json` | the recorded run of 2026-09-25 |

@@ -75,6 +75,24 @@
       "source": "scitt-verifier",
       "path": "corpus/fixtures/hash-envelope-bad-artifact.spdx.json"
     },
+    "uvm_0.2.10.cose": {
+      "length": 6145,
+      "sha256": "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc",
+      "source": "scitt-ccf-ledger",
+      "path": "test/transparent_statements/uvm_0.2.10.cose"
+    },
+    "esrp-cts-db.json": {
+      "length": 6505,
+      "sha256": "295b5824129179cb6a0699b2759ce408c0fe13b364e7a59ad226a68f7265a490",
+      "source": "scitt-ccf-ledger",
+      "path": "test/transparent_statements/esrp-cts-db.json"
+    },
+    "cts-hashv-cwtclaims-b64url.cose": {
+      "length": 5624,
+      "sha256": "213105fdc0da9022c20e8f49195d0bb621cedf87fdee29aad80e2e605af94c87",
+      "source": "scitt-ccf-ledger",
+      "path": "test/payloads/cts-hashv-cwtclaims-b64url.cose"
+    },
     "microsoft-mst-receipt.cbor": {
       "length": 725,
       "sha256": "db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5",
@@ -92,7 +110,81 @@
       "c63e03890eddc8ebd3d7c300cf1f51a2fddc8a78180addf297c4ad3b5aa01536",
       "deb76178a62dc389ed2642de1c0c31aa7ca553e91f76b357db475f4164d4eccf"
     ],
-    "other_service_skipped_keys": []
+    "other_service_skipped_keys": [],
+    "esrp_cts_db_trust_store": [
+      {
+        "kid": "23d48c280f71abf575c81e89f18a4dc9f3b33d8a3b149b16ad836c8553f95bc0",
+        "curve": "secp384r1",
+        "not_before": "2025-04-04T20:48:34+00:00",
+        "not_after": "2025-04-05T20:48:33+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "23d48c280f71abf575c81e89f18a4dc9f3b33d8a3b149b16ad836c8553f95bc0",
+        "curve": "secp384r1",
+        "not_before": "2025-08-02T04:37:46+00:00",
+        "not_after": "2025-10-31T04:37:45+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "23d48c280f71abf575c81e89f18a4dc9f3b33d8a3b149b16ad836c8553f95bc0",
+        "curve": "secp384r1",
+        "not_before": "2025-04-04T19:48:46+00:00",
+        "not_after": "2025-07-03T19:48:45+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "23d48c280f71abf575c81e89f18a4dc9f3b33d8a3b149b16ad836c8553f95bc0",
+        "curve": "secp384r1",
+        "not_before": "2025-06-03T15:37:12+00:00",
+        "not_after": "2025-09-01T15:37:11+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "da7694f16def5a056ca96afb21e89a9450e4cc875e2de351da76d99544a3e849",
+        "curve": "secp384r1",
+        "not_before": "2026-01-15T20:17:56+00:00",
+        "not_after": "2026-04-15T20:17:55+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "da7694f16def5a056ca96afb21e89a9450e4cc875e2de351da76d99544a3e849",
+        "curve": "secp384r1",
+        "not_before": "2025-09-18T22:47:03+00:00",
+        "not_after": "2025-09-19T22:47:02+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "da7694f16def5a056ca96afb21e89a9450e4cc875e2de351da76d99544a3e849",
+        "curve": "secp384r1",
+        "not_before": "2025-09-18T21:49:59+00:00",
+        "not_after": "2025-12-17T21:49:58+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      },
+      {
+        "kid": "da7694f16def5a056ca96afb21e89a9450e4cc875e2de351da76d99544a3e849",
+        "curve": "secp384r1",
+        "not_before": "2025-11-17T15:18:51+00:00",
+        "not_after": "2026-02-15T15:18:50+00:00",
+        "store_label_signatureAlgorithm": "ES256",
+        "store_label_treeAlgorithm": "CCF",
+        "serviceId_equals_sha256_of_certificate": true
+      }
+    ]
   },
   "cases": {
     "transparent-statement.cose": {
@@ -130,6 +222,7 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 21 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -205,7 +298,7 @@
           "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
           "readable": true,
           "signature_valid": true,
-          "profile_satisfied": true,
+          "receipt_profile_satisfied": true,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -283,6 +376,7 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 163 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -358,7 +452,7 @@
           "sha256": "6d45ce8ceba258cd459a38b6ba4b81af5b013bb135cc5e713f6400ab86bb57be",
           "readable": true,
           "signature_valid": true,
-          "profile_satisfied": true,
+          "receipt_profile_satisfied": true,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -436,6 +530,12 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [
+        {
+          "at": "/external-statement",
+          "tag": 18
+        }
+      ],
       "payload": "embedded, 163 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -511,7 +611,7 @@
           "sha256": "571f6928bb7619251f0d22b571bde1ea79e54c483a185aabf99ec901da4d07e8",
           "readable": true,
           "signature_valid": true,
-          "profile_satisfied": true,
+          "receipt_profile_satisfied": true,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -589,6 +689,7 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 21 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -664,7 +765,7 @@
           "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
           "readable": true,
           "signature_valid": true,
-          "profile_satisfied": true,
+          "receipt_profile_satisfied": true,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -707,7 +808,7 @@
           "sha256": "0089e4149abf114287e12d94dcec1bdba12c1cf934b20c7840ab3b8b615895ce",
           "readable": true,
           "signature_valid": false,
-          "profile_satisfied": false,
+          "receipt_profile_satisfied": false,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -785,6 +886,7 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 21 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -857,7 +959,7 @@
           "sha256": "9f0a9c728222296b9fbf38ee7267bb41cbd8ffa3577d51d108e276aa12a64e37",
           "readable": true,
           "signature_valid": true,
-          "profile_satisfied": false,
+          "receipt_profile_satisfied": false,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -935,6 +1037,7 @@
       "unprotected_labels": [
         "394"
       ],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 21 B",
       "value_1_hash_envelope": {
         "present": false,
@@ -1010,7 +1113,7 @@
           "sha256": "0089e4149abf114287e12d94dcec1bdba12c1cf934b20c7840ab3b8b615895ce",
           "readable": true,
           "signature_valid": false,
-          "profile_satisfied": false,
+          "receipt_profile_satisfied": false,
           "problems": [],
           "tagged": true,
           "protected_labels": [
@@ -1087,6 +1190,7 @@
         "34"
       ],
       "unprotected_labels": [],
+      "tags_inside_protected_header": [],
       "payload": "embedded, 32 B",
       "value_1_hash_envelope": {
         "present": true,
@@ -1105,7 +1209,8 @@
             "sha256": "d6e26054fcf7385d419489e4029b751269568d96364cb697f73212fcab550300",
             "equals_payload": false
           }
-        }
+        },
+        "payload_length_matches_hash_alg": true
       },
       "value_2_local_tobesigned": {
         "computed": true,
@@ -1131,7 +1236,7 @@
         "sha256": "db2398e1c9d140619e484d277a05eb186d7d78f91c01f49e595f6047b98249f5",
         "readable": true,
         "signature_valid": null,
-        "profile_satisfied": false,
+        "receipt_profile_satisfied": false,
         "problems": [
           "signature NOT EVALUATED: no trust material"
         ],
@@ -1169,6 +1274,292 @@
         "all_proofs_same_root": true,
         "trust": "none supplied"
       }
+    },
+    "uvm_0.2.10.cose": {
+      "length": 6145,
+      "sha256": "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 5079
+        },
+        "unprotected": {
+          "offset": 5081,
+          "length": 627
+        },
+        "payload": {
+          "offset": 5708,
+          "length": 50
+        },
+        "signature": {
+          "offset": 5758,
+          "length": 387
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "258",
+        "259",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "tags_inside_protected_header": [
+        {
+          "at": "/15/6",
+          "tag": 1
+        }
+      ],
+      "payload": "embedded, 48 B",
+      "value_1_hash_envelope": {
+        "present": true,
+        "258_in_protected": -43,
+        "258_in_unprotected": false,
+        "259_preimage_content_type": "application/octet-stream",
+        "260_location_present": false,
+        "label_3_present": false,
+        "payload_length": 48,
+        "artifacts": "NOT MEASURABLE: the hashed artifact is not published with the statement",
+        "payload_length_matches_hash_alg": true
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 5142,
+        "sha256": "20f3f206f58c7220110069708ed8775e6f3bdb9c74ba29d40ce7646e5cb7a276"
+      },
+      "statement_signature": {
+        "alg": -38,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [
+          "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649"
+        ],
+        "candidates": {
+          "as-served": {
+            "length": 6145,
+            "sha256": "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 5519,
+            "sha256": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+            "equals_a_receipt_data_hash": true
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 5518,
+            "sha256": "557467e2d36e4d3d87a31574dd01c9ccb790d39be8bba4bcb6ea39767c179916",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 5470,
+            "sha256": "864dc4226ec786f83824f74a93edd28f611cfcc094bce00b83d9f76287c637e6",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 5519,
+            "sha256": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+            "equals_a_receipt_data_hash": true
+          },
+          "tobesigned": {
+            "length": 5142,
+            "sha256": "20f3f206f58c7220110069708ed8775e6f3bdb9c74ba29d40ce7646e5cb7a276",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 48,
+            "sha256": "b1cd5a53d7ebc634fc423662eb916729c9de760fd837bf894a4adcd41d6d92c5",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 5076,
+            "sha256": "facbf7a0c1eddffa1f10504f2816971fdd3be221642bc52a10dd454409f35ff1",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": [
+          "unprotected-emptied/tagged/elements-as-served",
+          "unprotected-emptied/tagged/re-encoded"
+        ]
+      },
+      "receipts": [
+        {
+          "length": 619,
+          "sha256": "73cfd510394cda17f8f8a2f5e6ffee83b3de5b33db294baa812ed55d7866b557",
+          "readable": true,
+          "signature_valid": true,
+          "receipt_profile_satisfied": true,
+          "problems": [],
+          "tagged": true,
+          "protected_labels": [
+            "1",
+            "15",
+            "395",
+            "4",
+            "ccf.v1"
+          ],
+          "alg": -35,
+          "vds": 2,
+          "kid": "da7694f16def5a056ca96afb21e89a9450e4cc875e2de351da76d99544a3e849",
+          "crit_present": false,
+          "cwt": {
+            "iss": "esrp-cts-db.confidential-ledger.azure.com",
+            "sub": "scitt.ccf.signature.v1",
+            "iat": 1766437888
+          },
+          "ccf_txid": "458.12441",
+          "payload_detached": true,
+          "inclusion_proofs": [
+            {
+              "internal_transaction_hash": "4f6d256624f31df6055daaaefa163151f3bb67a13d91b6fd1b9d6267c7f7e374",
+              "internal_evidence": "ce:458.12440:858e0a6db787c523ac940e640a781efcd0635a5e22bdf186d46acef29759f4c1",
+              "data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+              "leaf_input_length": 96,
+              "leaf_hash": "64bd996fc2a6dd1a268b6d0f90a311d9ba3c1e874fb7841d17c7318062a102cd",
+              "path_length": 5,
+              "path_left_bits": "11111",
+              "merkle_root": "9a9b439497b18eed7d5a1f3177c3206cb221e12e46e6f66bac935c62053b0466"
+            }
+          ],
+          "all_proofs_same_root": true,
+          "bound_to_statement": true,
+          "trust": "key selected by kid from the relying party's key set",
+          "kid_equals_hex_sha256_spki": true
+        }
+      ],
+      "value_4_merkle_roots": [
+        "9a9b439497b18eed7d5a1f3177c3206cb221e12e46e6f66bac935c62053b0466"
+      ]
+    },
+    "cts-hashv-cwtclaims-b64url.cose": {
+      "length": 5624,
+      "sha256": "213105fdc0da9022c20e8f49195d0bb621cedf87fdee29aad80e2e605af94c87",
+      "readable": true,
+      "tagged": true,
+      "outer_array": "definite, 4 elements",
+      "all_heads_shortest_form": true,
+      "elements": {
+        "protected": {
+          "offset": 2,
+          "length": 3923
+        },
+        "unprotected": {
+          "offset": 3925,
+          "length": 1379
+        },
+        "payload": {
+          "offset": 5304,
+          "length": 61
+        },
+        "signature": {
+          "offset": 5365,
+          "length": 259
+        }
+      },
+      "protected_labels": [
+        "1",
+        "15",
+        "3",
+        "33",
+        "34"
+      ],
+      "unprotected_labels": [
+        "394"
+      ],
+      "tags_inside_protected_header": [
+        {
+          "at": "/15/6",
+          "tag": 1
+        }
+      ],
+      "payload": "embedded, 59 B",
+      "value_1_hash_envelope": {
+        "present": false,
+        "reason": "label 258 absent from the protected header"
+      },
+      "value_2_local_tobesigned": {
+        "computed": true,
+        "rule": "SHA-256(Sig_structure), RFC 9052 section 4.4, external_aad empty; measured only to show it differs from value 3",
+        "tobesigned_length": 3997,
+        "sha256": "4ecba9ecb223dbc847b6df09f3ed1d27af3c7fa38167ffb6de5e1863f3b4ba71"
+      },
+      "statement_signature": {
+        "alg": -37,
+        "evaluated": true,
+        "valid_with_embedded_leaf_key": true,
+        "trust": "none: the key comes from the evidence itself (x5chain); this is a consistency check, not an identity or trust decision"
+      },
+      "value_3_data_hash": {
+        "evaluated": true,
+        "data_hashes_in_receipts": [],
+        "candidates": {
+          "as-served": {
+            "length": 5624,
+            "sha256": "213105fdc0da9022c20e8f49195d0bb621cedf87fdee29aad80e2e605af94c87",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/elements-as-served": {
+            "length": 4246,
+            "sha256": "a33b22cdda47a6440bc2502d29e0393aae9340c35c5d3495e85ee4fee3be014c",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/untagged/elements-as-served": {
+            "length": 4245,
+            "sha256": "b090c67314a08b2ecef1d0eac6f852026187f9b16870bbbd4173961b4c5d362c",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/payload-detached": {
+            "length": 4186,
+            "sha256": "f9e335ef3d69ae57c01fa16dbbb70dcc0f273b0cfdc903bb34774c8c9d556659",
+            "equals_a_receipt_data_hash": false
+          },
+          "unprotected-emptied/tagged/re-encoded": {
+            "length": 4246,
+            "sha256": "a33b22cdda47a6440bc2502d29e0393aae9340c35c5d3495e85ee4fee3be014c",
+            "equals_a_receipt_data_hash": false
+          },
+          "tobesigned": {
+            "length": 3997,
+            "sha256": "4ecba9ecb223dbc847b6df09f3ed1d27af3c7fa38167ffb6de5e1863f3b4ba71",
+            "equals_a_receipt_data_hash": false
+          },
+          "payload-only": {
+            "length": 59,
+            "sha256": "2ef1756d342519cc77aabdf46a9d94520d78d0cb4cd160a674d9ecb56f951554",
+            "equals_a_receipt_data_hash": false
+          },
+          "protected-only": {
+            "length": 3920,
+            "sha256": "de1ba79a01b9dfef67c3d45891f680f67b7d63150ca7aab5325fa73b1e2bded9",
+            "equals_a_receipt_data_hash": false
+          }
+        },
+        "matching_rules": []
+      },
+      "receipts": [
+        {
+          "length": 1371,
+          "sha256": "a0860beaa8be02fc1f69d2999955d25ba17f46622e75dfb61b1498610aa0c985",
+          "readable": false,
+          "signature_valid": null,
+          "receipt_profile_satisfied": false,
+          "problems": [
+            "not readable: COSE_Sign1 must be an array of four elements (got major 4, n 2)"
+          ]
+        }
+      ],
+      "value_4_merkle_roots": []
     }
   },
   "probes_on_transparent_statement": [
@@ -1176,14 +1567,14 @@
       "probe": "control, unchanged statement and receipt",
       "signature_valid": true,
       "bound_to_statement": true,
-      "profile_satisfied": true
+      "receipt_profile_satisfied": true
     },
     {
       "probe": "one bit of the statement's signature element flipped",
       "data_hash_rule_still_matches": false,
       "statement_signature_valid": false,
       "receipt_signature_valid": true,
-      "profile_satisfied": false
+      "receipt_profile_satisfied": false
     },
     {
       "probe": "one bit of the first path hash flipped",
@@ -1215,13 +1606,13 @@
       "probe": "trust material of another service (kid absent)",
       "signature_valid": null,
       "trust": "kid not in the relying party's key set",
-      "profile_satisfied": false
+      "receipt_profile_satisfied": false
     },
     {
       "probe": "no trust material at all",
       "signature_valid": null,
       "trust": "none supplied",
-      "profile_satisfied": false
+      "receipt_profile_satisfied": false
     }
   ],
   "upstream_pins": {
