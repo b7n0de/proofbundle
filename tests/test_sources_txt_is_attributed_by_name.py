@@ -136,3 +136,24 @@ def test_without_any_basis_the_readers_stay_loud(tmp_path):
     cf = _cf()
     assert cf._verteilung_sollte_enthalten("scripts/x.py", root) is True
     assert cf._verteilung_kennt_den_ort("scripts/x.py", root) is False
+
+
+def test_a_foreign_alias_of_the_own_list_does_not_hide_it(tmp_path):
+    """Codex, 2026-09-25: a foreign egg-info whose SOURCES.txt links to this project's list sorts
+    first. Deduplicating by file before attributing kept only the foreign alias, and the real list
+    was gone. Each path is attributed by the PKG-INFO beside it, so the alias stays foreign."""
+    root = _project(tmp_path / "t")
+    own = _egg_info(root, "src/beispiel.egg-info", "beispiel", "scripts/eigen.py\n")
+    fremd = root / "aaa" / "fremd.egg-info"
+    fremd.mkdir(parents=True)
+    (fremd / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: fremd\nVersion: 0\n",
+                                    encoding="utf-8")
+    (fremd / "SOURCES.txt").symlink_to(own)
+    kandidaten = sorted(root.glob("*/*.egg-info/SOURCES.txt"))
+    assert kandidaten[0].parent == fremd and kandidaten[0].resolve() == own.resolve(), (
+        "precondition: the foreign alias sorts first and points at the own list")
+    chosen, reason = _cf()._quellenliste_waehlen(root)
+    assert chosen == own, (chosen, reason)
+    cf = _cf()
+    assert cf._verteilung_sollte_enthalten("scripts/nicht_geliefert.py", root) is False, (
+        "an unlisted file must read as not shipped, which is the clean skip, not a collection error")

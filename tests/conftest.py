@@ -626,13 +626,8 @@ def _quellenliste_waehlen(wurzel: pathlib.Path) -> tuple[pathlib.Path | None, st
     projekt = _projektname(wurzel)
     if projekt is None:
         return None, "no [project] name readable in pyproject.toml, so no list can be attributed"
-    # ONE ENTRY PER FILE, not per path: a symlink to the same egg-info is one list, and counting it
-    # twice turned one real list into a false ambiguity (review lens, 2026-09-25).
-    je_datei: dict[pathlib.Path, pathlib.Path] = {}
-    for k in sorted(set(wurzel.glob("*/*.egg-info/SOURCES.txt"))
-                    | set(wurzel.glob("*.egg-info/SOURCES.txt"))):
-        je_datei.setdefault(k.resolve(), k)
-    kandidaten = list(je_datei.values())
+    kandidaten = sorted(set(wurzel.glob("*/*.egg-info/SOURCES.txt"))
+                        | set(wurzel.glob("*.egg-info/SOURCES.txt")))
 
     def _name(liste: pathlib.Path) -> str:
         try:
@@ -644,11 +639,24 @@ def _quellenliste_waehlen(wurzel: pathlib.Path) -> tuple[pathlib.Path | None, st
             pass
         return ""
 
-    eigene = [k for k in kandidaten
-              if _normalisierter_name(_name(k)) == _normalisierter_name(projekt)]
+    zugeordnet = [k for k in kandidaten
+                  if _normalisierter_name(_name(k)) == _normalisierter_name(projekt)]
+    # ONE ENTRY PER FILE, not per path: a symlink to the same egg-info is one list, and counting it
+    # twice turned one real list into a false ambiguity (review lens, 2026-09-25).
+    #
+    # ATTRIBUTED FIRST, DEDUPLICATED AFTER, and the order is the point. The first version merged
+    # aliases by resolved file before reading any PKG-INFO and kept whichever path sorted first.
+    # Codex measured on 2026-09-25 what that does: a foreign `aaa/y.egg-info` whose SOURCES.txt
+    # links to this project's list sorts first, only the foreign alias survives, and the real list
+    # is gone, so path order decided identity again. Each path is attributed by the PKG-INFO beside
+    # it, and only aliases that all belong to this project collapse into one.
+    je_datei: dict[pathlib.Path, pathlib.Path] = {}
+    for k in zugeordnet:
+        je_datei.setdefault(k.resolve(), k)
+    eigene = list(je_datei.values())
     brauchbar = [k for k in eigene if _eintraege_von(k)]
     if not brauchbar:
-        fremde = [str(k.relative_to(wurzel)) for k in kandidaten if k not in eigene]
+        fremde = [str(k.relative_to(wurzel)) for k in kandidaten if k not in zugeordnet]
         return None, (f"no non-empty SOURCES.txt of {projekt} in this tree"
                       + (f"; lists of other distributions ignored: {fremde}" if fremde else ""))
     if len(brauchbar) > 1:
