@@ -263,3 +263,166 @@ def test_eine_veraltete_WORTbehauptung_bleibt_ein_fund():
     number in order to be a claim."""
     assert _trifft("current release: 5.0.0") == "current/latest phrase"
     assert _trifft("latest version 5.0.0") == "current/latest phrase"
+
+
+# ── README.md IS A DECLARED PLACE (owner decision, 2026-09-23) ───────────────────────────────
+#
+# Check 6 found the four release claims in README.md and asked for a decision: declare, reword, or
+# name an exception. The owner chose to declare them. From here on Check 4 holds them at the source
+# version, and the cases below bind what that has to mean: a README left behind at a bump is red,
+# a headline raised halfway is red, a reworded headline is a vanished anchor, and a number that
+# belongs to another package or to an older release is not demanded to move.
+
+NEU = "6.2.0"      # a next release, for trees that are raised on purpose
+
+
+def _readme(kopf_text: str, kopf_url: str, pin: str, url: str) -> str:
+    return (f"## Current release\n\n"
+            f"**[v{kopf_text}](https://github.com/b7n0de/proofbundle/releases/tag/v{kopf_url})"
+            f" · Beta**\n\n"
+            f"python -m pip install proofbundle=={pin}\n"
+            f"python -m pip install 'proofbundle[eval]=={pin}'\n"
+            f"https://raw.githubusercontent.com/b7n0de/proofbundle/v{url}/examples/x.json\n")
+
+
+def _readme_funde(tmp_path, readme: str, version: str = NEU) -> list[str]:
+    """Check 4 over a tree whose other declared places already name `version`."""
+    (tmp_path / "docs" / "readiness_pack").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "RELEASE.md").write_text(f"(current: {version})\n", encoding="utf-8")
+    (tmp_path / "docs" / "readiness_pack" / "PROGRESS.md").write_text(
+        f"(current release: {version})\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(readme, encoding="utf-8")
+    return [f for f in _gate().check_tracked_places(tmp_path, version) if f.startswith("README.md")]
+
+
+def _readme_orte():
+    return [(i, rel, beschreibung) for i, (rel, _m, beschreibung)
+            in enumerate(_gate()._TRACKED_PLACES) if rel == "README.md"]
+
+
+def test_the_readme_is_declared_in_its_three_forms():
+    """Without this line every case below could pass against a list that no longer names README."""
+    assert len(_readme_orte()) == 3, _readme_orte()
+
+
+@pytest.mark.parametrize("nr", range(len(_gate()._TRACKED_PLACES)),
+                         ids=[f"{rel}::{b[:40]}" for rel, _m, b in _gate()._TRACKED_PLACES])
+def test_every_declared_place_names_the_source_in_the_real_tree(nr):
+    """ONE CASE PER PLACE, with its file in the id. `test_das_echte_repo_besteht_das_echte_tor`
+    says THAT something is off; this says WHERE, and it covers every declared place, not a list
+    typed next to the declaration."""
+    g = _gate()
+    rel, muster, beschreibung = g._TRACKED_PLACES[nr]
+    version, _ = g._source_version(REPO)
+    werte = [v for hit in muster.findall((REPO / rel).read_text(encoding="utf-8"))
+             for v in (hit if isinstance(hit, tuple) else (hit,))]
+    assert werte, f"{rel}: {beschreibung} is not in the real file any more"
+    assert set(werte) == {version}, f"{rel}: {beschreibung} states {sorted(set(werte))}, source {version}"
+
+
+def test_a_readme_left_behind_at_a_bump_is_red_in_check_4(tmp_path):
+    """THE CATCH PROOF of the decision: the source and the other places are raised, README is not.
+    Every one of the three forms is named, not just the first."""
+    funde = _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, AKTUELL, AKTUELL))
+    assert len(funde) == 3, funde
+    for _i, _rel, beschreibung in _readme_orte():
+        assert any(beschreibung in f and AKTUELL in f for f in funde), (beschreibung, funde)
+
+
+def test_CONTROL_a_raised_readme_is_green(tmp_path):
+    assert _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU)) == []
+
+
+def test_a_headline_raised_halfway_is_red(tmp_path):
+    """New tag URL, old link text: the front page names one release and links to another. An
+    anchor bound to the URL alone reads that headline as current."""
+    funde = _readme_funde(tmp_path, _readme(AKTUELL, NEU, NEU, NEU))
+    assert len(funde) == 1 and "release headline" in funde[0] and AKTUELL in funde[0], funde
+
+
+def test_a_reworded_headline_is_a_vanished_anchor_not_a_pass(tmp_path):
+    readme = _readme(NEU, NEU, NEU, NEU).replace(f"**[v{NEU}]", f"**[Release {NEU}]")
+    funde = _readme_funde(tmp_path, readme)
+    assert len(funde) == 1 and "was not found" in funde[0] and "release headline" in funde[0], funde
+
+
+def test_the_readme_anchors_name_this_project_not_a_shape(tmp_path):
+    """Check 4 demands the source version of EVERY match in the file. Four decoys that carry a
+    version in a release-claim shape but are not this project's current release must therefore not
+    match: another package's pin, a descriptive and a bare link to an older release, and another
+    project's URL."""
+    koeder = ("python -m pip install cbor2==5.9.0\n"
+              "[v6.0.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
+              "Previous release: [v6.0.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
+              "https://raw.githubusercontent.com/other/project/v5.0.0/x.json\n")
+    g = _gate()
+    # PRECONDITION: each decoy IS a release-claim shape with a non-current number, so this case can
+    # fail. Measured through the Check 6 shapes, which carry no project name.
+    for zeile in koeder.splitlines():
+        treffer = [m.search(zeile) for _f, m, _n, _b in g._CLAIM_SHAPES]
+        assert any(t and t.group(1) != NEU for t in treffer), f"not a decoy: {zeile!r}"
+    assert _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + koeder) == []
+
+
+# ── THE WORKFLOW THAT RUNS THE GATE DOES NOT SKIP WHAT THE GATE READS (owner decision B) ──────
+#
+# `release-integrity.yml` is the only runner of this gate. It ignored '**/*.md' and 'docs/**', so a
+# change that touched nothing but prose never ran the check that guards prose. The class is a path
+# filter that excludes the files its own check reads; the case binds that property, not the list.
+
+def _glob_regex(glob: str) -> "re.Pattern[str]":
+    """GitHub path-filter globs: `**/` spans zero or more directories, `*` stays inside one."""
+    teile, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            teile.append("(?:.*/)?")
+            i += 3
+        elif glob.startswith("**", i):
+            teile.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            teile.append("[^/]*")
+            i += 1
+        elif glob[i] == "?":
+            teile.append("[^/]")
+            i += 1
+        else:
+            teile.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("".join(teile) + r"\Z")
+
+
+def _gelesene_dateien() -> list[str]:
+    g = _gate()
+    return sorted({"pyproject.toml", "src/proofbundle/__init__.py", "CITATION.cff", "CHANGELOG.md",
+                   *(rel for rel, _m, _b in g._TRACKED_PLACES)})
+
+
+def _uebersprungen(ignore: list[str]) -> list[str]:
+    return [f"{rel} by {glob!r}" for rel in _gelesene_dateien() for glob in ignore
+            if _glob_regex(glob).match(rel)]
+
+
+def test_the_workflow_does_not_skip_a_file_the_gate_reads():
+    yaml = pytest.importorskip("yaml", reason="PyYAML missing: the path filter is NOT measured")
+    d = yaml.safe_load((REPO / ".github" / "workflows" / "release-integrity.yml")
+                       .read_text(encoding="utf-8"))
+    on = d.get(True) or d.get("on")
+    listen = {trig: (on.get(trig) or {}).get("paths-ignore", []) for trig in ("push", "pull_request")}
+    assert listen["push"] == listen["pull_request"], (
+        f"the two triggers filter differently, so a pull request and the push to main answer "
+        f"different questions: {listen}")
+    for trig, ignore in listen.items():
+        assert not _uebersprungen(ignore), f"{trig}: the gate's own inputs are skipped: {_uebersprungen(ignore)}"
+
+
+def test_CONTROL_the_old_filter_would_have_been_caught():
+    """THE COUNTER-DIRECTION. Without it the case above would also pass with a glob matcher that
+    matches nothing. The list below is the filter this workflow carried before 2026-09-23."""
+    alt = ["**/*.md", "docs/**", "audit_artifacts/**", "receipts/**", ".mailmap"]
+    treffer = _uebersprungen(alt)
+    assert "README.md by '**/*.md'" in treffer, treffer
+    assert "CHANGELOG.md by '**/*.md'" in treffer, treffer
+    assert "docs/readiness_pack/PROGRESS.md by 'docs/**'" in treffer, treffer
+    assert not _glob_regex("docs/**").match("src/docs.py")
+    assert not _glob_regex("*.md").match("docs/x.md"), "a single star crossed a directory"

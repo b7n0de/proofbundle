@@ -41,6 +41,15 @@ def _write_tracked_places(t: Path, version: str) -> None:
     (t / "docs" / "readiness_pack" / "PROGRESS.md").write_text(
         f"# Progress\n\nThe denominator is the distance from 3.3.0 (current release: {version}) to stable.\n",
         encoding="utf-8")
+    (t / "README.md").write_text(_readme(version), encoding="utf-8")
+
+
+def _readme(version: str) -> str:
+    """README.md in the three forms the gate declares for it, all naming `version`."""
+    return (f"## Current release\n\n"
+            f"**[v{version}](https://github.com/b7n0de/proofbundle/releases/tag/v{version}) · Beta**\n\n"
+            f"    python -m pip install proofbundle=={version}\n"
+            f"    curl https://raw.githubusercontent.com/b7n0de/proofbundle/v{version}/examples/x.json\n")
 
 
 def test_consistent_release_passes(tmp_path):
@@ -287,10 +296,11 @@ def test_malformed_pypi_response_is_not_measurable(monkeypatch):
 # --------------------------------------------------------------------------------------------
 # Check 6: places that claim a current version without being declared
 #
-# Check 4 can only watch what somebody declared. This is the must-catch for the README case: the
-# README states no version today, so a test that "the README number is stale" would be testing a
-# sentence that does not exist. What CAN go wrong is that a version claim appears there — and from
-# that moment it is a place that can go stale with nothing watching it.
+# Check 4 can only watch what somebody declared. This is the must-catch for the README case: a
+# version claim appears there in a form nobody declared, and from that moment it is a place that
+# can go stale with nothing watching it. Since 2026-09-23 the README carries declared places of its
+# own (the release headline, the install pins, the pinned example URLs); a claim in any other form,
+# such as the sentences below, is still undeclared and still a finding.
 # --------------------------------------------------------------------------------------------
 
 def _git_repo(t: Path, version: str, headings: list[str]):
@@ -342,6 +352,7 @@ def test_declared_places_are_not_reported_twice(tmp_path):
     g("commit", "-qm", "init")
     probs = chk.check_undeclared_places(tmp_path)
     assert not any("RELEASE.md" in p or "PROGRESS.md" in p for p in probs), probs
+    assert not any("README.md" in p for p in probs), probs
 
 
 def test_untracked_file_is_not_a_repo_claim(tmp_path):

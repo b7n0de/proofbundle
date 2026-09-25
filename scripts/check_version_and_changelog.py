@@ -83,10 +83,35 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # Each entry: (path, anchor regex with one capture group, human description of the anchor).
 # Only add a place here if it means "this is the current release". Never add a "since"/"as of"
 # statement: those are history, and a gate that bumps history manufactures false claims.
+#
+# README.md IS DECLARED, by an owner decision on 2026-09-23. Check 6 found its four release claims
+# and asked for exactly this choice: declare them, reword them, or name an exception. Declared, they
+# are kept current by Check 4 at every bump instead of being reported as undeclared.
+#
+# EACH ANCHOR NAMES THIS PROJECT, not just a shape. Check 4 reads every match in the file and
+# demands the source version of each, so an anchor as wide as the Check 6 shape would demand that
+# `pip install <another package>==<its version>` be raised to this release. The shape asks "is this
+# a release claim?"; the anchor asks "is this OUR release claim?".
+#
+# THE HEADLINE CARRIES THE VERSION TWICE, as link text and in the tag URL, and the anchor captures
+# both. Bound to the URL alone, a headline raised halfway (new URL, old text) would read as current,
+# and the front page would name one release while linking to another. It is also bound to the start
+# of its line, so a descriptive link to an older release elsewhere in the file stays history.
 _TRACKED_PLACES = [
     ("RELEASE.md", re.compile(r"current:\s*v?" + _SEMVER), "the `(current: X.Y.Z)` note"),
     ("docs/readiness_pack/PROGRESS.md",
      re.compile(r"current release:\s*v?" + _SEMVER), "the `(current release: X.Y.Z)` note"),
+    ("README.md",
+     re.compile(r"(?m)^\*\*\[v?" + _SEMVER
+                + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)"),
+     "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
+    ("README.md",
+     re.compile(r"\binstall\s+'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?\s*==\s*v?" + _SEMVER),
+     "the pinned `pip install proofbundle==X.Y.Z` instructions"),
+    ("README.md",
+     re.compile(r"(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
+                r"(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/"),
+     "the example URLs pinned to the release tag `vX.Y.Z`"),
 ]
 
 # Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and
@@ -122,7 +147,8 @@ _CURRENT_CLAIM = re.compile(
 #
 # THE PRICE IS MEASURED, because a sweep that floods gets switched off: over every tracked file
 # outside the excluded prefixes, these three shapes hit FOUR times, all of them in README.md.
-# That is the file the finding is about.
+# That is the file the finding is about. Those four lines are declared places now (see
+# _TRACKED_PLACES), so on the real tree this sweep reports none of them and Check 4 keeps them.
 #
 # WHAT IS DELIBERATELY NOT HERE: a bare mention like `docs/release_scope/6.1.0.md` names a
 # document, and `since v6.1.0` records history. Neither says "this is the release you get", and a
@@ -452,7 +478,10 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
         if not path.is_file():
             problems.append(f"{rel}: tracked version place is missing (expected {beschreibung})")
             continue
-        found = pattern.findall(_read(path))
+        # An anchor with two captures (the README headline) yields pairs; every captured number is
+        # a statement of the version, so each one is compared, not only the first.
+        found = [v for hit in pattern.findall(_read(path))
+                 for v in (hit if isinstance(hit, tuple) else (hit,))]
         if not found:
             problems.append(
                 f"{rel}: {beschreibung} was not found — the anchor moved or was reworded, so this "
