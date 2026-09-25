@@ -1035,3 +1035,27 @@ def test_global_options_before_add_do_not_hide_the_pin(text):
 
 def test_CONTROL_the_tool_and_add_in_different_commands_are_not_one_instruction():
     assert _trifft("uv sync; git add notes proofbundle==6.1.0") is None
+
+
+# ── CODEX ON PR 266, ROUND SIXTEEN (2026-09-25, fixed under R4): the subcommand, quoted separators ─
+
+@pytest.mark.parametrize("text", [
+    "uv run echo add proofbundle==6.1.0",
+    "poetry run echo add proofbundle==6.1.0",
+])
+def test_add_as_an_argument_of_another_subcommand_is_no_add_command(text):
+    assert _trifft(text) is None, (text, _trifft(text))
+
+
+@pytest.mark.parametrize("text", [
+    "uv --directory 'foo&bar' add proofbundle==6.1.0",
+    "poetry -C 'a;b' add proofbundle==6.1.0",
+    "uv --directory foo\\&bar add proofbundle==6.1.0",
+    'python -m pip install --config-settings "x=1;y=2" proofbundle==6.1.0',
+])
+def test_a_quoted_or_escaped_separator_does_not_end_the_command(text):
+    assert _trifft(text) == "project pin", (text, _trifft(text))
+
+
+def test_CONTROL_an_unquoted_separator_still_ends_the_command():
+    assert _trifft("uv --directory foo; add proofbundle==6.1.0") is None

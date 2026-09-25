@@ -351,8 +351,12 @@ _CURRENT_CLAIM = re.compile(
 #: "please add the text proofbundle==X" is prose).
 #: Round fifteen: a tool takes global options before its command (`uv --no-cache add`, `uv [OPTIONS]
 #: <COMMAND>`), so `add` may stand anywhere after the tool within the same command.
-_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)\b[^\n;&|]*?\badd\b)"
-               r"[^\n;&|]*?")
+#: Round sixteen (R4, after the budget): `add` must be the tool's SUBCOMMAND, so only options, each
+#: with an optional value, may stand between the tool and it. `uv run echo add ...` selects `run`,
+#: and `add` there is an argument of `echo`.
+_WERKZEUG_OPTION = r"""\s+-[^\s;&|]+(?:\s+(?!-)(?:'[^'\n]*'|"[^"\n]*"|[^\s;&|'"]+))?"""
+_PIN_BEFEHL = (r"(?:\binstall\b|\b(?:poetry|uv|pdm|rye|pipenv|hatch|conda)(?:" + _WERKZEUG_OPTION
+               + r")*\s+add\b)[^\n;&|]*?")
 _KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
                        r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
                        r"(?![0-9A-Za-z])" + _PIN_ENDE)   # one end rule for pins, not two copies
@@ -605,6 +609,35 @@ def _tracked_files(repo: Path) -> list[str]:
 _FORTSETZUNG = ("\\", "^")
 
 
+def _ohne_quotierte_trenner(zeile: str) -> str:
+    """The line with every `;`, `&` and `|` the shell does not read as an operator replaced by `_`:
+    inside single or double quotes, or escaped with a backslash. Same length, so every position of a
+    match still points into the original line (round sixteen, R4: `uv --directory 'foo&bar' add ...`
+    was cut at the quoted ampersand, and the pin behind it was never read)."""
+    aus: list[str] = []
+    quote = None
+    i = 0
+    while i < len(zeile):
+        c = zeile[i]
+        if c == "\\" and quote != "'" and i + 1 < len(zeile):
+            n = zeile[i + 1]
+            aus.append(c)
+            aus.append("_" if n in ";&|" else n)
+            i += 2
+            continue
+        if quote is None:
+            if c in ("'", '"'):
+                quote = c
+            aus.append(c)
+        elif c == quote:
+            quote = None
+            aus.append(c)
+        else:
+            aus.append("_" if c in ";&|" else c)
+        i += 1
+    return "".join(aus)
+
+
 def _logische_zeilen(text: str):
     """Physical lines joined into the instructions they form, each with its first line number.
 
@@ -752,16 +785,17 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
             # blanked with spaces of the same length, and the rest of the line is swept.
             for anker in angemeldet:
                 zeile = anker.sub(lambda m: " " * len(m.group(0)), zeile)
+            maskiert = _ohne_quotierte_trenner(zeile)
             for form, muster, nur_aktuelle, beschreibung in _formen_fuer(rel):
                 # EVERY match of the line, not the first: an older pin before a current one on the
                 # same line is history, and the current one behind it is still a claim.
-                treffer = next((m for m in muster.finditer(zeile)
+                treffer = next((m for m in muster.finditer(maskiert)
                                 if not (nur_aktuelle and version and m.group(1) != version)), None)
                 if not treffer:
                     continue
                 problems.append(
                     f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
-                    f"{beschreibung} — in \"{treffer.group(0).strip()}\", but is not a declared "
+                    f"{beschreibung} — in \"{zeile[treffer.start():treffer.end()].strip()}\", but is not a declared "
                     f"place. Either add it to _TRACKED_PLACES so it is kept current, or reword it "
                     f"so it does not claim to be.")
                 gefunden = True
