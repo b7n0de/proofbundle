@@ -97,27 +97,27 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # both. Bound to the URL alone, a headline raised halfway (new URL, old text) would read as current,
 # and the front page would name one release while linking to another.
 #
-# EVERY ANCHOR IS BOUND TO THE START OF ITS LINE, because Check 4 reads every match in the file. A
-# review lens showed on 2026-09-25 that an unbound install anchor also matched a prose sentence
-# recalling an older release's command, and would have turned it red at every bump. A declared line
-# is a command or a headline, and those start their line; a mention inside a sentence stays history.
+# THE PROPERTY IS "README PINS NO RELEASE OF THIS PROJECT BUT THE CURRENT ONE", in whatever form.
+# Three review lenses on 2026-09-25 showed why it is stated that way and not as a list of
+# instruction forms. The first found that an unbound install anchor turned a prose sentence
+# recalling an older command red. Binding the anchors to the start of an instruction line then
+# traded that false red for a silent miss: a stale `- pip install`, `pip3`, `sudo pip`,
+# `pip install -U`, `pipx`, `poetry add`, `py -m pip` or table-cell instruction next to a raised
+# canonical line matched no anchor, and Check 6 reads an older number as history. Each round closed
+# the forms the last lens named, and the next lens named more. A list of forms does not close; a
+# property does, and a silent miss costs more than a loud red.
 #
-# "THE START OF ITS LINE" MEANS AFTER THE MARKERS AN INSTRUCTION IS WRITTEN WITH. A third lens
-# showed the same day that the bare line start traded the false red for a silent miss: a stale
-# `- pip install …`, `1. …`, `> …`, `$ …`, `pip3`, `python3 -m pip` or `uv pip` line next to a raised
-# canonical one matched no anchor, and Check 6 reads an older number as history, so it passed both
-# checks. List, number, quote and prompt markers, an opening backtick and the usual command variants
-# are therefore part of the anchor. What remains unseen is an instruction written inside a sentence,
-# which cannot be told from a sentence recalling one.
+# So every pinned reference to this project in README.md must name the current release: a
+# `proofbundle==X.Y.Z` pin in whatever command it stands, a URL into this repository at tag
+# `vX.Y.Z`, and a link to a release tag. A sentence that recalls an older release with a pin turns
+# red at the next bump, and the remedy is to reword it, for example by linking the changelog,
+# never to raise it. That keeps the rule above: history is not bumped, it is simply not written as a
+# pin on the front page.
 #
-# THE LIMIT, stated because the same lens executed it: the anchors trust that a matching line is a
-# visible one. A correct copy of the headline hidden in an HTML comment, next to a visible headline
-# reworded into another form, passes both checks. That is concealment rather than drift, and no
-# anchor over the text can tell a rendered line from an unrendered one.
-#: The start of a line as an instruction is written: indentation, then any list, number or quote
-#: markers, an optional shell prompt and an optional opening backtick.
-_ANWEISUNG = r"(?m)^\s*(?:(?:[-*+>]|\d+[.)])\s+)*(?:\$\s+)?`?"
-
+# THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
+# one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
+# into another form, passes both checks. That is concealment rather than drift, and no anchor over
+# the text can tell a rendered line from an unrendered one.
 _TRACKED_PLACES = [
     ("RELEASE.md", re.compile(r"current:\s*v?" + _SEMVER), "the `(current: X.Y.Z)` note"),
     ("docs/readiness_pack/PROGRESS.md",
@@ -127,14 +127,15 @@ _TRACKED_PLACES = [
                 + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)"),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(_ANWEISUNG + r"(?:python3?\s+-m\s+)?(?:uv\s+)?pip3?\s+install\s+"
-                r"'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?\s*==\s*v?" + _SEMVER),
-     "the pinned `pip install proofbundle==X.Y.Z` instructions"),
+     re.compile(r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?" + _SEMVER),
+     "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
     ("README.md",
-     re.compile(_ANWEISUNG + r"(?:(?:curl|wget)\b[^\n]*?\s)?"
-                r"https://(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
+     re.compile(r"(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
                 r"(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/"),
-     "the example URLs pinned to the release tag `vX.Y.Z`"),
+     "every URL into this repository pinned to a release tag `vX.Y.Z`"),
+    ("README.md",
+     re.compile(r"github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER),
+     "every link to a release tag of this project"),
 ]
 
 # Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and

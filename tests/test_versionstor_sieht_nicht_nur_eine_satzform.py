@@ -300,9 +300,9 @@ def _readme_orte():
             in enumerate(_gate()._TRACKED_PLACES) if rel == "README.md"]
 
 
-def test_the_readme_is_declared_in_its_three_forms():
+def test_the_readme_is_declared_in_its_four_forms():
     """Without this line every case below could pass against a list that no longer names README."""
-    assert len(_readme_orte()) == 3, _readme_orte()
+    assert len(_readme_orte()) == 4, _readme_orte()
 
 
 @pytest.mark.parametrize("nr", range(len(_gate()._TRACKED_PLACES)),
@@ -324,7 +324,7 @@ def test_a_readme_left_behind_at_a_bump_is_red_in_check_4(tmp_path):
     """THE CATCH PROOF of the decision: the source and the other places are raised, README is not.
     Every one of the three forms is named, not just the first."""
     funde = _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, AKTUELL, AKTUELL))
-    assert len(funde) == 3, funde
+    assert len(funde) == len(_readme_orte()), funde
     for _i, _rel, beschreibung in _readme_orte():
         assert any(beschreibung in f and AKTUELL in f for f in funde), (beschreibung, funde)
 
@@ -346,24 +346,29 @@ def test_a_reworded_headline_is_a_vanished_anchor_not_a_pass(tmp_path):
     assert len(funde) == 1 and "was not found" in funde[0] and "release headline" in funde[0], funde
 
 
+def test_a_reworded_headline_is_not_rescued_by_another_link_to_the_same_release(tmp_path):
+    """The headline anchor is bound to the start of its line, and this is the case that needs it.
+    Reword the headline and keep a current tag link elsewhere, as a list item: unbound, the anchor
+    would find that link, call the headline present, and the vanished headline would pass."""
+    readme = _readme(NEU, NEU, NEU, NEU).replace(f"**[v{NEU}]", f"**[Release {NEU}]")
+    readme += f"- [v{NEU}](https://github.com/b7n0de/proofbundle/releases/tag/v{NEU})\n"
+    funde = _readme_funde(tmp_path, readme)
+    assert len(funde) == 1 and "was not found" in funde[0] and "release headline" in funde[0], funde
+
+
 def test_the_readme_anchors_name_this_project_not_a_shape(tmp_path):
-    """Check 4 demands the source version of EVERY match in the file. Six decoys that carry a
-    version in a release-claim shape but are not this project's current release must therefore not
-    match: another package's pin, a descriptive and a bare link to an older release, another
-    project's URL, and a sentence that recalls an older install command or example URL."""
+    """Check 4 demands the source version of EVERY match in the file, so a reference that is not
+    this project's never matches: another package's pin, another repository's URL, a document named
+    after a release, and a sentence that names a release without pinning it."""
     koeder = ("python -m pip install cbor2==5.9.0\n"
-              "[v6.0.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
-              "Previous release: [v6.0.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
+              "pip install notproofbundle==5.0.0\n"
               "https://raw.githubusercontent.com/other/project/v5.0.0/x.json\n"
-              # the two prose mentions a review lens used on 2026-09-25 to turn the gate red
-              "If you are upgrading, note that `python -m pip install proofbundle==6.1.0` was the "
-              "6.1 line's command.\n"
-              "The 6.0 example lived at https://raw.githubusercontent.com/b7n0de/proofbundle/v6.0.0/"
-              "examples/x.json for a while.\n")
+              "See docs/release_scope/6.0.0.md for what belonged to that release.\n"
+              "Since v6.0.0 the anchor has been stable.\n")
     g = _gate()
-    # PRECONDITION: each decoy IS a release-claim shape with a non-current number, so this case can
-    # fail. Measured through the Check 6 shapes, which carry no project name.
-    for zeile in koeder.splitlines():
+    # PRECONDITION: the first three ARE release-claim shapes with a non-current number, so this
+    # case can fail; measured through the Check 6 shapes, which carry no project name.
+    for zeile in koeder.splitlines()[:3]:
         treffer = [m.search(zeile) for _f, m, _n, _b in g._CLAIM_SHAPES]
         assert any(t and t.group(1) != NEU for t in treffer), f"not a decoy: {zeile!r}"
     assert _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + koeder) == []
@@ -443,6 +448,13 @@ def _workflow_befunde(d: dict) -> list[str]:
             befunde.append(f"{trig}: the inclusion filter `paths` {block['paths']} runs the workflow "
                            f"only for the files it lists, and the gate reads every tracked file")
         listen[trig] = block.get("paths-ignore", [])
+        zweige = block.get("branches")
+        if zweige is not None and "main" not in ([zweige] if isinstance(zweige, str) else zweige):
+            befunde.append(f"{trig}: `branches` {zweige} leaves out main")
+        if "main" in (block.get("branches-ignore") or []):
+            befunde.append(f"{trig}: `branches-ignore` names main")
+        if trig == "pull_request" and "types" in block and "synchronize" not in (block["types"] or []):
+            befunde.append(f"{trig}: `types` {block['types']} does not run on a new push to a pull request")
         # A string is not a list of patterns. Iterated, it yields one pattern per character and
         # skips nothing, so the case passed while GitHub rejects the workflow (third lens).
         if not (isinstance(listen[trig], list) and all(isinstance(g, str) for g in listen[trig])):
@@ -484,6 +496,10 @@ _ALT = ["**/*.md", "docs/**", "audit_artifacts/**", "receipts/**", ".mailmap"]
     ({"push": {"paths-ignore": "README.md"}, "pull_request": {"paths-ignore": "README.md"}},
      "not a list of patterns"),
     ("push", "pull_request: the trigger is missing"),
+    # the fourth lens, 2026-09-25
+    ({"push": {"branches-ignore": ["main"]}, "pull_request": {}}, "branches-ignore"),
+    ({"push": {"branches": ["release/**"]}, "pull_request": {}}, "leaves out main"),
+    ({"push": {}, "pull_request": {"types": ["closed"]}}, "does not run on a new push"),
 ])
 def test_CONTROL_each_way_of_skipping_the_gate_is_caught(on, erwartet):
     """THE COUNTER-DIRECTION. Without it the case above would also pass with a checker that finds
@@ -509,6 +525,7 @@ def test_CONTROL_the_short_trigger_forms_carry_no_filter_and_no_finding():
 
 
 @pytest.mark.parametrize("zeile", [
+    # instruction forms three review lenses used on 2026-09-25 to pass a stale pin through
     "- pip install proofbundle=={v}",
     "* pip install proofbundle=={v}",
     "> pip install proofbundle=={v}",
@@ -518,10 +535,22 @@ def test_CONTROL_the_short_trigger_forms_carry_no_filter_and_no_finding():
     "pip3 install proofbundle=={v}",
     "python3 -m pip install proofbundle=={v}",
     "uv pip install proofbundle=={v}",
+    "sudo pip install proofbundle=={v}",
+    "pip install -U proofbundle=={v}",
+    "python -m pip install --upgrade proofbundle=={v}",
+    "pipx install proofbundle=={v}",
+    "poetry add proofbundle=={v}",
+    "py -m pip install proofbundle=={v}",
+    "| pip install proofbundle=={v} |",
     "curl -fsSLo x.json https://raw.githubusercontent.com/b7n0de/proofbundle/v{v}/examples/x.json",
+    # history written as a pin: red by design, the remedy is to reword, never to raise
+    "If you are upgrading, note that `python -m pip install proofbundle=={v}` was the old command.",
+    "The old example lived at https://raw.githubusercontent.com/b7n0de/proofbundle/v{v}/examples/x.json",
+    "[v{v} release notes](https://github.com/b7n0de/proofbundle/releases/tag/v{v})",
+    "Previous release: [v{v}](https://github.com/b7n0de/proofbundle/releases/tag/v{v})",
 ])
-def test_a_stale_instruction_in_any_usual_form_is_red(tmp_path, zeile):
-    """The third lens, 2026-09-25: next to a raised canonical line, a stale instruction in one of
-    these forms passed both checks. Each must now be named by Check 4."""
+def test_an_older_pin_of_this_project_is_red_wherever_it_stands(tmp_path, zeile):
+    """README pins no release of this project but the current one. Next to a raised canonical
+    README, each line below carries the previous release as a pin and must be named by Check 4."""
     funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
-    assert len(funde) == 1 and AKTUELL in funde[0], (zeile, funde)
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
