@@ -100,7 +100,7 @@ class TestOtsPendingPathExternalVectors(unittest.TestCase):
         checked = 0
         for name in _PENDING_NAMES:
             res = verify_opentimestamps(_proof(name), _root_of(name), frozen={})
-            self.assertFalse(res["ok"], f"{name}: a pending proof must never be ok=True")
+            self.assertIs(res["ok"], False, f"{name}: a pending proof must never be ok=True")
             self.assertTrue(res["warn"], f"{name}: a pending proof must be warn=True")
             self.assertEqual(res["status"], "pending", f"{name}: expected status=pending")
             checked += 1
@@ -111,7 +111,7 @@ class TestOtsPendingPathExternalVectors(unittest.TestCase):
         for name in _PENDING_NAMES:
             wrong_root = hashlib.sha256(b"not the real file content: " + name.encode()).digest()
             res = verify_opentimestamps(_proof(name), wrong_root, frozen={})
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
             self.assertEqual(res["status"], "unbound",
                              f"{name}: a proof bound to a different root must be status=unbound")
 
@@ -154,7 +154,7 @@ class TestOtsConfirmedPathExternalVector(unittest.TestCase):
     def test_no_rp_header_is_honest_not_pass(self) -> None:
         from proofbundle.anchors_ots import verify_opentimestamps
         res = verify_opentimestamps(self.proof, self.root, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "needs_rp_trust")
 
@@ -164,7 +164,7 @@ class TestOtsConfirmedPathExternalVector(unittest.TestCase):
         bad[0] ^= 0xFF
         rp = {"bitcoin_block_headers": {str(self.height): bytes(bad).hex()}}
         res = verify_opentimestamps(self.proof, self.root, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "block_mismatch")
 
     def test_big_endian_display_root_does_not_confirm(self) -> None:
@@ -175,7 +175,7 @@ class TestOtsConfirmedPathExternalVector(unittest.TestCase):
         block = json.loads((FIXTURE_DIR / "block358391.json").read_text(encoding="utf-8"))
         rp = {"bitcoin_block_headers": {str(self.height): block["merkle_root"]}}
         res = verify_opentimestamps(self.proof, self.root, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "block_mismatch")
 
 

@@ -79,11 +79,11 @@ class TestMldsaCosign(unittest.TestCase):
         forged_line = f"{cp.EM_DASH} {other_name} {base64.b64encode(forged_blob).decode()}\n"
         forged_note = self.note + forged_line
         res = cp.verify_cosignature(forged_note, cp.cosign_vkey_mldsa(other_name, self.wpub))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_body_tamper(self):
         tampered = self.cosigned.replace("\n7\n", "\n8\n")
-        self.assertFalse(cp.verify_cosignature(tampered, self.wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature(tampered, self.wvkey)["ok"], False)
 
     def test_red_timestamp_tamper(self):
         lines = self.cosigned.rstrip("\n").split("\n")
@@ -91,12 +91,12 @@ class TestMldsaCosign(unittest.TestCase):
         ts = int.from_bytes(payload[4:12], "big") + 1
         lines[-1] = (f"{cp.EM_DASH} {self.wname} "
                      + base64.b64encode(payload[:4] + ts.to_bytes(8, "big") + payload[12:]).decode())
-        self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", self.wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature("\n".join(lines) + "\n", self.wvkey)["ok"], False)
 
     def test_red_wrong_witness_key(self):
         other = mldsa.MLDSA44PrivateKey.generate()
         other_vkey = cp.cosign_vkey_mldsa(self.wname, other.public_key().public_bytes_raw())
-        self.assertFalse(cp.verify_cosignature(self.cosigned, other_vkey)["ok"])
+        self.assertIs(cp.verify_cosignature(self.cosigned, other_vkey)["ok"], False)
 
     def test_red_keyid_domain_separation(self):
         # 0x06 keyID differs from a hypothetical 0x04 keyID for the same name (different alg byte).
@@ -150,7 +150,7 @@ class TestMldsaUnavailableFailsClosed(unittest.TestCase):
                      + base64.b64encode(bytes([0x06]) + _fake_pub).decode())
         if HAVE_MLDSA:
             # With PQ available the path proceeds to (correctly) not find a matching line.
-            self.assertFalse(cp.verify_cosignature(note, fake_vkey)["ok"])
+            self.assertIs(cp.verify_cosignature(note, fake_vkey)["ok"], False)
         else:
             with self.assertRaises(UnsupportedError):
                 cp.verify_cosignature(note, fake_vkey)

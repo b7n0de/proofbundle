@@ -59,7 +59,7 @@ class TestNamedProfilesLoadExplainLint(unittest.TestCase):
                 # lint (which promotes attributes-to-nobody to an error) must therefore fail on the
                 # profile AS SHIPPED — this is the honest, documented state, not a bug.
                 strict = lint_policy(policy, strict=True)
-                self.assertFalse(strict["ok"])
+                self.assertIs(strict["ok"], False)
 
     def test_decision_receipt_profile_needs_v0_2_schema(self):
         policy = load_policy(profile_path("decision-receipt-template-v1"))

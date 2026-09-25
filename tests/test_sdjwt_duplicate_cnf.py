@@ -81,7 +81,7 @@ class TestDuplicateCnfRejected(unittest.TestCase):
         sd_part = issuer_jwt + "~"
         presented = _present_with_kb(sd_part, attacker)   # KB-JWT signed by the attacker's (last-wins) key
         res = verify_key_binding(presented)
-        self.assertFalse(res["ok"], "a duplicated cnf must be rejected fail-closed, not bind the attacker key")
+        self.assertIs(res["ok"], False, "a duplicated cnf must be rejected fail-closed, not bind the attacker key")
         self.assertIn("duplicate", res["detail"].lower())
 
     def test_legit_single_cnf_presentation_still_verifies(self):

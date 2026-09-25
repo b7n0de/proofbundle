@@ -213,7 +213,7 @@ class TestDecisionPath(unittest.TestCase):
         env = {**env, "payload": base64.b64encode(body.encode()).decode("ascii")}
         # never-raise: a stable fail-closed verdict, the reason preserved in errors[]
         r = verify_decision_receipt(env, pub)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["structure_ok"])
         self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
         self.assertTrue(any("duplicate JSON key" in e for e in r["errors"]), r["errors"])
@@ -283,7 +283,7 @@ class TestSixLensExtendedPaths(unittest.TestCase):
         root = merkle.merkle_tree_hash([disclosure.encode("ascii")])
         res = verify_sample_opening({"index": 0, "disclosure": disclosure, "proof_b64": []},
                                     base64.b64encode(root).decode("ascii"), 1)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("duplicate JSON key", res["detail"])
 
     def test_statuslist_duplicate_status_list_key_rejected(self):
@@ -305,7 +305,7 @@ class TestSixLensExtendedPaths(unittest.TestCase):
         token = signing_input + "." + b64(signer.sign(signing_input.encode("ascii")))
         res = verify_status_snapshot(token, expected_uri="https://l.example/1", index=0,
                                      issuer_pubkey=pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("duplicate JSON key", res["detail"])
 
     def test_enclave_eat_duplicate_claim_rejected(self):
@@ -318,17 +318,17 @@ class TestSixLensExtendedPaths(unittest.TestCase):
         signing_input = b64(header.encode()) + "." + b64(claims.encode())
         eat = signing_input + "." + b64(signer.sign(signing_input.encode("ascii")))
         res = enc.verify_enclave_attestation(eat, verifier_pubkey=pub, expected_binding="BBB")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("duplicate JSON key", res["detail"])
 
     def test_anchor_envelopes_reject_duplicates_fail_closed_no_raise(self):
         from proofbundle.anchors_chia import verify_chia_datalayer
         from proofbundle.anchors_markovian import verify_markovian
         chia = verify_chia_datalayer(b'{"key":"00","key":"11"}', b"\x00" * 32, frozen={})
-        self.assertFalse(chia["ok"])
+        self.assertIs(chia["ok"], False)
         mark = verify_markovian(b'{"schema":"markovian-provenance/v1","wallet":"a","wallet":"b"}',
                                 b"\x00" * 32, frozen={})
-        self.assertFalse(mark["ok"])
+        self.assertIs(mark["ok"], False)
         self.assertEqual(mark["status"], "malformed")
 
 

@@ -43,7 +43,7 @@ class JcsMandatory(unittest.TestCase):
 
     def test_missing_jcs_engine_is_hard_failure(self):
         # a valid, canonical receipt verified in an install where the JCS engine is UNAVAILABLE must
-        # fail closed (structure_ok=False, ok not True) — never a silent pass. Uses the DEFAULT
+        # fail closed (structure_ok=False, ok=False) — never a silent pass. Uses the DEFAULT
         # strict=False, proving the security profile enforces canonicality by default.
         signer = generate_signer()
         env = emit_decision_receipt(BASE_PRED, signer, strict=True)
@@ -51,7 +51,7 @@ class JcsMandatory(unittest.TestCase):
             r = verify_decision_receipt(env, _pub_bytes(signer))  # strict defaults to False
         self.assertIs(r["crypto_ok"], True)
         self.assertIs(r["structure_ok"], False)
-        self.assertIsNot(r["ok"], True)
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("canonicalizer unavailable" in e for e in r["errors"]), r["errors"])
         self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
 
@@ -62,7 +62,7 @@ class JcsMandatory(unittest.TestCase):
         env = emit_decision_receipt(BASE_PRED, signer, strict=True)
         with mock.patch("proofbundle.decision._rfc8785_available", return_value=False):
             default_call = verify_decision_receipt(env, _pub_bytes(signer))
-        self.assertIsNot(default_call["ok"], True)
+        self.assertIs(default_call["ok"], False)
         self.assertIs(default_call["structure_ok"], False)
 
     def test_noncanonical_statement_fails(self):
@@ -75,7 +75,7 @@ class JcsMandatory(unittest.TestCase):
         r = verify_decision_receipt(env, _pub_bytes(signer))  # strict defaults to False
         self.assertIs(r["crypto_ok"], True)   # signature is valid over the non-canonical bytes
         self.assertIs(r["structure_ok"], False)   # but canonicality is caught -> fail-closed
-        self.assertIsNot(r["ok"], True)
+        self.assertIs(r["ok"], False)
 
     def test_canonical_statement_still_verifies(self):
         # regression: an honest canonical receipt still verifies (the fix does not break the happy path).

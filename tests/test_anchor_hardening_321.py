@@ -56,15 +56,15 @@ class TestRequirePqIsVerifiedNotLabeled(unittest.TestCase):
         r = verify_sequence([[faked]], DATA, anchor_verifier=lambda a: True, require_pq=True)
         pq = _check(r, "renewal:pq_floor")
         self.assertIsNotNone(pq)
-        self.assertFalse(pq.ok, pq)
-        self.assertFalse(r.ok)
+        self.assertIs(pq.ok, False, pq)
+        self.assertIs(r.ok, False)
         self.assertIn("not verification", pq.detail)
 
     def test_pq_label_in_unauthenticated_mode_fails_closed(self):
         seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
         faked = dataclasses.replace(seq[0][0], sig_alg="mldsa65")
         r = verify_sequence([[faked]], DATA, allow_unauthenticated_anchor=True, require_pq=True)
-        self.assertFalse(_check(r, "renewal:pq_floor").ok)
+        self.assertIs(_check(r, "renewal:pq_floor").ok, False)
 
     def test_ed25519_authority_has_no_pq_leg(self):
         # a real ed25519 authority signature verifies the anchor, but carries no PQ leg -> require_pq fails.
@@ -76,8 +76,8 @@ class TestRequirePqIsVerifiedNotLabeled(unittest.TestCase):
                                      sig_alg="ed25519", signers={"ed25519": ed})
         r = verify_sequence(seq, DATA, authority_keys={"ed25519": pub}, require_pq=True)
         self.assertTrue(_check(r, "renewal:last_anchor").ok)   # anchor itself IS verified
-        self.assertFalse(_check(r, "renewal:pq_floor").ok)     # but there is no PQ leg
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:pq_floor").ok, False)     # but there is no PQ leg
+        self.assertIs(r.ok, False)
 
     @unittest.skipUnless(_HAS_MLDSA, "needs cryptography with FIPS 204 (ML-DSA)")
     def test_verified_pq_authority_passes(self):
@@ -103,7 +103,7 @@ class TestFutureDatedRenewalPolicy(unittest.TestCase):
         seq = build_initial_sequence(DATA, hash_alg="sha256", time=2000)
         policy = RenewalPolicy(max_ats_age=1_000_000, strictness="fail")  # age alone would never trigger
         r = evaluate_renewal_policy(seq, policy=policy, now=1000)  # newest.time 2000 is in the future
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
         self.assertIn("future", _check(r, "renewal:policy").detail)
 
     def test_present_time_still_passes(self):
@@ -132,8 +132,8 @@ class TestRequireCurrentHash(unittest.TestCase):
     def test_require_current_hash_fails_closed(self):
         r = verify_sequence(self._sha1_seq(), DATA, allow_unauthenticated_anchor=True,
                             require_current_hash=True)
-        self.assertFalse(_check(r, "renewal:current_hash").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:current_hash").ok, False)
+        self.assertIs(r.ok, False)
 
     def test_current_newest_passes_require_current_hash(self):
         seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)

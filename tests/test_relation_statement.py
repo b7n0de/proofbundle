@@ -133,7 +133,7 @@ class TestEmitVerify(unittest.TestCase):
         other = generate_signer()
         r = verify_relation_statement(env, _pub(other), related=_attached(sk, root))
         self.assertFalse(r["crypto_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         # On a forged envelope, no trust-derived lineage is computed.
         self.assertIsNone(r["lineage"])
 

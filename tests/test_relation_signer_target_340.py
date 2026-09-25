@@ -184,7 +184,7 @@ class TestSignerDecisionPath(unittest.TestCase):
         pol = load_policy({"schema": V02, "policy_id": "p", "relations": {
             "relation_signer": {"supersedes": {"mode": "pinned", "keys": [_pub(self.o)]}}}})
         r = self._verify(a, self.x, self._related(b, self.y), pol)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["policy_ok"])
         # lattice monotonicity: crypto stays valid; the block is only in the policy verdict.
         self.assertTrue(r["crypto_ok"])
@@ -222,7 +222,7 @@ class TestTargetPinDecoy(unittest.TestCase):
     def test_decoy_parent_fails_closed(self):
         child = _emit({"decisionId": "c", "relationships": [_edge(_root(self.rx))]}, self.x)
         r = self._verify(child, self._related(self.r0, self.rx), [_root(self.r0)])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["policy_ok"])
         self.assertTrue(r["crypto_ok"])  # lattice monotonicity
         self.assertEqual(r["lineage"]["lineage"], "VERIFIED")  # crypto resolves; policy blocks
@@ -313,7 +313,7 @@ class TestOutcomePathGate(unittest.TestCase):
             "relation_signer": {"supersedes": {"mode": "pinned", "keys": [_pub(self.y)]}}}})
         r = verify_outcome_receipt(a, self.x.public_key().public_bytes_raw(),
                                    related=self._related(b, self.y), policy=pol)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["policy_ok"])
         self.assertTrue(r["crypto_ok"])
         self.assertIn(CODE_RELATION_SIGNER_UNAUTHORIZED, r["relations_policy_codes"])

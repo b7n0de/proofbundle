@@ -34,7 +34,7 @@ class TestReceiptToken(unittest.TestCase):
         bundle = _bundle()
         bundle["payload_b64"] = base64.b64encode(b'{"forged": 1}').decode()
         result, _ = verify_receipt_token(receipt_token(bundle))
-        self.assertFalse(result.ok)                      # unpacks fine, verifies FAILED
+        self.assertIs(result.ok, False)                      # unpacks fine, verifies FAILED
 
     def test_red_garbage_tokens(self):
         for bad in ("", "pb1.", "pb1.!!!!", "pb2." + "AAAA", "eyJhbGciOi.fake.jwt"):
@@ -145,7 +145,7 @@ class TestEvalResultsEntry(unittest.TestCase):
         bad_jwt = f"{_b(5)}.{_b({'x': 1})}.{_b('sig')}"   # header decodes to the int 5, not a dict
         bundle["sd_jwt_vc"] = {"compact": bad_jwt + "~"}
         result, _ = verify_receipt_token(receipt_token(bundle))   # must not raise
-        self.assertFalse(result.ok)
+        self.assertIs(result.ok, False)
 
 
 if __name__ == "__main__":

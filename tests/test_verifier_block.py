@@ -457,15 +457,15 @@ class TestTestResultStatement:
         andere = copy.deepcopy(s)
         andere["subject"][0]["digest"] = {"sha256": "9" * 64}
         j1 = VB.join_test_result(b, andere)
-        assert not j1["ok"] and not j1["subject_matches_build"]
+        assert j1["ok"] is False and not j1["subject_matches_build"]
         manipuliert = copy.deepcopy(s)
         manipuliert["predicate"]["passedTests"].append("c")
         j2 = VB.join_test_result(b, manipuliert)
-        assert not j2["ok"] and not j2["digest_matches"] and j2["subject_matches_build"]
+        assert j2["ok"] is False and not j2["digest_matches"] and j2["subject_matches_build"]
         b3 = copy.deepcopy(b)
         b3["testResult"]["result"] = "FAILED"
         j3 = VB.join_test_result(b3, s)
-        assert not j3["ok"] and not j3["result_matches"]
+        assert j3["ok"] is False and not j3["result_matches"]
 
     def test_the_join_fails_when_the_statement_ran_another_vector_set(self):
         """un-review 2026-09-18, P1: subject, digest and result agreed, and the statement was
@@ -477,13 +477,12 @@ class TestTestResultStatement:
         # the block declares another corpus; the reference (digest, result) still matches
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 3}
         j = VB.join_test_result(b, s)
-        assert not j["ok"] and not j["vector_set_matches"], j
+        assert j["ok"] is False and not j["vector_set_matches"], j
         assert j["subject_matches_build"] and j["digest_matches"] and j["result_matches"]
         assert any("vector set" in e for e in j["errors"])
         # same case count, different digest -- still another corpus
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 110}
-        assert not VB.join_test_result(b, s)["ok"]
-
+        assert VB.join_test_result(b, s)["ok"] is False
     def test_a_result_that_its_own_lists_contradict_is_refused(self):
         """Codex round one on PR 224, P1: `result: PASSED` beside `failedTests: [...]` validated
         clean. The headline is derived from the lists; a case in two lists is the same defect."""
@@ -528,7 +527,7 @@ class TestTestResultStatement:
         s["predicate"]["configuration"][0].pop("annotations")
         b["testResult"] = VB.test_result_ref(s)          # the reference follows the new bytes
         j = VB.join_test_result(b, s)
-        assert j["digest_matches"] and not j["vector_set_matches"] and not j["ok"], j
+        assert j["digest_matches"] and not j["vector_set_matches"] and j["ok"] is False, j
         assert any("vector set" in e for e in j["errors"])
         # a wrong count under the right digest is refused just the same
         s["predicate"]["configuration"][0]["annotations"] = {"cases": 3}
@@ -545,7 +544,7 @@ class TestTestResultStatement:
         b = _valid_block()
         del b["testResult"]
         j = VB.join_test_result(b, self._stmt())
-        assert not j["ok"] and "cites no test result" in j["errors"][0]
+        assert j["ok"] is False and "cites no test result" in j["errors"][0]
 
     def test_the_statement_digest_is_over_the_object_not_the_file(self):
         s = self._stmt()
