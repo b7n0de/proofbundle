@@ -56,7 +56,7 @@
         {
           "ref": "conformance/run_conformance.py",
           "kind": "harness",
-          "note": "F1 offline corpus, 130 cases as measured 2026-09-20 (len(json.load(open('conformance/manifest.json'))['cases']); the tree holds the same number of case.json files), one common vocabulary. It said 29 and nothing re-derived it."
+          "note": "F1 offline corpus, 135 cases as measured 2026-09-25 (len(json.load(open('conformance/manifest.json'))['cases']); the tree holds the same number of case.json files), one common vocabulary. It said 29 and nothing re-derived it; it said 130 on 2026-09-20, before five envelope-profile vectors were added."
         },
         {
           "ref": "conformance/common_vocabulary.py",
@@ -246,7 +246,7 @@
     "5.1.0": {
       "delivers": [
         "receipt envelope profile reachable from the distribution: docs/RECEIPT_ENVELOPE_PROFILE.md is now shipped in the sdist. Measured before the fix at 27a84db3c6dc: the file appeared 0 times in the sdist and 0 times in the wheel. The cause was NOT a prune or exclude rule — MANIFEST.in is an allowlist and the file was on no line, missing by absence rather than by exclusion. Verified after the fix by a second build: 740 files instead of 739, exactly one added, none removed",
-        "conformance vectors were already complete and stay unchanged: 21 of 21 files, 10 of 10 case.json under conformance/envelope_profile/, carried by `graft conformance`",
+        "conformance vectors were already complete and stay unchanged in this release (21 files and 10 case.json then). Today, measured 2026-09-25 against a built sdist: 31 of 31 files, 15 of 15 case.json under conformance/envelope_profile/, carried by `graft conformance`",
         "version pin binding proven in the field: the audit-candidate matrix reported VERSION PIN DRIFT for this release (scoped 5.0.0, package ships 5.1.0) before VERSION_UNDER_TEST was pulled — the three-state binding added on 2026-08-25 did what it was built for"
       ],
       "open": [
