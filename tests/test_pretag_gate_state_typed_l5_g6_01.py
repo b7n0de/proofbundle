@@ -126,7 +126,7 @@ class TheGateReportsATypedState(unittest.TestCase):
         d = _tree()
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "absent", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_every_rejected_shape_reports_rejected(self):
         """The four shapes the gate measured as NOT_APPLICABLE. Each must now be `rejected` — UND JEDE
@@ -178,7 +178,7 @@ class TheGateReportsATypedState(unittest.TestCase):
                 r = self.pta.evaluate(d, "6.0.0")
                 self.assertEqual(r["state"], "rejected",
                                  f"{label}: state={r['state']!r} — a known-bad artefact reads as absence")
-                self.assertFalse(r["ok"])
+                self.assertIs(r["ok"], False)
                 self.assertTrue(r["rejected_receipts"],
                                 f"{label}: the candidate was skipped instead of rejected")
                 gruende = " | ".join(x.get("reason", "") for x in r["rejected_receipts"])
@@ -210,7 +210,7 @@ class TheGateReportsATypedState(unittest.TestCase):
                                                          gate_source_digest="b" * 64))
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "other_tree", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertEqual(len(r["other_tree_receipts"]), 1)
         self.assertEqual(r["rejected_receipts"], [])
         self.assertIn("ANOTHER tree", r["reason"])
@@ -322,7 +322,7 @@ class TheGateReportsATypedState(unittest.TestCase):
         this house is never what grants the gate.
 
         THE BLANKET FORM WAS WRONG, and this case's own ceremony proved it (2026-09-21, owner
-        decision OA-fa327c91f0, option A). The line used to read `assertFalse(r["ok"])`, that is:
+        decision OA-fa327c91f0, option A). The line used to read `assertIs(r["ok"], False)`, that is:
         nothing ever grants the gate here. That held only while this tree carried no signed
         pre-tag receipt of its own. The moment the release ceremony put one in, `ok` became true,
         the state became `verified`, and the case went red against a tree that behaved exactly as
@@ -378,7 +378,7 @@ class TheGateReportsATypedState(unittest.TestCase):
             encoding="utf-8")
         _plant(d, "600", "receipt.json", json.dumps({"garbage": True}))
         r = self.pta.evaluate(d, "6.0.0")
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
         self.assertNotEqual(r["state"], "verified", r)
         self.assertNotIn("FORGED", json.dumps(r))
 
@@ -447,7 +447,7 @@ class TheGateReportsATypedState(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp(prefix="l5g601_nov_"))
         r = self.pta.evaluate(d)
         self.assertEqual(r["state"], "not_determinable", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class C121NarrowsOnlyOnAbsence(unittest.TestCase):

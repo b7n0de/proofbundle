@@ -75,12 +75,12 @@ class SignierterVorTagEintrag(unittest.TestCase):
 
     def test_fremder_schluessel_faellt_und_sagt_es(self) -> None:
         r = self._pruefe(self._huelle(), key=_pub(generate_signer()))
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("signature_ok", r["reason"])
 
     def test_andere_version_faellt_und_sagt_es(self) -> None:
         r = self._pruefe(self._huelle(), expected_version="3.7.0")
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("version_ok", r["reason"])
         self.assertTrue(r["signature_ok"], "die Signatur ist gueltig — nur die Version passt nicht; "
                                            "wer das zusammenwirft, meldet den falschen Defekt")
@@ -88,7 +88,7 @@ class SignierterVorTagEintrag(unittest.TestCase):
 
     def test_anderer_commit_faellt_und_sagt_es(self) -> None:
         r = self._pruefe(self._huelle(), expected_commit="f" * 40)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("commit_ok", r["reason"])
         self.assertEqual(r["observed_commit"], _COMMIT)
 
@@ -99,7 +99,7 @@ class SignierterVorTagEintrag(unittest.TestCase):
         nicht durch eine Wortliste rutschen — das Feld ist zweiwertig und steht im signierten Rumpf.
         """
         r = self._pruefe(self._huelle(result="FAILED"))
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("result_ok", r["reason"])
         self.assertEqual(r["observed_result"], "FAILED")
 
@@ -108,7 +108,7 @@ class SignierterVorTagEintrag(unittest.TestCase):
                                               "signatures": []}):
             with self.subTest(huelle=str(kaputt)[:40]):
                 r = self._pruefe(kaputt)
-                self.assertFalse(r["ok"])
+                self.assertIs(r["ok"], False)
                 self.assertIsInstance(r["reason"], str)
 
     # ---- die Vergleiche sind EXAKT, auf BEIDEN Stellen ----
@@ -156,7 +156,7 @@ class SignierterVorTagEintrag(unittest.TestCase):
                                       time_verified="t", policy_uri="p")
         st["predicateType"] = "https://slsa.dev/verification_summary/v1"   # gueltig, aber fremd
         r = self._pruefe(self.pta.sign_statement(st, self.key))
-        self.assertFalse(r["ok"], "eine fremde Aussageform wurde als Vor-Tag-Attestierung genommen")
+        self.assertIs(r["ok"], False, "eine fremde Aussageform wurde als Vor-Tag-Attestierung genommen")
         self.assertFalse(r["predicate_type_ok"])
         self.assertIn("predicate_type_ok", r["reason"])
         # Gegenprobe im selben Test: die Signatur ist gueltig — es scheitert NUR am Typ.

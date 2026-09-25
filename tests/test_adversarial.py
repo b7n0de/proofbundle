@@ -76,7 +76,7 @@ class TestAdversarial(unittest.TestCase):
         payload["threshold"] = "0.10"                             # forge an easier bar
         tampered["payload_b64"] = base64.b64encode(
             json.dumps(payload).encode("utf-8")).decode("ascii")
-        self.assertFalse(verify_bundle(tampered).ok)              # signature no longer matches
+        self.assertIs(verify_bundle(tampered).ok, False)              # signature no longer matches
         self.assertIsNone(decode_eval_claim(tampered))
 
     def test_c_omitted_sd_jwt_fields_are_counted(self):

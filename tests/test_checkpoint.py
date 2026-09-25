@@ -59,8 +59,8 @@ class TestCheckpoint(unittest.TestCase):
         vk = cp.vkey(ORIGIN, _raw_pub(signer))
         parts = sn.split("\n")
         parts[2] = base64.b64encode(bytes(32)).decode()      # tamper the root
-        self.assertFalse(cp.verify_checkpoint("\n".join(parts), vk)["ok"])
-        self.assertFalse(cp.verify_checkpoint(sn, cp.vkey(ORIGIN, _raw_pub(generate_signer())))["ok"])
+        self.assertIs(cp.verify_checkpoint("\n".join(parts), vk)["ok"], False)
+        self.assertIs(cp.verify_checkpoint(sn, cp.vkey(ORIGIN, _raw_pub(generate_signer())))["ok"], False)
 
     def test_leading_zero_size_rejected(self):
         signer = generate_signer()

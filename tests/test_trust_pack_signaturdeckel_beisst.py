@@ -122,7 +122,7 @@ class TestDerSignaturdeckelDesTrustPacksBeisst(unittest.TestCase):
                            "Vorbedingung: die Liste muss den Deckel wirklich ueberschreiten")
         with _Zaehler() as z:
             r = verify_trust_pack(env, strict=True, now=_NOW)
-        self.assertFalse(r["ok"], "Ein Pack ueber dem Signaturdeckel darf nicht gueltig sein")
+        self.assertIs(r["ok"], False, "Ein Pack ueber dem Signaturdeckel darf nicht gueltig sein")
         self.assertEqual(z.n, 0, (
             f"Der Deckel hat {z.n} Kryptopruefungen zugelassen, bevor er abgewiesen hat. Ein Deckel, "
             f"der erst NACH der Arbeit meldet, schuetzt vor nichts — `verify_trust_pack` hat keine "

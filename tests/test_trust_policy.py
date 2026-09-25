@@ -594,7 +594,7 @@ class TestExpectedVct(unittest.TestCase):
         res = evaluate_policy(bundle, _Result(), policy)
         self.assertFalse(res["policy_ok"])
         vct_check = next(c for c in res["checks"] if c["name"] == "policy:expected_vct")
-        self.assertFalse(vct_check["ok"])
+        self.assertIs(vct_check["ok"], False)
 
     def test_expected_vct_listed_in_explain(self):
         pol = load_policy(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/mine"}))
