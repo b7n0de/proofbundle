@@ -118,6 +118,18 @@ include Makefile
 # fixtures under `tests/fixtures/pr_bodies/` stay outside for the same reason: the cases that read them
 # never run where the script is absent.
 #
+# OUT, and deliberately decided (2026-09-25): scripts/render_site_data.py. It measures this
+# repository to render `docs/site/site-data.json`: the version from pyproject, the release date and
+# commit from a git tag, the check count from a real verify run over a conformance bundle, the test
+# count from `tests/*.py`, and the release receipts under `audit_artifacts/`. An installed package has
+# no git tree, no conformance corpus and no audit artefacts, so every field would come back
+# not_measurable and the run would write a file that says nothing — the same reason `render_release.py`
+# and `render_pr_body.py` stand outside, above. Its contract
+# `tests/test_site_data_every_value_with_its_source.py` loads it through `spec_from_file_location`, and
+# because that module names `scripts/render_site_data.py` — a path this list does not ship — the
+# derived skip set in `tests/conftest.py::modul_ist_repo_kontext` marks it repo-context outside a
+# checkout and skips it honestly, while inside a checkout the path exists and every case runs.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
