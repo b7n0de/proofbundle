@@ -1,10 +1,12 @@
-# Addendum to RESTRISIKO_610, 2026-09-25: two named limits of the release-integrity gate
+# Addendum to RESTRISIKO_610, 2026-09-25: named limits Codex measured and the pull requests kept
 
 `RESTRISIKO_610.md` is frozen, and what comes after the tag is recorded in a dated addendum next to
-it, never as an edit to that file. This is the second addendum. It carries two limits of
-`scripts/check_version_and_changelog.py` that Codex measured on pull request 266 and that the pull
-request names instead of closing. Both are register lines for the next patch release, and both err
-in the same direction: a red finding over something unusual, never a silent pass over a stale pin.
+it, never as an edit to that file. This is the second addendum. It carries limits that Codex measured on pull requests of this
+repository and that the pull requests name instead of closing: two of
+`scripts/check_version_and_changelog.py` (pull request 266), one of the receipt chain of pull
+requests 257 to 259 (pull request 265), and one of `classify_eval_claim` (pull request 268). All
+four are register lines for the next patch release, and none of them turns a wrong input into a
+`valid` or a silent pass.
 
 ## VERSION-GATE-COMMAND-SUBSTITUTION-NOT-LEXED-01
 
@@ -41,6 +43,39 @@ directly after the version with more of a tag name behind it, is pinned by
 
 What closing it needs: telling a Markdown link destination from prose by the text before the URL,
 in each pattern that reads a version at a ref position. Its target is the next patch release.
+
+## RECEIPT-CHAIN-PUBLISHED-INTERMEDIATES-UNNAMED-01
+
+Codex on PR 265, threads 4104450705, 4104541548 and 4104709532. The receipts for pull requests 257,
+258 and 259 were reissued several times, and each reissue on `main` names its predecessors, so the
+chain of the files `main` carries today resolves to one current receipt per family. Measured on
+2026-09-25 with `resolve_receipt_chain` over every version that was ever published at those paths,
+in the history of `main` and on the branch of PR 265: five versions are named by no successor, the
+first receipts of 257 from d4f5e478 and of 258 from e86d0d1f, and the `r2` receipts of all three
+families as they stood at 92139fa9 on the branch of PR 265. A reader who kept one of them, for example from a commit-pinned link
+in an earlier answer, and holds the current receipt too, sees two current candidates.
+
+Why it does not block: the files on `main` resolve without ambiguity, every published version stays
+signature-valid and reachable, and the ambiguity is loud, two candidates rather than a wrong one.
+
+What closing it needs: one successor per family whose supersession names every remaining candidate
+with its digest and a reason. Its target is the next patch release.
+
+## FOREIGN-FORMAT-VERDICT-DEPENDS-ON-TRANSPORT-01
+
+Codex on PR 268, thread 4105230532. `classify_eval_claim` reads a path through `load_bundle`, which
+applies the byte cap before any field, while a parsed document carries no bytes and gets the
+structural limits only. Measured on `main` on 2026-09-25: a document with a foreign `schema` and a
+payload of 9.5 MiB split into strings under the per-string limit is `refused_unknown_schema` as a
+parsed document and `invalid` as a file. The single long string Codex measured falls in both
+transports today, through the string-length limit; the class does not.
+
+Why it does not block: neither outcome is `valid`, the document is foreign in both readings, and
+the asymmetry is stated in the function's own docstring.
+
+What closing it needs: the byte cap applied to a parsed document through its canonical
+serialisation, so that both transports refuse by the same rule. Its target is the next patch
+release.
 
 ## What this addendum does not do
 
