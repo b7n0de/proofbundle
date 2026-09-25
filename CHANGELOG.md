@@ -10,6 +10,20 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A pre-tag verifier judges a tree, it does not install it into the process that asked**
+  (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
+  `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
+  undid it, so a later plain `import pre_tag_receipt_lib` in the same process resolved to whatever the
+  judged tree carried under that name. Measured on main 166aec47: eight cases of
+  `tests/test_pretag_gate_state_typed_l5_g6_01.py` failed with `cannot import name 'canonical_bytes'`
+  under PYTHONHASHSEED 5 and 7, and in 1 of 8 unseeded runs. Each verifier now restores the three
+  settings when it returns and sets the bytecode protection on every call, and it removes the
+  modules it loaded for the first time from a path it put on `sys.path` (Codex on PR 274: after the
+  path was restored, `proofbundle` and `proofbundle._wire_b64` from the judged checkout stayed in
+  `sys.modules`). The producer
+  `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
+  it starts inherits them.
+
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
   and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
