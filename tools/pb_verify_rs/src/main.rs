@@ -449,6 +449,10 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
+// S106: Python's wording for the two empty-container cases, so a reason reads the same on both sides.
+const LEERE_SIGNATURLISTE: &str = "DSSE envelope.signatures must be a non-empty list";
+const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty string";
+
 // The in-toto Statement payload type every proofbundle receipt/statement is signed under. The
 // relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
 // verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
@@ -459,49 +463,29 @@ fn verify_dsse(
     pubkey_b64: &str,
     expected_payload_type: Option<&str>,
 ) -> Result<bool, String> {
-    let payload_type = envelope
-        .get("payloadType")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payloadType")?;
-    // Type-confusion defense (mirror of Python dsse.verify_envelope's payload_type pin —
-    // relation_statement.py:189-190 / cli.py:1241-1242): when an expected payloadType is given it
-    // MUST equal the envelope's payloadType BEFORE the PAE is built. A Sign/Verify type mismatch
-    // silently changes the PAE, so an envelope carrying the WRONG payloadType is rejected fail-closed
-    // here instead of being authenticated under its own attacker-chosen type (Rust fail-open, fixed).
-    if let Some(expected) = expected_payload_type {
-        if payload_type != expected {
-            return Ok(false);
-        }
-    }
-    let payload_b64 = envelope
-        .get("payload")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payload")?;
-    let body = b64_dsse(payload_b64)?;
-    let msg = dsse_pae(payload_type, &body);
-
-    // LAUF12-L1 (P0): dieselbe Kappe wie Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
-    // "signatures"), VOR dem Schluessel und vor der Verify-Schleife — ein DoS-Riegel, der erst nach
-    // der Arbeit greift, ist keiner.
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope has no signatures array")?;
-    if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten(
-            "signatures",
-            sigs.len(),
-            BUDGET_SIGNATURES,
-        ));
-    }
-
+    let Some((msg, sigs)) = dsse_bestandteile(envelope, expected_payload_type)? else {
+        return Ok(false);
+    };
     let pk_bytes = b64_strict(pubkey_b64)?;
     let pk_arr: [u8; 32] = pk_bytes
         .as_slice()
         .try_into()
         .map_err(|_| "public key is not 32 bytes".to_string())?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
+    Ok(signatur_passt(&vk, &msg, sigs))
+}
 
+/// The key as Python's `signature.verify_ed25519` accepts it: 32 bytes that decode to a point.
+/// Anything else is `None`, and a signature checked under it does not verify -- in Python that is
+/// `False`, never an error (PR 272, Codex round one: the attached-target seam turned it into one).
+fn ed25519_schluessel(bytes: &[u8]) -> Option<VerifyingKey> {
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    VerifyingKey::from_bytes(&arr).ok()
+}
+
+/// True iff one signature of the list verifies over `msg` under `vk`; malformed entries are skipped,
+/// as in Python `dsse.verify_envelope`.
+fn signatur_passt(vk: &VerifyingKey, msg: &[u8], sigs: &[serde_json::Value]) -> bool {
     for s in sigs {
         let Some(sig_b64) = s.get("sig").and_then(|v| v.as_str()) else {
             continue;
@@ -513,11 +497,65 @@ fn verify_dsse(
             continue;
         };
         let sig = Signature::from_bytes(&sig_arr);
-        if vk.verify(&msg, &sig).is_ok() {
-            return Ok(true);
+        if vk.verify(msg, &sig).is_ok() {
+            return true;
         }
     }
-    Ok(false)
+    false
+}
+
+/// What a DSSE signature is checked over: the PAE bytes and the envelope's signature list.
+type DsseBestandteile<'a> = (Vec<u8>, &'a Vec<serde_json::Value>);
+
+/// Everything `verify_dsse` checks before it touches a key, in Python's order: the payload, the
+/// payloadType, its pin, the signature list and its cap. `Ok(None)` when the pinned type differs (a
+/// verdict, not an error); `Err` for a structural fault of the envelope itself.
+fn dsse_bestandteile<'a>(
+    envelope: &'a serde_json::Value,
+    expected_payload_type: Option<&str>,
+) -> Result<Option<DsseBestandteile<'a>>, String> {
+    // The payload first, as Python `dsse.verify_envelope` reads `_payload_bytes` before anything
+    // else: an envelope broken in two places gives the same first reason on both sides.
+    let payload_b64 = envelope
+        .get("payload")
+        .and_then(|v| v.as_str())
+        .ok_or("envelope has no string payload")?;
+    let body = b64_dsse(payload_b64)?;
+    // S106 (6.2.0 E1): an EMPTY container is malformed, as in Python `dsse.verify_envelope`, which
+    // raises "must be a non-empty string/list" where this verifier went on to "does not verify".
+    let payload_type = envelope
+        .get("payloadType")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(LEERER_PAYLOADTYPE)?;
+    // Type-confusion defense (mirror of Python dsse.verify_envelope's payload_type pin —
+    // relation_statement.py:189-190 / cli.py:1241-1242): when an expected payloadType is given it
+    // MUST equal the envelope's payloadType BEFORE the PAE is built. A Sign/Verify type mismatch
+    // silently changes the PAE, so an envelope carrying the WRONG payloadType is rejected fail-closed
+    // here instead of being authenticated under its own attacker-chosen type (Rust fail-open, fixed).
+    if let Some(expected) = expected_payload_type {
+        if payload_type != expected {
+            return Ok(None);
+        }
+    }
+    let msg = dsse_pae(payload_type, &body);
+
+    // LAUF12-L1 (P0): the same cap as Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
+    // "signatures"), BEFORE the key and before the verify loop -- a DoS guard that only acts after
+    // the work is none.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty())
+        .ok_or(LEERE_SIGNATURLISTE)?;
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
+    }
+    Ok(Some((msg, sigs)))
 }
 
 // ---------------------------------------------------------------------------
@@ -857,6 +895,26 @@ fn verify_trust_pack_threshold(
     let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
+    // S106: the signature list is judged BEFORE the statement, in Python's order
+    // (`trust_pack.verify_trust_pack`: payload, input_bytes, signatures non-empty list, cap, then the
+    // statement). An empty list used to reach the threshold loop and come out as "threshold not met",
+    // where Python reports the envelope malformed.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty())
+        .ok_or(LEERE_SIGNATURLISTE)?;
+    // A neighbour of the same class: Python `verify_trust_pack` also caps the envelope's signature
+    // list (trust_pack.py, DEFAULT_BUDGET.check "signatures"); otherwise an envelope with a million
+    // entries is a million Ed25519 checks.
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
+    }
+
     let statement = strict_parse(&body)?;
     let predicate = statement
         .get("predicate")
@@ -913,20 +971,6 @@ fn verify_trust_pack_threshold(
 
     let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
     let mut skipped_non_ed25519: u64 = 0;
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope.signatures missing")?;
-    // Nachbar derselben Klasse: Python `verify_trust_pack` kappt auch die Signaturliste des
-    // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
-    // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
-    if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten(
-            "signatures",
-            sigs.len(),
-            BUDGET_SIGNATURES,
-        ));
-    }
     for entry in sigs {
         let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else {
             continue;
@@ -1770,18 +1814,40 @@ fn load_related(
             .map(|s| s.as_str())
             .filter(|s| !s.is_empty());
         let verify_key_b64 = rp.unwrap_or(main_pub_b64);
+        // The per-target key is decoded BEFORE the file, as in Python `_load_related`; text that is
+        // not base64 is a usage error in Python's wording. Bytes that decode but are no Ed25519 key
+        // are not an error: the target does not verify under them (see `ed25519_schluessel`).
+        let verify_key = b64_strict(verify_key_b64).map_err(|e| match rp {
+            Some(_) => format!("cannot decode --related-pub for {path}: {e}"),
+            None => e,
+        })?;
         let env = strict_parse(&read_file(path))
             .map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
         let payload_b64 = env
             .get("payload")
             .and_then(|v| v.as_str())
-            .ok_or("related has no payload")?;
-        let body = b64_dsse(payload_b64)?;
+            .ok_or_else(|| format!("cannot read --with-related {path}: related has no payload"))?;
+        let body =
+            b64_dsse(payload_b64).map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
         let root_hex = statement_content_root_hex(&body);
         // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
         // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
-        let mut verified =
-            verify_dsse(&env, verify_key_b64, Some(expected_payload_type)).unwrap_or(false);
+        // S106 at the resolver seam: a STRUCTURAL error of the attached envelope (an empty signature
+        // list, an empty payloadType, bad base64, over budget) ends the resolution with a reason, as
+        // Python `cli._load_related` does ("cannot read --with-related <path>: <error>", exit 2). Until
+        // 2026-09-25 it was folded into `verified = false`, and the edge FAILed as "target verification
+        // failed" -- the same exit class for a different reason. A signature that is present and does
+        // not verify stays what it was: attached-but-unverified. So does a target checked under key
+        // material that is no Ed25519 key (PR 272, Codex round one): only the ENVELOPE's structure
+        // ends the resolution, never the key, which Python hands to `verify_ed25519` and gets False.
+        let mut verified = match dsse_bestandteile(&env, Some(expected_payload_type))
+            .map_err(|e| format!("cannot read --with-related {path}: {e}"))?
+        {
+            None => false,
+            Some((msg, sigs)) => ed25519_schluessel(&verify_key)
+                .map(|vk| signatur_passt(&vk, &msg, sigs))
+                .unwrap_or(false),
+        };
         let mut relationships = None;
         let mut subject_digest = None;
         // Deep gate 2026-09-05, L4-01 (P1): the SAME payload gate as the standalone verify path, mirroring
@@ -1842,8 +1908,7 @@ fn load_related(
             }
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
-        let verified_under =
-            base64::engine::general_purpose::STANDARD.encode(b64_strict(verify_key_b64)?);
+        let verified_under = base64::engine::general_purpose::STANDARD.encode(&verify_key);
         roh.entry(root_hex).or_default().push(TargetInfo {
             verified,
             verified_under,
@@ -2400,10 +2465,11 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 }
             }
             // strict parse first: a duplicate JSON key / malformed bundle is exit 2 (malformed).
+            // S108: every MALFORMED names its reason; the prefix and the exit class stay.
             let v = match strict_parse(&read_file(path)) {
                 Ok(v) => v,
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             };
@@ -2421,8 +2487,8 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     println!("FAIL");
                     exit(1);
                 }
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             }
@@ -2448,8 +2514,8 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 .unwrap_or_else(|| fatal("verify-trust-pack-threshold needs an envelope file"));
             let v = match strict_parse(&read_file(path)) {
                 Ok(v) => v,
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             };
@@ -2901,6 +2967,78 @@ mod tests {
         let ohne = serde_json::json!({"relation": "supersedes",
             "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b".repeat(64)}});
         assert!(target_subject_pin_error(&ohne, &ziel("absent", None)).is_none());
+    }
+
+    #[test]
+    fn an_empty_container_is_malformed_not_unverified() {
+        // S106 (6.2.0 E1): Python `dsse.verify_envelope` raises "must be a non-empty list/string",
+        // and here the empty list ran through the loop to Ok(false). Two taxonomies for the same
+        // bytes; now one.
+        let leer = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                      "signatures": []});
+        let e = verify_dsse(&leer, &gueltiger_pubkey_b64(), None)
+            .expect_err("an empty signature list was reported as 'not verified'");
+        assert_eq!(e, LEERE_SIGNATURLISTE);
+        let ohne_typ = serde_json::json!({"payloadType": "", "payload": "e30=",
+                                          "signatures": [{"sig": "AA=="}]});
+        let e = verify_dsse(&ohne_typ, &gueltiger_pubkey_b64(), None)
+            .expect_err("an empty payloadType was accepted");
+        assert_eq!(e, LEERER_PAYLOADTYPE);
+        // THE COUNTER-DIRECTION: a present signature that does not match stays a verdict, not an error.
+        let muell = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                       "signatures": [{"sig": "AA=="}]});
+        assert_eq!(
+            verify_dsse(&muell, &gueltiger_pubkey_b64(), None),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn the_trust_pack_checks_the_list_before_the_statement() {
+        // Python's order: payload, signature list, cap, THEN the statement. A payload without a
+        // predicate must not hide the reason when the list is empty.
+        let leer = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+                                      "payload": "e30=", "signatures": []});
+        let e = verify_trust_pack_threshold(&leer)
+            .expect_err("an empty signature list produced a threshold verdict");
+        assert_eq!(e, LEERE_SIGNATURLISTE);
+        // With a list present, the statement is judged next, as before.
+        let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+                                      "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e =
+            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
+        assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn key_material_that_is_no_ed25519_key_is_no_key_not_an_error() {
+        // PR 272, Codex round one: Python `signature.verify_ed25519` answers False for such bytes.
+        let gut = base64::engine::general_purpose::STANDARD
+            .decode(gueltiger_pubkey_b64())
+            .expect("b64");
+        assert!(ed25519_schluessel(&gut).is_some());
+        assert!(ed25519_schluessel(&[0u8]).is_none(), "one byte is no key");
+        assert!(
+            ed25519_schluessel(&[0u8; 33]).is_none(),
+            "33 bytes are no key"
+        );
+        // PRECONDITION: some 32-byte value is no point, so the case below can fail.
+        let kein_punkt = (0u8..=255)
+            .map(|b| [b; 32])
+            .find(|k| VerifyingKey::from_bytes(k).is_err())
+            .expect("no 32-byte pattern [b; 32] is refused as a point");
+        assert!(ed25519_schluessel(&kein_punkt).is_none());
+        // Python's order: the payload is read before the payloadType, so an envelope broken in both
+        // places names the payload on both sides.
+        let doppelt = serde_json::json!({"payloadType": "", "payload": 5, "signatures": []});
+        assert_eq!(
+            verify_dsse(&doppelt, &gueltiger_pubkey_b64(), None),
+            Err("envelope has no string payload".to_string())
+        );
+        // The direct callers keep their error: `verify_dsse` still refuses a bad key loudly.
+        let umschlag = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                          "signatures": [{"sig": "AA=="}]});
+        assert!(verify_dsse(&umschlag, "AA==", None).is_err());
     }
 
     #[test]
