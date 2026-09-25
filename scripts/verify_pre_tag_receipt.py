@@ -191,7 +191,13 @@ def _module_entfernen(module_vorher: set, pakete_vorher: dict, neue_pfade: list)
             # A namespace package (PEP 420) has no `__file__`; its locations are its `__path__`
             # (round two). The spec is read too, because a module may overwrite its own `__file__`
             # (round three: `__file__ = 1`).
-            if not any(_liegt_unter(o, neue_pfade) for o in _modulorte(modul)):
+            orte = [o for o in _modulorte(modul) if isinstance(o, (str, os.PathLike))]
+            # Round five (R4): a module may replace its own entry with an object that names no
+            # location at all, a proxy without `__file__`, `__path__` and `__spec__`. Such an entry
+            # is new to this call and cannot be shown to come from a path that stays, so when the
+            # call added a path it leaves too. If it came from elsewhere, the cost is one import the
+            # next caller runs again; the other error would keep the judged code installed.
+            if not neue_pfade or (orte and not any(_liegt_unter(o, neue_pfade) for o in orte)):
                 continue
             del sys.modules[name]
             # Round three: a child of a parent that stays is also an attribute of that parent, set by

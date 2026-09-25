@@ -330,5 +330,51 @@ class TheRestoreRunsFirstAndGivesBackWhatWasThere(unittest.TestCase):
                     del sys.modules[n]
 
 
+class AnEntryThatNamesNoLocationLeavesToo(unittest.TestCase):
+    """Codex on PR 274, round five, measured: a module that replaces its own `sys.modules` entry
+    with a proxy lacking `__file__`, `__path__` and `__spec__` stayed cached, and a later import
+    still returned the judged object."""
+
+    def test_a_self_replacing_module_from_the_judged_path_leaves(self):
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            schluessel = f"iz_stellvertreter_{uuid.uuid4().hex[:8]}"
+            src = pathlib.Path(tempfile.mkdtemp(prefix="iz_proxy_"))
+            (src / f"{schluessel}.py").write_text(
+                "import sys\n"
+                "class Stellvertreter:\n"
+                "    pass\n"
+                "sys.modules[__name__] = Stellvertreter()\n", encoding="utf-8")
+            try:
+                with mod._importzustand():
+                    sys.path.insert(0, str(src))
+                    importlib.import_module(schluessel)
+                    # PRECONDITION: the entry is the proxy, and it names no location at all.
+                    self.assertEqual(type(sys.modules[schluessel]).__name__, "Stellvertreter")
+                    self.assertFalse([o for o in mod._modulorte(sys.modules[schluessel]) if o])
+                with self.subTest(verifier=rel):
+                    self.assertNotIn(schluessel, sys.modules)
+                    with self.assertRaises(ModuleNotFoundError):
+                        importlib.import_module(schluessel)
+            finally:
+                sys.modules.pop(schluessel, None)
+
+    def test_CONTROL_an_entry_without_location_stays_when_the_call_added_no_path(self):
+        """The rule is scoped to a call that put a path on `sys.path`: without one, nothing it loaded
+        can come from a judged tree through the path, and an entry that names no location stays."""
+        import uuid
+        for rel, name in _VERIFIER:
+            mod = _load(name, rel)
+            schluessel = f"iz_ohne_ort_{uuid.uuid4().hex[:8]}"
+            try:
+                with mod._importzustand():
+                    sys.modules[schluessel] = object()
+                with self.subTest(verifier=rel):
+                    self.assertIn(schluessel, sys.modules)
+            finally:
+                sys.modules.pop(schluessel, None)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
