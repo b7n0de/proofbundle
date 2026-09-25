@@ -217,6 +217,12 @@ _SCHLIESSER = r"[)\]<>'\"`|]"
 _REF_ENDE = (r"(?=[/#\s\x00-\x1f\x7f~^:?*\[\\]|" + _SCHLIESSER
              + r"|\.(?:tar\.gz|zip)\b|\.{2,3}|[.,;!]+(?:\s|" + _SCHLIESSER + r"|$)|$)")
 _PROJECT_PIN = r"(?<![\w.-])proofbundle(?:\s*\[[^\]\n]*\])?\s*(?:={2,3}|~=)\s*v?"
+#: A pin ends where its version ends: `==6.1.0.0` and `==6.1.0-post1` are other spellings, and a
+#: shape that stopped at `6.1.0` read them as that release (round twelve, measured by the new cases).
+#: EVERY pattern that reads a version at a pin position ends with it (Codex round thirteen: the README
+#: anchor did not, captured `6.1.0` out of `==6.1.0.0`, and Check 6 then blanked the declared text
+#: before its uncomparable-pin shape could see it).
+_PIN_ENDE = r"(?![.!+_-][0-9A-Za-z])"
 
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
 # one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
@@ -232,7 +238,7 @@ _TRACKED_PLACES = [
                 re.IGNORECASE),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(_PROJECT_PIN + _SEMVER, re.IGNORECASE),
+     re.compile(_PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE),
      "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
     ("README.md",
      re.compile(_REPO_AT_TAG + _SEMVER + _REF_ENDE, re.IGNORECASE),
@@ -339,9 +345,6 @@ _CURRENT_CLAIM = re.compile(
 # `packaging` (release-integrity.yml installs nothing), and a comparison it cannot make it reports,
 # rather than letting a current pin pass as history. The fix it asks for is the three-number form.
 _PIN_BEFEHL = r"\b(?:install|add)\b[^\n]*?"
-#: A pin ends where its version ends: `==6.1.0.0` and `==6.1.0-post1` are other spellings, and a
-#: shape that stopped at `6.1.0` read them as that release (round twelve, measured by the new cases).
-_PIN_ENDE = r"(?![.!+_-][0-9A-Za-z])"
 _KANONISCHE_VERSION = (r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
                        r"(?:\.?(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
                        r"(?![0-9A-Za-z]|[.!+_-][0-9A-Za-z])")

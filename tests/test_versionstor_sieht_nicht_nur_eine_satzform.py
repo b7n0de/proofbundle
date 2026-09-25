@@ -951,3 +951,29 @@ def test_a_pin_the_gate_cannot_compare_is_reported_not_passed(datei, text):
 ])
 def test_CONTROL_a_comparable_version_is_not_reported_as_uncomparable(text):
     assert _trifft(text) in (None, "project pin"), (text, _trifft(text))
+
+
+# ── CODEX ON PR 266, ROUND THIRTEEN (2026-09-25): the declared pin anchor ends where the version ends
+
+_LAENGERE_SCHREIBWEISEN = ["6.1.0.0", "6.1.0-post1", "6.1.0+local", "6.1.0_foo"]
+
+
+@pytest.mark.parametrize("pin", _LAENGERE_SCHREIBWEISEN)
+def test_a_readme_pin_in_a_longer_spelling_is_not_the_current_pin(tmp_path, pin):
+    """Check 4: with every other anchor at the current release, install lines pinned to a longer
+    spelling of it no longer count as the current pin; the anchor is gone, and that is a finding."""
+    funde = _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, pin, AKTUELL), version=AKTUELL)
+    assert any("proofbundle==X.Y.Z" in f and "was not found" in f for f in funde), (pin, funde)
+
+
+@pytest.mark.parametrize("pin", _LAENGERE_SCHREIBWEISEN)
+def test_check_6_is_not_blinded_by_the_declared_anchor(pin):
+    """Check 6 blanks what a declared anchor matches before it sweeps the rest of the line; the
+    anchor that stopped at `6.1.0` blanked the uncomparable pin with it."""
+    text = f"python -m pip install proofbundle=={pin}"
+    assert _trifft(text, datei="README.md") == "pin the gate cannot compare", (pin, _trifft(text, datei="README.md"))
+
+
+def test_CONTROL_the_current_readme_pin_is_still_the_anchor(tmp_path):
+    assert _readme_funde(tmp_path, _readme(AKTUELL, AKTUELL, AKTUELL, AKTUELL), version=AKTUELL) == []
+    assert _trifft(f"python -m pip install proofbundle=={AKTUELL}", datei="README.md") is None
