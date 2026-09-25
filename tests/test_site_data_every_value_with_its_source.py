@@ -142,13 +142,21 @@ class TestTheReceiptIsCheckedWithITSOwnChecker:
 
 class TestAMissingSourceYieldsNotMeasurable:
 
-    def test_interop_without_the_file_is_not_measurable_with_a_reason(self):
-        # `docs/interop_status.json` is not in this tree. The field must NOT appear as an empty
-        # list: 0, an empty list and a last-known value are all forbidden, and all three share one
-        # property, they read like a measurement.
+    def test_interop_without_the_file_is_not_measurable_with_a_reason(self, tmp_path, monkeypatch):
+        """The absence is STAGED on a throwaway tree, and the first form measured the real one.
+
+        Two reasons, and the second one is the harder lesson. First: a case that asserts against the
+        real absent file stops measuring the moment that file lands, silently and with no red signal.
+        Second, and this is what CI caught: naming a root-relative path that is ABSENT here makes the
+        whole module a repo-context module by this repository's own classifier, which means it would be
+        SKIPPED outside a checkout - and a guard asserts that no module is ever in that state inside a
+        checkout. The job `crypto-floor` failed on exactly that, with my module as the single name in
+        the list, while 38 cases were green under pytest locally. The curated list is knowledge someone
+        keeps, so a crafted tree without it is the honest way to measure its absence.
+        """
+        (tmp_path / "docs").mkdir()
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
         d = RSD.interop()
-        if (REPO / "docs" / "interop_status.json").is_file():
-            pytest.skip("the curated list now exists - this case tests its absence")
         assert d.get("not_measurable") is True, d
         assert d.get("reason"), "a gap without a reason is a gap that looks like a value"
         assert "value" not in d, "a gap must not carry a value"
