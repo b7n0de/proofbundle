@@ -82,8 +82,8 @@ class TestExternalTokenFieldDefaults(unittest.TestCase):
         r = verify_sequence(seq, DATA, require_external_token=True)
         ck = _check(r, "renewal:external_token")
         self.assertIsNotNone(ck, "require_external_token=True must surface a check even when absent")
-        self.assertFalse(ck.ok)
-        self.assertFalse(r.ok)
+        self.assertIs(ck.ok, False)
+        self.assertIs(r.ok, False)
 
 
 class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
@@ -195,7 +195,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA, require_external_token=True)
         self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
 
     def test_confirmed_ots_token_verifies_with_rp_trust(self):
         seq = _initial()
@@ -216,7 +216,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
         self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
 
     def test_wrong_root_ots_token_fails_closed(self):
         # the OTS proof commits to a DIFFERENT message than this ATS's covered_digest -> unbound -> FAIL.
@@ -226,7 +226,7 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
         self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
 
 
 class TestNoRollbackDetection(unittest.TestCase):
@@ -264,13 +264,13 @@ class TestNoRollbackDetection(unittest.TestCase):
         truncated = [[grown[0][0]]]                        # attacker replays only the original prefix
         r = verify_sequence(truncated, DATA, known_newest_token_digest=known)
         self.assertFalse(_check(r, "renewal:no_rollback").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
 
     def test_unrelated_digest_not_found_fails_closed(self):
         seq = _initial()
         r = verify_sequence(seq, DATA, known_newest_token_digest="00" * 32)
         self.assertFalse(_check(r, "renewal:no_rollback").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
 
 
 if __name__ == "__main__":

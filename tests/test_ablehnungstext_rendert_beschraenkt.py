@@ -102,7 +102,7 @@ class DieAblehnungBleibtTypisiert(unittest.TestCase):
         for digests in ({RIESE: "aa"}, {(RIESE,): "aa"}):
             with self.subTest(schluessel=type(next(iter(digests))).__name__):
                 res = hashalg.verify_dual_hash(b"x", digests)
-                self.assertFalse(res.ok)
+                self.assertIs(res.ok, False)
                 self.assertTrue(res.checks[0].name.startswith("hashalg:"))
                 self.assertIn("bits>", res.checks[0].name)
 

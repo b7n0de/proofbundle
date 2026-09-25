@@ -59,7 +59,7 @@ class TestExpectedRootGate(unittest.TestCase):
         # while signature + merkle-consistency still PASS (the honest separation).
         orig, rewrap = _make_orig_and_coherent_rewrap()
         r = verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"])
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
         by = {c.name: c.ok for c in r.checks}
         self.assertTrue(by["ed25519-signature"])
         self.assertTrue(by["merkle-inclusion"])
@@ -69,7 +69,7 @@ class TestExpectedRootGate(unittest.TestCase):
         orig, rewrap = _make_orig_and_coherent_rewrap()
         # the rewrap claims tree_size 2; pinning the original size 1 catches it
         r = verify_bundle(rewrap, expected_tree_size=1)
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)
         self.assertFalse({c.name: c.ok for c in r.checks}["tree-size"])
         self.assertTrue(verify_bundle(orig, expected_tree_size=1).ok)
 
@@ -255,7 +255,7 @@ class TestSummary(unittest.TestCase):
         self.assertEqual(s["automationBlockers"], [])
         # (6) crypto FAIL dominates → NOT safe (CRYPTO_FAILED), even with a passing policy
         rf = verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"])   # root mismatch → crypto FAIL
-        self.assertFalse(rf.ok)
+        self.assertIs(rf.ok, False)
         s = root_authenticity_summary(rf, policy_ok=True, signer_trusted=True)
         self.assertFalse(s["safeForAutomation"])
         self.assertIn("CRYPTO_FAILED", s["automationBlockers"])

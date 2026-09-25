@@ -253,7 +253,7 @@ class TestBundleIntegration(unittest.TestCase):
         kb_checks = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
         self.assertEqual(len(kb_checks), 1)
         self.assertFalse(kb_checks[0].ok)
-        self.assertFalse(result.ok)
+        self.assertIs(result.ok, False)
 
     def test_bundle_without_kb_unchanged(self):
         # v0.9 bundles (no KB-JWT) get NO extra check — backwards compatible.
@@ -276,7 +276,7 @@ class TestBundleIntegration(unittest.TestCase):
         kb_checks = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
         self.assertEqual(len(kb_checks), 1, "cnf-bound credential without KB must add a failing check")
         self.assertFalse(kb_checks[0].ok)
-        self.assertFalse(result.ok)
+        self.assertIs(result.ok, False)
 
     def test_bundle_verify_enforces_aud_nonce(self):
         # HIGH (audit): RFC 9901 §7.3 replay/audience binding must be reachable through the public verify_bundle.
@@ -284,9 +284,9 @@ class TestBundleIntegration(unittest.TestCase):
         b = self._bundle_with(presented, issuer)
         self.assertTrue(verify_bundle(b, expected_aud="verifier.example", expected_nonce="n-1").ok)
         wrong = verify_bundle(b, expected_aud="attacker.example", expected_nonce="n-1")
-        self.assertFalse(wrong.ok)
+        self.assertIs(wrong.ok, False)
         stale = verify_bundle(b, expected_aud="verifier.example", expected_nonce="old-nonce")
-        self.assertFalse(stale.ok)
+        self.assertIs(stale.ok, False)
 
     def test_bundle_nonstring_compact_is_format_error(self):
         # HIGH (audit): a non-string sd_jwt_vc.compact must be a BundleFormatError, never a raw AttributeError.
@@ -339,9 +339,9 @@ class TestBundleIntegration(unittest.TestCase):
         result = verify_bundle(b)
         names = [c.name for c in result.checks]
         self.assertIn("sd-jwt-issuer-signature", names)   # now a real check, not silently absent
-        self.assertFalse(result.ok)                        # unsigned sd_jwt_vc -> bundle does not verify
+        self.assertIs(result.ok, False)                        # unsigned sd_jwt_vc -> bundle does not verify
         sig = next(c for c in result.checks if c.name == "sd-jwt-issuer-signature")
-        self.assertFalse(sig.ok)
+        self.assertIs(sig.ok, False)
         self.assertIn("unsigned", sig.detail)
 
 

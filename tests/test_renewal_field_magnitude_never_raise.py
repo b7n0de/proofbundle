@@ -42,7 +42,7 @@ def test_verify_sequence_returns_verdict_on_malformed_field(field, shape):
     if field == "external_token_type":
         bad = _ats(external_token_type=MALFORMED[shape], external_token=b"x")
     r = verify_sequence([[bad]], DATA)            # must NOT raise
-    assert not r.ok                               # a malformed field can never verify
+    assert r.ok is False                               # a malformed field can never verify
     # exercise the require_pq / require_current_hash branches too (they render fields)
     verify_sequence([[bad]], DATA, require_pq=True)
     verify_sequence([[bad]], DATA, require_current_hash=True)

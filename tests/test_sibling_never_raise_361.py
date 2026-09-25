@@ -425,7 +425,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("notlist", [123], [["x"]], [[1]], [[{}]], []):
             r = evaluate_renewal_policy(bad, policy=pol, now=0)
             self.assertIsInstance(r, VerificationResult)
-            self.assertFalse(r.ok)
+            self.assertIs(r.ok, False)
 
     def test_verify_evaluation_card_bad_path_is_verdict(self):
         # 6-lens gate L1-01: verify_evaluation_card read the card file unguarded, so a missing / directory /
@@ -469,7 +469,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("str", 123, None, [1], {"a": 1}):
             r = verify_dual_hash(bad, {"sha256": "abc"})
             self.assertIsInstance(r, VerificationResult)
-            self.assertFalse(r.ok)
+            self.assertIs(r.ok, False)
 
     def test_verify_bundle_nul_or_surrogate_path_is_typed(self):
         # 6-lens gate L3-01: a str bundle is a PATH; an embedded-NUL ('embedded null byte' -> ValueError) or

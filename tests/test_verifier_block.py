@@ -477,7 +477,7 @@ class TestTestResultStatement:
         # the block declares another corpus; the reference (digest, result) still matches
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 3}
         j = VB.join_test_result(b, s)
-        assert not j["ok"] and not j["vector_set_matches"], j
+        assert j["ok"] is False and not j["vector_set_matches"], j
         assert j["subject_matches_build"] and j["digest_matches"] and j["result_matches"]
         assert any("vector set" in e for e in j["errors"])
         # same case count, different digest -- still another corpus
@@ -544,7 +544,7 @@ class TestTestResultStatement:
         b = _valid_block()
         del b["testResult"]
         j = VB.join_test_result(b, self._stmt())
-        assert not j["ok"] and "cites no test result" in j["errors"][0]
+        assert j["ok"] is False and "cites no test result" in j["errors"][0]
 
     def test_the_statement_digest_is_over_the_object_not_the_file(self):
         s = self._stmt()

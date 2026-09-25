@@ -1713,7 +1713,7 @@ class TestProduktbudget:
         assert treffer, "kein Budget-Check auf die gemessene Kombination"
         assert not treffer[0].ok
         assert "renewal_work" in treffer[0].detail
-        assert not r.ok
+        assert r.ok is False
 
     def test_jede_einzelachse_ist_dabei_eingehalten(self):
         """Der Beweis, dass das Produkt eine EIGENE Aussage ist: beide Achsen melden nichts."""

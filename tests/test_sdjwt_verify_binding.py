@@ -258,4 +258,4 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
         by = {c.name: c.ok for c in r.checks}
         self.assertIn("sd-jwt-bundle-binding", by)
         self.assertFalse(by["sd-jwt-bundle-binding"])
-        self.assertFalse(r.ok)
+        self.assertIs(r.ok, False)

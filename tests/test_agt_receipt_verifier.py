@@ -60,7 +60,7 @@ class DieFuenfLagen(unittest.TestCase):
     def test_fang_manipuliert_faellt(self):
         """`cedar_decision` was flipped deny→allow AFTER signing. The signature must not hold."""
         e = verify_agt_receipt(lade("04_manipuliert"))
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1, "a broken signature is a crypto failure, not a policy one")
         sig = [c for c in e.checks if c.name == "signature"]
         self.assertEqual(len(sig), 1)
@@ -69,7 +69,7 @@ class DieFuenfLagen(unittest.TestCase):
     def test_fang_falscher_schluessel_faellt(self):
         """Signed with one key, the receipt names another. The verdict must not accept it."""
         e = verify_agt_receipt(lade("05_falscher_schluessel"))
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1)
 
 
@@ -83,7 +83,7 @@ class DieAutorisierungWirdNichtVerschenkt(unittest.TestCase):
         verdict as "the authorizer was trusted".
         """
         e = verify_agt_receipt(lade("03_extern_autorisiert"))
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 3, "crypto is sound, the relying-party requirement is not met")
         vertraut = [c for c in e.checks if c.name == "external-authorization-trusted"]
         self.assertEqual(len(vertraut), 1)
@@ -91,7 +91,7 @@ class DieAutorisierungWirdNichtVerschenkt(unittest.TestCase):
 
     def test_fang_fremder_schluessel_nicht_auf_der_liste(self):
         e = verify_agt_receipt(lade("03_extern_autorisiert"), trusted_authorizer_keys=["aa" * 32])
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 3)
 
     def test_fang_autorisierer_gleich_signierer_wird_abgelehnt(self):
@@ -99,7 +99,7 @@ class DieAutorisierungWirdNichtVerschenkt(unittest.TestCase):
         r = lade("03_extern_autorisiert")
         r["authorizer_public_key"] = r["signer_public_key"]
         e = verify_agt_receipt(r, trusted_authorizer_keys=[r["signer_public_key"]])
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         treffer = [c for c in e.checks if c.name == "authorizer-key-distinct"]
         self.assertTrue(treffer and "same key" in treffer[0].detail)
 
@@ -162,13 +162,13 @@ class DieKette(unittest.TestCase):
         r1, r2 = lade("01_allow"), lade("02_deny")
         r2["parent_receipt_hash"] = "00" * 32
         e = verify_agt_receipt_chain([r1, r2])
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1)
 
     def test_fang_leere_kette_ist_kein_sauberes_urteil(self):
         """A measurement over nothing looks exactly like a measurement that found nothing."""
         e = verify_agt_receipt_chain([])
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1)
 
 
@@ -196,14 +196,14 @@ class UnlesbaresIstKeinFehlgeschlagenesPruefen(unittest.TestCase):
         for eingabe in (None, [], ["a"], "text", 7, {}, {"agent_did": "x"}):
             with self.subTest(eingabe=repr(eingabe)[:24]):
                 e = verify_agt_receipt(eingabe)          # must not raise
-                self.assertFalse(e.ok)
+                self.assertIs(e.ok, False)
                 self.assertEqual(exit_code(e), 2, "unreadable input is exit 2, never 1")
                 self.assertEqual(e.checks[0].name, "readable")
 
     def test_fang_die_kette_bricht_nicht_ab(self):
         """An unreadable link is a finding; the remaining receipts still get a verdict."""
         e = verify_agt_receipt_chain([{"kaputt": True}, lade("01_allow")])
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         namen = [c.name for c in e.checks]
         self.assertTrue(any(n.endswith("chain-link") for n in namen),
                         "the chain must still report the link it could not check")
@@ -219,9 +219,9 @@ class DasVokabularWirdNichtStillUmgedeutet(unittest.TestCase):
         r = lade("01_allow")
         r["cedar_decision"] = "permit"
         e = verify_agt_receipt(r)
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         vok = [c for c in e.checks if c.name == "decision-vocabulary"][0]
-        self.assertFalse(vok.ok)
+        self.assertIs(vok.ok, False)
         self.assertIn("permit/deny", vok.detail, "the verdict must NAME why the two disagree")
 
 
@@ -242,7 +242,7 @@ class DieKetteNimmtJedeFormEntgegenOhneTypeError(unittest.TestCase):
         for eingabe in (True, -1, 9223372036854775808, "text", {"a": 1}, None):
             with self.subTest(eingabe=repr(eingabe)[:20]):
                 e = verify_agt_receipt_chain(eingabe)        # must not raise
-                self.assertFalse(e.ok)
+                self.assertIs(e.ok, False)
                 self.assertEqual(exit_code(e), 2)
 
     def test_gegenrichtung_eine_echte_liste_wird_weiterhin_gepruft(self):
@@ -319,7 +319,7 @@ class EntfernbareBelegeDuerfenEinUrteilNichtVERBESSERN(unittest.TestCase):
         r = lade("01_allow")
         r["assurance_level"] = "externally_authorized"
         e = verify_agt_receipt(r)
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1)
 
     def test_gegenrichtung_die_heile_autorisierung_verifiziert_weiterhin(self):
@@ -338,7 +338,7 @@ class StrukturIstExitEinsUndNichtExitDrei(unittest.TestCase):
         r = lade("01_allow")
         r["authorizer_id"] = "did:key:claim"
         e = verify_agt_receipt(r)
-        self.assertFalse(e.ok)
+        self.assertIs(e.ok, False)
         self.assertEqual(exit_code(e), 1, "incomplete metadata is structural")
 
     def test_fang_autorisierer_gleich_signierer_ist_struktur(self):

@@ -61,7 +61,7 @@ class TestBundle(unittest.TestCase):
         bundle = build_bundle()
         bundle["signature"]["sig_b64"] = _flip_last_byte_b64(bundle["signature"]["sig_b64"])
         result = verify_bundle(bundle)
-        self.assertFalse(result.ok)
+        self.assertIs(result.ok, False)
 
     def test_tampered_merkle_root_fails(self):
         bundle = build_bundle()

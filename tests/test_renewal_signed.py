@@ -207,7 +207,7 @@ class TestSignedRobustness(unittest.TestCase):
         _signers, keys = _authority()
         a0 = ArchiveTimeStamp("sha256", DATA[0], "1000", "confirmed")  # type: ignore[arg-type]
         res = verify_sequence([[a0]], [DATA[0]], authority_keys=keys)  # must not raise
-        self.assertFalse(res.ok)
+        self.assertIs(res.ok, False)
 
 
 if __name__ == "__main__":

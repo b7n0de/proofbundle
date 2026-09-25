@@ -126,7 +126,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
         # covering-consistency walk, so this fires purely on count.
         chain = [ArchiveTimeStamp("sha256", "a" * 64, i) for i in range(over)]
         res = _verify_sequence([chain], ["a" * 64], allow_unauthenticated_anchor=True)
-        self.assertFalse(res.ok)
+        self.assertIs(res.ok, False)
         self.assertTrue(any("renewal:budget" in c.name and "budget.renewal_ats_chain" in c.detail
                             for c in res.checks), [str(c) for c in res.checks])
 
@@ -161,7 +161,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
         daten = ["%064x" % i for i in range(over)]
         seq = [[ArchiveTimeStamp("sha256", "a" * 64, 1)]]
         res = _verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
-        self.assertFalse(res.ok)
+        self.assertIs(res.ok, False)
         self.assertTrue(any("renewal:budget:data_digests" in c.name and "budget.data_digests" in c.detail
                             for c in res.checks), [str(c) for c in res.checks])
 
