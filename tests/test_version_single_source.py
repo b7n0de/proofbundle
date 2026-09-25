@@ -145,6 +145,12 @@ def _baum(tmp_path, version: str, doku_version: str) -> Path:
                                   encoding="utf-8")
     (z / "docs" / "readiness_pack" / "PROGRESS.md").write_text(
         f"baseline (current release: {doku_version}) text\n", encoding="utf-8")
+    # README.md is a declared place too since 2026-09-23, in its three forms.
+    (z / "README.md").write_text(
+        f"**[v{doku_version}](https://github.com/b7n0de/proofbundle/releases/tag/v{doku_version})**\n"
+        f"python -m pip install proofbundle=={doku_version}\n"
+        f"https://raw.githubusercontent.com/b7n0de/proofbundle/v{doku_version}/examples/x.json\n",
+        encoding="utf-8")
     (z / "CHANGELOG.md").write_text(f"# Changelog\n\n## [{version}] - 2026-09-04\n\n- x\n",
                                     encoding="utf-8")
     return z
