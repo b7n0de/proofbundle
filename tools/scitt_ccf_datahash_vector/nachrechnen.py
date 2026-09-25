@@ -64,24 +64,58 @@ def compare_sig_structures(cases: dict[str, bytes]) -> dict:
             "all_identical": len(digests) > 1 and len(distinct) == 1}
 
 
+def _last_protected_byte(raw: bytes) -> int:
+    """Offset of the last byte of the protected header, read from the CBOR structure.
+
+    Not searched for: a first version used `raw.find(protected)`, and a review lens showed that
+    a search finds a pattern, not the field (`count` does not see overlapping occurrences, and a
+    self-similar header moved the position by one). Here the heads are parsed: an optional tag,
+    the array head, then the first element, whose end is where the protected header ends.
+    """
+    mt, _arg, i, _indef = C._kopf(raw, 0)
+    if mt == 6:                                   # tag 18, then the array head follows
+        mt, _arg, i, _indef = C._kopf(raw, i)
+    if mt != 4:
+        raise ValueError("not a CBOR array after the optional tag")
+    _protected, end = C.lade(raw, i)
+    return end - 1
+
+
 def falling_probe(cases_raw: dict[str, bytes], flip_case: str) -> dict:
     """Flip one byte in the protected header of one case: the comparison MUST break.
 
     The byte is flipped in the ENCODED case, then the case goes through the same decode and
     Sig_structure path as every other case. A comparison that stays identical after this compares
     nothing, whatever it reported before.
+
+    "caught" needs both: the cases were identical BEFORE the flip, and the comparison broke AFTER
+    it. A review lens showed on 2026-09-25 that "broke after" alone certifies nothing: with an
+    empty protected header the flip lands in the signature, and a difference that already existed
+    made the probe look caught. A probe whose preconditions do not hold raises instead of
+    reporting. Once they hold, the flipped byte lies inside the protected header, which enters
+    the Sig_structure verbatim; a separate "did the flip reach it" check could never fail and is
+    therefore not made.
     """
+    if len(cases_raw) < 2 or flip_case not in cases_raw:
+        raise ValueError("the probe needs the flipped case and at least one other case")
+    flipped_name = f"{flip_case} (flipped)"
+    if flipped_name in cases_raw:
+        raise ValueError(f"case name {flipped_name!r} already exists; it would be overwritten")
     raw = bytearray(cases_raw[flip_case])
     protected = zerlege(bytes(raw))["protected"]
-    at = bytes(raw).find(protected) + len(protected) - 1   # last byte of the protected header
+    if not protected:
+        raise ValueError(f"{flip_case} has an empty protected header; there is no byte to flip")
+    before = compare_sig_structures({n: sig_structure_bytes(b) for n, b in cases_raw.items()})
+    at = _last_protected_byte(bytes(raw))
     raw[at] ^= 0x01
     flipped = {name: sig_structure_bytes(b) for name, b in cases_raw.items() if name != flip_case}
-    flipped[f"{flip_case} (flipped)"] = sig_structure_bytes(bytes(raw))
+    flipped[flipped_name] = sig_structure_bytes(bytes(raw))
     after = compare_sig_structures(flipped)
     return {"flipped": f"{flip_case}: byte {at} (last byte of the protected header), xor 0x01",
+            "all_identical_before_flip": before["all_identical"],
             "all_identical_after_flip": after["all_identical"],
             "distinct_sha256_after_flip": len(after["distinct_sha256"]),
-            "caught": not after["all_identical"]}
+            "caught": before["all_identical"] and not after["all_identical"]}
 
 
 def pruefe(name: str, hex_bytes: str, erwartet_size: int, erwartet_sha: str, seed_hex: str) -> dict:

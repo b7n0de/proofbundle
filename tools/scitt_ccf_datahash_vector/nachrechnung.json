@@ -112,6 +112,7 @@
   },
   "falling_probe": {
     "flipped": "B: byte 36 (last byte of the protected header), xor 0x01",
+    "all_identical_before_flip": true,
     "all_identical_after_flip": false,
     "distinct_sha256_after_flip": 2,
     "caught": true

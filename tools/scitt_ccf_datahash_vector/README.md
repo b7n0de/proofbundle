@@ -53,10 +53,13 @@ bytes themselves, by sha256 per case, and records the result as its own entry in
 
 One distinct digest across all four. The comparison is checked against itself on every run: one
 byte in the protected header of B is flipped in the encoded bytes, the case goes through the same
-decode path, and the equality must break (`falling_probe` in `nachrechnung.json`, caught). A
-comparison that stayed identical after that flip would be comparing nothing. Because the
-`Sig_structure` bytes are identical in all four cases, the same signature verifies over A, B, C
-and D.
+decode path, and the equality must break (`falling_probe` in `nachrechnung.json`, caught). The
+probe counts only if the four cases were identical before the flip and differ after it, and it
+refuses to run where it could not tell (an empty protected header, a single case). The flip
+position is read from the CBOR structure, not searched for. A comparison that stayed identical
+after that flip would be comparing nothing.
+Because the `Sig_structure` bytes are identical in all four cases, the same signature verifies
+over A, B, C and D.
 
 The tag vector ships no bytes, only sizes, digests and the minter. `A_tagged` and
 `C_untagged` are therefore **derived** from the vector 1 bytes and held against its digests,

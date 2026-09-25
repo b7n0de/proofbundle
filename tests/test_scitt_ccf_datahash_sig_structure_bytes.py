@@ -60,7 +60,48 @@ def test_a_single_case_compares_with_nothing_and_is_never_identical():
 def test_a_flipped_protected_header_byte_breaks_the_equality(flip):
     probe = N.falling_probe(_committed_cases(), flip)
     assert probe["caught"] is True
+    assert probe["all_identical_before_flip"] is True
     assert probe["all_identical_after_flip"] is False
+
+
+def _sign1(protected: bytes, payload: bytes) -> bytes:
+    """A tagged COSE_Sign1 with an empty unprotected map and a zero signature, for probe edges."""
+    def bstr(b: bytes) -> bytes:
+        return N.C.kopf_bytes(2, len(b)) + b
+    return b"\xd2\x84" + bstr(protected) + b"\xa0" + bstr(payload) + bstr(bytes(64))
+
+
+PROTECTED = b"\xa1\x01\x27"
+
+
+def test_a_difference_that_existed_before_the_flip_is_not_caught():
+    """A review lens found this on 2026-09-25: "broke after the flip" alone was reported as caught."""
+    probe = N.falling_probe({"X": _sign1(PROTECTED, b"one"), "Y": _sign1(PROTECTED, b"two")}, "X")
+    assert probe["all_identical_before_flip"] is False
+    assert probe["caught"] is False
+
+
+@pytest.mark.parametrize("protected", [PROTECTED, b"\xaa" * 170])
+def test_the_flip_position_comes_from_the_structure_not_from_a_search(protected):
+    """The protected bytes also appear in the payload, and a self-similar header (a lens case)."""
+    raw = _sign1(protected, b"p" + protected)
+    at = N._last_protected_byte(raw)
+    head = len(N.C.kopf_bytes(2, len(protected)))
+    assert at == 2 + head + len(protected) - 1
+    probe = N.falling_probe({"X": raw, "Y": raw}, "X")
+    assert probe["caught"] is True
+    assert f"byte {at} " in probe["flipped"]
+
+
+@pytest.mark.parametrize("cases,flip,reason", [
+    ({"X": _sign1(b"", b"p"), "Y": _sign1(b"", b"p")}, "X", "empty protected header"),
+    ({"X": _sign1(PROTECTED, b"p")}, "X", "at least one other case"),
+    ({"X": _sign1(PROTECTED, b"p"), "X (flipped)": _sign1(PROTECTED, b"p")}, "X",
+     "already exists"),
+])
+def test_a_probe_whose_preconditions_do_not_hold_raises_instead_of_reporting(cases, flip, reason):
+    with pytest.raises(ValueError, match=reason):
+        N.falling_probe(cases, flip)
 
 
 def test_the_exit_code_follows_the_comparison_and_the_probe():

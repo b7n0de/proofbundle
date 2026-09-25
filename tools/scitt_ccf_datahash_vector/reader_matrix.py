@@ -64,7 +64,11 @@ def cbor2_row(raw: bytes, a_sha: str) -> dict:
     row = {"accepted": True, "top_level": type(value).__name__,
            "tag": getattr(value, "tag", None)}
     for label, kwargs in (("reencode_default", {}), ("reencode_canonical", {"canonical": True})):
-        out = cbor2.dumps(value, **kwargs)
+        try:
+            out = cbor2.dumps(value, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — one failing re-encode is a row, not a crash
+            row[label] = _error(exc)
+            continue
         row[label] = {"size": len(out), "sha256": hashlib.sha256(out).hexdigest(),
                       "equals_input": out == raw,
                       "equals_A": hashlib.sha256(out).hexdigest() == a_sha}

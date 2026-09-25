@@ -25,6 +25,7 @@ output names which source served each file, so a line that says "upstream" is up
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -74,6 +75,54 @@ def fetch_one(name: str, size: int, digest: str, sources=SOURCES, opener=urllib.
     return None, None, unreachable
 
 
+def write_all(here: Path, files: dict[str, bytes]) -> None:
+    """Write the verified files so that a failure does not leave one new file beside an old one.
+
+    Verification alone does not guarantee that: a review lens on 2026-09-25 put a directory where
+    the second file belongs, and the first file was already written when the second write raised.
+    So every target is checked first (absent or a regular file), every file is written under a
+    temporary name next to its target, and only then are the temporary files moved into place.
+    A failure in the first two steps replaces nothing and removes the temporary files.
+
+    HONEST LIMIT: the final moves are separate renames, not one atomic step. After the checks
+    above, what is left to fail between them is the filesystem refusing a rename in a directory
+    it has just let us write to, or something changing a target between the check and its
+    rename (a second lens round built exactly that). That case raises PartlyWritten, which names
+    the files already moved, and the remaining temporary files are removed; it is never reported
+    as "nothing replaced".
+    """
+    for name in files:
+        target = here / name
+        if target.exists() and not target.is_file():
+            raise OSError(f"{target} exists and is not a regular file")
+    temporary = {}
+    try:
+        for name, raw in files.items():
+            temporary[name] = here / f".{name}.partial"
+            temporary[name].write_bytes(raw)
+    except OSError:
+        for path in temporary.values():
+            path.unlink(missing_ok=True)
+        raise
+    moved = []
+    try:
+        for name, path in temporary.items():
+            os.replace(path, here / name)
+            moved.append(name)
+    except OSError as exc:
+        for path in temporary.values():
+            path.unlink(missing_ok=True)
+        raise PartlyWritten(moved, exc) from exc
+
+
+class PartlyWritten(OSError):
+    """A rename failed after others succeeded: the files on disk are not one consistent pair."""
+
+    def __init__(self, moved: list[str], cause: OSError):
+        self.moved = list(moved)
+        super().__init__(f"moved {self.moved or 'nothing'} into place, then {cause}")
+
+
 def main() -> int:
     here = Path(__file__).resolve().parent
     fetched = {}
@@ -89,9 +138,16 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         fetched[name] = (raw, label, unreachable)
-    # Written only once BOTH are verified, so a half-fetched pair never lands on disk.
+    try:
+        write_all(here, {name: raw for name, (raw, _label, _u) in fetched.items()})
+    except PartlyWritten as exc:
+        print(f"PARTLY WRITTEN: {exc}. The vector files on disk are not one consistent pair; "
+              "run the fetch again before using them.", file=sys.stderr)
+        return 4
+    except OSError as exc:
+        print(f"NOT WRITTEN: {exc}. No vector file was replaced.", file=sys.stderr)
+        return 3
     for name, (raw, label, unreachable) in fetched.items():
-        (here / name).write_bytes(raw)
         skipped = f", not reachable: {'; '.join(unreachable)}" if unreachable else ""
         print(f"  {name:26s} {len(raw):5d} B  {hashlib.sha256(raw).hexdigest()[:16]}…  matches"
               f"  (served by the {label}{skipped})")
