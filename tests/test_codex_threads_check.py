@@ -1,0 +1,195 @@
+"""The advisory `codex-threads` check: three numbers, measured at the origin, red when a Codex thread
+has no answer or its answer names no commit on the head.
+
+THE PREVIOUS STATE, and why this file exists. The house rule said since 2026-09-13 that no pull
+request lands while a Codex thread is without an answer, and nothing measured it. On 2026-09-25 four
+pull requests of this repository landed with 11 Codex threads that had no answer (264 with 4, 265
+with 5, 268 and 272 with 1 each), and pull request 266 carried 31 threads without an answer of 33
+when its answers began. No check on any of them said so, because none existed. The catch proofs
+below build that state and require red; the live measurement of the same day is in the commit that
+added this file.
+
+The rule is read at the data, not at the network: `measure` takes the comments and a function that
+answers whether a commit is on the head, so every case here runs offline.
+"""
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import unittest
+from unittest import mock
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
+_spec = importlib.util.spec_from_file_location("_codex_threads_check",
+                                               REPO / "scripts" / "codex_threads_check.py")
+ct = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ct)
+
+R = "b7n0de/proofbundle"
+OWNER = "b7n0de"
+HEAD = "a" * 40
+OLD = "b" * 40
+
+
+def codex(cid: int) -> dict:
+    return {"id": cid, "in_reply_to_id": None, "user": {"login": ct.CODEX_BOT}, "body": "P2 finding"}
+
+
+def reply(cid: int, root: int, body: str, login: str = OWNER) -> dict:
+    return {"id": cid, "in_reply_to_id": root, "user": {"login": login}, "body": body}
+
+
+def issue(body: str, login: str = OWNER) -> dict:
+    return {"id": 1, "user": {"login": login}, "body": body}
+
+
+def register_answer(pr: int, cid: int, sha: str | None) -> str:
+    line = f"Commit measured `{sha}`\n\n" if sha else ""
+    return (f"Confirmed, and fixed at the head of this pull request. Measured.\n\n{line}"
+            f"## Register\n\nThread `{R}#{pr}:{cid}`. Verdict Confirmed. Register `X-Y-Z`.\n")
+
+
+def verdict(review, issues, at_head=lambda s: s == HEAD, pr=7) -> dict:
+    return ct.measure(R, pr, OWNER, review, issues, at_head)
+
+
+class AThrowawayPullRequest(unittest.TestCase):
+    """The catch proof the order names: one open thread is red, the answer at head turns it green."""
+
+    def test_one_open_codex_thread_is_red(self):
+        e = verdict([codex(10)], [])
+        self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("red", 1, 0), e)
+        self.assertEqual(e["open_threads"], [10])
+
+    def test_the_same_thread_with_an_answer_at_head_is_green(self):
+        e = verdict([codex(10)], [issue(register_answer(7, 10, HEAD))])
+        self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("green", 0, 0), e)
+
+    def test_a_reply_inside_the_thread_is_an_answer_too(self):
+        e = verdict([codex(10), reply(11, 10, f"Fixed at head {HEAD}.")], [])
+        self.assertEqual(e["verdict"], "green", e)
+
+    def test_an_answer_whose_commit_is_not_on_the_head_is_red(self):
+        e = verdict([codex(10)], [issue(register_answer(7, 10, OLD))])
+        self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("red", 0, 1), e)
+
+    def test_an_answer_that_names_no_commit_is_not_at_head(self):
+        e = verdict([codex(10)], [issue(register_answer(7, 10, None))])
+        self.assertEqual((e["verdict"], e["not_at_head"]), ("red", 1), e)
+
+    def test_the_measured_line_decides_over_an_earlier_id_in_the_text(self):
+        """The house answer names the reviewed commit first and the measured head below it."""
+        text = f"Reproduced at `{OLD}`.\n\n" + register_answer(7, 10, HEAD)
+        self.assertEqual(ct.answer_commit(text), HEAD)
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+
+class WhoCounts(unittest.TestCase):
+
+    def test_a_thread_a_person_opened_is_outside_the_check(self):
+        human = {"id": 20, "in_reply_to_id": None, "user": {"login": "someone"}, "body": "nit"}
+        e = verdict([human], [])
+        self.assertEqual((e["codex_threads"], e["verdict"]), (0, "green"), e)
+
+    def test_a_reply_by_another_account_is_no_answer(self):
+        e = verdict([codex(10), reply(11, 10, f"done at {HEAD}", login="someone")], [])
+        self.assertEqual((e["verdict"], e["open"]), ("red", 1), e)
+
+    def test_the_bot_is_known_by_its_login_not_by_a_name_in_the_text(self):
+        pretend = {"id": 30, "in_reply_to_id": None, "user": {"login": OWNER},
+                   "body": f"posted by {ct.CODEX_BOT}"}
+        self.assertEqual(verdict([pretend], [])["codex_threads"], 0)
+
+    def test_an_issue_comment_naming_another_pull_requests_thread_is_no_answer(self):
+        e = verdict([codex(10)], [issue(register_answer(8, 10, HEAD))])
+        self.assertEqual(e["open"], 1, e)
+
+    def test_rounds_count_only_the_owners_requests(self):
+        issues = [issue("@codex review"), issue("@codex review\n\nRound two at head x."),
+                  issue("@codex review", login="someone"),
+                  issue("Please @codex review this")]
+        self.assertEqual(verdict([], issues)["rounds"], 2)
+
+
+class ThePreviousState(unittest.TestCase):
+    """Pull request 266 as it stood when its answers began: 33 Codex threads, two answered in the
+    thread, 31 without an answer. Without this check nothing was red; with it, it is."""
+
+    def test_the_state_before_the_answers_is_red_with_31_open(self):
+        threads = [codex(4104495438 + i) for i in range(33)]
+        replies = [reply(9000 + i, threads[31 + i]["id"], f"Fixed at head {HEAD}.") for i in range(2)]
+        e = verdict(threads + replies, [issue("@codex review")] * 16, pr=266)
+        self.assertEqual((e["verdict"], e["rounds"], e["open"], e["not_at_head"]),
+                         ("red", 16, 31, 0), e)
+
+    def test_the_state_after_the_answers_is_green(self):
+        threads = [codex(4104495438 + i) for i in range(33)]
+        answers = [issue(register_answer(266, t["id"], HEAD)) for t in threads]
+        e = verdict(threads, answers, pr=266)
+        self.assertEqual((e["verdict"], e["open"], e["not_at_head"]), ("green", 0, 0), e)
+
+
+class TheOrigin(unittest.TestCase):
+    """Three states, not two: an origin that cannot be read is never green."""
+
+    def test_an_unreadable_origin_is_not_measurable(self):
+        def broken(url, token):
+            raise ct.NotMeasurable(f"{url}: HTTP 502")
+        with mock.patch.object(ct, "_get", broken):
+            self.assertEqual(ct.main(["--repo", R, "--pr", "7"]), 2)
+
+    def _origin(self, compare_status):
+        pages = {
+            f"{ct.API}/repos/{R}/pulls/7": {"head": {"sha": HEAD}},
+            f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100": [codex(10)],
+            f"{ct.API}/repos/{R}/issues/7/comments?per_page=100": [issue(register_answer(7, 10, OLD))],
+        }
+
+        def fake(url, token):
+            if "/compare/" in url:
+                if compare_status is None:
+                    raise ct.Missing(f"{url}: 404")
+                return {"status": compare_status}, None
+            return pages[url], None
+        return fake
+
+    def test_a_commit_the_head_is_ahead_of_is_at_head(self):
+        with mock.patch.object(ct, "_get", self._origin("ahead")):
+            e = ct.measure_at_origin(R, 7, OWNER, None)
+        self.assertEqual((e["verdict"], e["head"]), ("green", HEAD), e)
+
+    def test_a_commit_on_another_line_is_not_at_head(self):
+        with mock.patch.object(ct, "_get", self._origin("diverged")):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+    def test_a_commit_the_repository_does_not_know_is_not_at_head(self):
+        with mock.patch.object(ct, "_get", self._origin(None)):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+
+class TheWorkflow(unittest.TestCase):
+    """The workflow runs this check on every pull request, read-only, with no event value spliced
+    into a shell body."""
+
+    def setUp(self):
+        try:
+            import yaml
+        except ImportError:  # the same guard as the other workflow readers of this suite
+            self.skipTest("PyYAML not installed (dev-only dependency)")
+        self.wf = yaml.safe_load((REPO / ".github" / "workflows" / "codex-threads.yml")
+                                 .read_text(encoding="utf-8"))
+
+    def test_it_runs_on_pull_requests_and_is_read_only(self):
+        on = self.wf.get(True) or self.wf.get("on")
+        self.assertIn("pull_request", on)
+        self.assertEqual(set(self.wf["permissions"].values()), {"read"}, self.wf["permissions"])
+
+    def test_its_run_step_calls_this_script_and_interpolates_nothing(self):
+        steps = [s for job in self.wf["jobs"].values() for s in job["steps"] if "run" in s]
+        self.assertTrue(any("scripts/codex_threads_check.py" in s["run"] for s in steps), steps)
+        for s in steps:
+            self.assertNotIn("${{", s["run"], s["run"])
+
+
+if __name__ == "__main__":
+    unittest.main()
