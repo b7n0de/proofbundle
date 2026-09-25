@@ -346,6 +346,19 @@ AUSGESCHLOSSEN = {
     # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
     # request, which does not exist in an installed package at all.
     "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # 2026-09-24: renders a pull request body or a house issue from a data source under `pr_bodies/`,
+    # which MANIFEST.in ships no line of, and the surfaces it writes for exist only in this project's
+    # own GitHub repository. An installed package has neither the source nor a use for the output, so
+    # the script could only fail to find its input. Same reasoning as `render_release.py`, which is
+    # already outside for the same shape; the two are siblings and this entry is short because of it.
+    "render_pr_body.py": "rendert PR- und Issue-Rumpfe aus pr_bodies/, das die sdist nicht ausliefert",
+    # 2026-09-25: measures THIS repository to render docs/site/site-data.json — the version from
+    # pyproject, the release date and commit from a git tag, the check count from a real verify run
+    # over a conformance bundle, the test count from tests/*.py, and the release receipts under
+    # audit_artifacts/. An installed package has no git tree, no conformance corpus and no audit
+    # artefacts, so every field would come back not_measurable and the run would write a file that
+    # says nothing. Same reasoning as its two siblings above.
+    "render_site_data.py": "measures a git tree, a conformance bundle and audit_artifacts/ — none of them exist in the package",
     # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
     # and the contract above went red on every required context. The landing card reads
     # docs/release_scope/ and the pull-request titles on main through gh; the language guard
