@@ -69,15 +69,22 @@ what was meant.
 same command gives `a5e83b33…` in a large clone, where git abbreviates blob ids on the index lines to
 eight characters, `d8c6daf0…` with `core.abbrev=7` as in a fresh clone, and a third value with
 `diff.noprefix=true`. A reader in another clone or with other settings could not reproduce the value.
-The receipts this repository issues from 2026-09-25 on take the digest over
+
+A first correction the same day pinned a list of options on the patch output. A review then named
+further settings the list had missed, diff ordering and blank-line formatting among them, and a list
+of rendering options does not close. The receipts this repository issues from 2026-09-25 on
+therefore take the digest over the raw record instead of the rendered patch:
 
 ```
-git -c core.quotepath=true diff --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --indent-heuristic -U3 --src-prefix=a/ --dst-prefix=b/ <baseSha> <headSha>
+git diff-tree -r -z --no-renames --no-abbrev -O/dev/null <baseSha> <headSha>
 ```
 
-which sets every option a git setting could change. For pull request 264 it gives the same value
-under nine configurations, and each receipt states the command in its own known gaps. A different
-git version may still render the same trees differently; that limit is named below.
+One NUL-separated record per changed path, with both modes, both full blob ids, the status and the
+path. It carries no rendering, so no setting changes it: measured on pull request 264, the value is
+the same under fourteen settings, including the abbreviation length, `diff.noprefix`,
+`diff.orderFile`, `diff.suppressBlankEmpty`, `diff.relative` and a global attributes file. The blob
+ids bind the content of every changed file exactly, which the patch text did only through its
+rendering. Each receipt states the command in its own known gaps.
 
 **THE HONEST PART, measured 2026-09-23.** The receipts issued before that date carry the field, and
 their derivation is recorded nowhere — not here, not in the emitter, not beside the published
