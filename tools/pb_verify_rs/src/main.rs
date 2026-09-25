@@ -1206,6 +1206,11 @@ struct TargetInfo {
     verified: bool,
     verified_under: String,
     subject_digest: Option<String>,
+    /// The state of the target's actual subject, classified exactly as Python `cli._load_related`
+    /// does: "present", "absent", "ambiguous" or "malformed". `subject_digest` is Some only for
+    /// "present". Kept so a failing subject pin can NAME its reason (S32): until 2026-09-25 the three
+    /// non-present states were one `None`, and the verdict was right while the reason was lost.
+    subject_state: &'static str,
     relationships: Option<serde_json::Value>,
     /// Deep gate 2026-09-05, L4-01 (P1): the attached target's SIGNED payload failed the strict parse
     /// (duplicate key / not an object / non-canonical). Mirrors Python `payload_malformed`: a hard FAIL
@@ -1224,6 +1229,46 @@ struct LineageResult {
     lineage: String,
     edges: Vec<EdgeOut>,
     superseded_by_attached: Option<String>,
+    /// Why an edge failed, in Python's wording and with Python's stable codes (mirror of the
+    /// `errors` list of `relation.verify_relationship_edges`: `relation:malformed:<e>` for a
+    /// structural error, `relationships[<i>]:<e>` per failing edge). S32: the corpus' `errorContains`
+    /// markers were checked on the Python side only, because this verifier printed no reason at all.
+    errors: Vec<String>,
+}
+
+const CODE_TARGET_MALFORMED_MELDUNG: &str =
+    "relation:attached_target_malformed (RELATION_TARGET_MALFORMED): an ATTACHED target's signed \
+     payload is not a well-formed statement (present-and-malformed is a hard FAIL at any hop; the \
+     same bytes fail standalone)";
+
+/// Mirror of `relation._target_subject_pin_error`: None when the edge declares no subject pin or
+/// the resolved target exposes a present, EQUAL subject; otherwise the stable reason, with the same
+/// code Python emits. The order is Python's: ambiguous, absent, malformed, mismatch.
+fn target_subject_pin_error(edge: &serde_json::Value, target: &TargetInfo) -> Option<String> {
+    let declared = edge_subject_hex(edge)?;
+    match (target.subject_state, &target.subject_digest) {
+        ("ambiguous", _) => Some(
+            "relation:target_subject_ambiguous (RELATION_TARGET_SUBJECT_AMBIGUOUS): resolved target \
+             exposes multiple subjects; a declared targetSubjectDigest cannot bind an ambiguous subject"
+                .into(),
+        ),
+        ("absent", _) => Some(
+            "relation:target_subject_missing (RELATION_TARGET_SUBJECT_MISSING): declared \
+             targetSubjectDigest but the resolved target exposes no subject digest"
+                .into(),
+        ),
+        ("present", Some(actual)) if *actual == declared => None,
+        ("present", Some(_)) => Some(
+            "relation:target_subject_mismatch (RELATION_TARGET_SUBJECT_MISMATCH): declared \
+             targetSubjectDigest does not match the resolved target's subject"
+                .into(),
+        ),
+        _ => Some(
+            "relation:target_subject_malformed (RELATION_TARGET_SUBJECT_MALFORMED): resolved target \
+             subject digest is not a well-formed sha-256"
+                .into(),
+        ),
+    }
 }
 
 /// DFS per-path cycle + depth walk (mirror relation._walk_chain). Returns Some(error) on a cycle
@@ -1276,13 +1321,9 @@ fn walk_chain(
         // L4-01 (deep gate 2026-09-05): the payload gate binds at EVERY hop, exactly like the
         // receipt's own edge — otherwise the hop an attacker inserts is precisely the one nobody checks.
         if node.payload_malformed {
-            return Some(
-                "relation:ancestor_edge: relation:attached_target_malformed \
-                 (RELATION_TARGET_MALFORMED): an ATTACHED target's signed payload is not a \
-                 well-formed statement (present-and-malformed is a hard FAIL at any hop; the same \
-                 bytes fail standalone)"
-                    .into(),
-            );
+            return Some(format!(
+                "relation:ancestor_edge: {CODE_TARGET_MALFORMED_MELDUNG}"
+            ));
         }
         if !node.verified {
             return Some(
@@ -1321,20 +1362,12 @@ fn walk_chain(
                     // The subject pin binds at EVERY hop, not only on the receipt's own edge.
                     // Same accept path as the direct arm: no declared pin -> optional; declared ->
                     // the resolved target must expose a present, EQUAL actual subject.
+                    // S32: the SAME reason as on the receipt's own edge, prefixed with the position
+                    // exactly as Python does (`relation:ancestor_edge: <pin error>`). Before, every
+                    // non-equal state was reported as a MISMATCH, whatever it was.
                     if let Some(anc) = related.get(&nxt) {
-                        if let Some(d) = edge_subject_hex(edge) {
-                            match &anc.subject_digest {
-                                Some(a) if &d == a => {}
-                                _ => {
-                                    return Some(
-                                        "relation:ancestor_edge: relation:target_subject_mismatch \
-                                         (RELATION_TARGET_SUBJECT_MISMATCH): a declared \
-                                         targetSubjectDigest on an ancestor edge does not bind a \
-                                         present, equal subject on the resolved target"
-                                            .into(),
-                                    );
-                                }
-                            }
+                        if let Some(pin) = target_subject_pin_error(edge, anc) {
+                            return Some(format!("relation:ancestor_edge: {pin}"));
                         }
                     }
                     if related.contains_key(&nxt) || next_path.contains(&nxt) {
@@ -1377,20 +1410,27 @@ fn verify_relationship_edges(
             lineage: LINEAGE_NOT_EVALUATED.into(),
             edges: vec![],
             superseded_by_attached: None,
+            errors: vec![],
         };
     };
-    if !validate_relationships(rels).is_empty() {
+    let strukturfehler = validate_relationships(rels);
+    if !strukturfehler.is_empty() {
         return LineageResult {
             lineage: LINEAGE_FAIL.into(),
             edges: vec![],
             superseded_by_attached: None,
+            errors: strukturfehler
+                .iter()
+                .map(|e| format!("relation:malformed:{e}"))
+                .collect(),
         };
     }
     let empty: Vec<serde_json::Value> = Vec::new();
     let arr = rels.as_array().unwrap_or(&empty);
     let mut edges_out: Vec<EdgeOut> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
     let (mut any_fail, mut any_unresolved, mut any_verified) = (false, false, false);
-    for edge in arr {
+    for (i, edge) in arr.iter().enumerate() {
         let target_hex = edge_target_hex(edge);
         let mut entry = EdgeOut {
             relation: edge
@@ -1401,42 +1441,48 @@ fn verify_relationship_edges(
             resolution: LINEAGE_DECLARED_UNRESOLVED.into(),
             verified_under: None,
         };
+        // The reason an edge fails, named where the verdict is made (S32), in Python's wording.
+        let mut grund: Option<String> = None;
         if subject_hex.is_some() && target_hex.as_deref() == subject_hex {
             entry.resolution = LINEAGE_FAIL.into();
+            grund = Some("relation:cycle: edge targets the receipt itself".into());
         } else if let Some(th) = &target_hex {
             if let Some(target) = related.get(th) {
                 if target.payload_malformed {
                     // L4-01: the target's signed payload is not a well-formed statement — the same bytes
                     // fail standalone, so the edge FAILs here (RELATION_TARGET_MALFORMED), never VERIFIED.
                     entry.resolution = LINEAGE_FAIL.into();
+                    grund = Some(CODE_TARGET_MALFORMED_MELDUNG.into());
                 } else if !target.verified {
                     entry.resolution = LINEAGE_FAIL.into(); // attached-but-unverified = present-and-wrong
+                    grund = Some("relation:target_verification_failed".into());
                 } else {
                     let mut seed: HashSet<String> = HashSet::new();
                     if let Some(s) = subject_hex {
                         seed.insert(s.to_string());
                     }
-                    if walk_chain(th, related, &seed, MAX_CHAIN_DEPTH).is_some() {
+                    if let Some(kette) = walk_chain(th, related, &seed, MAX_CHAIN_DEPTH) {
                         entry.resolution = LINEAGE_FAIL.into();
+                        grund = Some(kette);
                     } else {
                         entry.verified_under = Some(target.verified_under.clone());
                         // PB-2026-0717-01 fail-closed: a DECLARED targetSubjectDigest requires a
-                        // present, well-formed, EQUAL actual subject. subject_digest is None whenever
-                        // the resolved target subject is absent / ambiguous (>1) / malformed (the
-                        // loader normalises those to None), and that case now FAILs — before 3.6.1 it
-                        // fell into VERIFIED (the False Accept). No declared pin -> optional (verified).
-                        let declared_subj = edge_subject_hex(edge);
-                        entry.resolution = match declared_subj {
-                            None => LINEAGE_VERIFIED.into(),
-                            Some(d) => match &target.subject_digest {
-                                Some(a) if &d == a => LINEAGE_VERIFIED.into(),
-                                _ => LINEAGE_FAIL.into(), // absent / ambiguous / malformed / mismatch
-                            },
-                        };
+                        // present, well-formed, EQUAL actual subject; absent, ambiguous, malformed and
+                        // unequal all FAIL, each with its own code. No declared pin -> optional.
+                        match target_subject_pin_error(edge, target) {
+                            None => entry.resolution = LINEAGE_VERIFIED.into(),
+                            Some(pin) => {
+                                entry.resolution = LINEAGE_FAIL.into();
+                                grund = Some(pin);
+                            }
+                        }
                     }
                 }
             }
             // else: target absent -> stays DECLARED_UNRESOLVED
+        }
+        if let Some(g) = grund {
+            errors.push(format!("relationships[{i}]:{g}"));
         }
         match entry.resolution.as_str() {
             LINEAGE_FAIL => any_fail = true,
@@ -1459,6 +1505,7 @@ fn verify_relationship_edges(
         lineage: lineage.into(),
         edges: edges_out,
         superseded_by_attached: None,
+        errors,
     }
 }
 
@@ -1589,10 +1636,9 @@ fn keys_equal(a_b64: &str, b_b64: &str) -> bool {
 
 struct Violation {
     // The stable policy-verdict code (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH /
-    // LINEAGE_REQUIREMENT_FAILED). The differential compares exit CLASS + lineage, not the code text
-    // (the code-text assertion is the Python side's errorContains), so the field is retained for
-    // parity/debuggability but not emitted.
-    #[allow(dead_code)]
+    // LINEAGE_REQUIREMENT_FAILED). EMITTED since 2026-09-25 (S32): this comment used to say the field
+    // was kept but not printed, because the code-text assertion `errorContains` was the Python side's
+    // alone. The corpus read as though it checked both implementations; it checked one.
     code: String,
 }
 
@@ -1745,11 +1791,13 @@ fn load_related(
         // failing ancestor hidden behind a duplicate `predicate` key came out lineage=VERIFIED / exit 0 in
         // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
         let mut payload_malformed = false;
+        let mut subject_state: &'static str = "absent";
         let parsed = match strict_parse(&body) {
             Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
             _ => {
                 payload_malformed = true;
                 verified = false;
+                subject_state = "malformed";
                 None
             }
         };
@@ -1762,25 +1810,36 @@ fn load_related(
             if praedikat_ist_positiv_falsch(&stmt) {
                 payload_malformed = true;
                 verified = false;
-            } else if let Some(pred) = stmt.get("predicate") {
-                if let Some(r) = pred.get("relationships") {
-                    relationships = Some(r.clone());
+                subject_state = "malformed";
+            } else {
+                if let Some(pred) = stmt.get("predicate") {
+                    if let Some(r) = pred.get("relationships") {
+                        relationships = Some(r.clone());
+                    }
+                }
+                // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject, and
+                // CLASSIFY the others the way Python `cli._load_related` does (S32): no subject list
+                // or an empty one is "absent", more than one is "ambiguous" (never silently take
+                // subject[0]), one without a well-formed sha-256 is "malformed".
+                match stmt.get("subject").and_then(|v| v.as_array()) {
+                    None => subject_state = "absent",
+                    Some(a) if a.is_empty() => subject_state = "absent",
+                    Some(a) if a.len() != 1 => subject_state = "ambiguous",
+                    Some(a) => {
+                        subject_digest = a[0]
+                            .get("digest")
+                            .and_then(|d| d.get("sha256"))
+                            .and_then(|v| v.as_str())
+                            .filter(|s| is_sha256_hex(s))
+                            .map(String::from);
+                        subject_state = if subject_digest.is_some() {
+                            "present"
+                        } else {
+                            "malformed"
+                        };
+                    }
                 }
             }
-            // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject. An empty subject
-            // array (absent), MULTIPLE subjects (ambiguous — never silently take subject[0]), or a
-            // malformed sha256 all leave subject_digest = None, which the verifier treats fail-closed
-            // against a declared targetSubjectDigest pin.
-            subject_digest = stmt
-                .get("subject")
-                .and_then(|v| v.as_array())
-                .filter(|a| a.len() == 1)
-                .and_then(|a| a.first())
-                .and_then(|s| s.get("digest"))
-                .and_then(|d| d.get("sha256"))
-                .and_then(|v| v.as_str())
-                .filter(|s| is_sha256_hex(s))
-                .map(String::from);
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
         let verified_under =
@@ -1789,6 +1848,7 @@ fn load_related(
             verified,
             verified_under,
             subject_digest,
+            subject_state,
             relationships,
             payload_malformed,
         });
@@ -1825,6 +1885,7 @@ fn load_related(
         if rest.iter().any(|k| {
             k.relationships != erste.relationships
                 || k.subject_digest != erste.subject_digest
+                || k.subject_state != erste.subject_state
                 || k.payload_malformed != erste.payload_malformed
         }) {
             return Err(format!(
@@ -1853,25 +1914,46 @@ fn run_verify_relation(
     related_pubs: &[String],
     policy: Option<&serde_json::Value>,
     statement_mode: bool,
-) -> (i32, String) {
+) -> (i32, String, Vec<String>) {
+    // EVERY EXIT NAMES ITS REASON (S32, and the `Err(_)` discards of S108 on this path). The third
+    // element is the list the dispatcher prints as `reasons`: Python's wording and stable codes where
+    // Python has them, the error text of the failing step where it does not.
+    //
     // Crypto FIRST (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
     // relation_statement.py:189-190 / the decision/outcome verify paths) so a statement/receipt
     // presented under the WRONG payloadType fails crypto here, never authenticated under a foreign type.
-    let crypto_ok =
-        verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)).unwrap_or(false);
-    if !crypto_ok {
-        return (1, "null".into());
+    match verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)) {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                1,
+                "null".into(),
+                vec![
+                    "crypto: the envelope does not verify under the given key and the in-toto \
+                      payloadType"
+                        .into(),
+                ],
+            )
+        }
+        Err(e) => return (1, "null".into(), vec![format!("crypto: {e}")]),
     }
     let Some(payload_b64) = envelope.get("payload").and_then(|v| v.as_str()) else {
-        return (2, "null".into());
+        return (
+            2,
+            "null".into(),
+            vec!["envelope has no string payload".into()],
+        );
     };
-    let Ok(body) = b64_dsse(payload_b64) else {
-        return (2, "null".into());
+    let body = match b64_dsse(payload_b64) {
+        Ok(b) => b,
+        Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
-    let Ok(statement) = strict_parse(&body) else {
-        return (2, "null".into());
+    let statement = match strict_parse(&body) {
+        Ok(s) => s,
+        Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
     let predicate = statement.get("predicate");
+    let mut reasons: Vec<String> = Vec::new();
 
     // Structure gate — compute a flag but do NOT early-return: Python computes `lineage` over the
     // exact signed bytes REGARDLESS of a structure error (only after crypto passes), then applies the
@@ -1885,19 +1967,37 @@ fn run_verify_relation(
             != Some(RELATION_STATEMENT_PREDICATE_TYPE)
         {
             structure_ok = false;
+            reasons.push(format!(
+                "relation-statement: predicateType is not {RELATION_STATEMENT_PREDICATE_TYPE}"
+            ));
         }
         if let Some(pred) = predicate.and_then(|v| v.as_object()) {
-            for k in pred.keys() {
-                if !["schemaVersion", "statementId", "relationships"].contains(&k.as_str()) {
-                    structure_ok = false; // additionalProperties:false, fail-closed
-                }
+            let mut fremd: Vec<&str> = pred
+                .keys()
+                .map(|k| k.as_str())
+                .filter(|k| !["schemaVersion", "statementId", "relationships"].contains(k))
+                .collect();
+            if !fremd.is_empty() {
+                structure_ok = false; // additionalProperties:false, fail-closed
+                fremd.sort_unstable();
+                reasons.push(format!(
+                    "relation-statement: unknown field(s) in predicate: {fremd:?} \
+                     (additionalProperties:false, fail-closed)"
+                ));
             }
             match pred.get("relationships").and_then(|v| v.as_array()) {
                 Some(a) if a.len() == 1 => {}
-                _ => structure_ok = false,
+                _ => {
+                    structure_ok = false;
+                    reasons.push(
+                        "relation-statement: relationships must be an array of exactly one edge"
+                            .into(),
+                    );
+                }
             }
         } else {
             structure_ok = false;
+            reasons.push("relation-statement: predicate is not an object".into());
         }
     }
 
@@ -1911,19 +2011,27 @@ fn run_verify_relation(
         INTOTO_STATEMENT_PAYLOAD_TYPE,
     ) {
         Ok(r) => r,
-        Err(_) => return (2, "null".into()),
+        Err(e) => {
+            reasons.push(e);
+            return (2, "null".into(), reasons);
+        }
     };
 
     let mut lineage = verify_relationship_edges(relationships, &related, Some(&subject_hex));
     lineage.superseded_by_attached = successor_warning(&related, Some(&subject_hex));
     let lineage_state = lineage.lineage.clone();
+    reasons.extend(lineage.errors.iter().cloned());
+    if let Some(w) = &lineage.superseded_by_attached {
+        // Python reports it as `lineage.supersededByAttached`; a policy may turn it into a blocker.
+        reasons.push(w.clone());
+    }
 
     // Exit ladder, mirroring Python order: structure (2) · lineage FAIL (2) · policy (3).
     if !structure_ok {
-        return (2, lineage_state);
+        return (2, lineage_state, reasons);
     }
     if lineage_state == LINEAGE_FAIL {
-        return (2, lineage_state);
+        return (2, lineage_state, reasons);
     }
 
     // Relations policy gate (exit 3 class).
@@ -1962,12 +2070,13 @@ fn run_verify_relation(
                     }
                 }
                 if !viol.is_empty() {
-                    return (3, lineage_state);
+                    reasons.extend(viol.into_iter().map(|v| v.code));
+                    return (3, lineage_state, reasons);
                 }
             }
         }
     }
-    (0, lineage_state)
+    (0, lineage_state, reasons)
 }
 
 /// CLI dispatch for the two relation subcommands: parse
@@ -2016,8 +2125,11 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
     }
     let env = match strict_parse(&read_file(path)) {
         Ok(v) => v,
-        Err(_) => {
-            println!("{{\"lineage\":null}}");
+        Err(e) => {
+            println!(
+                "{}",
+                serde_json::json!({"lineage": null, "reasons": [format!("envelope: {e}")]})
+            );
             exit(2);
         }
     };
@@ -2032,7 +2144,7 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         policy_huelle_pruefen(&pol).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
         pol
     });
-    let (code, lineage) = run_verify_relation(
+    let (code, lineage, reasons) = run_verify_relation(
         &env,
         pub_b64,
         &related_paths,
@@ -2040,11 +2152,17 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         policy.as_ref(),
         statement_mode,
     );
-    if lineage == "null" {
-        println!("{{\"lineage\":null}}");
+    // `lineage` stays the one field the common vocabulary reads; `reasons` is new (S32) and says WHY,
+    // so the differential can hold a case's `errorContains` against this verifier too.
+    let lineage_wert = if lineage == "null" {
+        serde_json::Value::Null
     } else {
-        println!("{{\"lineage\":\"{lineage}\"}}");
-    }
+        serde_json::Value::String(lineage)
+    };
+    println!(
+        "{}",
+        serde_json::json!({"lineage": lineage_wert, "reasons": reasons})
+    );
     exit(code);
 }
 
@@ -2728,6 +2846,61 @@ mod tests {
             b"{\"a\":1}"
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn ziel(state: &'static str, digest: Option<&str>) -> TargetInfo {
+        TargetInfo {
+            verified: true,
+            verified_under: String::new(),
+            subject_digest: digest.map(String::from),
+            subject_state: state,
+            relationships: None,
+            payload_malformed: false,
+        }
+    }
+
+    #[test]
+    fn ein_subjekt_pin_nennt_seinen_grund_mit_dem_code_von_python() {
+        // S32: jeder Zustand seinen eigenen Code, in der Reihenfolge von Python. Bis 2026-09-25
+        // war das Urteil richtig und der Grund weg — drei Zustaende waren ein `None`.
+        let d = "a".repeat(64);
+        let kante = serde_json::json!({"relation": "supersedes",
+            "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b".repeat(64)},
+            "targetSubjectDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": d.clone()}});
+        let faelle = [
+            (
+                ziel("ambiguous", None),
+                Some("RELATION_TARGET_SUBJECT_AMBIGUOUS"),
+            ),
+            (
+                ziel("absent", None),
+                Some("RELATION_TARGET_SUBJECT_MISSING"),
+            ),
+            (
+                ziel("malformed", None),
+                Some("RELATION_TARGET_SUBJECT_MALFORMED"),
+            ),
+            (
+                ziel("present", Some(&"c".repeat(64))),
+                Some("RELATION_TARGET_SUBJECT_MISMATCH"),
+            ),
+            (ziel("present", Some(&d)), None),
+        ];
+        for (t, code) in faelle {
+            let got = target_subject_pin_error(&kante, &t);
+            match code {
+                None => assert!(got.is_none(), "ein gleiches Subjekt meldete {got:?}"),
+                Some(c) => assert!(
+                    got.as_deref().unwrap_or("").contains(c),
+                    "{}: erwartet {c}, bekommen {got:?}",
+                    t.subject_state
+                ),
+            }
+        }
+        // Ohne deklarierten Pin gibt es nichts zu pruefen, in keinem Zustand.
+        let ohne = serde_json::json!({"relation": "supersedes",
+            "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b".repeat(64)}});
+        assert!(target_subject_pin_error(&ohne, &ziel("absent", None)).is_none());
     }
 
     #[test]

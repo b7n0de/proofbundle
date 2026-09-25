@@ -1,0 +1,16 @@
+{
+  "caseId": "envelope-profile-r2-counter-proof-foreign-envelope-id-is-refused-not-invalid",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — measured 2026-09-05 in issue 147: classify_eval_claim answered invalid for a foreign bundle identifier",
+  "expected": {
+    "classification": "refused_unknown_schema"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "https://github.com/b7n0de/proofbundle/blob/main/SPEC.md"
+  ],
+  "rationale": "The bundle's own `schema` names a format that is not proofbundle/v0.1, and everything below it is a sound eval receipt. TWO wrong answers exist and the case excludes BOTH: `valid` (a best-effort verifier that ignores the envelope identifier and checks the rest as its own) and `invalid` (a verdict on a document in a format this verifier does not know how to judge). The refusal is the outcome R2 names."
+}
