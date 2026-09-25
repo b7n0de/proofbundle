@@ -78,10 +78,14 @@ implementation could satisfy every positive case and still accept anything.
 
 ## Receipt-envelope profile (5.1)
 
-`conformance/envelope_profile/` holds ten vectors for the profile in
+`conformance/envelope_profile/` holds fifteen vectors for the profile in
 `docs/RECEIPT_ENVELOPE_PROFILE.md`: at least one counter-proof and one positive control for each of
 **R1 to R4**. R1 carries three, because two of its three divergence axes cannot arise in a format
-that refuses floats — for those the refusal itself is the counter-proof.
+that refuses floats — for those the refusal itself is the counter-proof. R2 carries eight: a foreign
+schema in the claim, a foreign identifier on the bundle itself, the authenticity ordering, the
+boundary where an unsupported value under our own identifier stays `invalid`, an absent, an
+empty and a numeric identifier that declare no other format and so stay `invalid`, and the
+positive control.
 
 **R5 carries no vector, and that is recorded rather than quietly left out.** Its field form was
 withdrawn on 2026-08-30 after `draft-hillier-coverage-attestation-00` (CAP-1, 20 Aug 2026) was
