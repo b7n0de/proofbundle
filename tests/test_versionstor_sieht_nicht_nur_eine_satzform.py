@@ -603,3 +603,22 @@ def test_CONTROL_a_declared_line_alone_stays_quiet(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text("python -m pip install proofbundle==6.1.0\n", encoding="utf-8")
     monkeypatch.setattr(g, "_tracked_files", lambda _repo: ["README.md"])
     assert g.check_undeclared_places(tmp_path, "6.1.0") == []
+
+
+
+# ── CODEX ON PR 266, ROUND TWO (2026-09-25): case and the trailing slash ─────────────────────────
+
+@pytest.mark.parametrize("zeile", [
+    "python -m pip install ProofBundle=={v}",
+    "pip install PROOFBUNDLE[eval]=={v}",
+    "https://GitHub.com/B7N0DE/proofbundle/releases/tag/v{v}",
+    "https://github.com/b7n0de/proofbundle/tree/v{v}",
+    "see https://github.com/b7n0de/proofbundle/tree/v{v}.",
+])
+def test_case_and_a_missing_trailing_slash_do_not_hide_an_older_pin(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+def test_a_tag_root_url_is_a_version_pinned_url_in_check_6():
+    assert _trifft("https://github.com/b7n0de/proofbundle/tree/v6.1.0") == "version-pinned URL"

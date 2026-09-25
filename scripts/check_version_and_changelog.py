@@ -114,6 +114,12 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # never to raise it. That keeps the rule above: history is not bumped, it is simply not written as a
 # pin on the front page.
 #
+# CASE DOES NOT DECIDE, and neither does a trailing slash (Codex on PR 266, 2026-09-25). pip reads
+# distribution names without regard to case and GitHub reads owner and repository the same way, so
+# `pip install ProofBundle==X` pins this project as much as the lower-case form does; the anchors
+# ignore case. A URL that ends at the tag, `…/tree/vX.Y.Z`, is pinned as much as one that goes on
+# into a path; the version pattern's own boundary ends the match, not a slash.
+#
 # THE LIMIT, stated because a lens executed it: the anchors trust that a matching line is a visible
 # one. A correct copy of the headline hidden in an HTML comment, next to a visible headline reworded
 # into another form, passes both checks. That is concealment rather than drift, and no anchor over
@@ -124,17 +130,18 @@ _TRACKED_PLACES = [
      re.compile(r"current release:\s*v?" + _SEMVER), "the `(current release: X.Y.Z)` note"),
     ("README.md",
      re.compile(r"(?m)^\*\*\[v?" + _SEMVER
-                + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)"),
+                + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)",
+                re.IGNORECASE),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?" + _SEMVER),
+     re.compile(r"(?<![\w.-])proofbundle(?:\[[A-Za-z0-9_,.-]+\])?\s*==\s*v?" + _SEMVER, re.IGNORECASE),
      "every `proofbundle==X.Y.Z` pin, in whatever command it stands"),
     ("README.md",
      re.compile(r"(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
-                r"(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/"),
+                r"(?:(?:blob|tree|raw)/)?v" + _SEMVER, re.IGNORECASE),
      "every URL into this repository pinned to a release tag `vX.Y.Z`"),
     ("README.md",
-     re.compile(r"github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER),
+     re.compile(r"github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER, re.IGNORECASE),
      "every link to a release tag of this project"),
 ]
 
@@ -226,7 +233,7 @@ _CLAIM_SHAPES = [
     ("release tag link", re.compile(r"b7n0de/proofbundle/releases?/tag/v?" + _SEMVER, re.IGNORECASE),
      True, "a link to a release tag, presented as the release this project is at"),
     ("version-pinned URL",
-     re.compile(r"b7n0de/proofbundle/(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/", re.IGNORECASE), True,
+     re.compile(r"b7n0de/proofbundle/(?:(?:blob|tree|raw)/)?v" + _SEMVER, re.IGNORECASE), True,
      "a URL pinned to a version tag — it keeps serving the old content after a bump"),
     ("current/latest phrase", _CURRENT_CLAIM, False,
      "a sentence stating the current release in words — the wording claims currency whatever "
