@@ -49,7 +49,8 @@ def _readme(version: str) -> str:
     return (f"## Current release\n\n"
             f"**[v{version}](https://github.com/b7n0de/proofbundle/releases/tag/v{version}) · Beta**\n\n"
             f"    python -m pip install proofbundle=={version}\n"
-            f"    curl https://raw.githubusercontent.com/b7n0de/proofbundle/v{version}/examples/x.json\n")
+            f"    curl -fsSLo x.json \\\n"
+            f"      https://raw.githubusercontent.com/b7n0de/proofbundle/v{version}/examples/x.json\n")
 
 
 def test_consistent_release_passes(tmp_path):

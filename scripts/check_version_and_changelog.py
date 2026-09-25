@@ -95,8 +95,17 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 #
 # THE HEADLINE CARRIES THE VERSION TWICE, as link text and in the tag URL, and the anchor captures
 # both. Bound to the URL alone, a headline raised halfway (new URL, old text) would read as current,
-# and the front page would name one release while linking to another. It is also bound to the start
-# of its line, so a descriptive link to an older release elsewhere in the file stays history.
+# and the front page would name one release while linking to another.
+#
+# EVERY ANCHOR IS BOUND TO THE START OF ITS LINE, because Check 4 reads every match in the file. A
+# review lens showed on 2026-09-25 that an unbound install anchor also matched a prose sentence
+# recalling an older release's command, and would have turned it red at every bump. A declared line
+# is a command or a headline, and those start their line; a mention inside a sentence stays history.
+#
+# THE LIMIT, stated because the same lens executed it: the anchors trust that a matching line is a
+# visible one. A correct copy of the headline hidden in an HTML comment, next to a visible headline
+# reworded into another form, passes both checks. That is concealment rather than drift, and no
+# anchor over the text can tell a rendered line from an unrendered one.
 _TRACKED_PLACES = [
     ("RELEASE.md", re.compile(r"current:\s*v?" + _SEMVER), "the `(current: X.Y.Z)` note"),
     ("docs/readiness_pack/PROGRESS.md",
@@ -106,10 +115,11 @@ _TRACKED_PLACES = [
                 + r"\]\(https://github\.com/b7n0de/proofbundle/releases/tag/v?" + _SEMVER + r"\)"),
      "the release headline `**[vX.Y.Z](…/releases/tag/vX.Y.Z)`, link text and tag URL"),
     ("README.md",
-     re.compile(r"\binstall\s+'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?\s*==\s*v?" + _SEMVER),
+     re.compile(r"(?m)^\s*(?:python\s+-m\s+)?pip\s+install\s+'?proofbundle(?:\[[A-Za-z0-9_,.-]+\])?'?"
+                r"\s*==\s*v?" + _SEMVER),
      "the pinned `pip install proofbundle==X.Y.Z` instructions"),
     ("README.md",
-     re.compile(r"(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
+     re.compile(r"(?m)^\s*https://(?:raw\.githubusercontent\.com|github\.com)/b7n0de/proofbundle/"
                 r"(?:(?:blob|tree|raw)/)?v" + _SEMVER + r"/"),
      "the example URLs pinned to the release tag `vX.Y.Z`"),
 ]
@@ -200,7 +210,11 @@ _CLAIM_SHAPES = [
      "number follows, so a stale one is a finding too"),
 ]
 # Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
-_SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/")
+# Signed receipts are frozen too: a version inside one cannot be kept current without breaking its
+# signature, so a finding there would ask for a remedy that does not exist. They are also exactly
+# what release-integrity.yml does not run for, and a gate that reads files its only runner skips
+# gives a verdict that depends on what else happened to change in the same push.
+_SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/", "receipts/")
 
 _PYPI_JSON = "https://pypi.org/pypi/proofbundle/json"
 _PROJECT_PAGE = "https://b7n0de.com/proofbundle/"

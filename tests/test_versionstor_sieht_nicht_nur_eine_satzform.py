@@ -347,14 +347,19 @@ def test_a_reworded_headline_is_a_vanished_anchor_not_a_pass(tmp_path):
 
 
 def test_the_readme_anchors_name_this_project_not_a_shape(tmp_path):
-    """Check 4 demands the source version of EVERY match in the file. Four decoys that carry a
+    """Check 4 demands the source version of EVERY match in the file. Six decoys that carry a
     version in a release-claim shape but are not this project's current release must therefore not
-    match: another package's pin, a descriptive and a bare link to an older release, and another
-    project's URL."""
+    match: another package's pin, a descriptive and a bare link to an older release, another
+    project's URL, and a sentence that recalls an older install command or example URL."""
     koeder = ("python -m pip install cbor2==5.9.0\n"
               "[v6.0.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
               "Previous release: [v6.0.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0)\n"
-              "https://raw.githubusercontent.com/other/project/v5.0.0/x.json\n")
+              "https://raw.githubusercontent.com/other/project/v5.0.0/x.json\n"
+              # the two prose mentions a review lens used on 2026-09-25 to turn the gate red
+              "If you are upgrading, note that `python -m pip install proofbundle==6.1.0` was the "
+              "6.1 line's command.\n"
+              "The 6.0 example lived at https://raw.githubusercontent.com/b7n0de/proofbundle/v6.0.0/"
+              "examples/x.json for a while.\n")
     g = _gate()
     # PRECONDITION: each decoy IS a release-claim shape with a non-current number, so this case can
     # fail. Measured through the Check 6 shapes, which carry no project name.
@@ -370,8 +375,19 @@ def test_the_readme_anchors_name_this_project_not_a_shape(tmp_path):
 # change that touched nothing but prose never ran the check that guards prose. The class is a path
 # filter that excludes the files its own check reads; the case binds that property, not the list.
 
+#: Characters GitHub gives a meaning this converter does not model: there `?` and `+` quantify the
+#: character before them, `[...]` is a class, and a leading `!` negates. A converter that read `?`
+#: shell-style would agree with GitHub on today's list and disagree on the next, silently, so a
+#: pattern using one of them is refused and the property counts as NOT measured.
+_NICHT_MODELLIERT = frozenset("?+[]!")
+
+
 def _glob_regex(glob: str) -> "re.Pattern[str]":
     """GitHub path-filter globs: `**/` spans zero or more directories, `*` stays inside one."""
+    fremd = sorted(set(glob) & _NICHT_MODELLIERT)
+    if fremd:
+        raise ValueError(f"{glob!r} uses {fremd}, which this converter does not model; the path "
+                         f"filter is NOT measured")
     teile, i = [], 0
     while i < len(glob):
         if glob.startswith("**/", i):
@@ -383,9 +399,6 @@ def _glob_regex(glob: str) -> "re.Pattern[str]":
         elif glob[i] == "*":
             teile.append("[^/]*")
             i += 1
-        elif glob[i] == "?":
-            teile.append("[^/]")
-            i += 1
         else:
             teile.append(re.escape(glob[i]))
             i += 1
@@ -393,36 +406,81 @@ def _glob_regex(glob: str) -> "re.Pattern[str]":
 
 
 def _gelesene_dateien() -> list[str]:
+    """EVERY file the gate opens, not the ones it names. A review lens refuted the first version
+    on 2026-09-25 by execution: it listed seven files, while Check 6 opens every tracked file
+    outside its excluded prefixes, so a filter skipping `CONTRIBUTING.md` passed this case."""
     g = _gate()
-    return sorted({"pyproject.toml", "src/proofbundle/__init__.py", "CITATION.cff", "CHANGELOG.md",
-                   *(rel for rel, _m, _b in g._TRACKED_PLACES)})
+    verfolgt = g._tracked_files(REPO)
+    if not verfolgt:
+        pytest.skip("no readable git index: the files Check 6 sweeps are NOT measured")
+    benannt = {"pyproject.toml", "src/proofbundle/__init__.py", "CITATION.cff", "CHANGELOG.md",
+               *(rel for rel, _m, _b in g._TRACKED_PLACES)}
+    return sorted(benannt | {rel for rel in verfolgt if not rel.startswith(g._SWEEP_EXCLUDE_PREFIXES)})
 
 
 def _uebersprungen(ignore: list[str]) -> list[str]:
-    return [f"{rel} by {glob!r}" for rel in _gelesene_dateien() for glob in ignore
-            if _glob_regex(glob).match(rel)]
+    muster = [(glob, _glob_regex(glob)) for glob in ignore]
+    return [f"{rel} by {glob!r}" for rel in _gelesene_dateien() for glob, m in muster if m.match(rel)]
+
+
+def _workflow_befunde(d: dict) -> list[str]:
+    """What keeps the workflow from running the gate on a change to a file the gate reads."""
+    on = (d.get(True) or d.get("on") or {}) if isinstance(d, dict) else {}
+    befunde: list[str] = []
+    listen = {}
+    for trig in ("push", "pull_request"):
+        if not isinstance(on, dict) or trig not in on:
+            befunde.append(f"{trig}: the trigger is missing, so the gate does not run there at all")
+            continue
+        block = on.get(trig) or {}
+        if "paths" in block:
+            befunde.append(f"{trig}: the inclusion filter `paths` {block['paths']} runs the workflow "
+                           f"only for the files it lists, and the gate reads every tracked file")
+        listen[trig] = block.get("paths-ignore", [])
+        befunde += [f"{trig}: skips {x}" for x in _uebersprungen(listen[trig])]
+    if len(listen) == 2 and listen["push"] != listen["pull_request"]:
+        befunde.append(f"the two triggers filter differently, so a pull request and the push to main "
+                       f"answer different questions: {listen}")
+    return befunde
 
 
 def test_the_workflow_does_not_skip_a_file_the_gate_reads():
     yaml = pytest.importorskip("yaml", reason="PyYAML missing: the path filter is NOT measured")
     d = yaml.safe_load((REPO / ".github" / "workflows" / "release-integrity.yml")
                        .read_text(encoding="utf-8"))
-    on = d.get(True) or d.get("on")
-    listen = {trig: (on.get(trig) or {}).get("paths-ignore", []) for trig in ("push", "pull_request")}
-    assert listen["push"] == listen["pull_request"], (
-        f"the two triggers filter differently, so a pull request and the push to main answer "
-        f"different questions: {listen}")
-    for trig, ignore in listen.items():
-        assert not _uebersprungen(ignore), f"{trig}: the gate's own inputs are skipped: {_uebersprungen(ignore)}"
+    befunde = _workflow_befunde(d)
+    assert not befunde, "\n".join(befunde)
 
 
-def test_CONTROL_the_old_filter_would_have_been_caught():
-    """THE COUNTER-DIRECTION. Without it the case above would also pass with a glob matcher that
-    matches nothing. The list below is the filter this workflow carried before 2026-09-23."""
-    alt = ["**/*.md", "docs/**", "audit_artifacts/**", "receipts/**", ".mailmap"]
-    treffer = _uebersprungen(alt)
-    assert "README.md by '**/*.md'" in treffer, treffer
-    assert "CHANGELOG.md by '**/*.md'" in treffer, treffer
-    assert "docs/readiness_pack/PROGRESS.md by 'docs/**'" in treffer, treffer
+_ALT = ["**/*.md", "docs/**", "audit_artifacts/**", "receipts/**", ".mailmap"]
+
+
+@pytest.mark.parametrize("on,erwartet", [
+    # the filter this workflow carried before 2026-09-23
+    ({"push": {"paths-ignore": _ALT}, "pull_request": {"paths-ignore": _ALT}},
+     "skips README.md by '**/*.md'"),
+    ({"push": {"paths-ignore": _ALT}, "pull_request": {"paths-ignore": _ALT}},
+     "skips docs/readiness_pack/PROGRESS.md by 'docs/**'"),
+    # the two refutations of the review lens, 2026-09-25
+    ({"push": {"paths-ignore": ["CONTRIBUTING.md"]}, "pull_request": {"paths-ignore": ["CONTRIBUTING.md"]}},
+     "skips CONTRIBUTING.md by 'CONTRIBUTING.md'"),
+    ({"push": {"paths": ["src/**"]}, "pull_request": {"paths": ["src/**"]}}, "inclusion filter"),
+    ({"push": {"branches": ["main"]}}, "pull_request: the trigger is missing"),
+    ({"push": {"paths-ignore": []}, "pull_request": {"paths-ignore": ["receipts/**"]}},
+     "filter differently"),
+])
+def test_CONTROL_each_way_of_skipping_the_gate_is_caught(on, erwartet):
+    """THE COUNTER-DIRECTION. Without it the case above would also pass with a checker that finds
+    nothing. Each row is a workflow that skips the gate on a change it should have seen."""
+    befunde = _workflow_befunde({True: on})
+    assert any(erwartet in b for b in befunde), befunde
+
+
+def test_CONTROL_the_glob_converter_matches_github_and_refuses_the_rest():
+    assert _glob_regex("**/*.md").match("README.md"), "`**/` must also span zero directories"
+    assert _glob_regex("**/*.md").match("docs/a/b.md")
     assert not _glob_regex("docs/**").match("src/docs.py")
     assert not _glob_regex("*.md").match("docs/x.md"), "a single star crossed a directory"
+    for fremd in ("docs/?.md", "**/*.m+d", "docs/[ab].md", "!docs/**"):
+        with pytest.raises(ValueError, match="NOT measured"):
+            _glob_regex(fremd)
