@@ -65,6 +65,20 @@ in the repository the receipt names, with default options and no colour. Both sh
 `subjectContext`, so a reader holding the repository can reproduce the value without asking anyone
 what was meant.
 
+**CORRECTED 2026-09-25: default options are not one derivation.** Measured on pull request 264, the
+same command gives `a5e83b33…` in a large clone, where git abbreviates blob ids on the index lines to
+eight characters, `d8c6daf0…` with `core.abbrev=7` as in a fresh clone, and a third value with
+`diff.noprefix=true`. A reader in another clone or with other settings could not reproduce the value.
+The receipts this repository issues from 2026-09-25 on take the digest over
+
+```
+git -c core.quotepath=true diff --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --indent-heuristic -U3 --src-prefix=a/ --dst-prefix=b/ <baseSha> <headSha>
+```
+
+which sets every option a git setting could change. For pull request 264 it gives the same value
+under nine configurations, and each receipt states the command in its own known gaps. A different
+git version may still render the same trees differently; that limit is named below.
+
 **THE HONEST PART, measured 2026-09-23.** The receipts issued before that date carry the field, and
 their derivation is recorded nowhere — not here, not in the emitter, not beside the published
 evidence. Three obvious candidates were measured against one of them, the receipt for pull request
