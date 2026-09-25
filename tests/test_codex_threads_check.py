@@ -166,6 +166,29 @@ class TheOrigin(unittest.TestCase):
         with mock.patch.object(ct, "_get", self._origin(None)):
             self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
 
+    def test_a_landed_pull_request_counts_its_merge_commit_as_a_head(self):
+        """Measured on PR 264: answers written after the squash name the commit on main, which is
+        no ancestor of the old branch head. The first version called all four not at head."""
+        merge = "c" * 40
+        pages = {
+            f"{ct.API}/repos/{R}/pulls/7": {"head": {"sha": HEAD}, "merged": True,
+                                            "merge_commit_sha": merge},
+            f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100": [codex(10)],
+            f"{ct.API}/repos/{R}/issues/7/comments?per_page=100": [issue(register_answer(7, 10, merge))],
+        }
+
+        def fake(url, token):
+            if "/compare/" in url:
+                return {"status": "identical" if url.endswith(f"{merge}...{merge}") else "diverged"}, None
+            return pages[url], None
+        with mock.patch.object(ct, "_get", fake):
+            e = ct.measure_at_origin(R, 7, OWNER, None)
+        self.assertEqual((e["verdict"], e["merge_commit"]), ("green", merge), e)
+        # PRECONDITION: without the merge commit as a head, the same answer is not at head.
+        pages[f"{ct.API}/repos/{R}/pulls/7"] = {"head": {"sha": HEAD}}
+        with mock.patch.object(ct, "_get", fake):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
 
 class TheWorkflow(unittest.TestCase):
     """The workflow runs this check on every pull request, read-only, with no event value spliced

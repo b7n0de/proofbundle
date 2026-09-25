@@ -25,7 +25,8 @@ resolving is a click, an answer is a statement.
 WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, or, where
 the answer has no such line, the first 40-hex id in it. An answer that names no commit is not at
 head. A commit is at head when the compare API reports the head as identical to it or ahead of it;
-a commit the repository does not know is not at head.
+for a pull request that has landed, its merge commit counts as a head too. A commit the repository
+does not know is not at head.
 
 THREE STATES, NOT TWO. A page of the API that cannot be read makes the check red as NOT MEASURABLE
 (exit 2), never green: a thread nobody could read is not an answered one.
@@ -153,25 +154,34 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
     head = ((pull or {}).get("head") or {}).get("sha") if isinstance(pull, dict) else None
     if not head:
         raise NotMeasurable(f"pull request {pr}: no head sha in the answer")
+    # A LANDED PULL REQUEST HAS TWO HEADS. Measured on PR 264 on 2026-09-25: its answers written
+    # after the squash name the commit on main, which is no ancestor of the old branch head, and the
+    # first version of this check called all four of them not at head. For a merged pull request the
+    # merge commit counts as a head too.
+    merged = pull.get("merge_commit_sha") if pull.get("merged") else None
+    targets = [head] + ([merged] if merged else [])
     review = _pages(f"repos/{repo}/pulls/{pr}/comments", token)
     issue = _pages(f"repos/{repo}/issues/{pr}/comments", token)
     seen: dict[str, bool] = {}
 
+    def on(sha: str, target: str) -> bool:
+        try:
+            data, _ = _get(f"{API}/repos/{repo}/compare/{sha}...{target}", token)
+        except Missing:
+            return False                   # a commit the repository does not know is not at head
+        status = data.get("status") if isinstance(data, dict) else None
+        if status is None:
+            raise NotMeasurable(f"compare {sha[:12]}...{target[:12]}: no status")
+        return status in ("identical", "ahead")
+
     def at_head(sha: str) -> bool:
         if sha not in seen:
-            try:
-                data, _ = _get(f"{API}/repos/{repo}/compare/{sha}...{head}", token)
-            except Missing:
-                seen[sha] = False          # a commit the repository does not know is not at head
-                return False
-            status = data.get("status") if isinstance(data, dict) else None
-            if status is None:
-                raise NotMeasurable(f"compare {sha[:12]}...{head[:12]}: no status")
-            seen[sha] = status in ("identical", "ahead")
+            seen[sha] = any(on(sha, t) for t in targets)
         return seen[sha]
 
     result = measure(repo, pr, owner, review, issue, at_head)
     result["head"] = head
+    result["merge_commit"] = merged
     return result
 
 
