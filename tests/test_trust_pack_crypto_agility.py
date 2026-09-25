@@ -354,7 +354,7 @@ class TestRotationOldEd25519ToNewHybrid(unittest.TestCase):
                               prev_root_keys=old_root_keys, prev_root_threshold=2)
         self.assertTrue(r["root_threshold_met"], r)  # the new root itself is fine
         self.assertFalse(r["rotation_authorized"])   # but nobody from the old root vouched
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 if __name__ == "__main__":

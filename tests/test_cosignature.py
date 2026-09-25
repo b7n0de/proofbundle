@@ -100,7 +100,7 @@ class TestCosignAdversarial(unittest.TestCase):
         stranger_vkey = cp.cosign_vkey("stranger.example.com/w", _raw_pub(stranger))
         res = cp.verify_witnessed_checkpoint(note, log_vkey, [witnesses[0][2], stranger_vkey],
                                              threshold=2)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(res["log_ok"])
         self.assertFalse(res["witnesses_ok"])
 
@@ -122,7 +122,7 @@ class TestCosignAdversarial(unittest.TestCase):
                  cp.cosign_vkey("witnessB.example.com/w", _raw_pub(sole))]
         res = cp.verify_witnessed_checkpoint(note, log_vkey, vkeys, threshold=2)
         self.assertFalse(res["witnesses_ok"], "one key under two names must not satisfy threshold=2")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_log_signature_still_required(self):
         # Witnesses do not REPLACE the log signature: quorum met + wrong log key → fail.
@@ -130,7 +130,7 @@ class TestCosignAdversarial(unittest.TestCase):
         wrong_log = generate_signer()
         wrong_log_vkey = cp.vkey(ORIGIN, _raw_pub(wrong_log))
         res = cp.verify_witnessed_checkpoint(note, wrong_log_vkey, [wvkey], threshold=1)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["log_ok"])
         self.assertTrue(res["witnesses_ok"])
 
@@ -173,7 +173,7 @@ class TestCosignAdversarial(unittest.TestCase):
         self.assertTrue(mit["signer_present"],
                         "der vertraute Schluessel hat diese Note sehr wohl signiert; nur der Baum "
                         "ist ein anderer — wer das zusammenwirft, sucht den Fehler am falschen Ort")
-        self.assertFalse(mit["ok"])
+        self.assertIs(mit["ok"], False)
         # Die Zeugen sind davon unberuehrt: der Fehlschlag ist dem LOG zuzurechnen, nicht ihnen.
         self.assertTrue(mit["witnesses_ok"])
         self.assertEqual(mit["origin"], "evil.example/other-tree")

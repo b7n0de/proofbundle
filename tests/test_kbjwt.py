@@ -122,7 +122,7 @@ class TestKbRoundtrip(unittest.TestCase):
         compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.5")
         res = verify_key_binding(compact)
         self.assertFalse(res["present"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_cnf_extraction(self):
         presented, _, holder = _issue_presented()
@@ -161,7 +161,7 @@ class TestKbAdversarial(unittest.TestCase):
         h2 = _b64url(json.dumps(header).encode())
         sig2 = _b64url(holder.sign(f"{h2}.{p}".encode("ascii")))
         res = verify_key_binding(sd + f"{h2}.{p}.{sig2}")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("kb+jwt", res["detail"])
 
     def test_red_alg_none(self):
@@ -195,7 +195,7 @@ class TestKbAdversarial(unittest.TestCase):
         attacker = generate_signer()
         sig2 = _b64url(attacker.sign(f"{h}.{p}".encode("ascii")))
         res = verify_key_binding(sd + f"{h}.{p}.{sig2}")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("signature invalid", res["detail"])
 
     def test_red_no_key_available_fails_closed(self):
@@ -207,7 +207,7 @@ class TestKbAdversarial(unittest.TestCase):
         presented = present_with_key_binding(compact, holder, aud="a", nonce="n", iat=IAT)
         res = verify_key_binding(presented)
         self.assertTrue(res["present"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("no holder key", res["detail"])
         # but verifiable with the explicitly supplied holder key
         self.assertTrue(verify_key_binding(presented, _raw_pub(holder))["ok"])
@@ -222,7 +222,7 @@ class TestKbAdversarial(unittest.TestCase):
         p2 = _b64url(json.dumps(payload).encode())
         sig2 = _b64url(holder.sign(f"{h}.{p2}".encode("ascii")))
         res = verify_key_binding(sd + f"{h}.{p2}.{sig2}")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("sd_hash", res["detail"])
 
 

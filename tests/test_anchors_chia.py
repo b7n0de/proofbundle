@@ -179,9 +179,9 @@ class TestChiaOfflineMerkle(unittest.TestCase):
     # DoS / fail-closed backstop (Lens 2): deeply nested JSON must NOT crash the verifier
     def test_deeply_nested_json_fails_closed(self):
         r = verify_chia_datalayer(b"[" * 5000, self.root)   # would RecursionError without the backstop
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         r2 = verify_chia_datalayer(b"x" * (200 * 1024), self.root)   # over the byte cap
-        self.assertFalse(r2["ok"])
+        self.assertIs(r2["ok"], False)
 
     # 6-lens LOW (packaging): the SHIPPED example files must be pinned by a verdict regression test — else a
     # future chia-datalayer/v2 wire change or an accidental edit that flips them (invalid verifies / valid
@@ -215,7 +215,7 @@ class TestChiaAnchorRegistration(unittest.TestCase):
         self.assertTrue(out["ok"], out["detail"])
         # cross-target: same anchor against a preRegistration root it does not stamp -> FAIL
         out2 = anchors.verify_anchor(anchor, target_roots={"receipt": b"\x09" * 32})
-        self.assertFalse(out2["ok"])
+        self.assertIs(out2["ok"], False)
 
 
 if __name__ == "__main__":

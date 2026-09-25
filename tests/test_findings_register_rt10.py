@@ -86,21 +86,21 @@ class TestFindingsRegisterVerify(unittest.TestCase):
     def test_absent_register_fails(self):
         with tempfile.TemporaryDirectory() as td:
             r = self.fr.verify_and_count(Path(td))
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertEqual(r["evaluated_count"], 0)
 
     def test_tampered_status_fails(self):
         reg = json.loads(self.real.read_text(encoding="utf-8"))
         reg["findings"][0]["status"] = "open"  # break a closed P0 without re-signing
         r = self._run_with(reg)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("signature", r["reason"].lower())
 
     def test_emptied_findings_fails(self):
         reg = json.loads(self.real.read_text(encoding="utf-8"))
         reg["findings"] = []  # a stale-zero analogue: no findings at all
         r = self._run_with(reg)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_verify_and_count_fails_closed_on_hidden_open_p0(self):
         # RT10-REG-01 wiring: a (simulated validly-signed) register that hides an open P0 behind a dangling
@@ -138,7 +138,7 @@ class TestFindingsRegisterVerify(unittest.TestCase):
             "sig_b64": base64.b64encode(k.sign(canonical.canonicalize_statement(body))).decode(),
         }
         r = self._run_with(forged)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         # Der Grund heisst seit Teil F (2026-09-06) nicht mehr "pinned": es gibt keinen zweiten Pin
         # in diesem Modul mehr, sondern die Autorisierung aus dem Vertrauensanker. Die AUSSAGE ist
         # dieselbe geblieben — ein fremder Schluessel traegt das Register nicht —, nur ihre Quelle

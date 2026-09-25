@@ -95,7 +95,7 @@ class DieAblehnungBleibtTypisiert(unittest.TestCase):
         """Ein Container statt einer Zahl läuft am Budget vorbei und trifft die Render-Stelle direkt."""
         res = anchors.verify_anchor({"type": [[["tief"]] * 3] * 3, "target": "receipt"},
                                     target_roots={"receipt": b"\0" * 32})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("no verifier registered", res["detail"])
 
     def test_verify_dual_hash_riesiger_schluessel(self):
@@ -121,7 +121,7 @@ class DieAblehnungBleibtTypisiert(unittest.TestCase):
         pub = sig.public_key().public_bytes_raw()
         r = decision.verify_decision_receipt(env, pub, anchors=[{"type": RIESE, "target": "statement"}])
         self.assertIs(r["anchors_ok"], False)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("anchor" in e for e in r["errors"]))
 
     def test_decision_validate_gemischte_schluessel(self):

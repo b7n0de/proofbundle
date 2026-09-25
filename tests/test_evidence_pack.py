@@ -161,7 +161,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         from proofbundle.evidence_pack import verify_evidence_pack
         pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _btc_root().hex()})
         res = verify_evidence_pack(pack)   # no rp_trust
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "needs_rp_trust")
 
     def test_pending_pack_is_warn_not_pass(self):
@@ -169,7 +169,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         pack = self._pack(_pending_proof())
         self.assertFalse(pack["selfContained"])
         res = verify_evidence_pack(pack)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "pending")
 
     def test_verify_without_network_succeeds(self):

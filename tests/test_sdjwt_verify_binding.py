@@ -89,7 +89,7 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         self.assertEqual(rc, 1)                                # crypto fail, not a pass-with-warning
         checks = self._checks(data)
         self.assertTrue(checks["sd-jwt-issuer-signature"]["ok"])   # signature IS valid…
-        self.assertFalse(checks["sd-jwt-bundle-binding"]["ok"])    # …but it binds the wrong bundle
+        self.assertIs(checks["sd-jwt-bundle-binding"]["ok"], False)    # …but it binds the wrong bundle
         self.assertIn("unbound", checks["sd-jwt-bundle-binding"]["detail"])
         self.assertFalse(data["sd_jwt_ok"])                    # summary must NOT read True (No-Fake, WP-C1)
 
@@ -101,7 +101,7 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
             os.unlink(path)
         self.assertEqual(rc, 1)
         checks = self._checks(data)
-        self.assertFalse(checks["sd-jwt-issuer-signature"]["ok"])
+        self.assertIs(checks["sd-jwt-issuer-signature"]["ok"], False)
         self.assertIn("unsigned", checks["sd-jwt-issuer-signature"]["detail"])
         self.assertFalse(data["sd_jwt_ok"])
         self.assertFalse(data["sd_jwt_issuer_verified"])
@@ -137,7 +137,7 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         self.assertEqual(rc, 1)
         checks = self._checks(data)
         self.assertTrue(checks["sd-jwt-issuer-signature"]["ok"])      # signature IS valid (under att)…
-        self.assertFalse(checks["sd-jwt-issuer-identity"]["ok"])      # …but by the wrong signer
+        self.assertIs(checks["sd-jwt-issuer-identity"]["ok"], False)      # …but by the wrong signer
         self.assertIn("issuer-key-mismatch", checks["sd-jwt-issuer-identity"]["detail"])
         self.assertFalse(data["sd_jwt_ok"])
 

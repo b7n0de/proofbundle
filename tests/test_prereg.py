@@ -42,7 +42,7 @@ class TestPrereg(unittest.TestCase):
         try:
             claim = {"prereg_sha256": hashlib.sha256(b"a DIFFERENT plan").hexdigest()}
             res = verify_prereg(path, claim)
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
             self.assertIn("does NOT match", res["detail"])
         finally:
             os.unlink(path)
@@ -51,7 +51,7 @@ class TestPrereg(unittest.TestCase):
         path = self._file(b"x")
         try:
             res = verify_prereg(path, {})           # no prereg_sha256
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
             self.assertFalse(res["present"])
         finally:
             os.unlink(path)

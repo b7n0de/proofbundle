@@ -23,7 +23,7 @@ class TlogProofNeverRaisesOnMalformedCheckpoint(unittest.TestCase):
                 + "\n\norigin\n5\n!!!not-base64!!!\n\n— log AAAA\n")
         r = verify_tlog_proof(text, b"payload", vk)   # must NOT raise
         self.assertIsInstance(r, dict)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class AuditChallengeRaisesTypedOnHostileInput(unittest.TestCase):
@@ -233,7 +233,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         eat = b(b"{}") + "." + b(b"[" + b"1," * over + b"1]") + ".AAAA"
         res = verify_enclave_attestation(eat, verifier_pubkey=b"\x00" * 32, expected_binding="x")
         self.assertIsInstance(res, dict)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_intoto_verify_nan_inf_hugeint_are_dict_not_raw(self):
         import base64
@@ -253,7 +253,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         for pred in ({"x": float("nan")}, {"x": float("inf")}, {"x": int("1" + "0" * 400)}):
             res = intoto.verify_intoto_dsse(envelope(pred), b"\x00" * 32)
             self.assertIsInstance(res, dict)
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
 
     def test_evalcard_and_prereg_devzero_and_fifo_fail_closed(self):
         import os
@@ -261,7 +261,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         from proofbundle import verify_evaluation_card, verify_prereg
         # /dev/zero (character device) must fail-closed, not hang
         r = verify_evaluation_card("/dev/zero", {"evaluation_card_sha256": "bb"})
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         # a FIFO with no writer must be refused by the stat-guard before open() blocks
         d = tempfile.mkdtemp()
         fifo = os.path.join(d, "fifo")
@@ -443,7 +443,7 @@ class Round7CanonicalRootJwtDecodeParse(unittest.TestCase):
         big = base64.urlsafe_b64encode(b"A" * (18 * 1024 * 1024)).rstrip(b"=").decode()
         res = verify_key_binding("e30." + big + ".AA~kbh.kbp.kbs")
         self.assertIsInstance(res, dict)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_b64url_decode_direct_oversized_is_typed(self):
         from proofbundle.kbjwt import _b64url_decode

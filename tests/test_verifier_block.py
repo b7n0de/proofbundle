@@ -482,8 +482,7 @@ class TestTestResultStatement:
         assert any("vector set" in e for e in j["errors"])
         # same case count, different digest -- still another corpus
         b["vectorSet"] = {"name": "another-corpus", "digest": {"sha256": "8" * 64}, "cases": 110}
-        assert not VB.join_test_result(b, s)["ok"]
-
+        assert VB.join_test_result(b, s)["ok"] is False
     def test_a_result_that_its_own_lists_contradict_is_refused(self):
         """Codex round one on PR 224, P1: `result: PASSED` beside `failedTests: [...]` validated
         clean. The headline is derived from the lists; a case in two lists is the same defect."""

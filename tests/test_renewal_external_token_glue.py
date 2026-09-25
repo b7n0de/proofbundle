@@ -93,7 +93,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         from proofbundle.renewal import _verify_ats_external_token
         ats = _initial()[0][0]
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "absent")
 
     def test_unknown_type_reports_absent_not_crash(self):
@@ -101,7 +101,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = dataclasses.replace(_initial()[0][0], external_token_type="carrier-pigeon",
                                   external_token=b"x")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "absent")
 
     def test_malformed_covered_digest_fails_closed_not_raise(self):
@@ -109,7 +109,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = ArchiveTimeStamp("sha256", "not-hex!!", 1000, external_token_type="rfc3161-tsa",
                                external_token=b"x")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "malformed")
 
     def test_rfc3161_missing_extra_fails_closed_not_raise(self):
@@ -119,14 +119,14 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = dataclasses.replace(_initial()[0][0], external_token_type="rfc3161-tsa",
                                   external_token=b"not-a-real-der-token")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_opentimestamps_malformed_proof_fails_closed_not_raise(self):
         from proofbundle.renewal import _verify_ats_external_token
         ats = dataclasses.replace(_initial()[0][0], external_token_type="opentimestamps",
                                   external_token=b"not-a-real-ots-proof")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_verifier_exception_is_caught_fail_closed(self):
         from proofbundle.renewal import _verify_ats_external_token
@@ -136,7 +136,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
                                   external_token=b"x")
         with mock.patch.object(anchors_rfc3161, "verify_rfc3161", side_effect=RuntimeError("boom")):
             res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "verifier_error")
 
 

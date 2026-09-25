@@ -113,7 +113,7 @@ class TestOpeningAdversarial(unittest.TestCase):
         ).rstrip(b"=").decode()
         opening = dict(self.opening, disclosure=forged)
         res = verify_sample_opening(opening, self.tree["root_b64"], self.tree["n"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIsNone(res["record"], "tampered plaintext must never be returned")
 
     def test_red_replay_at_other_index(self):
@@ -123,12 +123,12 @@ class TestOpeningAdversarial(unittest.TestCase):
         other = sample_opening(self.tree["disclosures"], 5)
         grafted = dict(other, disclosure=self.opening["disclosure"])
         res = verify_sample_opening(grafted, self.tree["root_b64"], self.tree["n"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_index_lied_in_opening(self):
         lied = dict(self.opening, index=5)
         res = verify_sample_opening(lied, self.tree["root_b64"], self.tree["n"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_proof_tamper(self):
         proof = list(self.opening["proof_b64"])
@@ -137,7 +137,7 @@ class TestOpeningAdversarial(unittest.TestCase):
         proof[0] = base64.b64encode(bytes(raw)).decode()
         res = verify_sample_opening(dict(self.opening, proof_b64=proof),
                                     self.tree["root_b64"], self.tree["n"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_wrong_root_or_n(self):
         other_root = base64.b64encode(hashlib.sha256(b"other").digest()).decode()

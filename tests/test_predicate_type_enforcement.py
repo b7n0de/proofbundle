@@ -75,7 +75,7 @@ class TestExplicitExpectedType(unittest.TestCase):
         env = export_eval_result_dsse(_claim(), signer)
         # pin the SVR type against an eval-result envelope → mismatch
         res = verify_eval_result_dsse(env, pub, expected_predicate_type=SVR_PREDICATE_TYPE)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["predicate_type_ok"])
 
     def test_expected_predicate_type_wird_EXAKT_verglichen(self):
@@ -110,7 +110,7 @@ class TestExplicitExpectedType(unittest.TestCase):
         other = generate_signer().public_key().public_bytes_raw()
         env = export_eval_result_dsse(_claim(), signer)
         res = verify_eval_result_dsse(env, other)   # right type, wrong key
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         # type is fine; the signature is what fails — ok must still be False
         self.assertIs(res["predicate_type_ok"], True)
 

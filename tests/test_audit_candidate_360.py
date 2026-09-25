@@ -87,7 +87,7 @@ class TestTestManifestGate(unittest.TestCase):
             lock.write_text(json.dumps({"min_collected_tests": 10 ** 9,
                                         "min_pytest_only_modules": 10 ** 6}))
             r = self.g.evaluate(lock_path=lock)
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
             self.assertTrue(any("floor" in p for p in r["problems"]))
 
     def test_pytest_only_discovery_is_ast_derived(self):

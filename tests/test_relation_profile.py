@@ -667,7 +667,7 @@ class TestLineageVisibleInAggregate(unittest.TestCase):
                                     related={H_B: {"verified": False}})
         self.assertTrue(r["crypto_ok"])          # crypto NIE beruehrt
         self.assertIs(r["lineage_ok"], False)
-        self.assertFalse(r["ok"])                # jetzt sichtbar (vorher stillschweigend True)
+        self.assertIs(r["ok"], False)                # jetzt sichtbar (vorher stillschweigend True)
         self.assertFalse(r["automation"]["safeForAutomation"])
 
     def test_declared_unresolved_keeps_ok_true(self):

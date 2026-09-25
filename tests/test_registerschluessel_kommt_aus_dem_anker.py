@@ -100,7 +100,7 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             repo = _repo_mit_register(Path(t), _register(self.key))
             r = fr.verify_and_count(repo, expected_version="6.0.0")   # authorised_pubkeys fehlt
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
             self.assertIn(fr.CODE_REGISTER_UNAUTHORISED_KEY, r["reason"])
             self.assertIn("no authorised key set", r["reason"])
 
@@ -108,7 +108,7 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             repo = _repo_mit_register(Path(t), _register(self.key))
             r = fr.verify_and_count(repo, expected_version="6.0.0", authorised_pubkeys=set())
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
             self.assertIn("authorises no key", r["reason"],
                           "gemessen 'niemand' und 'nicht gebunden' sind zwei Zustaende, nicht einer")
 
@@ -117,7 +117,7 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
             repo = _repo_mit_register(Path(t), _register(self.fremd))
             r = fr.verify_and_count(repo, expected_version="6.0.0",
                                     authorised_pubkeys={_pub_b64(self.key)})
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
             self.assertIn(fr.CODE_REGISTER_UNAUTHORISED_KEY, r["reason"])
 
     def test_der_frueher_gepinnte_schluessel_ist_nicht_mehr_autorisiert(self):
@@ -144,7 +144,7 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
             repo = _repo_mit_register(Path(t), _register(self.key, version="3.6.1"))
             r = fr.verify_and_count(repo, expected_version="6.0.0",
                                     authorised_pubkeys={_pub_b64(self.key)})
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
             self.assertIn(fr.CODE_REGISTER_VERSION_MISMATCH, r["reason"])
 
     # ── unmessbare Vertrauensbasis ist DATA_BLOCKED, nie PASS ───────────────────────────────────

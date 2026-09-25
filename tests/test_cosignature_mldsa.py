@@ -79,7 +79,7 @@ class TestMldsaCosign(unittest.TestCase):
         forged_line = f"{cp.EM_DASH} {other_name} {base64.b64encode(forged_blob).decode()}\n"
         forged_note = self.note + forged_line
         res = cp.verify_cosignature(forged_note, cp.cosign_vkey_mldsa(other_name, self.wpub))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_body_tamper(self):
         tampered = self.cosigned.replace("\n7\n", "\n8\n")

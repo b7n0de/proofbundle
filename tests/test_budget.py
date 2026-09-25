@@ -198,7 +198,7 @@ class TestInputBytesBudgetEnforced(unittest.TestCase):
         with mock.patch("proofbundle.budget.DEFAULT_BUDGET", tiny):
             r = verify_decision_receipt(env, pub, strict=True)   # must RETURN a verdict, never raise
         self.assertIs(r["structure_ok"], False)
-        self.assertIsNot(r["ok"], True)
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("budget" in e.lower() for e in r["errors"]), r["errors"])
         # sanity: the SAME envelope verifies fine under the real (generous) default budget.
         r2 = verify_decision_receipt(env, pub, strict=True)

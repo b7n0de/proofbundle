@@ -95,12 +95,12 @@ class TestVerify(unittest.TestCase):
         proof = tlog_proof_for_bundle(bundle, note)
         res = verify_tlog_proof(proof, payload, cp.vkey(ORIGIN, _raw(log_key)), vkeys, threshold=3)
         self.assertFalse(res["witnesses_ok"], "one key under three names must not satisfy threshold=3")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_wrong_leaf(self):
         proof, _, log_vkey, _, _ = _setup(0)
         res = verify_tlog_proof(proof, b"other bytes", log_vkey)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["inclusion_ok"])
         self.assertTrue(res["log_ok"])          # checkpoint itself is fine — precise verdicts
 
@@ -108,7 +108,7 @@ class TestVerify(unittest.TestCase):
         proof, payload, _, _, _ = _setup(0)
         stranger = generate_signer()
         res = verify_tlog_proof(proof, payload, cp.vkey(ORIGIN, _raw(stranger)))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["log_ok"])
         self.assertTrue(res["inclusion_ok"])    # inclusion binds to the (unsigned-for-us) root
 
@@ -116,7 +116,7 @@ class TestVerify(unittest.TestCase):
         proof, payload, log_vkey, _, _ = _setup(0)
         tampered = proof.replace("index 3", "index 2")
         res = verify_tlog_proof(tampered, payload, log_vkey)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["inclusion_ok"])
 
     def test_red_proof_hash_tamper(self):
@@ -128,12 +128,12 @@ class TestVerify(unittest.TestCase):
                 lines[i + 1] = base64.b64encode(bytes([h[0] ^ 1]) + h[1:]).decode()
                 break
         res = verify_tlog_proof("\n".join(lines), payload, log_vkey)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_quorum_not_met(self):
         proof, payload, log_vkey, wvkeys, _ = _setup(1)
         res = verify_tlog_proof(proof, payload, log_vkey, wvkeys, threshold=2)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["witnesses_ok"])
         self.assertTrue(res["log_ok"] and res["inclusion_ok"])
 
@@ -146,7 +146,7 @@ class TestVerify(unittest.TestCase):
         res = verify_tlog_proof(with_extra, payload, log_vkey)
         self.assertTrue(res["ok"])              # good proof unaffected by extra
         res2 = verify_tlog_proof(with_extra, b"forged", log_vkey)
-        self.assertFalse(res2["ok"])            # extra cannot rescue a wrong leaf
+        self.assertIs(res2["ok"], False)            # extra cannot rescue a wrong leaf
 
     def test_red_index_out_of_range(self):
         proof, payload, log_vkey, _, _ = _setup(0)

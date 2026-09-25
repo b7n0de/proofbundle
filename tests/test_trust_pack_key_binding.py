@@ -78,7 +78,7 @@ class TestExecutorKeyIdIsBoundToTheSigner(unittest.TestCase):
         self.assertTrue(r["crypto_ok"], "the envelope IS validly signed — by the wrong key for the label")
         self.assertFalse(r["executor_role_trusted"])
         self.assertIs(r["executor_key_bound"], False)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["automation"]["safeForAutomation"])
         self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", r["automation"]["automationBlockers"])
         self.assertTrue(any("KEY_ID_NOT_BOUND_TO_SIGNER" in e for e in r["errors"]), r["errors"])
@@ -88,7 +88,7 @@ class TestExecutorKeyIdIsBoundToTheSigner(unittest.TestCase):
         env = emit_outcome_receipt(_outcome(executor_key_id="ghost"), self.root0)
         r = verify_outcome_receipt(env, _pub(self.root0), trust_pack=pack)
         self.assertFalse(r["executor_role_trusted"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_an_mldsa_only_key_never_binds_an_ed25519_envelope(self):
         pack = self.pack

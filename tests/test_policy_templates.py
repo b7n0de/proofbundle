@@ -121,7 +121,7 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
                                     policy_id="org/exp-v1", valid_until="2020-01-01T00:00:00Z")
         self.assertTrue(policy_expired(past))
         res = lint_policy(past)                      # expiry fails lint in BOTH modes
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(any("expired" in e for e in res["errors"]))
         future = instantiate_template("strict-eval-template-v1", issuer_keys=[self.pub],
                                       policy_id="org/fut-v1", valid_until="2099-01-01T00:00:00Z")

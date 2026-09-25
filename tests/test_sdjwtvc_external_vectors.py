@@ -252,7 +252,7 @@ class TestSdjwtVcProfileExternalVectors(unittest.TestCase):
     def test_unknown_vct_is_fail_closed(self) -> None:
         policy = {"vctAllowlist": ["urn:example:not-the-real-type"]}
         r = check_vc_profile(self.examples[0], policy)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["vct_ok"])
         self.assertTrue(any("not on the relying party's vctAllowlist" in e for e in r["errors"]))
 

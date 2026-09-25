@@ -172,7 +172,7 @@ class TestF7PreTagAudit(unittest.TestCase):
 
     def test_missing_audit_is_caught(self):
         result = self.gate.evaluate(REPO, version="9.9.9")
-        self.assertFalse(result["ok"])
+        self.assertIs(result["ok"], False)
         self.assertIn("9.9.9", result["reason"])
 
     def test_negated_marker_does_not_grant_pass(self):

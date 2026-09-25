@@ -81,7 +81,7 @@ class TestMarkovianVerifier(unittest.TestCase):
 
     def test_pending_is_warn_never_pass(self):
         res = self.verify(_envelope(_pending_ots()), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(res["warn"])                    # inherited from the OTS lifecycle
         self.assertEqual(res["status"], "pending")
 
@@ -89,13 +89,13 @@ class TestMarkovianVerifier(unittest.TestCase):
         # envelope commits to a DIFFERENT data_hash than the target canonical root
         other = hashlib.sha256(b"different").hexdigest()
         res = self.verify(_envelope(_upgraded_ots(), data_hash=other), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "unbound")
 
     def test_envelope_tampered_fails(self):
         # merkle_root does not equal sha256(data_hash:salt:wallet) -> inconsistent envelope
         res = self.verify(_envelope(_upgraded_ots(), merkle_root="00" * 32), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "envelope_mismatch")
 
     def test_wallet_swap_breaks_binding(self):
@@ -103,24 +103,24 @@ class TestMarkovianVerifier(unittest.TestCase):
         env = json.loads(_envelope(_upgraded_ots()))
         env["wallet"] = "1ATTACKERwa11etAAAAAAAAAAAAAAAAAAA"
         res = self.verify(json.dumps(env).encode(), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "envelope_mismatch")
 
     def test_bad_schema_fails(self):
         res = self.verify(_envelope(_upgraded_ots(), schema="not-markovian"), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "bad_schema")
 
     def test_malformed_fails_closed(self):
         res = self.verify(b"not json at all", _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "malformed")
 
     def test_upgraded_without_rp_header_is_honest_not_pass(self):   # WP-A1 re-pin
         # inherits the OTS "upgraded but needs relying-party trust material" honest report
         res = self.verify(_envelope(_upgraded_ots()), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "needs_rp_trust")
 
@@ -151,7 +151,7 @@ class TestMarkovianThroughGenericLayer(unittest.TestCase):
         # WP-A1 security property: the SAME fixture WITHOUT relying-party trust material does NOT confirm
         no_rp = anchors.verify_anchors([anchor], target_roots={"preRegistration": root})
         self.assertNotEqual(no_rp["status"], "PASS")
-        self.assertFalse(no_rp["results"][0]["ok"])
+        self.assertIs(no_rp["results"][0]["ok"], False)
 
     def test_confirmed_fixture_satisfies_require_anchor(self):   # WP-A1 re-pin
         anchor = json.loads(_FIXTURE.read_text())
@@ -288,7 +288,7 @@ class TestTlogBitcoinAnchorVectors(unittest.TestCase):
         res = self.verify_ots(known[0], root, frozen={})
         self.assertNotIn(res["status"], ("unbound", "malformed"))   # binding holds under our verifier
         # offline, with no relying-party Bitcoin header, an upgraded proof is honestly not-a-pass
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "needs_rp_trust")
         # teeth: a WRONG root is rejected as unbound — proves the binding actually checks
         self.assertEqual(self.verify_ots(known[0], b"\x00" * 32, frozen={})["status"], "unbound")
@@ -309,7 +309,7 @@ class TestTlogBitcoinAnchorVectors(unittest.TestCase):
         known, _ = _tlog_known_anchor_proofs(text)
         self.assertEqual(len(known), 1)
         res = self.verify_ots(known[0], root, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "unbound")             # note body no longer binds the proof
 
@@ -321,7 +321,7 @@ class TestTlogBitcoinAnchorVectors(unittest.TestCase):
         known, _ = _tlog_known_anchor_proofs(text)
         self.assertEqual(len(known), 1)
         res = self.verify_ots(known[0], root, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertIn(res["status"], ("unbound", "malformed"))  # corrupted proof no longer commits our root
 

@@ -40,7 +40,7 @@ class TestRfc3161Anchor(unittest.TestCase):
         # WP-A1 security property: the SAME token WITHOUT a relying-party root does NOT verify
         no_rp = anchors.verify_anchors([anchor], target_roots=roots)
         self.assertNotEqual(no_rp["status"], "PASS")
-        self.assertFalse(no_rp["results"][0]["ok"])
+        self.assertIs(no_rp["results"][0]["ok"], False)
         self.assertTrue(no_rp["results"][0]["needs_rp_trust"])
 
     def test_require_anchor_rfc3161_passes(self):   # WP-A1 re-pin: needs RP root
@@ -95,7 +95,7 @@ class TestRfc3161Anchor(unittest.TestCase):
         proof = base64.b64decode(anchor["proof"])
         root = base64.b64decode(anchor["canonicalRoot"])
         res = verify_rfc3161(proof, root, frozen=anchor["frozen"])   # frozen present but NO rp_trust
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "needs_rp_trust")
         self.assertTrue(res["frozenEvidence"])          # frozen root reported…
         self.assertIn("relying-party", res["detail"])   # …but never trusted
@@ -176,7 +176,7 @@ class TestRfc3161PolicyOid(unittest.TestCase):
         frozen["policyOid"] = "not-an-oid"
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
                              base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "chain_fail")
 
     def test_mismatched_policy_oid_through_generic_layer(self):   # WP-A1: supply rp roots

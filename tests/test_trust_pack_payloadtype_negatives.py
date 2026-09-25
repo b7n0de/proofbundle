@@ -59,7 +59,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
         env2 = dict(env)
         env2["payloadType"] = "application/vnd.attacker+json"
         r = verify_trust_pack(env2)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["predicate_type_ok"])
         self.assertTrue(any("payloadType" in e for e in r["errors"]))
 
@@ -86,7 +86,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
         }).encode()
         env = dsse.sign_envelope(body, r1, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid="r1")
         r = verify_trust_pack(env)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["predicate_type_ok"])
         self.assertNotEqual(TRUST_PACK_PREDICATE_TYPE,
                             "https://proofbundle.dev/decision-receipt/v0.1")

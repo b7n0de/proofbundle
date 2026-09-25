@@ -235,7 +235,7 @@ class TestTheHubEntryVerifierIsStoppedByTheSameBoundary(unittest.TestCase):
         self.assertTrue(res["crypto_ok"], "the token itself is intact — nothing was forged")
         self.assertIsNone(res["claim"])
         self.assertFalse(res["value_consistent"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("fail-closed", res["detail"])
 
     def test_n_and_metric_reach_this_surface_too(self):
@@ -248,7 +248,7 @@ class TestTheHubEntryVerifierIsStoppedByTheSameBoundary(unittest.TestCase):
                 claim[field] = value
                 res = verify_eval_results_entry(self._entry(claim, signer, 0.92))
                 self.assertTrue(res["crypto_ok"])
-                self.assertFalse(res["ok"])
+                self.assertIs(res["ok"], False)
                 self.assertIn("fail-closed", res["detail"])
 
     def test_the_coercion_itself_is_unchanged_and_that_is_why_the_boundary_has_to_hold(self):

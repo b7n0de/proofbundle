@@ -144,7 +144,7 @@ class ProsaEntscheidetNicht(unittest.TestCase):
         erteilt nichts. Fail-closed ohne stummes Grün."""
         r = g.evaluate(_baum(self.tmp, record_text="# audit\n\nsix-lens adversarial audit run.\n",
                              changelog_text="nothing here"), VERSION)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     # ── Gegenrichtung: der Riegel darf nicht ALLES ablehnen ─────────────────────────────────
     def test_F6_eine_prosa_attestierungszeile_erteilt_keinen_pass_mehr(self):
