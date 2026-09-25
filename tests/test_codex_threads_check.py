@@ -29,10 +29,12 @@ R = "b7n0de/proofbundle"
 OWNER = "b7n0de"
 HEAD = "a" * 40
 OLD = "b" * 40
+REVIEWED = "f" * 40
 
 
-def codex(cid: int) -> dict:
-    return {"id": cid, "in_reply_to_id": None, "user": {"login": ct.CODEX_BOT}, "body": "P2 finding"}
+def codex(cid: int, reviewed: str = REVIEWED) -> dict:
+    return {"id": cid, "in_reply_to_id": None, "user": {"login": ct.CODEX_BOT}, "body": "P2 finding",
+            "original_commit_id": reviewed}
 
 
 def reply(cid: int, root: int, body: str, login: str = OWNER) -> dict:
@@ -49,7 +51,7 @@ def register_answer(pr: int, cid: int, sha: str | None) -> str:
             f"## Register\n\nThread `{R}#{pr}:{cid}`. Verdict Confirmed. Register `X-Y-Z`.\n")
 
 
-def verdict(review, issues, at_head=lambda s: s == HEAD, pr=7) -> dict:
+def verdict(review, issues, at_head=lambda s, reviewed: s == HEAD, pr=7) -> dict:
     return ct.measure(R, pr, OWNER, review, issues, at_head)
 
 
@@ -115,6 +117,42 @@ class WhoCounts(unittest.TestCase):
     def test_a_reply_by_another_account_is_no_answer(self):
         e = verdict([codex(10), reply(11, 10, f"done at {HEAD}", login="someone")], [])
         self.assertEqual((e["verdict"], e["open"]), ("red", 1), e)
+
+    def test_one_comment_that_names_two_threads_answers_neither(self):
+        """Deep gate, lens 1, P1: one comment, two register lines and two measured lines; the first
+        measured line was read for both threads, so the second, unfixed one went green."""
+        text = (register_answer(7, 10, HEAD) + "\n" + register_answer(7, 20, OLD))
+        e = verdict([codex(10), codex(20)], [issue(text)])
+        self.assertEqual((e["verdict"], e["open"]), ("red", 2), e)
+
+    def test_threads_still_open_and_threading_are_prose(self):
+        """Codex on PR 275, round two, and deep gate lens 1: a line that only starts with the letters
+        `Thread` is not a register line."""
+        for line in (f"Threads still open: {R}#7:10", f"Threading pool bumped, see {R}#7:10"):
+            with self.subTest(line=line):
+                text = f"{line}\n\nCommit measured `{HEAD}`\n"
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+
+    def test_a_quoted_or_listed_register_line_is_not_one(self):
+        for prefix in ("> ", "- ", "* "):
+            with self.subTest(prefix=prefix):
+                text = f"{prefix}Thread `{R}#7:10`. Verdict Confirmed.\n\nCommit measured `{HEAD}`\n"
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+
+    def test_lines_a_reader_does_not_see_are_not_read(self):
+        """Deep gate, lens 1: an HTML comment is not shown, and a fenced block is an example."""
+        hidden = f"<!--\nThread `{R}#7:10`. Verdict Confirmed.\n\nCommit measured `{HEAD}`\n-->\n"
+        fenced = f"```text\nThread `{R}#7:10`. Verdict Confirmed.\nCommit measured `{HEAD}`\n```\n"
+        for text in (hidden, fenced):
+            with self.subTest(text=text[:12]):
+                self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+        # and a measured line inside a fence does not count for a visible register line
+        text = f"Thread `{R}#7:10`. Verdict Confirmed.\n\n```\nCommit measured `{HEAD}`\n```\n"
+        self.assertEqual(verdict([codex(10)], [issue(text)])["not_at_head"], 1)
+
+    def test_two_different_measured_lines_name_no_commit(self):
+        text = register_answer(7, 10, HEAD) + f"\nCommit measured `{OLD}`\n"
+        self.assertIsNone(ct.answer_commit(text))
 
     def test_the_bot_is_known_by_its_login_not_by_a_name_in_the_text(self):
         pretend = {"id": 30, "in_reply_to_id": None, "user": {"login": OWNER},
@@ -209,6 +247,50 @@ class TheOrigin(unittest.TestCase):
     def test_a_commit_on_another_line_is_not_at_head(self):
         with mock.patch.object(ct, "_get", self._origin("diverged")):
             self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+    def test_a_commit_from_before_the_reviewed_one_is_not_at_head(self):
+        """Deep gate, lens 1: any ancestor of the head is on the head, the first commit of the
+        repository too. Only a commit that contains the reviewed one can carry a fix for it."""
+        answer = OLD
+        status = {f"{answer}...{HEAD}": "ahead", f"{REVIEWED}...{answer}": "behind"}
+        pages = {
+            f"{ct.API}/repos/{R}/pulls/7": {"head": {"sha": HEAD}},
+            f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100": [codex(10)],
+            f"{ct.API}/repos/{R}/issues/7/comments?per_page=100": [issue(register_answer(7, 10, answer))],
+        }
+
+        def fake(url, token):
+            if "/compare/" in url:
+                return {"status": status.get(url.rsplit("/", 1)[1], "diverged")}, None
+            return pages[url], None
+        with mock.patch.object(ct, "_get", fake):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+        status[f"{REVIEWED}...{answer}"] = "ahead"          # PRECONDITION: after it, it counts
+        with mock.patch.object(ct, "_get", fake):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["verdict"], "green")
+
+    def test_pagination_stays_on_the_api_host_and_ends(self):
+        """Deep gate, lens 2: the next page came from a header and was followed to any host, with the
+        token, and without an end."""
+        calls: list = []
+        endless = iter(f"{ct.API}/repos/{R}/pulls/7/comments?page={i}" for i in range(10 ** 6))
+        cases = (("another host", lambda url: "https://evil.example.com/next"),
+                 ("the same page again", lambda url: url),
+                 ("always a new page", lambda url: next(endless)))
+        for label, following in cases:
+            def fake(url, token, following=following):
+                calls.append(url)
+                if len(calls) > 3 * ct.MAX_PAGES:            # an unbounded loop fails, it does not hang
+                    raise AssertionError("pagination did not end")
+                return [], following(url)
+            calls.clear()
+            with self.subTest(case=label), mock.patch.object(ct, "_get", fake):
+                with self.assertRaises(ct.NotMeasurable):
+                    ct._pages(f"repos/{R}/pulls/7/comments", "secret")
+                self.assertFalse(any("evil.example.com" in u for u in calls), calls[:3])
+
+    def test_a_pr_number_that_is_not_a_number_is_not_measurable(self):
+        self.assertEqual(ct.main(["--repo", R, "--pr", "abc"]), 2)
 
     def test_a_commit_the_repository_does_not_know_is_not_at_head(self):
         with mock.patch.object(ct, "_get", self._origin(None)):

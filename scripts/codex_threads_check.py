@@ -18,17 +18,25 @@ app's bot account, identified by its login (`chatgpt-codex-connector[bot]`). A n
 counts for nothing, and a thread a person opened is outside this check.
 
 WHAT COUNTS AS AN ANSWER. A reply of the owner's account inside the thread, or an issue comment of
-the owner's account whose register line, a line that begins with `Thread`, names the thread in the
-house form `<owner>/<repo>#<pr>:<id>` or links its anchor `#discussion_r<id>`. A thread id that only
-stands in prose does not make a comment an answer, and a resolved thread without an answer is still
-open: resolving is a click, an answer is a statement.
+the owner's account whose register line names the thread in the house form `<owner>/<repo>#<pr>:<id>`
+or links its anchor `#discussion_r<id>`. A register line begins with the word `Thread` followed by a
+space (`Threads still open` and `Threading` are prose). An issue comment answers ONE thread, as the
+answer rule says; a comment whose register lines name more than one thread answers none of them,
+because its one `Commit measured` line cannot belong to all of them. A thread id that only stands in
+prose does not make a comment an answer, and a resolved thread without an answer is still open:
+resolving is a click, an answer is a statement.
+
+WHAT A READER SEES IS WHAT COUNTS. Lines inside an HTML comment or a fenced code block are not read
+for either the register line or the measured line: GitHub does not show the first, and the second is
+an example, not a statement.
 
 WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, a line
 that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
 something, not the answer's commit (Codex on PR 275: `Reproduced at <sha>; still investigating`
-made a thread green through a fallback to the first id). An answer without that line is not at
-head. A commit is at head when the compare API reports the head as identical to it or ahead of it,
-that is when the head contains it. For a pull request that has landed, a commit that CONTAINS its
+made a thread green through a fallback to the first id). An answer without that line, or with more
+than one, is not at head. A commit is at head when the head contains it AND it contains the commit
+Codex reviewed: any ancestor of the head is on the head, the first commit of the repository too, and
+only a commit that comes after the reviewed one can carry a fix for it. For a pull request that has landed, a commit that CONTAINS its
 merge commit is at head too: an answer measured on main after the landing measured the fix where it
 now lives, while a commit of main from before the landing does not carry the fix at all. A commit
 the repository does not know is not at head.
@@ -60,6 +68,12 @@ import urllib.request
 CODEX_BOT = "chatgpt-codex-connector[bot]"
 API = "https://api.github.com"
 _MEASURED = re.compile(r"(?m)^[ \t]*Commit measured[ \t`:]*([0-9a-f]{40})\b")
+_REGISTER = re.compile(r"^[ \t]*Thread[ \t]")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_FENCE = re.compile(r"(?ms)^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$")
+#: A pull request with more comments than this many pages holds is not read to the end, and a check
+#: that did not read to the end is not measured.
+MAX_PAGES = 50
 _NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
 
 
@@ -95,7 +109,14 @@ def _pages(path: str, token: str | None) -> list:
     """Every page of a list endpoint. A page that is not a list is not measurable."""
     out: list = []
     url: str | None = f"{API}/{path}{'&' if '?' in path else '?'}per_page=100"
+    seen: set[str] = set()
     while url:
+        # The next page comes from a header, so it is checked like input: it stays on the API host
+        # (the token goes with every request), it is new, and there is a last page.
+        if not url.startswith(API + "/") or url in seen or len(seen) >= MAX_PAGES:
+            raise NotMeasurable(f"{path}: pagination left the API, repeated or exceeded "
+                                f"{MAX_PAGES} pages at {url[:80]}")
+        seen.add(url)
         data, url = _get(url, token)
         if not isinstance(data, list):
             raise NotMeasurable(f"{path}: the answer is not a list")
@@ -107,17 +128,22 @@ def _login(c: dict) -> str:
     return str(((c or {}).get("user") or {}).get("login") or "")
 
 
+def visible(text: str) -> str:
+    """The text as a reader sees it: without HTML comments and without fenced code blocks."""
+    return _FENCE.sub("", _HTML_COMMENT.sub("", text or ""))
+
+
 def answer_commit(text: str) -> str | None:
-    """The commit an answer names: the id on its `Commit measured` line, and nothing else."""
-    m = _MEASURED.search(text or "")
-    return m.group(1) if m else None
+    """The commit an answer names: the id on its ONE `Commit measured` line, and nothing else."""
+    found = _MEASURED.findall(visible(text))
+    return found[0] if len(set(found)) == 1 else None
 
 
-def names_thread(text: str, repo: str, pr: int, thread: int) -> bool:
-    """Does a line that begins with `Thread` name this thread? A mention in prose does not."""
-    form = re.compile(rf"(?:{re.escape(f'{repo}#{pr}:{thread}')}|#discussion_r{thread})(?!\d)")
-    return any(z.lstrip(" \t>*_-").startswith("Thread") and form.search(z)
-               for z in (text or "").splitlines())
+def register_threads(text: str, repo: str, pr: int) -> set[int]:
+    """The thread ids the register lines of a comment name, in either house form."""
+    form = re.compile(rf"(?:{re.escape(f'{repo}#{pr}:')}|#discussion_r)(\d+)(?!\d)")
+    return {int(m) for z in visible(text).splitlines() if _REGISTER.match(z)
+            for m in form.findall(z)}
 
 
 def is_round_request(text: str) -> bool:
@@ -127,7 +153,8 @@ def is_round_request(text: str) -> bool:
 
 def measure(repo: str, pr: int, owner: str, review_comments: list, issue_comments: list,
             at_head) -> dict:
-    """The verdict, from data alone. `at_head(sha)` answers whether a commit is on the head."""
+    """The verdict, from data alone. `at_head(sha, reviewed)` answers whether a commit is on the
+    head and comes after the commit Codex reviewed."""
     rounds = sum(1 for c in issue_comments
                  if _login(c) == owner and is_round_request(c.get("body") or ""))
     threads = {c["id"]: c for c in review_comments
@@ -141,16 +168,17 @@ def measure(repo: str, pr: int, owner: str, review_comments: list, issue_comment
         if _login(c) != owner:
             continue
         text = c.get("body") or ""
-        for t in threads:
-            if names_thread(text, repo, pr, t):
-                answers[t].append(text)
+        named = register_threads(text, repo, pr)
+        if len(named) == 1 and next(iter(named)) in answers:
+            answers[next(iter(named))].append(text)
     still_open, not_at_head, closed = [], [], []
     for t in sorted(threads):
         if not answers[t]:
             still_open.append(t)
             continue
         commits = [answer_commit(a) for a in answers[t]]
-        if any(s and at_head(s) for s in commits):
+        reviewed = threads[t].get("original_commit_id") or threads[t].get("commit_id")
+        if any(s and at_head(s, reviewed) for s in commits):
             closed.append(t)
         else:
             not_at_head.append({"thread": t, "commits": commits})
@@ -188,10 +216,14 @@ def measure_at_origin(repo: str, pr: int, owner: str, token: str | None) -> dict
             raise NotMeasurable(f"compare {base[:12]}...{tip[:12]}: no status")
         return status in ("identical", "ahead")
 
-    def at_head(sha: str) -> bool:
-        if sha not in seen:
-            seen[sha] = contains(sha, head) or bool(merged and contains(merged, sha))
-        return seen[sha]
+    def at_head(sha: str, reviewed: str | None) -> bool:
+        key = f"{sha}:{reviewed}"
+        if key not in seen:
+            # Open, or measured on the branch: on the head, and after the reviewed commit. Landed and
+            # measured on main: after the merge commit, which came after every review of the branch.
+            on_branch = contains(sha, head) and bool(reviewed) and contains(reviewed, sha)
+            seen[key] = on_branch or bool(merged and contains(merged, sha))
+        return seen[key]
 
     result = measure(repo, pr, owner, review, issue, at_head)
     result["head"] = head
@@ -217,7 +249,7 @@ def summary(e: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="advisory Codex thread check for one pull request")
     ap.add_argument("--repo", required=True)
-    ap.add_argument("--pr", required=True, type=int)
+    ap.add_argument("--pr", required=True)
     ap.add_argument("--owner", default=None, help="the answering account (default: repo owner)")
     ap.add_argument("--summary", default=None, help="append a Markdown summary to this file")
     ap.add_argument("--json", action="store_true")
@@ -225,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     owner = a.owner or a.repo.split("/", 1)[0]
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     try:
-        e = measure_at_origin(a.repo, a.pr, owner, token)
+        e = measure_at_origin(a.repo, int(a.pr), owner, token)
     except Exception as exc:  # noqa: BLE001 (fail-closed: whatever went wrong, nothing is green)
         text = (f"## codex-threads: NOT MEASURABLE\n\n{type(exc).__name__}: {exc}\n\n"
                 "A thread nobody could read is not an answered one.\n")
