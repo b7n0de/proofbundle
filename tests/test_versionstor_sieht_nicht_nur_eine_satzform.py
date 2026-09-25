@@ -654,6 +654,9 @@ _NICHT_UNSER = [
     "https://github.com/b7n0de/proofbundle/blob/main/docs/v{v}-notes.md",
     "https://raw.githubusercontent.com/b7n0de/proofbundle/main/docs/v{v}/x.md",
     "https://github.com/b7n0de/proofbundle/tree/v{v}-notes",
+    # round five: a ref directly after the repository selects nothing on github.com or codeload
+    "https://github.com/b7n0de/proofbundle/v{v}/docs/x",
+    "https://codeload.github.com/b7n0de/proofbundle/v{v}",
     "https://sub.github.com/b7n0de/proofbundle/tree/v{v}",
     "https://github.com.example/b7n0de/proofbundle/tree/v{v}",
     "https://github.com/b7n0de/proofbundle/blob/main/docs/release_scope/{v}.md",
@@ -724,3 +727,25 @@ def test_CONTROL_lines_without_a_continuation_are_not_joined(text):
     """Two instructions on two lines stay two. The second line alone names the pin without
     `install`, so joining would invent an install instruction out of two unrelated lines."""
     assert _trifft(text) is None, (text, _trifft(text))
+
+
+# ── CODEX ON PR 266, ROUND FIVE (2026-09-25): scheme-relative authority, per-host ref, real shell ──
+
+@pytest.mark.parametrize("zeile", [
+    "[example](//github.com/b7n0de/proofbundle/tree/v{v})",
+    "//raw.githubusercontent.com/b7n0de/proofbundle/v{v}/examples/x.json",
+])
+def test_a_scheme_relative_url_has_the_same_authority(tmp_path, zeile):
+    funde = _readme_funde(tmp_path, _readme(NEU, NEU, NEU, NEU) + zeile.format(v=AKTUELL) + "\n")
+    assert funde and all(AKTUELL in f for f in funde), (zeile, funde)
+
+
+@pytest.mark.parametrize("text", [
+    "pip install cbor2 \\\\\nproofbundle==6.1.0",
+    "pip install cbor2 \\ \nproofbundle==6.1.0",
+    "# pip install cbor2 \\\nproofbundle==6.1.0",
+    "pip install cbor2 ^^\nproofbundle==6.1.0",
+])
+def test_a_marker_the_shell_does_not_read_as_continuation_joins_nothing(text):
+    assert _trifft(text) is None, (text, _trifft(text))
+

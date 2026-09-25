@@ -151,11 +151,22 @@ _SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
 # NOT COVERED, and said so: a range that excludes the current release without pinning one
 # (`proofbundle<6.2`) is a constraint rather than a pin, and reading it would need a version
 # comparator this gate does not carry. A `compare/A...B` URL is read at its first ref only.
-_REPO_HOST = (r"(?:(?<=://)|(?<=@)|(?<![^\s(<\[\"'`]))(?:www\.)?"
+#
+# ROUND FIVE (Codex, 2026-09-25, measured): a scheme-relative URL `//github.com/...` has the same
+# authority and was not seen, because the boundary wanted `://`; it now follows `//`. And the ref
+# position was one optional route for every host, so `github.com/b7n0de/proofbundle/vX/docs` read
+# as a pinned tag although GitHub selects no ref there. Each host now has the routes its own URL
+# grammar gives: github.com a route (or a VCS `@`), raw.githubusercontent.com the ref directly after
+# the repository (or under `refs/tags/`), codeload.github.com an archive route.
+_AUTORITAET = r"(?:(?<=//)|(?<=@)|(?<![^\s(<\[\"'`]))"
+_REPO_HOST = (_AUTORITAET + r"(?:www\.)?"
               r"(?:github\.com|raw\.githubusercontent\.com|codeload\.github\.com)/")
-_REF_ROUTE = (r"(?:(?:blob|tree|raw|commits?|releases/tag|releases/download|compare"
-              r"|archive(?:/refs/tags)?|(?:legacy\.)?(?:tar\.gz|zip)(?:/refs/tags)?|refs/tags)/)?")
-_REPO_AT_TAG = _REPO_HOST + r"b7n0de/proofbundle(?:\.git)?(?:@|/" + _REF_ROUTE + r")v"
+_REPO_AT_TAG = (_AUTORITAET + r"(?:"
+                r"(?:www\.)?github\.com/b7n0de/proofbundle(?:(?:\.git)?@|/(?:blob|tree|raw|commits?"
+                r"|releases/tag|releases/download|compare|archive(?:/refs/tags)?)/)"
+                r"|raw\.githubusercontent\.com/b7n0de/proofbundle/(?:refs/tags/)?"
+                r"|codeload\.github\.com/b7n0de/proofbundle/(?:legacy\.)?(?:tar\.gz|zip)/(?:refs/tags/)?"
+                r")v")
 #: The ref segment ends where the version ends: a path separator, a query, a fragment, the end of
 #: a Markdown link or of the text, an archive suffix, or the dots of a compare range.
 _REF_ENDE = r"(?=[/?#)\]>\s'\"`,;]|\.(?:tar\.gz|zip)\b|\.{2,3}|\.(?=\s|$)|$)"
@@ -502,15 +513,31 @@ def _logische_zeilen(text: str):
     for nr, zeile in enumerate(text.splitlines(), 1):
         if not puffer:
             start = nr
-        roh = zeile.rstrip()
-        if roh.endswith(_FORTSETZUNG):
-            puffer.append(roh[:-1])
+        if _setzt_fort(zeile):
+            puffer.append(zeile.rstrip("\r")[:-1])
             continue
         puffer.append(zeile)
         yield start, " ".join(puffer)
         puffer = []
     if puffer:
         yield start, " ".join(puffer)
+
+
+def _setzt_fort(zeile: str) -> bool:
+    """Does this physical line continue the instruction onto the next, as the shell reads it?
+
+    Round five (Codex, measured): the first version joined on any trailing marker. A shell does not:
+    two backslashes are one literal backslash, a backslash followed by a space escapes the space and
+    not the newline, and a backslash inside a `#` comment is part of the comment. cmd.exe reads `^^`
+    as a literal caret the same way. So the marker must be the very last character, in an odd run,
+    and a backslash must not stand in a comment.
+    """
+    z = zeile.rstrip("\r")
+    for zeichen in _FORTSETZUNG:
+        lauf = len(z) - len(z.rstrip(zeichen))
+        if lauf % 2 == 1:
+            return not (zeichen == "\\" and re.search(r"(?:^|\s)#", z) is not None)
+    return False
 
 
 def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
