@@ -308,8 +308,8 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
-| `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; a receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, a proof of either family that does not parse, more proofs than the limit, an empty array of the family the verifier does not check; an empty array of the family it checks keeps that family's status, as the -05 pseudo-code asserts `len(proofs) > 0`); also a statement with no receipt | False | False |
-| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, 259 not uint / tstr or 260 not tstr (RFC 9995 CDDL), label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes, or the CDDL pass refused a shape (Decision 16): a header label of the wrong type (RFC 9052, RFC 9360 `x5chain`, RFC 9597 CWT claims, RFC 8392 issuer and iat, RFC 9942 vds, RFC 9995 258, 259 and 260), a receipt that is not a byte string, a CCF receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, neither of them, an array that is empty or over the limit, a proof of either family that does not parse); an `x5chain` end-entity certificate that is not DER X.509; also a statement with no receipt under 394, or more than the limit | False | False |
+| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
 | `root_mismatch` | the proofs of one receipt compute different roots: two inclusion proofs, or a consistency proof whose newer root is not the inclusion root | False | False |
@@ -332,7 +332,7 @@ answer Q5 a).
 
 | result | holds when | real example where it differs from the next |
 |---|---|---|
-| **readable** | the proof passes the pre-scan and parses as a tagged COSE_Sign1 with at least one receipt that parses under the -05 CDDL | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
+| **readable** | the CDDL pass (Decision 16) accepts the statement, label 394 and at least one receipt, and that receipt is a CCF receipt whose inclusion proofs parsed under the -05 CDDL; readable is set there and nowhere else | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
 | **signature valid** | a receipt's ES256/ES384 signature verifies over its computed root with a key selected from the RP key set of its issuer | `payload-tampered.cose`: signature valid, profile not satisfied, because the receipt belongs to another statement |
 | **profile satisfied** | signature valid, and for that receipt: vds 2, payload detached, all proofs one root, leaf data-hash equals value 3, the statement is a v1 hash envelope whose value 1 equals `canonicalRoot`, crit and header rules hold, and an RP statement key verifies the statement | end to end, real: the local-ledger control in `tests/fixtures/scitt_ccf/local_ledger_control.json`. Receipt side, real: the test-service control and `uvm_0.2.10.cose` (production) |
 
@@ -451,7 +451,7 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 
 | status | rule |
 |---|---|
-| `consistency_proof_missing` | no `vdp`, no -2, or an empty -2 (4.1, 4.2) |
+| `consistency_proof_missing` | no `vdp`, or no -2 (4.1, 4.2); an empty -2, or a `vdp` with neither -1 nor -2, is `malformed`, because the CDDL pass runs first (Decision 16) |
 | `consistency_payload_attached` | the newer root is not detached (4.1) |
 | `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
 | `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
@@ -468,6 +468,42 @@ because 4 and 4.1 say MUST. The measurement, the third-party RFC 9162 oracle
 `tools/scitt_ccf_external/SECTION4_WGLC.md`. No service measured emits a consistency receipt, so the
 real vector (`tests/fixtures/scitt_ccf/local_ledger_consistency.json`) is the service's own
 signature over the newer root with a proof computed from the ledger's leaves.
+
+### 16. The CDDL pass: every shape before any status (Nachtrag 4, 2026-09-26)
+
+Five Codex rounds on pull request 278 found one place each of one class: an early return before the
+shape was checked in full (readable without a parsed proof, -2 unchecked beside -1, an empty -2, a
+status before the signature, the types of 259 and 260). The reader now runs one pass over the
+statement, label 394, every receipt and every proof family before any status logic runs, and sets
+readable there only.
+
+- The rule: a label or an array that is present must have its CDDL type, or the artifact is
+  `malformed`. Absence, and values v1 does not take, stay with the status logic: no 258 is not a
+  hash envelope (`outside_profile`), no -1 is no inclusion proof (`outside_profile`), no `vdp` or
+  no -2 is `consistency_proof_missing`.
+- What the pass checks: the types of the header labels the reader reads (RFC 9052 alg, crit,
+  content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC 8392 issuer and iat of
+  a receipt; RFC 9942 vds), the RFC 9995 types of 258, 259 and 260, label 394 as one to
+  `MAX_RECEIPTS` receipts, and for a receipt with vds 2 the -05 CDDL: alg `int`, `vdp` a map of -1
+  and -2 only with at least one of them, each an array of one to eight proofs, every proof of
+  either family parsed with its path, leaf or anchor.
+- Every rule is one named entry of a table in `proofbundle.scitt_ccf` (`_STATEMENT_RULES`,
+  `_TRANSPARENT_RULES`, `_RECEIPT_BYTES_RULES`, `_RECEIPT_RULES`, `_CCF_RULES`, `_PROOF_RULES`,
+  `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 40
+  rules in turn: some regression case must then fail, its status, readable value or refusal no
+  longer the expected one, and a positive control shows that a rule no case holds would be named.
+- Statuses this moves, measured with the 48 regression cases against the reader at `257b984`: 20
+  cases change, all to `malformed` and not readable. 16 were `outside_profile`: the wrong type of
+  258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT
+  claims, issuer or vds, an empty crit on either side, an empty -1, and a `vdp` holding neither -1
+  nor -2. 4 were `confirmed`, because the reader never read the label: a statement kid as text, a
+  statement's CWT claims as an array, a receipt content type as a byte string, a receipt iat as
+  text. In the consistency verifier an empty -2 moves from `consistency_proof_missing` to
+  `malformed`. No stored measurement of real bytes changes status (`recompute_result.json`,
+  `rust_crosscheck.json`, the differential corpus); `consistency_result.json` changes for its one
+  empty -2 variant.
+- Not in the pass: the status logic itself (profile values, binding, trust, signatures), which the
+  class tests hold; and the COSE_Sign1 decoder and the pre-scan, which ran first already.
 
 ## Test classes
 
@@ -559,6 +595,7 @@ the separate consistency verifier of Decision 15 relates two roots only for a ca
 | N7 a statement without a protected `x5chain` (2026-09-26) | b | `outside_profile`, Decision 5 |
 | S1 the consistency issuer rule (2026-09-26) | a | kept, named in code and README as proofbundle's own rule, not a requirement of -05, until the working group answers G3; Decision 15 |
 | S2 the first-tag anchor check (2026-09-26) | a | kept: a proof starting with a left sibling is refused, because section 4 says MUST; Decision 15 |
+| Nachtrag 4, the reader checks the CDDL first (2026-09-26) | ordered | the CDDL pass before any status, readable set there only, a regression case per Codex finding and named sibling, every rule removable by a test; Decision 16 |
 | the scope of vdp -2 beside inclusion proofs (2026-09-26) | kept | the change of `c79fbe4` and `30a2856` stays: -2 is parsed under the -05 CDDL, one or more, and must compute the inclusion root; its older roots and anchors are not evaluated in the statement verdict; Decision 1 |
 
 ## New questions for the owner
