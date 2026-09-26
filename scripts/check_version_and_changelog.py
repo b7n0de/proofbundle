@@ -45,9 +45,11 @@ Usage: python3 scripts/check_version_and_changelog.py [--repo <path>] [--externa
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import urllib.error
@@ -419,9 +421,77 @@ _PAGE_VERSION = re.compile(r"PyPI[- ]latest\s*<code>\s*" + _SEMVER + r"\s*</code
 
 NICHT_MESSBAR = "NICHT MESSBAR"
 
+#: What the gate reads whole, it reads up to this many bytes. The largest file its sweep reads is
+#: 1603370 bytes (`assets/b7n0de-hase.png`), the largest it reads as text 410318 (`CHANGELOG.md`),
+#: measured 2026-09-26; 64 MiB is forty times the first. Measured before the bound: a 12 GB sparse
+#: file at a tracked path ended the gate with a MemoryError under an 8 GB address-space limit.
+_LESEGRENZE = 64 * 1024 * 1024
 
-def _read(p: Path) -> str:
-    return p.read_text(encoding="utf-8") if p.is_file() else ""
+
+class _NichtLesbar(Exception):
+    """A file the gate reads is there and cannot be read as text within `_LESEGRENZE`. Its text is a
+    problem of the run, NICHT MESSBAR for what the file states, never a crash."""
+
+
+def _pfad(rel: str) -> str:
+    """A path read from git as the report prints it: on one line, and with one reading.
+
+    Printed raw, a tracked file named `docs/z<LF>  - README.md:1: fake finding.md` split one problem
+    into two printed items, one of them blaming README.md (a review of the stack at 1ecc2aca,
+    measured 2026-09-26). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
+def _roh(p: Path, name: str) -> bytes | None:
+    """The bytes of a regular file, or None for a path that is none (missing, a directory, a FIFO).
+
+    A FIFO is never opened: `read_text` on one waited for a writer, and a FIFO at a tracked path hung
+    the gate (measured 2026-09-26). A regular file over `_LESEGRENZE` is not read either; that is a
+    problem of the run and raises `_NichtLesbar`.
+    """
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    if st.st_size > _LESEGRENZE:
+        raise _NichtLesbar(f"{_pfad(name)} is {st.st_size} bytes, more than the {_LESEGRENZE} this gate "
+                           f"reads, so what it states is {NICHT_MESSBAR} here and it was not read")
+    try:
+        with p.open("rb") as fh:
+            raw = fh.read(_LESEGRENZE + 1)
+    except OSError:
+        return None
+    if len(raw) > _LESEGRENZE:
+        raise _NichtLesbar(f"{_pfad(name)} grew past {_LESEGRENZE} bytes while it was read, so what it "
+                           f"states is {NICHT_MESSBAR} here")
+    return raw
+
+
+def _als_text(raw: bytes, name: str) -> str:
+    """UTF-8 text as `read_text` reads it (universal newlines), or `_NichtLesbar` naming the byte."""
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _NichtLesbar(f"{_pfad(name)} is not UTF-8 text (byte {raw[exc.start]:#04x} at offset "
+                           f"{exc.start}), so what it states is {NICHT_MESSBAR} here") from None
+    return io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8").read()
+
+
+def _read(p: Path, name: str | None = None) -> str:
+    """A file the gate reads as a whole, "" when there is no regular file there. One byte that is not
+    UTF-8 in CHANGELOG.md ended the gate with a UnicodeDecodeError traceback and exit 1 (measured
+    2026-09-26); it is `_NichtLesbar` now, which `check` reports as a problem naming the file."""
+    name = name or p.name
+    raw = _roh(p, name)
+    return "" if raw is None else _als_text(raw, name)
 
 
 def _pyproject_version(repo: Path) -> str | None:
@@ -431,7 +501,7 @@ def _pyproject_version(repo: Path) -> str | None:
 
 def _init_version(repo: Path) -> str | None:
     m = re.search(r'(?m)^\s*__version__\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']',
-                  _read(repo / "src" / "proofbundle" / "__init__.py"))
+                  _read(repo / "src" / "proofbundle" / "__init__.py", "src/proofbundle/__init__.py"))
     return m.group(1) if m else None
 
 
@@ -475,11 +545,17 @@ def _changelog_headings(repo: Path) -> list[str]:
 
 
 def _git(repo: Path, *args: str) -> tuple[int, str]:
+    """git's output, decoded without losing a byte: a subject with a byte that is not UTF-8 raised in
+    the strict text decoder, the exception read as an empty log, and Check 3 said OK with exit 0 over
+    a commit it never saw (measured 2026-09-26 with a commit object carrying 0xfc in its subject).
+    On a failure the reason is the output, so a caller that reports it names what went wrong."""
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=15)
-        return r.returncode, r.stdout.strip()
-    except Exception:  # noqa: BLE001
-        return 1, ""
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=15)
+    except Exception as exc:  # noqa: BLE001
+        return 1, f"{type(exc).__name__}: {exc}"
+    if r.returncode != 0:
+        return r.returncode, r.stderr.decode("utf-8", "surrogateescape").strip()
+    return r.returncode, r.stdout.decode("utf-8", "surrogateescape").strip()
 
 
 _RELEASE_TAG_GLOB = "v[0-9]*"
@@ -555,6 +631,15 @@ def _semver_tuple(v: str) -> tuple:
 
 
 def check(repo: Path) -> list[str]:
+    """Every problem of the run. A file the checks need that cannot be read as text within the bound
+    is one problem, and the checks that need it do not run: fail closed, with the file named."""
+    try:
+        return _check(repo)
+    except _NichtLesbar as nicht:
+        return [f"{nicht}; the checks that read it did not run"]
+
+
+def _check(repo: Path) -> list[str]:
     problems: list[str] = []
     pv, iv, cv = _pyproject_version(repo), _init_version(repo), _citation_version(repo)
 
@@ -581,6 +666,10 @@ def check(repo: Path) -> list[str]:
     else:
         last_tag = last_tag_raw.lstrip("v")
         rc2, log = _git(repo, "log", "--format=%s", f"{last_tag_raw}..HEAD")
+        if rc2 != 0:
+            # A log that could not be read is no empty log: "no commit since the tag" is an answer.
+            problems.append(f"git log {last_tag_raw}..HEAD failed, so the post-tag drift is "
+                            f"{NICHT_MESSBAR}: {log[:200]}")
         nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
         version_bumped = bool(version) and _semver_tuple(version) > _semver_tuple(last_tag)
         has_unreleased = any(h.strip().lower() == "unreleased" for h in headings)
@@ -790,11 +879,17 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
         if rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
             continue
         angemeldet = declared_patterns.get(rel, [])
-        p = repo / rel
         try:
-            text = p.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue                      # binary or unreadable: no claim to read, not a failure
+            raw = _roh(repo / rel, rel)
+        except _NichtLesbar as nicht:     # over the bound: a claim in it would go unseen
+            problems.append(f"{nicht}; a current-version claim in it would not be seen")
+            continue
+        if raw is None:
+            continue                      # no regular file (missing, a FIFO): no text, never opened
+        try:
+            text = _als_text(raw, rel)
+        except _NichtLesbar:
+            continue                      # binary: no claim to read, not a failure
         gefunden = False
         for nr, zeile in _logische_zeilen(text):
             # The TEXT a declared anchor matches is covered: Check 4 keeps that one current. It is
@@ -810,7 +905,7 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
                 if not treffer:
                     continue
                 problems.append(
-                    f"{rel}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
+                    f"{_pfad(rel)}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
                     f"{beschreibung} — in \"{zeile[treffer.start():treffer.end()].strip()}\", but is not a declared "
                     f"place. Either add it to _TRACKED_PLACES so it is kept current, or reword it "
                     f"so it does not claim to be.")
@@ -835,7 +930,7 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
             continue
         # An anchor with two captures (the README headline) yields pairs; every captured number is
         # a statement of the version, so each one is compared, not only the first.
-        found = [v for hit in pattern.findall(_read(path))
+        found = [v for hit in pattern.findall(_read(path, rel))
                  for v in (hit if isinstance(hit, tuple) else (hit,))]
         if not found:
             problems.append(
@@ -920,7 +1015,10 @@ def main() -> int:
     repo = Path(a.repo).resolve()
     problems = check(repo)
 
-    version, herkunft = _source_version(repo)
+    try:
+        version, herkunft = _source_version(repo)
+    except _NichtLesbar:
+        version, herkunft = None, "a source file that is not readable"   # `check` reported it
 
     aussen: list[tuple[str, str, str]] = []
     if a.external or a.require_external:

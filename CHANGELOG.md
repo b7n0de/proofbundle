@@ -135,6 +135,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   already a typed rejection in the verifier. Named limit: the verifier reads the gate source whole;
   it is a file of the checkout the verifier runs only when it equals the commit, and executes anyway.
 
+- **The version gate prints a path on one line, reads a file within a bound and git's answers without
+  losing a byte** (`scripts/check_version_and_changelog.py`). Measured in an export of this tree:
+  since the entry above reads tracked names as git names them, a tracked file named
+  `docs/z<LF>  - README.md:1: fake finding.md` with a current-release claim printed one problem as two
+  items, the second blaming README.md; it now prints the name in double quotes with backslash escapes
+  whenever it holds a character that does not print, a double quote or a backslash, and every other
+  name as it is. Measured on main as well: one byte 0xfc in CHANGELOG.md ended the gate with a
+  UnicodeDecodeError traceback and exit 1; a FIFO at a tracked path hung it; a 12 GB sparse file at a
+  tracked path ended it with a MemoryError under an 8 GB address-space limit; and a commit after the
+  last release tag whose subject carries a byte that is not UTF-8 (a commit object `git commit`
+  would not write, but `git fast-import` or `hash-object` can) made the strict decoder fail, the
+  failure read as an empty log, and Check 3 said OK with exit 0. The gate now reads regular files
+  only, up to 64 MiB, and never opens a FIFO; a file over the bound, or one it must read as text that
+  is not UTF-8, is a problem naming the file and saying NICHT MESSBAR, where the sweep still skips a
+  binary file as before. Every git answer is decoded with `surrogateescape`, and a `git log` that
+  fails is a problem too, not an empty log. The largest file the sweep reads is 1603370 bytes, so
+  no verdict on this repository changes.
+
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
   header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
