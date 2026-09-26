@@ -265,12 +265,13 @@ def test_every_pretag_rejection_is_bound():
     NEW unbound check could stay green. Replace it with an AST count-pin that is robust to the condition FORM:
     every `return False` in verify_receipt is a rejection path; a NEW one changes the count and reddens this
     guard, forcing the author to add a cc32 case (a valid-except-that receipt must be rejected). The current
-    12 paths: not-dict (type guard), EXPECTED-DIGEST-FORM (new 2026-09-07, one loop covering both
+    13 paths: not-dict (type guard), EXPECTED-DIGEST-FORM (new 2026-09-07, one loop covering both
     expected digests), schema/version/subject_tree/gate_source/audit_exit (binding fields), no-trusted-key,
-    untrusted-signer, no-signature(#9), sig-errored, sig-not-verify(#10). cc32 binds
-    schema/version/gate_source/audit_exit + untrusted-signer + tampered-signature + BOTH placeholder cases;
-    cc09 subject_tree; cc10 no-trusted-key; #9 isinstance(sig,str) is inert (subsumed by the fail-closed
-    b64decode except, re-gate a785573f).
+    untrusted-signer, no-signature(#9), WEAK-TRUSTED-KEY (new 2026-09-26: a pinned key the trust-anchor
+    rule refuses, before any signature arithmetic), sig-errored, sig-not-verify(#10). cc32 binds
+    schema/version/gate_source/audit_exit + untrusted-signer + tampered-signature + BOTH placeholder cases
+    + the weak trusted key; cc09 subject_tree; cc10 no-trusted-key; #9 isinstance(sig,str) is inert
+    (subsumed by the fail-closed b64decode except, re-gate a785573f).
 
     THE NEW PATH IS DIFFERENT IN KIND, and that is why cc32 had to grow a differently-shaped case: every
     other rejection reads a field OF THE RECEIPT. This one reads an INPUT THE GATE SUPPLIES — the placeholder
@@ -285,8 +286,8 @@ def test_every_pretag_rejection_is_bound():
     returns_false = [n for n in ast.walk(fn)
                      if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple) and n.value.elts
                      and isinstance(n.value.elts[0], ast.Constant) and n.value.elts[0].value is False]
-    assert len(returns_false) == 12, (
-        f"verify_receipt now has {len(returns_false)} rejection paths (pinned 12) -- a release-deciding check "
+    assert len(returns_false) == 13, (
+        f"verify_receipt now has {len(returns_false)} rejection paths (pinned 13) -- a release-deciding check "
         f"was added or removed. Add/remove the matching cc32 case (a valid-except-that receipt must be rejected) "
         f"and update this pin. AST-based so it is robust to the condition form (subscript / is-None / not-in).")
 
@@ -306,6 +307,7 @@ def test_pretag_binding_check_strips_redden_cc32():
         'if receipt.get("audit_exit_code") != 0:',
         'if signer not in trusted_pubkeys:',
         'if not ok:',
+        'if weakness is not None:',
     ]
 
     def cc32_detects():

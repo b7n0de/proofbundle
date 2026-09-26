@@ -769,6 +769,18 @@ def cc32_pretag_check_coverage():
         if ok_e:
             accepted.append(f"placeholder_{feld}")
 
+    # 2026-09-26 (the release tooling refuses a weak key it pins; gate iteration 3 on the trust-anchor
+    # rule, lens A, A3-01): a TRUSTED key the rule refuses. With the identity point standing in the anchor,
+    # R = identity and S = 0 verifies for every message, so this receipt was signed by nobody. Valid in
+    # every other field, it must still be rejected, and the pin in
+    # tests/test_gate_qualification_harness.py counts this as the thirteenth rejection path.
+    ident = base64.b64encode(b"\x01" + b"\x00" * 31).decode()
+    schwach = _receipt(priv, pub)
+    schwach["signer_pubkey"] = ident
+    schwach["signature"] = base64.b64encode(b"\x01" + b"\x00" * 63).decode()
+    if _v(schwach, [ident]):
+        accepted.append("weak_trusted_key")
+
     return (not accepted), ("all valid-except-one release-deciding receipts rejected"
                             if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
 
