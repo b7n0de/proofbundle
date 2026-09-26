@@ -31,16 +31,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
   `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
   which hash values, not keys. Each such read is listed with the reason it hashes nothing from
-  outside: 40 reads under 37 entries (this entry said "35 of them" before; that counted entries,
-  not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
-  in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
+  outside: 45 reads under 42 entries (this entry said "35 of them" before, which counted entries,
+  not reads, and 40 under 37 before the widening below), so a spelling nobody listed turns the
+  guard red (a planted `getter = _VERIFIERS.get` in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
   listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
   ahead of the check in `anchors.verify_anchor` stayed green. A container is also seen when it is
   bound inside a module-level `if`, `try`, `with`, `for`, `while` or `match`, and when a module
   reaches it through a chain of imports (`from .renewal import HASH_REGISTRY`, which renewal
   imported from hashalg) or through `from .x import *`. A membership test is not classified but
-  routed through `is_member`. Measured: 19 lookup sites under 19 entries, 13 guarded by a
-  membership or type check before them, 5 reading a value the package produced itself, and the
+  routed through `is_member`. Measured: 20 lookup sites under 20 entries, 13 guarded by a
+  membership or type check before them, 6 reading a value the package produced itself, and the
   trust pack one, whose check runs against a tuple. None is open. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
@@ -49,7 +49,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the guard. A container derived from constant containers is a container too, and that rule came with a live
   defect. `agent_review.validate_time_claim` tested a time claim's rung with
   `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
-  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1953` now). A set difference is a set and
+  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1969` now). A set difference is a set and
   `in` hashed the value, so an `assurance` of `[]`, `{}` or `["runnerObserved"]` raised `TypeError`
   out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
   `validate_agent_review_v03_predicate`, and `verify_agent_review_v02` and `verify_agent_review_v03`
@@ -80,14 +80,86 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   checked to be a dict) and `dict(PROFILE_ALIASES)` returned by `policy_profiles.profile_aliases`
   (string literals of the package). `agent_review.py:495`, `k not in _DECLARATION_FIELDS | zusatz`, is
   no derived container, because `zusatz` is a parameter; it stays an other use, and its reason now
-  says that the union is tested only with a key of a value checked to be a dict. The lookups stay 19
-  sites under 19 entries. Not seen: a container built at run time from a value that is not constant
-  (`x in set(allowed)`: two membership tests in the tree, `adapters/agt_receipt.py:312` and
-  `relation.py:752`, each behind `isinstance(x, str)`), a literal on its own (`x in {"a"}`,
-  `{"a": 1}[k]`: no membership test and six lookups in the tree, each behind `is_member` or
-  `isinstance` or keyed by a literal the package chose), a container reached as a module attribute
-  (`x.NAME`), through a string (`globals()`) or bound in a class body, and a value after it leaves
-  the container (`for v in CONST.values()`).
+  says that the union is tested only with a key of a value checked to be a dict. The lookups stayed
+  19 sites under 19 entries at that point.
+
+  **A truthy value of the wrong type passed `(x or [])`, and a signed receipt came back as a
+  verifier defect.** `(x or [])` replaces a falsy value only. A correctly signed agent-review
+  receipt whose `declaration.authoring` is `{"a": []}` reached
+  `(dec.get("authoring") or []) + (dec.get("reviewRuns") or [])` as a dict, and
+  `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+  `verify_agent_review_any` answered `reason_code=internal_error`, "a defect in the verifier", while
+  the validator beside them had already said `declaration: authoring must be an array` (a lens on
+  c3bd89a4; it reproduces on main 10f3466b). A generator that replaces every node of four seed
+  predicates (v0.1 with a supersession and with findings, v0.2 with a `reviewCompleted` time claim,
+  v0.3) by a value of each JSON type and calls every public agent-review surface measured 44
+  findings in 51,654 calls on c3bd89a4, at nine source lines: the `+` in `derive_limitation_codes`
+  and in the v0.1 and the v0.2/v0.3 verifier; `findings: 5` in the v0.2 validator, a validator that
+  raised, and with it both verifiers and both renderers; the same value in `findings_root` beside a
+  `findingsRoot` (v0.1 `internal_error`); two reads in `resolve_receipt_chain`, where a
+  `supersession`, a relation list or a `priorDigest` of the wrong type raised once the envelope was
+  named as verified; and two hashing neighbours, the rung set of `derive_limitation_codes` (a list
+  as `assurance` raised, and through `evaluate_limitation_policy` the policy answer became "policy
+  could not be evaluated: unhashable type") and the value set of `reviewCompleted` time claims in
+  `_zeitachsen` (`internal_error` for `value: []`). The same run finds 0 now: every site reads
+  through `_membership.as_list`, the list sibling of `as_dict` (a list and nothing else, as the
+  validators call an array), through `as_dict`, or counts distinct values by equality instead of
+  hashing them. The rung set of `derive_limitation_codes` reads strings only, so an entry without
+  `assurance` no longer drops `IDENTITY_UNBOUND` (`{None} <= {"selfDeclared"}` was false). The sweep
+  over `src/proofbundle` read each of the 114 sites of the idiom (by AST, `x or` an empty literal)
+  at its source and found two more outside this module: `evalclaim.sd_jwt_hidden_count` raised
+  `AttributeError` for a truthy `sd_jwt_vc` that is neither a string nor an object, and CAP-1 rule R2
+  raised for `unexamined: 5`, which `check_cap1_document` reported as a rule it could not evaluate
+  and agent-review v0.2 as `CAP1_DISPOSITION_NOT_CLOSED`; both read the wrong
+  type as absent now (R1 names the non-list). 19 of the 114 sites changed. Of the other 95, 20 sit
+  in the four JSON adapters named below and can raise; 75 sit behind a type check or a typed
+  `except`, read a value the package built, or read caller arguments on a producer path. Two carried entries of `conformance/unguarded_hashing_constructions_baseline.json`
+  are closed and leave it (seven to five). Contract
+  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 39 tests, all 39 red on
+  c3bd89a4.
+
+  **The guard follows every chain that hashes the values of a constant dict, and a binding only
+  when a reader reads its name.** The same lens executed seventeen forms past the guard, each
+  raising at run time with all three detectors silent. Seven hashed the values of a dict through a
+  comprehension, a generator, `reversed`, `filter` or a starred set display over a copy
+  (`{x for x in list(_M.values())}`, `set(reversed(list(...)))`, `{*list(...)}`): the copy chain was
+  followed only to a direct hashing call, and `list(_M.values())` counted as a constant source,
+  although the values of a dict can be set from outside. Every chain of copies, comprehensions,
+  generators, starred displays and passing calls (`reversed`, `iter`, `enumerate`, `filter`, `map`,
+  `zip`) that reaches a hashing construction is an other use now, and a copy of `.values()` or
+  `.items()` is no source of a derived container. Ten were bindings nothing followed: a
+  module-level walrus, a `for` target over a display, a starred unpacking, `dict.fromkeys(...)` over
+  a set or a tuple and `types.MappingProxyType(...)` at module level, a walrus in a nested
+  function's default, `set(_T)` over a module-level tuple, and a `global` or a `nonlocal` name
+  assigned in a function. `other_uses` judged a binding as followed by the shape of its statement;
+  it counts a read as bound now only when it is the value of a binding the container readers read
+  (`_scope_bindings`, one list for both sides), the first eight forms are read, and a `global`,
+  `nonlocal`, attribute or class-body binding is reported where the container is read. A runtime
+  oracle imports every module and requires each module-level set or mapping to be in the guard's
+  view or named with its reason; it names one, `policy._LOW_ORDER_ED25519_Y`, bound to what
+  `_low_order_ed25519_y()` returns, whose one use tests an int computed from the decoded key bytes.
+  Measured on the tree after the fix: no membership site, 20 lookup sites under 20 entries (the new
+  one `daten[f]` in `adapters/agt_receipt.canonical_payload`, keyed by a literal of the module) and
+  45 reads under 42 entries (five new, each a set or dict built over a module-level tuple and read at
+  its source, in `adapters/agt_receipt`, `cli._error_verify_fields`, `public_transparency` and twice
+  in `relation`); no binding the first form cleared is one no reader follows.
+
+  Not reached, and not claimed: the four JSON adapters (`adapters/eee.py`, `lm_eval.py`,
+  `promptfoo.py`, `samples.py`) answer a wrong-typed field with a raw `AttributeError` or
+  `TypeError` instead of their `ValueError`: 28 escapes measured over the real fixtures in 5,808
+  calls, 15 of them through the idiom. They read an operator's own harness file on the producer path
+  and stand outside the never-raise denominator, and reading a wrong type as empty there would sign
+  a default instead of refusing, so they need a typed refusal per section, which is a change of its
+  own. The `.get(k, {})` spelling of the same assumption was not swept. Not seen by the guard: a
+  container built at run time from a value that is not constant (`x in set(allowed)`: two
+  membership tests in the tree, `adapters/agt_receipt.py:312` and `relation.py:752`, each behind
+  `isinstance(x, str)`), a literal on its own (`x in {"a"}`, `{"a": 1}[k]`: no membership test and
+  six lookups in the tree, each behind `is_member` or `isinstance` or keyed by a literal the package
+  chose), a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
+  bound in a class body, a container a function call returns (held by the oracle, not the view), a
+  tuple constant imported from another module, a value after it leaves the container
+  (`for v in CONST.values()`, or a copy of the values bound to a name), and a wrapper outside the
+  listed passing calls.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
