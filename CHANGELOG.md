@@ -29,6 +29,32 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `while (False) or x:`, clean with exit 0 before, are trivial truths as `if True and data:` was; a
   unary operator is not followed, and `if not True:` stays outside the class.
 
+  A tool ends in its own verdict on what it cannot parse. An except clause that named SyntaxError
+  and ValueError let a MemoryError through: a comment `# ok = verify(` with 7000 nested unary minus
+  ended the mutant guard, and the same depth in a `.py` file ended the language gate, each with a
+  traceback and exit 1, the code of a finding. The guard now stops with exit 2 and the reason, and
+  the gate says NOT MEASURABLE for such a file; a RecursionError is caught beside each MemoryError,
+  and the version gate's reading of PyPI's JSON catches one too. Two walks over a parsed tree were
+  recursive: the gate's test for a string of literals joined by `+` ran out of stack on 3000 of them,
+  and the guard's comparison of a file parsed twice (`ast.dump`) stopped it with "not the text Python
+  parsed" on files Python compiles, 2000 nested unary minus or 1000 terms joined by `+`. Both walk
+  without recursion now. The version gate reads an external answer up to 16 MiB; the two it asks for
+  measured 94753 and 117471 bytes.
+
+  A path the file system refuses is not a missing path. `is_dir` and `is_file` re-raise EACCES, and a
+  tracked path under a directory without search permission ended the digest resolver and the version
+  gate with a traceback and exit 1. The resolver counts such a path as not hashed, so its result is
+  NICHT_MESSBAR; the version gate names a tracked version place it cannot read and still checks the
+  others. Its sweep for undeclared release claims read a file it could not stat or open as no file,
+  so a current-version claim in a file without read permission, or under a directory without search
+  permission, went unseen with exit 0; such a file is a problem naming the refusal now.
+
+  A digit is an ASCII digit. `str.isdigit()` is true for a superscript two and an Arabic-Indic three:
+  the version gate's `_semver_tuple` raised in `int()` on the first, so a release tag of that form
+  ended the gate with a traceback, and read the second as the patch number 3. Only `[0-9]` counts
+  now; the other `int()` and `isdigit()` calls in the five tools read text a `[0-9]` pattern matched,
+  or bytes, whose `isdigit()` is ASCII only.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in

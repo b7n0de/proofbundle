@@ -454,11 +454,19 @@ def _roh(p: Path, name: str) -> bytes | None:
     A FIFO is never opened: `read_text` on one waited for a writer, and a FIFO at a tracked path hung
     the gate (measured 2026-09-26). A regular file over `_LESEGRENZE` is not read either; that is a
     problem of the run and raises `_NichtLesbar`.
+
+    A path the file system refuses to show or to open is no missing path either. Read as None, a
+    tracked file without read permission, or under a directory without search permission, was
+    skipped by the sweep, and a current-version claim in it went unseen with exit 0 (a sweep for the
+    class of a review lens, run 10, measured 2026-09-26 at 50f3ef33). It raises `_NichtLesbar` now,
+    naming the refusal; only a path that is not there (ENOENT, ENOTDIR) is None.
     """
     try:
         st = p.stat()
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except OSError as exc:
+        raise _NichtLesbar(_verweigert(name, exc)) from None
     if not stat.S_ISREG(st.st_mode):
         return None
     if st.st_size > _LESEGRENZE:
@@ -467,12 +475,20 @@ def _roh(p: Path, name: str) -> bytes | None:
     try:
         with p.open("rb") as fh:
             raw = fh.read(_LESEGRENZE + 1)
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except OSError as exc:
+        raise _NichtLesbar(_verweigert(name, exc)) from None
     if len(raw) > _LESEGRENZE:
         raise _NichtLesbar(f"{_pfad(name)} grew past {_LESEGRENZE} bytes while it was read, so what it "
                            f"states is {NICHT_MESSBAR} here")
     return raw
+
+
+def _verweigert(name: str, exc: OSError) -> str:
+    """The problem text for a path the file system refused, with its reason."""
+    return (f"{_pfad(name)} cannot be read ({exc.strerror or type(exc).__name__}), so what it states "
+            f"is {NICHT_MESSBAR} here")
 
 
 def _als_text(raw: bytes, name: str) -> str:
@@ -614,8 +630,10 @@ def _semver_tuple(v: str) -> tuple:
     if not m:
         # UNVERAENDERT fuer alles, was keine Version ist (Review-Tags etwa). Die Zahl der Glieder
         # muss trotzdem stimmen, sonst sind Treffer und Fallback nicht vergleichbar.
+        # ASCII digits only: `str.isdigit()` is true for `²` and `٣`, and `int("0²")` raised while
+        # `int("0٣")` read 3 (a review lens, run 10, and its sweep, measured 2026-09-26).
         parts = core.split(".")
-        haupt = tuple(int(x) if x.isdigit() else 0 for x in (parts + ["0", "0", "0"])[:3])
+        haupt = tuple(int(x) if re.fullmatch(r"[0-9]+", x) else 0 for x in (parts + ["0", "0", "0"])[:3])
         return haupt + (_NACH, 0, _VOR, _NACH)
     haupt = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
     vorab, post, dev = m.group(4), m.group(6), m.group(7)
@@ -885,7 +903,7 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
         angemeldet = declared_patterns.get(rel, [])
         try:
             raw = _roh(repo / rel, rel)
-        except _NichtLesbar as nicht:     # over the bound: a claim in it would go unseen
+        except _NichtLesbar as nicht:     # over the bound, or refused: a claim in it would go unseen
             problems.append(f"{nicht}; a current-version claim in it would not be seen")
             continue
         if raw is None:
@@ -928,13 +946,22 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
     """
     problems: list[str] = []
     for rel, pattern, beschreibung in _TRACKED_PLACES:
-        path = repo / rel
-        if not path.is_file():
+        # Read by `_roh`, never asked with `is_file`: that re-raises EACCES, and a place under a
+        # directory without search permission ended the gate with a traceback (a review lens, run 10,
+        # measured 2026-09-26). A place that cannot be read is its own problem, and the others are
+        # still checked; one without read permission read as "the anchor moved" before.
+        try:
+            raw = _roh(repo / rel, rel)
+            text = None if raw is None else _als_text(raw, rel)
+        except _NichtLesbar as nicht:
+            problems.append(f"{nicht}; this tracked version place was not checked")
+            continue
+        if text is None:
             problems.append(f"{rel}: tracked version place is missing (expected {beschreibung})")
             continue
         # An anchor with two captures (the README headline) yields pairs; every captured number is
         # a statement of the version, so each one is compared, not only the first.
-        found = [v for hit in pattern.findall(_read(path, rel))
+        found = [v for hit in pattern.findall(text)
                  for v in (hit if isinstance(hit, tuple) else (hit,))]
         if not found:
             problems.append(
@@ -948,14 +975,22 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
     return problems
 
 
+#: What the gate reads of an external answer. The two answers measured 94753 bytes (PyPI's JSON for
+#: this project) and 117471 bytes (the project page) on 2026-09-26; 16 MiB is over a hundred times
+#: the larger. An answer read whole without a bound is the same class as a file read whole without one.
+_NETZGRENZE = 16 * 1024 * 1024
+
+
 def _fetch(url: str, timeout: float) -> str | None:
-    """Fetch a URL as text. None on ANY failure — unreachable is a state, not an exception."""
+    """Fetch a URL as text. None on ANY failure — unreachable is a state, not an exception — and for
+    an answer larger than `_NETZGRENZE`, which is not read past that bound."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "proofbundle-version-gate"})
         with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310 (fixed https URLs)
-            return r.read().decode("utf-8", "replace")
+            raw = r.read(_NETZGRENZE + 1)
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
+    return None if len(raw) > _NETZGRENZE else raw.decode("utf-8", "replace")
 
 
 def check_external(version: str, timeout: float = 15.0,
@@ -971,9 +1006,12 @@ def check_external(version: str, timeout: float = 15.0,
     if roh is None:
         ergebnisse.append(("PyPI", NICHT_MESSBAR, f"{_PYPI_JSON} not reachable"))
     else:
+        # RecursionError: an answer nested deeper than the parser's stack ended the gate with a
+        # traceback past an except clause that named ValueError, KeyError and TypeError (measured at
+        # 100000 levels, 2026-09-26, in the sweep for the class of a review lens, run 10).
         try:
             veroeffentlicht = json.loads(roh)["info"]["version"]
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, RecursionError):
             ergebnisse.append(("PyPI", NICHT_MESSBAR, "response was not the expected JSON shape"))
         else:
             ergebnisse.append(("PyPI", "OK" if veroeffentlicht == version else "ABWEICHUNG",

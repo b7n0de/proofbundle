@@ -146,7 +146,12 @@ _COMMENTED_VERIFY = re.compile(
     r"[\w.]*(?:verify|validate|compare_digest|check)[\w.]*\s*\(")
 
 
-def _commented_content_parses(text: str) -> bool:
+def _commented_content_parses(text: str) -> bool | None:
+    """Whether a comment's content parses as a statement; None when the parser runs out of stack or
+    memory on it, and the guard cannot say. A comment `# ok = verify(` with 7000 nested unary minus
+    raised a MemoryError past an except clause that named SyntaxError and ValueError, and the guard
+    ended with a traceback and exit 1, the code of a finding (a review lens, run 10, measured
+    2026-09-26). The caller stops fail-closed on None."""
     content = re.sub(r"^\s*#\s?", "", text).strip()
     if content.endswith(":"):
         content += "\n    pass"  # a commented-out `if verify(x):` header needs a body to parse
@@ -154,6 +159,8 @@ def _commented_content_parses(text: str) -> bool:
         ast.parse(content)
     except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
         return False
+    except (RecursionError, MemoryError):
+        return None
     return True
 
 # Class C — verification-function names.
@@ -351,13 +358,41 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
         spans.append(range(len(lines) + 1, len(lines) + 1 + len(pieces)))
         lines.extend(pieces)
     try:
-        same = "".join(parts) == whole and (ast.dump(ast.parse(whole), include_attributes=True)
-                                            == ast.dump(tree, include_attributes=True))
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        same = False
-    if not same:
+        again = ast.parse(whole)
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+        raise stop(f"the text decoded here as {encoding} does not parse again: "
+                   f"{type(exc).__name__}: {exc}") from None
+    if "".join(parts) != whole or _tree_shape(again) != _tree_shape(tree):
         raise stop(f"the text decoded here as {encoding} is not the text Python parsed")
     return tree, lines, spans
+
+
+#: The positions a node carries, compared with its type and fields (what `include_attributes` adds).
+_POSITION = ("lineno", "col_offset", "end_lineno", "end_col_offset")
+
+
+def _tree_shape(tree: ast.AST) -> list[tuple]:
+    """A syntax tree as a flat list, node by node in `ast.walk` order: its type, its position, and
+    every field, a child as its type. The order and the child types fix the tree, so two trees are
+    the same, positions included, exactly when their shapes are equal.
+
+    `ast.dump` answers the same question by recursion. On a file Python compiles, 2000 nested unary
+    minus or 1000 terms joined by `+`, it ran out of stack, and the guard stopped with "not the text
+    Python parsed", which was not true (measured 2026-09-26 at 50f3ef33). This walk uses no stack.
+    """
+    shape = []
+    for node in ast.walk(tree):
+        fields = []
+        for name, value in ast.iter_fields(node):
+            if isinstance(value, ast.AST):
+                fields.append((name, type(value).__name__))
+            elif isinstance(value, list):
+                fields.append((name, tuple(type(v).__name__ if isinstance(v, ast.AST) else repr(v)
+                                           for v in value)))
+            else:
+                fields.append((name, repr(value)))
+        shape.append((type(node).__name__, *(getattr(node, a, None) for a in _POSITION), tuple(fields)))
+    return shape
 
 
 def _allowlisted(file_lines: list[str], lineno: int, last: int | None = None) -> bool:
@@ -468,8 +503,14 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
                                     f"`while False`) at a check\n    {header}"))
         for lineno in sorted(judged):
             text = file_lines[lineno - 1]
-            if _COMMENTED_VERIFY.match(text) and _commented_content_parses(text) \
-                    and not _allowlisted(file_lines, lineno):
+            if not _COMMENTED_VERIFY.match(text) or _allowlisted(file_lines, lineno):
+                continue
+            parses = _commented_content_parses(text)
+            if parses is None:
+                raise SystemExit(f"mutant_signature_guard: {path}:{lineno}: a comment nests deeper than "
+                                 "the parser reads, so the guard cannot say whether it is commented-out "
+                                 "code (fail closed)")
+            if parses:
                 in_order.append((lineno, f"{path}:{lineno}: commented-out verification call\n"
                                          f"    {text.strip()}"))
         findings.extend(finding for _, finding in sorted(in_order))

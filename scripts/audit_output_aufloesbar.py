@@ -34,8 +34,8 @@ WHAT IS READ WHOLE IS CAPPED (a review of the stack at 1ecc2aca, on main as well
 NICHT_AUFLOESBAR; one nested 100000 deep ended it with a RecursionError; and a 12 GB sparse file
 at a tracked path, under an 8 GB address-space limit, with a MemoryError. The receipt is read up to
 `RECEIPT_CAP` bytes, a tracked file is hashed up to `FILE_CAP` bytes, and a path that is no
-regular file within that cap, missing and FIFO included, is counted as not hashed instead of being
-read or skipped.
+regular file within that cap, missing and FIFO included, or one the file system refuses to show, is
+counted as not hashed instead of being read or skipped.
 
 HOW THE DIGEST IS COMPUTED, and it matters: the receipt builds it as
 ``sha256_text(file.read_text(encoding="utf-8", errors="ignore"))`` — over the DECODED TEXT, not
@@ -138,7 +138,14 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
     treffer, geprueft, nicht_gehasht = [], 0, []
     for rel in dateien:
         p = repo / rel
-        if p.is_dir():
+        # `is_dir` re-raises what the file system refuses (EACCES under a directory without search
+        # permission), which ended the run with a traceback and exit 1, the code of NICHT_AUFLOESBAR (a
+        # review lens, run 10, measured 2026-09-26). Such a path is not hashed, below.
+        try:
+            ist_verzeichnis = p.is_dir()
+        except OSError:
+            ist_verzeichnis = False
+        if ist_verzeichnis:
             continue                      # a gitlink or a directory is no file a digest could name
         berechnet = _digest_wie_das_receipt(p)
         if berechnet is None:

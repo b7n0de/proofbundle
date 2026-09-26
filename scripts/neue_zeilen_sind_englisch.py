@@ -336,7 +336,11 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
         for tok in tokenize.generate_tokens(io.StringIO(quelle).readline):
             if tok.type == tokenize.COMMENT:
                 aus.add(tok.start[0])
-    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+    # RecursionError and MemoryError too: 7000 nested unary minus got past an except clause that named
+    # SyntaxError and ValueError, and the gate ended with a traceback and exit 1, the code of ROT (a
+    # review lens, run 10, measured 2026-09-26). A file the parser runs out of stack or memory on has
+    # no prose map, and the run is NOT MEASURABLE.
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError, RecursionError, MemoryError):
         return None
     # DOCSTRINGS ARE A POSITION, NOT A STRING TYPE, and the first tokenizer version missed that.
     # Taking every tokenize.STRING swept in the message texts the program prints, which are not
@@ -354,7 +358,7 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     # a name is not such a string and stays out.
     try:
         baum = ast.parse(quelle)
-    except (SyntaxError, ValueError):
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         return None
     for knoten in ast.walk(baum):
         if isinstance(knoten, ast.Expr) and _nur_text(knoten.value):
@@ -364,13 +368,21 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
 
 def _nur_text(ausdruck: ast.AST) -> bool:
     """A str, bytes or f-string literal, or such literals joined by `+`: text and nothing else.
-    A string built by another operator or by a call is code (named limit)."""
-    if isinstance(ausdruck, ast.Constant):
-        return isinstance(ausdruck.value, (str, bytes))
-    if isinstance(ausdruck, ast.JoinedStr):
-        return True
-    return (isinstance(ausdruck, ast.BinOp) and isinstance(ausdruck.op, ast.Add)
-            and _nur_text(ausdruck.left) and _nur_text(ausdruck.right))
+    A string built by another operator or by a call is code (named limit).
+
+    Walked with a list, not by recursion: a string statement of 3000 literals joined by `+` parses,
+    and the recursive form ran out of stack on it, a traceback and exit 1 (measured 2026-09-26)."""
+    offen = [ausdruck]
+    while offen:
+        knoten = offen.pop()
+        if isinstance(knoten, ast.Constant):
+            if not isinstance(knoten.value, (str, bytes)):
+                return False
+        elif isinstance(knoten, ast.BinOp) and isinstance(knoten.op, ast.Add):
+            offen.extend((knoten.left, knoten.right))
+        elif not isinstance(knoten, ast.JoinedStr):
+            return False
+    return True
 
 
 def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
