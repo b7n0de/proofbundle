@@ -197,7 +197,11 @@ def answer_commit(text: str) -> str | None:
 
 def register_threads(text: str, repo: str, pr: int) -> set[int]:
     """The thread ids the register lines of a comment name, in either house form."""
-    form = re.compile(rf"(?:{re.escape(f'{repo}#{pr}:')}|#discussion_r)(\d+)(?!\d)")
+    # The id ends where the reference ends: at a closing quote, bracket or space, or at sentence
+    # punctuation that no word character follows. `(?!\d)` let `#7:10x` name thread 10 (Codex on
+    # PR 275, round five), in both forms.
+    form = re.compile(rf"(?:{re.escape(f'{repo}#{pr}:')}|#discussion_r)(\d+)"
+                      r"(?=[\s`'\")\]>]|[.,;:](?!\w)|$)")
     return {int(m) for z in visible(text).splitlines() if _REGISTER.match(z)
             for m in form.findall(z)}
 

@@ -104,6 +104,31 @@ class TheEvidenceStandsOnItsLine(unittest.TestCase):
         text = f"See {R}#7:10 later.\n\nCommit measured `{HEAD}`\n"
         self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
 
+    def test_a_closer_with_text_after_it_does_not_close_the_fence(self):
+        """Confirmation lens C, mutant M4: a line of fence characters followed by text is no closer."""
+        text = "```\nexample\n``` trailing text\n\n" + register_answer(7, 10, HEAD)
+        self.assertEqual(verdict([codex(10)], [issue(text)])["open"], 1)
+
+    def test_the_same_measured_commit_twice_is_one_commit(self):
+        """Confirmation lens C, mutant M7: two measured lines naming the SAME commit name it."""
+        text = register_answer(7, 10, HEAD) + f"\nCommit measured `{HEAD}`\n"
+        self.assertEqual(ct.answer_commit(text), HEAD)
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+    def test_an_id_with_a_suffix_names_no_thread(self):
+        """Codex on PR 275, round five: `(?!\\d)` let `#7:10x` name thread 10, in both forms. The id
+        ends where the reference ends; the house forms still name their thread."""
+        for ref in (f"{R}#7:10x", f"{R}#7:10_a", f"{R}#7:10-1", f"{R}#7:10.5",
+                    "https://github.com/x/y/pull/7#discussion_r10x"):
+            with self.subTest(ref=ref):
+                text = f"Thread `{ref}`. Verdict Confirmed.\n\nCommit measured `{HEAD}`\n"
+                self.assertEqual(ct.register_threads(text, R, 7), set())
+        for line in (f"Thread `{R}#7:10`. Verdict Confirmed.", f"Thread {R}#7:10.",
+                     f"Thread [link](https://github.com/{R}/pull/7#discussion_r10), confirmed",
+                     f"Thread https://github.com/{R}/pull/7#discussion_r10"):
+            with self.subTest(line=line):                   # PRECONDITION: the house forms still count
+                self.assertEqual(ct.register_threads(line + "\n", R, 7), {10})
+
     def test_a_longer_id_does_not_answer_a_shorter_one(self):
         self.assertEqual(verdict([codex(10)], [issue(register_answer(7, 100, HEAD))])["open"], 1)
 
@@ -354,6 +379,47 @@ class TheOrigin(unittest.TestCase):
         status[f"{REVIEWED}...{answer}"] = "ahead"          # PRECONDITION: after it, it counts
         with mock.patch.object(ct, "_get", fake):
             self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["verdict"], "green")
+
+    def test_a_thread_without_a_reviewed_commit_is_not_at_head(self):
+        """Confirmation lens C, mutant M11: without the commit Codex reviewed, nothing shows that the
+        answer's commit came after it, so the thread is not closed on an open pull request."""
+        bare = {"id": 10, "in_reply_to_id": None, "user": {"login": ct.CODEX_BOT}, "body": "P2"}
+        pages = {
+            f"{ct.API}/repos/{R}/pulls/7": {"head": {"sha": HEAD}},
+            f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100": [bare],
+            f"{ct.API}/repos/{R}/issues/7/comments?per_page=100": [issue(register_answer(7, 10, HEAD))],
+        }
+
+        def fake(url, token):
+            return ({"status": "identical"}, None) if "/compare/" in url else (pages[url], None)
+        with mock.patch.object(ct, "_get", fake):
+            self.assertEqual(ct.measure_at_origin(R, 7, OWNER, None)["not_at_head"], 1)
+
+    def test_a_next_link_with_a_fragment_is_not_the_same_list(self):
+        """Confirmation lens C, mutant M14."""
+        base = f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100&page=2"
+        self.assertTrue(ct._same_list(base, f"repos/{R}/pulls/7/comments", None))
+        self.assertFalse(ct._same_list(base + "#x", f"repos/{R}/pulls/7/comments", None))
+
+    def test_pagination_reads_exactly_max_pages(self):
+        """Confirmation lens C, mutant M16: the limit is a number, so it is measured exactly."""
+        calls: list = []
+
+        def fake(url, token):
+            calls.append(url)
+            return [], f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100&page={len(calls) + 1}"
+        with mock.patch.object(ct, "_get", fake), self.assertRaises(ct.NotMeasurable):
+            ct._pages(f"repos/{R}/pulls/7/comments", None)
+        self.assertEqual(len(calls), ct.MAX_PAGES)
+
+    def test_main_exits_0_for_green_and_1_for_red(self):
+        """Confirmation lens C, mutant M17: the exit code is what the workflow reports, and no case
+        called main on a measured verdict."""
+        for e, code in ((verdict([codex(10)], [issue(register_answer(7, 10, HEAD))]), 0),
+                        (verdict([codex(10)], []), 1)):
+            with self.subTest(verdict=e["verdict"]), \
+                    mock.patch.object(ct, "measure_at_origin", lambda *a, e=e: e):
+                self.assertEqual(ct.main(["--repo", R, "--pr", "7", "--json"]), code)
 
     def test_pagination_stays_on_the_api_host_and_ends(self):
         """Deep gate, lens 2: the next page came from a header and was followed to any host, with the
