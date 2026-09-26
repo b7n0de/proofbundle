@@ -8,6 +8,12 @@ For each template below it writes a throwaway project (pyproject.toml, one packa
 the template as MANIFEST.in), calls `setuptools.build_meta.build_sdist` offline, and records which
 candidates the real sdist carries. Nothing here is read by the test at run time except vectors.json.
 
+WHAT SETUPTOOLS SHIPS WITHOUT A TEMPLATE LINE is measured too (gate run 2, lens 227-A, 227-2-01): the
+modules of every package its package discovery finds and the package data the project declares go into
+the sdist through `build_py`, whatever MANIFEST.in says. So the candidates include files under `src/`,
+each case records the pyproject.toml it was built with, and three cases vary the discovery (the plain
+`where = ["src"]` of this repository, an `exclude`, and `namespaces = false`).
+
 ONLY POSITIVE LINES. `tests/conftest.py::_manifest_verspricht` deliberately does not let a negative line
 withdraw a promise (that is how an accidental `exclude` is caught), so a template with `exclude` or
 `prune` would measure a difference that is the design. The vectors pin the reading of the positive lines
@@ -33,7 +39,21 @@ KANDIDATEN = [
     "receipts/agent_review/d.txt", "receipts/other/e.receipt.json",
     "data/a.txt", "data/b.txt", "data/-.txt", "data/d.txt",
     "the/planet.txt", "noise", "weird#name.txt", "ships",
+    "src/vektorpaket/__init__.py", "src/vektorpaket/mod.py", "src/vektorpaket/py.typed",
+    "src/vektorpaket/notes.md", "src/vektorpaket/data/a.json", "src/vektorpaket/data/b.txt",
+    "src/vektorpaket/sub/deep.py", "src/vektorpaket/sub/deep.json", "src/loose.py", "src/dotted.dir/x.py",
 ]
+
+#: The package configuration every case is built with, unless the case names another one.
+PAKETE = ('[tool.setuptools.packages.find]\nwhere = ["src"]\n\n'
+          '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n')
+PAKETE_VARIANTEN = {
+    "find_excludes_a_subpackage": ('[tool.setuptools.packages.find]\nwhere = ["src"]\n'
+                                   'exclude = ["vektorpaket.sub*"]\n\n'
+                                   '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'),
+    "find_without_namespaces": ('[tool.setuptools.packages.find]\nwhere = ["src"]\nnamespaces = false\n\n'
+                                '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'),
+}
 
 TEMPLATES = {
     "continuation": "recursive-include receipts/agent_review \\\n    *.receipt.json\n",
@@ -49,18 +69,20 @@ TEMPLATES = {
     "negated_class_in_include": "include data/[!a].txt\n",
     "lines_setuptools_refuses": "graft examples docs\nfoo bar\ninclude\nrecursive-include receipts\n",
     "no_template_lines": "# only a comment\n",
+    "find_excludes_a_subpackage": "# only a comment\n",
+    "find_without_namespaces": "# only a comment\n",
 }
 
 
-def _messen(template: str) -> list[str]:
+def _pyproject(pakete: str) -> str:
+    return ('[build-system]\nrequires = ["setuptools>=68"]\nbuild-backend = "setuptools.build_meta"\n\n'
+            '[project]\nname = "vektorprojekt"\nversion = "0.0.1"\nreadme = "README.md"\n\n' + pakete)
+
+
+def _messen(template: str, pyproject: str) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         wurzel = pathlib.Path(tmp)
-        (wurzel / "pyproject.toml").write_text(
-            '[build-system]\nrequires = ["setuptools>=68"]\nbuild-backend = "setuptools.build_meta"\n\n'
-            '[project]\nname = "vektorprojekt"\nversion = "0.0.1"\nreadme = "README.md"\n\n'
-            '[tool.setuptools.packages.find]\nwhere = ["src"]\n', encoding="utf-8")
-        (wurzel / "src" / "vektorpaket").mkdir(parents=True)
-        (wurzel / "src" / "vektorpaket" / "__init__.py").write_text("", encoding="utf-8")
+        (wurzel / "pyproject.toml").write_text(pyproject, encoding="utf-8")
         for rel in KANDIDATEN:
             if rel in ("MANIFEST.in", "pyproject.toml"):
                 continue
@@ -82,7 +104,10 @@ def _messen(template: str) -> list[str]:
 
 def main() -> None:
     import setuptools
-    faelle = {name: {"template": t, "shipped": _messen(t)} for name, t in TEMPLATES.items()}
+    faelle = {}
+    for name, t in TEMPLATES.items():
+        pyproject = _pyproject(PAKETE_VARIANTEN.get(name, PAKETE))
+        faelle[name] = {"template": t, "pyproject": pyproject, "shipped": _messen(t, pyproject)}
     ziel = HIER / "vectors.json"
     ziel.write_text(json.dumps({"setuptools": setuptools.__version__, "candidates": KANDIDATEN,
                                 "cases": faelle}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")

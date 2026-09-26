@@ -490,6 +490,19 @@ def _manifest_verspricht(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     appends it to every sdist), `pyproject.toml`, `setup.cfg`, `setup.py`, `PKG-INFO`, the README
     variants and the license files. Without that, a test that binds "the sdist carries MANIFEST.in"
     was skipped by this very rule the moment MANIFEST.in was missing, because its module names the file.
+    setuptools adds each of these only when the source tree has it (gate run 2, lens 227-A, 227-2-02:
+    a project without `setup.py` ships none). A distribution cannot show which ones its source had, so
+    all of them count as promised. That is the loud direction on purpose: a test naming one the project
+    never had fails in a checkout just the same.
+
+    AND WHAT BUILD_PY SHIPS (227-2-01): the modules of every package the project's package discovery
+    finds, and the package data it declares, go into the sdist whatever the template says
+    (`sdist._add_defaults_python`). This repository's template never mentions `src/`, so a test naming
+    `src/proofbundle/agent_review.py` was skipped as repo-context the moment packaging lost that module.
+    `_build_py_verspricht` reads `[tool.setuptools]` of pyproject.toml the way setuptools does, and the
+    vectors hold it against a real `build_sdist`. NAMED LIMITS: automatic discovery (no `packages` and no
+    `packages.find`), `py-modules`, `exclude-package-data` and extension modules are not read; a project
+    relying on them gets no promise from this part, which is the old rule.
 
     NO BASIS, NO PROMISE. Without a readable MANIFEST.in and without a PKG-INFO (a throwaway tree in a
     test, say) nothing is promised and the old rule stands. A tree that carries PKG-INFO is a
@@ -505,6 +518,8 @@ def _manifest_verspricht(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     pfad = [s for s in rel.split("/") if s not in ("", ".")]
     if rel in _SETUPTOOLS_VORGABEN or (len(pfad) == 1 and any(
             fnmatch.fnmatchcase(pfad[0], m) for m in _SETUPTOOLS_LIZENZMUSTER)):
+        return True
+    if _build_py_verspricht(pfad, wurzel):
         return True
     if text is None:
         return False
@@ -536,6 +551,101 @@ _SETUPTOOLS_VORGABEN = frozenset({"MANIFEST.in", "pyproject.toml", "setup.cfg", 
                                   "README", "README.rst", "README.txt", "README.md"})
 #: setuptools' default `license_files` patterns, matched at the root only.
 _SETUPTOOLS_LIZENZMUSTER = ("LICEN[CS]E*", "COPYING*", "NOTICE*", "AUTHORS*")
+
+
+def _paketkonfiguration(wurzel: pathlib.Path) -> dict | None:
+    """`[tool.setuptools]` of pyproject.toml ({} when absent), or None when the file cannot be read."""
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:            # Python 3.10, see _projektname
+        import tomli as tomllib  # noqa: PLC0415
+    try:
+        daten = tomllib.loads((pathlib.Path(wurzel) / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    werkzeug = daten.get("tool")
+    konf = werkzeug.get("setuptools") if isinstance(werkzeug, dict) else None
+    return konf if isinstance(konf, dict) else {}
+
+
+def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path) -> tuple[str, int] | None:
+    """(dotted package name, number of path segments of its directory) if the directory holding the
+    last segment of `pfad` is a package setuptools would build, else None.
+
+    `packages.find` as `setuptools.discovery.PackageFinder._find_iter` (69.5.1) walks: no directory with
+    a dot in its name, with `namespaces = false` every directory needs an `__init__.py`, `include` and
+    `exclude` are fnmatch patterns over the dotted name (`ez_setup` and `*__pycache__` are always
+    excluded), and a directory under an exclude written `name*` or `name.*` is not descended into.
+    An explicit `packages` list is read with `package-dir`."""
+    import fnmatch  # noqa: PLC0415
+    pakete = konf.get("packages")
+    if isinstance(pakete, list):
+        paketwurzel = konf.get("package-dir") if isinstance(konf.get("package-dir"), dict) else {}
+        for name in pakete:
+            if not isinstance(name, str):
+                continue
+            ort = paketwurzel.get(name)
+            if not isinstance(ort, str):
+                basis = paketwurzel.get("", "")
+                ort = "/".join(_segmente(basis if isinstance(basis, str) else "") + name.split("."))
+            teile = _segmente(ort)
+            if pfad[:len(teile)] == teile and len(pfad) == len(teile) + 1:
+                return name, len(teile)
+        return None
+    finden = pakete.get("find") if isinstance(pakete, dict) else None
+    if not isinstance(finden, dict):
+        return None                                   # automatic discovery: not read (named limit)
+    orte = finden.get("where", ["."])
+    einschluss = finden.get("include", ["*"])
+    ausschluss = ["ez_setup", "*__pycache__"] + list(finden.get("exclude", []))
+    namensraeume = finden.get("namespaces", True) is not False
+    for ort in (orte if isinstance(orte, list) else []):
+        basis = _segmente(ort) if isinstance(ort, str) else None
+        if basis is None or pfad[:len(basis)] != basis:
+            continue
+        verzeichnisse = pfad[len(basis):-1]
+        if not verzeichnisse:
+            continue
+        gueltig = True
+        for k in range(1, len(verzeichnisse) + 1):
+            teil, name = verzeichnisse[k - 1], ".".join(verzeichnisse[:k])
+            init = "/".join(basis + verzeichnisse[:k] + ["__init__.py"])
+            if "." in teil or not (namensraeume or (pathlib.Path(wurzel) / init).is_file()
+                                   or "/".join(pfad) == init):
+                gueltig = False
+                break
+            if k < len(verzeichnisse) and (f"{name}*" in ausschluss or f"{name}.*" in ausschluss):
+                gueltig = False                            # setuptools does not descend here
+                break
+        name = ".".join(verzeichnisse)
+        if (gueltig and any(fnmatch.fnmatchcase(name, m) for m in einschluss if isinstance(m, str))
+                and not any(fnmatch.fnmatchcase(name, m) for m in ausschluss if isinstance(m, str))):
+            return name, len(basis) + len(verzeichnisse)
+    return None
+
+
+def _build_py_verspricht(pfad: list[str], wurzel: pathlib.Path) -> bool:
+    """Would setuptools' `build_py` put this path into the sdist without a template line: a module
+    (`*.py`) directly in a package it builds, or a file its `package-data` names for that package?"""
+    konf = _paketkonfiguration(wurzel)
+    if not konf or not pfad:
+        return False
+    # the package that holds the file directly: a module, or package data at the package's top level
+    treffer = _paket_von(pfad, konf, wurzel)
+    if treffer is not None and pfad[-1].endswith(".py"):
+        return True
+    daten = konf.get("package-data") if isinstance(konf.get("package-data"), dict) else {}
+    # package data may lie below its package: try every enclosing directory as the package
+    for tiefe in range(len(pfad) - 1, 0, -1):
+        paket = _paket_von(pfad[:tiefe] + ["__init__.py"], konf, wurzel)
+        if paket is None:
+            continue
+        name, laenge = paket
+        muster = [m for schluessel in (name, "*", "") for m in (daten.get(schluessel) or [])
+                  if isinstance(m, str)]
+        if any(_glob_trifft(_segmente(m), pfad[laenge:], rekursiv=True) for m in muster):
+            return True
+    return False
 
 
 def _manifest_zeilen(text: str) -> list[str]:

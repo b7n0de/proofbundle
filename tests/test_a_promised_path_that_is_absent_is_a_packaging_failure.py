@@ -15,7 +15,10 @@ MANIFEST.in and without a PKG-INFO the old rule stands; a distribution (it carri
 template and what setuptools adds by itself, so the case that binds "the sdist carries MANIFEST.in" can
 no longer be skipped by the rule it guards (gate lens 227-B, 227B-01). The lines are read as setuptools
 reads them, proven by vectors a real `build_sdist` produced (gate lens 227-A, 227A-01, 227A-03, 227A-04),
-and a negative line does not withdraw a promise, which is how an accidental `exclude` is caught.
+and a negative line does not withdraw a promise, which is how an accidental `exclude` is caught. What
+setuptools' build_py ships without a template line (the modules of the packages pyproject.toml's discovery
+finds, the declared package data) is promised as well (gate run 2, lens 227-A, 227-2-01); the vectors hold
+that against a real `build_sdist` too.
 """
 from __future__ import annotations
 
@@ -96,6 +99,25 @@ class APromisedAbsenceIsNotRepoContext(unittest.TestCase):
                 self.assertIs(cf.modul_ist_repo_kontext(self._module(rel), wurzel=self.tmp), False)
         self.assertIs(cf._manifest_verspricht("examples/a.json", self.tmp), False)   # no template, no graft
 
+    def test_a_module_build_py_ships_is_promised(self):
+        """227-2-01, measured by the lens from a tree built like this one: this repository's template
+        never names `src/`, and a module a test names by path was skipped as repo-context when it was
+        missing. With this repository's own MANIFEST.in and pyproject.toml, a missing package module
+        and missing package data are promised; a file build_py would not ship is not."""
+        shutil.copy(REPO / "MANIFEST.in", self.tmp / "MANIFEST.in")
+        shutil.copy(REPO / "pyproject.toml", self.tmp / "pyproject.toml")
+        (self.tmp / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: proofbundle\n", encoding="utf-8")
+        (self.tmp / "src" / "proofbundle").mkdir(parents=True)
+        (self.tmp / "src" / "proofbundle" / "__init__.py").write_text("", encoding="utf-8")
+        for rel in ("src/proofbundle/agent_review.py", "src/proofbundle/py.typed",
+                    "src/proofbundle/policies/strict.json", "src/proofbundle/adapters/agt_receipt.py"):
+            with self.subTest(path=rel):
+                self.assertIs(cf._manifest_verspricht(rel, self.tmp), True)
+                self.assertIs(cf.modul_ist_repo_kontext(self._module(rel), wurzel=self.tmp), False)
+        for rel in ("src/proofbundle/notes.md", "src/stray.py", "src/proofbundle/policies/x.txt"):
+            with self.subTest(path=rel):
+                self.assertIs(cf._manifest_verspricht(rel, self.tmp), False)
+
     def test_a_negative_line_does_not_withdraw_a_promise(self):
         """By design, and the reason is the defect itself: `graft examples` then `exclude` of one file
         is what L6-Z195-01 planted. A reader that let the exclude win would skip that file again."""
@@ -126,7 +148,14 @@ class TheManifestIsReadAsSetuptoolsReadsIt(unittest.TestCase):
         for name, fall in daten["cases"].items():
             with tempfile.TemporaryDirectory() as tmp:
                 wurzel = pathlib.Path(tmp)
+                # the tree an sdist of this case is: what setuptools shipped, then its template and
+                # project file (build_py's reading needs the project file and, without namespaces, the
+                # __init__.py files it shipped)
+                for rel in fall["shipped"]:
+                    (wurzel / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (wurzel / rel).write_text("x\n", encoding="utf-8")
                 (wurzel / "MANIFEST.in").write_text(fall["template"], encoding="utf-8")
+                (wurzel / "pyproject.toml").write_text(fall["pyproject"], encoding="utf-8")
                 for rel in daten["candidates"]:
                     with self.subTest(case=name, path=rel):
                         self.assertIs(cf._manifest_verspricht(rel, wurzel), rel in fall["shipped"],
@@ -142,6 +171,15 @@ class TheManifestIsReadAsSetuptoolsReadsIt(unittest.TestCase):
         self.assertNotIn("docs/adr/nested.md", faelle["star_stays_in_its_segment"]["shipped"])      # 227A-03
         self.assertNotIn("noise", faelle["inline_comments"]["shipped"])                             # 227A-04
         self.assertIn("examples/.hidden.json", faelle["hidden_files_are_not_ignored"]["shipped"])
+        # 227-2-01: build_py ships package modules and declared package data without a template line
+        self.assertIn("src/vektorpaket/mod.py", faelle["no_template_lines"]["shipped"])
+        self.assertIn("src/vektorpaket/data/a.json", faelle["no_template_lines"]["shipped"])
+        self.assertIn("src/vektorpaket/sub/deep.py", faelle["no_template_lines"]["shipped"])
+        self.assertNotIn("src/vektorpaket/sub/deep.py", faelle["find_excludes_a_subpackage"]["shipped"])
+        self.assertNotIn("src/vektorpaket/sub/deep.py", faelle["find_without_namespaces"]["shipped"])
+        for fall in faelle.values():
+            self.assertNotIn("src/vektorpaket/data/b.txt", fall["shipped"])
+            self.assertNotIn("src/loose.py", fall["shipped"])
 
 
 class TheDistributionCarriesItsManifest(unittest.TestCase):
