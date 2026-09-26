@@ -1115,7 +1115,7 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
         funde = _ueberzaehlige_stellen()
         self.assertEqual(funde, [], "\n".join(
             ["ein Hash-Behaelter wird aus ungeprueften Daten gebaut — das hasht beim AUFBAU, "
-             "bevor irgendein Mitgliedstest laeuft. Die sieben Bestandsstellen stehen namentlich "
+             "bevor irgendein Mitgliedstest laeuft. Die fuenf Bestandsstellen stehen namentlich "
              "in conformance/unguarded_hashing_constructions_baseline.json, gefuehrt als "
              "(Datei, Ausdruck) mit Anzahl; UEBERZAEHLIG ist:"] + funde))
 
@@ -1167,9 +1167,11 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
 
         Der Schluessel ist (Datei, Definition, Ausdruck) — waere die Anzahl nicht dabei, deckte ein
         getragener Eintrag beliebig viele weitere Vorkommen derselben Form in DERSELBEN Definition.
-        ``derive_limitation_codes`` traegt genau EIN ``i.get('assurance')``; ein zweites dort ist neu.
+        ``render_disclosure_block`` traegt genau EIN ``i.get('assurance')``; ein zweites dort ist neu.
+        (Until c3bd89a4 this planted into ``derive_limitation_codes``; that site is closed now and
+        left the baseline.)
         """
-        quelle = ("def derive_limitation_codes(xs):\n"
+        quelle = ("def render_disclosure_block(xs):\n"
                   "    a = {i.get('assurance') for i in xs}\n"
                   "    b = {i.get('assurance') for i in xs}\n"
                   "    return a, b\n")

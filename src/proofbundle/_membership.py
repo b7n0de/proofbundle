@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 from typing import Any, Container, TypeGuard
 
-__all__ = ["is_member", "as_dict", "is_bool"]
+__all__ = ["is_member", "as_dict", "as_list", "is_bool"]
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -144,3 +144,20 @@ def as_dict(value: Any) -> dict:
     it as an assumption, not one line, and the scanner (tests/test_membership_hashable_guard.py) fails on a
     new unguarded ``(x or {}).get`` site."""
     return value if isinstance(value, dict) else {}
+
+
+def as_list(value: Any) -> list:
+    """``value`` if it is a list, else ``[]`` — the safe form of the ``(x or [])`` idiom.
+
+    THE SAME DEFECT CLASS AS ``as_dict``, one type over. ``(x or [])`` replaces only a FALSY ``x``, so
+    a truthy value of another type from parsed JSON reaches the ``+``, the ``for`` or the ``len``
+    behind it. Measured on c3bd89a4: a signed agent-review receipt whose ``declaration.authoring`` is
+    ``{"a": []}`` reached ``(dec.get("authoring") or []) + (dec.get("reviewRuns") or [])`` as a dict,
+    ``dict + list`` raised ``TypeError``, and all three verifiers answered ``internal_error``, "a defect
+    in the verifier", while the validator beside them had already said ``authoring must be an array``.
+
+    A LIST AND NOTHING ELSE, not ``(list, tuple)`` as some local ``_as_list`` helpers read it: the
+    validators call an array ``isinstance(v, list)``, ``list + tuple`` raises the same ``TypeError``,
+    and parsed JSON never yields a tuple. A value the validator refuses is read here as empty, never as
+    a second opinion about what the array holds."""
+    return value if isinstance(value, list) else []

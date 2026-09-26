@@ -32,7 +32,7 @@ from .emit import emit_bundle
 from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
-from ._membership import is_bool, is_member
+from ._membership import as_dict, is_bool, is_member
 from ._strict_json import enforce_structural_budget
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
@@ -675,7 +675,10 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         return None
     # the canonical bundle form (the only one verify_bundle accepts) stores the compact SD-JWT under "compact";
     # sd_jwt/token are accepted as fallbacks for a bare token dict/string.
-    token = sd if isinstance(sd, str) else (sd.get("compact") or sd.get("sd_jwt") or sd.get("token") or "")
+    # `as_dict` (measured on c3bd89a4): a truthy `sd_jwt_vc` that is neither a string nor an object (`[1]`,
+    # `5`, `true`) passed `if not sd` and raised AttributeError at `.get` out of this never-raise surface.
+    felder = as_dict(sd)
+    token = sd if isinstance(sd, str) else (felder.get("compact") or felder.get("sd_jwt") or felder.get("token") or "")
     if not isinstance(token, str) or "." not in token:
         return None
     from ._strict_json import loads_strict  # noqa: PLC0415

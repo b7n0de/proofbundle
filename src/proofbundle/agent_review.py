@@ -51,7 +51,7 @@ import re
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from ._membership import is_member
+from ._membership import as_dict, as_list, is_member
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -660,8 +660,16 @@ def derive_limitation_codes(predicate: dict) -> list[str]:
         return sorted(codes)
     dec = predicate.get("declaration")
     dec = dec if isinstance(dec, dict) else {}
-    rungs = {i.get("assurance") for i in
-             (dec.get("authoring") or []) + (dec.get("reviewRuns") or []) if isinstance(i, dict)}
+    # A RUNG IS A STRING, AND ONLY AN ARRAY HOLDS RUNGS (measured on c3bd89a4). `(x or [])` replaced a
+    # falsy value only: `authoring: {"a": []}` reached the `+` as a dict and raised `TypeError`, and
+    # `assurance: []` raised one level down, when the set hashed it. `derive_limitation_codes` is a
+    # never-raise surface, and `evaluate_limitation_policy` reads through it, so the policy answer
+    # became "policy could not be evaluated: unhashable type". A value the validator refuses names no
+    # rung here; with none named IDENTITY_UNBOUND stands, which is the direction a reader can rely on.
+    # Before, an item without `assurance` put `None` into the set, and `{None} <= {"selfDeclared"}` is
+    # false, so a missing rung dropped IDENTITY_UNBOUND.
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     if not rungs or rungs <= {"selfDeclared"}:
         codes.add("IDENTITY_UNBOUND")
     beob = predicate.get("observations")
@@ -1076,11 +1084,17 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
             # abgewehrter Uebernahmeversuch aus wie ein leerer Eingang.
             ungeprueft_mit_anspruch.append(d)
             continue
+        # A RELATION THIS RESOLVER CANNOT READ ORDERS NOTHING, as a relation that is no object already
+        # did one line down (measured on c3bd89a4, with the envelope's digest named as verified): a
+        # `supersession` that is no object raised `AttributeError` here, a relation list that is a
+        # number raised `TypeError`, and so did a `priorDigest` that is no object. Read as absent, such
+        # a relation corrects nothing, so the envelope stays a candidate: an unreadable claim can
+        # only add candidates and make the chain ambiguous, never name a false `current`.
         for feld in ("corrects", "supersedes", "withdraws"):
-            for rel in (sup.get(feld) or []):
+            for rel in as_list(as_dict(sup).get(feld)):
                 if not isinstance(rel, dict):
                     continue
-                prior = (rel.get("priorDigest") or {}).get("sha256")
+                prior = as_dict(rel.get("priorDigest")).get("sha256")
                 if not isinstance(prior, str):
                     continue
                 korrigiert.setdefault(prior, []).append(d)
@@ -1211,18 +1225,20 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     cov = predicate["coverage"]
-    runs = dec.get("reviewRuns") or []
-    fnd = dec.get("findings") or []
+    # `as_list`, not `(x or [])`: the validator above makes these arrays, and the renderer does not
+    # lean on that for the one idiom that let a truthy non-list through in the verifiers.
+    runs = as_list(dec.get("reviewRuns"))
+    fnd = as_list(dec.get("findings"))
     by_disp: dict[str, int] = {}
     for f in fnd:
         by_disp[f.get("disposition", "open")] = by_disp.get(f.get("disposition", "open"), 0) + 1
-    rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + runs}
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + runs}
     weakest = "selfDeclared"
     for rung in ("selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"):
         if rung in rungs:
             weakest = rung
             break
-    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in (dec.get("authoring") or [])})) or "not stated"
+    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in as_list(dec.get("authoring"))})) or "not stated"
     findings_txt = (", ".join(f"{n} {d}" for d, n in sorted(by_disp.items())) or "none recorded")
     total = dec.get("findingsTotal")
     listed_txt = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
@@ -1256,10 +1272,10 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
-    rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
                                 "independentlyWitnessed") if r in rungs), "selfDeclared")
-    fnd, total = dec.get("findings") or [], dec.get("findingsTotal")
+    fnd, total = as_list(dec.get("findings")), dec.get("findingsTotal")
     zahl = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
             else f"{len(fnd)}")
     teile = [f"Agent review receipt: [{receipt_digest[:12]}]({receipt_url})",
@@ -2030,8 +2046,11 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     # Ein selbstgebautes Fixture prueft die Form, die man im Kopf hat, nicht die, die es gibt —
     # und ein Gate-Meta-Test kann eine Regel nicht retten, wenn beide dieselbe Wirklichkeit
     # verfehlen. Deshalb steht der Fall jetzt im Konformitaetskorpus, der die echte Form erzwingt.
+    # `as_list`, not `(... or [])`: `findings: 5` made this VALIDATOR raise `TypeError` on c3bd89a4
+    # (and with it both verifiers and both renderers, which call it), after the v0.1 part above had
+    # already recorded "findings must be an array".
     _dec = predicate.get("declaration")
-    for i, f in enumerate((_dec.get("findings") if isinstance(_dec, dict) else None) or []):
+    for i, f in enumerate(as_list(as_dict(_dec).get("findings"))):
         if not isinstance(f, dict):
             continue
         fc = f.get("fixCommit")
@@ -2127,8 +2146,15 @@ def _zeitachsen(predicate: dict) -> dict:
     zeiten: dict = _z if isinstance(_z, dict) else {}
 
     fach = [tc for tc in tcs if isinstance(tc, dict) and tc.get("kind") == "reviewCompleted"]
-    event = "ABSENT" if not fach else (
-        "CONFLICT" if len({tc.get("value") for tc in fach}) > 1 else "SELF_DECLARED")
+    # DISTINCT BY EQUALITY, NOT BY HASH (measured on c3bd89a4). The set hashed every `value`, and a
+    # signed v0.2 receipt whose `reviewCompleted` value was `[]` made `verify_agent_review_v02` answer
+    # `internal_error` although the validator had already refused the value. A list compares with `==`
+    # and hashes nothing; for a hashable value the count is the one the set gave.
+    werte: list = []
+    for tc in fach:
+        if tc.get("value") not in werte:
+            werte.append(tc.get("value"))
+    event = "ABSENT" if not fach else ("CONFLICT" if len(werte) > 1 else "SELF_DECLARED")
 
     obs = "ABSENT"
     mit_id: list = []
@@ -2432,7 +2458,9 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
             r["assurance_ok"] = False
         elif isinstance(dec.get("findingsRoot"), str):
             try:
-                r["findings_root_ok"] = findings_root(dec.get("findings") or []) == dec["findingsRoot"]
+                # `as_list`: `findings: 5` beside a findingsRoot made the loop in `findings_root`
+                # raise `TypeError` (measured on c3bd89a4, internal_error on a signed receipt).
+                r["findings_root_ok"] = findings_root(as_list(dec.get("findings"))) == dec["findingsRoot"]
                 if not r["findings_root_ok"]:
                     r["errors"].append(
                         "findingsRoot does not cover the published findings list — a finding was added, "
@@ -2453,9 +2481,14 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         # Der Linter meldete nur den `in`-Test eine Zeile darunter; der schwerere Defekt war die
         # Menge selbst, und ohne den ausgefuehrten Gegenversuch haette ich nur den kleineren
         # gefixt und mich fuer fertig gehalten.
+        #
+        # AND THE LIST ITSELF WAS THE NEXT DOOR (measured on c3bd89a4): `(x or [])` let a truthy
+        # non-list through, `authoring: {"a": []}` made `dict + list` raise here, and a signed receipt
+        # came back as `internal_error` while the validator had already said "authoring must be an
+        # array". The same line stands in the v0.2 path below and in `derive_limitation_codes`.
         rungs = [] if not dec_getypt else [
             i.get("assurance")
-            for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
+            for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
             if isinstance(i, dict)]
         over = sorted({repr(x) for x in rungs
                        if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
@@ -2814,7 +2847,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
                 "so both fail closed rather than staying unknown")
         elif isinstance(dec_v2.get("findingsRoot"), str):
             try:
-                r["findings_root_ok"] = findings_root(dec_v2.get("findings") or []) == dec_v2["findingsRoot"]
+                r["findings_root_ok"] = findings_root(as_list(dec_v2.get("findings"))) == dec_v2["findingsRoot"]
                 if not r["findings_root_ok"]:
                     r["errors"].append("findingsRoot does not cover the published findings list")
             except AgentReviewError as exc:
@@ -2825,8 +2858,10 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # und liess diesen Block laufen — er ueberschrieb `assurance_ok` zwei Zeilen spaeter
             # wieder auf True. Dieselbe Falle, die der v0.1-Kommentar bereits namentlich nennt:
             # "ein Fix, der danach verworfen wird, sieht im Quelltext richtig aus und wirkt nicht."
+            # `as_list`, as in the v0.1 path: `authoring: {"a": []}` raised `TypeError` here on
+            # c3bd89a4, and v0.2 and v0.3 answered a signed receipt with `internal_error`.
             rungs = [i.get("assurance")
-                     for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
+                     for i in as_list(dec_v2.get("authoring")) + as_list(dec_v2.get("reviewRuns"))
                      if isinstance(i, dict)]
             over = sorted({repr(x) for x in rungs
                            if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
