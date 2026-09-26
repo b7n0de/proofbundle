@@ -399,6 +399,10 @@ AUSGESCHLOSSEN = {
     # so `hermetic-cleanroom` went red on a collection error. The undecided file was the cause; the
     # broken collection was only where it became visible.
     "render_release.py": "renders a release note of this repository from release_notes/, which the sdist does not ship; no input inside a package",
+    # 2026-09-26: asks the GitHub API for the Codex threads, the issue comments and the head of one
+    # pull request, and a workflow runs it on every pull request. An installed package has no pull
+    # request and no repository to ask. Same reasoning as `required_context_presence_gate.py`.
+    "codex_threads_check.py": "asks the GitHub API for the Codex threads of one pull request; no pull request inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
