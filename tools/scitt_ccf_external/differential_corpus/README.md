@@ -246,8 +246,8 @@ regression fixtures:
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 163 text files, 467204 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
-- No further mutation classes for now (owner answer C2 c).
+- Stored: 163 text files, 467305 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
+- No further mutation classes in this directory (owner answer C2 c). The four classes of the owner order of 2026-09-26 are in `../differential_corpus_round2/`.
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
 ---

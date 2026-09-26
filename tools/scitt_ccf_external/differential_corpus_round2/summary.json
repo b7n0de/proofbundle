@@ -1,0 +1,614 @@
+{
+ "tool": "tools/scitt_ccf_external/differential_corpus_round2.py",
+ "measured_on": "2026-09-26",
+ "signer": {
+  "did": "did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6BVsRU::subject:CN:proofbundle-scitt-probe",
+  "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004e8792383284a33d8c6cd68fd605f2920fb33b4438d30730487fcc7b3a72a54ac310ef512e3aa0464f8ed3ad48680fc64460a10413ea3c00cc597daa2dadac27f",
+  "alg": "ES256",
+  "note": "made for this run, private key discarded"
+ },
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "phases": [
+  {
+   "name": "initial",
+   "keyset": "scitt-keys.initial.hex",
+   "note": "a fresh single-node network on the image, opened with scitt governance local_development"
+  },
+  {
+   "name": "after-configuration-change",
+   "keyset": "scitt-keys.after-configuration-change.hex",
+   "note": "the policy script replaced through a governance proposal by one that also refuses the issuer did:example:blocked"
+  },
+  {
+   "name": "after-restart",
+   "keyset": "scitt-keys.after-restart.hex",
+   "note": "the node stopped; a plain restart of the node refused (PID file my_node.pid already exists, exit 103); the service recovered from its ledger in a new node (command Recover, transition_service_to_open, one recovery share), with a new service identity"
+  }
+ ],
+ "vectors": [
+  {
+   "id": "control",
+   "class": "control",
+   "phase": "initial",
+   "mutation": "the v1 shape of this run: tagged, definite, shortest, embedded payload, empty unprotected, protected labels in ascending order",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.12",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "g01-keys-descending",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected labels in descending order; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.14",
+   "data_hash": "a15d0c38ea7ee2994a7e64dc304dda4a097d934f1b9b32319d39914bac506713",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "g02-cwt-claims-keys-reversed",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the CWT claims map (15) with its keys 2 before 1; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.16",
+   "data_hash": "47d0688ccea3b130cac164eeea968aa82ed96609f6d066f97c80caa578554e3f",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "g03-alg-1-byte-argument",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "alg -7 as 38 06, a 1-byte argument; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.18",
+   "data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g04-alg-2-byte-argument",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "alg -7 as 39 00 06, a 2-byte argument; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.20",
+   "data_hash": "9394b64f3a434d4889a8bc2b5aec6f92aa6ecddf4b107d8e475fc96b944f7501",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g05-label-1-byte-argument",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the label 1 as 18 01, a 1-byte argument; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.22",
+   "data_hash": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g06-map-count-1-byte-argument",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected map head b8 05, a 1-byte count; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.24",
+   "data_hash": "738814dd42e6f686778229fcb5eb2736d92ee012fd62058c0c58551eb81d88b6",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g07-text-2-byte-length",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the content type text of 259 with a 2-byte length argument; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.26",
+   "data_hash": "0c1a2adb9dc0cf1df2c5f763dcd5b61f3f5518f0ed4e2b24886ead2ccafeecab",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g08-x5chain-array-1-byte-count",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the x5chain array head 98 02, a 1-byte count; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.28",
+   "data_hash": "fb60e2edd5294b1cf3683418d380c96bf7c1b8664063bf6e22ef13bb1217f62b",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "malformed"
+  },
+  {
+   "id": "g09-map-indefinite",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected map with an indefinite length (bf ... ff); signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "h01-protected-duplicate-alg-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 both times, the two entries adjacent; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "h02-protected-duplicate-alg-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 then -35, the two entries adjacent; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "h03-unprotected-duplicate-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, equal; the control's signature",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "h04-unprotected-duplicate-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, conflicting; the control's signature",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "h05-alg-both-buckets-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) also in the unprotected bucket, equal; the control's signature",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.30",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "h06-alg-both-buckets-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) also in the unprotected bucket, -35; the control's signature",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.32",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "h07-payload-hash-alg-both-buckets-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "the payload hash algorithm (258) also in the unprotected bucket, -43; the control's signature",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.34",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "h08-cwt-claims-both-buckets-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "CWT claims (15) also in the unprotected bucket, equal; the control's signature",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.36",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "h09-x5chain-both-buckets-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "x5chain (33) also in the unprotected bucket, the end-entity certificate alone; the control's signature",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.38",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "i01-crit-x5chain",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [33], x5chain; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.40",
+   "data_hash": "3965d248fba2a5bb24dbb37d03e914c6eea0d428819c8eeb5246136058df8c25",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "outside_profile"
+  },
+  {
+   "id": "i02-crit-cwt-claims",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [15], CWT claims; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.42",
+   "data_hash": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "outside_profile"
+  },
+  {
+   "id": "i03-crit-cwt-claims-and-x5chain",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [15, 33]; signed again",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.44",
+   "data_hash": "f23c08749fac7b380fac0459d7d7782ad8c8186a4c4c00910bcf2ab37b0f84c2",
+   "data_hash_equals_control": false,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "outside_profile"
+  },
+  {
+   "id": "i04-crit-unknown-int-present",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 present; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "i05-crit-unknown-int-absent",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 absent; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "i06-crit-unknown-text-present",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [\"x\"], label \"x\" present; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit values must be integers\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "i07-crit-registered-not-listed",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [259], a registered label the service does not list; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "i08-crit-empty",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [], an empty array; signed again",
+   "accepted": false,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Cannot have crit array of length 0 in COSE protected header.\"}",
+   "txid": null,
+   "data_hash": null,
+   "data_hash_equals_control": null,
+   "receipt_signature_valid": null,
+   "preimage_rule_holds": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "j01-after-configuration-change",
+   "class": "j",
+   "phase": "after-configuration-change",
+   "mutation": "the control's bytes registered again, after-configuration-change: the policy script replaced through a governance proposal by one that also refuses the issuer did:example:blocked",
+   "accepted": true,
+   "service_error": null,
+   "txid": "2.49",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "j02-after-restart",
+   "class": "j",
+   "phase": "after-restart",
+   "mutation": "the control's bytes registered again, after-restart: the node stopped; a plain restart of the node refused (PID file my_node.pid already exists, exit 103); the service recovered from its ledger in a new node (command Recover, transition_service_to_open, one recovery share), with a new service identity",
+   "accepted": true,
+   "service_error": null,
+   "txid": "4.62",
+   "data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+   "data_hash_equals_control": true,
+   "receipt_signature_valid": true,
+   "preimage_rule_holds": true,
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  }
+ ],
+ "classes": {
+  "g": {
+   "vectors": 9,
+   "accepted": 8,
+   "refused": 1,
+   "preimage_rule_holds": 8,
+   "data_hash_equals_control": []
+  },
+  "h": {
+   "vectors": 9,
+   "accepted": 5,
+   "refused": 4,
+   "preimage_rule_holds": 5,
+   "data_hash_equals_control": [
+    "h05-alg-both-buckets-equal",
+    "h06-alg-both-buckets-conflicting",
+    "h07-payload-hash-alg-both-buckets-conflicting",
+    "h08-cwt-claims-both-buckets-equal",
+    "h09-x5chain-both-buckets-conflicting"
+   ]
+  },
+  "i": {
+   "vectors": 8,
+   "accepted": 3,
+   "refused": 5,
+   "preimage_rule_holds": 3,
+   "data_hash_equals_control": []
+  },
+  "j": {
+   "vectors": 2,
+   "accepted": 2,
+   "refused": 0,
+   "preimage_rule_holds": 2,
+   "data_hash_equals_control": [
+    "j01-after-configuration-change",
+    "j02-after-restart"
+   ]
+  }
+ },
+ "preimage_rule": "sha256(returned elements as served, unprotected emptied, tag 18)",
+ "preimage_rule_holds_for_every_accepted_vector": true
+}
