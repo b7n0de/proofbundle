@@ -35,7 +35,7 @@ from .budget import render_safe as _rs
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
-from .signature import verify_ed25519
+from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64
 
 # ATS signature algorithms (the RFC-4998 TimeStampToken role, B3↔B5 wiring). A renewal may UPGRADE the
@@ -314,7 +314,9 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
 
     if ats.sig_alg == "ed25519":
         pub = authority_keys.get("ed25519")
-        return isinstance(pub, (bytes, bytearray)) and verify_ed25519(bytes(pub), _dec("ed25519"), content)
+        # authority_keys come from the relying party (WP-A1): the trust-anchor rule applies (Z195).
+        return isinstance(pub, (bytes, bytearray)) and verify_ed25519_pinned(bytes(pub), _dec("ed25519"),
+                                                                               content)
     # adversarial re-audit round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
     # without FIPS-204 ML-DSA (the common case) verify_mldsa/verify_hybrid raise PQUnavailable (a
     # ProofBundleError sibling) which escaped verify_sequence raw. A verdict-returning verify surface must fail
