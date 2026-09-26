@@ -22,22 +22,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `CONST[x] = v`, `del CONST[x]`, `setdefault` and `pop` on a dict and `add`, `discard` and
   `remove` on a set as well, and so do the other spellings of the same access with a key it can
   name: `__getitem__`, `__setitem__`, `__delitem__` and `__contains__`, `operator.getitem` and its
-  siblings, `x in CONST.keys()`, and `update` or `|=` with a literal. Past those, the guard reads
+  siblings, `x in CONST.keys()`, and `update` or `|=` when every argument is a literal that names
+  its keys (`set.update` hashes every argument, not the first one only). Past those, the guard reads
   every use of the container's name and reports what no known form covers: the container handed to
   a function or put in a tuple, a method reached without a call (`getter = CONST.get`),
-  `getattr(CONST, ...)`, `CONST.keys().__contains__(x)`, `x in CONST.items()`, and `update` or `|=`
-  with a name. Each such read is listed with the reason it hashes nothing from outside, 35 of them,
-  so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get` in
-  `anchors.py` did). A membership test is not classified but routed through `is_member`. Measured:
-  19 lookup sites, 13 guarded by a membership or type check before
-  them, 5 reading a value the package produced itself, and the trust pack one, whose check runs
-  against a tuple. None is open. The one membership test the wider view found,
+  `getattr(CONST, ...)`, `CONST.keys().__contains__(x)`, `x in CONST.items()`, `update` or `|=`
+  with an argument that is a name, a `*x` or a `**x` (`_S.update(["type"], k)`), a set operation or comparison with a
+  set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
+  `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
+  which hash values, not keys. Each such read is listed with the reason it hashes nothing from
+  outside: 38 reads under 35 entries (this entry said "35 of them" before; that counted entries,
+  not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
+  in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
+  listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
+  ahead of the check in `anchors.verify_anchor` stayed green. A container is also seen when it is
+  bound inside a module-level `if`, `try`, `with`, `for`, `while` or `match`, and when a module
+  reaches it through a chain of imports (`from .renewal import HASH_REGISTRY`, which renewal
+  imported from hashalg) or through `from .x import *`. A membership test is not classified but
+  routed through `is_member`. Measured: 19 lookup sites under 19 entries, 13 guarded by a
+  membership or type check before them, 5 reading a value the package produced itself, and the
+  trust pack one, whose check runs against a tuple. None is open. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
-  gone has to leave the list. The reasons are read by a person, not proven by the guard. Not
-  seen: a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
-  built at run time.
+  gone has to leave the list or lower its count. The reasons are read by a person, not proven by
+  the guard. Not seen: a container reached as a module attribute (`x.NAME`), through a string
+  (`globals()`) or built at run time, which includes a module-level set built by an operator
+  (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)`: twelve such names in the tree; counted
+  as containers they would add twelve reads to the report, nine membership tests and three other
+  reads, and each of the twelve tests or subtracts the keys of a value checked to be a dict), and a
+  value after it leaves the container (`for v in CONST.values()`).
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
