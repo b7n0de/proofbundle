@@ -10,6 +10,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
+  path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
+  header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
+  that text as the path, it matched no security path, and a staged `if False:` in such a file was
+  reported clean with exit 0 (measured in a throwaway repository; plain names and names with a
+  space were caught). The header path is decoded now, the self-test plants a mutant under a
+  non-ASCII name, and the tests cover a non-ASCII name, a double quote and a backslash in both
+  modes. No file under `src/proofbundle` carries such a name today.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

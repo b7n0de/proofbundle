@@ -86,6 +86,20 @@ class TestStagedMode(_RepoFixture):
         r = _guard(self.repo, "--staged")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_a_path_git_quotes_is_read_as_the_path_it_names(self):
+        """A byte outside ASCII, a double quote and a backslash in a name make git quote the diff
+        header. Each planted mutant is caught and named by its real path (2026-09-26: the first one
+        was reported clean with exit 0)."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+            with self.subTest(name=name):
+                p = self.repo / "src" / "proofbundle" / name
+                self._stage("if False:\n    pass\n", path=p)
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn(f"src/proofbundle/{name}:1", r.stdout)
+                _git(self.repo, "rm", "-q", "--cached", "--", f"src/proofbundle/{name}")
+                p.unlink()
+
     def test_visible_allow_marker_suppresses(self):
         self._stage(BENIGN.replace("if not isinstance(data, dict):",
                                    "if True:  # mutant-guard: allow (fixture, reviewed)"))
@@ -104,6 +118,16 @@ class TestBaseMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("trivial-truth branch", r.stdout)
 
+    def test_committed_mutant_under_a_quoted_path_is_blocked(self):
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        (self.repo / "src" / "proofbundle" / "pr\u00fcfung.py").write_text("if False:\n    pass\n",
+                                                                         encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "mutant under a quoted path")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/pr\u00fcfung.py:1", r.stdout)
+
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
                                encoding="utf-8")
@@ -116,6 +140,24 @@ class TestBaseMode(_RepoFixture):
         r = _guard(self.repo, "--base", "0" * 40)  # only one commit, HEAD~1 missing
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("scan skipped honestly", r.stdout)
+
+
+class TestTheHeaderPathIsDecoded(unittest.TestCase):
+    """The decoder itself, over the forms git writes (C escapes, octal bytes) and one it does not."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_msg_guard", SCRIPT)
+        self.guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.guard)
+
+    def test_the_forms(self):
+        gp = self.guard._git_path
+        self.assertEqual(gp('"b/src/proofbundle/pr\\303\\274fung.py"'), "b/src/proofbundle/pr\u00fcfung.py")
+        self.assertEqual(gp('"b/src/proofbundle/a\\"b.py"'), 'b/src/proofbundle/a"b.py')
+        self.assertEqual(gp('"b/src/proofbundle/a\\\\b.py"'), "b/src/proofbundle/a\\b.py")
+        self.assertEqual(gp("b/src/proofbundle/with space.py\t"), "b/src/proofbundle/with space.py")
+        self.assertEqual(gp('"b/x\\q"'), "b/x\\q")  # an escape git does not write stays as it stands
 
 
 class TestSelfTest(unittest.TestCase):
