@@ -133,11 +133,31 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   for one whose module does not import or raises when the readings call it (measured). A module
   that calls `sys.exit` on import or in a call ended the measurement with its own code and no
   output, 1 read as two roots and 0 as one (both measured). Both exit 2 now, and the reason goes
-  to stderr; what the module prints goes there too, so `--json` stays one document. A
-  `KeyboardInterrupt` is left to end the run, since the tool cannot tell a module's from the user's.
-  Of the nine files under `scripts/`, `tools/` and `src/` that stopped with a text before this
+  to stderr; what the module prints goes there too, so `--json` stays one document. The Merkle
+  measurement now runs the module in a child process (entry below), so a `KeyboardInterrupt` in the
+  tool is the user's and ends the run, and one the module raises is exit 2. Of the nine files under `scripts/`, `tools/` and `src/` that stopped with a text before this
   change, these two promise a separate code for it; two others document 1 for any failure, one
   documents only when it exits 0, and four document no exit code.
+
+- **The Merkle measurement runs the checkout's module in a child process and decides on what comes
+  back** (`tools/measurements/merkle_two_readings.py`). The guards of the entry above ran in the
+  measuring process, and four ways past them were measured, at the state before this entry and on
+  main alike: an `asyncio.CancelledError` or a `GeneratorExit` from the module, neither an
+  `Exception`, ended the run with a traceback and exit 1, the code for two roots; a root of a
+  `bytes` subclass whose `hex()` returns an object did the same from `json.dumps`;
+  `atexit.register(print, ...)` on import, or a thread that prints later, put a line after the JSON
+  document; and `os._exit(0)` in a call ended the tool with exit 0, "the readings agree", and no
+  output. The module now runs in a child process of the tool, which writes one record of its
+  readings to a file of its own; the tool reads that record strictly, builds the document itself,
+  and exits 0 or 1 only on one complete, well-formed record from a child that exited 0. A child that
+  exits otherwise, ends by a signal, runs past 300 seconds, or leaves no record, a garbled one or
+  more than one is exit 2 with the reason on stderr. The child's stdout is the tool's stderr, so
+  what the module prints stays off the document even when it writes to file descriptor 1
+  directly, which the earlier redirection named as a limit. A root is read as the bytes the module
+  returned, hex-encoded by the tool; a value that is not bytes is exit 2. The document the tool
+  prints over this checkout is byte-identical to the one before. Named limit: the child is given
+  the record's path, so a module that reads its process's arguments can write a well-formed record
+  of its own there.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
