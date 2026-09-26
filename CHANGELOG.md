@@ -90,9 +90,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - **Four script patterns end at the value, and the sweep reads `scripts/` and `tools/` whole**
   (`scripts/check_version_and_changelog.py`, `scripts/codex_threads_check.py`,
   `scripts/fork_pr_secret_isolation.py`, `scripts/mutant_signature_guard.py`). Each ended a
-  whole-value pattern in `$`, which also matches before a trailing newline. Each caller was read:
-  the values come from `splitlines()`, a split on `\n` or a stripped string, so no newline reaches
-  them, and `\Z` changes no verdict. The sweep now reads both readings under `scripts/` and
+  whole-value pattern in `$`, which also matches before a trailing newline. Each caller was read.
+  The fence line of `codex_threads_check` comes from a split on `\n` after `\r` is folded, the
+  action ref of `fork_pr_secret_isolation` from a `[^\s#]+` capture, and the diff path of
+  `mutant_signature_guard` from a stripped line of `splitlines()`. The version that
+  `_semver_tuple` reads comes from a stripped tag name or from the three version readers of
+  `check_version_and_changelog`, and two of those let a line break through: `_pyproject_version`
+  and `_init_version` took every character but a quote into the value, so `version = "1.2.3<LF>"`,
+  a raw line break inside the quotes that neither TOML nor Python accepts, read as `1.2.3\n`. `$`
+  read that as 1.2.3 and `\Z` as the fallback 1.2.0, and "bumped past v1.2.2" turned from true to
+  false (found by the review of this change, measured). Both readers now stop at the line end:
+  such a line reads as no version, and Check 1 reports "version not found". The CITATION.cff reader
+  stops at whitespace and never took one. So no newline reaches any of the four patterns, and `\Z`
+  changes no verdict. The changelog heading reader in the same file crossed a line end as well: an
+  empty `##` line followed by `[1.2.3] ...` read as the heading 1.2.3, and Check 2 passed without
+  one; a heading is one line now. The sweep now reads both readings under `scripts/` and
   `tools/`. One pattern keeps Python's `\s`, in `required_check_reachability_gate`, and is named
   with the measurement: GitHub's expression lexer skips whitespace with .NET `Char.IsWhiteSpace`,
   which is Python's `\s` less U+001C to U+001F, so ASCII would be further from GitHub. Those four
@@ -100,7 +112,41 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `always()` was folded to a status function and its job reported as produced, while GitHub's
   parser for a condition without `${{` stops at that character (read in its source, not measured
   against GitHub). A job or matrix condition holding one of the four is not measurable now, before
-  any pattern reads it, so on every condition the gate reads, `\s` is GitHub's set.
+  any pattern reads it. The first form of this change asked `_TERNARY` about such a matrix value
+  before it asked `fremder_leerraum` (the same verdict, a different order; found by the review),
+  and the guard reader and the live evaluator relied on the survey having asked. Every public
+  function of the gate that judges a condition now asks first (`matrix_werte`,
+  `ohne_wache_trotz_needs`, `erhebe`, `bedingung_am_ereignis`, `wahrheitswerte`,
+  `laeuft_bei_fehlschlag`), and a test replaces every pattern of the module with a recorder and
+  finds none asked. So on every condition the gate reads, `\s` is GitHub's set.
+
+- **A job condition that is false on every run is dead, not guarded, and a negated status function
+  is read as GitHub reads it** (`scripts/required_check_reachability_gate.py`). The gate read a
+  literal `false` as dead and every other condition by its spelling. `!always()` holds the text
+  `always()`, so a required job with `needs` and `if: '!always()'` read as guarded and
+  `produced-only-if`, with no skipped-is-passed finding, although GitHub never runs it;
+  `always() && false` and `false && always()` read as `produced-only-if` too, while the gate's own
+  live evaluator computed them to false (found by the review of follow-up 236, measured on
+  284a062f). The evaluator now reads `!` and the status functions `success()` and `failure()`, and
+  the gate asks it two questions of a job condition. Is it false under every result of the status functions and
+  every value of the event facts it reads? Then the job is dead, as with `if: false`. Can it be true
+  when a needed job failed? Then it is a guard. So `!always()` is false on every run and
+  `!failure()` is false when a need failed, and neither guards; `!success()` is true then and
+  guards like `failure()`, where the spelling had read no guard; `!cancelled()` stays one. The
+  semantics are those of GitHub's documentation of the status check functions (a condition without
+  one gets `success()` prepended, `always()` is true even on a cancelled run), read and not measured
+  against GitHub. A `!` right before a comparison is not measurable, because GitHub's `!` binds
+  tighter than `==` (precedence 16 against 10 in the parser of actions/runner, read). The same
+  question over a matrix condition found a sibling: `fromJSON(true && A || B)` read
+  B's contexts as produced, although GitHub always takes A; a matrix condition with one value on
+  every event is now a dead condition, and the arm it never takes produces nothing. A condition the
+  evaluator cannot read keeps its old reading, a named condition with a guard read from its
+  spelling, where a `!` right before a status function or a negated group now claims no guard; the
+  report names it under `undecided`, and the exit code does not move. On the workflows of this
+  repository that is one job, `release.yml:orphan-draft-notice`, which reads `needs.*.result`; the
+  offline gate stays green there, and its JSON report differs from before only by that line. The
+  atoms are varied as if independent, so a condition that is false only by a combination no run has
+  (two event names at once) stays a live one, a limit a test states.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

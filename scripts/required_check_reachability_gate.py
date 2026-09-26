@@ -18,9 +18,11 @@ This is the third instance of one class here. The first was a missing `labeled` 
 fork-pr-isolation.yml, the second of two files that carry required contexts. Each was found by a
 person reading, never by a mechanism. Hence this gate.
 
-WHAT IT DOES NOT DO. It does not evaluate GitHub expressions. Anything it cannot read literally
-it reports as NOT_MEASURABLE with the reason, and NOT_MEASURABLE is a failure, never a pass --
-an unknown must not read as fine. In particular it understands exactly one conditional matrix
+WHAT IT DOES NOT DO. It evaluates GitHub expressions only as far as the few atoms of `_ATOME`
+reach, the ones this repository's conditions use. Anything it cannot read literally it reports
+as NOT_MEASURABLE with the reason, and NOT_MEASURABLE is a failure, never a pass -- an unknown
+must not read as fine; a condition it cannot evaluate is named as undecided in the report. In
+particular it understands exactly one conditional matrix
 shape, `fromJSON( <condition> && '<json>' || '<json>' )`, because that is the shape this
 repository uses; it takes the second literal as the ordinary case and names the condition.
 
@@ -40,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -80,12 +83,24 @@ _NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancel
 #: the implicit `success()` as soon as ANY status function appears in the condition, so
 #: `always() && x` or `!cancelled() || y` is guarded even though it is a named condition for
 #: the event. THE TRAP IS A JOB THAT DOES NOT RUN WHEN A NEEDED JOB FAILED -- then it is
-#: skipped, and skipped reads as passed. So a guard is a status function that is TRUE on a
-#: failed need: `always()`, `!cancelled()` and `failure()` (the job runs on failure and can go
-#: red). A bare `cancelled()` is not one: the job runs only on a cancelled run and is skipped
-#: on every ordinary failure (un, round 1, 2026-09-18 -- the first regex counted it as a
-#: guard). `success()` is the default and guards nothing.
-_TRAEGT_WACHE = re.compile(r"(?<![\w.])(?:always\(\s*\)|!\s*cancelled\(\s*\)|failure\(\s*\))", re.I)
+#: skipped, and skipped reads as passed. So a guard is a condition that can be TRUE on a failed
+#: need: `always()`, `!cancelled()` and `failure()` (the job runs on failure and can go red). A
+#: bare `cancelled()` is not one: the job runs only on a cancelled run and is skipped on every
+#: ordinary failure (un, round 1, 2026-09-18 -- the first regex counted it as a guard).
+#: `success()` is the default and guards nothing.
+#:
+#: SINCE 2026-09-26 THE GUARD IS EVALUATED, NOT SPELLED (review of follow-up 236): this pattern
+#: found the `always()` inside `!always()`, so a job that never runs read as guarded. The
+#: question is now asked of the evaluator (`laeuft_bei_fehlschlag`), with a needed job failed.
+#: A negation is read by GitHub's semantics there: `!always()` is false on every run, `!failure()`
+#: is false exactly when a need failed, so neither guards; `!success()` is true when a need
+#: failed and guards like `failure()`; `!cancelled()` stays a guard. This pattern is the reading
+#: for a condition the evaluator cannot read, and it counts a status function only where no `!`
+#: stands directly before it, `!cancelled()` and `!success()` as the negated guard forms. A
+#: negated group `!( ... )` is not read by it at all (see `_wache_nach_schreibweise`).
+_TRAEGT_WACHE = re.compile(r"(?<![\w.!])(?<!! )"
+                           r"(?:always\(\s*\)|failure\(\s*\)|!\s*(?:cancelled|success)\(\s*\))", re.I)
+_VERNEINTE_GRUPPE = re.compile(r"!\s*\(")
 #: A string literal of GitHub's expression grammar: single quotes, a quote inside it doubled.
 #: A status function written INSIDE one is text, not a call: `message == 'always()'` has no
 #: status function, so GitHub prepends `success()`, and the job is skipped when a need fails.
@@ -115,18 +130,38 @@ def fremder_leerraum(text: str) -> list[str]:
 
 
 def ohne_wache_trotz_needs(job: dict) -> bool:
-    """Does this job have `needs` and no `always()`/`!cancelled()` guard?
+    """Does this job have `needs` and no guard, no condition that can run it when a need failed?
 
     Then it is SKIPPED whenever a needed job fails -- and a skipped required check reads as
     passed, so a required context on such a job can never block on the failure of what it needs.
     That is the exact trap a collector job is built to avoid, and the one shape in which it
     would silently fail at its purpose. `if: success()` is the default and changes nothing;
-    `if: cancelled()` alone is skipped on every ordinary failure and guards nothing either.
+    `if: cancelled()` alone is skipped on every ordinary failure and guards nothing either, and
+    neither does `!always()`, which is false on every run.
+
+    A condition holding a character Python reads as whitespace and GitHub does not is checked
+    before any pattern reads it: no guard is claimed for it. A condition the evaluator cannot read
+    is read by its spelling (`_wache_nach_schreibweise`), and erhebe names it as undecided.
     """
     if not job.get("needs"):
         return False
-    bed = " ".join(str(job.get("if") or "").split())
-    return not _TRAEGT_WACHE.search(ohne_literale(bed))
+    roh = str(job.get("if") or "")
+    if fremder_leerraum(roh):
+        return True
+    bed = " ".join(roh.split())
+    if not bed:
+        return True
+    try:
+        return not laeuft_bei_fehlschlag(bed)
+    except NichtAuswertbar:
+        return not _wache_nach_schreibweise(bed)
+
+
+def _wache_nach_schreibweise(bed: str) -> bool:
+    """The guard read from the spelling, for a condition the evaluator cannot read. A negated group
+    `!( ... )` may negate the guard inside it, and this reading cannot tell, so it claims none."""
+    ohne = ohne_literale(bed)
+    return not _VERNEINTE_GRUPPE.search(ohne) and bool(_TRAEGT_WACHE.search(ohne))
 
 
 def _lade(pfad: Path) -> dict:
@@ -153,7 +188,14 @@ def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list],
 
     Three shapes are understood. A literal list is both ordinary and gated. The one conditional
     shape this repository uses splits into the two arms. Anything else yields an empty ordinary
-    set, which the caller turns into NOT_MEASURABLE rather than into a pass.
+    set, which the caller turns into NOT_MEASURABLE rather than into a pass. A value holding a
+    character Python reads as whitespace and GitHub does not is such a value, and it is recognised
+    before any pattern reads it.
+
+    A condition with the same value on every event takes one arm always (review of follow-up 236,
+    the constant-false job condition, and its sibling here): `false && A || B` is B and
+    `true && A || B` is A, so the other arm is dead code, and the NOTE says so. Before, the dead arm
+    of a constant-true condition read as the ordinary case, and its contexts as produced.
     """
     m = ((job.get("strategy") or {}).get("matrix")) or {}
     if not isinstance(m, dict):
@@ -169,9 +211,13 @@ def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list],
             gewoehnlich[schluessel] = list(wert)
             gegated[schluessel] = list(wert)
             continue
+        if isinstance(wert, str) and fremder_leerraum(wert):
+            gewoehnlich[schluessel] = []
+            gegated[schluessel] = []
+            continue
         if isinstance(wert, str) and "fromJSON" in wert:
             t = _TERNARY.search(wert)
-            if not t or fremder_leerraum(wert):
+            if not t:
                 gewoehnlich[schluessel] = []
                 gegated[schluessel] = []
                 continue
@@ -192,9 +238,23 @@ def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list],
                            f"`cond && '[]' || ...` falls through for every value of the condition. "
                            f"The condition is dead code and produces nothing.")
                 continue
+            bed = " ".join(t.group("cond").split())
+            try:
+                werte = wahrheitswerte(bed)
+            except NichtAuswertbar:
+                werte = set()                # not decided; erhebe names the condition as undecided
+            if len(werte) == 1:
+                immer = True in werte
+                gewoehnlich[schluessel] = list(wahr if immer else sonst)
+                gegated[schluessel] = list(wahr if immer else sonst)
+                hinweis = (f"matrix key {schluessel!r}: the condition `{bed}` is "
+                           f"{'true' if immer else 'false'} on every event, so `cond && A || B` "
+                           f"always yields {'A' if immer else 'B'}. The condition is dead code, and "
+                           f"the other arm produces nothing.")
+                continue
             gewoehnlich[schluessel] = list(sonst)
             gegated[schluessel] = list(wahr)
-            bedingung = " ".join(t.group("cond").split())
+            bedingung = bed
             continue
         gewoehnlich[schluessel] = []
         gegated[schluessel] = []
@@ -238,6 +298,11 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
     hinweise: list[str] = []
     hinweise_status: list[str] = []
     needs_ohne_wache: dict[str, str] = {}
+    # A condition the evaluator cannot read keeps the reading it had before 2026-09-26: a named
+    # condition, its guard read from its spelling. That reading cannot tell a condition that is
+    # false on every run from a live one, so the report says so instead of letting the context
+    # stand as producible without a word (review of follow-up 236).
+    unentschieden: list[str] = []
     for pfad in sorted(wf.glob("*.yml")) + sorted(wf.glob("*.yaml")):
         try:
             doc = _lade(pfad)
@@ -264,6 +329,15 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             gew, geg, bedingung, hinweis = matrix_werte(job, pfad.read_text(encoding="utf-8"))
             if hinweis:
                 hinweise.append(f"{pfad.name}:{job_id}: {hinweis}")
+            if bedingung:
+                try:
+                    wahrheitswerte(bedingung)
+                except NichtAuswertbar as exc:
+                    unentschieden.append(
+                        f"{pfad.name}:{job_id}: whether its matrix condition has the same value on "
+                        f"every event is not decided, so its false arm is read as the ordinary case "
+                        f"and its true arm as produced under it. The evaluator did not read it "
+                        f"({exc}): `{bedingung}`")
             # DIE `if:`-BEDINGUNG DES JOBS, und sie war bis 2026-09-16 ein blinder Fleck. Ein Job
             # hinter einem `if:` laeuft nicht immer, seine Kontexte sind also nicht unbedingt
             # erzeugt. Gefunden von einer fremden Modellfamilie in der Gegenlesung: ein
@@ -293,14 +367,30 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
                 for name in kontextnamen(job_id, job, gew or geg):
                     needs_ohne_wache.setdefault(
                         name, f"{pfad.name}:{job_id}: needs {list(job['needs']) if isinstance(job['needs'], list) else [job['needs']]} "
-                              f"without an always()/!cancelled() guard -- skipped when a needed job "
+                              f"without a guard that runs it when a needed job failed (such as "
+                              f"always(), !cancelled() or failure()) -- skipped when a needed job "
                               f"fails, and a skipped required check reads as passed")
             if job_if is not None:
                 als_text = " ".join(str(job_if).split())
-                if als_text.lower() in ("false", "${{ false }}"):
+                # LITERAL `false` AND EVERY CONDITION THAT IS FALSE ON EVERY RUN (review of follow-up
+                # 236): `!always()`, `always() && false`, `false && always()` never run their job
+                # either. The evaluator decides it over every result of the status functions
+                # (`always()` is true on every run) and every value of the event facts it reads.
+                tot = als_text.lower() in ("false", "${{ false }}")
+                if not tot:
+                    try:
+                        tot = wahrheitswerte(als_text) == {False}
+                    except NichtAuswertbar as exc:
+                        unentschieden.append(
+                            f"{pfad.name}:{job_id}: whether its `if:` can ever be true is not "
+                            f"decided, so its contexts are named under it as a live condition"
+                            + ("; whether it runs the job when a needed job failed was read from its "
+                               "spelling" if job.get("needs") else "")
+                            + f". The evaluator did not read it ({exc}): `if: {als_text}`")
+                if tot:
                     hinweise.append(
-                        f"{pfad.name}:{job_id}: `if: {als_text}` — this job never runs, so "
-                        f"its contexts arise under no condition")
+                        f"{pfad.name}:{job_id}: `if: {als_text}` is false on every run — this job "
+                        f"never runs, so its contexts arise under no condition")
                     continue
                 for name in kontextnamen(job_id, job, gew or geg):
                     if name not in gewoehnlich:
@@ -318,7 +408,8 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
                         gegated.setdefault(name, (pfad.name, bedingung))
     return {"gewoehnlich": gewoehnlich, "gegated": gegated, "unlesbar": unlesbar,
             "dateien_unlesbar": dateien_unlesbar, "hinweise": hinweise,
-            "statusfunktion": hinweise_status, "needs_ohne_wache": needs_ohne_wache}
+            "statusfunktion": hinweise_status, "needs_ohne_wache": needs_ohne_wache,
+            "unentschieden": unentschieden}
 
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -447,6 +538,7 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
             "unreadable": erhoben["unlesbar"], "unreadable_files": erhoben["dateien_unlesbar"],
             "dead_conditions": erhoben["hinweise"],
             "status_function_conditions": erhoben["statusfunktion"],
+            "undecided_conditions": erhoben["unentschieden"],
             "skipped_reads_as_passed": ohne_wache,
             "produced_contexts": sorted(erhoben["gewoehnlich"]),
             "ruleset": erklaert.get("ruleset"), "branch": erklaert.get("branch")}
@@ -705,30 +797,69 @@ def _head_repo(ereignis: dict) -> str:
     return str((((pr.get("head") or {}).get("repo")) or {}).get("full_name") or "")
 
 
+def _vor_dem_lauf_offen(m, ev):
+    raise NichtAuswertbar(f"`{m.group(0)}` depends on how the needed jobs end, which no event says "
+                          f"before they run")
+
+
+#: The atoms: (pattern, kind, is a comparison, value on a live event). The KIND says what an atom
+#: depends on, and the enumeration in `wahrheitswerte` varies exactly that:
+#:   "ereignis"  a fact of the event: its name, a label, the head ref, the head repository;
+#:   "status"    `success()`, `failure()`, `cancelled()`: how the needed jobs ended;
+#:   "immer"     `always()`, true on every run, a cancelled one included (GitHub's documentation);
+#:   "literal"   `true` and `false`.
+#: A COMPARISON may not stand right after a `!`: GitHub's `!` binds tighter than `==` (precedence
+#: 16 against 10 in actions/runner, src/Sdk/DTExpressions2/Expressions2/Tokens/Token.cs, read
+#: 2026-09-26), so `!github.event_name == 'push'` compares the negated name, and reading it as the
+#: negated comparison would be another expression. Such a text is not measurable.
+#: The status functions as GitHub documents them (expressions reference, read 2026-09-26): a
+#: condition without one gets `success()` prepended, and `always()` is true even on a cancelled run.
+#: On a live event `cancelled()` is false for a run that is judging itself, and `success()` and
+#: `failure()` are not measurable: the event does not say how the needed jobs will end.
 _ATOME = [
-    (re.compile(r"github\.event_name\s*(==|!=)\s*'([^']*)'"),
+    (re.compile(r"github\.event_name\s*(==|!=)\s*'([^']*)'"), "ereignis", True,
      lambda m, ev: (ev["event_name"].lower() == m.group(2).lower()) == (m.group(1) == "==")),
-    (re.compile(r"startsWith\(\s*github\.head_ref\s*,\s*'([^']*)'\s*\)"),
+    (re.compile(r"startsWith\(\s*github\.head_ref\s*,\s*'([^']*)'\s*\)"), "ereignis", False,
      lambda m, ev: ev.get("head_ref", "").lower().startswith(m.group(1).lower())),
-    (re.compile(r"startsWith\(\s*github\.ref_name\s*,\s*'([^']*)'\s*\)"),
+    (re.compile(r"startsWith\(\s*github\.ref_name\s*,\s*'([^']*)'\s*\)"), "ereignis", False,
      lambda m, ev: ev.get("ref_name", "").lower().startswith(m.group(1).lower())),
     (re.compile(r"contains\(\s*github\.event\.pull_request\.labels\.\*\.name\s*,\s*'([^']*)'\s*\)"),
-     lambda m, ev: m.group(1).lower() in [x.lower() for x in _labels(ev)]),
+     "ereignis", False, lambda m, ev: m.group(1).lower() in [x.lower() for x in _labels(ev)]),
     (re.compile(r"github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository"),
+     "ereignis", True,
      lambda m, ev: bool(_head_repo(ev)) and _head_repo(ev).lower() == str(ev.get("repository", "")).lower()),
-    (re.compile(r"true\b"), lambda m, ev: True),
-    (re.compile(r"false\b"), lambda m, ev: False),
-    # Status functions inside a mixed condition. `always()` and `!cancelled()` are true on any
-    # event that reaches the job; `cancelled()` is false for a run that is judging itself.
-    (re.compile(r"always\(\s*\)", re.I), lambda m, ev: True),
-    (re.compile(r"!\s*cancelled\(\s*\)", re.I), lambda m, ev: True),
-    (re.compile(r"cancelled\(\s*\)", re.I), lambda m, ev: False),
+    (re.compile(r"true\b"), "literal", False, lambda m, ev: True),
+    (re.compile(r"false\b"), "literal", False, lambda m, ev: False),
+    (re.compile(r"always\(\s*\)", re.I), "immer", False, lambda m, ev: True),
+    (re.compile(r"cancelled\(\s*\)", re.I), "status", False, lambda m, ev: False),
+    (re.compile(r"success\(\s*\)", re.I), "status", False, _vor_dem_lauf_offen),
+    (re.compile(r"failure\(\s*\)", re.I), "status", False, _vor_dem_lauf_offen),
 ]
-_ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\|)")
+#: `!` is a unary operator; `!=` belongs to a comparison atom and is never one.
+_ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\||!(?!=))")
 
 
-def _tokens(text: str, ereignis: dict) -> list:
-    """Tokens: '(', ')', '&&', '||' and evaluated atoms (True/False). Unknown text raises."""
+def _ausdruck(text: str) -> str:
+    """The expression of a condition as the evaluator reads it: a character Python reads as
+    whitespace and GitHub does not is refused FIRST, before anything is folded or any pattern reads
+    the text; then the whitespace is folded, and `job \\`if: ...\\`` and `${{ ... }}` around it,
+    decoration for the same expression, are taken off."""
+    text = text or ""
+    fremd = fremder_leerraum(text)
+    if fremd:
+        raise NichtAuswertbar(f"the condition carries {', '.join(fremd)}, which Python reads as "
+                              f"whitespace and GitHub's expression lexer does not")
+    if text.startswith("job `if: ") and text.endswith("`"):
+        text = text[len("job `if: "):-1]
+    text = " ".join(text.split())
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    return text
+
+
+def _tokens(text: str) -> list:
+    """Tokens: '(', ')', '&&', '||', '!' and atoms as (index into _ATOME, match). Unknown text
+    raises."""
     aus: list = []
     i, n = 0, len(text)
     while i < n:
@@ -741,10 +872,10 @@ def _tokens(text: str, ereignis: dict) -> list:
             aus.append(z.group(1))
             i = z.end()
             continue
-        for muster, wert in _ATOME:
+        for index, (muster, _art, _vergleich, _wert) in enumerate(_ATOME):
             m = muster.match(text, i)
             if m:
-                aus.append(bool(wert(m, ereignis)))
+                aus.append((index, m))
                 i = m.end()
                 break
         else:
@@ -752,58 +883,134 @@ def _tokens(text: str, ereignis: dict) -> list:
     return aus
 
 
-def bedingung_am_ereignis(text: str, ereignis: dict) -> bool:
-    """Evaluate one workflow condition against a live event. `&&` binds tighter than `||`."""
-    if text.startswith("job `if: ") and text.endswith("`"):
-        text = text[len("job `if: "):-1]
-    text = " ".join((text or "").split())
-    # `${{ ... }}` around a job condition is decoration for the same expression.
-    if text.startswith("${{") and text.endswith("}}"):
-        text = text[3:-2].strip()
-    t = _tokens(text, ereignis)
+def _werte(t: list, wert) -> bool:
+    """Parse the tokens and evaluate them, `wert(atom)` giving each atom's value. `!` binds tighter
+    than `&&`, and `&&` tighter than `||`. Both sides of an operator are always evaluated, so an
+    atom that is not measurable is never skipped by a short circuit."""
     pos = 0
 
     def ausdruck() -> bool:
         nonlocal pos
-        wert = glied()
+        w = glied()
         while pos < len(t) and t[pos] == "||":
             pos += 1
             rechts = glied()
-            wert = wert or rechts
-        return wert
+            w = w or rechts
+        return w
 
     def glied() -> bool:
         nonlocal pos
-        wert = faktor()
+        w = faktor()
         while pos < len(t) and t[pos] == "&&":
             pos += 1
             rechts = faktor()
-            wert = wert and rechts
-        return wert
+            w = w and rechts
+        return w
 
     def faktor() -> bool:
         nonlocal pos
         if pos >= len(t):
             raise NichtAuswertbar("condition ends where an operand was expected")
         tok = t[pos]
+        if tok == "!":
+            pos += 1
+            if pos < len(t) and isinstance(t[pos], tuple) and _ATOME[t[pos][0]][2]:
+                raise NichtAuswertbar("a `!` right before a comparison negates its left operand in "
+                                      "GitHub's grammar, not the comparison")
+            return not faktor()
         if tok == "(":
             pos += 1
-            wert = ausdruck()
+            w = ausdruck()
             if pos >= len(t) or t[pos] != ")":
                 raise NichtAuswertbar("unbalanced parenthesis in the condition")
             pos += 1
-            return wert
-        if isinstance(tok, bool):
+            return w
+        if isinstance(tok, tuple):
             pos += 1
-            return tok
+            return bool(wert(tok))
         raise NichtAuswertbar(f"unexpected token {tok!r} in the condition")
 
     if not t:
         raise NichtAuswertbar("empty condition")
-    wert = ausdruck()
+    w = ausdruck()
     if pos != len(t):
         raise NichtAuswertbar("trailing text in the condition")
-    return wert
+    return w
+
+
+def _schluessel(tok: tuple):
+    """What an atom's value depends on, as a key of the enumeration; None for a constant."""
+    index, m = tok
+    art = _ATOME[index][1]
+    if art == "ereignis":
+        return ("ereignis", m.group(0).lower())
+    if art == "status":
+        return ("status", "".join(m.group(0).split()).lower())
+    return None
+
+
+#: How many free atoms `wahrheitswerte` enumerates: 2**12 evaluations at most. A condition with
+#: more is not decided, and the report says so, rather than the enumeration being cut short.
+_HOECHSTENS_FREI = 12
+#: A needed job failed and the run was not cancelled: `success()` is false, `failure()` true.
+_FEHLSCHLAG = {("status", "success()"): False, ("status", "failure()"): True,
+               ("status", "cancelled()"): False}
+
+
+def wahrheitswerte(text: str, fest: dict | None = None) -> set:
+    """Every value a condition takes over every combination of what its atoms depend on.
+
+    Each event fact and each status function is varied freely, as if independent: that includes
+    combinations no run can have (`success()` and `failure()` both true, `event_name` equal to
+    two names), so `{False}` means false on every run the gate knows, and a condition that is
+    false only by such a combination stays a live one. `always()` is true on every run, `true`
+    and `false` are themselves. `fest` pins some keys (see `_FEHLSCHLAG`). Raises NichtAuswertbar
+    for a text the evaluator cannot read and for more than `_HOECHSTENS_FREI` free atoms.
+    """
+    t = _tokens(_ausdruck(text))
+    fest = dict(fest or {})
+    frei: list = []
+    for tok in t:
+        if isinstance(tok, tuple):
+            k = _schluessel(tok)
+            if k is not None and k not in fest and k not in frei:
+                frei.append(k)
+    if len(frei) > _HOECHSTENS_FREI:
+        raise NichtAuswertbar(f"{len(frei)} free atoms, more than the {_HOECHSTENS_FREI} this "
+                              f"evaluator enumerates")
+
+    def belegt(tok, belegung):
+        k = _schluessel(tok)
+        return _ATOME[tok[0]][3](tok[1], {}) if k is None else belegung[k]
+
+    werte: set = set()
+    for kombi in itertools.product((False, True), repeat=len(frei)):
+        belegung = {**dict(zip(frei, kombi)), **fest}
+        werte.add(_werte(t, lambda tok, _b=belegung: belegt(tok, _b)))
+        if len(werte) == 2:
+            break
+    return werte
+
+
+def laeuft_bei_fehlschlag(text: str) -> bool:
+    """Can this condition run its job when a needed job failed? That is what makes it a guard.
+
+    GitHub prepends `success()` to a condition without a status function, and `success()` is false
+    once a need failed: no. With one, the condition is read as written, at `_FEHLSCHLAG`, the event
+    facts free. `!always()` never runs, `!failure()` not then, `!success()` and `!cancelled()` do.
+    """
+    t = _tokens(_ausdruck(text))
+    if not any(isinstance(tok, tuple) and _ATOME[tok[0]][1] in ("status", "immer") for tok in t):
+        return False
+    return True in wahrheitswerte(text, _FEHLSCHLAG)
+
+
+def bedingung_am_ereignis(text: str, ereignis: dict) -> bool:
+    """Evaluate one workflow condition against a live event. `!` binds tighter than `&&`, and
+    `&&` tighter than `||`. A character Python reads as whitespace and GitHub does not is refused
+    before any pattern reads the text (`_ausdruck`)."""
+    t = _tokens(_ausdruck(text))
+    return _werte(t, lambda tok: _ATOME[tok[0]][3](tok[1], ereignis))
 
 
 def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: Path | None = None) -> dict:
@@ -991,6 +1198,10 @@ def main(argv=None) -> int:
             print(f"  dead-condition     {_einzeilig(h, 160)}")
         for h in r.get("status_function_conditions", []):
             print(f"  status-function    {_einzeilig(h, 160)}")
+        # SAID, NOT ACTED ON: a condition the evaluator cannot read keeps its named-condition
+        # reading, which the ratchet already binds to its digest; the line says what was not decided.
+        for h in r.get("undecided_conditions", []):
+            print(f"  undecided          {_einzeilig(h, 240)}")
         for h in r.get("skipped_reads_as_passed", []):
             print(f"  skipped-is-passed  {_einzeilig(h['context'], 80)}: {_einzeilig(h['why'], 200)}")
         neu_u = set(r.get("newly_unreadable") or [])

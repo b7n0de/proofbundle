@@ -422,13 +422,22 @@ def _read(p: Path) -> str:
     return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
+# A QUOTED VERSION ENDS ON ITS OWN LINE. The value class of the two readers below excluded only the
+# quotes, so it ran across a line end: `version = "1.2.3<LF>"`, a raw line break inside the quotes,
+# read as `1.2.3\n` (review of follow-up 236, 2026-09-26, measured). Neither file allows that: TOML
+# forbids a raw line break in a basic or literal string, and Python ends a quoted string at the line
+# end. The value reached `_semver_tuple`, where `$` had read 1.2.3 and `\Z` reads the fallback 1.2.0,
+# so "bumped past v1.2.2" turned from true to false. A value may not hold `\r` or `\n` now; such a
+# line reads as no version, and Check 1 reports "version not found" instead of passing on a guess.
+# CITATION.cff's reader stops at whitespace, and the changelog headings stop at the line end too.
 def _pyproject_version(repo: Path) -> str | None:
-    m = re.search(r'(?m)^\s*version\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']', _read(repo / "pyproject.toml"))
+    m = re.search(r'(?m)^\s*version\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\'\r\n]*)["\']',
+                  _read(repo / "pyproject.toml"))
     return m.group(1) if m else None
 
 
 def _init_version(repo: Path) -> str | None:
-    m = re.search(r'(?m)^\s*__version__\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']',
+    m = re.search(r'(?m)^\s*__version__\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\'\r\n]*)["\']',
                   _read(repo / "src" / "proofbundle" / "__init__.py"))
     return m.group(1) if m else None
 
@@ -468,8 +477,11 @@ def _source_version(repo: Path) -> tuple[str | None, str]:
 
 
 def _changelog_headings(repo: Path) -> list[str]:
-    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order.
-    return re.findall(r"(?m)^##\s*\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
+    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order. A heading is one line: with
+    # `\s*` and `[^\]]+` the reader ran across a line end, so an empty `##` line followed by
+    # `[1.2.3] ...` in the next paragraph read as the heading 1.2.3 and Check 2 passed without one
+    # (measured 2026-09-26, beside the version readers above).
+    return re.findall(r"(?m)^##[ \t]*\[([^\]\r\n]+)\]", _read(repo / "CHANGELOG.md"))
 
 
 def _git(repo: Path, *args: str) -> tuple[int, str]:

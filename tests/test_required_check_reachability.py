@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -1884,9 +1885,13 @@ jobs:
 
     def test_a_guard_with_a_dead_event_part_is_caught_by_the_other_two_axes(self):
         """un, round 2 (2026-09-18): `always() && false` carries a guard and never runs, so the
-        guard axis alone would call it fine. MEASURED before the reply: the structure axis reports
-        it `produced-only-if` (newly gated, exit 1) and the live axis reports WILL NOT ARRIVE
-        (exit 1). Three axes, and this shape falls through two of them. Bound here so it stays so."""
+        guard axis alone would call it fine. MEASURED before the reply: the structure axis reported
+        it `produced-only-if` (newly gated, exit 1) and the live axis WILL NOT ARRIVE (exit 1).
+
+        Since the review of follow-up 236 (2026-09-26) the condition is evaluated: it is false on
+        every run, so it is dead like a literal `false` -- the context is never produced, the
+        report names the dead condition, and the guard axis catches it too, because a condition
+        that never runs does not run when a needed job failed. Three axes, all three red."""
         ci = CI + """
   all-checks-passed:
     needs: [test, coverage]
@@ -1897,9 +1902,10 @@ jobs:
         b = Baum(self, {"ci.yml": ci}, ["coverage", "all-checks-passed"])
         r = b.urteil()
         e = [x for x in r["per_context"] if x["context"] == "all-checks-passed"][0]
-        self.assertEqual(e["state"], G.GATED)
-        self.assertEqual(r["skipped_reads_as_passed"], [], "the guard axis is not the one that catches it")
-        self.assertEqual(b.rc("--drift-marker", ""), 1, "newly gated, not accepted: red")
+        self.assertEqual(e["state"], G.ABSENT)
+        self.assertTrue(any("is false on every run" in h for h in r["dead_conditions"]), r["dead_conditions"])
+        self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["all-checks-passed"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1, "a dead condition: red")
         d = G.lebend(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(labels=()), b.decl, b.wf)
         self.assertEqual(d["verdict"], G.ABSENT)
         self.assertEqual(d["missing"], ["all-checks-passed"])
@@ -1953,6 +1959,254 @@ jobs:
         self.assertEqual(G.bedingungs_digest(kopie), G.bedingungs_digest(bedingung),
                          f"the collector's copy drifted from the matrix condition:\n"
                          f"  matrix:    {bedingung}\n  collector: {kopie}")
+
+
+class TestNoPatternReadsWhatGitHubLexesDifferently(unittest.TestCase):
+    """Review of follow-up 236 (F2, 2026-09-26): `matrix_werte` asked `_TERNARY.search` about a value
+    holding U+001C before it asked `fremder_leerraum`. The verdict was the same either way; the
+    sentence "not measurable, before any pattern reads it" was not true. Here every function that
+    judges a condition gets one holding each of U+001C..U+001F, with every pattern of the module
+    replaced by a recorder, and no pattern may be asked anything. An order is measured by what
+    was asked, not by the verdict, which the old order reached too."""
+
+    class _Aufnahme:
+        """A compiled pattern that writes down every call before it answers."""
+
+        def __init__(self, muster, protokoll):
+            self._muster, self._protokoll = muster, protokoll
+
+        def __getattr__(self, name):
+            wert = getattr(self._muster, name)
+            if not callable(wert):
+                return wert
+
+            def aufgezeichnet(*args, **kwargs):
+                self._protokoll.append((self._muster.pattern, name))
+                return wert(*args, **kwargs)
+            return aufgezeichnet
+
+    def _aufzeichnen(self) -> list:
+        protokoll: list = []
+        for name, wert in list(vars(G).items()):
+            if isinstance(wert, re.Pattern):
+                setattr(G, name, self._Aufnahme(wert, protokoll))
+                self.addCleanup(setattr, G, name, wert)
+        atome = G._ATOME
+        G._ATOME = [(self._Aufnahme(a[0], protokoll),) + tuple(a[1:]) for a in atome]
+        self.addCleanup(setattr, G, "_ATOME", atome)
+        return protokoll
+
+    @staticmethod
+    def _matrix(zeichen: str) -> str:
+        return ("${{ fromJSON(github.event_name == 'push' " + zeichen
+                + "&& '[\"3.10\"]' || '[\"3.12\"]') }}")
+
+    def test_the_recorder_sees_a_pattern_that_is_asked(self):
+        """Catch proof: without the character the same calls do ask patterns, and are recorded."""
+        protokoll = self._aufzeichnen()
+        G.matrix_werte({"strategy": {"matrix": {"v": self._matrix(" ")}}}, "")
+        self.assertTrue(protokoll)
+
+    def test_matrix_werte_asks_no_pattern(self):
+        protokoll = self._aufzeichnen()
+        for code in range(0x1C, 0x20):
+            with self.subTest(code=f"U+{code:04X}"):
+                protokoll.clear()
+                self.assertEqual(G.matrix_werte({"strategy": {"matrix": {"v": self._matrix(chr(code))}}}, ""),
+                                 ({"v": []}, {"v": []}, None, None))
+                self.assertEqual(protokoll, [])
+
+    def test_the_guard_reader_asks_no_pattern_and_claims_no_guard(self):
+        protokoll = self._aufzeichnen()
+        for code in range(0x1C, 0x20):
+            with self.subTest(code=f"U+{code:04X}"):
+                protokoll.clear()
+                self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["b"], "if": chr(code) + "always()"}))
+                self.assertEqual(protokoll, [])
+
+    def test_the_evaluator_asks_no_pattern(self):
+        ev = TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis()
+        protokoll = self._aufzeichnen()
+        for code in range(0x1C, 0x20):
+            with self.subTest(code=f"U+{code:04X}"):
+                protokoll.clear()
+                with self.assertRaises(G.NichtAuswertbar):
+                    G.bedingung_am_ereignis(chr(code) + "always()", ev)
+                for frage in (G.wahrheitswerte, G.laeuft_bei_fehlschlag):
+                    with self.assertRaises(G.NichtAuswertbar):
+                        frage(chr(code) + "always()")
+                self.assertEqual(protokoll, [])
+
+    def test_the_survey_asks_no_pattern_about_either_condition(self):
+        """erhebe over a job whose `if:` and a job whose matrix hold the character: both are not
+        measurable, and nothing was asked of a pattern on the way."""
+        protokoll = self._aufzeichnen()
+        for code in range(0x1C, 0x20):
+            flucht = "\\x%02x" % code                  # the YAML escape, read as the character
+            matrix = self._matrix(flucht).replace('"', '\\"')
+            wf = ("name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+                  f'  sammler:\n    if: "{flucht}always()"\n    runs-on: x\n    steps: [{{run: "true"}}]\n'
+                  f'  test:\n    strategy:\n      matrix:\n        v: "{matrix}"\n'
+                  '    runs-on: x\n    steps: [{run: "true"}]\n')
+            with self.subTest(code=f"U+{code:04X}"):
+                b = Baum(self, {"ci.yml": wf}, ["sammler"])
+                protokoll.clear()
+                r = G.erhebe(b.wf)
+                self.assertEqual(protokoll, [])
+                self.assertEqual(len(r["unlesbar"]), 2, r["unlesbar"])
+                self.assertEqual(r["gewoehnlich"], {})
+
+
+class TestAConditionFalseOnEveryRunIsDead(unittest.TestCase):
+    """Review of follow-up 236 (F3, 2026-09-26): a job condition that is false on every run, but not
+    spelled `false`, read as guarded and reachable. `_TRAEGT_WACHE` found the `always()` inside
+    `!always()`, so the collector below was `produced-only-if` with no skipped-is-passed finding,
+    although GitHub never runs it; `always() && false` was `produced-only-if` too, while the live
+    evaluator computed it to false. The file already read a literal `false` as dead. Now the
+    evaluator decides it, over every result of the status functions and every value of the event
+    facts it reads, and a negation is read by GitHub's semantics."""
+
+    @staticmethod
+    def _sammler(bedingung: str) -> str:
+        gequotet = bedingung.replace("'", "''")          # YAML single quotes double a quote
+        return CI + ("\n  all-checks-passed:\n    needs: [test, coverage]\n"
+                     f"    if: '{gequotet}'\n"
+                     '    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n')
+
+    def _urteil(self, bedingung: str, verlangt=("coverage", "all-checks-passed")):
+        b = Baum(self, {"ci.yml": self._sammler(bedingung)}, list(verlangt))
+        r = b.urteil()
+        zustand = {e["context"]: e["state"] for e in r["per_context"]}
+        return b, r, zustand
+
+    DEAD = ("!always()", "! always()", "always() && false", "false && always()",
+            "${{ !Always( ) }}", "!( always() || true )")
+
+    def test_a_condition_false_on_every_run_is_dead_like_literal_false(self):
+        b_lit, r_lit, z_lit = self._urteil("false")
+        for bedingung in self.DEAD:
+            with self.subTest(bedingung=bedingung):
+                b, r, zustand = self._urteil(bedingung)
+                self.assertEqual(zustand["all-checks-passed"], G.ABSENT)
+                self.assertEqual(zustand, z_lit, "read like the literal `false`")
+                self.assertTrue(any("is false on every run" in h for h in r["dead_conditions"]),
+                                r["dead_conditions"])
+                self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["all-checks-passed"])
+                self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["b"], "if": bedingung}))
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+                self.assertEqual(G.wahrheitswerte(bedingung), {False})
+
+    def test_the_controls_keep_their_verdicts(self):
+        """`always()` and `!cancelled()` stay unconditional and guarded, `success() || failure()` a
+        named, guarded condition, exactly as before the change."""
+        for bedingung in ("always()", "${{ !cancelled() }}"):
+            with self.subTest(bedingung=bedingung):
+                b, r, zustand = self._urteil(bedingung)
+                self.assertEqual(zustand["all-checks-passed"], G.ALWAYS)
+                self.assertEqual((r["skipped_reads_as_passed"], r["dead_conditions"]), ([], []))
+                self.assertEqual(b.rc("--drift-marker", ""), 0)
+        b, r, zustand = self._urteil("success() || failure()")
+        self.assertEqual(zustand["all-checks-passed"], G.GATED)
+        e = [x for x in r["per_context"] if x["context"] == "all-checks-passed"][0]
+        self.assertEqual(e["condition"], "job `if: success() || failure()`")
+        self.assertEqual((r["skipped_reads_as_passed"], r["dead_conditions"]), ([], []))
+
+    def test_a_negated_status_function_is_read_by_github_semantics(self):
+        """A needed job failed, the run was not cancelled: `success()` is false, `failure()` true.
+        `!always()` never runs and `!failure()` not then, so neither guards; `!success()` runs then,
+        like `failure()`; `!cancelled()` does too. Two negations cancel."""
+        for bedingung, ohne_wache in (("!always()", True), ("! always()", True), ("!failure()", True),
+                                      ("!success()", False), ("!cancelled()", False),
+                                      ("!!always()", False), ("!(!cancelled())", True),
+                                      ("!!cancelled()", True)):
+            with self.subTest(bedingung=bedingung):
+                self.assertEqual(G.ohne_wache_trotz_needs({"needs": ["b"], "if": bedingung}), ohne_wache)
+        self.assertEqual(G.wahrheitswerte("!failure()"), {False, True}, "not dead: true when no need failed")
+        self.assertEqual(G.wahrheitswerte("!success()"), {False, True})
+
+    def test_a_condition_the_evaluator_cannot_read_is_guarded_by_its_spelling_without_a_negation(self):
+        """The reading for what the evaluator cannot read (`needs.*` is no atom of it) counts a guard
+        only where no `!` stands before it, and claims none under a negated group."""
+        for bedingung, ohne_wache in (("always() && needs.a.result == 'x'", False),
+                                      ("!always() && needs.a.result == 'x'", True),
+                                      ("! always() && needs.a.result == 'x'", True),
+                                      ("!failure() && needs.a.result == 'x'", True),
+                                      ("!success() && needs.a.result == 'x'", False),
+                                      ("!( always() && needs.a.result == 'x' )", True)):
+            with self.subTest(bedingung=bedingung):
+                self.assertEqual(G.ohne_wache_trotz_needs({"needs": ["b"], "if": bedingung}), ohne_wache)
+                with self.assertRaises(G.NichtAuswertbar):
+                    G.laeuft_bei_fehlschlag(bedingung)
+
+    def test_an_undecided_condition_is_said_and_keeps_its_reading(self):
+        """Where the evaluator cannot decide, the context stays produced under its named condition,
+        and the report says that it was not decided. The exit follows the ratchet as before."""
+        bedingung = "always() && needs.test.result == 'success'"
+        b, r, zustand = self._urteil(bedingung)
+        self.assertEqual(zustand["all-checks-passed"], G.GATED)
+        self.assertEqual(r["skipped_reads_as_passed"], [])
+        self.assertEqual(len(r["undecided_conditions"]), 1, r["undecided_conditions"])
+        notiz = r["undecided_conditions"][0]
+        self.assertIn("ci.yml:all-checks-passed", notiz)
+        self.assertIn("can ever be true is not decided", notiz)
+        self.assertIn("read from its spelling", notiz)
+        self.assertEqual(b.rc("--drift-marker", ""), 1, "newly gated, not accepted: red")
+        d = json.loads(b.decl.read_text(encoding="utf-8"))
+        d["accepted_gated"] = [{"context": "all-checks-passed",
+                                "condition_sha256": G.bedingungs_digest(f"job `if: {bedingung}`")}]
+        b.decl.write_text(json.dumps(d), encoding="utf-8")
+        alt = sys.stdout
+        sys.stdout = puffer = io.StringIO()
+        try:
+            rc = b.rc("--drift-marker", "")
+        finally:
+            sys.stdout = alt
+        self.assertEqual(rc, 0, "the note says what was not decided; it does not move the exit")
+        self.assertIn("  undecided  ", puffer.getvalue())
+        self.assertFalse(_dp.treffer(puffer.getvalue()), puffer.getvalue())
+        self.assertEqual(self._urteil("always()")[1]["undecided_conditions"], [],
+                         "a condition the evaluator reads is not called undecided")
+
+    def test_a_constant_matrix_condition_leaves_one_arm_dead(self):
+        """The sibling in the matrix: `true && A || B` is A on every event, so B's contexts are never
+        produced; before, they read as the ordinary case and as produced. `false && A || B` is B."""
+        kopf, matrix = TestRatchetNotPermanentRed.KOPF, TestRatchetNotPermanentRed._matrix
+        for bedingung, da, fehlt in (("true", "test (3.10)", "test (3.12)"),
+                                     ("false", "test (3.12)", "test (3.10)"),
+                                     ("( github.event_name == 'push' || true )", "test (3.10)", "test (3.12)")):
+            with self.subTest(bedingung=bedingung):
+                b = Baum(self, {"ci.yml": kopf + matrix(bedingung, '["3.10"]')}, [da, fehlt])
+                r = b.urteil()
+                zustand = {e["context"]: e["state"] for e in r["per_context"]}
+                self.assertEqual((zustand[da], zustand[fehlt]), (G.ALWAYS, G.ABSENT))
+                self.assertTrue(any("on every event" in h and "dead code" in h for h in r["dead_conditions"]),
+                                r["dead_conditions"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        b = Baum(self, {"ci.yml": kopf + matrix("github.actor == 'x'", '["3.10"]')}, ["test (3.12)"])
+        r = b.urteil()
+        self.assertEqual(r["per_context"][0]["state"], G.ALWAYS)
+        self.assertTrue(any("matrix condition" in h and "not decided" in h for h in r["undecided_conditions"]),
+                        r["undecided_conditions"])
+
+    def test_the_live_evaluator_reads_a_negation(self):
+        ev = TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis(event="pull_request")
+        self.assertFalse(G.bedingung_am_ereignis("!always()", ev))
+        self.assertTrue(G.bedingung_am_ereignis("!contains(github.event.pull_request.labels.*.name, 'landung')", ev))
+        self.assertTrue(G.bedingung_am_ereignis("!(github.event_name == 'push')", ev))
+        self.assertTrue(G.bedingung_am_ereignis("github.event_name != 'push'", ev))
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("!github.event_name == 'push'", ev)   # GitHub negates the name
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("failure()", ev)                       # the event says nothing of it
+
+    def test_named_limits_of_the_enumeration(self):
+        """Stated rather than hidden. Atoms vary as if independent, so a condition false only by a
+        combination no run has stays live; and more than twelve free atoms are not enumerated."""
+        self.assertEqual(G.wahrheitswerte("github.event_name == 'push' && github.event_name == 'pull_request'"),
+                         {False, True})
+        viele = " || ".join(f"contains(github.event.pull_request.labels.*.name, 'l{i}')" for i in range(13))
+        with self.assertRaises(G.NichtAuswertbar):
+            G.wahrheitswerte(viele)
 
 
 class TestTheCollectorScript(unittest.TestCase):

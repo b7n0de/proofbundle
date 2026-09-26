@@ -393,5 +393,90 @@ def test_external_finding_names_both_objects(monkeypatch):
     assert "read from pyproject.toml" in detail["PyPI"]
 
 
+# --------------------------------------------------------------------------------------------
+# A version reader stops at the line end (review of follow-up 236, 2026-09-26)
+#
+# `_semver_tuple` ends its match in `\Z` since follow-up 236, where `$` also matched before a
+# trailing newline. That changes no verdict only if no newline reaches it, and one did: the pyproject
+# reader's value class excluded the quotes and nothing else, so `version = "1.2.3<LF>"` (a raw line
+# break inside the quotes, which TOML refuses) read as `1.2.3\n`; `$` took it as 1.2.3 and `\Z` as the
+# fallback 1.2.0, and "bumped past v1.2.2" flipped from true to false.
+# --------------------------------------------------------------------------------------------
+
+_BRUECHE = ("\n", "\r", "\r\n")
+
+
+def _gebrochene_version(t: Path, bruch: str):
+    """Released as v1.2.2, then a non-trivial commit whose pyproject.toml and __init__.py hold
+    `"1.2.3<bruch>"`. CITATION.cff keeps 1.2.2, so the source version falls back to it."""
+    def g(*a):
+        return subprocess.run(["git", "-C", str(t), *a], capture_output=True, text=True)
+
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    _write_repo(t, "1.2.2", ["1.2.2"])
+    g("add", "-A")
+    g("commit", "-qm", "release: 1.2.2")
+    g("tag", "v1.2.2")
+    (t / "pyproject.toml").write_bytes(
+        f'[project]\nname = "proofbundle"\nversion = "1.2.3{bruch}"\n'.encode())
+    (t / "src" / "proofbundle" / "__init__.py").write_bytes(f'__version__ = "1.2.3{bruch}"\n'.encode())
+    g("add", "-A")
+    g("commit", "-qm", "feat: a change after the release")
+
+
+def test_a_quoted_version_broken_over_a_line_is_not_found(tmp_path, monkeypatch):
+    """Fail closed, and no line break reaches `_semver_tuple` from the readers."""
+    for bruch in _BRUECHE:
+        t = tmp_path / repr(bruch).strip("'").replace("\\", "_")
+        t.mkdir()
+        _gebrochene_version(t, bruch)
+        assert chk._pyproject_version(t) is None, repr(bruch)
+        assert chk._init_version(t) is None, repr(bruch)
+        gelesen: list[str] = []
+        echt = chk._semver_tuple
+
+        def aufzeichnen(v, _echt=echt, _gelesen=gelesen):
+            _gelesen.append(v)
+            return _echt(v)
+
+        monkeypatch.setattr(chk, "_semver_tuple", aufzeichnen)
+        probs = chk.check(t)
+        monkeypatch.setattr(chk, "_semver_tuple", echt)
+        assert any("pyproject.toml [project].version not found" in p for p in probs), probs
+        assert gelesen, "the post-tag check did not run, so the property was not measured"
+        assert not [v for v in gelesen if "\r" in v or "\n" in v], gelesen
+
+
+def test_no_version_reader_returns_a_line_break(tmp_path):
+    """The property over the three readers, the break planted at every position of the value."""
+    leser = (("pyproject.toml", 'version = "{}"\n', chk._pyproject_version),
+             ("src/proofbundle/__init__.py", '__version__ = "{}"\n', chk._init_version),
+             ("CITATION.cff", 'version: "{}"\n', chk._citation_version))
+    for wert in ("1.2.3", "1.2.3rc1", "6.1.0.post1"):
+        for pos in range(len(wert) + 1):
+            for bruch in _BRUECHE:
+                for datei, form, lies in leser:
+                    pfad = tmp_path / datei
+                    pfad.parent.mkdir(parents=True, exist_ok=True)
+                    pfad.write_bytes(form.format(wert[:pos] + bruch + wert[pos:]).encode())
+                    v = lies(tmp_path)
+                    assert v is None or not ("\r" in v or "\n" in v), (datei, pos, repr(bruch), v)
+    (tmp_path / "pyproject.toml").write_bytes(b'version = "1.2.3"\n')
+    assert chk._pyproject_version(tmp_path) == "1.2.3", "positive control: a clean line still reads"
+
+
+def test_a_changelog_heading_is_one_line(tmp_path):
+    """An empty `##` line and `[1.2.3]` at the start of the next paragraph are no heading 1.2.3."""
+    _write_repo(tmp_path, "1.2.3", ["1.2.2"])
+    body = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text(body + "##\n[1.2.3] is where the notes will go\n",
+                                           encoding="utf-8")
+    assert chk._changelog_headings(tmp_path) == ["1.2.2"]
+    probs = chk.check(tmp_path)
+    assert any("no `## [1.2.3]`" in p for p in probs), probs
+
+
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))
