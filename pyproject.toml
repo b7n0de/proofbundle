@@ -154,7 +154,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (72 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (73 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -165,7 +165,9 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   became 71 (`src/proofbundle/adapters/agt_receipt.py`), and mypy **2.3.0** was re-run over the 71
 #   and exits 0. On 2026-09-24 it became 72 (`src/proofbundle/_verdict.py`, the single verdict-type
 #   establisher that replaced two private copies), and mypy **2.3.0** was re-run over the 72 and
-#   exits 0. The other seven versions were NOT re-run for either new file; that is the same boundary
+#   exits 0. On 2026-09-26 it became 73 (`src/proofbundle/_inflate.py`, the one zlib decoder that
+#   requires a complete stream and nothing after it), and mypy **2.3.0** was re-run over the 73 and
+#   exits 0. The other seven versions were NOT re-run for any of the three new files; that is the same boundary
 #   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
 #   than absorbed into the sentence above.
 #
