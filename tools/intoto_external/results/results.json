@@ -1,4 +1,30 @@
 {
+  "cross_checks": {
+    "keyid": {
+      "equal": true,
+      "foreign_go_securesystemslib": [
+        "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k"
+      ],
+      "own": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k"
+    },
+    "pem": {
+      "cosign_verified_legacy_release_gate": true,
+      "guac_verified_slsa_control": true
+    },
+    "receipt_binder": {
+      "equal": true,
+      "export_subjects": {
+        "control.keyid.eval-result.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "control.legacy.eval-result.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "control.legacy.svr.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "control.legacy.test-result.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "eval-result.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "svr.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+        "test-result.receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+      },
+      "own_sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+    }
+  },
   "guac_control": {
     "error": "",
     "exit": 0,
@@ -22,6 +48,73 @@
     "test-result.public-model": "export_intoto_dsse takes no subject profile; its subject is the receipt binder",
     "test-result.release-gate": "export_intoto_dsse takes no subject profile; its subject is the receipt binder"
   },
+  "oracles": [
+    {
+      "detail": "go-securesystemslib dsse.EnvelopeVerifier (PAE, keyid rule); Ed25519 by Go crypto/ed25519; the 10-line verifier adapter in go/main.go only forwards to crypto/ed25519.Verify",
+      "oracle": "DSSE signature, Go",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "in-toto attestation Go binding: protojson.Unmarshal strict and with DiscardUnknown, Statement.Validate",
+      "oracle": "in-toto Statement, Go",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "securesystemslib dsse.Envelope.from_dict and verify with an SSlibKey",
+      "oracle": "DSSE signature, Python",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "in-toto-attestation Python binding: json_format.Parse strict and with ignore_unknown_fields, Statement.validate; payload decoded by securesystemslib's b64dec",
+      "oracle": "in-toto Statement, Python",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "cosign binary, key and --type",
+      "oracle": "cosign verify-attestation",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "cosign binary, key and --type, against the subject's own bytes or --digest",
+      "oracle": "cosign verify-blob-attestation",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "guacone collect files into guacgql; the GraphQL query that counts nodes is OWN text, it only reads what GUAC stored",
+      "oracle": "GUAC ingestion",
+      "origin": "FOREIGN"
+    },
+    {
+      "detail": "make_inputs._ssh_sha256_fingerprint, OpenSSH's SHA256 fingerprint rebuilt; cross-checked against go-securesystemslib dsse.SHA256KeyID",
+      "oracle": "keyid form of the keyid control",
+      "origin": "OWN"
+    },
+    {
+      "detail": "make_inputs rebuilds the binder proofbundle hashes; cross-checked against the subject digest the export itself wrote",
+      "oracle": "receipt binder bytes (verify-blob-attestation input)",
+      "origin": "OWN"
+    },
+    {
+      "detail": "RFC 8410 prefix plus the raw key; cross-checked by cosign verifying the legacy release-gate control and GUAC verifying its SLSA control under it",
+      "oracle": "PEM of the test key (cosign, GUAC)",
+      "origin": "OWN"
+    },
+    {
+      "detail": "a SLSA provenance v1 statement over the test image, DSSE-signed in run.py (OWN PAE and Ed25519 signing through cryptography)",
+      "oracle": "GUAC control",
+      "origin": "FIXTURE"
+    },
+    {
+      "detail": "made by proofbundle's own export code (make_inputs.py): the subject under measurement",
+      "oracle": "exports and controls",
+      "origin": "FIXTURE"
+    },
+    {
+      "detail": "a two-file layer built by run.py, pushed by crane to go-containerregistry's registry",
+      "oracle": "test image and registry",
+      "origin": "FIXTURE"
+    }
+  ],
   "rows": {
     "control.keyid.eval-result.receipt": {
       "control": true,
@@ -39,6 +132,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.keyid.eval-result.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -125,6 +219,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.legacy.eval-result.public-model.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -208,6 +303,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.legacy.eval-result.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -293,6 +389,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.legacy.eval-result.release-gate.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -376,6 +473,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.legacy.svr.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "properties",
@@ -447,6 +545,7 @@
       "go": {
         "dsse_verified": true,
         "file": "control.legacy.test-result.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto.test-result+json",
         "predicate_keys": [
           "configuration",
@@ -518,6 +617,7 @@
       "go": {
         "dsse_verified": true,
         "file": "eval-result.public-model.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -603,6 +703,7 @@
       "go": {
         "dsse_verified": true,
         "file": "eval-result.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -690,6 +791,7 @@
       "go": {
         "dsse_verified": true,
         "file": "eval-result.release-gate.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "assuranceLevel",
@@ -775,6 +877,7 @@
       "go": {
         "dsse_verified": true,
         "file": "svr.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto+json",
         "predicate_keys": [
           "properties",
@@ -848,6 +951,7 @@
       "go": {
         "dsse_verified": true,
         "file": "test-result.receipt.dsse.json",
+        "foreign_sha256_keyid": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
         "payload_type": "application/vnd.in-toto.test-result+json",
         "predicate_keys": [
           "configuration",
@@ -936,6 +1040,7 @@
       "cryptography==50.0.1",
       "in-toto-attestation==0.9.3",
       "pip==24.0",
+      "proofbundle==6.1.0",
       "protobuf==7.36.2",
       "pycparser==3.0",
       "securesystemslib==1.5.1",

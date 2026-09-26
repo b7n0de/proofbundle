@@ -30,7 +30,10 @@ finding.
 
 ## WHAT WAS MEASURED
 
-- one eval receipt, exported by proofbundle at the commit this directory was committed on
+- one eval receipt, exported by proofbundle 6.1.0 at the commit this directory was committed on
+- re-measured on main `8a6594be6994df659c3ed9e4cb6b06bf592c8061` (#286) merged into this branch
+- `src/proofbundle/intoto.py`, `dsse.py` and the `intoto` and `svr` commands of `cli.py` are unchanged between `1021aaf` and `8a6594b` (git diff)
+- the inputs reproduce byte for byte there, and every verdict below is the same
 - eval-result/v0.1 by `proofbundle intoto`, once per subject profile: receipt, public-model, release-gate
 - test-result/v0.1 by `intoto.export_intoto_dsse`, the only way it is exported
 - svr/v0.1 by `intoto.export_svr_dsse`, the function behind `proofbundle svr`, with a fixed `timeCreated`
@@ -40,6 +43,34 @@ finding.
 - the five cells in the export's legacy content-root mode, which signs the same statement without `contentRootAlg`
 - the eval-result receipt cell with a DSSE keyid, in the form go-securesystemslib derives (the key's OpenSSH SHA256 fingerprint)
 - one GUAC control, built by `run.py`: a SLSA provenance v1 statement over the test image under the same key and keyid
+
+## ORACLES AND THEIR ORIGIN
+
+FOREIGN: a tool or library not written for proofbundle decides. OWN: code of this directory
+decides, a reimplementation of a foreign rule, cross-checked against a foreign computation. FIXTURE:
+bytes made for the run, read by the oracles; they decide nothing. The same list is in
+`results/results.json` under `oracles`, the cross-checks under `cross_checks`.
+
+| oracle | origin | what decides |
+|---|---|---|
+| DSSE signature, Go | FOREIGN | go-securesystemslib `dsse.EnvelopeVerifier` (PAE, keyid rule), Ed25519 by Go `crypto/ed25519`; the adapter in `go/main.go` only forwards to `ed25519.Verify` |
+| in-toto Statement, Go | FOREIGN | in-toto attestation Go binding: `protojson.Unmarshal` strict and with DiscardUnknown, `Statement.Validate` |
+| DSSE signature, Python | FOREIGN | securesystemslib `dsse.Envelope.from_dict` and `verify` with an `SSlibKey` |
+| in-toto Statement, Python | FOREIGN | in-toto-attestation Python binding: `json_format.Parse` strict and with ignore_unknown_fields, `Statement.validate`; payload decoded by securesystemslib's `b64dec` |
+| cosign verify-attestation | FOREIGN | cosign binary, key and `--type` |
+| cosign verify-blob-attestation | FOREIGN | cosign binary, key and `--type`, against the subject's own bytes or `--digest` |
+| GUAC ingestion | FOREIGN | guacone collect files into guacgql; the GraphQL query that counts nodes is own text and only reads what GUAC stored |
+| keyid form of the keyid control | OWN | `make_inputs._ssh_sha256_fingerprint`, OpenSSH's SHA256 fingerprint rebuilt |
+| receipt binder bytes, the blob for verify-blob-attestation | OWN | `make_inputs.py` rebuilds the binder proofbundle hashes |
+| PEM of the test key, for cosign and GUAC | OWN | RFC 8410 prefix and the 32 raw bytes |
+| GUAC control | FIXTURE | a SLSA provenance v1 statement over the test image, DSSE-signed in `run.py` (own PAE, Ed25519 through cryptography) |
+| exports and controls | FIXTURE | made by proofbundle's own export code in `make_inputs.py`: the subject under measurement |
+| test image and registry | FIXTURE | a two-file layer built by `run.py`, pushed by crane to go-containerregistry's registry |
+
+Cross-checks of the three OWN oracles, measured in the committed run:
+- keyid: `make_inputs.py` gives `SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k`, go-securesystemslib `dsse.SHA256KeyID` gives the same
+- receipt binder: its sha256 `73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d` equals the subject digest of all seven receipt-subject envelopes, as written by the export
+- PEM: cosign verified the legacy release-gate control under it, and GUAC verified its SLSA control under it
 
 ## RESULTS
 

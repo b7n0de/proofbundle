@@ -48,6 +48,46 @@ IMAGE_FILES = {"artifact.txt": b"z225 release artifact stand-in\n",
                "README": b"test image of tools/intoto_external/run.py; it carries nothing\n"}
 SLSA_V1 = "https://slsa.dev/provenance/v1"
 
+#: Every oracle of this measurement and where its verdict comes from. FOREIGN: a tool or library not
+#: written for proofbundle decides. OWN: code of this directory decides, a reimplementation of a
+#: foreign rule; each one is cross-checked against a foreign computation in `cross_checks`. FIXTURE:
+#: bytes made for the run; they decide nothing, the oracles above read them.
+ORACLES = [
+    {"oracle": "DSSE signature, Go", "origin": "FOREIGN",
+     "detail": "go-securesystemslib dsse.EnvelopeVerifier (PAE, keyid rule); Ed25519 by Go crypto/ed25519; "
+               "the 10-line verifier adapter in go/main.go only forwards to crypto/ed25519.Verify"},
+    {"oracle": "in-toto Statement, Go", "origin": "FOREIGN",
+     "detail": "in-toto attestation Go binding: protojson.Unmarshal strict and with DiscardUnknown, "
+               "Statement.Validate"},
+    {"oracle": "DSSE signature, Python", "origin": "FOREIGN",
+     "detail": "securesystemslib dsse.Envelope.from_dict and verify with an SSlibKey"},
+    {"oracle": "in-toto Statement, Python", "origin": "FOREIGN",
+     "detail": "in-toto-attestation Python binding: json_format.Parse strict and with ignore_unknown_fields, "
+               "Statement.validate; payload decoded by securesystemslib's b64dec"},
+    {"oracle": "cosign verify-attestation", "origin": "FOREIGN", "detail": "cosign binary, key and --type"},
+    {"oracle": "cosign verify-blob-attestation", "origin": "FOREIGN",
+     "detail": "cosign binary, key and --type, against the subject's own bytes or --digest"},
+    {"oracle": "GUAC ingestion", "origin": "FOREIGN",
+     "detail": "guacone collect files into guacgql; the GraphQL query that counts nodes is OWN text, it "
+               "only reads what GUAC stored"},
+    {"oracle": "keyid form of the keyid control", "origin": "OWN",
+     "detail": "make_inputs._ssh_sha256_fingerprint, OpenSSH's SHA256 fingerprint rebuilt; cross-checked "
+               "against go-securesystemslib dsse.SHA256KeyID"},
+    {"oracle": "receipt binder bytes (verify-blob-attestation input)", "origin": "OWN",
+     "detail": "make_inputs rebuilds the binder proofbundle hashes; cross-checked against the subject "
+               "digest the export itself wrote"},
+    {"oracle": "PEM of the test key (cosign, GUAC)", "origin": "OWN",
+     "detail": "RFC 8410 prefix plus the raw key; cross-checked by cosign verifying the legacy "
+               "release-gate control and GUAC verifying its SLSA control under it"},
+    {"oracle": "GUAC control", "origin": "FIXTURE",
+     "detail": "a SLSA provenance v1 statement over the test image, DSSE-signed in run.py (OWN PAE and "
+               "Ed25519 signing through cryptography)"},
+    {"oracle": "exports and controls", "origin": "FIXTURE",
+     "detail": "made by proofbundle's own export code (make_inputs.py): the subject under measurement"},
+    {"oracle": "test image and registry", "origin": "FIXTURE",
+     "detail": "a two-file layer built by run.py, pushed by crane to go-containerregistry's registry"},
+]
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -268,13 +308,29 @@ def main() -> int:  # noqa: C901, PLR0915 - one linear measurement, kept in orde
             "python_probe_packages": [ln for ln in ver([a.py, "-m", "pip", "list", "--format=freeze"]).splitlines()
                                       if "==" in ln],
         }
+        foreign_ids = {r["go"].get("foreign_sha256_keyid") for r in rows.values()}
+        binder = hashlib.sha256((a.inputs / "receipt_binder.json").read_bytes()).hexdigest()
+        receipt_subjects = {c: json.loads(decode_b64(json.loads((a.inputs / r["file"]).read_text())["payload"]))
+                            ["subject"][0]["digest"]["sha256"]
+                            for c, r in rows.items() if c.endswith(".receipt")}
+        legacy_rg = rows.get("control.legacy.eval-result.release-gate", {})
+        cross_checks = {
+            "keyid": {"own": keyid, "foreign_go_securesystemslib": sorted(i for i in foreign_ids if i),
+                      "equal": foreign_ids == {keyid}},
+            "receipt_binder": {"own_sha256": binder, "export_subjects": receipt_subjects,
+                               "equal": set(receipt_subjects.values()) == {binder}},
+            "pem": {"cosign_verified_legacy_release_gate":
+                    legacy_rg.get("cosign_verify_attestation", {}).get("exit") == 0,
+                    "guac_verified_slsa_control": guac_ok},
+        }
         result = {"tool": "tools/intoto_external/run.py", "measured_on": time.strftime("%Y-%m-%d", time.gmtime()),
                   "image": image, "guac_control": guac_control, "not_applicable": meta["not_applicable"],
-                  "rows": rows, "versions": versions}
+                  "oracles": ORACLES, "cross_checks": cross_checks, "rows": rows, "versions": versions}
         text = json.dumps(result, indent=2, sort_keys=True) + "\n"
         for path, name in ((a.inputs.resolve(), "inputs"), (scratch, "<scratch>"), (HERE, "tools/intoto_external")):
             text = text.replace(str(path), name)
         (a.out / "results.json").write_text(text)
+        print("cross_checks " + json.dumps(cross_checks, sort_keys=True))
         print(json.dumps({c: {"go_dsse": (r["go"] or {}).get("dsse_verified"),
                               "go_strict": not (r["go"] or {}).get("statement_strict_parse_error"),
                               "py_dsse": (r["python"] or {}).get("dsse_verified"),

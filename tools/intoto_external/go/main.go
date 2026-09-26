@@ -56,10 +56,16 @@ type result struct {
 	PredicateType     string    `json:"predicate_type,omitempty"`
 	Subjects          []subject `json:"subjects,omitempty"`
 	PredicateKeys     []string  `json:"predicate_keys,omitempty"`
+	// The keyid go-securesystemslib itself derives for the key (dsse.SHA256KeyID): a foreign
+	// computation that make_inputs.py's own OpenSSH fingerprint is checked against.
+	ForeignKeyID string `json:"foreign_sha256_keyid,omitempty"`
 }
 
 func probe(pub ed25519.PublicKey, path string) result {
 	r := result{File: path}
+	if id, err := dsse.SHA256KeyID(pub); err == nil {
+		r.ForeignKeyID = id
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		r.DSSEError = err.Error()
