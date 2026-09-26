@@ -1,6 +1,6 @@
 {
   "tool": "tools/scitt_ccf_external/consistency_probe.py",
-  "measured_on": "2026-09-25",
+  "measured_on": "2026-09-26",
   "draft": {
     "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
     "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
@@ -288,7 +288,7 @@
     },
     {
       "variant": "detached payload not recomputable: -2 is an empty array",
-      "proofbundle": "consistency_proof_missing",
+      "proofbundle": "malformed",
       "signature_valid": null,
       "older_root_matches": null,
       "algorithm_42_as_written": "assert len(proofs) > 0"

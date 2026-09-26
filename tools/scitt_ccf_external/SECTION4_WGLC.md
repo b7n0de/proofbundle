@@ -30,8 +30,8 @@ Counted in the file: section 4 has 1 MUST, 4.1 has 4, 4.2 has none; no other BCP
 | row | section | sentence | proofbundle status when violated |
 |---|---|---|---|
 | M1 | 4 | "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`." | `consistency_anchor_not_canonical` (see G1) |
-| M2 | 4.1 | "Its unprotected header MUST include: `vdp` (label 396): map." | `consistency_proof_missing`; not a map: `malformed` |
-| M3 | 4.1 | "It MUST contain the `consistency-proof` (-2) key, whose value is an array of one or more `ccf-consistency-proof` values, each relating one older root to the newer root." | `consistency_proof_missing` |
+| M2 | 4.1 | "Its unprotected header MUST include: `vdp` (label 396): map." | `consistency_proof_missing`; not a map, or a map with neither -1 nor -2: `malformed` |
+| M3 | 4.1 | "It MUST contain the `consistency-proof` (-2) key, whose value is an array of one or more `ccf-consistency-proof` values, each relating one older root to the newer root." | no -2: `consistency_proof_missing`; an empty array: `malformed` |
 | M4 | 4.1 | "The payload is the newer root `R_n`, and MUST be detached." | `consistency_payload_attached` |
 | M5 | 4.1 | "When the array contains more than one consistency proof, every proof MUST compute to the same newer root." | `consistency_newer_roots_differ` (see G2) |
 
@@ -48,7 +48,7 @@ Section 4.2 has no BCP 14 keyword. Its normative content is the pseudo-code; eac
 |---|---|---|
 | A1 | `assert(VDP_LABEL in consistency_receipt.unprotected_header)` | `consistency_proof_missing` |
 | A2 | `assert(CONSISTENCY_PROOF_LABEL in vdp)` | `consistency_proof_missing` |
-| A3 | `assert(len(proofs) > 0)` | `consistency_proof_missing` |
+| A3 | `assert(len(proofs) > 0)` | `malformed`: an empty array is outside the -05 CDDL, which the reader checks before any status (ADR 0009, Decision 16) |
 | A4 | `assert(consistency_receipt.payload == nil)` | `consistency_payload_attached` |
 | A5 | `assert(len(payloads) > 0)`, "At least one proof must start from older_root" | `consistency_older_root_mismatch` |
 | A6 | `assert(verify_cose(consistency_receipt, payload))` for each payload | `signature_invalid`; no key: `needs_rp_trust` |
@@ -120,7 +120,7 @@ a literal transcription of the 4.2 pseudo-code, its signature check included:
 | multiple proofs: a valid one and a corrupted one | `consistency_newer_roots_differ` | **accepts** |
 | anchor deeper than M1 requires (22 to 24) | `consistency_anchor_not_canonical` | **accepts** |
 | detached payload missing: the newer root attached | `consistency_payload_attached` | A4 fails |
-| detached payload not recomputable: -2 an empty array | `consistency_proof_missing` | A3 fails |
+| detached payload not recomputable: -2 an empty array | `malformed` | A3 fails |
 | inclusion and consistency proofs in one receipt | `confirmed` | accepts |
 
 Two more, proofbundle only:
