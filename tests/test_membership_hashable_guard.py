@@ -25,8 +25,10 @@ HONEST LIMIT: this scans `src/proofbundle/**`, module-level container constants 
 module of the package imports them by name, `from .x import NAME`), and single-operator
 comparisons. A container built at runtime, reached as a module attribute (`x.NAME`), or a chained
 comparison is NOT covered — that is stated here rather than left for someone to discover, and `is_member` is safe
-to use everywhere regardless. A LOOKUP hashes its key too (`CONST.get(x)`, `CONST[x]`); those sites
-are listed one by one with the reason each is safe, in `_LOOKUPS_CLASSIFIED` below.
+to use everywhere regardless. A LOOKUP or a WRITE hashes its key too (`CONST.get(x)`, `CONST[x]`,
+`CONST[x] = v`, `del CONST[x]`, `CONST.setdefault(x)`, `CONST.pop(x)`, and `add`, `discard`,
+`remove` on a set); those sites are listed one by one with the reason each is safe, in
+`_LOOKUPS_CLASSIFIED` below.
 """
 from __future__ import annotations
 
@@ -297,21 +299,32 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
     return funde
 
 
+#: The methods that hash their first argument, per kind of module-level container. A lens on 3c513874
+#: (the 228bc stack delta, D-2) wrote `_VERIFIERS[type_name] = verifier` and `_VERIFIERS.setdefault(...)`
+#: past the first form, which knew `.get` and a read `CONST[x]` only: a write hashes its key as a read
+#: does. `update` and `fromkeys` take a whole mapping or iterable and are a named limit.
+_HASHING_METHODS = {"dict": {"get", "setdefault", "pop"}, "set": {"add", "discard", "remove"},
+                    "frozenset": set()}
+
+
 def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = None,
                      ist_init: bool = False,
                      je_modul: dict[str, dict[str, str]] | None = None) -> list[tuple[int, str, str]]:
-    """(line, dict, key) for every `CONST.get(x, ...)` and `CONST[x]` with a module-level dict CONST (its
-    own, or with `modul` one it imports from the package) and a key that is not a literal. Such a lookup
-    hashes `x` and raises TypeError for an unhashable one."""
+    """(line, container, key) for every call of a method that hashes its argument on a module-level
+    hashing container CONST (`get`, `setdefault`, `pop` on a dict; `add`, `discard`, `remove` on a set),
+    and every `CONST[x]` on a dict whether it reads, writes or deletes, where CONST is the module's own or
+    with `modul` one it imports from the package, and the key is not a literal. Such an access hashes `x`
+    and raises TypeError for an unhashable one."""
     tree = ast.parse(quelle, filename=name)
-    dicts = {n for n, art in _behaelter(tree, modul, ist_init, je_modul).items() if art == "dict"}
+    behaelter = _behaelter(tree, modul, ist_init, je_modul)
     found: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
-                and isinstance(node.func.value, ast.Name) and node.func.value.id in dicts and node.args):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in behaelter
+                and node.func.attr in _HASHING_METHODS[behaelter[node.func.value.id]] and node.args):
             key, const = node.args[0], node.func.value.id
         elif (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
-              and node.value.id in dicts and isinstance(node.ctx, ast.Load)):
+              and behaelter.get(node.value.id) == "dict"):
             key, const = node.slice, node.value.id
         else:
             continue
@@ -326,8 +339,10 @@ def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = No
 #: `alg`, and `_KEY_ALG_LABEL.get(alg)` raised TypeError out of `verify_trust_pack` before any signature
 #: was counted. The membership scanner above sees `in` and `not in`, not a lookup. Measured on 9151e4ca
 #: (2026-09-26): 14 sites, none open. Gate run 1 on 11110281 (234-1-02) found three more that the first
-#: form could not see, because their dict is imported from another module: 17 now, none open. A new
-#: site turns this red until it is classified here; a site that is gone must leave the list.
+#: form could not see, because their dict is imported from another module: 17 then. The 228bc stack
+#: delta (D-2) found the writes, `CONST[x] = v` and `.setdefault`, which the lookup form did not visit:
+#: 19 now, none open. A new site turns this red until it is classified here; a site that is gone must
+#: leave the list.
 _LOOKUPS_CLASSIFIED = {
     ("proofbundle/__init__.py", "__getattr__", "_LAZY", "name"):
         "own value: the attribute protocol passes a str",
@@ -364,6 +379,11 @@ _LOOKUPS_CLASSIFIED = {
         "guarded: isinstance(newest.hash_alg, str) in the same expression",
     ("proofbundle/cli.py", "_cmd_verify", "AUTOMATION_BLOCKER_REASONS", "_blk"):
         "own value: bundle.py builds automationBlockers from string literals only",
+    # Two writes, seen once a write hashes its key as a read does (the 228bc stack delta, D-2).
+    ("proofbundle/anchors.py", "register_anchor_type", "_VERIFIERS", "type_name"):
+        "guarded: a type_name that is no non-empty str raises BundleFormatError before it",
+    ("proofbundle/anchors.py", "_ensure_builtin_types", "_VERIFIERS", "anchors_chia.ANCHOR_TYPE"):
+        "own value: anchors_chia.ANCHOR_TYPE is the string literal \"chia-datalayer/v1\"",
 }
 
 
@@ -663,6 +683,28 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
         ''')
         self.assertEqual([(c, k) for _l, c, k in constant_lookups(quelle)],
                          [("_M", "p.get('k')"), ("_M", "p['k']")])
+
+    def test_a_write_hashes_its_key_as_a_read_does(self):
+        """The 228bc stack delta (D-2): a write and `.setdefault` were unseen. Every form that hashes a
+        foreign key is found, and a literal key is not, in any of them."""
+        quelle = textwrap.dedent('''
+            _M = {"a": 1}
+            _S = {"a"}
+            def f(p, k):
+                _M[k] = 1
+                del _M[k]
+                _M.setdefault(k, 2)
+                _M.pop(k, None)
+                _S.add(k)
+                _S.discard(k)
+                _S.remove(k)
+                _M["a"] = 1
+                _M.setdefault("a", 2)
+                _S.add("a")
+                return _S.get
+        ''')
+        self.assertEqual([(c, k) for _l, c, k in constant_lookups(quelle)],
+                         [("_M", "k")] * 4 + [("_S", "k")] * 3)
 
     def test_an_imported_container_is_seen_in_both_forms(self):
         """234-1-02 as a planted package: a dict and a frozenset defined in one module, read in another

@@ -18,9 +18,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   enclosing definition, dict and key, each with the reason it cannot raise. Both detectors, this
   one and the membership scanner, now also see a container another module of the package imports
   by name (`from .x import NAME`, inside a function too); before, a dict or set was a container
-  only in the file that defined it. Measured: 17 sites, 12 guarded by a membership or type check
-  before them, 4 reading a value the package produced itself, and the trust pack one, whose check
-  runs against a tuple. None is open. The one membership test the wider view found,
+  only in the file that defined it. A write hashes its key as a read does, so the guard counts
+  `CONST[x] = v`, `del CONST[x]`, `setdefault` and `pop` on a dict and `add`, `discard` and
+  `remove` on a set as well. Measured: 19 sites, 13 guarded by a membership or type check before
+  them, 5 reading a value the package produced itself, and the trust pack one, whose check runs
+  against a tuple. None is open. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
