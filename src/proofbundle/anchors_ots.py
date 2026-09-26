@@ -47,8 +47,8 @@ class OtsProofTooLarge(ValueError):
 #: word also means "the proof did not deserialize", and a word with two meanings is read as the worse one.
 _BINDING_HELD = frozenset({"pending", "empty", "needs_rp_trust", "confirmed", "null_op",
                            "block_mismatch", "bad_header", "upgraded_unverified"})
-#: Every other status `verify_opentimestamps` returns. Kept as a list so a test can hold the partition:
-#: each status the function can return is in exactly one of the two sets.
+#: Every other status `verify_opentimestamps` returns. Written out as a set of its own so a test can
+#: hold the partition: each status the function can return is in exactly one of the two sets.
 _BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
 
 
