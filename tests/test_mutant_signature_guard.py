@@ -119,14 +119,18 @@ class TestBaseMode(_RepoFixture):
         self.assertIn("trivial-truth branch", r.stdout)
 
     def test_committed_mutant_under_a_quoted_path_is_blocked(self):
-        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
-        (self.repo / "src" / "proofbundle" / "pr\u00fcfung.py").write_text("if False:\n    pass\n",
-                                                                         encoding="utf-8")
-        _git(self.repo, "add", "-A")
-        _git(self.repo, "commit", "-q", "-m", "mutant under a quoted path")
-        r = _guard(self.repo, "--base", base)
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("src/proofbundle/pr\u00fcfung.py:1", r.stdout)
+        """The same three names as in the staged form: a byte outside ASCII, a double quote and a
+        backslash (a review lens, 2026-09-26: the base form had only the first)."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+            with self.subTest(name=name):
+                base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+                (self.repo / "src" / "proofbundle" / name).write_text("if False:\n    pass\n",
+                                                                     encoding="utf-8")
+                _git(self.repo, "add", "-A")
+                _git(self.repo, "commit", "-q", "-m", "mutant under a quoted path")
+                r = _guard(self.repo, "--base", base)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn(f"src/proofbundle/{name}:1", r.stdout)
 
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
