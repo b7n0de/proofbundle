@@ -329,8 +329,12 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
         if not koerper:
             continue
         erstes = koerper[0]
-        if not (isinstance(erstes, ast.Expr) and isinstance(erstes.value, ast.Constant)
-                and isinstance(erstes.value.value, str)):
+        # An f-string there counts too. Python gives it no __doc__, but it stands where a docstring
+        # stands and carries prose; read as code, a German sentence in it passed as green in every
+        # form of this gate (a review lens, measured 2026-09-26).
+        if not (isinstance(erstes, ast.Expr)
+                and (isinstance(erstes.value, ast.JoinedStr)
+                     or (isinstance(erstes.value, ast.Constant) and isinstance(erstes.value.value, str)))):
             continue
         for n in range(erstes.lineno, (erstes.end_lineno or erstes.lineno) + 1):
             aus.add(n)

@@ -155,6 +155,13 @@ def test_the_head_form_judges_the_file_at_head_not_the_disk(repo, rel, added, di
     assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [(rel, line)], result
 
 
+@pytest.mark.parametrize("prefix", ["f", ""], ids=["f-string", "plain"])
+def test_a_string_in_docstring_position_is_prose_whatever_its_prefix(repo, prefix):
+    """An f-string where a docstring stands is not a docstring to Python, and it is prose all the
+    same; the plain form is the control."""
+    assert _judge(repo, "m.py", f'def f():\n    {prefix}"""{GERMAN}"""\n') == ("ROT", [("m.py", 3)])
+
+
 def test_an_untracked_file_is_numbered_in_pythons_grammar(repo):
     (repo / "neu.py").write_bytes(f"x = 1\r# {GERMAN}\n".encode("utf-8"))
     gate = _language_gate()
