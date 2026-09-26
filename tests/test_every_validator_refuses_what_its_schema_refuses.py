@@ -322,28 +322,109 @@ def _module_bindings(tree) -> dict:
     return bound
 
 
-def _pattern_texts(expr, bound, _seen=frozenset()) -> list:
-    """Every text a pattern expression can be, as the source states it: (text, is_bytes) pairs.
+#: How many values one expression may fold to before the sweep stops widening it; a product of choices
+#: that grows past this is a named limit, not a silent cut (the fold says so in `_folded`).
+_FOLD_CAP = 64
+_FOLD_OPS = {ast.Add: lambda a, b: a + b, ast.Mod: lambda a, b: a % b, ast.Mult: lambda a, b: a * b}
 
-    Read: a str or bytes literal, an f-string with no placeholder, literals joined by `+`, both branches
-    of a conditional expression, and a module-level name through every value it is bound to. The 228bc
-    stack delta (235 D-2) planted each of these past a sweep that read a str literal and a name bound
-    once. NAMED LIMIT: a pattern that reaches `re` through a loop variable, a parameter or a local name is
-    not resolved, and neither is an f-string with a placeholder."""
-    if isinstance(expr, ast.Constant) and isinstance(expr.value, (str, bytes)):
-        if isinstance(expr.value, bytes):
-            return [(expr.value.decode("latin-1"), True)]
-        return [(expr.value, False)]
+
+def _folded(expr, bound, classes, _seen=frozenset()) -> list:
+    """Every value an expression can have as the source states it, folded without running the module:
+    str, bytes, int and literal lists or tuples of them.
+
+    Read: literals; an f-string with no placeholder; `+`, `%` and `*` between folded values; both
+    branches of a conditional; a module-level name through every value it is bound to; an attribute of a
+    class defined at module level, through its class body; an index into a folded list, tuple or string;
+    `str.join` and `str.format` on folded values. The 228bc stack delta planted a conditional, a partial, a
+    name bound twice, bytes, an f-string and `+` (run 1), then a class attribute, `%`, `str.join` and a
+    list index (run 2) past a sweep that read one form at a time; the fold reads the expression instead.
+    NAMED LIMIT: a value that exists only at run time is not folded: a parameter, a loop variable, a
+    local name, an f-string with a placeholder, a call other than `str.join` or `str.format`, an inherited
+    or instance attribute, and a fold that would exceed `_FOLD_CAP` values."""
+    def each(sub):
+        return _folded(sub, bound, classes, _seen)
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, (str, bytes, int)) \
+            and not isinstance(expr.value, bool):
+        return [expr.value]
     if isinstance(expr, ast.JoinedStr) and all(isinstance(v, ast.Constant) for v in expr.values):
-        return [("".join(v.value for v in expr.values), False)]
-    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
-        return [(a + b, ab or bb) for a, ab in _pattern_texts(expr.left, bound, _seen)
-                for b, bb in _pattern_texts(expr.right, bound, _seen)]
+        return ["".join(v.value for v in expr.values)]
+    if isinstance(expr, (ast.List, ast.Tuple)):
+        combos = [[]]
+        for elt in expr.elts:
+            combos = [c + [v] for c in combos for v in each(elt)][:_FOLD_CAP]
+        return [tuple(c) if isinstance(expr, ast.Tuple) else c for c in combos]
+    if isinstance(expr, ast.BinOp) and type(expr.op) in _FOLD_OPS:
+        out = []
+        for a in each(expr.left):
+            for b in each(expr.right):
+                try:
+                    out.append(_FOLD_OPS[type(expr.op)](a, b))
+                except (TypeError, ValueError, OverflowError, MemoryError):
+                    continue
+        return out[:_FOLD_CAP]
     if isinstance(expr, ast.IfExp):
-        return _pattern_texts(expr.body, bound, _seen) + _pattern_texts(expr.orelse, bound, _seen)
+        return (each(expr.body) + each(expr.orelse))[:_FOLD_CAP]
     if isinstance(expr, ast.Name) and expr.id in bound and expr.id not in _seen:
-        return [t for value in bound[expr.id] for t in _pattern_texts(value, bound, _seen | {expr.id})]
+        return [v for value in bound[expr.id]
+                for v in _folded(value, bound, classes, _seen | {expr.id})][:_FOLD_CAP]
+    if (isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) and expr.value.id in classes
+            and (key := f"{expr.value.id}.{expr.attr}") not in _seen):
+        return [v for value in classes[expr.value.id].get(expr.attr, [])
+                for v in _folded(value, bound, classes, _seen | {key})][:_FOLD_CAP]
+    if isinstance(expr, ast.Subscript):
+        out = []
+        for container in each(expr.value):
+            for index in each(expr.slice):
+                try:
+                    out.append(container[index])
+                except (TypeError, IndexError, KeyError):
+                    continue
+        return out[:_FOLD_CAP]
+    if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)
+            and expr.func.attr in ("join", "format") and not expr.keywords):
+        out = []
+        for head in each(expr.func.value):
+            if not isinstance(head, (str, bytes)):
+                continue
+            arg_sets = [each(a) for a in expr.args]
+            combos = [[]]
+            for values in arg_sets:
+                combos = [c + [v] for c in combos for v in values][:_FOLD_CAP]
+            for args in combos:
+                try:
+                    out.append(head.join(args[0]) if expr.func.attr == "join" and len(args) == 1
+                               else head.format(*args) if expr.func.attr == "format" and isinstance(head, str)
+                               else None)
+                except (TypeError, ValueError, IndexError, KeyError):
+                    continue
+        return [v for v in out if v is not None][:_FOLD_CAP]
     return []
+
+
+def _module_classes(tree) -> dict:
+    """Class name -> {attribute: [values bound in the class body]} for classes defined at module level."""
+    classes: dict = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            body: dict = {}
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    body.setdefault(stmt.targets[0].id, []).append(stmt.value)
+                elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value:
+                    body.setdefault(stmt.target.id, []).append(stmt.value)
+            classes[node.name] = body
+    return classes
+
+
+def _pattern_texts(expr, bound, classes=None) -> list:
+    """The pattern texts among the folded values: (text, is_bytes) pairs."""
+    out = []
+    for v in _folded(expr, bound, classes or {}):
+        if isinstance(v, str):
+            out.append((v, False))
+        elif isinstance(v, bytes):
+            out.append((v.decode("latin-1"), True))
+    return out
 
 
 def _partial_names(tree) -> tuple:
@@ -371,7 +452,7 @@ def _whole_value_regex_readings(sources) -> list:
     for mod, text in sources:
         tree = ast.parse(text)
         names, functions = _re_names(tree)
-        bound = _module_bindings(tree)
+        bound, classes = _module_bindings(tree), _module_classes(tree)
         modules, partials = _partial_names(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -390,7 +471,7 @@ def _whole_value_regex_readings(sources) -> list:
             if arg is None or any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
                 continue                     # `^` and `$` are line anchors there, not whole-value ones
             ascii_flag = any("ASCII" in f or re.search(r"\.A\b", f) for f in flags)
-            for pattern, is_bytes in _pattern_texts(arg, bound):
+            for pattern, is_bytes in _pattern_texts(arg, bound, classes):
                 anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
                 if not (anchored or function == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
                     continue
@@ -486,6 +567,25 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
                    'I = re.compile(r"\\A[0-9]+\\Z" if X else r"\\A[0-9]+\\Z")\n')
         found = _whole_value_regex_readings([("scripts.planted", planted)])
         self.assertEqual(sorted(line for _mod, line, _p, _r in found), [3, 4, 5, 8, 9, 11, 12], found)
+
+    def test_the_sweep_folds_what_the_source_states(self):
+        """The second delta run on ea6db077 wrote four more forms past the sweep: a class attribute,
+        `%`-formatting, `str.join` and an index into a module-level list. The fold reads each; a
+        clean pattern built the same way is no finding."""
+        planted = ('import re\nclass K:\n    PAT = r"\\A\\d+\\Z"\nA = re.compile(K.PAT)\n'
+                   'B = re.compile(r"\\A\\d+%s" % (r"\\Z",))\n'
+                   'C = re.compile("".join([r"\\A\\d", r"+\\Z"]))\n'
+                   'PATS = [r"\\A[0-9]+\\Z", r"^[0-9]+$"]\nD = re.compile(PATS[1])\n'
+                   'E = re.compile("{}{}".format(r"\\A\\d", "+\\\\Z"))\n'
+                   'F = re.compile(PATS[0] * 1)\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [4, 5, 6, 8, 9], found)
+
+    def test_named_limit_a_value_computed_at_run_time_is_not_folded(self):
+        """A call other than `str.join` or `str.format` is not run by the sweep. If this turns red,
+        the fold learned it; rewrite the limit, do not delete the case."""
+        planted = 'import re\nA = re.compile(str(r"\\A\\d+\\Z"))\nB = re.compile(r"\\A\\d+\\Z".strip())\n'
+        self.assertEqual(_whole_value_regex_readings([("scripts.planted", planted)]), [])
 
     def test_named_limit_a_loop_variable_is_not_resolved(self):
         """Stated rather than hidden: a pattern that reaches `re` through a loop variable is not read.
