@@ -23,17 +23,15 @@ live here.
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
 from .errors import ProofBundleError
 from ._membership import is_member
+from ._schema_shapes import SEMVER_0_1_X as _SEMVER_0_1_X   # 0.1.x as ECMA-262 reads it, one definition
 
 RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _REQUIRED = ("schemaVersion", "statementId", "relationships")
 _ALLOWED_TOP = set(_REQUIRED)

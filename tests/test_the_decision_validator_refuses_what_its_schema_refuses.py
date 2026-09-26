@@ -9,8 +9,11 @@ WHERE THIS COMES FROM. Deep gate Z195 against main 5b53ab3e, two findings of one
 * L3-Z195-05 (P3, 3 of 3): 311 type-confused predicates that schemas/decision-receipt-v0.1.schema.json
   refuses passed `validate_decision_predicate(strict=True)`; tests/test_schema_parity.py pinned 11 points.
 
-Both measured again on main 10f3466b before this change: 311, and the five nulls reaching
-safeForAutomation=true.
+Both measured again on main 10f3466b before this change: 311 with the gate's generator (the allow
+example, eleven values, strict mode), and the five nulls reaching safeForAutomation=true. The generator
+below, over a fully populated predicate in both modes, measures 472 strict and 522 lenient there. The
+first version of this text gave only the 311 next to this generator (gate on 3562dc71, lens B,
+228bcB-01: two numbers from two generators, and the text did not say which).
 
 WHAT IS PINNED. (1) Every schema path with a declared type is in `decision._NESTED_TYPES` or checked by
 its own code (DEDICATED, with the reason), so a field added to the schema without a check turns this file
@@ -19,13 +22,19 @@ eleven type-confused values; whatever the schema refuses, the validator refuses,
 at every required field is refused, and end to end a signed receipt with a null schemaVersion is no longer
 safe for automation. (4) The walker stays inside its budget on a hostile structure.
 
-ONE DIVERGENCE LEFT, NAMED. A bare string entry in notChecked: the schema refuses it, the validator
-accepts it as it always did, because the vendored third-party receipt in conformance/decision/crossimpl/
-writes strings (owner decision, 2026-09-26).
+NO DIVERGENCE LEFT. The first version named one: a bare string entry in notChecked, refused by the
+schema and accepted by the validator, which never read entry types, while the vendored third-party
+receipt in conformance/decision/crossimpl/ writes strings. The owner decided it (owner decision,
+2026-09-26): the string stays allowed as a deprecated legacy form, the schema now says so, and the
+object form {field, reason, impact} is preferred.
 
 NAMED LIMITS. The generator only replaces values; it adds no keys (key closure is
 `nested_closure_violations`, pinned elsewhere). The relationships subtree is validated by the relation
-module and pinned by the relationships class of tests/test_schema_parity.py. The reverse direction
+module and pinned by the relationships class of tests/test_schema_parity.py. The wider generator of
+tests/test_every_validator_refuses_what_its_schema_refuses.py covers what this one does not (a string of
+the right type and the wrong shape, an added key at every object, the relationships subtree), over this
+schema and four others; lens B of the gate on 3562dc71 (228bcB-03) found that this one tried no string
+of the wrong shape. Both read `pattern` through tests/_schema_oracle.py, as ECMA-262. The reverse direction
 (the validator refusing what the schema accepts) is deliberate where strict mode asks for more than the
 schema, and is measured, not pinned, here.
 """
@@ -44,6 +53,8 @@ try:
     import jsonschema
 except ImportError:  # pragma: no cover - dev-only dependency
     jsonschema = None
+else:
+    from _schema_oracle import schema_accepts
 
 from proofbundle import decision
 from proofbundle.decision import _NESTED_TYPES, validate_decision_predicate
@@ -80,10 +91,6 @@ UNTYPED = {
     "decisionMaker.version": "the versioned extensions container, unconstrained in the schema too",
     "relationships": "relation.validate_relationships, pinned by tests/test_schema_parity.py",
 }
-
-# The one divergence left on purpose, with its reason (see decision._NESTED_TYPES["notChecked[]"]).
-KNOWN_DIVERGENCE = {"notChecked[]": "a string entry: owner decision, 2026-09-26, the vendored third-party receipt "
-                                     "writes string entries and the validator always accepted them"}
 
 MAL = {"null": None, "true": True, "zero": 0, "minus one": -1, "a float": 1.5, "empty string": "",
        "empty list": [], "list of null": [None], "empty object": {}, "object with empty key": {"": None},
@@ -154,11 +161,8 @@ def _set(o, path, value):
 
 
 def _schema_ok(instance) -> bool:
-    try:
-        jsonschema.validate(instance=instance, schema=SCHEMA)
-        return True
-    except jsonschema.ValidationError:
-        return False
+    """The schema's verdict, `pattern` read as ECMA-262 (python-jsonschema alone reads it with `re`)."""
+    return schema_accepts(instance, SCHEMA)
 
 
 class EveryTypedSchemaPathHasACheck(unittest.TestCase):
@@ -194,21 +198,30 @@ class WhateverTheSchemaRefusesTheValidatorRefuses(unittest.TestCase):
                 if _schema_ok(m):
                     continue
                 measured += 1
-                if path[0] == "notChecked" and len(path) == 2 and isinstance(value, str):
-                    continue   # KNOWN_DIVERGENCE["notChecked[]"], any string, the empty one included
                 for strict in (True, False):
                     if not validate_decision_predicate(m, strict=strict):
                         leaks.append(f"{'/'.join(map(str, path))} <- {label} (strict={strict})")
         self.assertGreater(measured, 300, "the generator measured almost nothing; the base or MAL broke")
         self.assertEqual(leaks, [])
 
-    def test_the_known_divergence_is_real_and_only_that(self):
-        """Counter-direction for the named exception: it must still be a divergence (or the card is
-        answered and the exception is stale), and it must cover nothing else."""
-        m = _set(_maximal(), ("notChecked", 0), "adversarial-robustness")
-        self.assertFalse(_schema_ok(m))
-        self.assertEqual(validate_decision_predicate(m, strict=True), [])
-        self.assertEqual(len(KNOWN_DIVERGENCE), 1)
+    def test_a_string_entry_is_the_deprecated_legacy_form(self):
+        """Owner decision, 2026-09-26: a bare string in notChecked stays allowed, the schema
+        marks that form deprecated, the object form comes first. Both judges accept both forms; neither
+        accepts an entry of any other type."""
+        forms = SCHEMA["properties"]["notChecked"]["items"]["anyOf"]
+        self.assertEqual([f["type"] for f in forms], ["object", "string"])
+        self.assertIs(forms[1].get("deprecated"), True)
+        self.assertNotIn("deprecated", forms[0])
+        for entry in ("adversarial-robustness", {"field": "f", "reason": "r", "impact": "i"}):
+            m = _set(_maximal(), ("notChecked", 0), entry)
+            with self.subTest(entry=entry):
+                self.assertTrue(_schema_ok(m))
+                self.assertEqual(validate_decision_predicate(m, strict=True), [])
+        for entry in (5, None, ["x"], True):
+            m = _set(_maximal(), ("notChecked", 0), entry)
+            with self.subTest(entry=entry):
+                self.assertFalse(_schema_ok(m))
+                self.assertNotEqual(validate_decision_predicate(m, strict=True), [])
 
 
 class NullIsNotAValue(unittest.TestCase):

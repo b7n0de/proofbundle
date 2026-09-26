@@ -17,15 +17,38 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   None, so `decision verify --strict` under a signer-pinning policy reported
   `safeForAutomation=true` for such a receipt (deep gate finding L3-Z195-03). Beyond null, 311
   type-confused predicates that `schemas/decision-receipt-v0.1.schema.json` refuses passed the
-  validator in strict mode (L3-Z195-05); both measured on main 10f3466b. The value checks now read
-  presence, and a type table beside the existing key closure gives every nested schema path its
-  type; the same generator now measures 0. A test derives the typed paths from the schema and fails
+  validator in strict mode (L3-Z195-05; the gate's generator, over the allow example); both measured
+  on main 10f3466b. The value checks now read presence, and a type table beside the existing key
+  closure gives every nested schema path its type; the same generator now measures 0. A test derives
+  the typed paths from the schema and fails
   when one has no check, and a generator replaces every leaf of a fully populated predicate with
   eleven type-confused values. Where the validator already asked for more than the schema (empty
   identifiers, an `actionOutcome` without `status`, the strict-mode requirements), nothing changed:
-  the same 39 cases over the three golden examples, before and after. One divergence is left and
-  named: a bare string entry in `notChecked`, which the vendored third-party receipt in
-  `conformance/decision/crossimpl/` uses; whether the schema or that receipt gives way is open.
+  the same 39 cases over the three golden examples, before and after. The validator did not read the
+  type of a `notChecked` entry before this change: it accepted a bare string where the schema asked
+  for an object `{field, reason, impact}`, and the vendored third-party receipt in
+  `conformance/decision/crossimpl/` writes strings. The string stays allowed as a deprecated legacy
+  form, and the schema now says so (`anyOf`, `deprecated: true`); the object form is preferred.
+
+- **Five predicate validators read the shapes of their schemas as the schemas do**
+  (`_schema_shapes`, `decision`, `outcome`, `run_ledger`, `verification_summary`, `trust_pack`,
+  `relation`, `relation_statement`, `subject_binding`). A `pattern` in `schemas/` is an ECMA-262
+  regular expression, and three readings differed. A digest object with a second key passed,
+  although `sha256Digest` is closed. `trust_pack` still anchored with `^..$`, so a signed trust pack
+  whose `expires` ended in a newline verified `ok=true`. And `\d` in nine modules matched every
+  Unicode digit: strict decision validation accepted a fullwidth `decidedAt`, and on one signed
+  relation statement whose edge `declaredAt` used such digits the Python verifier said ok (exit 0)
+  where the Rust verifier said FAIL (exit 2). The three shapes now have one definition, and the
+  validators read it. Measured with a generator that also bends strings and adds keys, over fully
+  populated predicates, against an oracle that reads `pattern` as ECMA-262 (python-jsonschema reads
+  it with Python's `re` and saw none of this): leaking paths on main 10f3466b were decision 64,
+  outcome 13, run_ledger 4, verification_summary 3, trust_pack 7. Two of the trust_pack paths
+  raised: a list as a key's `alg` made `verify_trust_pack` raise `TypeError` before any signature
+  was counted, and it is a verdict now. The same generator found `scheme` (`const: "ed25519"`)
+  never read, and outcome's `traceContext.traceparent`, `validity.audience` and `validity.nonce`
+  never typed. Every count is 0 now. A test walks every
+  regular expression literal under `src/proofbundle` that judges a whole value; `agent_review`,
+  which has no published schema, keeps its own `\d` patterns and is named there.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

@@ -13,21 +13,19 @@ Field names are lowerCamelCase (ITE-9).
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from ._membership import is_member
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 VERIFICATION_SUMMARY_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/verification-summary/v0.1"
 SUMMARY_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _LEVEL_KINDS = {"eval", "decision", "outcome"}
 _STATUS = {"VERIFIED", "FAILED", "NOT_EVALUATED"}
@@ -48,7 +46,7 @@ class VerificationSummaryError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[str]:

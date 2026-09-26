@@ -18,22 +18,20 @@ Field names are lowerCamelCase (ITE-9).
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any, Callable
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
-from .subject_binding import nested_closure_violations
+from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _OUTCOME_STATUS = {"executed", "refused", "failed", "partial"}
 _OUTCOME_POLICY_PURPOSE = "outcome"
@@ -68,6 +66,15 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "sequence": ("runId", "seq"),
 }
 
+# Nested value types the schema declares and no check above reads (gate on 3562dc71, lens A, 228bcA-02,
+# measured with the ECMA-reading generator: every wrong type at these three paths passed, strict or not).
+# The same table-and-walker as decision._NESTED_TYPES; the other nested fields have their own checks.
+_NESTED_TYPES: dict[str, "str | tuple[str, ...]"] = {
+    "traceContext.traceparent": "string",
+    "validity.audience": "array",
+    "validity.nonce": "string",
+}
+
 
 def _as_dict(v):
     """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
@@ -83,7 +90,7 @@ class OutcomeReceiptError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
@@ -210,6 +217,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close traceContext/validity — an undeclared key inside either previously rode along silently.
     errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
+    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))
 
     return errors
 

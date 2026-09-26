@@ -31,15 +31,15 @@ from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy. This module
+# still anchored with `^..$` after a9269f65 swept the others, so an `expires` ending in a newline verified.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
 TRUST_PACK_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
 
 _ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
               "timeAuthorities", "witnesses")
@@ -80,7 +80,7 @@ class TrustPackError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> TypeGuard[dict]:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def _is_int(v: Any) -> TypeGuard[int]:
@@ -94,7 +94,7 @@ def _parse_rfc3339_z(s: str) -> datetime:
     them, and ``%f`` itself caps at 6 digits — so an ``expires`` like ``...T00:00:00.5Z`` (regex-valid) would
     raise and be read as EXPIRED (a false-closed availability bug). This parser splits off the fractional part
     and truncates it to microseconds (enough for an expiry comparison). Raises ``ValueError`` on a non-match."""
-    m = re.match(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$", s)
+    m = re.match(r"\A([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?Z\Z", s)
     if not m:
         raise ValueError(f"not an RFC-3339 UTC 'Z' timestamp: {s!r}")
     dt = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
@@ -174,11 +174,18 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
+                # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
+                if "scheme" in kv and kv.get("scheme") != "ed25519":
+                    errors.append(f"keys[{kid!r}].scheme, when present, must be 'ed25519'")
                 # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
                 # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
                 # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
                 want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
-                label = _KEY_ALG_LABEL.get(alg, "Ed25519")
+                # A dict lookup hashes its key, and `alg` comes from the pack: a list here raised TypeError out of
+                # this validator and out of verify_trust_pack, before any signature was counted (same gate).
+                # An `alg` that is not one of _KEY_ALGS is already an error above; it is labelled as Ed25519.
+                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"
                 try:
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:

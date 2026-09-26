@@ -86,6 +86,9 @@ semantically mixes into the other.
 (may be empty only when the decision explicitly used no additional evidence), `decision`
 (`verdict` + `reasonCodes`), `notChecked`, `decisionChangeConditions`, `privacy`.
 
+A `notChecked` entry is an object `{field, reason, impact}`. A bare string is still accepted as a
+deprecated legacy form, and the schema marks it so; new receipts use the object form.
+
 Optional: `recordedAt`, `delegationRefs`, `actionOutcome`, `traceContext`, `validity` (strict interactive mode
 requires `audience` + `nonce`), `anchors`.
 

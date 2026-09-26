@@ -187,13 +187,22 @@
     "notChecked": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "field": {"type": "string"},
-          "reason": {"type": "string"},
-          "impact": {"type": "string"}
-        }
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "field": {"type": "string"},
+              "reason": {"type": "string"},
+              "impact": {"type": "string"}
+            }
+          },
+          {
+            "type": "string",
+            "deprecated": true,
+            "description": "Legacy form, still accepted: a bare string naming what was not checked. Prefer the object form {field, reason, impact}. The enforced validator did not read the type of a notChecked entry before 2026-09-26 and accepted strings, and receipts in use carry them."
+          }
+        ]
       }
     },
     "decisionChangeConditions": {

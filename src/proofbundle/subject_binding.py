@@ -21,10 +21,11 @@ predicate's claim is true. ``EXTERNAL_ATTESTED`` is reported honestly, never sil
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
 from .errors import ProofBundleError
+# The schemas' own readings (ECMA-262, key-closed `sha256Digest`), one definition in _schema_shapes.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z_TYPE, is_sha256_digest
 
 # AMBIGUOUS (deep gate 2026-09-05, finding L4-02): a Statement with MORE THAN ONE subject never binds silently
 # to subject[0]. Which object the statement speaks about is open, on the statement-under-verification side
@@ -167,9 +168,6 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     return out
 
 
-_SHA256_HEX_TYPE = re.compile(r"\A[0-9a-f]{64}\Z")
-_RFC3339_Z_TYPE = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
-
 
 def _has_type(value: Any, kind: str) -> bool:
     """One JSON Schema type, as the schemas in schemas/ use it. `sha256` is the `sha256Digest` object and
@@ -187,8 +185,7 @@ def _has_type(value: Any, kind: str) -> bool:
     if kind == "rfc3339z":
         return isinstance(value, str) and bool(_RFC3339_Z_TYPE.match(value))
     if kind == "sha256":
-        return (isinstance(value, dict) and set(value) == {"sha256"} and isinstance(value["sha256"], str)
-                and bool(_SHA256_HEX_TYPE.match(value["sha256"])))
+        return is_sha256_digest(value)
     raise ValueError(f"unknown type kind {kind!r} in a type map")
 
 

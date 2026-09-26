@@ -26,13 +26,15 @@ binding-00 FULL TEXT, 2026-07-16 — that draft has NO `amends` relation):
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
+# RFC3339-Z and 64-hex as the schemas read them (ECMA-262): one definition, not a copy. The Unicode-digit
+# reading of the old copy let Python accept a declaredAt the Rust verifier refuses.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SHA256_HEX as _SHA256_HEX
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -59,9 +61,6 @@ LINEAGE_VERIFIED = "VERIFIED"
 LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
 _EDGE_ALLOWED = ("relation", "targetReceiptDigest", "targetSubjectDigest",

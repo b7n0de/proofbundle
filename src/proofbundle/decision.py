@@ -11,7 +11,6 @@ Field names are lowerCamelCase (ITE-9); only the proofbundle-local trust policy 
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any, Callable
 
 from ._strict_json import loads_strict
@@ -19,16 +18,15 @@ from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member
+# RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms), 64-hex and 0.1.x, as the
+# schema reads them (ECMA-262): one definition in _schema_shapes, not a private copy per module.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X, SHA256_HEX as _SHA256_HEX
+from ._schema_shapes import is_sha256_digest
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-# RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms).
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
@@ -122,11 +120,10 @@ _NESTED_TYPES: dict[str, "str | tuple[str, ...]"] = {
     "decision.obligations": "array",
     "decision.allowedScope": "array",
     "notChecked": "array",
-    # The ONE path left where the validator accepts what the schema refuses: a bare string entry. The
-    # schema asks for an object; the vendored third-party receipt in conformance/decision/crossimpl/
-    # schema-conformant writes strings, and this validator accepted them before it read item types at all.
-    # Whether the schema or the receipt gives way is an owner decision (2026-09-26), so the
-    # behaviour stays as it was and the test names this divergence instead of hiding it.
+    # A bare string entry is the deprecated legacy form, and the schema says so (owner decision,
+    # 2026-09-26): the object form {field, reason, impact} is preferred, a string stays
+    # allowed. This validator did not read the type of an entry before, and the vendored third-party
+    # receipt in conformance/decision/crossimpl/schema-conformant writes strings.
     "notChecked[]": ("object", "string"),
     "notChecked[].field": "string",
     "notChecked[].reason": "string",
@@ -197,7 +194,7 @@ class DecisionReceiptError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like `sha256Digest` (gate on 3562dc71, lens A, 228bcA-01)
 
 
 def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list[str]:

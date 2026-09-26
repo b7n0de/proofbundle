@@ -608,6 +608,30 @@ MUTATIONS = [
      "            for art_j, ordner_j in kette[i + 1:]:",
      "            for art_j, ordner_j in kette:",
      "matrix: Reihenfolge im Artefaktfluss fallen gelassen — Koexistenz genuegt wieder", True),
+
+    # Gate on 3562dc71 (228bcA-01/02, 228bcB-03): the predicate validators read the shapes of their schemas
+    # as the schemas do. Killed by tests/test_every_validator_refuses_what_its_schema_refuses.py (the ECMA-
+    # reading generator; it needs the jsonschema dev extra, which the mutation job installs).
+    ("src/proofbundle/_schema_shapes.py",
+     '    return (isinstance(obj, dict) and len(obj) == 1 and isinstance(obj.get("sha256"), str)',
+     '    return (isinstance(obj, dict) and isinstance(obj.get("sha256"), str)',
+     "schema shapes: a digest object with a second key accepted again", True),
+    ("src/proofbundle/_schema_shapes.py",
+     r'RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")',
+     r'RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")',
+     "schema shapes: RFC3339 reads Unicode digits again (Python \\d, not ECMA-262)", True),
+    ("src/proofbundle/trust_pack.py",
+     '                if "scheme" in kv and kv.get("scheme") != "ed25519":',
+     '                if False:',
+     "trust_pack: the scheme const is not read again", True),
+    ("src/proofbundle/trust_pack.py",
+     '                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"',
+     '                label = _KEY_ALG_LABEL.get(alg, "Ed25519")',
+     "trust_pack: an unhashable alg reaches the label lookup again (raises before any signature)", True),
+    ("src/proofbundle/outcome.py",
+     '    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))',
+     '    pass',
+     "outcome: nested value types (traceparent, audience, nonce) not read again", True),
 ]
 
 
