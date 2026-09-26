@@ -29,11 +29,15 @@ HONEST LIMIT. One fixed input of five entries against one checkout. It says what
 not what every conforming implementation must do.
 
 Exit code: 0 if the two readings agree, 1 if they differ, 2 on a usage error or a checkout whose
-module does not import or raises when the readings call it.
+module does not import, raises, or ends the process (`SystemExit`, whatever its code) when it is
+imported or called. What the module prints goes to stderr, so `--json` stays one JSON document.
+Not covered: a `KeyboardInterrupt`, which this tool cannot tell from the user's own and lets end
+the run as Python ends it, and a module that writes to file descriptor 1 directly.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import sys
@@ -51,22 +55,27 @@ ENTRIES: tuple[bytes, ...] = (
 )
 
 
+class NotMeasured(Exception):
+    """The checkout was not measured, and the text says why. It exits 2, never a verdict code."""
+
+
 def _load_merkle(checkout: Path):
     """Import the SHIPPED module from the given checkout, never a copy of it."""
     src = checkout / "src"
     if not (src / "proofbundle" / "merkle.py").is_file():
         # A usage error, so exit 2 as the docstring says: `SystemExit(<text>)` exits 1, which here
         # reads as "the two readings differ" (a sweep for that class, 2026-09-26).
-        print(f"no proofbundle/merkle.py under {src}", file=sys.stderr)
-        raise SystemExit(2)
+        raise NotMeasured(f"no proofbundle/merkle.py under {src}")
     sys.path.insert(0, str(src))
     # A module that is there and does not import is the same kind of stop: its traceback exited 1,
     # "the two readings differ" (a review lens, measured 2026-09-26 with a merkle.py that did not parse).
+    # `SystemExit` is not an `Exception`: a module that calls `sys.exit(1)` on import ended this tool
+    # with 1 and no output at all (two review lenses on the stack, run 8, measured 2026-09-26).
     try:
         import proofbundle.merkle as m  # noqa: E402
-    except Exception as exc:  # noqa: BLE001 - whatever the checkout raises on import, it is not measured
-        print(f"proofbundle.merkle under {src} does not import: {type(exc).__name__}: {exc}", file=sys.stderr)
-        raise SystemExit(2) from None
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - whatever the checkout does on import, it is not measured
+        raise NotMeasured(f"proofbundle.merkle under {src} does not import: "
+                          f"{type(exc).__name__}: {exc}") from None
     return m
 
 
@@ -123,10 +132,17 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     # The whole measurement, not the import alone: a module that imports and then raises when called
     # (a missing `leaf_hash`, an error inside `merkle_tree_hash`) ended with a traceback and exit 1,
-    # "the two readings differ" (a review lens on the stack, run 7, measured 2026-09-26).
+    # "the two readings differ" (a review lens on the stack, run 7, measured 2026-09-26). A module that
+    # ends the process when called is the same stop, and `sys.exit(0)` there read as "the readings
+    # agree". What it prints goes to stderr: a `print` on import put a line before the JSON document
+    # and `--json` no longer parsed (run 8).
     try:
-        e = measure(Path(a.checkout).resolve())
-    except Exception as exc:  # noqa: BLE001 - whatever the checkout's module raises, it is not measured
+        with contextlib.redirect_stdout(sys.stderr):
+            e = measure(Path(a.checkout).resolve())
+    except NotMeasured as stop:
+        print(stop, file=sys.stderr)
+        return 2
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - whatever the checkout's module does, it is not measured
         print(f"the checkout under {a.checkout} does not measure: {type(exc).__name__}: {exc}",
               file=sys.stderr)
         return 2
