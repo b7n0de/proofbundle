@@ -558,11 +558,14 @@ def _typed(label: Any, ok: Callable[[Any], bool], what: str) -> Callable[[Any], 
 
 
 def _cwt_claim(key: int, ok: Callable[[Any], bool], what: str) -> Callable[[Any], Optional[str]]:
-    """A rule body: a CWT claim of the protected CWT claims map, where present, has its type."""
+    """A rule body: a CWT claim, where present, has its type, in the CWT claims map of either header
+    bucket, as ``_typed`` checks a label (Codex, PR 279 round one: the protected bucket alone let a
+    mistyped claim in the unprotected one through to the status logic)."""
     def check(m: "CoseSign1") -> Optional[str]:
-        cwt = m.protected.get(_CWT)
-        if isinstance(cwt, dict) and key in cwt and not ok(cwt[key]):
-            return f"CWT claim {key} is not {what}"
+        for bucket, headers in (("protected", m.protected), ("unprotected", m.unprotected)):
+            cwt = headers.get(_CWT)
+            if isinstance(cwt, dict) and key in cwt and not ok(cwt[key]):
+                return f"CWT claim {key} in the {bucket} header is not {what}"
         return None
     return check
 

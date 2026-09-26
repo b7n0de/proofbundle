@@ -481,22 +481,23 @@ readable there only.
   `malformed`. Absence, and values v1 does not take, stay with the status logic: no 258 is not a
   hash envelope (`outside_profile`), no -1 is no inclusion proof (`outside_profile`), no `vdp` or
   no -2 is `consistency_proof_missing`.
-- What the pass checks: the types of the header labels the reader reads (RFC 9052 alg, crit,
-  content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC 8392 issuer and iat of
-  a receipt; RFC 9942 vds), the RFC 9995 types of 258, 259 and 260, label 394 as one to
-  `MAX_RECEIPTS` receipts, and for a receipt with vds 2 the -05 CDDL: alg `int`, `vdp` a map of -1
-  and -2 only with at least one of them, each an array of one to eight proofs, every proof of
-  either family parsed with its path, leaf or anchor.
+- What the pass checks: the types of the header labels the reader reads, in either header bucket
+  (RFC 9052 alg, crit, content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC
+  8392 issuer and iat of a receipt, in the claims map of either bucket; RFC 9942 vds), the RFC 9995
+  types of 258, 259 and 260, label 394 as one to `MAX_RECEIPTS` receipts, and for a receipt with vds
+  2 the -05 CDDL: alg `int`, `vdp` a map of -1 and -2 only with at least one of them, each an array
+  of one to eight proofs, every proof of either family parsed with its path, leaf or anchor.
 - Every rule is one named entry of a table in `proofbundle.scitt_ccf` (`_STATEMENT_RULES`,
   `_TRANSPARENT_RULES`, `_RECEIPT_BYTES_RULES`, `_RECEIPT_RULES`, `_CCF_RULES`, `_PROOF_RULES`,
   `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 40
   rules in turn: some regression case must then fail, its status, readable value or refusal no
   longer the expected one, and a positive control shows that a rule no case holds would be named.
-- Statuses this moves, measured with the 48 regression cases against the reader at `257b984`: 20
-  cases change, all to `malformed` and not readable. 16 were `outside_profile`: the wrong type of
+- Statuses this moves, measured with the 52 regression cases against the reader at `257b984`: 23
+  cases change, all to `malformed` and not readable. 19 were `outside_profile`: the wrong type of
   258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT
-  claims, issuer or vds, an empty crit on either side, an empty -1, and a `vdp` holding neither -1
-  nor -2. 4 were `confirmed`, because the reader never read the label: a statement kid as text, a
+  claims, issuer or vds, a receipt's issuer or iat in CWT claims carried unprotected (three cases,
+  Codex on pull request 279), an empty crit on either side, an empty -1, and a `vdp` holding neither
+  -1 nor -2. 4 were `confirmed`, because the reader never read the label: a statement kid as text, a
   statement's CWT claims as an array, a receipt content type as a byte string, a receipt iat as
   text. In the consistency verifier an empty -2 moves from `consistency_proof_missing` to
   `malformed`. No stored measurement of real bytes changes status (`recompute_result.json`,

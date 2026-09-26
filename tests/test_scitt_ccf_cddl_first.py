@@ -165,6 +165,20 @@ def _cases():
         # R5, thread 4110907849: the RFC 9995 parameter types; sibling: both labels
         ("R5 259 of []", lambda: _ts(st=_stmt(L259=[])), "malformed", False, "259"),
         ("R5 sibling: 260 of 0", lambda: _ts(st=_stmt(L260=0)), "malformed", False, "260"),
+        # PR 279 round one, thread 4111060383: a claim type in the unprotected CWT claims too;
+        # siblings: iat, and the consistency verifier. The control keeps its placement status.
+        ("PR 279 R1 control: well-typed CWT claims, unprotected",
+         lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: _p().ISSUER, 6: 1790000000}})])),
+         "outside_profile", True, "no CWT issuer in its protected header"),
+        ("PR 279 R1 receipt CWT issuer an int, unprotected",
+         lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: 5}})])),
+         "malformed", False, "CWT claim 1 in the unprotected"),
+        ("PR 279 R1 sibling: receipt CWT iat text, unprotected",
+         lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: _p().ISSUER, 6: "now"}})])),
+         "malformed", False, "CWT claim 6 in the unprotected"),
+        ("PR 279 R1 sibling: consistency receipt CWT issuer an int, unprotected",
+         lambda: _cons(signed=_signed_without_cwt(), unprot_extra={15: {1: 5}}),
+         "malformed", False, "CWT claim 1 in the unprotected"),
         # every other rule of the pass, one case each
         ("statement alg a bool", lambda: _ts(st=_stmt(L1=True)), "malformed", False, "label 1 in the protected"),
         ("statement crit empty", lambda: _ts(st=_stmt(L2=[])), "malformed", False, "label 2 in the protected"),
@@ -228,6 +242,23 @@ def _cases():
     ]
 
 
+def _receipt_unprot(extra):
+    """The control receipt without protected CWT claims, these labels added to its unprotected
+    header. The signature covers the protected header and the root, so it still verifies."""
+    P = _p()
+    st = _stmt()
+    import cbor2  # noqa: PLC0415
+    prot, unprot, payload, sig = cbor2.loads(P.Rcpt(data_hash=P.dh_of(st), drop_prot=(15,)).build()).value
+    return b"\xd2" + cbor2.dumps([prot, {**unprot, **extra}, payload, sig])
+
+
+def _signed_without_cwt():
+    """The consistency control's protected header and signature, without protected CWT claims."""
+    C = _c()
+    return C.sign_over(C.TREE.root(24), prot={1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2,
+                                                 "ccf.v1": {"txid": "2.24"}})
+
+
 def _receipt_with_vdp(vdp):
     """The control receipt re-signed with this value under label 396."""
     P = _p()
@@ -282,7 +313,7 @@ def _all_rules():
 # ------------------------------------------------------------------------------------------------
 # Regression
 # ------------------------------------------------------------------------------------------------
-N_CASES = 48
+N_CASES = 52
 
 
 def _holds(case) -> tuple:
