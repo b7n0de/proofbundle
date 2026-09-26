@@ -158,6 +158,8 @@ class Rcpt:
     n_proofs: int = 1
     proofs_override: object = None     # the inclusion proofs as given, junk included
     tagged: bool = True
+    consistency: object = None         # -2 beside -1: "same_root", "other_root", or the value as given
+    vdp_extra: dict = field(default_factory=dict)
 
     def build(self) -> bytes:
         key = self.key or SERVICE_KEY
@@ -185,7 +187,15 @@ class Rcpt:
         prot_b = enc(prot)
         n, h_alg = (48, hashes.SHA384()) if isinstance(key.curve, ec.SECP384R1) else (32, hashes.SHA256())
         sig = ecdsa(key, tbs(prot_b, root, self.aad), n, h_alg)
-        body = [prot_b, {396: {-1: proofs}}, self.payload, sig]
+        vdp = {-1: proofs}
+        if self.consistency == "same_root":         # anchor = the leaf, same path: newer root = this root
+            vdp[-2] = [enc({1: leaf, 2: path})]
+        elif self.consistency == "other_root":
+            vdp[-2] = [enc({1: leaf, 2: path[:-1] + [[path[-1][0], hashlib.sha256(b"other").digest()]]})]
+        elif self.consistency is not None:
+            vdp[-2] = self.consistency
+        vdp.update(self.vdp_extra)
+        body = [prot_b, {396: vdp}, self.payload, sig]
         return (b"\xd2" if self.tagged else b"") + enc(body)
 
 
@@ -719,6 +729,24 @@ def test_missing_trust_is_never_reported_as_an_unbound_receipt():
     no_key = verify(transparent(st, [other]), rp={"scitt_statement_keys": [spki(STMT_KEY)]})
     r = no_key.receipts[0]
     assert (r.status, r.signature_valid, r.bound, no_key.status) == ("needs_rp_trust", None, False, "needs_rp_trust")
+
+
+def test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root():
+    """Codex, PR 278 round three: the -05 CDDL closes vdp to -1 and -2, and section 5 says all proofs in
+    a receipt recompute the same root, the newer root for a consistency proof. A consistency proof
+    beside the inclusion proofs is parsed and its newer root compared; its older root is not evaluated
+    here, which needs a root the caller holds (verify_consistency_receipt)."""
+    st = Stmt()
+    dh = dh_of(st)
+    same = verify(transparent(st, [Rcpt(data_hash=dh, consistency="same_root").build()]))
+    assert (same.status, same.profile_satisfied, same.receipts[0].consistency_proofs_present) == ("confirmed", True, True)
+    for bad, want in (([b"junk"], "malformed"), (b"junk", "malformed"),
+                      ([b"junk"] * (S.MAX_CONSISTENCY_PROOFS + 1), "malformed"), ("other_root", "root_mismatch")):
+        r = verify(transparent(st, [Rcpt(data_hash=dh, consistency=bad).build()]))
+        assert (r.status, r.receipts[0].status, r.profile_satisfied) == (want, want, False), bad
+        assert r.receipts[0].readable is (want != "malformed"), bad
+    unknown = verify(transparent(st, [Rcpt(data_hash=dh, vdp_extra={-3: [b"junk"]}).build()]))
+    assert (unknown.status, unknown.receipts[0].readable, unknown.profile_satisfied) == ("malformed", False, False)
 
 
 def test_readable_needs_a_parsed_receipt_even_when_the_receipts_are_refused_early():

@@ -178,7 +178,7 @@ G6. There is nothing to test an implementation against.
 G7. A receipt carrying both proof types is checked by neither algorithm as a whole.
 - Sentence, 5: "All proofs in a receipt recompute the same root (the newer root, for consistency proofs), which is the detached payload." This is not written as a MUST.
 - Read: 3.2 ignores -2 and 4.2 ignores -1, so an inclusion proof to another root beside a valid consistency proof passes 4.2.
-- Measured: proofbundle refuses that receipt (`consistency_newer_roots_differ`, synthetic); with the service's inclusion proof beside the consistency proof computed from the ledger's leaves, in one constructed receipt, both accept.
+- Measured: proofbundle refuses that receipt (`consistency_newer_roots_differ`, synthetic); with the service's inclusion proof beside the consistency proof computed from the ledger's leaves, in one constructed receipt, both accept. The other direction, a consistency proof to another root beside a valid inclusion proof, is refused by proofbundle's inclusion reader as `root_mismatch` (synthetic, `test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root`).
 - Question: is that sentence normative, and which algorithm checks it?
 
 G8. Does "the same digests" in section 4 mean the same nodes, or the same values under RFC 9162's hashing?

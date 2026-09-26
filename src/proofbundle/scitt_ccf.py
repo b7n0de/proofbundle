@@ -752,19 +752,31 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
 
     alg = ph.get(_ALG)
     proofs = vdp.get(_INCLUSION)
+    consistency = vdp.get(_CONSISTENCY)
     parsed: list = []
+    newer_roots: list = []
     if _is_ccf(rc):
         # THE PROOFS BEFORE THE PROFILE (Codex, PR 278): an early profile branch must not skip the
         # shape of what follows it, or an unsupported algorithm makes junk proofs look readable.
         raw_vdp = rc.unprotected.get(_VDP)
         if raw_vdp is not None and not isinstance(raw_vdp, dict):
             return out("malformed", detail="vdp (396) is not a map")
-        if proofs is not None and not isinstance(proofs, list):
-            return out("malformed", detail="the inclusion proofs are not an array")
-        if isinstance(proofs, list) and len(proofs) > MAX_INCLUSION_PROOFS:
-            return out("malformed", detail=f"more than {MAX_INCLUSION_PROOFS} inclusion proofs")
+        # EVERY PROOF FAMILY, NOT ONLY -1 (Codex, PR 278 round three): the -05 CDDL closes vdp to -1
+        # and -2, and section 5 says all proofs in a receipt recompute the same root, the newer root
+        # for a consistency proof. A consistency proof here is parsed and its newer root compared; its
+        # older root is not evaluated, which needs a root the caller holds (verify_consistency_receipt).
+        unknown = [k for k in (raw_vdp or {}) if k not in (_INCLUSION, _CONSISTENCY)]
+        if unknown:
+            return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
+        for name, arr, limit in (("inclusion", proofs, MAX_INCLUSION_PROOFS),
+                                 ("consistency", consistency, MAX_CONSISTENCY_PROOFS)):
+            if arr is not None and not isinstance(arr, list):
+                return out("malformed", detail=f"the {name} proofs are not an array")
+            if isinstance(arr, list) and len(arr) > limit:
+                return out("malformed", detail=f"more than {limit} {name} proofs")
         try:
             parsed = [_inclusion_root(p) for p in proofs or []]
+            newer_roots = [_consistency_roots(p)[1] for p in consistency or []]
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
         base.update(readable=bool(parsed))
@@ -784,6 +796,9 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
     base.update(merkle_root=root, data_hashes=tuple(hashes_))
     if any(r != root for r in roots):
         return out("root_mismatch", detail="inclusion proofs compute different roots")
+    if any(r != root for r in newer_roots):
+        return out("root_mismatch", detail="a consistency proof computes another newer root than the "
+                                           "inclusion proofs (-05 section 5: all proofs, one root)")
     bound = all(dh == data_hash for dh in hashes_)
 
     trusted = services.get(iss) if isinstance(services, dict) else None
