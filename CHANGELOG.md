@@ -10,6 +10,55 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An ES256 signature has one identity, and eip191 refuses a high s** (finding D1;
+  `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`, `kbjwt`,
+  `sdjwt_issue.present_with_key_binding`, `emit.emit_bundle`, `hf_evals`,
+  `anchors.receipt_canonical_root`, `anchors_rootcommit.eip191_recover_address`). ECDSA is
+  malleable: from a valid ES256 signature
+  (r, s) anyone can write (r, n − s) without the key, and both verify. Measured on main 126ed1dc:
+  `verify_ecdsa_p256`, `verify_sd_jwt` and `verify_bundle` accepted both; the `pb1.` tokens of a
+  bundle and of its twin were two different tokens that both verified, with the same `payload_b64`;
+  `receipt_canonical_root` gave two roots, so a `receipt` anchor over one spelling failed
+  `--require-anchor` for the other; the Key Binding JWT's `sd_hash` check refused the twin of a
+  genuine presentation, so with a KB-JWT attached `verify_bundle` accepted one spelling and refused
+  the other; `present_with_key_binding` passed a high s on and bound it with proofbundle's own
+  signature; and `emit_bundle` wrote a high s it was handed into the bundle it emitted. For
+  secp256k1, `eip191_recover_address` recovered the same wallet from the vendored
+  `v2sig-01-valid` signature and from its twin (r, n − s, recovery id flipped), so one signature made
+  two rootcommit anchor lines that both verified.
+
+  The owner decided on 2026-09-26. Verification keeps accepting both spellings of an ES256
+  signature: RFC 7518 §3.4 does not require the low half, OpenSSL signs with either half (1007 of
+  2000 signatures in one measurement with `cryptography` 49.0.0) and accepts both, and two of the
+  five IETF SD-JWT VC examples vendored in `tests/fixtures/sdjwtvc` carry a high s and stay green.
+  Every identity formed from ES256 signature bytes is formed over the canonical spelling with
+  s ≤ n/2 instead. The `pb1.` token packs that spelling, so a bundle and its twin give one token.
+  `verify_receipt_token` returns the bundle in that spelling, and that bundle is what to
+  deduplicate tokens by; the token string never was an identity, since another zlib level or other
+  JSON whitespace also verifies. `receipt_canonical_root` hashes that spelling, so one receipt has
+  one root. The KB-JWT's `sd_hash` is accepted over either spelling of the issuer signature, so the
+  verdict no longer depends on which one a relay passed on; the two differ in that segment only.
+  Everything proofbundle emits carries the low s: a bundle from `emit_bundle` (and so from
+  `emit_eval_receipt`), the `pb1.` token and a presentation from `present_with_key_binding`; the
+  caller's dict is not modified. proofbundle signs no ES256 signature of its own, and a test keeps an
+  inventory of the ECDSA code in the package so a new signing path is noticed. A `pb1.` token that
+  carries a high s, as tokens emitted before this change can, is still accepted and read in the
+  low-s spelling; refusing it is for a later major release, after measuring how many existing
+  tokens carry one. eip191 now refuses a signature whose s lies above n/2 before recovery, as
+  OpenZeppelin's `ECDSA.recover` does (EIP-2); libsecp256k1, which Ethereum wallets sign with,
+  emits the low s only, and all five vendored v2-sig vectors carry a low s, so no genuine
+  signature is refused.
+
+  One consequence is stated here rather than left to be found: a `receipt` anchor stamped before
+  this change over a bundle whose ES256 `sd_jwt_vc` carried a high s no longer matches its root.
+  None of the 616 JSON files in this repository carries an ES256 `sd_jwt_vc`. SPEC §6 and §7i
+  state the rule. Before the change, the places where signature bytes enter an identity were
+  mapped for ES256, secp256k1, Ed25519 and ML-DSA; the Ed25519 and ML-DSA rows have no such twin,
+  because the S bound and the strict base64 decoders leave one spelling. Contract
+  `tests/test_es256_signature_has_one_identity.py` with cases in `tests/test_signature.py`,
+  `tests/test_sdjwtvc_external_vectors.py` and `tests/test_anchors_rootcommit.py`: 13 of the 19 new
+  cases are red against 126ed1dc, and the 6 that are green there are guards that say so.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

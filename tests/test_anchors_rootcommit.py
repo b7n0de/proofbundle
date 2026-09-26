@@ -171,5 +171,61 @@ class TestRootcommitV2SigSignature(unittest.TestCase):
         self.assertTrue(res["reject"])
 
 
+# secp256k1 group order (SEC 2), written out rather than imported from the module under test.
+_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def _twin_text(text: str) -> "tuple[str, bytes, bytes]":
+    """The checkpoint with the v2-sig anchor signature (r, s, v) replaced by (r, n - s, v') where v'
+    flips the recovery id: the second spelling anyone can write without the wallet key. Returns the
+    new text, the original signature and the twin signature."""
+    import base64
+    body, sigs = text.rsplit("\n\n", 1)
+    out, original, twin = [], b"", b""
+    for line in sigs.splitlines():
+        if line.startswith(f"— {rc.KEY_NAME} "):
+            head = line.split(" ", 2)
+            payload = base64.b64decode(head[2])
+            idlen = payload[5]
+            opaque = payload[6 + idlen:]
+            wlen = opaque[1]
+            at = 2 + wlen + 1                                 # 0x02 || wlen || wallet || 0x41 || sig
+            original = opaque[at:at + 65]
+            s, v = int.from_bytes(original[32:64], "big"), original[64]
+            flipped = 55 - v if v in (27, 28) else v ^ 1      # 27 <-> 28, or raw 0 <-> 1
+            twin = original[:32] + (_SECP256K1_N - s).to_bytes(32, "big") + bytes([flipped])
+            opaque = opaque[:at] + twin + opaque[at + 65:]
+            line = f"{head[0]} {head[1]} " + base64.b64encode(payload[:6 + idlen] + opaque).decode()
+        out.append(line)
+    return body + "\n\n" + "\n".join(out) + ("\n" if sigs.endswith("\n") else ""), original, twin
+
+
+@unittest.skipUnless(_HAS_OTS and _HAS_SIG, "needs proofbundle[anchors] + a secp256k1/keccak backend")
+class TestRootcommitV2SigRefusesAHighS(unittest.TestCase):
+    """Finding D1 (owner decision 2026-09-26): eip191 refuses a signature whose s lies in the upper
+    half, as OpenZeppelin's ECDSA.recover does (EIP-2). Measured on 126ed1dc: the twin of the valid
+    vector recovered the same wallet and the whole checkpoint verified with sig_ok True."""
+
+    def test_every_vendored_signature_carries_a_low_s(self):
+        # the fixture fact that makes the refusal free of interop cost; green before and after the fix
+        for name in ("v2sig-01-valid", "v2sig-02-tampered-root", "v2sig-03-tampered-wallet",
+                     "v2sig-04-tampered-sig", "v2sig-05-tampered-proof"):
+            _text, original, _twin = _twin_text(_read(f"vectors_sig/{name}.txt"))
+            self.assertLessEqual(int.from_bytes(original[32:64], "big"), _SECP256K1_N // 2, name)
+
+    def test_the_twin_of_the_valid_signature_is_refused(self):
+        text = _read("vectors_sig/v2sig-01-valid.txt")
+        twin_text, original, twin = _twin_text(text)
+        self.assertNotEqual(twin_text, text)
+        message = f"{rc.V2SIG_MESSAGE_TAG}\n{_COMMITMENT}"
+        self.assertEqual(rc.eip191_recover_address(message, original), _WALLET.lower())
+        self.assertIsNone(rc.eip191_recover_address(message, twin))
+        res = rc.verify_rootcommit_v2sig(twin_text)
+        self.assertTrue(res["binding"])                   # root and wallet are untouched
+        self.assertIs(res["sig_ok"], False)
+        self.assertTrue(res["reject"])
+        self.assertTrue(rc.verify_rootcommit_v2sig(text)["sig_ok"])   # the genuine line still verifies
+
+
 if __name__ == "__main__":
     unittest.main()

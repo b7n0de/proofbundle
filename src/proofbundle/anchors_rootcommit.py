@@ -49,6 +49,10 @@ ID_V1 = "markovianprotocol.com/bitcoin-anchor/rootcommit/v1"
 ID_V2SIG = "markovianprotocol.com/bitcoin-anchor/rootcommit/v2-sig"
 TAG_V1 = ID_V1                                      # preimage line 1 == the v1 id
 V2SIG_MESSAGE_TAG = ID_V2SIG                        # EIP-191 message tag (SPEC_SIG §"The signature")
+# secp256k1 group order n (SEC 2). EIP-2 bounds a signature's s by n / 2; _SECP256K1_HALF_N equals
+# the bound OpenZeppelin's ECDSA.recover checks, 0x7FFF...20A0.
+_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+_SECP256K1_HALF_N = _SECP256K1_N // 2
 _ANCHOR_PREFIX = f"— {KEY_NAME} "              # "— <keyname> " (U+2014 EM DASH), one anchor per line
 
 
@@ -211,8 +215,19 @@ class _NoSigLib(RuntimeError):
 def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
     """EIP-191 personal_sign recovery → EIP-55 address, or None on malformed input. Raises _NoSigLib if
     no secp256k1 recovery backend is installed (caller maps that to status 'no_sig_lib'). The message is
-    the frozen v2-sig message (tag + '\\n' + commitment_hex); recovery == the bound wallet is the proof."""
+    the frozen v2-sig message (tag + '\\n' + commitment_hex); recovery == the bound wallet is the proof.
+
+    A signature whose ``s`` lies in the upper half of the group order is refused (None) before any
+    recovery, as OpenZeppelin's ``ECDSA.recover`` refuses it (EIP-2). ``(r, s)`` with one recovery id
+    and ``(r, n - s)`` with the other recover the SAME address, so without the refusal one signature
+    makes two anchor lines that both verify; measured on 126ed1dc with the vendored
+    ``v2sig-01-valid`` vector (finding D1). libsecp256k1, which Ethereum wallets sign with, emits the
+    low ``s`` only, and all five vendored v2-sig vectors carry a low ``s``."""
     if len(sig65) != 65:
+        return None
+    if not isinstance(sig65, (bytes, bytearray)):
+        return None
+    if int.from_bytes(sig65[32:64], "big") > _SECP256K1_HALF_N:
         return None
     body = message.encode("utf-8")
     digest = _keccak256(b"\x19Ethereum Signed Message:\n" + str(len(body)).encode() + body)

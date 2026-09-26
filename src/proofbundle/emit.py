@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from . import merkle
-from .bundle import SCHEMA
+from .bundle import SCHEMA, _canonical_signature_form
 
 __all__ = [
     "generate_signer",
@@ -113,8 +113,11 @@ def emit_bundle(
     RFC 6962 Merkle tree over ``prior_leaves + [payload]``. The returned dict is
     accepted by :func:`proofbundle.verify_bundle`.
 
-    ``sd_jwt_vc`` is passed through verbatim if given (for example
-    ``{"compact": "...", "issuer_public_key_b64": "..."}``).
+    ``sd_jwt_vc`` is passed through as given (for example
+    ``{"compact": "...", "issuer_public_key_b64": "..."}``), with one exception: an ES256 issuer
+    signature is written in its low-s spelling (finding D1). Both spellings verify, and what
+    proofbundle emits carries one of them; the caller's dict is not modified. Measured on 126ed1dc: a
+    compact with a high s went into the emitted bundle as it came.
     """
     leaves = list(prior_leaves) + [payload]
     index = len(leaves) - 1
@@ -140,4 +143,4 @@ def emit_bundle(
     }
     if sd_jwt_vc is not None:
         bundle["sd_jwt_vc"] = sd_jwt_vc
-    return bundle
+    return _canonical_signature_form(bundle)

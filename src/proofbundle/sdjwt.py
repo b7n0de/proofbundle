@@ -25,6 +25,9 @@ Scope, stated honestly (see README security notes):
     alg claim is cryptographically bound into the verified bytes: relabelling
     it to reuse a signature under a different verify function/key-length
     expectation changes ``header_b64`` and breaks the original signature.
+    An ES256 signature verifies in both of its spellings, ``(r, s)`` and
+    ``(r, n - s)``; :func:`canonical_sd_jwt_compact` is the one form of a
+    compact that identities are formed over (finding D1).
   - Key Binding JWT verification lives in :mod:`proofbundle.kbjwt` (since
     v1.2, EdDSA-only — holder-binding is a separate, narrower scope than
     issuer-signature interop and is not extended by Finding 20); this module
@@ -49,7 +52,8 @@ from typing import Optional, Set
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
-from .signature import verify_ecdsa_p256, verify_ed25519_pinned
+from .signature import (_es256_other_spelling, canonical_es256_signature, verify_ecdsa_p256,
+                        verify_ed25519_pinned)
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -62,7 +66,7 @@ from ._membership import is_member
 # ES256 path already refuses a point that is not on P-256.
 _ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}
 
-__all__ = ["verify_sd_jwt"]
+__all__ = ["verify_sd_jwt", "canonical_sd_jwt_compact"]
 
 _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
 
@@ -271,3 +275,60 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     if not result["detail"]:
         result["detail"] = f"{len(disclosures)} disclosure(s)"
     return result
+
+
+def _es256_issuer_signature(compact):
+    """``(head, signature, tail)`` when ``compact`` starts with an issuer JWT whose header ``alg`` is
+    ``ES256`` and whose signature segment decodes to 64 bytes: ``head`` is ``header_b64.payload_b64.``
+    and ``tail`` is everything after the signature segment, the ``~`` included. None for anything
+    else. Never raises."""
+    if not isinstance(compact, str):
+        return None
+    jwt, sep, rest = compact.partition("~")
+    segments = jwt.split(".")
+    if len(segments) != 3:
+        return None
+    try:
+        header = loads_strict(_b64url_decode(segments[0]))
+        signature = _b64url_decode(segments[2])
+    except (ProofBundleError, ValueError):
+        return None
+    if not isinstance(header, dict) or header.get("alg") != "ES256" or len(signature) != 64:
+        return None
+    return f"{segments[0]}.{segments[1]}.", signature, sep + rest
+
+
+def canonical_sd_jwt_compact(compact):
+    """``compact`` with its ES256 issuer signature in the spelling identities are formed over, ``s <=
+    n / 2`` (:func:`~proofbundle.signature.canonical_es256_signature`); every other byte, disclosures
+    and a Key Binding JWT included, is unchanged. A compact whose issuer JWT is not ES256, or whose
+    signature segment does not decode to 64 bytes, comes back as it is, and so does a non-str. Never
+    raises.
+
+    :func:`verify_sd_jwt` accepts both spellings of an ES256 issuer signature, so two compacts that
+    differ only there are one credential. This is the form to compare, digest or deduplicate them by,
+    and the form proofbundle passes on when it emits a compact (finding D1)."""
+    found = _es256_issuer_signature(compact)
+    if found is None:
+        return compact
+    head, signature, tail = found
+    canonical = canonical_es256_signature(signature)
+    if canonical == signature:
+        return compact
+    return head + _b64url_nopad(canonical) + tail
+
+
+def _es256_signature_spellings(compact) -> tuple:
+    """Every spelling of ``compact`` that verifies alike: for an ES256 issuer JWT the ``(r, s)`` and
+    the ``(r, n - s)`` form, the canonical low-s one first; for anything else ``(compact,)``. The two
+    differ in the issuer signature segment only, never in the header, the payload, a disclosure or a
+    Key Binding JWT. Never raises."""
+    found = _es256_issuer_signature(compact)
+    if found is None:
+        return (compact,)
+    head, signature, tail = found
+    canonical = canonical_es256_signature(signature)
+    other = _es256_other_spelling(canonical)
+    if other is None:
+        return (compact,)
+    return (head + _b64url_nopad(canonical) + tail, head + _b64url_nopad(other) + tail)

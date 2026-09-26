@@ -28,7 +28,7 @@ import zlib
 from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
-from .bundle import verify_bundle
+from .bundle import _canonical_signature_form, verify_bundle
 from .budget import render_keys_safe
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
@@ -53,16 +53,31 @@ def _b64url_decode(s: str) -> bytes:
 def receipt_token(bundle: dict) -> str:
     """Pack a receipt bundle into a compact, self-contained token: ``pb1.`` +
     base64url(zlib(canonical bundle JSON)). The token IS the receipt — verifying it is verifying
-    the bundle, offline, no lookup."""
+    the bundle, offline, no lookup.
+
+    An ES256 issuer signature in ``sd_jwt_vc`` is packed in its low-s spelling (finding D1). Both
+    spellings verify; packing one of them means a receipt does not become two tokens that way.
+    Measured on 126ed1dc: a bundle and its (r, n - s) twin gave two distinct tokens that both
+    verified, and a high s went into the token as it came.
+
+    THE IDENTITY OF A TOKEN is not the token string: another zlib level, other JSON whitespace or the
+    other spelling of an ES256 signature give a different string for the same receipt, and each one
+    verifies. Two tokens are the same receipt when :func:`verify_receipt_token` returns the same
+    bundle for both. That bundle, compared as a value or digested in the canonical JSON form this
+    function packs, is the key to deduplicate or replay-check tokens by."""
     if not isinstance(bundle, dict) or "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
-    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    canonical = json.dumps(_canonical_signature_form(bundle), sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
 def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
-    Malformed tokens raise BundleFormatError — never a crash, never a silent pass."""
+    Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
+
+    The returned bundle carries an ES256 issuer signature in its low-s spelling, whichever spelling
+    the token held (finding D1), so two tokens of one receipt return one bundle."""
     if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX):
         raise BundleFormatError(f"not a proofbundle receipt token (expected {TOKEN_PREFIX!r} prefix)")
     # Deep gate Z195, L2-Z195-TOKEN-TRAILING-DATA-01: the body was base64-decoded in full before any
@@ -91,6 +106,11 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         raise BundleFormatError(f"receipt token is not valid base64url(zlib(JSON)): {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("receipt token does not contain a bundle object")
+    # Finding D1: a token carrying a high s in its ES256 issuer signature is ACCEPTED (tokens emitted
+    # before this change can carry one; refusing them is for a later major, after measuring how many
+    # exist) and read in the low-s spelling. Both spellings verify alike, so the verdict is the one
+    # the token's own bytes would get, and the bundle returned is the token's identity.
+    bundle = _canonical_signature_form(bundle)
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
     # token never escapes as a different exception type (release-review fix).
     try:

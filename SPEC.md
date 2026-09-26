@@ -197,6 +197,21 @@ is present but `issuer_public_key_b64` is **absent**, this check **FAILS**
 treated as a passing credential. There is no opt-out that lets an unsigned
 SD-JWT verify.
 
+**Both spellings of an ES256 signature verify, and they are one credential**
+(finding D1, 2026-09-26). ECDSA is malleable: whoever holds a valid ES256
+signature `(r, s)` can write `(r, n − s)` without the key (`n` is the order of
+the P-256 group), and it verifies as well. RFC 7518 §3.4 does not require the
+low half, OpenSSL (which this implementation uses) signs with either half and
+accepts both, and two of the five IETF SD-JWT VC examples vendored in
+`tests/fixtures/sdjwtvc` carry a high `s`. A verifier therefore MUST accept both
+spellings. It MUST NOT let the spelling create a second identity: every digest,
+token, deduplication or replay key formed over bytes that carry an ES256
+signature is formed over the canonical spelling, the one with `s ≤ n/2`
+(`signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`), and an
+implementation emits that spelling only. In this implementation that covers the
+`sd_hash` of **sd-jwt-key-binding** below, the `receipt` anchor root (§7i) and
+the `pb1.` receipt token.
+
 Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
 its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
 verified the signature MUST be the key it names (`issuer_public_key_b64` is already
@@ -234,7 +249,10 @@ be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
 presented `<Issuer-signed JWT>~<Disclosure 1>~…~<Disclosure N>~`)) with H the
-SD-JWT's `_sd_alg` hash; and the KB-JWT signature verifies under the holder key
+SD-JWT's `_sd_alg` hash, where for an ES256 issuer JWT a match over either
+spelling of the issuer signature counts (the holder hashed the spelling it
+received; the two differ in the signature segment only, see above); and the
+KB-JWT signature verifies under the holder key
 from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
 binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
 the relying party's (an offline verifier has no trusted clock); the library
@@ -612,7 +630,7 @@ Each `anchors[]` entry is a JSON object:
 | target | claim | canonical root |
 |---|---|---|
 | `preRegistration` | the commitment existed **before** the run (backdating protection; in-toto/attestation#565) | SHA-256 of the raw protocol bytes, i.e. the receipt's `prereg_sha256` |
-| `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`** |
+| `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`**, with an ES256 issuer signature in `sd_jwt_vc` in its canonical low-`s` spelling (§6) |
 
 **The type name is an identifier, not a grammar (rev 2026-09-20).** An earlier revision of the
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or

@@ -228,6 +228,58 @@ class TestSdjwtVcIssuerSignatureExternalVectors(unittest.TestCase):
         self.assertGreater(found_with_kid, 0, "must not vacuously pass with no kid-bearing example")
 
 
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def _issuer_s(compact: str) -> int:
+    return int.from_bytes(_b64url_decode(compact.split("~", 1)[0].split(".")[2])[32:], "big")
+
+
+def _twin(compact: str) -> str:
+    """The same compact with the issuer signature's s replaced by n - s (the second spelling anyone
+    can write without the key); everything after the signature segment is kept byte for byte."""
+    jwt, sep, rest = compact.partition("~")
+    header_b64, payload_b64, sig_b64 = jwt.split(".")
+    sig = _b64url_decode(sig_b64)
+    other = sig[:32] + (_P256_N - int.from_bytes(sig[32:], "big")).to_bytes(32, "big")
+    return f"{header_b64}.{payload_b64}.{base64.urlsafe_b64encode(other).rstrip(b'=').decode()}{sep}{rest}"
+
+
+@unittest.skipUnless(EXAMPLES_PATH.exists() and ISSUER_PUBKEY_PATH.exists(),
+                     "sdjwtvc examples/issuer-key fixtures not vendored")
+class TestSdjwtVcBothSpellingsOneIdentity(unittest.TestCase):
+    """Finding D1 (owner decision 2026-09-26). Two of these five IETF examples carry a HIGH s, which is
+    why verification must keep accepting both spellings of an ES256 signature; an identity is formed
+    over the low-s spelling instead."""
+
+    def setUp(self) -> None:
+        self.examples = _load_examples()
+        self.issuer_pubkey = _load_issuer_pubkey_raw()
+
+    def test_two_of_the_five_examples_carry_a_high_s(self) -> None:
+        # the fixture fact the decision rests on; green before and after the fix
+        high = [i for i, c in enumerate(self.examples) if _issuer_s(c) > _P256_N // 2]
+        self.assertEqual(high, [3, 4])
+
+    def test_every_example_and_its_twin_verify_and_have_one_canonical_form(self) -> None:
+        from proofbundle.sdjwt import canonical_sd_jwt_compact  # noqa: PLC0415 - red on 126ed1dc
+        for i, compact in enumerate(self.examples):
+            twin = _twin(compact)
+            self.assertNotEqual(twin, compact)
+            for spelling in (compact, twin):
+                res = verify_sd_jwt(spelling, self.issuer_pubkey)
+                self.assertTrue(res["sig_ok"] and res["structure_ok"], f"example {i}: {res['detail']}")
+            canonical = canonical_sd_jwt_compact(compact)
+            self.assertEqual(canonical, canonical_sd_jwt_compact(twin), f"example {i}")
+            self.assertLessEqual(_issuer_s(canonical), _P256_N // 2, f"example {i}")
+            self.assertTrue(verify_sd_jwt(canonical, self.issuer_pubkey)["sig_ok"], f"example {i}")
+            # only the signature segment may differ: header, payload, disclosures and a KB-JWT stay
+            self.assertEqual(canonical.split("~", 1)[1], compact.split("~", 1)[1], f"example {i}")
+            self.assertEqual(canonical.split(".")[:2], compact.split(".")[:2], f"example {i}")
+            if _issuer_s(compact) <= _P256_N // 2:
+                self.assertIs(canonical, compact, f"example {i}: a low-s compact is passed on as it is")
+
+
 @unittest.skipUnless(EXAMPLES_PATH.exists(), "sdjwtvc examples fixture not vendored")
 class TestSdjwtVcProfileExternalVectors(unittest.TestCase):
     def setUp(self) -> None:

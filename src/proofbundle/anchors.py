@@ -116,7 +116,14 @@ def _b64d(value, field: str) -> bytes:
 
 def receipt_canonical_root(bundle: dict) -> bytes:
     """The RFC 8785 (JCS) sha256 of the receipt bundle — the canonical root a ``receipt`` anchor stamps.
-    Uses a real RFC 8785 canonicalizer (the ``[anchors]``/``[eval]`` extra); never a home-grown sort."""
+    Uses a real RFC 8785 canonicalizer (the ``[anchors]``/``[eval]`` extra); never a home-grown sort.
+
+    An ES256 issuer signature in ``sd_jwt_vc`` enters the root in its low-s spelling (finding D1):
+    ``verify_bundle`` accepts ``(r, s)`` and ``(r, n - s)``, and one receipt has one root. Measured on
+    126ed1dc: a bundle and its twin gave two roots, so an anchor over one did not cover the other. An
+    anchor stamped before this change over a bundle whose ES256 signature had a high ``s`` no longer
+    matches; measured on 2026-09-26, none of the 616 JSON files in this repository carries an ES256
+    ``sd_jwt_vc``."""
     try:
         import rfc8785  # noqa: PLC0415
     except ImportError as exc:   # pragma: no cover - guarded by the extra
@@ -130,7 +137,8 @@ def receipt_canonical_root(bundle: dict) -> bytes:
         # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
         # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
         enforce_structural_budget(bundle)
-        return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+        from .bundle import _canonical_signature_form  # noqa: PLC0415 - local import, as above
+        return hashlib.sha256(rfc8785.dumps(_canonical_signature_form(bundle))).digest()
     except BundleFormatError:
         raise
     except (ProofBundleError, ValueError, RecursionError) as exc:

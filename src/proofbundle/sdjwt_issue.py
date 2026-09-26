@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
+from .sdjwt import canonical_sd_jwt_compact
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
 from ._verdict import require_bool_verdict
@@ -172,11 +173,17 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     SD-JWT's ``_sd_alg`` hash — so dropping or swapping a disclosure after signing is detectable.
     ``iat`` is the POSIX issuance time chosen by the holder (explicit, not sampled here, so
     presentations are reproducible in tests).
+
+    An ES256 issuer signature is presented, and bound by ``sd_hash``, in its low-s spelling
+    (:func:`~proofbundle.sdjwt.canonical_sd_jwt_compact`), so what this function emits carries one
+    spelling whichever one it was handed (finding D1). An EdDSA compact is passed on unchanged.
     """
     if not compact.endswith("~"):
         raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")
     if isinstance(iat, bool) or not isinstance(iat, int):
         raise ValueError("iat must be a POSIX timestamp integer")
+    # Measured on 126ed1dc: a compact with a high s went out with that high s, bound by our own KB-JWT.
+    compact = canonical_sd_jwt_compact(compact)
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).
     # adversarial re-audit round 3: a node-heavy/oversized issuer payload makes _jwt_payload raise

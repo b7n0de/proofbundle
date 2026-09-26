@@ -102,5 +102,59 @@ class TestVerifyEcdsaP256(unittest.TestCase):
         self.assertFalse(verify_ecdsa_p256(bogus, b"\x00" * 64, b"m"))
 
 
+# The P-256 group order, written out here instead of imported, so the tests below check the
+# module's constant against an independent statement of it (SEC 2 / FIPS 186-5).
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+class TestCanonicalEs256Signature(unittest.TestCase):
+    """Finding D1 (owner decision 2026-09-26). An ES256 signature verifies as (r, s) and as (r, n - s);
+    verification keeps accepting both, and the identity of either is the spelling with s <= n / 2.
+    Red on 126ed1dc, where `canonical_es256_signature` did not exist."""
+
+    def test_both_spellings_verify_and_fold_to_one_low_s_spelling(self):
+        from proofbundle.signature import canonical_es256_signature  # noqa: PLC0415
+        halves = {"low": 0, "high": 0}
+        for i in range(64):
+            key = ec.generate_private_key(ec.SECP256R1())
+            pub, msg = _p256_raw_pub(key), b"message %d" % i
+            sig = _p256_raw_sig(key, msg)
+            s = int.from_bytes(sig[32:], "big")
+            halves["high" if s > _P256_N // 2 else "low"] += 1
+            twin = sig[:32] + (_P256_N - s).to_bytes(32, "big")
+            self.assertTrue(verify_ecdsa_p256(pub, sig, msg))
+            self.assertTrue(verify_ecdsa_p256(pub, twin, msg), "the twin keeps verifying (RFC 7518)")
+            canonical = canonical_es256_signature(sig)
+            self.assertEqual(canonical, canonical_es256_signature(twin))
+            self.assertIn(canonical, (sig, twin))
+            self.assertLessEqual(int.from_bytes(canonical[32:], "big"), _P256_N // 2)
+            self.assertTrue(verify_ecdsa_p256(pub, canonical, msg))
+            self.assertEqual(canonical_es256_signature(canonical), canonical)
+        # both halves occur, or the loop above proved the fold in one direction only
+        self.assertGreater(halves["low"], 0, halves)
+        self.assertGreater(halves["high"], 0, halves)
+
+    def test_the_boundary_is_n_over_two(self):
+        from proofbundle.signature import canonical_es256_signature  # noqa: PLC0415
+        r = (7).to_bytes(32, "big")
+        half = _P256_N // 2      # n is odd, so n - (half + 1) == half
+        self.assertEqual(canonical_es256_signature(r + half.to_bytes(32, "big")), r + half.to_bytes(32, "big"))
+        self.assertEqual(canonical_es256_signature(r + (half + 1).to_bytes(32, "big")),
+                         r + half.to_bytes(32, "big"))
+        self.assertEqual(canonical_es256_signature(r + (_P256_N - 1).to_bytes(32, "big")),
+                         r + (1).to_bytes(32, "big"))
+
+    def test_what_has_no_second_spelling_comes_back_unchanged(self):
+        from proofbundle.signature import canonical_es256_signature  # noqa: PLC0415
+        r = (7).to_bytes(32, "big")
+        for s in (0, _P256_N, _P256_N + 1, 2 ** 256 - 1):       # none of these verifies
+            sig = r + s.to_bytes(32, "big")
+            self.assertEqual(canonical_es256_signature(sig), sig)
+        for odd in (b"", b"\x01" * 63, b"\x01" * 65, None, "x" * 64, 64, [1] * 64):
+            self.assertIs(canonical_es256_signature(odd), odd)
+        high = bytearray(r + (_P256_N - 1).to_bytes(32, "big"))
+        self.assertEqual(canonical_es256_signature(high), r + (1).to_bytes(32, "big"))
+
+
 if __name__ == "__main__":
     unittest.main()

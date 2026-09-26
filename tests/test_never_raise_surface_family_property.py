@@ -86,6 +86,11 @@ _NAME_PATTERN = re.compile(
     # caller-supplied key (any type) and must name a reason ("malformed") instead of crashing. In the
     # denominator; `verify_ed25519_pinned` already falls in through its prefix.
     r"|ed25519_trust_anchor_weakness"
+    # 2026-09-26, finding D1: `canonical_es256_signature` and `canonical_sd_jwt_compact` take a
+    # signature or a presented compact from outside (a bundle, a token) and form the one spelling an
+    # identity is built over. Neither is a verdict, but both read untrusted input, so they must hand
+    # back a value for every input rather than crash; both return a non-str or non-bytes input as it came.
+    r"|canonical_es256_signature|canonical_sd_jwt_compact"
     # 2026-09-05, CAP-1 Teil B: `is_conformant` ist ein Praedikat ueber ein vom Aufrufer geliefertes
     # Dokument (untrusted) und muss urteilen statt zu crashen — in den Nenner, wie das Vorbild eine
     # Zeile darueber. `check_cap1_document`/`load_cap1_document` fallen ueber ihre Praefixe hinein.
