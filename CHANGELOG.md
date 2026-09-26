@@ -75,17 +75,53 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   reader does not match TOML's multi-line strings at all, and it reads an escaped `\n` as two
   characters (measured). The sweep in
   `tests/test_every_validator_refuses_what_its_schema_refuses.py` now reads `scripts/` and `tools/`
-  for Unicode classes, sees an alias of `re` and `__import__("re")` (the register's copy sat behind
+  for Unicode classes (`\B` counts as one now), sees an alias of `re` and `__import__("re")` (the register's copy sat behind
   the second), sees a function of `re` imported by name (`from re import compile as c`, `*`), bound
-  by assignment, taken with `getattr` or bound in `functools.partial`, and folds a pattern given as
-  `pattern=` without running the module: literals (a bytes literal's `\d` is ASCII in Python),
-  an f-string without a placeholder, `+`, `%` and `*`, both branches of a conditional, a
-  module-level name through every value it is bound to, an attribute of a module-level class, an
-  index into a folded list, and `str.join` and `str.format`; a value that exists only at run time
-  (a parameter, a loop variable, a local name, another call) is a named limit. It leaves MULTILINE patterns alone, whose anchors are
-  per line. Four scripts still
-  end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
-  module and pattern, and the list is exact in both directions.
+  by assignment, taken with `getattr` or bound in `functools.partial`, reads `re._compile` too, and
+  folds a pattern given as `pattern=` without running the module: literals (a bytes literal's `\d`
+  is ASCII in Python), an f-string whose placeholders fold to a text or an int, `+`, `%` and `*` (a
+  dict on the right of `%` included), both branches of a conditional, a name through the scopes
+  around it to every value it is bound to at module level (inside `if`, `for`, `while`, `with` and
+  `try` bodies too) or in a class body, an attribute of a module-level class, an index or a slice of
+  a folded list or string, and `str.join` and `str.format` (keywords included). A pattern judges a
+  whole value when it is matched with `fullmatch`, or is anchored at the start (`\A`, `^`, or
+  `match`, which anchors there by itself; a compiled pattern counts as matched the way its module
+  calls it on the name or attribute it is bound to) and at the end (`\Z` or `$`), read after its
+  inline flags, its comments, VERBOSE whitespace and a group around the whole of it. Flags are the
+  flags of `re` in the flags position (by attribute or imported name, ints of flag bits, `|` of
+  them), no longer any argument whose text contains `ASCII` or `MULTILINE`. Under MULTILINE only `^`
+  and `$` are line anchors; `\A..\Z`, `match` with `\Z` and `fullmatch` still judge a whole value,
+  and a MULTILINE call is judged and listed like any other. What the fold cannot state is no longer
+  dropped: a value that exists only at run time (a parameter, a local, a loop variable, a name
+  rebound by `+=`, by a module-level `for` or through `global`, another call), a placeholder of
+  another type, flags it does not read, a call of another attribute of `re` whose first argument can
+  be a text, an error a fold step raises, a fold past 64 values, a value of more than 10,000
+  characters or elements (summed through what it holds, and judged before it is built, widths passed
+  as arguments included), 200,000 fold steps for one call, and one nested deeper than the
+  interpreter recurses make the call an unfolded site. Every unfolded site is listed with its count
+  and the reason it judges no whole value: eight calls under six keys under `src/`, `scripts/` and
+  `tools/`, each read in its source; the two keys that are new since MULTILINE calls are listed too
+  are three heading searches in `scripts/gen_findings_register.py` and a section search in
+  `scripts/pre_tag_audit_gate.py`, none of them a whole value. A new one turns the sweep red. Review
+  5 of this change planted each of these forms past the sweep (none was live in the tree) and
+  measured, on e176414c, 400 terms of flags, `PAT[::0]`, `PATS[1 % 0]`, `"{0.x}".format("a")` and a
+  width of 2**63-1 as an argument raising out of the sweep, a width of 4000000000 as an argument
+  taking the process to a peak of 3841 MiB, fourteen doublings of a list to 2547 MiB, and a chain of
+  forty doubling names running past a minute; each is a test now, and the worst of them stays under
+  0.6 s and a peak of 57 MB. Folding a placeholder made one more pattern visible: the release-scope
+  title form read its identifier digits with `\d`, so a title whose identifier carried an
+  Arabic-Indic digit held the form (`scripts/b7_release_scope_title_gate.py`); it reads `[0-9]` now.
+  Four scripts still end a whole-value pattern in `$`, one reads a GitHub expression with `\s`, and
+  the title form keeps `\S` for the subject's first character, where an ASCII class would accept
+  U+00A0; they are listed by module and pattern, and the lists are exact in both directions. Named
+  limits: an alias the sweep does not resolve (`vars(re)[...]`, `importlib.import_module("re")`,
+  `re.compile.__call__`, a function of `re` bound by tuple unpacking, by an assignment expression or
+  as a class attribute, or passed on as a value) is reported only where it reaches a call the sweep
+  recognises; a pattern that reaches `re` only through another module's caller is not followed; and
+  a compiled pattern that reaches `match` or `fullmatch` through a parameter, a container, a loop
+  variable or a return value is judged by its own anchors (measured over the tree: what is reached
+  that way is the matrix's `\A[0-9a-f]{n}\Z` forms, an identifier form anchored at both ends, and
+  tokenizer atoms matched at a position, so none is a whole value the sweep misses).
 
 - **Four script patterns end at the value, and the sweep reads `scripts/` and `tools/` whole**
   (`scripts/check_version_and_changelog.py`, `scripts/codex_threads_check.py`,
