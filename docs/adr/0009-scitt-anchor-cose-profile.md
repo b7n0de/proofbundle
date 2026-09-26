@@ -2,10 +2,10 @@
 
 - **Status:** proposed. Fixes the profile, the four values, the trust interface, the error states
   and the test classes for the 6.4.0 anchor type `scitt-ccf/v1`. The owner answered Q1 to Q8 and
-  N1 to N6 on 2026-09-25 (section "Owner answers"); the reader, the statement signature and the receipt
+  N1 to N7, S1 and S2 on 2026-09-25 and 2026-09-26 (section "Owner answers"); the reader, the statement signature and the receipt
   verification are built under `src/` as `proofbundle.scitt_ccf` behind the `[scitt]` extra
   (work packages AP2 to AP4). It is not registered as an anchor type and no verify path reaches it;
-  that is AP5, after 6.3.0. One new question is left to the owner at the end.
+  that is AP5, after 6.3.0. No question is left open.
 - **Date:** 2026-09-25 (first version and two owner-answer revisions)
 - **Deciders:** proofbundle maintainer
 - **Builds on:** ADR 0006 (anchor longevity, SCITT raised in rank), ADR 0007 (the algorithm label
@@ -206,8 +206,8 @@ Trust comes from the relying party through `rp_trust`, as for every anchor type 
   the end-entity certificate MUST be integrity protected. So a protected `x5chain` of another shape,
   or whose end-entity certificate is not DER X.509, is `malformed`; an end-entity key the
   cryptography library cannot load matches no RP key (`needs_rp_trust`); and an `x5chain` in the
-  unprotected bucket selects nothing. A statement without a protected `x5chain` has every RP
-  statement key tried, as before; none measured is such a statement (new question N7).
+  unprotected bucket selects nothing. A statement without a protected `x5chain` is
+  `outside_profile` (owner answer N7 b); none measured is such a statement.
 - Malformed relying-party entries are skipped and reported in `ignored_trust`; they can only ever
   be absent trust, never trust.
 
@@ -304,7 +304,7 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
 | `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; also a statement with no receipt | False | False |
-| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
+| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
 | `root_mismatch` | inclusion proofs of one receipt compute different roots | False | False |
@@ -451,7 +451,7 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 | `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
 | `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
 | `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
-| `consistency_issuer_mismatch` | the older root came from another service's receipt; not a rule of -05 |
+| `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
 | `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
 
 `malformed` and `outside_profile` keep their meaning; the protected header rules are those of
@@ -494,7 +494,7 @@ extra).
 | algorithm and key binding | the protected alg, the RP key type and curve belong together | real control ES384 over P-384; real production receipt verified with a store entry labelled `ES256` (label ignored) | ES384 label with a P-256 RP key; ES256 label with a P-384 key; an EC label with an RSA key; an unsupported alg (outside profile, not invalid); ECDSA signature of wrong length; PS256 with a different salt length (synthetic) |
 | identity and cache | value 2 never stands in for value 3; key identity is the RP key, not the kid | real control | synthetic: one ToBeSigned signed twice (measured: value 2 equal, value 3 different), the receipt of the first moved to the second must be `receipt_not_bound`; a second RP key under the same kid for another issuer must not be selected; a cached verdict for one proof must not be returned for a proof with equal value 2 and different bytes |
 | receipt verification | leaf per -05, fold, one root, detached payload, vds 2, signature over value 4 | real control, `cbor-header.cose`, `nested-sign1.cose`, and the production `uvm_0.2.10.cose` | one path bit flipped (measured: fails); one path left flag flipped; leaf by the -04 reading of 2.1 (measured: fails); evidence not hashed (measured: fails); vds 1; two inclusion proofs with different roots; key set of another service (`needs_rp_trust`, measured); no key set (`needs_rp_trust`, measured); `tampered-statement.cose` (`signature_invalid`) |
-| statement key selection | the protected `x5chain` selects among RP statement keys, never trust (N4 b) | synthetic chain naming the signer among two RP keys; real: three third-party statements (PS256, PS384) and the local-ledger control | RP holds only another key (`needs_rp_trust`, real and synthetic); chain names key A, key B signed, RP holds both (`statement_signature_invalid`, B not tried); chain names an untrusted key (`needs_rp_trust`); single-certificate form; RP key as a compressed point (confirms); `x5chain` only unprotected (selects nothing); a statement kid (selects nothing); end-entity key of an unknown algorithm (`needs_rp_trust`); `x5chain` an int, text, map, null, empty array, one-element array, a non-bstr element, a junk certificate (each `malformed`); real `payload-tampered.cose` under its selected key (`statement_signature_invalid`) |
+| statement key selection | the protected `x5chain` selects among RP statement keys, never trust (N4 b); without one the statement is `outside_profile` (N7 b) | synthetic chain naming the signer among two RP keys; real: three third-party statements (PS256, PS384) and the local-ledger control | RP holds only another key (`needs_rp_trust`, real and synthetic); chain names key A, key B signed, RP holds both (`statement_signature_invalid`, B not tried); chain names an untrusted key (`needs_rp_trust`); single-certificate form; RP key as a compressed point (confirms); `x5chain` only unprotected (selects nothing); a statement kid (selects nothing); end-entity key of an unknown algorithm (`needs_rp_trust`); `x5chain` an int, text, map, null, empty array, one-element array, a non-bstr element, a junk certificate (each `malformed`); real `payload-tampered.cose` under its selected key (`statement_signature_invalid`) |
 | crossed statement and receipt | a valid receipt proves nothing about another statement | real control | real `payload-tampered.cose` (measured: signature valid, not bound); the control's receipt moved into `cbor-header.cose`; `appended-receipt.cose` (one confirmed and one failing receipt: entry confirmed, failure reported); a statement whose value 1 is the root of another target (`unbound`) |
 
 "Real control" is the receipt side on the real bytes. Where a class checks the statement side as
@@ -533,7 +533,7 @@ service signed. It does not claim the service is honest, or that the key set is 
 claim that the ledger is consistent over time: the anchor verdict evaluates no consistency proof, and
 the separate consistency verifier of Decision 15 relates two roots only for a caller that holds them.
 
-## Owner answers (2026-09-25)
+## Owner answers (2026-09-25 and 2026-09-26)
 
 | question | answer | where it stands now |
 |---|---|---|
@@ -551,16 +551,14 @@ the separate consistency verifier of Decision 15 relates two roots only for a ca
 | N4 statement key selection | b | the protected `x5chain` selects, never trust, Decision 5 |
 | N5 Rust parity of the two new surfaces | a | `PENDING` until AP5, Decision 14 |
 | N6 unsigned agent commits | a | accepted as Unverified; a process question, not part of this profile |
+| N7 a statement without a protected `x5chain` (2026-09-26) | b | `outside_profile`, Decision 5 |
+| S1 the consistency issuer rule (2026-09-26) | a | kept, named in code and README as proofbundle's own rule, not a requirement of -05, until the working group answers G3; Decision 15 |
+| S2 the first-tag anchor check (2026-09-26) | a | kept: a proof starting with a left sibling is refused, because section 4 says MUST; Decision 15 |
 
 ## New questions for the owner
 
-N7. A v1 statement without a protected `x5chain`. None measured is one; today every RP statement
-  key is tried for it, so for such a statement a rotated-away key still reads as
-  `statement_signature_invalid`.
-  a) keep it: without a selector every trusted key is tried, and one must verify
-  b) require a protected `x5chain` in v1, a statement without one is `outside_profile`
-  c) also accept a protected `x5t` (label 34) as the selector, and measure a statement carrying one
-     first
+None open. The gaps of section 4 are questions for the working group, in
+`tools/scitt_ccf_external/SECTION4_WGLC.md`.
 
 ---
 
