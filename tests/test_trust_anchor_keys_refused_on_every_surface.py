@@ -591,6 +591,27 @@ class RustParity(unittest.TestCase):
             out = self._run("verify-dsse", str(good), _b64(_raw(real)))
             self.assertEqual((out.returncode, out.stdout.strip()), (0, "OK"), out.stderr)
 
+    def test_verify_bundle_agrees_on_a_weak_sd_jwt_issuer_key(self):
+        """End to end through the subcommand, as gate iteration 2, lens B measured it: an EdDSA SD-JWT
+        VC block signed by nobody under the identity point, next to one signed by a real issuer."""
+        import tempfile
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        hdr = _b64url(b'{"alg":"EdDSA"}')
+        pl = _b64url(b'{"vct":"https://example.test/vct"}')
+        issuer = generate_signer()
+        cases = {"weak": (f"{hdr}.{pl}.{_b64url(UNIV)}~", I1, False, 1),
+                 "real": (f"{hdr}.{pl}.{_b64url(issuer.sign(f'{hdr}.{pl}'.encode()))}~", _raw(issuer), True, 0)}
+        for label, (compact, key, py_ok, rust_rc) in cases.items():
+            with self.subTest(issuer=label), tempfile.TemporaryDirectory() as d:
+                bundle = emit_bundle(b'{"hello":1}', generate_signer(),
+                                     sd_jwt_vc={"compact": compact, "issuer_public_key_b64": _b64(key)})
+                self.assertIs(verify_bundle(bundle).ok, py_ok)
+                path = Path(d) / "b.json"
+                path.write_text(json.dumps(bundle), encoding="utf-8")
+                out = self._run("verify-bundle", str(path))
+                self.assertEqual(out.returncode, rust_rc, out.stdout + out.stderr)
+
     def test_the_trust_pack_threshold_agrees(self):
         import tempfile
         from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
