@@ -77,10 +77,9 @@ class _Fixture:
 
 
 class _Zaehler:
-    """Zählt die Ed25519-Verifikationen im Modul checkpoint.
-
-    Seit Z195 (Vertrauensanker-Regel) ruft checkpoint `verify_ed25519_pinned`, nicht mehr das nackte
-    Primitiv; gezählt wird der Name, den das Modul wirklich aufruft."""
+    """Zählt die Ed25519-Verifikationen im Modul checkpoint."""
+    # Since the trust-anchor rule (SPEC 4b), checkpoint calls `verify_ed25519_pinned`, not the bare
+    # primitive; the counter wraps the name the module really calls.
 
     def __init__(self):
         self.n = 0

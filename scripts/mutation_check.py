@@ -350,11 +350,11 @@ MUTATIONS = [
     # Removing the ES256 dispatch entry must fail the real (now cryptographically verified) vendored
     # ES256 vectors — tests/test_sdjwtvc_external_vectors.py's
     # TestSdjwtVcIssuerSignatureExternalVectors.test_all_examples_issuer_signature_verifies.
-    # 2026-09-26: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Z195 (L1-Z195-01..03)
-    # fuehrte den SD-JWT-Ausstellerschluessel ueber `verify_ed25519_pinned` (SPEC 4b); der Operator
-    # nannte weiter `verify_ed25519` und waere damit STALE gewesen — gefunden vor dem Push beim
-    # Abgleich aller 100 Ziel-Literale gegen den Zweig, nicht erst im CI-Job. Verdikt unveraendert:
-    # der ES256-Eintrag faellt weg.
+    # 2026-09-26: the target line follows today's source. The deep gate on Z195 (L1-Z195-01..03)
+    # routed the SD-JWT issuer key through `verify_ed25519_pinned` (SPEC 4b); the operator still
+    # named `verify_ed25519` and would have been STALE. Found before the push, by checking all 100
+    # target literals against the branch, not in the CI job. The verdict is unchanged: the ES256
+    # entry is removed.
     ("src/proofbundle/sdjwt.py",
      '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}',
      '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned}',
@@ -375,20 +375,21 @@ MUTATIONS = [
      "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
      "        return True",
      "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
-    # DIE ANKERREGEL SELBST (deep gate Z195, SPEC 4b). Faellt sie in `verify_ed25519_pinned` weg,
-    # verifiziert die feste Signatur R = Identitaet, S = 0 wieder fuer jede Nachricht unter jedem
-    # Schluessel niedriger Ordnung, an allen Flaechen zugleich. Getoetet von
-    # tests/test_trust_anchor_keys_refused_on_every_surface.py (TheRule und jede Flaechenklasse);
-    # ohne diesen Operator saehe das Tor ein Schrumpfen genau dieser Tests nicht.
+    # THE TRUST-ANCHOR RULE ITSELF (deep gate Z195, SPEC 4b). Without it in `verify_ed25519_pinned`,
+    # a signature made with no private key verifies again under a key of small order, on every
+    # surface at once: R = identity, S = 0 for every message under the identity point, and about one
+    # message in the key's order under the other points. Killed by
+    # tests/test_trust_anchor_keys_refused_on_every_surface.py (TheRule and each surface class);
+    # without this operator the gate would not see those tests shrink.
     ("src/proofbundle/signature.py",
      "    if ed25519_trust_anchor_weakness(public_key) is not None:\n        return False\n"
      "    return verify_ed25519(public_key, signature, message)",
      "    return verify_ed25519(public_key, signature, message)",
      "signature: trust-anchor rule dropped from verify_ed25519_pinned (low-order keys verify again)", True),
-    # DER GRUND AUS DER EINEN TABELLE (Lauf 2, Iteration 3, R2I3B-01): jede Flaeche liest
-    # `TRUST_ANCHOR_REFUSAL`, also haetten alle Flaechen-Faelle einen falschen Text mitgetragen. Getoetet
-    # von TheRule.test_the_table_says_what_the_measurement_shows (Text gegen die Messung, ohne
-    # Binaerdatei) und von test_the_rust_mirror_carries_the_same_texts_without_the_binary.
+    # THE REASON FROM THE ONE TABLE (run 2, iteration 3, R2I3B-01): every surface reads
+    # `TRUST_ANCHOR_REFUSAL`, so every surface case would have carried a wrong text along. Killed by
+    # TheRule.test_the_table_says_what_the_measurement_shows (the text against the measurement, no
+    # binary needed) and by test_the_rust_mirror_carries_the_same_texts_without_the_binary.
     ("src/proofbundle/signature.py",
      '    "low-order": "a signature made with no private key verifies under a point of small order",',
      '    "low-order": "a key of small order is refused",',
