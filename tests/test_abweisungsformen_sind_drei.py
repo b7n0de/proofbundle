@@ -30,6 +30,7 @@ VALID claim, and one case pins the half of the docstring that was RIGHT.
 """
 from __future__ import annotations
 
+import json
 import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -173,8 +174,10 @@ class TestDieDritteFormIstGarKeineAusnahme(unittest.TestCase):
     """`decode_eval_claim` refuses by RETURNING None. A caller guarding either family sees nothing."""
 
     def _signiert_mit_string_verdikt(self):
+        # Signed with emit_bundle, as the sanity arm below says: emit_eval_receipt runs the same claim
+        # validation as decode and refuses this claim before signing, so the carrier goes past it.
         signer = Ed25519PrivateKey.generate()
-        return emit_eval_receipt(_claim_mit_string_verdikt(signer), signer)
+        return emit_bundle(json.dumps(_claim_mit_string_verdikt(signer)).encode(), signer)
 
     def test_decode_gibt_none_und_wirft_nicht(self):
         buendel = self._signiert_mit_string_verdikt()

@@ -57,7 +57,7 @@ import base64
 import json
 import unittest
 
-from proofbundle.emit import generate_signer
+from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.errors import BundleFormatError
 from proofbundle.evalclaim import (EvalClaimError, build_eval_claim, decode_eval_claim, emit_eval_receipt,
                                    issuer_fingerprint)
@@ -207,7 +207,9 @@ class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
         """
         for wert in ("false", "0", 1, None, [1]):
             with self.subTest(passed=wert):
-                bundle = emit_eval_receipt(self._mit(wert), self.signer)
+                # Signed past the emitter: it runs decode's own claim validation since the follow-up
+                # to R-B1 and refuses these before signing, so it cannot produce the carrier.
+                bundle = emit_bundle(json.dumps(self._mit(wert)).encode(), self.signer)
                 self.assertIsNone(decode_eval_claim(bundle),
                                   f"a signed claim with passed={wert!r} decoded as valid")
 
@@ -221,7 +223,8 @@ class TestDieSechsStellenWeisenEinenNichtBoolAb(unittest.TestCase):
         """
         for wert in ("false", "False", "0", 1):
             with self.subTest(passed=wert):
-                bundle = emit_eval_receipt(self._mit(wert), self.signer)
+                # Signed past the emitter, for the reason given in the case above.
+                bundle = emit_bundle(json.dumps(self._mit(wert)).encode(), self.signer)
                 with self.assertRaises(BundleFormatError):
                     export_svr_dsse(bundle, self.signer)
 
@@ -413,28 +416,24 @@ class TestDieMonotonieIstDieEIGENTLICHEAussage(unittest.TestCase):
         A single "everything is refused" assertion cannot tell a value stopped by the new verdict check
         from one stopped by the JCS profile years ago — and if the new check were removed, the second
         group would keep the test green.
+
+        THE ANSWER CHANGED WITH THE FOLLOW-UP TO R-B1, and this case records the new answer instead of
+        being loosened. Measured 2026-09-24: of these fifteen, the two floats were refused by the claim
+        profile (canonicalization), the other thirteen reached the export and were refused by the
+        verdict check there. The emitter now runs decode's own claim validation BEFORE it
+        canonicalizes, so all fifteen stop at the emitter's verdict check, floats included, and the
+        refusal names `passed`. The export's refusal stays as the second half, over a bundle signed
+        past the emitter, so removing either gate turns this case red.
         """
         for wert in (*NICHT_BOOL_ABER_WAHR, *NICHT_BOOL_UND_FALSCH):
-            # BY TYPE AND NOT BY SET MEMBERSHIP, and the first version of this case got it wrong in
-            # exactly the way this file is about. `1 == 1.0 == True` and all three hash the same, so
-            # `wert in {1.0, 0.0}` answered True for the INT `1`; and `[1]`/`{}` are unhashable, so the
-            # membership test raised instead of answering. A form that looks like the value is not the
-            # value. Measured 2026-09-24: of these fifteen, exactly the two floats are refused by the
-            # claim profile, every other one reaches the verdict check.
-            vom_jcs_profil = type(wert) is float
             with self.subTest(passed=wert):
-                try:
-                    export_svr_dsse(emit_eval_receipt(self._mit(wert), self.signer), self.signer)
-                except EvalClaimError:
-                    self.assertTrue(vom_jcs_profil,
-                                    f"passed={wert!r} was refused by the claim profile, not by the "
-                                    f"verdict check — say so here instead of counting it as proof")
-                except BundleFormatError:
-                    self.assertFalse(vom_jcs_profil,
-                                     f"passed={wert!r} is a float and should have been stopped by the "
-                                     f"claim profile one layer earlier")
-                else:
-                    self.fail(f"passed={wert!r} produced a signed SVR")
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(self._mit(wert), self.signer)
+                self.assertIn("passed must be a boolean", str(ctx.exception),
+                              f"passed={wert!r} was refused by another gate than the verdict check")
+                vorbei = emit_bundle(json.dumps(self._mit(wert)).encode(), self.signer)
+                with self.assertRaises(BundleFormatError):
+                    export_svr_dsse(vorbei, self.signer)
 
     def test_nur_das_echte_True_liest_am_direkten_ausgang_als_pass(self):
         """THE CATCH PROOF of this class. Fails on `d8c9c61` for eight of the fifteen values."""

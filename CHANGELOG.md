@@ -19,7 +19,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   followed by 64 upper-case hex digits, and a bare `x` each decoded and classified `valid`;
   `emit_eval_receipt` signed `sha256:x`; and `proofbundle show-eval --expect-issuer <the signer>`
   printed `commit sha256:x` and `=> OK` with exit 0. Both boundaries now refuse such a claim
-  through one predicate, `_schema_domain_violation`: `decode_eval_claim` returns None,
+  through one validation, `_claim_violation`: `decode_eval_claim` returns None,
   `classify_eval_claim` answers `invalid`, `emit_eval_receipt` raises `EvalClaimError` naming the
   field before anything is signed, `emit-eval` exits 2 and `show-eval` exits 1.
 
@@ -27,14 +27,33 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the string type of `suite_version`, `timestamp`, `context_binding`, `multiple_testing`,
   `prereg_sha256` and `evaluation_card_sha256`, the object type of `provenance`, `ci95` as exactly
   two decimal strings, `samples.n >= 1`, or null in an optional field, which it read as absent
-  while the schema types the field. All of these are refused now. The emitter refuses them too,
-  except `samples.n`: the emitter checks that `samples` is an object, not what
-  is inside it. One consequence
-  for A-19: `build_eval_claim(ci95=[nan, inf])` still returns `["nan", "inf"]`, but
+  while the schema types the field. All of these are refused now, at decode and at emit. One
+  consequence for A-19: `build_eval_claim(ci95=[nan, inf])` still returns `["nan", "inf"]`, but
   `emit_eval_receipt` no longer signs it.
 
+  **The emitter no longer signs a claim the verifier refuses.** Until this change it ran only part
+  of the verifier's checks: measured after the pattern fix, it signed 14 of 15 probe claims that
+  decode refuses (comparator, threshold, passed, n, metric, suite, commit_alg, schema, the samples
+  block), plus claims past the verifier's resource limits (provenance nested 70 deep, 250 000 list
+  items, a payload over the 1 000 000-character string bound). Decode's inline checks now live in
+  `_claim_violation`, which both call, and the emitter reads its canonical bytes with decode's
+  readers before signing. A property test over 480 generated claims finds emit and decode agreeing
+  on every one (87 signed, 393 refused); before, they disagreed on 163. The emitter stays stricter
+  only on the canonicalization profile (NFC strings, no floats), which the verify path does not
+  re-check because it never canonicalizes.
+
+  **`assurance_level` is required in `schemas/eval_claim_v0_1.schema.json`**, as `EVAL_CLAIM.md`
+  already says and as the verifier has required since 1.9.2. The v1.1 review had kept it optional so
+  that v1.0 receipts would still "decode + validate" (`docs/archive/REVIEW.md:171`); the decode half
+  ended with 1.9.2, so the schema was calling complete a claim the verifier refuses. No verdict and
+  no emitted byte changes. The schema's `$id` URL is not served (measured: HTTP 404), so no published
+  copy diverges.
+
   A stricter check, and under `COMPATIBILITY.md` a fix rather than a break: every claim now refused
-  at decode or at emit was already invalid under `schemas/eval_claim_v0_1.schema.json`. From the
+  at decode or at emit was already invalid under `schemas/eval_claim_v0_1.schema.json`, with one
+  kind of exception. A claim over the verifier's resource budget can be schema-valid; the emitter
+  refuses it now because proofbundle's own verifier already refused the receipt it would produce,
+  and `COMPATIBILITY.md` treats those budgets as limits of this verifier, not of the format. From the
   outside it looks like a break, which is why this says so. Claims that `build_eval_claim` produces
   from valid inputs pass as before.
 
@@ -42,9 +61,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   against `jsonschema` as an independent oracle: nothing the boundary accepts may be rejected by the
   schema. The corpus is 444 hand-signed claims: every schema property set to each of 21 values
   covering every JSON type, plus three samples cases. On 126ed1dc the boundary accepted 171 claims
-  that the schema rejects; now it accepts none. `tests/test_eval_claim_domains_are_enforced.py`
-  has an empty `BEKANNTE_LUECKEN` and derives the three array constraints of `ci95`. Catch proof
-  against 126ed1dc: every non-control case of the two files is red there.
+  that the schema rejects; now it accepts none. A second oracle case holds the required fields in
+  both directions: removing a field, the schema and the boundary refuse together or not at all.
+  `tests/test_eval_claim_domains_are_enforced.py` has an empty `BEKANNTE_LUECKEN` and derives the
+  three array constraints of `ci95`. Catch proof against 126ed1dc: every non-control case of the two
+  files is red there.
 
   The placeholder fixtures, measured on the full suite with the check in place and the old
   fixtures: seven existing tests in three files signed `sha256:x` / `sha256:y` and turned red,

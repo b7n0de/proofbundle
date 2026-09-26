@@ -22,8 +22,15 @@ Measured with the corpus below (444 hand-signed claims): on `126ed1dc` the bound
 that the schema rejects, after this change none.
 
 The direction of that oracle is one way on purpose. The boundary is allowed to be STRICTER than
-the schema, and is: it requires `assurance_level`, bounds `n` at 2^53-1 and requires a 32-byte
-samples root. What it may not do is accept something the schema rejects.
+the schema, and is: it bounds `n` at 2^53-1 and requires a 32-byte samples root. What it may not do
+is accept something the schema rejects. On REQUIRED fields the two must agree exactly, and did not:
+the schema left `assurance_level` optional while the boundary refused a claim without it.
+
+THE EMITTER IS THE OTHER HALF OF THE CLASS: proofbundle must not sign a claim its own verifier
+refuses. After R-B1 the emitter still ran only part of the verifier's checks and signed 14 of 15
+probe claims that decode refused (measured at `2290d6c1`), plus claims past the verifier's resource
+limits. Both now run one validation, `_claim_violation` in the module, and the property case below
+holds that emit refuses exactly when decode refuses, over the same generated corpus.
 
 THE CLAIMS ARE HAND-SIGNED where the verify boundary is the question, for the reason
 `test_eval_claim_domains_are_enforced.py` gives: a case built through the emitter measures the
@@ -101,6 +108,43 @@ GUELTIG = (
 )
 
 ROOT_B64 = base64.b64encode(bytes(range(32))).decode("ascii")
+
+# Every JSON type, and the near-misses of the documented patterns.
+PALETTE = (
+    None, True, False, 0, -1, 5, 1.5, "", "x", "0.5", "sha256:x", ECHT, "SHA256:" + "a" * 64,
+    [], ["0.1"], ["0.1", "0.2"], ["0.1", "0.2", "0.3"], ["x", "y"], [1, 2], {}, {"a": 1},
+)
+
+
+def _samples(n):
+    return {"root_b64": ROOT_B64, "n": n, "leaf_alg": "sha256-rfc6962-sdjwt-v1"}
+
+
+def _korpus(basis, *, mit_loeschungen):
+    """(label, claim) pairs: every schema property set to every palette value, the samples cases the
+    palette cannot reach (its constraints sit one level down), and optionally every property removed.
+    The oracle below measures without removals, so its published numbers keep their corpus."""
+    faelle = []
+    for feld in sorted(SCHEMA["properties"]):
+        for wert in PALETTE:
+            faelle.append((f"{feld}={wert!r}", dict(basis, **{feld: wert})))
+        if mit_loeschungen:
+            faelle.append((f"without {feld}", {k: v for k, v in basis.items() if k != feld}))
+    for s_n in (0, -1, 5):
+        faelle.append((f"samples.n={s_n}", dict(basis, n=max(s_n, 0), samples=_samples(s_n))))
+    return faelle
+
+
+# The probes that measured the emit gap: at 2290d6c1 the emitter signed 14 of the first 15 and decode
+# refused all of them. The sixteenth is samples.n == 0, which R-B1 closed at decode and not at emit.
+PROBEN = (
+    ("comparator", "=="), ("threshold", "inf"), ("threshold", "1e2"), ("passed", "false"),
+    ("n", "5"), ("n", -1), ("n", 2 ** 53), ("metric", ""), ("suite", ""), ("suite", 5),
+    ("commit_alg", "md5-plain"), ("schema", "x"),
+    ("samples", {"root_b64": ROOT_B64, "n": 3, "leaf_alg": "sha256-rfc6962-sdjwt-v1"}),
+    ("samples", {"root_b64": ROOT_B64, "n": 500, "leaf_alg": "md5"}),
+    ("samples", {"root_b64": "c2hvcnQ=", "n": 500, "leaf_alg": "sha256-rfc6962-sdjwt-v1"}),
+)
 
 
 def _run(*args):
@@ -197,6 +241,20 @@ class TestTheShippedCliRefusesAPlaceholder(_Basis):
             self.assertNotIn("sha256:x", r.stdout)
             self.assertNotIn("Traceback", r.stderr)
 
+    def test_emit_eval_refuses_a_claim_the_verifier_refuses_and_writes_nothing(self):
+        claim = dict(self.basis)
+        claim["comparator"] = "=="
+        with tempfile.TemporaryDirectory() as d:
+            claim_pfad = os.path.join(d, "claim.json")
+            Path(claim_pfad).write_text(json.dumps(claim), encoding="utf-8")
+            out = os.path.join(d, "receipt.json")
+            r = _run("emit-eval", "--claim", claim_pfad, "--out", out,
+                     "--new-key", os.path.join(d, "k.key"))
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertIn("comparator", r.stderr)
+            self.assertFalse(os.path.exists(out), "a refused claim must not leave a receipt behind")
+            self.assertNotIn("Traceback", r.stderr)
+
     def test_emit_eval_refuses_a_placeholder_claim_file_and_writes_nothing(self):
         claim = dict(self.basis)
         claim["dataset_id_commit"] = "sha256:y"
@@ -272,11 +330,6 @@ class TestNothingTheBoundaryAcceptsIsRejectedByTheSchema(_Basis):
     handed to `jsonschema`, which must find no error in it.
     """
 
-    PALETTE = (
-        None, True, False, 0, -1, 5, 1.5, "", "x", "0.5", "sha256:x", ECHT, "SHA256:" + "a" * 64,
-        [], ["0.1"], ["0.1", "0.2"], ["0.1", "0.2", "0.3"], ["x", "y"], [1, 2], {}, {"a": 1},
-    )
-
     def setUp(self):
         super().setUp()
         self.orakel = jsonschema.Draft202012Validator(SCHEMA)
@@ -288,31 +341,138 @@ class TestNothingTheBoundaryAcceptsIsRejectedByTheSchema(_Basis):
 
     def test_every_field_times_the_palette(self):
         angenommen = abgelehnt = 0
-        faelle = [(feld, wert) for feld in sorted(SCHEMA["properties"]) for wert in self.PALETTE]
-        # samples is an object whose constraints sit one level down; the palette cannot reach them.
-        for s_n in (0, -1, 5):
-            faelle.append(("samples+n", s_n))
-        for feld, wert in faelle:
-            claim = dict(self.basis)
-            if feld == "samples+n":
-                claim["n"] = max(wert, 0)
-                claim["samples"] = {"root_b64": ROOT_B64, "n": wert,
-                                    "leaf_alg": "sha256-rfc6962-sdjwt-v1"}
-            else:
-                claim[feld] = wert
+        for fall, claim in _korpus(self.basis, mit_loeschungen=False):
             decoded = decode_eval_claim(self._hand_signed(claim))
             if decoded is None:
                 abgelehnt += 1
                 continue
             angenommen += 1
-            with self.subTest(feld=feld, wert=wert):
+            with self.subTest(fall=fall):
                 fehler = [f.message for f in self.orakel.iter_errors(claim)]
-                self.assertEqual(fehler, [], f"decode_eval_claim accepted {feld}={wert!r}, "
+                self.assertEqual(fehler, [], f"decode_eval_claim accepted {fall}, "
                                              f"which the published schema rejects")
         # Both outcomes must occur, or the corpus measured nothing: all-refused would make the
         # assertion above vacuous, all-accepted would mean the boundary refuses nothing.
         self.assertGreater(angenommen, 0)
         self.assertGreater(abgelehnt, 0)
+
+    def test_the_schema_and_the_boundary_agree_on_what_is_required(self):
+        """Removing a field: the oracle finds an error exactly when the boundary refuses the claim.
+
+        Here the direction is BOTH ways, unlike the palette case above. A field the verifier cannot
+        do without must be one the schema requires, or the schema tells a reader that a claim is
+        complete when the verifier will refuse it. Measured at `2290d6c1`: `assurance_level` was the
+        one disagreement, optional in the schema and required at the boundary since 1.9.2 (F3).
+        """
+        for feld in sorted(SCHEMA["properties"]):
+            with self.subTest(feld=feld):
+                ohne = {k: v for k, v in self.basis.items() if k != feld}
+                boundary_refuses = decode_eval_claim(self._hand_signed(ohne)) is None
+                schema_refuses = bool(list(self.orakel.iter_errors(ohne)))
+                self.assertEqual(
+                    boundary_refuses, schema_refuses,
+                    f"without {feld}: the boundary {'refuses' if boundary_refuses else 'accepts'} "
+                    f"and the schema {'refuses' if schema_refuses else 'accepts'}")
+
+
+class TestTheEmitterSignsExactlyWhatTheVerifierAccepts(_Basis):
+    """One validation for both boundaries, measured from the outside.
+
+    The emitter makes two normalizations before it validates, and they are its documented behaviour,
+    not a gap: it sets `issuer` to its own signer and defaults a missing `assurance_level` to
+    `self_attested`. So the claim decode is asked about is the one the emitter would sign.
+    """
+
+    def _mit(self, feld, wert):
+        claim = dict(self.basis)
+        if feld == "samples":
+            claim["n"] = 500
+        claim[feld] = wert
+        return claim
+
+    def test_each_probe_is_refused_by_the_emitter_and_named(self):
+        for feld, wert in PROBEN:
+            with self.subTest(feld=feld, wert=wert):
+                claim = self._mit(feld, wert)
+                self.assertIsNone(decode_eval_claim(self._hand_signed(claim)),
+                                  "the probe must be one the verifier refuses")
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(claim, self.signer)
+                # The reason STARTS with the field. `assertIn("n", ...)` would pass for any English
+                # sentence, and the canonicalizer's own refusal of 2**53 does not name the field.
+                self.assertTrue(str(ctx.exception).startswith(feld), str(ctx.exception))
+
+    def test_samples_n_zero_is_refused_by_the_emitter_too(self):
+        # Closed at decode by R-B1 and still signed by the emitter at 2290d6c1.
+        claim = dict(self.basis, n=0, samples=_samples(0))
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(claim, self.signer)
+        self.assertIn("samples.n", str(ctx.exception))
+
+    def test_the_verifier_limits_hold_at_the_emitter(self):
+        """Sizes the verifier refuses are not signed either. Measured at 2290d6c1: all three signed.
+
+        These are refused after canonicalization and before signing, because a payload's size exists
+        only once it is serialized; the emitter reads its own bytes with decode's readers."""
+        def tief(k):
+            x = {}
+            for _ in range(k):
+                x = {"a": x}
+            return x
+        for fall, provenance in (("nested 70 deep", tief(70)),
+                                 ("250 000 list items", {"l": list(range(250_000))}),
+                                 ("payload_b64 past 1 000 000 characters", {"x": "a" * 900_000})):
+            with self.subTest(fall=fall):
+                claim = dict(self.basis, provenance=provenance)
+                self.assertIsNone(decode_eval_claim(self._hand_signed(claim)))
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(claim, self.signer)
+                self.assertIn("limit of the verifier", str(ctx.exception))
+        kontrolle = dict(self.basis, provenance=tief(62))
+        self.assertIsInstance(decode_eval_claim(emit_eval_receipt(kontrolle, self.signer)), dict)
+
+    def test_emit_refuses_exactly_when_decode_refuses(self):
+        """THE PROPERTY, over the palette corpus with removals plus the probes."""
+        fp = issuer_fingerprint(self.signer)
+        faelle = _korpus(self.basis, mit_loeschungen=True)
+        faelle += [(f"probe {f}={w!r}", self._mit(f, w)) for f, w in PROBEN]
+        beide_nehmen = beide_lehnen_ab = 0
+        for fall, claim in faelle:
+            with self.subTest(fall=fall):
+                normal = dict(claim, issuer=fp)
+                normal.setdefault("assurance_level", "self_attested")
+                decode_nimmt = decode_eval_claim(self._hand_signed(normal)) is not None
+                try:
+                    signiert = emit_eval_receipt(claim, self.signer)
+                except EvalClaimError:
+                    signiert = None
+                self.assertEqual(signiert is not None, decode_nimmt,
+                                 f"{fall}: emit {'signed' if signiert else 'refused'}, decode "
+                                 f"{'accepts' if decode_nimmt else 'refuses'}")
+                if signiert is not None:
+                    self.assertIsInstance(decode_eval_claim(signiert), dict,
+                                          f"{fall}: the emitter signed what decode refuses")
+                    beide_nehmen += 1
+                else:
+                    beide_lehnen_ab += 1
+        # Both outcomes occur, or the agreement would be vacuous.
+        self.assertGreater(beide_nehmen, 0)
+        self.assertGreater(beide_lehnen_ab, 0)
+
+    def test_outside_the_canonical_profile_the_emitter_is_stricter_never_looser(self):
+        """Where the two may differ, and in which direction. The emitter enforces the canonicalization
+        profile (EVAL_CLAIM.md section 4: NFC strings, no floats), and the verify path never
+        canonicalizes, so it does not re-check it. Measured at this commit: decode ACCEPTS a
+        hand-signed claim with a decomposed `suite` or a float inside `provenance`; the emitter
+        refuses both. That is the one direction a difference is allowed to run.
+
+        NOT A CATCH PROOF: green before this change and after it. It states the direction so that the
+        property above, which excludes these inputs by construction, is not read as covering them."""
+        for fall, claim in (("decomposed suite", dict(self.basis, suite="cafe\u0301")),
+                            ("float in provenance", dict(self.basis, provenance={"stderr": 0.5}))):
+            with self.subTest(fall=fall):
+                with self.assertRaises(EvalClaimError):
+                    emit_eval_receipt(claim, self.signer)
 
 
 if __name__ == "__main__":
