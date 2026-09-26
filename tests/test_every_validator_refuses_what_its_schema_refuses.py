@@ -309,22 +309,59 @@ def _re_function(func, names, functions):
     return None
 
 
-def _module_strings(tree) -> dict:
-    """Module-level names bound exactly once, each to a string literal: a pattern can reach `re` so."""
+def _module_bindings(tree) -> dict:
+    """Module-level name -> every expression it is bound to at module level. A name bound twice holds
+    either value at a call site, so both count (a lens on the 228bc stack delta, 235 D-2: the first form
+    kept a name bound once only, and a rebound pattern name was invisible)."""
     bound: dict = {}
-    seen: dict = {}
     for node in tree.body:
-        target = value = None
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            target, value = node.targets[0].id, node.value
+            bound.setdefault(node.targets[0].id, []).append(node.value)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
-            target, value = node.target.id, node.value
-        if target is None:
-            continue
-        seen[target] = seen.get(target, 0) + 1
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            bound[target] = value.value
-    return {name: text for name, text in bound.items() if seen[name] == 1}
+            bound.setdefault(node.target.id, []).append(node.value)
+    return bound
+
+
+def _pattern_texts(expr, bound, _seen=frozenset()) -> list:
+    """Every text a pattern expression can be, as the source states it: (text, is_bytes) pairs.
+
+    Read: a str or bytes literal, an f-string with no placeholder, literals joined by `+`, both branches
+    of a conditional expression, and a module-level name through every value it is bound to. The 228bc
+    stack delta (235 D-2) planted each of these past a sweep that read a str literal and a name bound
+    once. NAMED LIMIT: a pattern that reaches `re` through a loop variable, a parameter or a local name is
+    not resolved, and neither is an f-string with a placeholder."""
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, (str, bytes)):
+        if isinstance(expr.value, bytes):
+            return [(expr.value.decode("latin-1"), True)]
+        return [(expr.value, False)]
+    if isinstance(expr, ast.JoinedStr) and all(isinstance(v, ast.Constant) for v in expr.values):
+        return [("".join(v.value for v in expr.values), False)]
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+        return [(a + b, ab or bb) for a, ab in _pattern_texts(expr.left, bound, _seen)
+                for b, bb in _pattern_texts(expr.right, bound, _seen)]
+    if isinstance(expr, ast.IfExp):
+        return _pattern_texts(expr.body, bound, _seen) + _pattern_texts(expr.orelse, bound, _seen)
+    if isinstance(expr, ast.Name) and expr.id in bound and expr.id not in _seen:
+        return [t for value in bound[expr.id] for t in _pattern_texts(value, bound, _seen | {expr.id})]
+    return []
+
+
+def _partial_names(tree) -> tuple:
+    """The names `functools` is bound to, and the names bound to `functools.partial`."""
+    modules, partials = {"functools"}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "functools" and a.asname}
+        elif isinstance(node, ast.ImportFrom) and node.module == "functools" and not node.level:
+            partials |= {a.asname or a.name for a in node.names if a.name == "partial"}
+    return modules, partials
+
+
+def _is_partial(func, modules, partials) -> bool:
+    if isinstance(func, ast.Name):
+        return func.id in partials
+    return (isinstance(func, ast.Attribute) and func.attr == "partial"
+            and isinstance(func.value, ast.Name) and func.value.id in modules)
 
 
 def _whole_value_regex_readings(sources) -> list:
@@ -334,35 +371,34 @@ def _whole_value_regex_readings(sources) -> list:
     for mod, text in sources:
         tree = ast.parse(text)
         names, functions = _re_names(tree)
-        strings = _module_strings(tree)
+        bound = _module_bindings(tree)
+        modules, partials = _partial_names(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            function = _re_function(node.func, names, functions)
+            function, args = _re_function(node.func, names, functions), list(node.args)
+            # `functools.partial(re.compile, PATTERN)` binds the pattern where the partial is made (235 D-2).
+            if not function and _is_partial(node.func, modules, partials) and args:
+                function, args = _re_function(args[0], names, functions), args[1:]
             if not function:
                 continue
-            # The pattern as the first argument, as `pattern=`, or through a module-level name bound
-            # once to a string (a review lens of another family planted `re.compile(pattern=...)`,
-            # which the first form of this sweep did not see).
-            arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
-            if isinstance(arg, ast.Name) and arg.id in strings:
-                pattern = strings[arg.id]
-            elif isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                pattern = arg.value
-            else:
-                continue
-            flags = [ast.unparse(a) for a in list(node.args[1:])
-                     + [k.value for k in node.keywords if k.arg != "pattern"]]
-            if any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
+            # The pattern as the first argument or as `pattern=` (a review lens of another family planted
+            # `re.compile(pattern=...)`, which the first form of this sweep did not see), read through
+            # `_pattern_texts`.
+            arg = args[0] if args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
+            flags = [ast.unparse(a) for a in args[1:] + [k.value for k in node.keywords if k.arg != "pattern"]]
+            if arg is None or any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
                 continue                     # `^` and `$` are line anchors there, not whole-value ones
-            anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
-            if not (anchored or function == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
-                continue
             ascii_flag = any("ASCII" in f or re.search(r"\.A\b", f) for f in flags)
-            if pattern.endswith("$"):
-                found.append((mod, node.lineno, pattern, DOLLAR))
-            if _UNICODE_CLASSES.search(pattern) and not ascii_flag:
-                found.append((mod, node.lineno, pattern, UNICODE))
+            for pattern, is_bytes in _pattern_texts(arg, bound):
+                anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
+                if not (anchored or function == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
+                    continue
+                if pattern.endswith("$"):
+                    found.append((mod, node.lineno, pattern, DOLLAR))
+                # A bytes pattern's `\d` is 0-9 in Python too; its `$` still matches before a newline.
+                if _UNICODE_CLASSES.search(pattern) and not ascii_flag and not is_bytes:
+                    found.append((mod, node.lineno, pattern, UNICODE))
     return found
 
 
@@ -434,6 +470,28 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
                    'Q = r"\\A[0-9]+\\Z"\nC = re.compile(Q)\nD = re.fullmatch(pattern=r"[0-9]+\\d", string="1")\n')
         found = _whole_value_regex_readings([("scripts.planted", planted)])
         self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 4, 7], found)
+
+    def test_the_sweep_reads_every_form_a_pattern_text_takes(self):
+        """The 228bc stack delta (235 D-2) planted these past the sweep: both branches of a conditional,
+        `functools.partial` under either name, a name bound twice, a bytes pattern ending in `$`, an
+        f-string without a placeholder and two literals joined by `+`. A bytes pattern's `\\d` is ASCII in
+        Python and is no finding; the clean conditional on the last line is none either."""
+        planted = ('import re, functools\nfrom functools import partial as fp\n'
+                   'A = re.compile(r"\\A\\d+\\Z" if X else r"\\A[0-9]+\\Z")\n'
+                   'B = functools.partial(re.compile, r"\\A\\d+\\Z")\n'
+                   'C = fp(re.fullmatch, r"[0-9]+\\d")\n'
+                   'D_NAME = r"\\A[0-9]+\\Z"\nD_NAME = r"\\A\\d+\\Z"\nD = re.compile(D_NAME)\n'
+                   'E = re.compile(rb"^[0-9]+$")\nF = re.compile(rb"\\A\\d+\\Z")\n'
+                   'G = re.compile(f"\\\\A\\\\d+\\\\Z")\nH = re.compile("\\\\A\\\\d" + "+\\\\Z")\n'
+                   'I = re.compile(r"\\A[0-9]+\\Z" if X else r"\\A[0-9]+\\Z")\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [3, 4, 5, 8, 9, 11, 12], found)
+
+    def test_named_limit_a_loop_variable_is_not_resolved(self):
+        """Stated rather than hidden: a pattern that reaches `re` through a loop variable is not read.
+        If this turns red, the sweep learned it; rewrite the limit, do not delete the case."""
+        planted = 'import re\nfor _p in (r"\\A\\d+\\Z",):\n    re.compile(_p)\n'
+        self.assertEqual(_whole_value_regex_readings([("scripts.planted", planted)]), [])
 
     def test_the_named_exceptions_are_still_there(self):
         """Counter-direction: an exception whose pattern is gone is stale and must be removed."""
