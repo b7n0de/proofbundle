@@ -32,12 +32,13 @@
   "src/vektorpaket/sub/deep.py",
   "src/vektorpaket/sub/deep.json",
   "src/loose.py",
-  "src/dotted.dir/x.py"
+  "src/dotted.dir/x.py",
+  "src/ohneinit/data.json"
  ],
  "cases": {
   "continuation": {
    "template": "recursive-include receipts/agent_review \\\n    *.receipt.json\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -45,6 +46,7 @@
     "pyproject.toml",
     "receipts/agent_review/r1.receipt.json",
     "receipts/agent_review/sub/r2.receipt.json",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -54,7 +56,7 @@
   },
   "comment_inside_continuation": {
    "template": "recursive-include receipts \\\n# a comment line\n    *.json\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -63,6 +65,7 @@
     "receipts/agent_review/r1.receipt.json",
     "receipts/agent_review/sub/r2.receipt.json",
     "receipts/other/e.receipt.json",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -72,7 +75,7 @@
   },
   "inline_comments": {
    "template": "graft examples   # ships the fixtures\ninclude docs/top.md  # comment noise\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -82,6 +85,7 @@
     "examples/a.json",
     "examples/sub/b.json",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -91,12 +95,13 @@
   },
   "escaped_hash": {
    "template": "include weird\\#name.txt\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
     "README.md",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -107,7 +112,7 @@
   },
   "star_stays_in_its_segment": {
    "template": "include docs/*.md\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -115,6 +120,7 @@
     "docs/NAMED.md",
     "docs/top.md",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -124,7 +130,7 @@
   },
   "hidden_files_are_not_ignored": {
    "template": "include examples/*.json\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -132,6 +138,7 @@
     "examples/.hidden.json",
     "examples/a.json",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -141,7 +148,7 @@
   },
   "recursive_include_any_depth": {
    "template": "recursive-include receipts *.json\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -150,6 +157,7 @@
     "receipts/agent_review/r1.receipt.json",
     "receipts/agent_review/sub/r2.receipt.json",
     "receipts/other/e.receipt.json",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -159,7 +167,7 @@
   },
   "graft_takes_everything_below": {
    "template": "graft examples\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -168,6 +176,7 @@
     "examples/a.json",
     "examples/sub/b.json",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -177,7 +186,7 @@
   },
   "character_class_in_include": {
    "template": "include data/[a-c].txt\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -185,6 +194,7 @@
     "data/a.txt",
     "data/b.txt",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -194,7 +204,7 @@
   },
   "character_class_in_global_include": {
    "template": "global-include [a-c].txt\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -202,6 +212,7 @@
     "data/-.txt",
     "data/a.txt",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -211,7 +222,7 @@
   },
   "negated_class_in_include": {
    "template": "include data/[!a].txt\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
@@ -220,6 +231,7 @@
     "data/b.txt",
     "data/d.txt",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -229,12 +241,13 @@
   },
   "lines_setuptools_refuses": {
    "template": "graft examples docs\nfoo bar\ninclude\nrecursive-include receipts\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
     "README.md",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -244,12 +257,13 @@
   },
   "no_template_lines": {
    "template": "# only a comment\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
     "README.md",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -259,12 +273,13 @@
   },
   "find_excludes_a_subpackage": {
    "template": "# only a comment\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\nexclude = [\"vektorpaket.sub*\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\nexclude = [\"vektorpaket.sub*\"]\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",
     "README.md",
     "pyproject.toml",
+    "src/ohneinit/data.json",
     "src/vektorpaket/__init__.py",
     "src/vektorpaket/data/a.json",
     "src/vektorpaket/mod.py",
@@ -273,7 +288,7 @@
   },
   "find_without_namespaces": {
    "template": "# only a comment\n",
-   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\nnamespaces = false\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools.packages.find]\nwhere = [\"src\"]\nnamespaces = false\n\n[tool.setuptools.package-data]\nvektorpaket = [\"py.typed\", \"data/*.json\"]\nohneinit = [\"data.json\"]\n",
    "shipped": [
     "LICENSE",
     "MANIFEST.in",

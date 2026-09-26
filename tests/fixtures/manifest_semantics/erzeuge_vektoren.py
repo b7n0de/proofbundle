@@ -14,6 +14,10 @@ the sdist through `build_py`, whatever MANIFEST.in says. So the candidates inclu
 each case records the pyproject.toml it was built with, and three cases vary the discovery (the plain
 `where = ["src"]` of this repository, an `exclude`, and `namespaces = false`).
 
+A DIRECTORY WITHOUT `__init__.py` carries declared package data too (`src/ohneinit/`, gate run 3 on
+this change): setuptools builds it as a namespace package and ships the data, and with
+`namespaces = false` it builds nothing there and ships nothing. The reader must say the same.
+
 ONLY POSITIVE LINES. `tests/conftest.py::_manifest_verspricht` deliberately does not let a negative line
 withdraw a promise (that is how an accidental `exclude` is caught), so a template with `exclude` or
 `prune` would measure a difference that is the design. The vectors pin the reading of the positive lines
@@ -42,17 +46,21 @@ KANDIDATEN = [
     "src/vektorpaket/__init__.py", "src/vektorpaket/mod.py", "src/vektorpaket/py.typed",
     "src/vektorpaket/notes.md", "src/vektorpaket/data/a.json", "src/vektorpaket/data/b.txt",
     "src/vektorpaket/sub/deep.py", "src/vektorpaket/sub/deep.json", "src/loose.py", "src/dotted.dir/x.py",
+    "src/ohneinit/data.json",
 ]
 
 #: The package configuration every case is built with, unless the case names another one.
 PAKETE = ('[tool.setuptools.packages.find]\nwhere = ["src"]\n\n'
-          '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n')
+          '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'
+          'ohneinit = ["data.json"]\n')
 PAKETE_VARIANTEN = {
     "find_excludes_a_subpackage": ('[tool.setuptools.packages.find]\nwhere = ["src"]\n'
                                    'exclude = ["vektorpaket.sub*"]\n\n'
-                                   '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'),
+                                   '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'
+                                   'ohneinit = ["data.json"]\n'),
     "find_without_namespaces": ('[tool.setuptools.packages.find]\nwhere = ["src"]\nnamespaces = false\n\n'
-                                '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'),
+                                '[tool.setuptools.package-data]\nvektorpaket = ["py.typed", "data/*.json"]\n'
+                                'ohneinit = ["data.json"]\n'),
 }
 
 TEMPLATES = {

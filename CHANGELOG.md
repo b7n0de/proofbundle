@@ -24,7 +24,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   setuptools reads it, including continuation lines, inline comments, `\#`, and the difference between
   the glob behind `include` and the pattern behind `global-include`; vectors from a real `build_sdist`
   with setuptools 69.5.1 are the oracle (`tests/fixtures/manifest_semantics/`, 15 cases, three of them
-  varying the package discovery). Measured end to end from sdists built at 66809c50, before build_py was
+  varying the package discovery; a directory without `__init__.py` is a package only where that
+  discovery allows namespace packages, and a candidate for it holds the reader to setuptools in both
+  cases). Measured end to end from sdists built at 66809c50, before build_py was
   read: the planted exclude gave 2 failed, 45 passed, rc 1, and an unplanted sdist ran as before.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**

@@ -568,7 +568,8 @@ def _paketkonfiguration(wurzel: pathlib.Path) -> dict | None:
     return konf if isinstance(konf, dict) else {}
 
 
-def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path) -> tuple[str, int] | None:
+def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path,
+               angefragt: str | None = None) -> tuple[str, int] | None:
     """(dotted package name, number of path segments of its directory) if the directory holding the
     last segment of `pfad` is a package setuptools would build, else None.
 
@@ -576,7 +577,14 @@ def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path) -> tuple[str, 
     a dot in its name, with `namespaces = false` every directory needs an `__init__.py`, `include` and
     `exclude` are fnmatch patterns over the dotted name (`ez_setup` and `*__pycache__` are always
     excluded), and a directory under an exclude written `name*` or `name.*` is not descended into.
-    An explicit `packages` list is read with `package-dir`."""
+    An explicit `packages` list is read with `package-dir`.
+
+    `angefragt` is the path the caller really asks about, when `pfad` is a probe built from it. A
+    missing `__init__.py` counts as present only when it IS that path: an absent package file is
+    promised, which is the loud direction. The probe for package data builds `<dir>/__init__.py`
+    itself, and the first version compared the probe with itself, so a directory without
+    `__init__.py` under `namespaces = false` read as a package and its data as promised (gate run 3,
+    measured against a real sdist setuptools built without that directory)."""
     import fnmatch  # noqa: PLC0415
     pakete = konf.get("packages")
     if isinstance(pakete, list):
@@ -611,7 +619,7 @@ def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path) -> tuple[str, 
             teil, name = verzeichnisse[k - 1], ".".join(verzeichnisse[:k])
             init = "/".join(basis + verzeichnisse[:k] + ["__init__.py"])
             if "." in teil or not (namensraeume or (pathlib.Path(wurzel) / init).is_file()
-                                   or "/".join(pfad) == init):
+                                   or init == (angefragt if angefragt is not None else "/".join(pfad))):
                 gueltig = False
                 break
             if k < len(verzeichnisse) and (f"{name}*" in ausschluss or f"{name}.*" in ausschluss):
@@ -637,7 +645,7 @@ def _build_py_verspricht(pfad: list[str], wurzel: pathlib.Path) -> bool:
     daten = konf.get("package-data") if isinstance(konf.get("package-data"), dict) else {}
     # package data may lie below its package: try every enclosing directory as the package
     for tiefe in range(len(pfad) - 1, 0, -1):
-        paket = _paket_von(pfad[:tiefe] + ["__init__.py"], konf, wurzel)
+        paket = _paket_von(pfad[:tiefe] + ["__init__.py"], konf, wurzel, angefragt="/".join(pfad))
         if paket is None:
             continue
         name, laenge = paket

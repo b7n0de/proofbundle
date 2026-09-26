@@ -177,6 +177,10 @@ class TheManifestIsReadAsSetuptoolsReadsIt(unittest.TestCase):
         self.assertIn("src/vektorpaket/sub/deep.py", faelle["no_template_lines"]["shipped"])
         self.assertNotIn("src/vektorpaket/sub/deep.py", faelle["find_excludes_a_subpackage"]["shipped"])
         self.assertNotIn("src/vektorpaket/sub/deep.py", faelle["find_without_namespaces"]["shipped"])
+        # gate run 3: a directory without __init__.py is a package only where discovery allows namespace
+        # packages, so its declared data ships in the one case and not in the other
+        self.assertIn("src/ohneinit/data.json", faelle["no_template_lines"]["shipped"])
+        self.assertNotIn("src/ohneinit/data.json", faelle["find_without_namespaces"]["shipped"])
         for fall in faelle.values():
             self.assertNotIn("src/vektorpaket/data/b.txt", fall["shipped"])
             self.assertNotIn("src/loose.py", fall["shipped"])
