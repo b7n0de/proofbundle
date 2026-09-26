@@ -31,6 +31,7 @@ from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519
+from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64url
 
 __all__ = ["STATUS_LABELS", "verify_status_snapshot", "status_claim", "issue_status_list_token"]
@@ -201,11 +202,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         # BOUNDED decompression (release-review fix #7, CWE-409): a tiny zlib input can expand to gigabytes.
         # Cap the output and reject anything larger than a generous status-list size, instead of an unbounded
         # zlib.decompress() that a decompression-bomb could use to exhaust memory.
-        _dobj = zlib.decompressobj()
-        bit_array = _dobj.decompress(_b64url_decode(sl["lst"]), _MAX_STATUS_LIST_BYTES)
-        if _dobj.unconsumed_tail:
-            result["detail"] = "status_list lst exceeds the maximum decompressed size"
-            return result
+        # Deep gate Z195 (neighbour of L2-Z195-TOKEN-TRAILING-DATA-01): the output cap was the only check;
+        # a truncated stream or bytes after its end were read as a bit array. `lst` is base64url(zlib(...)),
+        # ONE complete stream, so both are refused here as the token refuses them.
+        bit_array = inflate_whole_stream(_b64url_decode(sl["lst"]), _MAX_STATUS_LIST_BYTES)
+    except InflateCapExceeded:
+        result["detail"] = "status_list lst exceeds the maximum decompressed size"
+        return result
     except (ValueError, TypeError, zlib.error, ProofBundleError):
         # LAUF 14 L2 F1, Nachbar (11.09.2026): _b64url_decode wirft bei einem Segment ueber dem
         # input_bytes-Deckel BundleFormatError — heute unerreichbar (lst stammt aus einem Payload,
