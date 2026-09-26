@@ -50,7 +50,7 @@ from typing import Optional
 
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
-from ..signature import verify_ed25519
+from ..signature import verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
@@ -142,7 +142,7 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
 
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     try:
-        sig_ok = verify_ed25519(verifier_pubkey, sig, signing_input)
+        sig_ok = verify_ed25519_pinned(verifier_pubkey, sig, signing_input)   # a trust anchor (Z195)
     except ValueError:
         sig_ok = False
     if not sig_ok:

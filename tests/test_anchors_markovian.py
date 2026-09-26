@@ -217,7 +217,10 @@ def _tlog_our_note_body_root(text: str) -> bytes:
     (parse the note, re-serialize origin/tree_size/root through checkpoint_note), then SHA-256. This is our
     canonicalization, not a raw slice of the vendored bytes, so it genuinely re-derives the committed root."""
     from proofbundle import checkpoint
-    dummy = checkpoint.vkey("dummy-verifier", bytes(32))          # ok=False (no matching sig) but parses fields
+    # A real throwaway key that signed nothing: ok=False, but the fields parse. It used to be 32 zero
+    # bytes, which decode to a point of order 4; a vkey may not carry one since SPEC 4b (deep gate Z195).
+    from proofbundle.emit import generate_signer
+    dummy = checkpoint.vkey("dummy-verifier", generate_signer().public_key().public_bytes_raw())
     parsed = checkpoint.verify_checkpoint(text, dummy)
     note = checkpoint.checkpoint_note(parsed["origin"], parsed["tree_size"], parsed["root"])
     return hashlib.sha256(note.encode("utf-8")).digest()
