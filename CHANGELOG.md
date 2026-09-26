@@ -10,7 +10,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
-- **A lookup on a constant dict with a key from outside is classified, as a membership test is**
+- **A lookup or write on a constant container with a key from outside is classified**
   (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
   `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack
   fix above was one such site, and the membership scanner sees only `in` and `not in`. The guard
@@ -20,7 +20,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   by name (`from .x import NAME`, inside a function too); before, a dict or set was a container
   only in the file that defined it. A write hashes its key as a read does, so the guard counts
   `CONST[x] = v`, `del CONST[x]`, `setdefault` and `pop` on a dict and `add`, `discard` and
-  `remove` on a set as well. Measured: 19 sites, 13 guarded by a membership or type check before
+  `remove` on a set as well, and so does every other spelling of the same access: `__getitem__`,
+  `__setitem__`, `__delitem__` and `__contains__`, `operator.getitem` and its siblings, `x in
+  CONST.keys()`, and `update` or `|=` with a literal. An access through a function that receives
+  the container, and a mapping held in a name handed to `update` or `|=`, are a named limit. A
+  membership test is not classified but routed through `is_member`. Measured: 19 sites, 13 guarded by a membership or type check before
   them, 5 reading a value the package produced itself, and the trust pack one, whose check runs
   against a tuple. None is open. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,

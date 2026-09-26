@@ -137,6 +137,10 @@ def unguarded_membership_sites(quelle: str, name: str = "<quelle>", modul: str |
         if not isinstance(node.ops[0], (ast.In, ast.NotIn)):
             continue
         rechts = node.comparators[0]
+        # `x in CONST.keys()` hashes x as `x in CONST` does (the second delta run on e4ea49b9).
+        if (isinstance(rechts, ast.Call) and not rechts.args and isinstance(rechts.func, ast.Attribute)
+                and rechts.func.attr == "keys" and isinstance(rechts.func.value, ast.Name)):
+            rechts = rechts.func.value
         if not isinstance(rechts, ast.Name) or rechts.id not in behaelter:
             continue
         if isinstance(node.left, ast.Constant):
@@ -302,9 +306,24 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
 #: The methods that hash their first argument, per kind of module-level container. A lens on 3c513874
 #: (the 228bc stack delta, D-2) wrote `_VERIFIERS[type_name] = verifier` and `_VERIFIERS.setdefault(...)`
 #: past the first form, which knew `.get` and a read `CONST[x]` only: a write hashes its key as a read
-#: does. `update` and `fromkeys` take a whole mapping or iterable and are a named limit.
-_HASHING_METHODS = {"dict": {"get", "setdefault", "pop"}, "set": {"add", "discard", "remove"},
-                    "frozenset": set()}
+#: does. `update` and `|=` are read when their argument is a literal; a mapping or iterable held in a
+#: name, `fromkeys`, and an access through a function that receives the container are a named limit.
+_HASHING_METHODS = {"dict": {"get", "setdefault", "pop", "__getitem__", "__setitem__", "__delitem__",
+                             "__contains__"},
+                    "set": {"add", "discard", "remove", "__contains__"}, "frozenset": {"__contains__"}}
+#: `operator.getitem(CONST, k)` and its siblings hash k as `CONST[k]` does (the second delta run on
+#: e4ea49b9 wrote `operator.getitem` and `CONST.__getitem__` past the first form).
+_OPERATOR_ACCESS = {"getitem", "setitem", "delitem", "contains"}
+
+
+def _literal_keys(value) -> list:
+    """The keys a dict literal or the elements a set, list or tuple literal hands to `update` or `|=`,
+    each of which is hashed on the way in."""
+    if isinstance(value, ast.Dict):
+        return [k for k in value.keys if k is not None]
+    if isinstance(value, (ast.Set, ast.List, ast.Tuple)):
+        return list(value.elts)
+    return []
 
 
 def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = None,
@@ -317,19 +336,32 @@ def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = No
     and raises TypeError for an unhashable one."""
     tree = ast.parse(quelle, filename=name)
     behaelter = _behaelter(tree, modul, ist_init, je_modul)
+    operator_names = {"operator"} | {a.asname for n in ast.walk(tree) if isinstance(n, ast.Import)
+                                     for a in n.names if a.name == "operator" and a.asname}
     found: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
+        keys: list = []
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name) and node.func.value.id in behaelter
-                and node.func.attr in _HASHING_METHODS[behaelter[node.func.value.id]] and node.args):
-            key, const = node.args[0], node.func.value.id
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in behaelter):
+            const = node.func.value.id
+            if node.func.attr in _HASHING_METHODS[behaelter[const]] and node.args:
+                keys = [node.args[0]]
+            elif node.func.attr == "update" and node.args:
+                keys = _literal_keys(node.args[0])
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and isinstance(node.func.value, ast.Name) and node.func.value.id in operator_names
+              and node.func.attr in _OPERATOR_ACCESS and len(node.args) >= 2
+              and isinstance(node.args[0], ast.Name) and node.args[0].id in behaelter):
+            const, keys = node.args[0].id, [node.args[1]]
         elif (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
               and behaelter.get(node.value.id) == "dict"):
-            key, const = node.slice, node.value.id
-        else:
-            continue
-        if not isinstance(key, ast.Constant):
-            found.append((node.lineno, const, ast.unparse(key)))
+            const, keys = node.value.id, [node.slice]
+        elif (isinstance(node, ast.AugAssign) and isinstance(node.op, ast.BitOr)
+              and isinstance(node.target, ast.Name) and node.target.id in behaelter):
+            const, keys = node.target.id, _literal_keys(node.value)
+        for key in keys:
+            if not isinstance(key, ast.Constant):
+                found.append((node.lineno, const, ast.unparse(key)))
     return found
 
 
@@ -705,6 +737,35 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
         ''')
         self.assertEqual([(c, k) for _l, c, k in constant_lookups(quelle)],
                          [("_M", "k")] * 4 + [("_S", "k")] * 3)
+
+    def test_every_spelling_of_a_hashing_access_is_found(self):
+        """The second delta run on e4ea49b9 wrote five more spellings past the guard; each hashes k.
+        NAMED LIMIT: an access through a function that receives the container as an argument, and a
+        mapping or iterable handed to `update` or `|=` that is not a literal there, are not seen."""
+        quelle = textwrap.dedent('''
+            import operator
+            import operator as op
+            _M = {"a": 1}
+            _S = {"a"}
+            def f(p, k):
+                global _M, _S
+                _M.__getitem__(k)
+                _M.__setitem__(k, 1)
+                _S.__contains__(k)
+                operator.getitem(_M, k)
+                op.contains(_S, k)
+                _M |= {k: 1, "a": 2}
+                _S |= {k, "a"}
+                _M.update({k: 3})
+                _S.update([k])
+                operator.getitem(_M, "a")
+                _M.update(other)
+                return p.get("r") in _M.keys()
+        ''')
+        self.assertEqual(sorted((c, k) for _l, c, k in constant_lookups(quelle)),
+                         [("_M", "k")] * 5 + [("_S", "k")] * 4)
+        self.assertEqual([(links, c) for _l, links, c in unguarded_membership_sites(quelle)],
+                         [("p.get('r')", "_M")])
 
     def test_an_imported_container_is_seen_in_both_forms(self):
         """234-1-02 as a planted package: a dict and a frozenset defined in one module, read in another
