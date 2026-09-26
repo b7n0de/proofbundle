@@ -259,6 +259,31 @@ class TestStagedMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("return True` opens verification function `verify_helper`", r.stdout)
 
+    def test_a_condition_fixed_before_it_runs_is_class_a_in_any_spelling(self):
+        """A review lens on the stack (2026-09-26): each of these replaced the check and the guard said
+        clean with exit 0, because its regex knows the words False and True only."""
+        for cond in ("if 0:", "if not True:", "if ():", "if '':", "if None:", "if 0 or ():",
+                     "if x and 0:", "if not (1,):"):
+            with self.subTest(condition=cond):
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", cond))
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("fixed before it runs", r.stdout)
+        self._stage(BENIGN.replace("    if not isinstance(data, dict):\n        return False",
+                                   "    while ():\n        return False"))
+        self.assertEqual(_guard(self.repo, "--staged").returncode, 1)
+
+    def test_anti_parity_a_loop_and_a_named_condition_stay_quiet(self):
+        """`while True` and `while 1` are loops, and a condition that names a value is not fixed."""
+        for code in ("def poll():\n    while True:\n        break\n",
+                     "def poll():\n    while 1:\n        break\n",
+                     "TYPE_CHECKING = False\nif TYPE_CHECKING:\n    pass\n",
+                     "def f(x):\n    if x or 0:\n        return 1\n"):
+            with self.subTest(code=code.splitlines()[-2]):
+                self._stage(BENIGN + "\n\n" + code)
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_control_a_marker_directly_above_still_suppresses(self):
         self._stage("y = 2\nz = 3  # mutant-guard: allow\nif False:\n    pass\n")
         r = _guard(self.repo, "--staged")

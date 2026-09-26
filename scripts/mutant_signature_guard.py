@@ -9,7 +9,9 @@ range) for the three narrow signature classes a left-over mutant takes, and bloc
 Signature classes (deliberately narrow and explainable: a safety net, not a linter):
 
   A  a trivial-truth branch added at a check site:      `if False:` / `if True:` /
-     `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`)
+     `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`), and an
+     `if`/`elif` whose condition is fixed before it runs in any spelling (`if 0:`, `if not True:`,
+     `if () or 0:`), or a `while` fixed false (`while ():`); a `while` fixed true is a loop
   B  a commented-out verification line: a comment whose content reads like a code statement
      calling a verify/validate/check/compare_digest function (prose comments do not match)
   C  `return True` as the first statement of a function whose name says verify/validate/check
@@ -64,6 +66,45 @@ _ALLOW_MARKER = "mutant-guard: allow"
 
 # Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).
 _TRIVIAL_TRUTH = re.compile(r"^\s*(?:(?:el)?if\s+(?:False|True)\b|while\s+False\b)")
+
+
+def _fixed_truth(test: ast.AST) -> bool | None:
+    """The truth value a condition has before it runs, or None when it depends on anything.
+
+    Class A in any spelling (a review lens on the stack, measured 2026-09-26): `if 0:`, `while ():`
+    and `if not True:` replaced a check and the guard said clean, because the regex above knows the
+    words `False` and `True` only. A literal (`ast.literal_eval` accepts it), `not` of one, and an
+    `and`/`or` that one operand decides are fixed; anything that names a value is not."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        inner = _fixed_truth(test.operand)
+        return None if inner is None else not inner
+    if isinstance(test, ast.BoolOp):
+        werte = [_fixed_truth(v) for v in test.values]
+        entscheidend = isinstance(test.op, ast.Or)          # True decides an `or`, False an `and`
+        if entscheidend in werte:
+            return entscheidend
+        return (not entscheidend) if all(w is not None for w in werte) else None
+    try:
+        return bool(ast.literal_eval(test))
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+
+
+def _fixed_branches(content: str) -> dict[int, str]:
+    """Line -> the fixed condition, for every `if`/`elif` whose condition is fixed and every `while`
+    whose condition is fixed false. A `while` that is fixed true is a loop (`while True:`), not a
+    mutant. A file that does not parse gives none; the regex still reads its lines."""
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        return {}
+    found: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.If, ast.While)):
+            truth = _fixed_truth(node.test)
+            if truth is not None and (isinstance(node, ast.If) or truth is False):
+                found[node.lineno] = ast.unparse(node.test)
+    return found
 
 # Class B — commented-out verification CODE, two-stage: a cheap prefilter (a comment whose
 # content starts like a statement calling a verify/validate/check/compare_digest function),
@@ -314,11 +355,14 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
                 raise SystemExit(f"mutant_signature_guard: {path}:{git_no}: the diff and the file "
                                  f"disagree about this line (fail closed)")
             added_nums.update(spans[git_no - 1])
+        fixed = _fixed_branches(content.removeprefix("\ufeff"))   # Python skips a leading BOM too
         for lineno in sorted(added_nums):
             text = file_lines[lineno - 1]
             reason = None
             if _TRIVIAL_TRUTH.match(text):
                 reason = "trivial-truth branch (`if/elif False|True` / `while False`) at a check"
+            elif lineno in fixed:
+                reason = f"branch on a condition fixed before it runs (`{fixed[lineno]}`) at a check"
             elif _COMMENTED_VERIFY.match(text) and _commented_content_parses(text):
                 reason = "commented-out verification call"
             if reason and not _allowlisted(file_lines, lineno):
@@ -415,6 +459,13 @@ _CASES: list[tuple[str, str, bool]] = [
      _BENIGN.replace('    if not isinstance(data, dict):', '    x = 1\r    if False:'), True),
     ("A: behind a BOM on the first line, which Python skips",
      "\ufeffif False:\n    pass\n", True),
+    # A condition fixed before it runs, in the spellings the regex does not know (2026-09-26).
+    ("A: if 0 at a check", _BENIGN.replace('if not isinstance(data, dict):', 'if 0:'), True),
+    ("A: if not True at a check", _BENIGN.replace('if not isinstance(data, dict):', 'if not True:'), True),
+    ("A: while () at a check", _BENIGN.replace('    if not isinstance(data, dict):\n        return False',
+                                               '    while ():\n        return False'), True),
+    ("negative: a while True loop stays quiet",
+     _BENIGN + "\n\ndef poll():\n    while True:\n        break\n", False),
 ]
 
 

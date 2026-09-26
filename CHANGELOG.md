@@ -65,6 +65,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
   is the escape of the same code point, so the name reads back as it was.
 
+- **The mutant guard reads a condition fixed before it runs in any spelling** (`scripts/mutant_signature_guard.py`,
+  class A). Its regex knew the words `False` and `True`: `if 0:`, `while ():` and `if not True:` put
+  in place of a check were reported clean with exit 0 (measured by a review lens and again). The
+  guard now reads the condition from the syntax tree: an `if` or `elif` whose condition is fixed (a
+  literal, `not` of one, an `and` or `or` that one operand decides) and a `while` fixed false are
+  findings; a `while` fixed true is a loop. Under `src/proofbundle` one condition is fixed today,
+  `while True` in `prereg.py`, which stays quiet, so no verdict on this repository changes.
+
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
   header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
