@@ -109,8 +109,11 @@ be a breaking, versioned change.
 ### 4b. Trust-anchor keys (normative for this implementation)
 
 The §4a profile is right for checking a signature and wrong for a key a verifier
-RELIES on: under a low-order key the fixed signature R = identity, S = 0
-verifies for every message, and no private key exists for it. Therefore every
+RELIES on: under a low-order key a signature made with no private key verifies.
+Under the identity point the fixed signature R = identity, S = 0 verifies for
+every message; under the other points of small order it verifies for about one
+message in the key's order, and a forger who varies the message or R finds one
+after a few tries. No private key exists for such a key. Therefore every
 Ed25519 key that is not the bundle's own `signature.public_key_b64` MUST be
 canonical (y < p) and MUST NOT be one of the 8-torsion points (y ∈ {0, 1, p−1}
 or either order-8 value, under both x-sign bits); a verifier refuses such a key

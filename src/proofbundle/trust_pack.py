@@ -192,8 +192,8 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                         weakness = ed25519_trust_anchor_weakness(raw)
                         if weakness is not None:
                             errors.append(
-                                f"keys[{kid!r}].publicKey is a {weakness} {label} key — a fixed signature "
-                                "verifies under it for every message with no private key (fail-closed)")
+                                f"keys[{kid!r}].publicKey is a {weakness} {label} key — a signature made with "
+                                "no private key verifies under it (fail-closed)")
                 except Exception:  # noqa: BLE001
                     errors.append(f"keys[{kid!r}].publicKey is not valid base64")
                 if is_hybrid:
@@ -427,7 +427,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     except Exception:  # noqa: BLE001
         return False
     # root and old-root keys are trust anchors: a low-order key would count toward a threshold with a
-    # fixed signature and no secret (deep gate Z195, L1-Z195-01; pqsig.verify_hybrid carries the same
+    # signature made with no secret (deep gate Z195, L1-Z195-01; pqsig.verify_hybrid carries the same
     # rule for the hybrid's classical leg).
     return verify_ed25519_pinned(pub, sig, msg)
 

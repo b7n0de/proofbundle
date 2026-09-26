@@ -170,7 +170,7 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes, *,
     THROUGH THE HOUSE PRIMITIVE, not a second path to `cryptography` (deep gate Z195). The receipt's
     own signer key arrives in the receipt, so it gets the plain check, as a bundle's key does. The
     authorizer key is the second party a relying party trusts, so `anker=True` applies the
-    trust-anchor rule: under a low-order key a fixed signature is valid for every payload, and an
+    trust-anchor rule: under a low-order key a signature made with no private key is valid, and an
     "external authorization" would need no external party at all.
     """
     try:

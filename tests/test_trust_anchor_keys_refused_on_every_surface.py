@@ -11,8 +11,11 @@ findings of one class and reproduced a third:
   a rotation vouch with the same forgery.
 
 The mechanism is one fact. The core verifier keeps the SPEC section 4a profile, which accepts
-small-order components, so under a low-order key the fixed signature R = identity, S = 0 verifies
-for EVERY message and no private key exists. The trust policy refused such keys since the fix-review
+small-order components, so under a low-order key a signature made with no private key verifies: the
+fixed signature R = identity, S = 0 for EVERY message under the identity point, and for about one
+message in the key's order under the other points of small order (gate run 2, lens B, R2B-01: an
+earlier version of this sentence said every message for every low-order key, which holds only for the
+identity). No private key exists. The trust policy refused such keys since the fix-review
 of 2026-07; no other place that takes a trusted key did. The class is "a trust-anchor rule that
 landed on one driver while its siblings kept the old shape".
 
@@ -80,6 +83,28 @@ WEAK = [
     ((P + 18).to_bytes(32, "little"), "non-canonical"),                # the largest y below 2**255
 ]
 
+# The canonical encodings of the eight points of the 8-torsion subgroup: identity, order 2, order 4
+# (both signs of y = 0), order 8 (four).
+TORSION_R = [I1, (P - 1).to_bytes(32, "little"), b"\x00" * 32, b"\x00" * 31 + b"\x80"] + [bytes.fromhex(h) for h in (
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa")]
+
+
+def _forged(key: bytes, base: bytes):
+    """A signature made with no private key that the bare SPEC 4a profile accepts under `key`, or None:
+    S = 0 and R among the torsion points, the message varied by a counter. Under the identity point
+    R = identity works for every message; under the other points of small order one message in a few
+    does (gate run 2, lens B, R2B-01: UNIV alone is a live forgery only under the identity)."""
+    for i in range(64):
+        msg = base + bytes([i])
+        for r in TORSION_R:
+            sig = r + b"\x00" * 32
+            if verify_ed25519(key, sig, msg):
+                return msg, sig
+    return None
+
 
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
@@ -112,6 +137,23 @@ class _Nobody:
         return self._pub
 
 
+_DSSE_TYPE = "application/vnd.test"
+_NOT_A_POINT = (P + 18).to_bytes(32, "little")   # the one WEAK entry that admits no forgery at all
+
+
+def _forged_envelope(key: bytes):
+    """A DSSE envelope signed with no private key that the bare profile accepts under `key`: the payload
+    is varied until a torsion point works as R with S = 0. None for the entry that is no point."""
+    for i in range(64):
+        body = b'{"a":%d}' % i
+        msg = dsse.pae(_DSSE_TYPE, body)
+        for r in TORSION_R:
+            sig = r + b"\x00" * 32
+            if verify_ed25519(key, sig, msg):
+                return {"payload": _b64(body), "payloadType": _DSSE_TYPE, "signatures": [{"sig": _b64(sig)}]}
+    return None
+
+
 class TheRule(unittest.TestCase):
 
     def test_precondition_the_forgery_is_live_against_the_bare_profile(self):
@@ -119,6 +161,23 @@ class TheRule(unittest.TestCase):
         for key in (I1, I2, I3):
             for msg in (b"x", b"another message", b""):
                 self.assertIs(verify_ed25519(key, UNIV, msg), True, key.hex())
+
+    def test_every_weak_point_admits_a_forgery_without_a_secret_and_the_rule_refuses_it(self):
+        """The loops over WEAK below use UNIV, which is a live forgery only under the identity point. This
+        case shows it for every entry that is a point of small order: a signature made with no private
+        key, accepted by the bare profile, refused by the rule. The largest non-canonical y is no torsion
+        point and admits none; it is refused for its encoding alone, and says so."""
+        for key, reason in WEAK:
+            with self.subTest(key=key.hex()):
+                f = _forged(key, b"forge-")
+                if key == (P + 18).to_bytes(32, "little"):
+                    self.assertIsNone(f)
+                    self.assertEqual(ed25519_trust_anchor_weakness(key), "non-canonical")
+                    continue
+                self.assertIsNotNone(f, "no forgery found; the entry would measure nothing")
+                msg, sig = f
+                self.assertIs(verify_ed25519(key, sig, msg), True)
+                self.assertIs(verify_ed25519_pinned(key, sig, msg), False)
 
     def test_every_weak_encoding_is_named_with_its_reason(self):
         for key, reason in WEAK:
@@ -317,9 +376,16 @@ class Dsse(unittest.TestCase):
         self.assertIs(dsse.verify_envelope(env, _raw(k)), True)
 
     def test_a_weak_key_verifies_no_envelope(self):
-        env = dsse.sign_envelope(b'{"a":1}', _Nobody(), payload_type="application/vnd.test")
+        """Per key a live forgery, not UNIV alone (gate run 2, lens B, R2B-01): UNIV verifies under the
+        identity point only, so for the other entries it would have been refused without the rule."""
         for key, _reason in WEAK:
             with self.subTest(key=key.hex()):
+                env = _forged_envelope(key)
+                if key == _NOT_A_POINT:
+                    self.assertIsNone(env)
+                    continue
+                msg = dsse.pae(_DSSE_TYPE, base64.b64decode(env["payload"]))
+                self.assertIs(verify_ed25519(key, base64.b64decode(env["signatures"][0]["sig"]), msg), True)
                 self.assertIs(dsse.verify_envelope(env, key), False)
 
     def _forged_decision(self, tmp: Path):
@@ -593,10 +659,12 @@ class RustParity(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             forged = Path(d) / "forged.json"
-            env = dsse.sign_envelope(b'{"a":1}', _Nobody(), payload_type="application/vnd.test")
-            forged.write_text(json.dumps(env), encoding="utf-8")
             for key, _reason in WEAK:
                 with self.subTest(key=key.hex()):
+                    # a live forgery per key (R2B-01); the entry that is no point keeps UNIV
+                    env = _forged_envelope(key) or dsse.sign_envelope(b'{"a":1}', _Nobody(),
+                                                                      payload_type=_DSSE_TYPE)
+                    forged.write_text(json.dumps(env), encoding="utf-8")
                     out = self._run("verify-dsse", str(forged), _b64(key))
                     self.assertEqual((out.returncode, out.stdout.strip()), (1, "FAIL"), out.stderr)
                     self.assertIs(dsse.verify_envelope(env, key), False)
@@ -787,7 +855,9 @@ def _sweep_source(rel: str, text: str) -> list:
     string by `exec` or `eval`. A module from `importlib` read with the literal name
     (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
     of this sentence listed `importlib` as unseen outright). Its walk is the package, src/proofbundle;
-    the release tooling under scripts/ is outside it and is a change of its own."""
+    the release tooling under scripts/ is outside it and is a change of its own. Inside the two IN_BAND
+    files it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
+    `anker=True` in the AGT adapter left it green); AgtAdapter holds that behaviourally."""
     tree = ast.parse(text)
     names = set(_WATCHED)
     for node in ast.walk(tree):

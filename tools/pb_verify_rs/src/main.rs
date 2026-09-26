@@ -452,8 +452,9 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
 /// Mirror of Python `signature.ed25519_trust_anchor_weakness`: why a 32-byte key cannot stand as a
 /// TRUSTED Ed25519 identity, or `None` when it can. The same rule in the same order, on the bytes, so
 /// both verifiers refuse the same keys: "non-canonical" when y >= p, "low-order" when y is one of the
-/// five y-values of the 8-torsion subgroup (either sign). Under such a key a fixed signature (R =
-/// identity, S = 0) verifies for every message and nobody holds a private key (deep gate Z195,
+/// five y-values of the 8-torsion subgroup (either sign). Under such a key a signature made with no
+/// private key verifies (the fixed R = identity, S = 0 for every message under the identity point, after
+/// a few tries under the other points of small order), and nobody holds a private key (deep gate Z195,
 /// L1-Z195-01..03). A key that passes has exactly one encoding, so counting distinct key bytes counts
 /// distinct points. The in-band key of a bundle keeps the SPEC section 4a profile and does not come here.
 fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static str> {
@@ -1014,8 +1015,8 @@ fn verify_trust_pack_threshold(
         };
         if let Some(schwaeche) = schwaeche_eines_vertrauensankers(&arr) {
             return Err(format!(
-                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} a fixed signature \
-                 verifies under it for every message with no private key (fail-closed)"
+                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} a signature made with \
+                 no private key verifies under it (fail-closed)"
             ));
         }
     }

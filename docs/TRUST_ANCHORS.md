@@ -23,9 +23,10 @@ prove internal consistency; out-of-band anchors (log, witness, status keys, the 
 where *your* trust decision actually lives.** The signature binds who claimed what; pinning the
 right keys is what makes "who" mean someone you trust.
 
-**A pinned key is never a low-order or non-canonical Ed25519 key** (SPEC §4b). Under such a key one
-fixed signature verifies for every message and no one holds a private key for it. So every anchor in
-the table except the bundle issuer key refuses it before any signature is checked, and so do trust-pack
+**A pinned key is never a low-order or non-canonical Ed25519 key** (SPEC §4b). Under such a key a
+signature made with no private key verifies: for every message under the identity point, after a few
+tries under the other points of small order, and no one holds a private key for it. So every Ed25519
+anchor in the table except the bundle issuer key refuses it before any signature is checked, and so do trust-pack
 keys, renewal time-authority keys, the classical leg of a hybrid signature and an AGT authorizer key: a
 vkey carrying it is malformed, and any other surface simply verifies nothing under it. A key that passes
 has one encoding, which is what makes "deduped by key material" for witnesses and trust-pack roots a

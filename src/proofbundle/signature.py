@@ -48,8 +48,10 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
 
     :func:`verify_ed25519` keeps the SPEC §4a profile, which accepts small-order components and one of
     the non-canonical key encodings. That profile is right for checking a signature and wrong for a key
-    a caller trusts: under a low-order key a fixed signature (R = identity, S = 0) verifies for EVERY
-    message, and nobody holds a private key for it. The rule was first written for the trust policy
+    a caller trusts: under a low-order key a signature made with no private key verifies. Under the
+    identity point the fixed signature (R = identity, S = 0) verifies for EVERY message; under the other
+    points of small order it verifies for about one message in the key's order, and a forger who varies
+    the message or R finds one after a few tries. Nobody holds a private key for such a key. The rule was first written for the trust policy
     (``policy._validate_pinned_ed25519_pubkey``) and stayed there while every other place that takes a
     trusted key went without it (deep gate Z195, findings L1-Z195-01..03). It lives here now so that
     each of those places asks the same question in the same words.

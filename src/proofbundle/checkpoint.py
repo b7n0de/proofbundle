@@ -224,8 +224,8 @@ def _refuse_weak_ed25519_vkey(pubkey: bytes, what: str) -> None:
     weakness = ed25519_trust_anchor_weakness(pubkey)
     if weakness is not None:
         raise BundleFormatError(
-            f"{what} key material is a {weakness} Ed25519 key — refused: a fixed signature verifies "
-            "under such a key for every message with no private key, so it cannot be a trusted key")
+            f"{what} key material is a {weakness} Ed25519 key — refused: a signature made with no "
+            "private key verifies under such a key, so it cannot be a trusted key")
 
 
 def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, bytes, bytes]:

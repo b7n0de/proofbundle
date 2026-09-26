@@ -165,7 +165,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     try:
         # the status issuer key is the relying party's trust anchor: a low-order or non-canonical key
-        # verifies a fixed signature for every list, so it is refused before any arithmetic (Z195).
+        # verifies a signature made with no private key, so it is refused before any arithmetic (Z195).
         sig_ok = verify_ed25519_pinned(issuer_pubkey, sig, signing_input)
     except ValueError:
         sig_ok = False

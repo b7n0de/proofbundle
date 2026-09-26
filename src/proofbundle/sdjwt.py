@@ -58,7 +58,7 @@ from ._membership import is_member
 # verify, vs. 65-byte SEC1 P-256 point + ECDSA verify) — no algorithm can be confused for another.
 # The Ed25519 issuer key is a key the verifier relies on (a caller's pin in sdjwt_vc, the key that
 # authenticates the disclosures in a bundle), so it gets the trust-anchor rule: a low-order issuer key
-# would authenticate every disclosure with a fixed signature and no secret (deep gate Z195). The
+# would authenticate disclosures with a signature made with no secret (deep gate Z195). The
 # ES256 path already refuses a point that is not on P-256.
 _ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}
 
