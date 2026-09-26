@@ -420,6 +420,9 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
   992 distinct pairs, rejected.
 - The verifier is `proofbundle.scitt_ccf.verify_consistency_receipt`, with its own status set; the
   run-2 states are committed as `tests/fixtures/scitt_ccf/local_ledger_consistency.json`.
+- Leaf and node hashing, re-measured on 2026-09-26 against -05, the CCF 7.0.17 code and the run-2
+  ledger, with the leaf/node confusion forgeries: `leafhash/README.md`; its findings for section 4
+  are G8 of `SECTION4_WGLC.md`.
 - `consistency_issuer_mismatch` is proofbundle's own rule, not a requirement of -05: the older root
   must come from a receipt of the same issuer. -05 binds the receipt to an older root the verifier
   has already verified (4.2, 7.3) and does not say which trust rule authorizes the receipt's signer,

@@ -3,8 +3,9 @@
 Section 4 (consistency proofs) was read rule by rule, implemented as a fail-closed verifier behind
 `proofbundle[scitt]`, measured on real signed states of a local scitt-ccf-ledger and on every tree
 pair up to 257 leaves, and cross-checked with a third-party RFC 9162 implementation. The section is
-implementable, and its RFC 9162 equivalence claim holds on every pair measured. Seven places are not
-enough for an independent implementation. The two that change a verdict are the anchor rule, which
+implementable, and its RFC 9162 equivalence claim holds on every pair measured, for the positions of
+the digests under this document's hashing (G8). Eight places are not enough for an independent
+implementation. The two that change a verdict are the anchor rule, which
 4.2 does not check, and the multiple-proof rule, which 4.2 does not check either.
 
 ## SOURCE READ
@@ -179,6 +180,14 @@ G7. A receipt carrying both proof types is checked by neither algorithm as a who
 - Read: 3.2 ignores -2 and 4.2 ignores -1, so an inclusion proof to another root beside a valid consistency proof passes 4.2.
 - Measured: proofbundle refuses that receipt (`consistency_newer_roots_differ`, synthetic); with the service's inclusion proof beside the consistency proof computed from the ledger's leaves, in one constructed receipt, both accept.
 - Question: is that sentence normative, and which algorithm checks it?
+
+G8. Does "the same digests" in section 4 mean the same nodes, or the same values under RFC 9162's hashing?
+- Sentence, 4.2: "older := HASH(hash || older)", "newer := HASH(hash || newer)" and "newer := HASH(newer || hash)". This is the node rule of 2.1 ("MTH(D_n) = HASH(MTH(D[0:k]) || MTH(D[k:n]))") over 64 bytes, without the 0x01 node prefix of RFC 9162; 2.1 also hashes a leaf without 0x00 ("MTH({d[0]}) = HASH(d[0]).").
+- Sentence, 4: "Apart from the tags, `path` holds the same digests in the same order as the consistency proof of {{Section 2.1.4.1 of RFC9162}} for the same sizes, with the anchor as the first element of that proof when `m` is not a power of two."
+- Measured, run-2 ledger, pairs 19 to 24, 22 to 24 and 19 to 22: the RFC 9162 section 2.1.4.1 proof equals the -05 anchor and path in 14 of 14 digests under this document's hashing, and in 0 of 14 under RFC 9162's own hashing, 0x00 leaf and 0x01 node (`leafhash/same_digests_result.json`).
+- Measured, same ledger: the service's COSE signature verifies 9 of 9 roots computed without prefixes, and 0 of 9 roots computed with RFC 9162 prefixes (`leafhash/result.json`).
+- NOT MEASURABLE here: the RFC 9162 text itself. The prefix values are those of https://github.com/transparency-dev/merkle at `fbbcd741c3d1c69d8498487baa8edc9e5824847c`, `rfc6962/rfc6962.go` lines 25 and 26, retrieved 2026-09-25.
+- Question: should section 4 say that "the same digests" means the digests of the same nodes under this document's hash, since under RFC 9162's own tree hash none of the values is equal? And should section 2.1 state that the tree has no 0x00 and 0x01 prefixes, unlike RFC 9162 section 2.1.1?
 
 ## WHAT THE READER DOES, AS BUILT
 
