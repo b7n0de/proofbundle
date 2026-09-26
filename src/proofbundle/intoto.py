@@ -325,6 +325,7 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     no field)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the test-result attestation")
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
     binder = json.dumps({
         "model_id_commit": claim["model_id_commit"],
@@ -416,6 +417,29 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
         raise BundleFormatError(
             f"refusing to export: claim carries plaintext/secret field(s) {leaked}; the in-toto export is "
             "commitment-only and must never carry a model/dataset name or a salt")
+
+
+def _refuse_to_vouch_for_a_key_nobody_holds(claim: Any, wo: str) -> None:
+    """Refuse to SIGN a statement over a claim whose issuer key the trust-anchor rule refuses.
+
+    SPEC section 4b lets the bundle's own key keep the section 4a profile when a receipt is VERIFIED,
+    because a relying party's trust in it comes from a pin that carries the rule. An export that SIGNS
+    is a different act: proofbundle then vouches, under a real key, for what it read. Measured on
+    053c7800 (lens run 1, out-of-scope finding 3): `export_svr_dsse` signed
+    PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_THRESHOLD_MET over a PASS receipt that nobody signed
+    under the identity point, and the SVR verified under the exporter's key. The eval-result and
+    test-result exports signed the same claim just as readily. A claim carries its issuer (the key
+    `decode_eval_claim` binds to the signature), so the key is judged here, with the shared rule and
+    the one issuer parser. A claim that names no ed25519 key has nothing to judge and is not refused
+    here; whoever hands such a claim to an exporter is answering for it themselves."""
+    from .evalclaim import _issuer_key_weakness  # noqa: PLC0415
+    from .signature import TRUST_ANCHOR_REFUSAL  # noqa: PLC0415
+    grund = _issuer_key_weakness(claim.get("issuer")) if isinstance(claim, dict) else None
+    if grund is not None:
+        raise BundleFormatError(
+            f"{wo}: the receipt's issuer key is a {grund} Ed25519 key, refused as a trusted key: "
+            f"{TRUST_ANCHOR_REFUSAL[grund]} — proofbundle does not sign a statement over a receipt "
+            "that key 'signed' (SPEC section 4b)")
 
 
 def _require_export_fields(claim: dict) -> bool:
@@ -544,6 +568,7 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
 
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the eval-result attestation")
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
@@ -660,6 +685,10 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
         raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
     if claim is None:
         raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
+    # BEFORE ANYTHING IS SIGNED. The receipt verified under the section 4a profile, which is right for
+    # a verifier and wrong for a statement proofbundle signs: PROOFBUNDLE_SIGNATURE_VALID under a
+    # small-order key would attest a signature nobody made.
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to emit SVR")
     result = verify_bundle(bundle)
     if not result.ok:
         raise BundleFormatError(

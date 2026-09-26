@@ -391,16 +391,12 @@ def _refuse_weak_issuer_pins(pins) -> None:
     malformed input (exit 2), as a weak pin in a trust policy is.
 
     A pin that does not decode to a 32-byte key names no key and matches nothing, as before; a
-    rotation list may carry one (``tests/test_cli_eval.py``)."""
-    from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness  # noqa: PLC0415
+    rotation list may carry one (``tests/test_cli_eval.py``). The issuer format is read by the one
+    parser the SVR and in-toto exporters use too, ``evalclaim._issuer_key_weakness``."""
+    from .evalclaim import _issuer_key_weakness  # noqa: PLC0415
+    from .signature import TRUST_ANCHOR_REFUSAL  # noqa: PLC0415
     for pin in pins:
-        if not isinstance(pin, str) or not pin.startswith("ed25519:"):
-            continue
-        try:
-            raw = decode_b64(pin[len("ed25519:"):])
-        except (ValueError, TypeError):
-            continue
-        weakness = ed25519_trust_anchor_weakness(raw) if len(raw) == 32 else None
+        weakness = _issuer_key_weakness(pin)
         if weakness is not None:
             raise ValueError(f"--expect-issuer {pin} is a {weakness} Ed25519 key — refused as a "
                              f"trusted key: {TRUST_ANCHOR_REFUSAL[weakness]} (fail-closed)")

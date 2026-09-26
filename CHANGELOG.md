@@ -53,7 +53,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   under §4a and written a carrier under the identity point with exit 0, relying on the verifiers of
   their output, so the in-band list names no script any more, and the producer part of the entry
   "The release tooling refuses a weak key it pins" below no longer holds. The third-party vector
-  tools under `tools/` trust nothing and stay named. Contract
+  tools under `tools/` trust nothing and stay named. The same holds for what proofbundle signs
+  itself: at 053c7800 `export_svr_dsse` signed `PROOFBUNDLE_SIGNATURE_VALID` and
+  `PROOFBUNDLE_THRESHOLD_MET` over a PASS receipt nobody signed under the identity point, and the
+  eval-result and test-result exports signed the same claim; all three now refuse with
+  `BundleFormatError` (exit 2 on `svr` and `intoto`) when the claim's issuer key is one the rule
+  refuses, read by the same issuer parser `--expect-issuer` uses, while verifying a receipt keeps the
+  bundle's own key on the §4a profile, as §4b says. Contract
   `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 23 cases and 111 subtests: on
   126ed1dc 12 cases fail (8 outright, 4 through 68 subtests), and the 11 controls and
   preconditions pass on both trees.

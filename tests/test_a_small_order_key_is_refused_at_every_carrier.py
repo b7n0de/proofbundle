@@ -591,5 +591,117 @@ class ProducerSelfChecks(unittest.TestCase):
         self._control("pre_tag_receipt")
 
 
+# ── 5. what proofbundle SIGNS itself: no statement over a receipt a key nobody holds "signed" ────────
+#
+# Out-of-scope finding 3 of lens run 1 at 053c7800. SPEC section 4b lets the bundle's own key keep the
+# section 4a profile when a receipt is VERIFIED, because trust in it comes from a pin. An export that
+# SIGNS is different: proofbundle then vouches, under a real key, for what it read. Measured on
+# 053c7800: `export_svr_dsse` signed PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_THRESHOLD_MET over a
+# PASS receipt signed by nobody under the identity point, and the SVR verified under the real key.
+
+class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        from proofbundle import evalclaim as ec
+        from proofbundle.emit import emit_bundle, generate_signer
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = Path(cls.tmp.name)
+        cls.issuer_i1 = "ed25519:" + _b64(I1)
+        try:
+            claim, _ = ec.build_eval_claim(
+                suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
+                score="0.90", n=10, model_id="m", dataset_id="d", issuer=cls.issuer_i1,
+                timestamp="2026-09-26T12:00:00Z", model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        except ec.EvalClaimError as exc:
+            cls.tmp.cleanup()
+            raise unittest.SkipTest(f"NOT MEASURABLE: the [eval] extra is missing ({exc})") from exc
+        cls.forged = emit_bundle(ec.canonicalize(claim), _Nobody())
+        cls.real = ec.emit_eval_receipt(claim, generate_signer())
+        cls.forged_path, cls.real_path = d / "forged.json", d / "real.json"
+        cls.forged_path.write_text(json.dumps(cls.forged), encoding="utf-8")
+        cls.real_path.write_text(json.dumps(cls.real), encoding="utf-8")
+        cls.forged_claim = ec.decode_eval_claim(cls.forged)
+        cls.real_claim = ec.decode_eval_claim(cls.real)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_precondition_the_forged_receipt_verifies_in_band(self):
+        from proofbundle.bundle import verify_bundle
+        self.assertIs(verify_bundle(self.forged).ok, True)
+        self.assertIsNotNone(self.forged_claim, "decode_eval_claim accepts it under section 4a")
+        self.assertEqual(self.forged_claim["issuer"], self.issuer_i1)
+
+    def test_the_svr_export_refuses_to_vouch(self):
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_svr_dsse
+        with self.assertRaises(BundleFormatError) as ctx:
+            export_svr_dsse(self.forged, generate_signer())
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "svr.json"
+            rc, _o, err = _cli("svr", str(self.forged_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
+            self.assertEqual(rc, 2, err)
+            self.assertFalse(out.exists(), "an SVR was written for a receipt nobody signed")
+            self.assertIn("refused", err)
+
+    def test_the_eval_result_export_refuses_to_vouch(self):
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_eval_result_dsse
+        with self.assertRaises(BundleFormatError) as ctx:
+            export_eval_result_dsse(self.forged_claim, generate_signer())
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "att.json"
+            rc, _o, err = _cli("intoto", str(self.forged_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
+            self.assertEqual(rc, 2, err)
+            self.assertFalse(out.exists())
+
+    def test_the_test_result_export_refuses_to_vouch(self):
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_intoto_dsse
+        with self.assertRaises(BundleFormatError) as ctx:
+            export_intoto_dsse(self.forged_claim, generate_signer())
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
+
+    def test_every_weak_issuer_is_refused_by_name(self):
+        """The claim exporters read the issuer with the same parser `--expect-issuer` uses and ask the
+        shared rule; every encoding the rule refuses is refused, with its own reason."""
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_eval_result_dsse, export_intoto_dsse
+        for key, reason in WEAK:
+            claim = dict(self.real_claim, issuer="ed25519:" + _b64(key))
+            for export in (export_eval_result_dsse, export_intoto_dsse):
+                with self.subTest(key=key.hex(), export=export.__name__):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        export(claim, generate_signer())
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], str(ctx.exception))
+
+    def test_positive_control_a_real_receipt_still_exports(self):
+        from proofbundle import dsse
+        from proofbundle.emit import generate_signer
+        from proofbundle.intoto import (INTOTO_STATEMENT_PAYLOAD_TYPE, export_eval_result_dsse,
+                                        export_intoto_dsse, export_svr_dsse, verify_svr_dsse)
+        v = generate_signer()
+        env = export_svr_dsse(self.real, v)
+        self.assertIs(verify_svr_dsse(env, _raw(v))["ok"], True)
+        self.assertIs(dsse.verify_envelope(export_eval_result_dsse(self.real_claim, v), _raw(v),
+                                           payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE), True)
+        export_intoto_dsse(self.real_claim, v)
+        claim_without_issuer = {k: val for k, val in self.real_claim.items() if k != "issuer"}
+        export_eval_result_dsse(claim_without_issuer, v)       # no issuer named: nothing to judge
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "svr.json"
+            rc, _o, err = _cli("svr", str(self.real_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
+            self.assertEqual(rc, 0, err)
+            self.assertTrue(out.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,25 @@ def issuer_fingerprint(signer: Ed25519PrivateKey) -> str:
     return "ed25519:" + base64.b64encode(raw).decode("ascii")
 
 
+def _issuer_key_weakness(issuer) -> Optional[str]:
+    """Why the key an `issuer` value names cannot stand as a trusted Ed25519 key, or None.
+
+    The ONE reading of the issuer format for everything that judges it: `show-eval --expect-issuer`
+    and the exporters in `intoto` that sign a statement over a claim. The rule itself is the shared
+    `signature.ed25519_trust_anchor_weakness`. A value that is not `ed25519:` plus the canonical base64
+    of exactly 32 bytes names no key and is None: it can match nothing and vouches for nothing."""
+    if not isinstance(issuer, str) or not issuer.startswith("ed25519:"):
+        return None
+    try:
+        raw = decode_b64(issuer[len("ed25519:"):])
+    except (ValueError, TypeError):
+        return None
+    if len(raw) != 32:
+        return None
+    from .signature import ed25519_trust_anchor_weakness  # noqa: PLC0415
+    return ed25519_trust_anchor_weakness(raw)
+
+
 def salted_commit(identifier: str, salt: bytes) -> str:
     """Salted commitment to an identifier: sha256:<hex> over salt || utf8(identifier).
 
