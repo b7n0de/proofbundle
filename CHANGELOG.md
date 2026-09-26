@@ -10,35 +10,83 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
-- **The mutation gate judges each mutant by the test files that reach it, and a test red in the
-  baseline never kills** (`scripts/mutation_check.py`). On main, run 36253567619 measured a baseline
-  of 1226 to 1661 s over the whole suite (seven of ten shards stopped at the 1800 s limit before it
-  ended) and 1174 to 1610 s per mutant under a job limit of 60 minutes; the three shards that got a
-  baseline were cancelled after one mutant each, and no mutant was judged. A mutant now runs the test
-  files that import the mutated module directly or through other modules, together with every file
-  that can reach any module (a glob over `*.py`, a pytest subprocess, a non-literal import) and the
-  gate's own controls; imports under `TYPE_CHECKING` do not count, and a package's lazy attribute
-  table is read at the importer. Its baseline runs over the same files. The verdict counts tests, not
-  records: a mutant is killed only by a test that is red under it and was not red in that baseline.
-  Before, `red > baseline` counted failures plus errors, and a baseline-red test that also failed its
-  teardown under the mutant raised the count by one, so the mutant read as killed although no test
-  found it (a case pinned in `tests/test_mutation_selection.py`, red against the old gate). A test
-  that is red in a baseline must stand in `scripts/mutation_baseline_allowlist.json` with the class it
-  failed with, or the baseline stops. The work tree is a shared clone of the repository with the
-  tracked files copied over it, so tests that ask git about the tree run there as they do in a
-  checkout. The file an operator mutates is restored from its bytes and checked byte by byte, where a
-  last full run compared a red count (a file with CRLF line ends came back with LF). The candidate
-  matrix test `test_c12_1_nicht_anwendbar_vor_dem_tag` joins `test_audit_candidate_360` as a per-mutant
-  exclusion: it runs the whole matrix in a subprocess twelve times, 766 of the 1534 s the baseline took
-  in the gate's setup, and says nothing about one mutated line. The selection saves less time than
-  hoped in this repository: the heaviest test files import nearly every module, so a selection costs
-  about 2000 to 2200 s in CI by an estimate from local per-file durations scaled by the measured
-  CI/local ratio of the whole suite. The limit of one suite run rises from 1800 to 3600 s, the CI
-  job runs 28 shards instead of 10 under GitHub's six-hour job limit (the longest shard is estimated
-  at 4.8 h), and the mutation step stops 15 minutes before the job so the shard still reports how far
-  it got. Both numbers are provisional and are set again from the first measured CI run. The tests
-  of the summary job read the shard count from the workflow, and a new test holds the matrix, the
-  `--shard i/K` argument and the summary's `K=` to one number.
+- **The mutation gate judges each mutant by the test files that reach it, and only a test that
+  passed in the baseline and fails again when it runs by itself kills**
+  (`scripts/mutation_check.py`). On main, run 36253567619 measured a baseline of 1226 to 1661 s over
+  the whole suite (seven of ten shards stopped at the 1800 s limit before it ended) and 1174 to 1610
+  s per mutant under a job limit of 60 minutes; the three shards that got a baseline judged one
+  mutant each before they were cancelled (relation cycle detection, the case-insensitive origin
+  comparison and the ML-DSA domain separation label, all three KILLED), and no other operator was
+  judged.
+
+  A mutant now runs the test files that reach the mutated file, directly or through other files,
+  together with every file that can reach any module and the gate's own controls. The graph holds
+  every Python file of the tree as git lists it and every script that is not Python (a shebang,
+  `.sh`, a Makefile); the first version covered four directories, and a hop through `conformance/`
+  or `examples/` broke the chain: with "strict-json: duplicate-key reject disabled" applied,
+  `tests/test_cap1_conformance_runner.py` fails, and it was not in the selection of
+  `_strict_json.py`. A file reaches what it imports, a module or file that one of its strings names
+  (a bare file name that several files carry names all of them), `__main__` of what runs with `-m`
+  or `runpy.run_module` wherever the literal stands, the imports of Python code held in a string
+  (after `-c`, or any string with an import statement), and a script that it names. A file that is
+  not Python (MANIFEST.in) is reached through every file that names it and every file that reaches
+  one of those, and a `conftest.py` reaches every test file below it. A name in a library module
+  names only the library, since nothing under `src/` puts a directory on `sys.path`. Imports under
+  `TYPE_CHECKING` do not count, and a package's lazy attribute table is read at the importer. Over
+  the 33 mutated files a selection holds 106 to 374 of the 376 test files, median 205 (the first
+  version: 106 to 374, median 190); MANIFEST.in and ten modules select every test file but the two
+  per-mutant exclusions, because `tests/conftest.py` names `__init__.py` in a formatted path and a
+  bare file name now names every file that carries it (without that one name they would hold 124 to
+  323).
+
+  Its baseline runs over the same files. A mutant is killed only by a test that passed in that
+  baseline and is red under the mutant: a test that was red, skipped, xfailed or xpassed there, or
+  did not run there, never kills (a test skipped in the baseline that ran and failed under a mutant
+  read as a kill in the first version). A killer then runs again by itself, once more under the
+  mutant and once on the restored tree, and counts only when it is red and then green; one that
+  flips is named unstable in the verdict line and does not count (a timing test green in a baseline
+  and red under a mutant only because of machine load read as a kill). Measured in the gate's own
+  setup on two real operators with one killer each (the strict-json duplicate-key reject and the
+  ML-DSA domain label): confirming took 1.6 s per killed mutant; it grows with the killers and the
+  time to collect their files, not with the selection. Before, `red > baseline` counted failures
+  plus errors, and a baseline-red test that also failed its teardown under the mutant raised the
+  count by one, so the mutant read as killed although no test found it. Every suite run pins
+  `PYTHONHASHSEED=0`, so test ids are the same in baseline and mutant runs. The cases are pinned in
+  `tests/test_mutation_selection.py`, red against the first version.
+
+  A test that is red in a baseline must stand in `scripts/mutation_baseline_allowlist.json` with the
+  class it failed with, or the baseline stops; a timing test red under load stops it as well
+  (measured once locally: the selection baseline of `tlogproof.py` had one such test red while the
+  whole-suite baseline had none), which costs a shard and never a verdict. The class comes from the
+  message of pytest's JUnit record first (`ExcType: text`, or `assert ...`) and from the last
+  exception line of the traceback only when the message names none: a RuntimeError whose message
+  carried an `assert` line read as AssertionError and matched an entry written for another failure.
+  MANIFEST.in ships the list next to `scripts/mutation_check.py`, which reads it. Left undecided, it
+  turned `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` red, a test that stands in
+  every selection, so the first baseline of every shard stopped, and the list's contract failed from
+  the sdist; the sdist test's detector now also sees a path composed from a module constant, the
+  form that read the list, and the pinned count of shipped scripts moves from 36 to 37, remeasured
+  against a real sdist of the tree (37 files under `scripts/`, the same 37 as the declaration). In
+  the gate's own setup a baseline over the sdist test no longer stops (21 passed, 0 red). The work
+  tree is a shared clone of the repository with the tracked files copied over it, so tests that ask
+  git about the tree run there as they do in a checkout, and the mutation job checks out the full
+  history, as `test` does. The file an operator mutates is restored from its bytes and checked byte
+  by byte, where a last full run compared a red count (a file with CRLF line ends came back with
+  LF). The candidate matrix test `test_c12_1_nicht_anwendbar_vor_dem_tag` joins
+  `test_audit_candidate_360` as a per-mutant exclusion: it runs the whole matrix in a subprocess
+  twelve times, 766 of the 1534 s the baseline took in the gate's setup, and says nothing about one
+  mutated line.
+
+  The selection saves less time than hoped in this repository: the heaviest test files import nearly
+  every module. For the first version's selections, local per-file durations scaled by the measured
+  CI/local ratio of the whole suite gave about 2000 to 2200 s per selection in CI and 4.8 h for the
+  longest of 28 shards; the selections are larger now, so that estimate is low. The limit of one
+  suite run rises from 1800 to 3600 s, the CI job runs 28 shards instead of 10 under GitHub's
+  six-hour job limit, and the mutation step's limit is 15 minutes below the job's, so the steps
+  after it still run: a shard cut at the limit records how many verdicts it wrote (`judged=`), and
+  the summary job still fails it. These numbers are provisional and are set again from the first
+  measured CI run. The tests of the summary job read the shard count from the workflow, and a test
+  holds the matrix, the `--shard i/K` argument and the summary's `K=` to one number.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

@@ -591,6 +591,70 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         self.assertIn("Vereinigung vollstaendig und paarweise disjunkt", r.stdout)
 
 
+class TheRecordStepSaysHowFarACutShardGot(unittest.TestCase):
+    """Z230 round 2. A shard stopped at the step limit has no closing line, and the record step wrote
+    `operators=0 total=0` and its indices and nothing about how far it got. It now counts the verdict
+    lines the log carries (`judged=`); the summary job still fails such a shard. The step runs here
+    as a program, as the summary block does above."""
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+    @classmethod
+    def _block(cls) -> str:
+        text = cls.WORKFLOW.read_text(encoding="utf-8")
+        i = text.index("Record how many operators this shard actually ran")
+        j = text.index("run: |", i) + len("run: |\n")
+        zeilen = []
+        for zeile in text[j:].splitlines():
+            if zeile.strip() and not zeile.startswith("          "):
+                break
+            zeilen.append(zeile[10:] if zeile.startswith("          ") else zeile)
+        return "\n".join(zeilen).replace("${{ matrix.shard }}", "10")
+
+    def _fahre(self, log: str | None) -> str:
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory(prefix="record-step-") as d:
+            if log is not None:
+                Path(d, "mutation-shard.log").write_text(log, encoding="utf-8")
+            r = subprocess.run(["bash", "-e", "-c", self._block()], capture_output=True, text=True,
+                               timeout=60, env={"RUNNER_TEMP": d, "PATH": "/usr/bin:/bin"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return Path(d, "mutation-shard-10.txt").read_text(encoding="utf-8")
+
+    _KOPF = ("partition: 88 Gewichte\nshard 10/28: 4 von 102 Operatoren\n"
+             "  shard-item 3 [a]\n  shard-item 40 [b]\n  shard-item 71 [c]\n  shard-item 99 [d]\n"
+             "  selection for src/x.py: 200 test files\n  baseline passed: 1900 tests\n")
+    _URTEILE = ("  ok   [a] KILLED (red=3, new red=3, confirmed=3, 200 files, 2100.0s + 20.0s confirming) expected\n"
+                "      killed by tests.test_x::test_y and 2 more\n"
+                "  GAP  [b] SURVIVED (red=1, new red=1, confirmed=0, 190 files, 2050.0s + 9.0s confirming) "
+                "*** UNEXPECTED ***\n"
+                "      unstable, not counted (1): tests.test_t::test_under_load\n")
+
+    def test_a_cut_log_reports_the_verdicts_it_wrote(self):
+        """The lens's cut log: two verdicts, no closing line (red at 2502e6c7: no `judged=`)."""
+        zeile = self._fahre(self._KOPF + self._URTEILE)
+        self.assertIn("operators=0 total=0", zeile)
+        self.assertIn("indizes=3,40,71,99", zeile)
+        self.assertIn("judged=2", zeile)
+
+    def test_a_complete_log_and_a_missing_log(self):
+        voll = (self._KOPF + self._URTEILE
+                + "  ok   [c] SURVIVED (no test file reaches x) expected\n"
+                + "  GAP  [d] pattern not found — operator is stale\n"
+                + "=> FAILED (4 operators, 2 gap(s)) shard=10/28 total=102\n")
+        self.assertIn("operators=4 total=102 indizes=3,40,71,99 judged=4", self._fahre(voll))
+        self.assertIn("operators=0 total=0 indizes= judged=0", self._fahre(None))
+
+    def test_the_summary_reads_a_record_that_carries_judged(self):
+        """The new field must not disturb the summary's own reading of the record."""
+        sammel = DerSammelJobWirdALSPROGRAMMGefahren()
+        shards = {i: z.rstrip("\n") + " judged=4\n" for i, z in sammel._gut().items()}
+        r = sammel._fahre(shards)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("mutation-summary OK", r.stdout)
+
+
 class TheShardCountStandsOnceInTheWorkflow(unittest.TestCase):
     """The matrix, the `--shard i/K` argument and the summary's `K=` name one number (Z230 moved it
     from 10 to 28). If they drift, shards run a partition the summary does not count, or the summary

@@ -505,6 +505,9 @@ jobs:
     timeout-minutes: 360        # GitHub's limit for a hosted job
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Full history, as in `test`: the gate clones this checkout, and its tests read git history.
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -530,8 +533,8 @@ jobs:
         # Fehlschlagen ist, koennte still bestehen. Mit `shell: bash` faehrt GitHub
         # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
         shell: bash
-        # The step stops 15 minutes before the job does, so the steps below still record how far
-        # the shard got and upload it.
+        # The step's limit is 15 minutes below the job's, so the steps below still run when it is
+        # reached: they record how many verdicts the shard wrote and upload that.
         timeout-minutes: 345
         run: |
           # `-u` IS NOT COSMETIC — it is the condition under which this step can be diagnosed at all.
@@ -582,7 +585,12 @@ jobs:
           # damit der Sammel-Job Vereinigung und Disjunktheit RECHNEN kann statt sie zu glauben.
           idx="$(grep -oE '^  shard-item [0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
                  | grep -oE '[0-9]+' | sort -n | tr '\n' ',' | sed 's/,$//' || true)"
-          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-}" \
+          # HOW FAR A CUT SHARD GOT (Z230 round 2). A shard stopped at the step limit has no closing
+          # line, so it records operators=0 total=0 and its indices; `judged=` counts the verdict
+          # lines it did write (`  ok   [` / `  GAP  [`). The summary job still fails such a shard:
+          # the matrix result is not success, and its total is 0.
+          geurteilt="$(grep -cE '^  (ok  |GAP ) \[' "$RUNNER_TEMP/mutation-shard.log" || true)"
+          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-} judged=${geurteilt:-0}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
