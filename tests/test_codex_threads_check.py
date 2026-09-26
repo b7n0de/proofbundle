@@ -220,6 +220,24 @@ class WhoCounts(unittest.TestCase):
         text = "## Fix\n\n```\ngit diff-tree -r -z a b\n```\n\n" + answer
         self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
 
+    def test_any_raw_html_hides_the_rest(self):
+        """Confirmation lens A, P1: a list of hiding tags left `<div hidden>`, `<span hidden>`,
+        `<p hidden>`, CDATA and a processing instruction readable. Raw HTML of any kind now ends the
+        reading; what an inline code span holds is text, not markup."""
+        answer = register_answer(7, 10, HEAD)
+        for before in ("<div hidden>\n", "<span hidden>\n", "<p hidden>\n", "<![CDATA[\n",
+                       "<?php\n", "</div>\n", "<DIV HIDDEN>\n"):
+            with self.subTest(before=before.strip()):
+                self.assertEqual(verdict([codex(10)], [issue(before + answer)])["open"], 1)
+        # PRECONDITION: markup-like text inside inline code is read, as GitHub shows it
+        text = "## Fix\n\nRun `git diff-tree <baseSha> <headSha>` for `<owner>/<repo>`.\n\n" + answer
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
+    def test_lone_carriage_returns_end_lines_for_every_reader(self):
+        """Confirmation lens A, P3: the register reader split on CR, the measured reader did not."""
+        text = register_answer(7, 10, HEAD).replace("\n", "\r")
+        self.assertEqual(verdict([codex(10)], [issue(text)])["verdict"], "green")
+
     def test_a_register_line_indented_like_code_is_code(self):
         """Four spaces or a tab before the line make it code on GitHub; up to three do not."""
         for pad in ("    ", "\t"):
@@ -407,6 +425,8 @@ class TheOrigin(unittest.TestCase):
 
         def fake(url, token):
             calls.append(url)
+            if len(calls) > 3 * ct.MAX_PAGES:            # an unbounded loop fails, it does not hang
+                raise AssertionError("pagination did not end")
             return [], f"{ct.API}/repos/{R}/pulls/7/comments?per_page=100&page={len(calls) + 1}"
         with mock.patch.object(ct, "_get", fake), self.assertRaises(ct.NotMeasurable):
             ct._pages(f"repos/{R}/pulls/7/comments", None)

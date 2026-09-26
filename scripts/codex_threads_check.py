@@ -33,10 +33,11 @@ the forms a house answer uses and reads nothing past a form it does not model. M
 HTML comment, and a fence of three or more backticks or tildes at the start of a line (at most three
 spaces in), whose info string holds no backtick, closed by a line of its own character at least as
 long; a fence or comment that never closes hides the rest. Not modelled, so everything after it is
-unread: three backticks or tildes anywhere else on a line (a fence in a list item or a quote, an
-info string with a backtick) and a raw HTML block that hides or preformats text (`<details>`,
-`<pre>` and their kind). A register or measured line indented by four spaces or a tab is code. Each
-of these reads less than GitHub may show, which errs to red, never to green.
+unread: outside inline code, three backticks or tildes anywhere else on a line (a fence in a list
+item or a quote, an info string with a backtick) and ANY raw HTML, a tag, a declaration or a
+processing instruction, since HTML can hide text in more ways than a list of tags can name
+(`<div hidden>`, `<span hidden>`, `<![CDATA[`). A register or measured line indented by four spaces
+or a tab is code. Each of these reads less than GitHub may show, which errs to red, never to green.
 
 WHAT COUNTS AS THE ANSWER'S COMMIT. The 40-hex id on the answer's `Commit measured` line, a line
 that begins with those two words, and nothing else. An id elsewhere in the text is evidence of
@@ -83,8 +84,9 @@ _FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 #: A form this check does not model: past such a line nothing is read (deep gate iteration 3, lens 1:
 #: a fence in a list item, an info string with a backtick and a collapsed <details> were each shown
 #: to the check while GitHub hid them).
-_UNMODELLED = re.compile(r"`{3}|~{3}|<(?:details|pre|code|textarea|script|style|template|xmp|"
-                         r"plaintext|noscript|iframe|object|table)\b", re.I)
+_UNMODELLED = re.compile(r"`{3}|~{3}|<[A-Za-z!?/]")
+#: An inline code span is shown as its literal text, so what it holds is not markup.
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
 #: The four values the compare API documents. Any other value is an answer nobody can interpret.
 _COMPARE_STATES = ("identical", "ahead", "behind", "diverged")
 #: A pull request with more comments than this many pages holds is not read to the end, and a check
@@ -171,7 +173,7 @@ def visible(text: str) -> str:
     rest; a fence closes on a line of its own character at least as long as its opener, with nothing
     after it, and one that never closes runs to the end.
     """
-    t = _HTML_COMMENT.sub("", text or "")
+    t = _HTML_COMMENT.sub("", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
     if "<!--" in t:
         t = t[:t.index("<!--")]
     out, fence = [], None
@@ -180,7 +182,7 @@ def visible(text: str) -> str:
         if fence is None:
             if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
                 fence = m.group(1)
-            elif _UNMODELLED.search(line):
+            elif _UNMODELLED.search(_INLINE_CODE.sub("", line)):
                 break                          # a form this check does not model: read no further
             else:
                 out.append(line)
