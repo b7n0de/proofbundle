@@ -85,7 +85,17 @@ _NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancel
 #: red). A bare `cancelled()` is not one: the job runs only on a cancelled run and is skipped
 #: on every ordinary failure (un, round 1, 2026-09-18 -- the first regex counted it as a
 #: guard). `success()` is the default and guards nothing.
-_TRAEGT_WACHE = re.compile(r"always\(\s*\)|!\s*cancelled\(\s*\)|failure\(\s*\)", re.I)
+_TRAEGT_WACHE = re.compile(r"(?<![\w.])(?:always\(\s*\)|!\s*cancelled\(\s*\)|failure\(\s*\))", re.I)
+#: A string literal of GitHub's expression grammar: single quotes, a quote inside it doubled.
+#: A status function written INSIDE one is text, not a call: `message == 'always()'` has no
+#: status function, so GitHub prepends `success()`, and the job is skipped when a need fails.
+#: Searched as text, it read as guarded and the trap passed with exit 0 (a review lens, 2026-09-26).
+_GITHUB_LITERAL = re.compile(r"'(?:[^']|'')*'")
+
+
+def ohne_literale(bedingung: str) -> str:
+    """The condition with every string literal emptied, so a search sees only the expression."""
+    return _GITHUB_LITERAL.sub("''", bedingung)
 
 #: The characters Python reads as whitespace and GitHub's expression lexer does not. The lexer skips
 #: .NET `Char.IsWhiteSpace` (actions/runner, src/Sdk/DTExpressions2/Expressions2/Tokens/
@@ -116,7 +126,7 @@ def ohne_wache_trotz_needs(job: dict) -> bool:
     if not job.get("needs"):
         return False
     bed = " ".join(str(job.get("if") or "").split())
-    return not _TRAEGT_WACHE.search(bed)
+    return not _TRAEGT_WACHE.search(ohne_literale(bed))
 
 
 def _lade(pfad: Path) -> dict:

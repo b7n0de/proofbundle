@@ -1727,6 +1727,26 @@ jobs:
         self.assertNotIn("test (3.12)", r["produced_contexts"])
         self.assertTrue(any("matrix values not readable literally" in u for u in r["unreadable"]), r["unreadable"])
 
+    def test_a_status_function_inside_a_string_literal_is_no_guard(self):
+        """`'always()'` in quotes is a string to GitHub, not a call: the implicit success() stays,
+        the job is skipped when a need fails, and that skip reads as passed."""
+        wf = CI + """
+  all-checks-passed:
+    needs: [test, coverage]
+    if: github.event.head_commit.message == 'always()'
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+        b = Baum(self, {"ci.yml": wf}, ["coverage", "all-checks-passed"])
+        r = b.urteil()
+        self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["all-checks-passed"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        # the quote doubling of the grammar, a guard outside the literal, and a name that only ends
+        # in a status function
+        self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["b"], "if": "x == 'it''s' || always()"}))
+        self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["b"], "if": "x == 'it''s always()'"}))
+        self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["b"], "if": "notalways()"}))
+
     def test_always_is_read_the_same_way(self):
         b = Baum(self, {"ci.yml": self.ALWAYS_FORM}, ["coverage", "all-checks-passed"])
         self.assertEqual(self._zustand(b.urteil())["all-checks-passed"], G.ALWAYS)
