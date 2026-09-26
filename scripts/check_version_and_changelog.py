@@ -45,6 +45,7 @@ Usage: python3 scripts/check_version_and_changelog.py [--repo <path>] [--externa
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import json
 import os
@@ -52,6 +53,7 @@ import re
 import stat
 import subprocess
 import sys
+import tokenize
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -519,9 +521,48 @@ def _pyproject_version(repo: Path) -> str | None:
 
 
 def _init_version(repo: Path) -> str | None:
-    m = re.search(r'(?m)^\s*__version__\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']',
-                  _read(repo / "src" / "proofbundle" / "__init__.py", "src/proofbundle/__init__.py"))
-    return m.group(1) if m else None
+    """`__version__` of src/proofbundle/__init__.py, READ AS PYTHON READS THE FILE: decoded by its
+    coding cookie, with universal newlines, and taken from the syntax tree.
+
+    A pattern over the UTF-8 text, first match taken, answered `6.1.0` for files where Python binds
+    `9.9.9` (the sweep of the class a review lens found in the language gate, run 10, measured
+    2026-09-26 at 50f3ef33): a second binding behind a lone CR, which ends a line for Python and not
+    for the pattern; the same binding behind `+AAo-` under `# coding: utf-7`; an annotated binding
+    `__version__: str = "9.9.9"`; and `from ._v import __version__`. One string literal bound at the
+    top level is the version. Two different values, or a binding this gate cannot evaluate (an import,
+    a binding inside a block, a value that is no literal), make what the file states NICHT MESSBAR
+    (`_NichtLesbar`); a file that binds none states no version, which `_check` reports.
+    """
+    name = "src/proofbundle/__init__.py"
+    raw = _roh(repo / "src" / "proofbundle" / "__init__.py", name)
+    if raw is None:
+        return None
+    try:
+        encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+        baum = ast.parse(io.TextIOWrapper(io.BytesIO(raw), encoding=encoding).read())
+    except (SyntaxError, ValueError, LookupError, RecursionError, MemoryError) as exc:
+        raise _NichtLesbar(f"{_pfad(name)} does not read as Python reads it ({type(exc).__name__}), "
+                           f"so the version it states is {NICHT_MESSBAR} here") from None
+    werte = [s.value.value for s in baum.body
+             if isinstance(s, (ast.Assign, ast.AnnAssign))
+             and [getattr(z, "id", None) for z in (s.targets if isinstance(s, ast.Assign) else [s.target])]
+             == ["__version__"]
+             and isinstance(s.value, ast.Constant) and isinstance(s.value.value, str)]
+    bindungen = sum(1 for k in ast.walk(baum)
+                    if isinstance(k, ast.Name) and k.id == "__version__" and isinstance(k.ctx, ast.Store))
+    bindungen += sum(1 for k in ast.walk(baum) if isinstance(k, (ast.Import, ast.ImportFrom))
+                     for a in k.names if (a.asname or a.name.split(".")[0]) == "__version__")
+    if bindungen != len(werte):
+        raise _NichtLesbar(f"{_pfad(name)} binds `__version__` in a way this gate does not read as one "
+                           "string (an import, a binding inside a block, a value that is no literal), so "
+                           f"the version it states is {NICHT_MESSBAR} here")
+    if len(set(werte)) > 1:
+        raise _NichtLesbar(f"{_pfad(name)} binds `__version__` to more than one value ("
+                           + ", ".join(_pfad(w) for w in sorted(set(werte)))
+                           + f"); Python keeps the last, so the version it states is {NICHT_MESSBAR} here")
+    if not werte or not re.match(r"[0-9]+\.[0-9]+\.[0-9]+", werte[0]):
+        return None
+    return werte[0]
 
 
 def _citation_version(repo: Path) -> str | None:
@@ -667,6 +708,14 @@ def _check(repo: Path) -> list[str]:
     # 1. Single-sourcing
     if not pv:
         problems.append("pyproject.toml [project].version not found")
+    # A SOURCE THAT STATES NO VERSION IS NO AGREEMENT. The OK line says "single-sourced across
+    # pyproject.toml/__init__.py/CITATION.cff", and a source with no version it could read counted as
+    # agreeing: an annotated `__version__`, one behind a coding cookie, a CITATION.cff without its
+    # top-level key each passed with exit 0 (measured 2026-09-26 at 50f3ef33).
+    for datei, wert in (("src/proofbundle/__init__.py", iv), ("CITATION.cff", cv)):
+        if not wert:
+            problems.append(f"{datei} states no version this gate can read, so it was not held against "
+                            "the other sources")
     versions = {"pyproject": pv, "__init__": iv, "CITATION.cff": cv}
     distinct = {v for v in versions.values() if v}
     if len(distinct) > 1:

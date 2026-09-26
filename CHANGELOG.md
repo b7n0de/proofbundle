@@ -98,6 +98,18 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   may hold a U+2028, and the guard and the language gate quote a line of a judged file that holds a
   character that does not print. JSON outputs escaped these names already and are unchanged.
 
+  The version gate reads the package's `__version__` as Python reads it. It read the value with a
+  pattern over the UTF-8 text of `src/proofbundle/__init__.py` and took the first match, and a source
+  that stated no version it could read counted as agreeing. Each of these said OK with exit 0 while
+  `import proofbundle` gave `9.9.9` against the `6.1.0` of the other sources: a second binding behind
+  a lone CR, which ends a line for Python and not for the pattern; the same binding behind `+AAo-`
+  under `# coding: utf-7`; an annotated binding `__version__: str = "9.9.9"`; and
+  `from ._v import __version__`. The gate now decodes the file by its coding cookie and reads the
+  bindings from the syntax tree: one string literal at the top level is the version, two different
+  ones or a binding it cannot evaluate make the file NICHT MESSBAR, and an `__init__.py` or a
+  `CITATION.cff` that states no version is a problem of its own instead of a silent agreement. The
+  file of this repository binds `__version__` once, so no verdict here changes.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in
