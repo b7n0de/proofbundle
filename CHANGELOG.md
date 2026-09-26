@@ -79,7 +79,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   and stopped with `SystemExit` and a text, which exits 1: the guard said 1, its code for a mutant
   found, outside a repository and when a git call failed under it, and the Merkle measurement said
   1, its code for two different roots, for a checkout without the module and, with a traceback,
-  for one whose module does not import (measured). Both exit 2 now, and the reason goes to stderr.
+  for one whose module does not import or raises when the readings call it (measured). Both exit 2
+  now, and the reason goes to stderr.
   Of the nine files under `scripts/`, `tools/` and `src/` that stopped with a text before this
   change, these two promise a separate code for it; two others document 1 for any failure, one
   documents only when it exits 0, and four document no exit code.

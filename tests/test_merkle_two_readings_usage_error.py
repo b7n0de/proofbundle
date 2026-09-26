@@ -30,6 +30,22 @@ def test_a_module_that_does_not_import_is_a_stop_exit_2_not_two_roots():
     assert "does not import: SyntaxError" in r.stderr and "Traceback" not in r.stderr
 
 
+def test_a_module_that_raises_when_called_is_a_stop_exit_2_not_two_roots():
+    """Run 7 of the stack lens: the import succeeded and the call raised, one frame deeper."""
+    for label, body in (("raises in merkle_tree_hash",
+                         "def merkle_tree_hash(e):\n    raise ValueError('boom')\ndef leaf_hash(e):\n    return b'y'\n"),
+                        ("has no leaf_hash", "def merkle_tree_hash(e):\n    return b'x'\n")):
+        with tempfile.TemporaryDirectory(prefix="merkle-raises-") as tmp:
+            pkg = pathlib.Path(tmp) / "src" / "proofbundle"
+            pkg.mkdir(parents=True)
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            (pkg / "merkle.py").write_text(body, encoding="utf-8")
+            r = subprocess.run([sys.executable, "-B", str(SCRIPT), "--checkout", tmp], capture_output=True,
+                               text=True, timeout=60)
+        assert r.returncode == 2, (label, r.stdout + r.stderr)
+        assert "does not measure" in r.stderr and "Traceback" not in r.stderr, label
+
+
 def test_control_this_checkout_is_measured():
     r = subprocess.run([sys.executable, str(SCRIPT), "--checkout", str(ROOT), "--json"],
                        capture_output=True, text=True, timeout=60)

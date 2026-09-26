@@ -29,7 +29,7 @@ HONEST LIMIT. One fixed input of five entries against one checkout. It says what
 not what every conforming implementation must do.
 
 Exit code: 0 if the two readings agree, 1 if they differ, 2 on a usage error or a checkout whose
-module does not import.
+module does not import or raises when the readings call it.
 """
 from __future__ import annotations
 
@@ -121,7 +121,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="path to a proofbundle checkout (the directory holding src/proofbundle)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    e = measure(Path(a.checkout).resolve())
+    # The whole measurement, not the import alone: a module that imports and then raises when called
+    # (a missing `leaf_hash`, an error inside `merkle_tree_hash`) ended with a traceback and exit 1,
+    # "the two readings differ" (a review lens on the stack, run 7, measured 2026-09-26).
+    try:
+        e = measure(Path(a.checkout).resolve())
+    except Exception as exc:  # noqa: BLE001 - whatever the checkout's module raises, it is not measured
+        print(f"the checkout under {a.checkout} does not measure: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        return 2
     if a.json:
         print(json.dumps(e, ensure_ascii=False, indent=2))
     else:
