@@ -77,8 +77,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `tests/test_every_validator_refuses_what_its_schema_refuses.py` now reads `scripts/` and `tools/`
   for Unicode classes, sees an alias of `re` and `__import__("re")` (the register's copy sat behind
   the second), sees a function of `re` imported by name (`from re import compile as c`, `*`), bound
-  by assignment or taken with `getattr`, and leaves MULTILINE patterns alone, whose anchors are per
-  line. Four scripts still
+  by assignment, taken with `getattr` or bound in `functools.partial`, and reads a pattern given as
+  `pattern=`, through a module-level name (every value it is bound to), in both branches of a
+  conditional, as a bytes literal (whose `\d` is ASCII in Python), as an f-string without a
+  placeholder, or as literals joined by `+`; a pattern that reaches `re` through a loop variable, a
+  parameter or a local name is a named limit. It leaves MULTILINE patterns alone, whose anchors are
+  per line. Four scripts still
   end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
   module and pattern, and the list is exact in both directions.
 
