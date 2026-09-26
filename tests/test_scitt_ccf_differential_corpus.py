@@ -134,3 +134,18 @@ def test_the_both_bucket_vectors_are_kept_as_submitted_and_as_returned(vid):
     summary = json.loads((CORPUS / "summary.json").read_text(encoding="utf-8"))
     row = next(v for v in summary["vectors"] if v["id"] == vid)
     assert (row["v1_reader_on_submitted_bytes"], row["v1_reader_on_returned"]) == ("malformed", "confirmed")
+
+
+def test_the_vendored_ccf_encoder_rebuilds_the_hashed_bytes_of_every_accepted_vector():
+    """The third oracle, a foreign tool built by us: CCF 7.0.17's vendored tav_cbor C ABI over EverCBOR,
+    driven through set_unprotected_header's calls (vendored_encoder_probe.py). Its recorded output is
+    held to the corpus offline: every digest against the receipt, and the counts."""
+    t = _tool("vendored_encoder_probe.py")
+    assert t.check() == 0
+    stored = json.loads(t.RESULT.read_text(encoding="utf-8"))
+    assert stored["oracle"].startswith("foreign tool, built by us")
+    assert stored["build"]["everparse"]["commit"] == "950bc93838ac2faae51126d8acd0637cf8c8a569"
+    assert stored["build"]["ccf"]["commit"] == "cdcb74c7365dbe4b3fad739868bfa9802d77ed75"
+    c1, c2 = (stored["corpora"][n]["counts"] for n in ("differential_corpus", "differential_corpus_round2"))
+    assert (c1["accepted"], c1["accepted_output_equals_served_minus_394"], c1["accepted_output_sha256_equals_data_hash"]) == (29, 29, 29)
+    assert (c2["accepted"], c2["accepted_output_equals_served_minus_394"], c2["accepted_output_sha256_equals_data_hash"]) == (19, 19, 19)

@@ -479,6 +479,8 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
     python3 differential_corpus_round2.py repeat --phase NAME --note TEXT ...    # the control again, after a change
     python3 differential_corpus_round2.py derive --check
     python3 preimage_candidates.py --corpus differential_corpus_round2 --check
+    python3 vendored_encoder_probe.py run --ccf-clone PATH   # CCF at ccf-7.0.17; network for crates.io and EverParse
+    python3 vendored_encoder_probe.py --check                # offline: the recorded probe output against the corpus
 
 `fetch_external.py` exits 1 on a digest mismatch and 2 when a source is unreachable; the other
 two exit 2 when the fetched files are missing.
@@ -502,6 +504,9 @@ two exit 2 when the fetched files are missing.
 | `SECTION4_WGLC.md` | section 4 read rule by rule, the measurements, and the gaps as questions |
 | `differential_corpus.py` | a control and one-variable mutations in six classes, registered on a local ledger; the chain per accepted vector, refusals in an admissibility matrix |
 | `differential_corpus/` | the recorded run of 2026-09-26 as raw hex text: `vectors/<id>/` holds request, receipt, returned statement and `record.json`; `summary.json` and `admissibility.json` are derived by `differential_corpus.py derive`, the `candidate_hashes.json` files and `preimage_summary.json` by `preimage_candidates.py` |
+| `vendored_encoder_probe.py` | a third preimage oracle, a foreign tool built by us: builds `vendored_encoder_probe/src/main.rs` against CCF ccf-7.0.17's vendored tee-attestation-verification-ffi and EverCBOR (project-everest/everparse 950bc938), runs it on every request of both corpus rounds, and writes `vendored_encoder_result.json` |
+| `vendored_encoder_probe/src/main.rs` | our transcription of `set_unprotected_header(input, desc::Empty{})` (CCF src/crypto/cose.cpp lines 18 to 89) onto the vendored tav_cbor C ABI; the Cargo manifest is written by the driver, against the CCF clone given |
+| `vendored_encoder_result.json` | the recorded probe run of 2026-09-26: build pins and, per vector, the output digest against the receipt's data-hash and the served statement minus 394 |
 | `preimage_candidates.py` | ten candidates for the preimage of the receipt's data-hash, with named variants, the added variant 4-deep-tagged and the added candidate 11, per accepted corpus vector. It writes `candidate_hashes.json` next to each `record.json`, and `preimage_summary.json` |
 | `differential_corpus_round2.py` | the corpus's second round: protected-header encodings, duplicate and both-bucket labels, crit, and the control again after a configuration change and a restart |
 | `differential_corpus_round2/` | the recorded second round of 2026-09-26, in the first round's stored form, pinned per vector and phase |

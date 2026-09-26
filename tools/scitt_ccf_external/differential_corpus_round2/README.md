@@ -104,6 +104,11 @@ The preimage table of this round is in `preimage_summary.json`, per vector in
   matches 11 of 19. It misses exactly the 8 accepted g vectors, whose protected map is not core
   deterministic. The service hashes the protected bytes as sent and does not re-encode them.
 - Every other candidate matches fewer.
+- The third oracle, CCF's vendored CBOR code built by us (`../vendored_encoder_probe.py`), rebuilds
+  the served statement minus label 394 byte for byte in 19 of 19, and its SHA-256 equals the
+  receipt's data-hash in 19 of 19. Of the 10 refused requests, it refuses 2 at its parse step
+  (h03 and h04, a duplicate unprotected label) and encodes the other 8. The service refused those 8
+  for reasons outside the encoder (signature, crit, protected duplicates).
 - The protected header is core deterministic in 11 of the 19.
 - The data-hash readers agree in 19 of 19.
 
@@ -150,7 +155,7 @@ not judged SCITT-invalid here. Every one came with HTTP 400 and `InvalidInput`.
 - derived by `python3 ../preimage_candidates.py --corpus differential_corpus_round2 --write`:
   `vectors/<id>/candidate_hashes.json`, `preimage_summary.json`
 
-- Stored: 123 text files, 364997 bytes; the largest is `summary.json`, 20427 bytes.
+- Stored: 123 text files, 365459 bytes; the largest is `summary.json`, 20427 bytes.
 
 ## NOT MEASURED, NOT MEASURABLE
 

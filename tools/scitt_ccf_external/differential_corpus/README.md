@@ -198,6 +198,16 @@ Oracles:
   `[scitt]` extra). The two agree in 29 of 29 vectors.
 - cbor2 encodes candidates 4, 4-deep-tagged, 5 and 6 a second time, from its own decoding of the
   request. Its encoding equals the tool's in 29 of 29 vectors for each of them.
+- A third oracle, a foreign tool built by us (`../vendored_encoder_probe.py`, result in
+  `../vendored_encoder_result.json`): CCF `ccf-7.0.17`'s vendored tee-attestation-verification-ffi
+  1.0.8 C ABI over EverCBOR, compiled from its pinned sources, with EverCBOR from
+  https://github.com/project-everest/everparse at `950bc93838ac2faae51126d8acd0637cf8c8a569` (tag
+  v2026.07.02, the commit CCF's vendored Cargo.toml pins). Our `vendored_encoder_probe/src/main.rs`
+  makes the calls of `set_unprotected_header` (`src/crypto/cose.cpp` lines 18 to 89) in their order:
+  parse, tag 18, elements 0, 2 and 3, shallow copies, an empty map, array, tag 18, serialize. On the
+  29 accepted requests, its output equals the served statement minus label 394 byte for byte in 29
+  of 29, and its SHA-256 equals the receipt's data-hash in 29 of 29. It equals the request itself
+  in 5 of 29. It refuses all 6 requests the service refused, at its parse step (indefinite lengths).
 - cbor2's canonical mode orders map keys length-first (RFC 8949 section 4.2.3). This was measured:
   `{"x": 1, 1000: 2}` encodes as `a26178011903e802`. The sorted variant of candidate 5 still agrees
   here, because no kept map in this corpus has keys that the two orders place differently.
@@ -223,7 +233,8 @@ file digests are in `preimage_summary.json`.
 - CCF `ccf-7.0.17`, `include/ccf/claims_digest.h` line 12 and `src/crypto/sha256_hash.cpp` lines 17
   to 20: the digest is SHA-256 over the byte vector.
 
-The source and the measurement name the same bytes. The source was read, not run.
+The source and the measurement name the same bytes. The ledger source was read, not run. CCF's
+vendored CBOR code was run on the corpus, as the third oracle above.
 
 NOT MEASURED here:
 
@@ -261,7 +272,7 @@ regression fixtures:
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 163 text files, 484642 bytes; the largest is `README.md`, 19323 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
+- Stored: 163 text files, 485691 bytes; the largest is `README.md`, 20372 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
 - No further mutation classes in this directory (owner answer C2 c). The four classes of the owner order of 2026-09-26 are in `../differential_corpus_round2/`.
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
