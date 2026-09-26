@@ -225,14 +225,14 @@ def test_the_version_gate_sweep_does_not_skip_a_file_it_cannot_read(tree, locked
 
 # -- digits -------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("version", ["6.1.0²", "6.1.0٣"], ids=["superscript-two", "arabic-indic-three"])
+@pytest.mark.parametrize("version", ["6.1.0\u00b2", "6.1.0\u0663"], ids=["superscript-two", "arabic-indic-three"])
 def test_a_version_part_that_is_no_ascii_digit_counts_as_none(version):
     gate = _load(VERSION_GATE, "_version_gate_digits")
     assert gate._semver_tuple(version)[:3] == (6, 1, 0)
 
 
 def test_a_release_tag_with_a_superscript_digit_is_no_crash(tree):
-    _git(tree, "tag", "v6.1.0²")
+    _git(tree, "tag", "v6.1.0\u00b2")
     (tree / "README.md").write_bytes((tree / "README.md").read_bytes() + b"x\n")
     _git(tree, "commit", "-q", "-am", "fix: a commit after the tag")
     r = _run(VERSION_GATE, "--repo", str(tree))

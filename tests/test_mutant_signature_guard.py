@@ -29,6 +29,15 @@ def _guard(repo, *args):
                           capture_output=True, text=True, timeout=60)
 
 
+def _printed(name):
+    """A name as the guard's report prints it: on one line, in double quotes with backslash escapes
+    when it holds a character that does not print, a double quote or a backslash (`_pfad`)."""
+    if all(c.isprintable() and c not in '"\\' for c in name):
+        return name
+    return '"' + "".join("\\" + c if c in '"\\' else c if c.isprintable()
+                         else c.encode("unicode_escape").decode("ascii") for c in name) + '"'
+
+
 class _RepoFixture(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="guard-test-")
@@ -96,7 +105,7 @@ class TestStagedMode(_RepoFixture):
                 self._stage("if False:\n    pass\n", path=p)
                 r = _guard(self.repo, "--staged")
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                self.assertIn(f"src/proofbundle/{name}:1", r.stdout)
+                self.assertIn(_printed(f"src/proofbundle/{name}") + ":1", r.stdout)
                 _git(self.repo, "rm", "-q", "--cached", "--", f"src/proofbundle/{name}")
                 p.unlink()
 
@@ -222,7 +231,7 @@ class TestStagedMode(_RepoFixture):
         r = _guard(self.repo, "--staged")
         self.assertNotIn("Traceback", r.stderr)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("src/proofbundle/" + chr(92) + "udcff.py:1", r.stdout)
+        self.assertIn('"src/proofbundle/' + chr(92) + 'udcff.py":1', r.stdout)
 
     def test_a_null_byte_in_the_file_is_a_verdict_not_a_crash(self):
         """ast.parse raises ValueError for a NUL byte, not SyntaxError: the guard ended with a
@@ -396,7 +405,7 @@ class TestBaseMode(_RepoFixture):
                 _git(self.repo, "commit", "-q", "-m", "mutant under a quoted path")
                 r = _guard(self.repo, "--base", base)
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                self.assertIn(f"src/proofbundle/{name}:1", r.stdout)
+                self.assertIn(_printed(f"src/proofbundle/{name}") + ":1", r.stdout)
 
     def test_committed_mutants_in_both_grammar_cases_are_blocked(self):
         base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()

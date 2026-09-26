@@ -434,12 +434,15 @@ class _NichtLesbar(Exception):
 
 
 def _pfad(rel: str) -> str:
-    """A path read from git as the report prints it: on one line, and with one reading.
+    """A name as a line-oriented report prints it: on one line, and with one reading.
 
-    Printed raw, a tracked file named `docs/z<LF>  - README.md:1: fake finding.md` split one problem
-    into two printed items, one of them blaming README.md (a review of the stack at 1ecc2aca,
-    measured 2026-09-26). A name that holds a character that does not print, a double quote or a
-    backslash is written in double quotes with backslash escapes; every other name as it is.
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the five release tools, held identical by a test.
     """
     if all(c.isprintable() and c not in '"\\' for c in rel):
         return rel
@@ -598,7 +601,7 @@ def _last_release_tag(repo: Path) -> tuple[str | None, str]:
     if rc_any != 0 or not any_tag:
         return None, "no git tags available"
     return None, (f"tags exist but none is a release tag reachable from HEAD "
-                  f"(latest reachable tag: {any_tag})")
+                  f"(latest reachable tag: {_pfad(any_tag)})")
 
 
 def _semver_tuple(v: str) -> tuple:
@@ -689,7 +692,7 @@ def _check(repo: Path) -> list[str]:
         # non-trivial commit and quoted as one (measured 2026-09-26).
         nontrivial = []
         if rc2 != 0:
-            problems.append(f"git log {last_tag_raw}..HEAD failed, so the post-tag drift is "
+            problems.append(f"git log {_pfad(last_tag_raw)}..HEAD failed, so the post-tag drift is "
                             f"{NICHT_MESSBAR}: {log[:200]}")
         else:
             nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
@@ -697,7 +700,7 @@ def _check(repo: Path) -> list[str]:
         has_unreleased = any(h.strip().lower() == "unreleased" for h in headings)
         if nontrivial and not version_bumped and not has_unreleased:
             problems.append(
-                f"{len(nontrivial)} non-trivial commit(s) since tag {last_tag_raw} but the version was not bumped "
+                f"{len(nontrivial)} non-trivial commit(s) since tag {_pfad(last_tag_raw)} but the version was not bumped "
                 f"and CHANGELOG.md has no `## [Unreleased]` section — undelivered work with no changelog trace "
                 f"(e.g. {nontrivial[:3]})")
 
@@ -1015,7 +1018,7 @@ def check_external(version: str, timeout: float = 15.0,
             ergebnisse.append(("PyPI", NICHT_MESSBAR, "response was not the expected JSON shape"))
         else:
             ergebnisse.append(("PyPI", "OK" if veroeffentlicht == version else "ABWEICHUNG",
-                               f"PyPI states {veroeffentlicht} (published sdist/wheel version), "
+                               f"PyPI states {_pfad(str(veroeffentlicht))} (published sdist/wheel version), "
                                f"source states {version}, read from {herkunft}"))
 
     seite = _fetch(_PROJECT_PAGE, timeout)

@@ -73,6 +73,24 @@ RECEIPT_CAP = 4 * 1024 * 1024
 FILE_CAP = 64 * 1024 * 1024
 
 
+def _pfad(rel: str) -> str:
+    """A name as a line-oriented report prints it: on one line, and with one reading.
+
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the five release tools, held identical by a test.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
 def _tracked_files(repo: Path) -> list[str] | None:
     """Tracked paths, or None if git cannot answer — None is the NICHT_MESSBAR signal, not [].
 
@@ -133,7 +151,7 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
     dateien = _tracked_files(repo)
     if dateien is None:
         aus.update(zustand="NICHT_MESSBAR", treffer=[], geprueft=0,
-                   grund=f"git konnte den Baum nicht auflisten: {repo}")
+                   grund=f"git konnte den Baum nicht auflisten: {_pfad(str(repo))}")
         return aus
     treffer, geprueft, nicht_gehasht = [], 0, []
     for rel in dateien:
@@ -159,14 +177,15 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
     aus["nicht_gehasht"] = nicht_gehasht
     if treffer:
         aus.update(zustand="AUFLOESBAR",
-                   grund=f"der signierte Digest liegt als verfolgtes Artefakt vor: {', '.join(treffer)}")
+                   grund=("der signierte Digest liegt als verfolgtes Artefakt vor: "
+                          + ", ".join(_pfad(t) for t in treffer)))
     elif nicht_gehasht:
         # A negative over a set with holes is not a negative: the file not hashed may be the one. The
         # first form skipped such a path without counting it, a file missing from the working tree or
         # a FIFO at a tracked path as much as one too large to read.
         aus.update(zustand="NICHT_MESSBAR",
                    grund=(f"{len(nicht_gehasht)} tracked path(s) could not be read as a regular file of at "
-                          f"most {FILE_CAP} bytes (first {nicht_gehasht[0]!r}), and none of the "
+                          f"most {FILE_CAP} bytes (first {_pfad(nicht_gehasht[0])}), and none of the "
                           f"{geprueft} hashed carries {digest[:12]}…"))
     else:
         aus.update(zustand="NICHT_AUFLOESBAR",
@@ -190,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     roh = _bytes_bis(a.receipt, RECEIPT_CAP)
     try:
         if roh is None:
-            raise OSError(f"no regular file of at most {RECEIPT_CAP} bytes: {a.receipt}")
+            raise OSError(f"no regular file of at most {RECEIPT_CAP} bytes: {_pfad(str(a.receipt))}")
         # RecursionError: a receipt nested deeper than the parser's stack, measured at 100000.
         rc = json.loads(roh.decode("utf-8"))
     except (OSError, ValueError, RecursionError) as e:

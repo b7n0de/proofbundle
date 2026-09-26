@@ -31,9 +31,9 @@ file: from its bytes, with its BOM and its PEP 263 coding cookie. The diff says 
 it does not say which lines mean something new. A change of only the coding-cookie line decodes every
 line after it anew, and a change that only removes, or only adds, lines that open and close a string
 turns text that stood in the string into statements; each left a `return True` opening a verify
-function unreported with exit 0 while only the added lines were judged (a review lens, and its
-sibling measured the same day, 2026-09-26). A changed file there that
-Python itself cannot decode or parse is not judged; the run stops fail-closed with the reason.
+function unreported with exit 0 while only the added lines were judged (a review lens, run 10, and
+a sibling measured beside it, 2026-09-26). A changed file there that Python itself cannot decode or
+parse is not judged; the run stops fail-closed with the reason.
 Legitimate exceptions are possible but must be VISIBLE in the diff: put a `# mutant-guard: allow`
 comment on the flagged line or the line directly above it.
 
@@ -79,6 +79,30 @@ def _repo_root() -> Path:
 #: Python imports on Windows, so it is judged as source too.
 _SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.pyw?\Z", re.DOTALL)
 _ALLOW_MARKER = "mutant-guard: allow"
+
+
+def _pfad(rel: str) -> str:
+    """A name as a line-oriented report prints it: on one line, and with one reading.
+
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the five release tools, held identical by a test.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
+def _auszug(text: str) -> str:
+    """A line of a judged file as a report quotes it: as it is when every character prints, and in the
+    form `_pfad` writes otherwise, so a separator such as U+2028 in it does not start a report line."""
+    return text if text.isprintable() else _pfad(text)
 
 
 def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
@@ -330,8 +354,8 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
     parses to the same tree, positions included, as the bytes did.
     """
     def stop(reason: str) -> SystemExit:
-        return SystemExit(f"mutant_signature_guard: {path}: Python cannot read this file as source, "
-                          f"so the guard cannot judge it (fail closed): {reason}")
+        return SystemExit(f"mutant_signature_guard: {_pfad(path)}: Python cannot read this file as "
+                          f"source, so the guard cannot judge it (fail closed): {reason}")
     try:
         tree = ast.parse(raw)
         encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
@@ -471,9 +495,9 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
     leaves alone a new meaning (see the module docstring). Line numbers and the allow marker are
     Python's.
 
-    Measured when this became so, 2026-09-26: none of the tracked `.py` files under src/proofbundle
-    carries a class A, B or C signature when read whole, so judging a changed file whole reports no
-    line that was there before."""
+    Measured when this became so, 2026-09-26: none of the 72 tracked `.py` files under
+    src/proofbundle carries a class A, B or C signature when read whole, so judging a changed file
+    whole reports no line that was there before."""
     try:
         per_file = _added_lines_by_file(diff_text)
     except ValueError as exc:
@@ -490,8 +514,8 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
         for git_no, text in added:
             # The diff and the file are two readings of one state; if they disagree, neither is judged.
             if not 1 <= git_no <= len(git_lines) or git_lines[git_no - 1] != text:
-                raise SystemExit(f"mutant_signature_guard: {path}:{git_no}: the diff and the file "
-                                 f"disagree about this line (fail closed)")
+                raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{git_no}: the diff and the "
+                                 f"file disagree about this line (fail closed)")
         tree, file_lines, _ = _read_as_python(path, raw)
         judged = set(range(1, len(file_lines) + 1))
         in_order: list[tuple[int, str]] = []
@@ -499,34 +523,35 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
             if _allowlisted(file_lines, first, last):
                 continue
             header = " ".join(file_lines[n - 1].strip() for n in range(first, last + 1))
-            in_order.append((first, f"{path}:{first}: trivial-truth branch (`if/elif False|True` / "
-                                    f"`while False`) at a check\n    {header}"))
+            in_order.append((first, f"{_pfad(path)}:{first}: trivial-truth branch (`if/elif "
+                                    f"False|True` / `while False`) at a check\n    {_auszug(header)}"))
         for lineno in sorted(judged):
             text = file_lines[lineno - 1]
             if not _COMMENTED_VERIFY.match(text) or _allowlisted(file_lines, lineno):
                 continue
             parses = _commented_content_parses(text)
             if parses is None:
-                raise SystemExit(f"mutant_signature_guard: {path}:{lineno}: a comment nests deeper than "
-                                 "the parser reads, so the guard cannot say whether it is commented-out "
-                                 "code (fail closed)")
+                raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{lineno}: a comment nests "
+                                 "deeper than the parser reads, so the guard cannot say whether it is "
+                                 "commented-out code (fail closed)")
             if parses:
-                in_order.append((lineno, f"{path}:{lineno}: commented-out verification call\n"
-                                         f"    {text.strip()}"))
+                in_order.append((lineno, f"{_pfad(path)}:{lineno}: commented-out verification call\n"
+                                         f"    {_auszug(text.strip())}"))
         findings.extend(finding for _, finding in sorted(in_order))
         for lineno, reason in _class_c_findings(tree, judged):
             if not _allowlisted(file_lines, lineno):
-                findings.append(f"{path}:{lineno}: {reason}")
+                findings.append(f"{_pfad(path)}:{lineno}: {reason}")
     for path, mode, obj in links:
         if mode == "120000":
             target = _file_content(path, staged=staged, cwd=cwd).strip()
-            findings.append(f"{path}: {_NOT_A_FILE[mode]} on a security path (to {target}) — the guard "
-                            "reads the link, Python runs its target, which this scan does not reach; a "
-                            f"link {_NO_MARKER}, so put the file itself there")
+            findings.append(f"{_pfad(path)}: {_NOT_A_FILE[mode]} on a security path (to "
+                            f"{_pfad(target)}) — the guard reads the link, Python runs its target, which "
+                            f"this scan does not reach; a link {_NO_MARKER}, so put the file itself there")
         else:
-            findings.append(f"{path}: {_NOT_A_FILE[mode]} on a security path (commit {obj[:12]}) — the "
-                            "diff shows a commit id, Python runs the files under it, which this scan "
-                            f"does not reach; a gitlink {_NO_MARKER}, so put the files themselves there")
+            findings.append(f"{_pfad(path)}: {_NOT_A_FILE[mode]} on a security path (commit "
+                            f"{obj[:12]}) — the diff shows a commit id, Python runs the files under it, "
+                            f"which this scan does not reach; a gitlink {_NO_MARKER}, so put the files "
+                            "themselves there")
     return findings
 
 
@@ -538,7 +563,7 @@ _COMPILED_SUFFIXES = (".pyc", ".pyo", ".so", ".pyd")
 
 def _compiled_findings(names: str) -> list[str]:
     """Class E over a `--name-only -z` listing of the paths the change adds or modifies."""
-    return [f"{name}: compiled code on a security path — Python imports it, and the guard cannot "
+    return [f"{_pfad(name)}: compiled code on a security path — Python imports it, and the guard cannot "
             f"read it as source; compiled code {_NO_MARKER}, so commit the source instead"
             for name in sorted(n for n in names.split("\0") if n)
             if name.endswith(_COMPILED_SUFFIXES) or "__pycache__" in name.split("/")]
@@ -687,11 +712,11 @@ def self_test() -> int:
             _git("checkout", "-q", "--", ".", cwd=repo)
         # a change that only removes lines gives the lines it leaves a new meaning (2026-09-26): the
         # two lines that held `return True` in a string go, and it opens the function
-        target.write_text('def verify_thing(data):\n    """\n    return True\n    """\n    return data == 1\n',
-                          encoding="utf-8")
+        held = 'def verify_thing(data):\n    """\n    return True\n    """\n    return data == 1\n'
+        target.write_text(held, encoding="utf-8")
         _git("add", "-A", cwd=repo)
         _git("commit", "-q", "-m", "a string that holds a return", cwd=repo)
-        target.write_text("def verify_thing(data):\n    return True\n    return data == 1\n", encoding="utf-8")
+        target.write_text(held.replace('    """\n', ""), encoding="utf-8")
         _git("add", "-A", cwd=repo)
         caught = bool(run_staged(repo))
         print(f"  {'ok  ' if caught else 'FAIL'} [C: a change that only removes lines] "

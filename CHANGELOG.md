@@ -84,6 +84,18 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   markdown-it-py stays a test oracle, and where it and the spec differ (a lowercase `<!doctype`,
   `<pre/>`) the gate follows the spec.
 
+  Every release tool prints a name on one line. The version gate's entry below quotes a path with a
+  line break in it (7056ebf6); the other four printed such a name raw, so a file name could write a
+  line that reads like a verdict: the mutant guard's finding under a name
+  `z<LF>  ok.py:1: fake verdict.py`, the language gate's text form, the digest resolver's reason and
+  the receipt verifier's `receipt=` and reason each printed the second line as a line of its own. One
+  quoting function, `_pfad`, now stands in each of the five tools, held identical by a test rather
+  than imported, since the guard and the version gate run on a bare interpreter: a name that holds a
+  character that does not print, a double quote or a backslash is written in double quotes with
+  backslash escapes, and reads back as the name it was. The version gate quotes a tag name too, which
+  may hold a U+2028, and the guard and the language gate quote a line of a judged file that holds a
+  character that does not print. JSON outputs escaped these names already and are unchanged.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in

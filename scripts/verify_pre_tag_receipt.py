@@ -255,6 +255,24 @@ def _gate():
     return mod
 
 
+def _pfad(rel: str) -> str:
+    """A name as a line-oriented report prints it: on one line, and with one reading.
+
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the five release tools, held identical by a test.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
 def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
     try:
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
@@ -348,9 +366,9 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     kandidaten = [n for n in (os.fsdecode(b) for b in listing.split(b"\0") if b) if n.endswith(".json")]
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"
-        out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- this commit carries "
-                         f"no pre-tag audit receipt for version {version} (a file in the working "
-                         "tree does not count; only the committed tree is read)")
+        out["reason"] = (f"no receipt under {_pfad(ordner)} in commit {commit[:12]} -- this commit "
+                         f"carries no pre-tag audit receipt for version {_pfad(str(version))} (a file "
+                         "in the working tree does not count; only the committed tree is read)")
         return out
 
     rc, gate_blob, err = _git(repo, "show", f"{commit}:scripts/pre_tag_audit_gate.py")
@@ -426,9 +444,9 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     if rejected:
         out["receipt_path"] = rejected[0]["path"]
         out["signer_pubkey"] = rejected[0]["signer_pubkey"] if "signer_pubkey" in rejected[0] else None
-        out["reason"] = "; ".join(f"{r['path']}: {r['reason']}" for r in rejected)
+        out["reason"] = "; ".join(f"{_pfad(r['path'])}: {r['reason']}" for r in rejected)
     else:
-        out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- only "
+        out["reason"] = (f"no receipt under {_pfad(ordner)} in commit {commit[:12]} -- only "
                          f"{len(foreign)} foreign artefact(s) of this house lie there, none of them a "
                          "receipt (a file in the working tree does not count; only the committed "
                          "tree is read)")
@@ -452,9 +470,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.json:
         print(json.dumps(res, indent=2, ensure_ascii=False))
     else:
-        print(f"[pre-tag-receipt] verdict={res['verdict']} commit={res['commit'][:12] if isinstance(res['commit'], str) else res['commit']} "
-              f"version={res['version']} tree={(res['subject_tree_digest'] or '?')[:12]} "
-              f"receipt={res['receipt_path'] or '-'} trusted_keys={res['trusted_pubkey_count']}")
+        commit = _pfad(res["commit"][:12]) if isinstance(res["commit"], str) else res["commit"]
+        print(f"[pre-tag-receipt] verdict={res['verdict']} commit={commit} "
+              f"version={_pfad(str(res['version']))} tree={(res['subject_tree_digest'] or '?')[:12]} "
+              f"receipt={_pfad(res['receipt_path'] or '-')} trusted_keys={res['trusted_pubkey_count']}")
         if res["reason"]:
             print(f"  {res['reason']}")
         print(f"  {LIMIT}")

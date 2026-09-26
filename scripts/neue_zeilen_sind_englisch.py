@@ -258,6 +258,30 @@ _ZITAT_AUF = "<!-- proofbundle:verbatim-quote:begin -->"
 _ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
 
 
+def _pfad(rel: str) -> str:
+    """A name as a line-oriented report prints it: on one line, and with one reading.
+
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the five release tools, held identical by a test.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
+def _auszug(text: str) -> str:
+    """A line of a judged file as a report quotes it: as it is when every character prints, and in the
+    form `_pfad` writes otherwise, so a separator such as U+2028 in it does not start a report line."""
+    return text if text.isprintable() else _pfad(text)
+
+
 def _git(*args: str) -> tuple[int, str]:
     """git's output as it wrote it: bytes decoded, with no newline translation. Text mode turned a
     lone CR into a line end, and the rest of that git line lost its `+` and was never read."""
@@ -499,7 +523,7 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
         for rel in neu:
             gelesen = _lesart(rel, lies)
             if gelesen is None:
-                return {}, f"NOT MEASURABLE: untracked file {rel!r} is not readable"
+                return {}, f"NOT MEASURABLE: untracked file {_pfad(rel)} is not readable"
             zeilen = gelesen[0][:-1] if gelesen[0] and gelesen[0][-1] == "" else gelesen[0]
             je_datei.setdefault(rel, [])
             je_datei[rel].extend(enumerate(zeilen, start=1))
@@ -726,9 +750,9 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
         # file is a statement about the whole range, not a line to be weighed against the others.
         return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": befunde,
                 "ohne_prosakarte": sorted(ohne_karte),
-                "grund": ("no prose map for " + ", ".join(sorted(ohne_karte)) + ": a .py file Python "
-                          "cannot decode or parse, or a .md file with an unbalanced quotation pair; its "
-                          "added lines were not judged"),
+                "grund": ("no prose map for " + ", ".join(_pfad(d) for d in sorted(ohne_karte))
+                          + ": a .py file Python cannot decode or parse, or a .md file with an "
+                          "unbalanced quotation pair; its added lines were not judged"),
                 "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
                 "wortlisten_baum": str(WERKZEUG_WURZEL),
@@ -775,11 +799,11 @@ def main(argv=None) -> int:
     else:
         print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
               f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
-              f" · measured tree: {d.get('gemessener_baum', '?')}"
+              f" · measured tree: {_pfad(d.get('gemessener_baum', '?'))}"
               f" ({d.get('baum_herkunft', '?')})"
-              f" · word list from: {d.get('wortlisten_baum', '?')}")
+              f" · word list from: {_pfad(d.get('wortlisten_baum', '?'))}")
         for b in d["befunde"][:20]:
-            print(f"  {b['datei']}:{b['zeile']}  {b['woerter']}  {b['text']}")
+            print(f"  {_pfad(b['datei'])}:{b['zeile']}  {b['woerter']}  {_auszug(b['text'])}")
         if len(d["befunde"]) > 20:
             print(f"  ... and {len(d['befunde']) - 20} more, not listed here (--json shows all)")
         if d.get("grund"):
