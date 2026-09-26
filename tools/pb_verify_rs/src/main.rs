@@ -518,6 +518,74 @@ const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty 
 // relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
 // verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
 const INTOTO_STATEMENT_PAYLOAD_TYPE: &str = "application/vnd.in-toto+json";
+const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
+
+/// Why a parsed payload is not an in-toto Statement v1, or None: mirror of Python
+/// `_statement_payload.load_statement_strict` (a JSON object) and `statement_type_problem` (an exact
+/// `_type`). Deep gate Z195, L3-Z195-01: the Python verifiers built `_type` when they emitted and never
+/// read it back, so a receipt with `_type` absent, null or v0.1 reached structure_ok=true. Python now
+/// refuses such a payload before any predicate is read; this side does the same, or the two would
+/// disagree on exactly those bytes.
+fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
+    if !statement.is_object() {
+        return Some("DSSE payload is not a JSON object — not an in-toto Statement".into());
+    }
+    match statement.get("_type") {
+        None => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is absent, expected '{INTOTO_STATEMENT_TYPE}'"
+        )),
+        Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => None,
+        Some(v) => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is {}, expected '{INTOTO_STATEMENT_TYPE}'",
+            wie_python_zeigt(v)
+        )),
+    }
+}
+
+/// A value as Python's `budget.render_safe` shows it in a refusal, for the cases this verifier meets:
+/// a string as `repr()` writes it, anything else as JSON. A review lens on PR 282 measured the `_type`
+/// refusal of a wrong string in double quotes here and in single quotes in Python.
+///
+/// Named limits: Python escapes a non-ASCII character it does not count as printable (U+0085, U+2028,
+/// a lone surrogate) and elides a string longer than 256 characters; this keeps both as they are. A
+/// value that is no string is JSON here and a repr there (`null` against `None`).
+fn wie_python_zeigt(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => python_repr(s),
+        andere => andere.to_string(),
+    }
+}
+
+/// Python's `repr()` of a `str`: single quotes, or double quotes when the text holds a single quote and
+/// no double quote; a backslash, the chosen quote, `\t`, `\n`, `\r` and the other ASCII control
+/// characters escaped the way Python escapes them.
+fn python_repr(s: &str) -> String {
+    let zeichen = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut aus = String::with_capacity(s.len() + 2);
+    aus.push(zeichen);
+    for c in s.chars() {
+        match c {
+            '\\' => aus.push_str("\\\\"),
+            '\t' => aus.push_str("\\t"),
+            '\n' => aus.push_str("\\n"),
+            '\r' => aus.push_str("\\r"),
+            c if c == zeichen => {
+                aus.push('\\');
+                aus.push(c);
+            }
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                aus.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c => aus.push(c),
+        }
+    }
+    aus.push(zeichen);
+    aus
+}
 
 fn verify_dsse(
     envelope: &serde_json::Value,
@@ -959,21 +1027,27 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
 fn verify_trust_pack_threshold(
     envelope: &serde_json::Value,
 ) -> Result<(bool, u64, u64, u64), String> {
-    let payload_type = envelope
-        .get("payloadType")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payloadType")?;
+    // Python's order (`trust_pack.verify_trust_pack`): payload, input_bytes, signatures non-empty list,
+    // cap, the payloadType pin, then the Statement. The payloadType used to be read first, without a
+    // pin, and the PAE built under whatever type the envelope named: a pack signed under
+    // `application/vnd.other+json` met its threshold here with exit 0 while Python refused it as a
+    // payloadType confusion (measured on both verifiers, with the Codex finding on PR 282).
     let payload_b64 = envelope
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
     let body = b64_dsse(payload_b64)?;
-    let msg = dsse_pae(payload_type, &body);
+    if body.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            body.len(),
+            BUDGET_INPUT_BYTES,
+        ));
+    }
 
-    // S106: the signature list is judged BEFORE the statement, in Python's order
-    // (`trust_pack.verify_trust_pack`: payload, input_bytes, signatures non-empty list, cap, then the
-    // statement). An empty list used to reach the threshold loop and come out as "threshold not met",
-    // where Python reports the envelope malformed.
+    // S106: the signature list is judged BEFORE the statement, in Python's order. An empty list used
+    // to reach the threshold loop and come out as "threshold not met", where Python reports the
+    // envelope malformed.
     let sigs = envelope
         .get("signatures")
         .and_then(|v| v.as_array())
@@ -989,8 +1063,26 @@ fn verify_trust_pack_threshold(
             BUDGET_SIGNATURES,
         ));
     }
+    // The pin, in Python's words: Python writes the value with a plain `repr()`, which a string
+    // mirrors here within the limits `wie_python_zeigt` names (no elision applies to a plain repr).
+    let payload_type = envelope.get("payloadType");
+    if payload_type.and_then(|v| v.as_str()) != Some(INTOTO_STATEMENT_PAYLOAD_TYPE) {
+        let gezeigt = payload_type.map_or_else(|| "None".to_string(), wie_python_zeigt);
+        return Err(format!(
+            "envelope.payloadType is {gezeigt}, expected '{INTOTO_STATEMENT_PAYLOAD_TYPE}' \
+             (payloadType-confusion, fail-closed)"
+        ));
+    }
+    let msg = dsse_pae(INTOTO_STATEMENT_PAYLOAD_TYPE, &body);
 
     let statement = strict_parse(&body)?;
+    // A pack is a Statement: the same oracle as the relation paths, at the place Python's
+    // `verify_trust_pack` reads it (`load_statement_strict`, before the predicate). Without it a pack
+    // whose `_type` was null, absent or v0.1 met its threshold here and failed in Python (Codex on
+    // PR 282, measured on both verifiers).
+    if let Some(p) = statement_typ_problem(&statement) {
+        return Err(p);
+    }
     let predicate = statement
         .get("predicate")
         .ok_or("statement has no predicate")?;
@@ -1966,8 +2058,14 @@ fn load_related(
         // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
         let mut payload_malformed = false;
         let mut subject_state: &'static str = "absent";
+        // Z195 (L3-Z195-01): the exact in-toto Statement v1 `_type` is part of that gate, as in Python.
         let parsed = match strict_parse(&body) {
-            Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
+            Ok(v)
+                if statement_typ_problem(&v).is_none()
+                    && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) =>
+            {
+                Some(v)
+            }
             _ => {
                 payload_malformed = true;
                 verified = false;
@@ -2125,6 +2223,12 @@ fn run_verify_relation(
         Ok(s) => s,
         Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
+    // Deep gate Z195, L3-Z195-01: an object with the exact in-toto Statement v1 `_type`, in BOTH modes.
+    // Python's decision, outcome and relation-statement verifiers refuse anything else before the
+    // predicate is read, so lineage stays null and the exit is 2; the same exit and lineage here.
+    if let Some(p) = statement_typ_problem(&statement) {
+        return (2, "null".into(), vec![format!("payload: {p}")]);
+    }
     let predicate = statement.get("predicate");
     let mut reasons: Vec<String> = Vec::new();
 
@@ -2414,6 +2518,165 @@ const POLICY_RELATIONS_KEYS: &[&str] = &[
     "relation_signer",
     "require_relation_target",
 ];
+/// Spiegel von policy._ISSUER_KEYS.
+const POLICY_ISSUER_KEYS: &[&str] = &["issuer", "public_key_b64", "kid"];
+/// Spiegel der Sektionen, deren HUELLE `policy._huelle_pruefen` prueft, in seiner Reihenfolge, mit
+/// den Schluesselmengen `_SIG_KEYS`, `_MERKLE_KEYS`, `_SDJWT_KEYS`, `_STATUS_KEYS`,
+/// `_ASSURANCE_KEYS`, `_ANCHORS_KEYS`, `_DECISION_KEYS`. Nur die Huelle: welche Werte darin stehen,
+/// prueft dieser Verifizierer nicht (die benannte Luecke).
+const POLICY_SEKTIONEN: &[(&str, &[&str])] = &[
+    ("signature", &["allowed_algs", "require_expected_signer"]),
+    (
+        "merkle",
+        &[
+            "required_hash_alg",
+            "require_authenticated_root",
+            "trusted_roots",
+            "trusted_checkpoints",
+        ],
+    ),
+    (
+        "sd_jwt",
+        &[
+            "require_key_binding_when_cnf_present",
+            "expected_aud",
+            "require_nonce",
+            "max_iat_age_seconds",
+            "expected_vct",
+        ],
+    ),
+    (
+        "status",
+        &["reject_self_issued", "allowed_status_authorities"],
+    ),
+    (
+        "assurance",
+        &["minimum_level", "reject_self_attested_without_prereg"],
+    ),
+    (
+        "anchors",
+        &[
+            "require_anchor",
+            "require_anchor_target",
+            "allow_pending",
+            "trusted_tsa_roots",
+            "bitcoin_block_headers",
+            "trusted_tsa_policy_oids",
+        ],
+    ),
+    (
+        "decision_receipt",
+        &[
+            "trusted_decision_makers",
+            "allowed_decision_types",
+            "allowed_verdicts",
+            "required_evidence_relations",
+            "accepted_predicate_types",
+            "require_policy_digest",
+            "require_external_anchor",
+            "allow_pending",
+            "require_audience",
+            "require_nonce",
+            "require_not_checked",
+            "require_decision_change_conditions",
+            "require_trace_context",
+            "allow_raw_inputs",
+        ],
+    ),
+];
+/// Spiegel von policy._CHECKPOINT_KEYS.
+const POLICY_CHECKPOINT_KEYS: &[&str] = &[
+    "origin",
+    "root",
+    "treeSize",
+    "hashAlg",
+    "checkpointSigner",
+    "issuedAt",
+    "validUntil",
+    "signature",
+];
+/// Spiegel von policy._DECISION_MAKER_KEYS.
+const POLICY_DECISION_MAKER_KEYS: &[&str] = &["id", "public_key_b64", "kid"];
+
+/// Spiegel von `policy._reject_unknown`: jedes Feld ausserhalb von `erlaubt` ist ein Fehler, und die
+/// Meldung nennt die Felder so, wie Python sie nennt (`render_keys_safe`, siehe `py_schluesselliste`).
+fn unbekannte_felder(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    erlaubt: &[&str],
+    wo: &str,
+) -> Result<(), String> {
+    let fremd: Vec<&str> = obj
+        .keys()
+        .map(|k| k.as_str())
+        .filter(|k| !erlaubt.contains(k))
+        .collect();
+    if fremd.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "unknown field(s) in {wo}: {} (trust policy is fail-closed)",
+        py_schluesselliste(&fremd)
+    ))
+}
+
+/// Spiegel von `policy._huelle_pruefen`: die Huelle auf JEDER Ebene, in Pythons Reihenfolge. Nicht-
+/// Objekte werden uebersprungen, ihren Typ meldet die Tiefenpruefung (wie in Python).
+fn huelle_pruefen(obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    unbekannte_felder(obj, POLICY_TOP_KEYS, "trust policy")?;
+    if let Some(liste) = obj.get("allowed_issuers").and_then(|v| v.as_array()) {
+        for eintrag in liste.iter().filter_map(|e| e.as_object()) {
+            unbekannte_felder(eintrag, POLICY_ISSUER_KEYS, "allowed_issuers[]")?;
+        }
+    }
+    for (name, schluessel) in POLICY_SEKTIONEN {
+        if let Some(sektion) = obj.get(*name).and_then(|v| v.as_object()) {
+            unbekannte_felder(sektion, schluessel, name)?;
+        }
+    }
+    if let Some(mk) = obj.get("merkle").and_then(|v| v.as_object()) {
+        if let Some(liste) = mk.get("trusted_checkpoints").and_then(|v| v.as_array()) {
+            for (i, eintrag) in liste.iter().enumerate() {
+                if let Some(e) = eintrag.as_object() {
+                    unbekannte_felder(
+                        e,
+                        POLICY_CHECKPOINT_KEYS,
+                        &format!("merkle.trusted_checkpoints[{i}]"),
+                    )?;
+                }
+            }
+        }
+    }
+    if let Some(dr) = obj.get("decision_receipt").and_then(|v| v.as_object()) {
+        if let Some(liste) = dr.get("trusted_decision_makers").and_then(|v| v.as_array()) {
+            for eintrag in liste.iter().filter_map(|e| e.as_object()) {
+                unbekannte_felder(
+                    eintrag,
+                    POLICY_DECISION_MAKER_KEYS,
+                    "trusted_decision_makers[]",
+                )?;
+            }
+        }
+    }
+    // `_huelle_relations`: die Sektion selbst, dann JEDE Regel von relation_signer, bevor irgendein
+    // Wert gelesen wird (gate run 1 on bb231dbf, lenses A and C, 224-1A-01 / 224-1C-02: this verifier
+    // checked a rule's fields inside the per-rule loop, so with two defective rules, or a defective
+    // rule and another defective field, the two sides named different defects).
+    if let Some(rel) = obj.get("relations").and_then(|v| v.as_object()) {
+        unbekannte_felder(rel, POLICY_RELATIONS_KEYS, "relations")?;
+        if let Some(rs) = rel.get("relation_signer").and_then(|v| v.as_object()) {
+            for (relname, regel) in rs {
+                if let Some(r) = regel.as_object() {
+                    unbekannte_felder(
+                        r,
+                        &["mode", "keys"],
+                        &format!("relations.relation_signer[{relname}]"),
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Spiegel der Huellen-Pruefung von `proofbundle.policy.load_policy`: Schema aus der bekannten
 /// Menge, kein unbekanntes Feld auf oberster Ebene, `policy_id` nichtleer, `relations` und
@@ -2421,35 +2684,30 @@ const POLICY_RELATIONS_KEYS: &[&str] = &[
 /// hinaus je Sektion tief prueft (merkle, sd_jwt, anchors, ...), liest dieser Verifizierer nicht —
 /// die Huelle und die Sektion, die er auswertet, muessen aber dasselbe Urteil bekommen.
 fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
+    // Python's order in `load_policy`: object, schema, the WHOLE hull (`_huelle_pruefen`), the
+    // v0.2-only decision_receipt, policy_id, then (after sections this verifier does not read, the
+    // named gap) relations under v0.2 and its values. Gate run 1 on bb231dbf (lens A, 224-1A-01): with
+    // two defects, the first version reported whichever came first in ITS order, not in Python's.
     let obj = pol
         .as_object()
         .ok_or("trust policy must be a JSON object")?;
     let schema = obj.get("schema").and_then(|v| v.as_str()).unwrap_or("");
     if schema != POLICY_SCHEMA_V01 && schema != POLICY_SCHEMA_V02 {
         return Err(format!(
-            "unsupported trust policy schema {:?}, expected one of [{POLICY_SCHEMA_V01:?}, {POLICY_SCHEMA_V02:?}]",
-            obj.get("schema")
+            "unsupported trust policy schema {}, expected one of {}",
+            py_repr(obj.get("schema")),
+            py_liste(&[POLICY_SCHEMA_V01, POLICY_SCHEMA_V02])
         ));
     }
-    let mut fremd: Vec<&str> = obj
-        .keys()
-        .map(|k| k.as_str())
-        .filter(|k| !POLICY_TOP_KEYS.contains(k))
-        .collect();
-    if !fremd.is_empty() {
-        fremd.sort_unstable();
+    huelle_pruefen(obj)?;
+    if obj.contains_key("decision_receipt") && schema != POLICY_SCHEMA_V02 {
         return Err(format!(
-            "unknown field(s) in trust policy: {fremd:?} (trust policy is fail-closed)"
+            "decision_receipt section requires schema {POLICY_SCHEMA_V02}"
         ));
     }
     match obj.get("policy_id").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => {}
         _ => return Err("trust policy requires a non-empty string policy_id".to_string()),
-    }
-    if obj.contains_key("decision_receipt") && schema != POLICY_SCHEMA_V02 {
-        return Err(format!(
-            "decision_receipt section requires schema {POLICY_SCHEMA_V02}"
-        ));
     }
     if let Some(rel) = obj.get("relations") {
         if schema != POLICY_SCHEMA_V02 {
@@ -2458,16 +2716,272 @@ fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
             ));
         }
         let rel = rel.as_object().ok_or("relations must be a JSON object")?;
-        let mut fremd: Vec<&str> = rel
-            .keys()
-            .map(|k| k.as_str())
-            .filter(|k| !POLICY_RELATIONS_KEYS.contains(k))
-            .collect();
-        if !fremd.is_empty() {
-            fremd.sort_unstable();
+        relations_sektion_pruefen(rel)?;
+    }
+    Ok(())
+}
+
+/// Python's `repr` of a `str` (CPython `unicode_repr`): single quotes unless the text holds a single
+/// quote and no double quote, `\\`, `\t`, `\n`, `\r` escaped, other control characters as `\xNN`.
+/// NAMED LIMIT: Python leaves a non-ASCII character as it is when `str.isprintable` says so, and that
+/// follows the Unicode tables; `py_druckbar` is exact for Latin-1 and approximate above it (gate run 1
+/// on bb231dbf: 224-1A-02 and 224-1B-02 measured the first version, which wrote `'{s}'` and JSON).
+fn py_str_repr(s: &str) -> String {
+    let anfuehrung = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::new();
+    out.push(anfuehrung);
+    for c in s.chars() {
+        let n = c as u32;
+        if c == anfuehrung || c == '\\' {
+            out.push('\\');
+            out.push(c);
+        } else if c == '\t' {
+            out.push_str("\\t");
+        } else if c == '\n' {
+            out.push_str("\\n");
+        } else if c == '\r' {
+            out.push_str("\\r");
+        } else if n < 0x20 || n == 0x7f {
+            out.push_str(&format!("\\x{n:02x}"));
+        } else if n < 0x7f || py_druckbar(c) {
+            out.push(c);
+        } else if n <= 0xff {
+            out.push_str(&format!("\\x{n:02x}"));
+        } else if n <= 0xffff {
+            out.push_str(&format!("\\u{n:04x}"));
+        } else {
+            out.push_str(&format!("\\U{n:08x}"));
+        }
+    }
+    out.push(anfuehrung);
+    out
+}
+
+/// `str.isprintable` for one non-ASCII character: not a control, not a separator, not one of the
+/// common format characters. Exact through U+00FF; above it an approximation (see `py_str_repr`).
+fn py_druckbar(c: char) -> bool {
+    !(c.is_control()
+        || c.is_whitespace()
+        || matches!(c as u32, 0xad | 0x180e | 0x200b..=0x200f | 0x2028..=0x202e | 0x2060..=0x2064
+            | 0x2066..=0x206f | 0xfeff | 0xfff9..=0xfffb))
+}
+
+/// Python's slice start `x[len(x) - j:]` on a sequence of `n` items, negative indices included.
+fn py_schnitt_ab(n: usize, start: i64) -> usize {
+    let s = if start < 0 { start + n as i64 } else { start };
+    s.clamp(0, n as i64) as usize
+}
+
+/// `proofbundle.budget.render_safe` for a `str`: `reprlib.Repr.repr_str` with `maxstring = 256`
+/// (`_BoundedRepr`). A longer text keeps its first 126 and last 127 characters around `...`.
+fn py_render_str(s: &str) -> String {
+    const MAXSTRING: usize = 256;
+    let zeichen: Vec<char> = s.chars().collect();
+    let kopf: String = zeichen.iter().take(MAXSTRING).collect();
+    let r = py_str_repr(&kopf);
+    if r.chars().count() <= MAXSTRING {
+        return r;
+    }
+    let i = (MAXSTRING - 3) / 2;
+    let j = MAXSTRING - 3 - i;
+    let n = zeichen.len();
+    let kurz: String = zeichen[..i.min(n)]
+        .iter()
+        .chain(zeichen[py_schnitt_ab(n, n as i64 - j as i64)..].iter())
+        .collect();
+    let r2: Vec<char> = py_str_repr(&kurz).chars().collect();
+    let m = r2.len();
+    let links: String = r2[..i.min(m)].iter().collect();
+    let rechts: String = r2[py_schnitt_ab(m, m as i64 - j as i64)..].iter().collect();
+    format!("{links}...{rechts}")
+}
+
+/// What Python prints for `render_keys_safe(keys)`: each key rendered, the renderings sorted, the list
+/// shown as Python shows a list of strings (so a key `x` reads `["'x'"]`).
+fn py_schluesselliste(keys: &[&str]) -> String {
+    let mut gerendert: Vec<String> = keys.iter().map(|k| py_render_str(k)).collect();
+    gerendert.sort();
+    let teile: Vec<String> = gerendert.iter().map(|g| py_str_repr(g)).collect();
+    format!("[{}]", teile.join(", "))
+}
+
+/// Python's `repr` of a list of plain strings, so a message reads the same on both sides.
+fn py_liste(namen: &[&str]) -> String {
+    let teile: Vec<String> = namen.iter().map(|n| py_str_repr(n)).collect();
+    format!("[{}]", teile.join(", "))
+}
+
+/// Python's `repr` of a JSON value as `policy.load_policy` prints it in a message (`{value!r}`),
+/// lists and objects included. NAMED LIMIT: a float in exponent form (`1e20`) prints as serde_json
+/// writes it, which is not always Python's `1e+20`.
+fn py_repr(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None | Some(serde_json::Value::Null) => "None".into(),
+        Some(serde_json::Value::String(s)) => py_str_repr(s),
+        Some(serde_json::Value::Bool(true)) => "True".into(),
+        Some(serde_json::Value::Bool(false)) => "False".into(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        Some(serde_json::Value::Array(a)) => {
+            let teile: Vec<String> = a.iter().map(|x| py_repr(Some(x))).collect();
+            format!("[{}]", teile.join(", "))
+        }
+        Some(serde_json::Value::Object(m)) => {
+            let teile: Vec<String> = m
+                .iter()
+                .map(|(k, x)| format!("{}: {}", py_str_repr(k), py_repr(Some(x))))
+                .collect();
+            format!("{{{}}}", teile.join(", "))
+        }
+    }
+}
+
+/// Mirror of Python `policy._validate_pinned_ed25519_pubkey` for a pinned relation-signer key.
+fn gepinnter_schluessel_pruefen(b64: &str, ctx: &str) -> Result<(), String> {
+    let roh = b64_strict(b64).map_err(|_| format!("{ctx} public_key_b64 is not valid base64"))?;
+    let arr: [u8; 32] = roh.as_slice().try_into().map_err(|_| {
+        format!(
+            "{ctx} public_key_b64 must decode to 32 bytes, got {}",
+            roh.len()
+        )
+    })?;
+    // The reason is `grund_der_schwaeche`, the one mirror of `signature.TRUST_ANCHOR_REFUSAL`, in the
+    // frame `policy._validate_pinned_ed25519_pubkey` puts around it. The first version wrote its own
+    // two sentences here (gate run 1 on bb231dbf, lens C, 224-1C-01).
+    match schwaeche_eines_vertrauensankers(&arr) {
+        Some(s @ "non-canonical") => Err(format!(
+            "{ctx} public_key_b64 is a non-canonical Ed25519 encoding (y >= p) \u{2014} rejected: {}",
+            grund_der_schwaeche(s)
+        )),
+        Some(s) => Err(format!(
+            "{ctx} public_key_b64 is a low-order Ed25519 point \u{2014} rejected: {}, so it cannot be \
+             a trusted identity",
+            grund_der_schwaeche(s)
+        )),
+        None => Ok(()),
+    }
+}
+
+/// THE SECTION THIS VERIFIER EVALUATES, judged the way `policy.load_policy` judges it.
+///
+/// Measured 2026-09-26 on main 1f7a62d2 with the corpus case
+/// `relation-signer-cross-issuer-unauthorized` and `relation_signer.supersedes.mode = "bogus"`:
+/// Python refused the policy (exit 2, "mode must be one of ['same-key', 'pinned']"), this verifier
+/// read the unknown mode as "no rule" and printed `{"lineage":"VERIFIED","reasons":[]}` with exit 0.
+/// Same bytes, refuse against accept. The comment above `policy_huelle_pruefen` already said that
+/// the hull AND the section this verifier evaluates must get the same verdict; only the hull did.
+/// The order and the wording are Python's: require_relation_resolution, the two booleans,
+/// relation_signer, require_relation_target.
+fn relations_sektion_pruefen(
+    rel: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let namen = py_liste(RELATIONS);
+    if let Some(rr) = rel.get("require_relation_resolution") {
+        let gut = rr
+            .as_array()
+            .map(|a| {
+                !a.is_empty()
+                    && a.iter()
+                        .all(|x| x.as_str().map(|s| RELATIONS.contains(&s)).unwrap_or(false))
+            })
+            .unwrap_or(false);
+        if !gut {
             return Err(format!(
-                "unknown field(s) in relations: {fremd:?} (trust policy is fail-closed)"
+                "relations.require_relation_resolution must be a non-empty list of relation names \
+                 out of {namen}"
             ));
+        }
+    }
+    for schalter in ["reject_superseded", "reject_retracted"] {
+        if let Some(v) = rel.get(schalter) {
+            if !v.is_boolean() {
+                return Err(format!(
+                    "relations.{schalter} must be a boolean (true/false)"
+                ));
+            }
+        }
+    }
+    if let Some(rs) = rel.get("relation_signer") {
+        let rs = rs
+            .as_object()
+            .ok_or("relations.relation_signer must be a JSON object")?;
+        for (relname, regel) in rs {
+            if !RELATIONS.contains(&relname.as_str()) {
+                return Err(format!(
+                    "relations.relation_signer key {} is not a relation name out of {namen}",
+                    py_str_repr(relname)
+                ));
+            }
+            let wo = format!("relations.relation_signer[{relname}]");
+            // A rule's unknown fields were refused by the hull already (`huelle_pruefen`), as in Python.
+            let regel = regel
+                .as_object()
+                .ok_or_else(|| format!("{wo} must be a JSON object"))?;
+            match regel.get("mode").and_then(|v| v.as_str()) {
+                Some("same-key") => {
+                    if regel.contains_key("keys") {
+                        return Err(format!(
+                            "{wo} mode 'same-key' takes no 'keys' (fail-closed)"
+                        ));
+                    }
+                }
+                Some("pinned") => {
+                    let schluessel: Option<Vec<&str>> = regel
+                        .get("keys")
+                        .and_then(|v| v.as_array())
+                        .filter(|a| !a.is_empty())
+                        .and_then(|a| a.iter().map(|v| v.as_str()).collect());
+                    let Some(schluessel) = schluessel else {
+                        return Err(format!(
+                            "{wo} mode 'pinned' needs a non-empty 'keys' list of base64 Ed25519 \
+                             public keys (empty = vacuous pin, fail-closed)"
+                        ));
+                    };
+                    for k in schluessel {
+                        gepinnter_schluessel_pruefen(k, &wo)?;
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "{wo}.mode must be one of ['same-key', 'pinned'] (fail-closed), got {}",
+                        py_repr(regel.get("mode"))
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(rt) = rel.get("require_relation_target") {
+        let rt = rt
+            .as_object()
+            .ok_or("relations.require_relation_target must be a JSON object")?;
+        for (relname, wurzeln) in rt {
+            if !RELATIONS.contains(&relname.as_str()) {
+                return Err(format!(
+                    "relations.require_relation_target key {} is not a relation name out of {namen}",
+                    py_str_repr(relname)
+                ));
+            }
+            let liste: Vec<&serde_json::Value> = match wurzeln {
+                serde_json::Value::Array(a) if a.is_empty() => {
+                    return Err(format!(
+                        "relations.require_relation_target[{relname}] must not be an empty list \
+                         (vacuous pin, fail-closed)"
+                    ));
+                }
+                serde_json::Value::Array(a) => a.iter().collect(),
+                einzeln => vec![einzeln],
+            };
+            for w in liste {
+                if !w.as_str().map(is_sha256_hex).unwrap_or(false) {
+                    return Err(format!(
+                        "relations.require_relation_target[{relname}] must be a 64-char lowercase \
+                         hex content root (jcs-sha256-v1), or a non-empty list of them"
+                    ));
+                }
+            }
         }
     }
     Ok(())
@@ -2949,6 +3463,7 @@ mod tests {
             })
             .collect();
         let statement = serde_json::json!({
+            "_type": INTOTO_STATEMENT_TYPE,
             "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
         });
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3110,12 +3625,106 @@ mod tests {
         let e = verify_trust_pack_threshold(&leer)
             .expect_err("an empty signature list produced a threshold verdict");
         assert_eq!(e, LEERE_SIGNATURLISTE);
-        // With a list present, the statement is judged next, as before.
+        // With a list present, the statement is judged next: its `_type` first, then its predicate.
         let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
-        let e =
-            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
+        let e = verify_trust_pack_threshold(&voll).expect_err("a payload without _type passed");
+        assert!(e.contains("_type is absent"), "{e}");
+        let std = base64::engine::general_purpose::STANDARD;
+        let ohne_praedikat = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(serde_json::to_vec(&serde_json::json!({"_type": INTOTO_STATEMENT_TYPE}))
+                .expect("json")),
+            "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&ohne_praedikat)
+            .expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn a_string_is_shown_as_python_repr_shows_it() {
+        // Each expected text is what CPython's repr() prints for the same string.
+        for (roh, erwartet) in [
+            ("abc", "'abc'"),
+            ("a'b", "\"a'b\""),
+            ("a'b\"c", "'a\\'b\"c'"),
+            ("a\"b", "'a\"b'"),
+            ("a\\b", "'a\\\\b'"),
+            ("a\tb\nc\rd", "'a\\tb\\nc\\rd'"),
+            ("\u{1}\u{7f}", "'\\x01\\x7f'"),
+            ("pr\u{fc}fung", "'pr\u{fc}fung'"),
+        ] {
+            assert_eq!(python_repr(roh), erwartet, "{roh:?}");
+        }
+        assert_eq!(wie_python_zeigt(&serde_json::json!(5)), "5");
+    }
+
+    #[test]
+    fn a_pack_under_another_payload_type_is_refused_in_pythons_order() {
+        // Measured with the Codex finding on PR 282: signed under `application/vnd.other+json`, the pack
+        // met its threshold here and Python refused it as a payloadType confusion.
+        let mut env = trust_pack_mit_root_keyids(1);
+        env["payloadType"] = serde_json::json!("application/vnd.other+json");
+        assert_eq!(
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged"),
+            "envelope.payloadType is 'application/vnd.other+json', expected \
+             'application/vnd.in-toto+json' (payloadType-confusion, fail-closed)"
+        );
+        // Python's order: the list and its cap before the pin, the pin before the Statement.
+        let mut leer = env.clone();
+        leer["signatures"] = serde_json::json!([]);
+        assert_eq!(
+            verify_trust_pack_threshold(&leer).expect_err("an empty list was judged"),
+            LEERE_SIGNATURLISTE
+        );
+        env["payload"] = serde_json::json!("e30=");
+        let e =
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged");
+        assert!(e.contains("payloadType-confusion"), "{e}");
+        let mut ohne = trust_pack_mit_root_keyids(1);
+        ohne.as_object_mut().expect("object").remove("payloadType");
+        let e = verify_trust_pack_threshold(&ohne).expect_err("a pack without a type was judged");
+        assert!(e.starts_with("envelope.payloadType is None"), "{e}");
+    }
+
+    #[test]
+    fn a_pack_that_is_no_in_toto_statement_v1_meets_no_threshold() {
+        // Codex on PR 282: Python's `verify_trust_pack` refuses such a pack (structure_ok=false), and
+        // this slice counted its signatures. The control proves each refusal comes from `_type`.
+        let mut env = trust_pack_mit_root_keyids(1);
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement: serde_json::Value = serde_json::from_slice(
+            &std.decode(env["payload"].as_str().expect("payload"))
+                .expect("b64"),
+        )
+        .expect("json");
+        assert!(
+            verify_trust_pack_threshold(&env).is_ok(),
+            "control: the pack with the right _type is refused"
+        );
+        for (name, wert) in [
+            ("absent", None),
+            ("null", Some(serde_json::Value::Null)),
+            (
+                "v0.1",
+                Some(serde_json::json!("https://in-toto.io/Statement/v0.1")),
+            ),
+            ("a list", Some(serde_json::json!([INTOTO_STATEMENT_TYPE]))),
+        ] {
+            let mut s = statement.clone();
+            match wert {
+                None => {
+                    s.as_object_mut().expect("object").remove("_type");
+                }
+                Some(v) => s["_type"] = v,
+            }
+            env["payload"] = serde_json::json!(std.encode(serde_json::to_vec(&s).expect("json")));
+            let e = verify_trust_pack_threshold(&env)
+                .expect_err("a pack that is no in-toto Statement v1 was judged");
+            assert!(
+                e.contains("not an in-toto Statement v1: _type is"),
+                "{name}: {e}"
+            );
+        }
     }
 
     #[test]
@@ -3271,7 +3880,7 @@ mod tests {
         let mut i2 = identitaet();
         i2[31] = 0x80;
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
             "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3289,7 +3898,7 @@ mod tests {
     fn a_weak_key_in_any_role_refuses_the_pack() {
         // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
                      "dm1": {"publicKey": std.encode([0u8; 32])}},
             "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
@@ -3314,6 +3923,101 @@ mod tests {
             verify_sdjwt_issuer(&sd, &serde_json::Value::Null, ""),
             Ok(false)
         );
+    }
+
+    #[test]
+    fn the_relations_section_is_judged_like_load_policy() {
+        // Measured 2026-09-26: an unknown relation_signer mode was read as "no rule", exit 0,
+        // where Python refuses the policy (exit 2). Positive control first.
+        let gut = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{
+                "relation_signer":{"supersedes":{"mode":"same-key"}},
+                "require_relation_target":{"supersedes":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}}}"#,
+        );
+        assert!(
+            policy_huelle_pruefen(&gut).is_ok(),
+            "a valid section was refused"
+        );
+        for (rel, fragment) in [
+            (
+                r#"{"relation_signer":{"supersedes":{"mode":"bogus"}}}"#,
+                "mode must be one of",
+            ),
+            (
+                r#"{"relation_signer":{"supersedes":{"mode":"pinned","keys":["AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="]}}}"#,
+                "low-order",
+            ),
+            (
+                r#"{"relation_signer":{"supersedes":{"mode":"pinned","keys":[]}}}"#,
+                "non-empty 'keys'",
+            ),
+            (
+                r#"{"relation_signer":{"replaces":{"mode":"same-key"}}}"#,
+                "not a relation name",
+            ),
+            (r#"{"reject_superseded":"false"}"#, "must be a boolean"),
+            (
+                r#"{"require_relation_target":{"supersedes":[]}}"#,
+                "must not be an empty list",
+            ),
+        ] {
+            let pol = _policy(&format!(
+                r#"{{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{rel}}}"#
+            ));
+            let e = policy_huelle_pruefen(&pol).expect_err(rel);
+            assert!(e.contains(fragment), "{rel}: {e}");
+        }
+    }
+
+    #[test]
+    fn python_repr_is_pythons() {
+        // The expected strings are what CPython 3.10 printed for `repr(s)` on 2026-09-26 (gate run 1
+        // on bb231dbf, 224-1A-02 / 224-1B-02: the first version wrote `'{s}'` and serde's JSON).
+        for (s, erwartet) in [
+            ("extra", "'extra'"),
+            ("it's", "\"it's\""),
+            ("say \"x\"", "'say \"x\"'"),
+            ("both ' and \"", "'both \\' and \"'"),
+            ("back\\slash", "'back\\\\slash'"),
+            ("tab\there", "'tab\\there'"),
+            ("\u{e9}", "'\u{e9}'"),
+            ("\u{7f}", "'\\x7f'"),
+            ("\u{a0}", "'\\xa0'"),
+        ] {
+            assert_eq!(py_str_repr(s), erwartet, "{s:?}");
+        }
+        // reprlib with maxstring 256 (budget._BoundedRepr): 126 characters, `...`, 127 characters.
+        let r = py_render_str(&"k".repeat(300));
+        assert_eq!(r.chars().count(), 256, "{r}");
+        assert_eq!(r, format!("'{}...{}'", "k".repeat(125), "k".repeat(126)));
+        assert_eq!(py_schluesselliste(&["zz", "aa"]), "[\"'aa'\", \"'zz'\"]");
+        assert_eq!(
+            py_repr(Some(&serde_json::json!(["x", null, true, {"a": 1}]))),
+            "['x', None, True, {'a': 1}]"
+        );
+    }
+
+    #[test]
+    fn the_hull_is_judged_before_any_value_as_in_python() {
+        // Gate run 1 on bb231dbf, lens A (224-1A-01): a bad mode in the first rule and an unknown field
+        // in the second. Python's hull pass names the unknown field; this reader named the mode.
+        let pol = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{
+                "relation_signer":{"supersedes":{"mode":"bogus"},"revises":{"mode":"same-key","extra":1}}}}"#,
+        );
+        let e = policy_huelle_pruefen(&pol).expect_err("two defects, no refusal");
+        assert_eq!(
+            e,
+            "unknown field(s) in relations.relation_signer[revises]: [\"'extra'\"] (trust policy is \
+             fail-closed)"
+        );
+        // and a hull defect in another section before a value defect in relations
+        let pol = _policy(
+            r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","signature":{"zz":1},
+                "relations":{"reject_superseded":"false"}}"#,
+        );
+        let e = policy_huelle_pruefen(&pol).expect_err("two defects, no refusal");
+        assert!(e.starts_with("unknown field(s) in signature"), "{e}");
     }
 
     #[test]

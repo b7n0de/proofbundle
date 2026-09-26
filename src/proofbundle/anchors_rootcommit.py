@@ -37,6 +37,7 @@ error at module load).
 from __future__ import annotations
 
 import hashlib
+from .anchors_ots import ots_binding_held   # stdlib-only at import time; the OTS library loads lazily
 from .checkpoint import _split_signed_note
 from .errors import BundleFormatError
 from ._wire_b64 import decode_b64
@@ -177,7 +178,9 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
         return {"known_anchors": known, "binding": False, "reject": True, "status": "malformed_checkpoint",
                 "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}
     b = _binding_status(ots, commitment, frozen=frozen, rp_trust=rp_trust)
-    bound = b["status"] not in ("unbound", "malformed", "no_lib")
+    # Membership in the statuses that say the binding held, never the absence of a listed refusal: the
+    # list read an over-cap proof, which nobody deserialized, as bound (anchors_ots._BINDING_HELD).
+    bound = ots_binding_held(b)
     return {"known_anchors": known, "binding": bound, "reject": not bound,
             "status": b["status"], "detail": b.get("detail", ""),
             "commitment": commitment.hex(), "wallet": wallet, "ots_ok": b.get("ok", False)}
@@ -277,7 +280,7 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
                 "status": "malformed_checkpoint",
                 "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}
     b = _binding_status(ots, commitment, frozen=frozen, rp_trust=rp_trust)
-    bound = b["status"] not in ("unbound", "malformed", "no_lib")
+    bound = ots_binding_held(b)   # the same membership rule as verify_rootcommit_v1
     # signature: EIP-191 recover over (tag + '\n' + commitment_hex) must equal the bound wallet (dep-gated)
     sig_ok: Optional[bool] = None
     sig_status = "not_checked"
