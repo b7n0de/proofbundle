@@ -115,7 +115,7 @@
     },
     {
       "what": "full suite with the [scitt] extra",
-      "value": "2 failed, 5997 passed, 172 skipped; the 2 are the root-only cases below and fail the same at 9db4fe4",
+      "value": "2 failed, 5997 passed, 172 skipped; the 2 are the root-only cases of the row above and fail the same at 9db4fe4",
       "source": "pytest tests/ in a worktree, CPython 3.11.15, run as uid 0",
       "commit": "0b29791"
     },
