@@ -38,7 +38,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
-from .signature import verify_ed25519
+from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -261,7 +261,9 @@ def verify_key_binding(
         return result
     signing_input = f"{kb_header_b64}.{kb_payload_b64}".encode("ascii")
     try:
-        sig_ok = verify_ed25519(key, kb_sig, signing_input)
+        # the holder key is what the binding proves possession of; a low-order key is possessed by
+        # nobody and signed for by anyone, so it proves nothing and is refused (deep gate Z195).
+        sig_ok = verify_ed25519_pinned(key, kb_sig, signing_input)
     except ValueError:
         sig_ok = False
     if not sig_ok:
