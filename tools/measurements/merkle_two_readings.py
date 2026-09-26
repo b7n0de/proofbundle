@@ -28,7 +28,8 @@ is a measurement, not a seal, and it says only what the two printed roots say.
 HONEST LIMIT. One fixed input of five entries against one checkout. It says what this reader does,
 not what every conforming implementation must do.
 
-Exit code: 0 if the two readings agree, 1 if they differ, 2 on a usage error.
+Exit code: 0 if the two readings agree, 1 if they differ, 2 on a usage error or a checkout whose
+module does not import.
 """
 from __future__ import annotations
 
@@ -59,7 +60,13 @@ def _load_merkle(checkout: Path):
         print(f"no proofbundle/merkle.py under {src}", file=sys.stderr)
         raise SystemExit(2)
     sys.path.insert(0, str(src))
-    import proofbundle.merkle as m  # noqa: E402
+    # A module that is there and does not import is the same kind of stop: its traceback exited 1,
+    # "the two readings differ" (a review lens, measured 2026-09-26 with a merkle.py that did not parse).
+    try:
+        import proofbundle.merkle as m  # noqa: E402
+    except Exception as exc:  # noqa: BLE001 - whatever the checkout raises on import, it is not measured
+        print(f"proofbundle.merkle under {src} does not import: {type(exc).__name__}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
     return m
 
 

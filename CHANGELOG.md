@@ -37,8 +37,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   HEAD. It counted a string as prose only in docstring position, so a German sentence in an
   f-string there, in a bare string as a later statement, in a bytes literal, after
   `from __future__` or in two literals joined by `+` was judged green; every string that stands
-  alone as a statement is prose now, and a string handed to a call or a name stays out. No tracked `.py` or `.md` file carries a lone CR or a U+2028 today, and no tracked path is
-  a symlink or a gitlink, so no verdict on this repository changes.
+  alone as a statement is prose now, and a string handed to a call or a name stays out. A file the
+  gate could not map to prose, a `.py` file that does not parse or a `.md` file with an unclosed
+  quotation, had its added lines read as not prose and judged green; the run is NOT MEASURABLE
+  for such a file now, as the gate's own description said, and a comment in it is still listed.
+  No tracked `.py` or `.md` file carries a lone CR or a U+2028 today, none of the 529 tracked
+  `.py` files fails to parse, and no tracked path is a symlink or a gitlink, so no verdict on this
+  repository changes.
 
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,
@@ -73,10 +78,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `tools/measurements/merkle_two_readings.py`). Both promise exit 2 for an internal or usage error
   and stopped with `SystemExit` and a text, which exits 1: the guard said 1, its code for a mutant
   found, outside a repository and when a git call failed under it, and the Merkle measurement said
-  1, its code for two different roots, for a checkout without the module (measured). Both exit 2
-  now, and the reason goes to stderr. Of the ten files under `scripts/`, `tools/` and `src/` that
-  stop with a text, these two promise a separate code for it; two others document 1 for any
-  failure, and six document no exit code.
+  1, its code for two different roots, for a checkout without the module and, with a traceback,
+  for one whose module does not import (measured). Both exit 2 now, and the reason goes to stderr.
+  Of the nine files under `scripts/`, `tools/` and `src/` that stopped with a text before this
+  change, these two promise a separate code for it; two others document 1 for any failure, one
+  documents only when it exits 0, and four document no exit code.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

@@ -185,6 +185,31 @@ def test_anti_parity_a_string_that_is_used_is_not_prose(repo, added):
     assert _judge(repo, "m.py", added) == ("gruen", [])
 
 
+@pytest.mark.parametrize("rel,added", [
+    ("m.py", f'def broken(:\n    pass\n\ndef g():\n    "{GERMAN}"\n'),
+    ("a.md", f"<!-- proofbundle:verbatim-quote:begin -->\nquoted\n\n{GERMAN}\n"),
+], ids=["python-that-does-not-parse", "markdown-with-an-unclosed-quotation"])
+@pytest.mark.parametrize("commit", [True, False], ids=["committed", "working-tree"])
+def test_a_file_without_a_prose_map_is_not_measurable(repo, rel, added, commit):
+    """Both were judged green: the prose map was None and read as "not prose" (a review lens, measured
+    2026-09-26). The run cannot judge those lines, and says so."""
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / rel).write_bytes((repo / rel).read_bytes() + added.encode("utf-8"))
+    if commit:
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "change")
+    gate = _language_gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base, arbeitsbaum=not commit)
+    assert (result["urteil"], result["rc"], result["ohne_prosakarte"]) == ("NOT MEASURABLE", 2, [rel])
+
+
+def test_a_comment_in_a_file_without_a_prose_map_is_still_listed(repo):
+    """A comment needs no map; it is judged and listed, and the run is still NOT MEASURABLE."""
+    result = _judge(repo, "m.py", f"def broken(:\n    pass\n# {GERMAN}\n")
+    assert result == ("NOT MEASURABLE", [("m.py", 4)])
+
+
 def test_an_untracked_file_is_numbered_in_pythons_grammar(repo):
     (repo / "neu.py").write_bytes(f"x = 1\r# {GERMAN}\n".encode("utf-8"))
     gate = _language_gate()

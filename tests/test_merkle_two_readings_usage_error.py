@@ -18,6 +18,18 @@ def test_a_checkout_without_the_module_is_a_usage_error_exit_2():
     assert "no proofbundle/merkle.py under" in r.stderr
 
 
+def test_a_module_that_does_not_import_is_a_stop_exit_2_not_two_roots():
+    with tempfile.TemporaryDirectory(prefix="merkle-broken-") as tmp:
+        pkg = pathlib.Path(tmp) / "src" / "proofbundle"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "merkle.py").write_text("def broken(:\n    pass\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, "-B", str(SCRIPT), "--checkout", tmp], capture_output=True,
+                           text=True, timeout=60)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "does not import: SyntaxError" in r.stderr and "Traceback" not in r.stderr
+
+
 def test_control_this_checkout_is_measured():
     r = subprocess.run([sys.executable, str(SCRIPT), "--checkout", str(ROOT), "--json"],
                        capture_output=True, text=True, timeout=60)

@@ -297,8 +297,8 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     report stays green either way.
 
     The tokenizer already answers exactly this question, so the shape of the fix is to stop
-    re-deriving it. Returns None when the file cannot be read or does not tokenize, and the
-    caller treats that as not-prose rather than as a pass.
+    re-deriving it. Returns None when the file cannot be read, does not tokenize or does not
+    parse, and the run then says NOT MEASURABLE for the file (`_ist_prosa`).
     """
     inhalt = (lies or _stand_leser(aus_head=False))(datei)
     if inhalt is None:
@@ -360,8 +360,8 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     opener's character and length are remembered, and only a closer of at least that length in the
     SAME character ends the block, which is what CommonMark says.
 
-    Returns None when the file cannot be read, and the caller treats that as not-prose rather than
-    as a pass.
+    Returns None when the file cannot be read or its quotation pairs do not balance, and the run
+    then says NOT MEASURABLE for the file (`_ist_prosa`).
     """
     inhalt = (lies or _stand_leser(aus_head=False))(datei)
     if inhalt is None:
@@ -401,21 +401,27 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     return aus
 
 
-def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool:
+def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool | None:
     """Comment, or inside a string that stands alone as a statement. The answer comes from the FILE,
     not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file in the judged state does say: the
     blob at HEAD, or the working tree in that form (`lies`; without it, the disk).
+
+    None when the file gives no prose map (a .py file that does not tokenize or parse, a .md file
+    with an unbalanced quotation pair): the line cannot be judged, and `pruefe` says NOT MEASURABLE.
+    Read as False, a German docstring after a syntax error elsewhere in its file, and every line of
+    a .md file after an unclosed quotation opener, passed as green in both forms (a review lens,
+    measured 2026-09-26). A comment line needs no map and is judged as before.
     """
     if datei.endswith(".md"):
         zeilen = _md_prosazeilen(datei, lies)
-        return bool(zeilen and nr in zeilen)
+        return None if zeilen is None else nr in zeilen
     if _KOMMENTAR.search(text):
         return True
     zeilen = _prosazeilen(datei, lies)
-    return bool(zeilen and nr in zeilen)
+    return None if zeilen is None else nr in zeilen
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
@@ -432,16 +438,32 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
         return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [],
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
                 "wortlisten_baum": str(WERKZEUG_WURZEL), "rc": 2}
-    befunde = []
+    befunde, ohne_karte = [], set()
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
-            if not _ist_prosa(datei, nr, text, lies):
+            prosa = _ist_prosa(datei, nr, text, lies)
+            if prosa is None:
+                ohne_karte.add(datei)
+                continue
+            if not prosa:
                 continue
             w = DP.treffer(text)
             if len(w) >= SCHWELLE:
                 befunde.append({"datei": datei, "zeile": nr,
                                 "woerter": sorted(set(x.lower() for x in w)),
                                 "text": text.strip()[:110]})
+    if ohne_karte:
+        # NOT MEASURABLE comes first, and the findings made elsewhere are still listed: an unjudged
+        # file is a statement about the whole range, not a line to be weighed against the others.
+        return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": befunde,
+                "ohne_prosakarte": sorted(ohne_karte),
+                "grund": ("no prose map for " + ", ".join(sorted(ohne_karte)) + ": a .py file that does "
+                          "not tokenize or parse, or a .md file with an unbalanced quotation pair; its "
+                          "added lines were not judged"),
+                "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
+                "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
+                "wortlisten_baum": str(WERKZEUG_WURZEL),
+                "geprueft": sum(len(z) for z in je_datei.values()), "dateien": len(je_datei)}
     return {"urteil": "ROT" if befunde else "gruen", "befunde": befunde,
             "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
             "gemessener_baum": str(REPO),
