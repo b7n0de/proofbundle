@@ -566,7 +566,12 @@ class TestTheScannerActuallyCatches(unittest.TestCase):
 
 
 class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
-    """The third form of the class: a lookup hashes its key as a membership test does."""
+    """The third form of the class: a lookup hashes its key as a membership test does.
+
+    STATED LIMIT: the guard finds every such lookup and holds the list exact; it does NOT prove the
+    reasons in `_LOOKUPS_CLASSIFIED`. A person read each guard before classifying the site, and a
+    guard removed later leaves the reason standing. Only a test that sends an unhashable value to the
+    surface can catch that; this one cannot."""
 
     def test_the_tree_holds_exactly_the_classified_lookups(self):
         seen = _constant_lookups_in_tree()
