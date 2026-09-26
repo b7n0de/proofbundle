@@ -76,13 +76,20 @@ def test_the_stored_summaries_are_what_the_tool_derives_from_the_raw_bytes():
 def test_one_byte_string_is_the_data_hash_preimage_of_every_accepted_vector():
     """The ten candidates of preimage_candidates.py, recomputed from the raw bytes by the tool's own
     reader and encoder (no cbor2). Only the tagged COSE_Sign1 with an empty unprotected map matches
-    all 29, reached two ways: rebuilt from the contents (4) and cut from the returned statement (3)."""
+    all 29, reached three ways: rebuilt from the contents (4), cut from the returned statement (3),
+    and rebuilt with the protected map re-encoded (4-deep), which is the same bytes here because every
+    protected map of this round is already core deterministic. The request with only its unprotected
+    map emptied (11) misses the 8 vectors with non-preferred heads: the service re-encodes framing."""
     per, summary = _tool("preimage_candidates.py").derive(CORPUS)
     assert len(per) == 29
     matches = {row["candidate"]: row["matches"] for row in summary["table"]}
-    assert [c for c, m in matches.items() if m == 29] == ["3-tagged", "4-tagged"]
-    assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == ["3-tagged", "4-tagged"]
+    full = ["3-tagged", "4-tagged", "4-deep-tagged"]
+    assert [c for c, m in matches.items() if m == 29] == full
+    assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == full
     assert matches["1"] == 5 and matches["5-sorted-tagged"] == 14 and matches["6"] == 0
+    assert matches["11"] == 21
+    assert sorted(v for v in per if not per[v]["candidates"]["11"]["equals_data_hash"]) == [
+        "b01-width4", "b02-width8", "c01-width2", "c02-width4", "c03-width8", "d01-width2", "d02-width4", "d03-width8"]
     stored = json.loads((CORPUS / "preimage_summary.json").read_text(encoding="utf-8"))
     assert {row["candidate"]: row["matches"] for row in stored["table"]} == matches
 

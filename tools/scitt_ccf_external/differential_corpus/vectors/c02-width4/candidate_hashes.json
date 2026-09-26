@@ -5,11 +5,12 @@
  "base": "control",
  "mutation": "the payload byte string with a 4-byte length argument, 32 bytes of content",
  "rules": {
-  "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed",
+  "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed, except the protected map in 4-deep-tagged",
   "receipt_material": "unprotected label 394 only (COSE Receipts WG source df5113e9, SCITT architecture WG source ba7d23d4)",
   "tag_18": "3, 4 and 5 tagged and untagged; 1 and 2 as stored; 6 to 10 untagged",
   "key_order_of_U": "5 sorted per 4.2.1 and in the submitted order",
   "element_form": "7 to 10 as content and as a preferred-head bstr; 7 also as submitted",
+  "added_candidates": "4-deep-tagged re-encodes the protected map; 11 keeps the submitted framing",
   "full_text": "preimage_summary.json, key rules"
  },
  "encodings_in_this_directory": {
@@ -20,7 +21,7 @@
  "oracles": {
   "candidates": "own computation: this tool's CBOR reader and encoder, hashlib SHA-256",
   "data_hash": "own reader of receipt.hex, checked against cbor2 (foreign, pinned by the [scitt] extra) where installed",
-  "foreign_re_encoding": "cbor2 encodes 4, 5 and 6 again from its own decoding of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)"
+  "foreign_re_encoding": "cbor2 encodes 4, 4-deep-tagged, 5 and 6 again from its own decoding of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)"
  },
  "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
  "receipt_inclusion_proofs": 1,
@@ -59,6 +60,11 @@
   "4-untagged": {
    "sha256": "5bf79a26039a03fd383c22a975c50d2dda742d715819a1ffe8059fcd83503798",
    "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "4-deep-tagged": {
+   "sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "equals_data_hash": true,
    "cbor2_equal": true
   },
   "5-sorted-tagged": {
@@ -120,6 +126,10 @@
   },
   "10-element": {
    "sha256": "6ba580c1806f506d0eb96aebdaafb48dfdad699f2e946b4520ac40a04442f1c5",
+   "equals_data_hash": false
+  },
+  "11": {
+   "sha256": "40500c8b388eb08246e02bad9e92616c22236514878ef8f8058a6d66caf7a937",
    "equals_data_hash": false
   }
  }

@@ -74,15 +74,20 @@ def test_the_round_holds_no_binary_file_and_no_private_key():
 
 
 def test_one_byte_string_is_the_data_hash_preimage_of_every_accepted_vector_of_the_round():
-    """Recomputed by preimage_candidates.py's own reader and encoder, without cbor2."""
+    """Recomputed by preimage_candidates.py's own reader and encoder, without cbor2. The protected map
+    re-encoded (4-deep) misses exactly the 8 accepted g vectors, whose protected map is not core
+    deterministic: the service hashes the protected bytes as sent. Every request of this round has
+    preferred heads, so the request with its unprotected map emptied (11) is the same bytes as 4."""
     per, summary = _tool("preimage_candidates.py").derive(CORPUS)
     assert len(per) == 19
     matches = {row["candidate"]: row["matches"] for row in summary["table"]}
-    assert [c for c, m in matches.items() if m == 19] == ["3-tagged", "4-tagged"]
-    assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == ["3-tagged", "4-tagged"]
+    assert [c for c, m in matches.items() if m == 19] == ["3-tagged", "4-tagged", "11"]
+    assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == ["3-tagged", "4-tagged", "11"]
     not_deterministic = sorted(v for v, o in per.items() if not o["facts"]["protected_content_is_core_deterministic"])
     assert not_deterministic == sorted(v for v in per if v.startswith("g"))
     assert len(not_deterministic) == 8
+    assert matches["4-deep-tagged"] == 11
+    assert sorted(v for v in per if not per[v]["candidates"]["4-deep-tagged"]["equals_data_hash"]) == not_deterministic
 
 
 @pytest.mark.skipif(importlib.util.find_spec("cbor2") is None, reason="the scitt-ccf reader and the foreign readings need cbor2")

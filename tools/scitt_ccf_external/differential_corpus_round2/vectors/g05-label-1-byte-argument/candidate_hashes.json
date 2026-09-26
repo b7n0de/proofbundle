@@ -5,11 +5,12 @@
  "base": "control",
  "mutation": "the label 1 as 18 01, a 1-byte argument; signed again",
  "rules": {
-  "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed",
+  "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed, except the protected map in 4-deep-tagged",
   "receipt_material": "unprotected label 394 only (COSE Receipts WG source df5113e9, SCITT architecture WG source ba7d23d4)",
   "tag_18": "3, 4 and 5 tagged and untagged; 1 and 2 as stored; 6 to 10 untagged",
   "key_order_of_U": "5 sorted per 4.2.1 and in the submitted order",
   "element_form": "7 to 10 as content and as a preferred-head bstr; 7 also as submitted",
+  "added_candidates": "4-deep-tagged re-encodes the protected map; 11 keeps the submitted framing",
   "full_text": "preimage_summary.json, key rules"
  },
  "encodings_in_this_directory": {
@@ -20,7 +21,7 @@
  "oracles": {
   "candidates": "own computation: this tool's CBOR reader and encoder, hashlib SHA-256",
   "data_hash": "own reader of receipt.hex, checked against cbor2 (foreign, pinned by the [scitt] extra) where installed",
-  "foreign_re_encoding": "cbor2 encodes 4, 5 and 6 again from its own decoding of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)"
+  "foreign_re_encoding": "cbor2 encodes 4, 4-deep-tagged, 5 and 6 again from its own decoding of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)"
  },
  "receipt_data_hash": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
  "receipt_inclusion_proofs": 1,
@@ -58,6 +59,11 @@
   },
   "4-untagged": {
    "sha256": "46cb584465a235c8a842c270e1a7c6f4f4aadc621132cbaf900c936c0e945d86",
+   "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "4-deep-tagged": {
+   "sha256": "ede5c7397220db5676345e660ec25a68baaea56814d6ac15f7fc91572092a924",
    "equals_data_hash": false,
    "cbor2_equal": true
   },
@@ -121,6 +127,10 @@
   "10-element": {
    "sha256": "caec355c24dbbf66e98f446ff0e5d4bd83e1fdb6c48a1b45d5f1a6a23007807c",
    "equals_data_hash": false
+  },
+  "11": {
+   "sha256": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+   "equals_data_hash": true
   }
  }
 }

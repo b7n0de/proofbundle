@@ -114,6 +114,7 @@ The error for c04 and c05 names a detached or empty payload. The payload in both
 A reviewer of this corpus asked for the exact preimage of the data-hash before the mutations are
 broadened. `../preimage_candidates.py` computes ten candidates per accepted vector from the stored
 bytes, with no new ledger run. Where the order leaves a choice open, it computes every named variant.
+Owner answer 2 of 2026-09-26 added two more: the variant 4-deep-tagged and the candidate 11.
 Each candidate is compared with the data-hash in that vector's receipt. The result is in
 `vectors/<id>/candidate_hashes.json` and `preimage_summary.json`.
 
@@ -124,9 +125,13 @@ Exactly one byte string matches all 29 accepted vectors:
 - the protected, payload and signature byte strings, with their contents as submitted and preferred heads
 - an empty map (`a0`) as the unprotected header
 
-Two candidates name that byte string. Candidate 4-tagged rebuilds it from the contents. Candidate
-3-tagged cuts label 394 out of the returned statement. The two are the same bytes in 29 of 29
-vectors. No other candidate or variant matches all 29.
+Three candidates name that byte string. Candidate 4-tagged rebuilds it from the contents. Candidate
+3-tagged cuts label 394 out of the returned statement. The added variant 4-deep-tagged also
+re-encodes the map inside the protected bstr. The three are the same bytes in 29 of 29 vectors,
+because every protected map of this round is already core deterministic. The second round separates
+4-deep-tagged from the other two: it matches 11 of 19 there, and misses exactly the 8 accepted
+vectors whose protected map is not core deterministic (`../differential_corpus_round2/README.md`).
+No other candidate or variant matches all 29.
 
 | candidate | what | matches the receipt's data-hash | cbor2 encoding of the same candidate |
 |---|---|---|---|
@@ -136,6 +141,7 @@ vectors. No other candidate or variant matches all 29.
 | `3-untagged` | returned statement, label 394 removed, every other byte as served, tag 18 dropped | 0 of 29 | not encoded by cbor2 |
 | `4-tagged` | deterministic [protected, {}, payload, signature], tag 18 | 29 of 29 | 29 of 29 equal |
 | `4-untagged` | deterministic [protected, {}, payload, signature], no tag | 0 of 29 | 29 of 29 equal |
+| `4-deep-tagged` | deterministic [protected, {}, payload, signature], tag 18, the protected map re-encoded per 4.2.1 | 29 of 29 | 29 of 29 equal |
 | `5-sorted-tagged` | deterministic [protected, U, payload, signature], U sorted per 4.2.1, tag 18 | 14 of 29 | 29 of 29 equal |
 | `5-sorted-untagged` | deterministic [protected, U, payload, signature], U sorted per 4.2.1, no tag | 0 of 29 | 29 of 29 equal |
 | `5-submitted-order-tagged` | [protected, U, payload, signature], U in submitted order, preferred heads, tag 18 | 14 of 29 | 29 of 29 equal |
@@ -150,6 +156,7 @@ vectors. No other candidate or variant matches all 29.
 | `9-element` | signature, bstr with a preferred head | 0 of 29 | not encoded by cbor2 |
 | `10-content` | protected, payload and signature contents, concatenated | 0 of 29 | not encoded by cbor2 |
 | `10-element` | protected, payload and signature as preferred-head bstrs, concatenated | 0 of 29 | not encoded by cbor2 |
+| `11` | request with its unprotected map replaced by `a0`, every other byte as submitted | 21 of 29 | not encoded by cbor2 |
 
 What the partial matches show:
 
@@ -158,6 +165,9 @@ What the partial matches show:
 - The tagged variants of candidate 5 match in 14 vectors. These are the vectors whose unprotected
   map is empty once label 394 is removed: control, control-resubmitted, a08, b01, b02, c01 to c03,
   d01 to d03 and f01 to f03.
+- Candidate 11 matches in 21 vectors. It misses b01, b02, c01 to c03 and d01 to d03, the eight
+  vectors with a non-preferred head in a byte string. The service therefore re-encodes the framing
+  of the elements it hashes. It does not only splice out the unprotected map.
 - The untagged variants match nowhere.
 
 Rules applied, written into every `candidate_hashes.json` and in full in `preimage_summary.json`:
@@ -167,7 +177,7 @@ Rules applied, written into every `candidate_hashes.json` and in full in `preima
   - definite lengths
   - map keys sorted bytewise by their encodings
 - String contents are never changed. The protected header stays the content of its bstr as
-  submitted.
+  submitted. The one exception is the added variant 4-deep-tagged, which re-encodes the map inside it.
 - In this corpus, that content is already core deterministic in 29 of 29 vectors, so re-encoding it
   would change nothing here.
 - That the service keeps a protected header as sent, even with a non-preferred integer inside it,
@@ -186,8 +196,8 @@ Oracles:
 - Every candidate is computed by the tool's own CBOR reader and encoder, and SHA-256 by hashlib.
 - The data-hash is read by the tool's own reader, and read again by cbor2 (foreign, pinned by the
   `[scitt]` extra). The two agree in 29 of 29 vectors.
-- cbor2 encodes candidates 4, 5 and 6 a second time, from its own decoding of the request. Its
-  encoding equals the tool's in 29 of 29 vectors for each of them.
+- cbor2 encodes candidates 4, 4-deep-tagged, 5 and 6 a second time, from its own decoding of the
+  request. Its encoding equals the tool's in 29 of 29 vectors for each of them.
 - cbor2's canonical mode orders map keys length-first (RFC 8949 section 4.2.3). This was measured:
   `{"x": 1, 1000: 2}` encodes as `a26178011903e802`. The sorted variant of candidate 5 still agrees
   here, because no kept map in this corpus has keys that the two orders place differently.
@@ -203,6 +213,11 @@ file digests are in `preimage_summary.json`.
   - it copies the protected header, payload and signature
   - it puts `make_map({})` in position 1
   - it wraps the result in tag 18 and serializes it with `nondet_serialize()`
+- scitt-ccf-ledger, the same file, lines 430 to 431: `entry_table->put(signed_statement)`. The ledger
+  stores the bytes it hashed.
+- scitt-ccf-ledger, the same file, lines 534 to 541: the served statement is that stored entry with
+  `{394: [receipt]}` set by `set_unprotected_header(*entry, receipts_desc)`. Removing label 394 from
+  it gives back the hashed bytes, which is why candidates 3-tagged and 4-tagged are one construction.
 - CCF `ccf-7.0.17`, `3rdparty/internal/tee-attestation-verification/cbor/src/lib.rs` lines 14 to 16:
   both serializer modes "write preferred head widths".
 - CCF `ccf-7.0.17`, `include/ccf/claims_digest.h` line 12 and `src/crypto/sha256_hash.cpp` lines 17
@@ -246,7 +261,7 @@ regression fixtures:
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 163 text files, 467305 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
+- Stored: 163 text files, 484642 bytes; the largest is `README.md`, 19323 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
 - No further mutation classes in this directory (owner answer C2 c). The four classes of the owner order of 2026-09-26 are in `../differential_corpus_round2/`.
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 

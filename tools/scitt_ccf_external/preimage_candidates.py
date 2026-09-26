@@ -23,6 +23,11 @@ THE CANDIDATES, numbered as in the order:
    8  the payload bytes
    9  the signature bytes
   10  protected || payload || signature
+  11  added: the request with its unprotected map replaced by an empty map, every other byte as
+      submitted (tag, array head and element framing kept)
+
+Candidate 4 also has the variant 4-deep-tagged, added: the map inside the protected bstr decoded and
+re-encoded per RFC 8949 section 4.2.1. It asks whether the service re-encodes the signed header.
 
 RULES APPLIED. They are written into every output file, in RULES below.
 
@@ -30,9 +35,11 @@ ORACLES.
   * Every candidate is an own computation: this file's CBOR reader and encoder, and hashlib.
   * The data-hash is read twice. Once by this file's own reader, once by cbor2, a foreign library
     pinned by the [scitt] extra. The two readings must agree.
-  * Candidates 4, 5 and 6 are encoded a second time by cbor2. For the sorted variant of 5, cbor2's
-    canonical mode orders keys length-first (RFC 8949 section 4.2.3), not bytewise (4.2.1). So
-    agreement there is measured per vector, not assumed.
+  * Candidates 4, 4-deep-tagged, 5 and 6 are encoded a second time by cbor2. For the sorted variant of
+    5 and for 4-deep-tagged, cbor2's canonical mode orders keys length-first (RFC 8949 section 4.2.3),
+    not bytewise (4.2.1). So agreement there is measured per vector, not assumed.
+  * A third oracle, a foreign tool built by us, is vendored_encoder_probe.py: CCF's own vendored CBOR
+    code run on the same requests. Its result is in vendored_encoder_result.json.
 
 usage: preimage_candidates.py [--corpus DIR] [--write] [--check]
 """
@@ -55,7 +62,8 @@ RULES = {
         "every head, definite lengths only, map keys sorted by the bytewise lexicographic order of "
         "their deterministic encodings. Byte and text string contents are never changed. The "
         "protected header therefore stays the content of its bstr as submitted, because those are "
-        "the signed bytes."),
+        "the signed bytes. The one exception is the added variant 4-deep-tagged, which decodes the map "
+        "inside the protected bstr and re-encodes it per 4.2.1."),
     "receipt_material": (
         "the unprotected label 394 'receipts', and no other label. Sources: COSE Receipts, WG source "
         "https://github.com/cose-wg/draft-ietf-cose-merkle-tree-proofs at "
@@ -72,6 +80,11 @@ RULES = {
     "element_form": (
         "open for candidates 7 to 10, so both: the content bytes, and the element as a byte string "
         "with a preferred head. Candidate 7 is also computed as the element exactly as submitted."),
+    "added_candidates": (
+        "4-deep-tagged: candidate 4 tagged, with the protected map re-encoded per 4.2.1 inside its bstr. "
+        "11: the request with its unprotected element replaced by a0 and every other byte as submitted, "
+        "including non-preferred heads, so that a service which only splices would match it. Owner "
+        "answer 2 of 2026-09-26."),
     "source_of_the_element_contents": (
         "the request. The returned statement's protected, payload and signature contents are checked "
         "equal to the request's, per vector"),
@@ -79,12 +92,14 @@ RULES = {
 
 #: the header of every candidate_hashes.json; the full text is RULES, in preimage_summary.json
 RULES_SHORT = {
-    "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed",
+    "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed, "
+                              "except the protected map in 4-deep-tagged",
     "receipt_material": "unprotected label 394 only (COSE Receipts WG source df5113e9, SCITT architecture "
                         "WG source ba7d23d4)",
     "tag_18": "3, 4 and 5 tagged and untagged; 1 and 2 as stored; 6 to 10 untagged",
     "key_order_of_U": "5 sorted per 4.2.1 and in the submitted order",
     "element_form": "7 to 10 as content and as a preferred-head bstr; 7 also as submitted",
+    "added_candidates": "4-deep-tagged re-encodes the protected map; 11 keeps the submitted framing",
     "full_text": "preimage_summary.json, key rules",
 }
 
@@ -95,6 +110,7 @@ NAMES = {
     "3-untagged": "returned statement, label 394 removed, every other byte as served, tag 18 dropped",
     "4-tagged": "deterministic [protected, {}, payload, signature], tag 18",
     "4-untagged": "deterministic [protected, {}, payload, signature], no tag",
+    "4-deep-tagged": "deterministic [protected, {}, payload, signature], tag 18, the protected map re-encoded per 4.2.1",
     "5-sorted-tagged": "deterministic [protected, U, payload, signature], U sorted per 4.2.1, tag 18",
     "5-sorted-untagged": "deterministic [protected, U, payload, signature], U sorted per 4.2.1, no tag",
     "5-submitted-order-tagged": "[protected, U, payload, signature], U in submitted order, preferred heads, tag 18",
@@ -109,6 +125,7 @@ NAMES = {
     "9-element": "signature, bstr with a preferred head",
     "10-content": "protected || payload || signature, contents",
     "10-element": "protected || payload || signature, bstrs with preferred heads",
+    "11": "request with its unprotected map replaced by a0, every other byte as submitted",
 }
 
 SOURCE = [
@@ -140,6 +157,20 @@ SOURCE = [
      "file": "include/ccf/claims_digest.h, src/crypto/sha256_hash.cpp", "lines": "12; 17-20",
      "quote": "using Digest = ccf::crypto::Sha256Hash; Sha256Hash::Sha256Hash(const std::vector<uint8_t>& vec) "
               "{ default_sha256(vec, h.data()); }"},
+    {"what": "registration stores the same bytes it hashed, as the ledger entry",
+     "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+     "commit": "00101f769d872711356e080fbb089ac48589c60a", "file": "app/src/main.cpp", "lines": "430-431",
+     "file_sha256": "4868e3696c361913e011e48deb36c694b521da9878c0056197e453ccda812ecf",
+     "quote": "auto* entry_table = ctx.tx.template rw<EntryTable>(ENTRY_TABLE); "
+              "entry_table->put(signed_statement);"},
+    {"what": "the served statement is that stored entry with {394: [receipt]} set as its unprotected header, "
+             "so removing label 394 from it gives back the hashed bytes (candidate 3-tagged)",
+     "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+     "commit": "00101f769d872711356e080fbb089ac48589c60a", "file": "app/src/main.cpp", "lines": "534-541",
+     "file_sha256": "4868e3696c361913e011e48deb36c694b521da9878c0056197e453ccda812ecf",
+     "quote": "const int64_t receipts = scitt::cose::COSE_HEADER_PARAM_SCITT_RECEIPTS; "
+              "ccf::cose::edit::desc::Value receipts_desc{ccf::cose::edit::pos::InArray{}, receipts, cose_receipt}; "
+              "... auto statement = ccf::cose::edit::set_unprotected_header(*entry, receipts_desc);"},
 ]
 
 
@@ -295,6 +326,7 @@ def foreign_encodings(request: bytes):
         "5-submitted-order-tagged": SHA(t([prot, kept, payload, sig])),
         "5-submitted-order-untagged": SHA(cbor2.dumps([prot, kept, payload, sig])),
         "6": SHA(cbor2.dumps(["Signature1", prot, b"", payload])),
+        "4-deep-tagged": SHA(t([cbor2.dumps(cbor2.loads(prot), canonical=True), {}, payload, sig])),
     }
 
 
@@ -314,7 +346,8 @@ def candidates(request: bytes, statement: bytes) -> tuple:
         "returned_unprotected_labels": [_label(k) for k, _v in su.value],
     }
     pnode, _e = parse(prot)
-    facts["protected_content_is_core_deterministic"] = encode(pnode, sort=True) == prot
+    prot_deep = encode(pnode, sort=True)
+    facts["protected_content_is_core_deterministic"] = prot_deep == prot
 
     def cose(unprot: bytes, tagged: bool) -> bytes:
         body = b"\x84" + bstr(prot) + unprot + bstr(payload) + bstr(sig)
@@ -337,6 +370,7 @@ def candidates(request: bytes, statement: bytes) -> tuple:
         "3-untagged": rest,
         "4-tagged": cose(b"\xa0", True),
         "4-untagged": cose(b"\xa0", False),
+        "4-deep-tagged": b"\xd2\x84" + bstr(prot_deep) + b"\xa0" + bstr(payload) + bstr(sig),
         "5-sorted-tagged": cose(u_sorted, True),
         "5-sorted-untagged": cose(u_sorted, False),
         "5-submitted-order-tagged": cose(u_order, True),
@@ -351,6 +385,7 @@ def candidates(request: bytes, statement: bytes) -> tuple:
         "9-element": bstr(sig),
         "10-content": prot + payload + sig,
         "10-element": bstr(prot) + bstr(payload) + bstr(sig),
+        "11": request[:ru.start] + b"\xa0" + request[ru.end:],
     }
     facts["returned_statement_tagged"] = st is not None
     return c, facts
@@ -397,8 +432,8 @@ def derive(corpus: Path) -> tuple:
                 "candidates": "own computation: this tool's CBOR reader and encoder, hashlib SHA-256",
                 "data_hash": "own reader of receipt.hex, checked against cbor2 (foreign, pinned by the "
                              "[scitt] extra) where installed",
-                "foreign_re_encoding": "cbor2 encodes 4, 5 and 6 again from its own decoding of request.hex; "
-                                       "its canonical mode is length-first (RFC 8949 4.2.3)",
+                "foreign_re_encoding": "cbor2 encodes 4, 4-deep-tagged, 5 and 6 again from its own decoding "
+                                       "of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)",
             },
             "receipt_data_hash": dh,
             "receipt_inclusion_proofs": len(own),

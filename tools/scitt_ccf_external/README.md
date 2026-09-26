@@ -473,7 +473,7 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
     python3 differential_corpus.py run --service-cert CERT --ledger-commit SHA --image-id ID \
         --build-inputs FILE                          # a ledger running and opened, as above
     python3 differential_corpus.py derive --check    # offline: the summaries are derived from the bytes
-    python3 preimage_candidates.py --check           # offline: ten data-hash preimage candidates per accepted vector
+    python3 preimage_candidates.py --check           # offline: the data-hash preimage candidates per accepted vector
     python3 differential_corpus_round2.py run --phase initial --service-cert CERT --ledger-commit SHA \
         --image-id ID --build-inputs FILE            # the second round, a ledger running and opened, as above
     python3 differential_corpus_round2.py repeat --phase NAME --note TEXT ...    # the control again, after a change
@@ -502,7 +502,7 @@ two exit 2 when the fetched files are missing.
 | `SECTION4_WGLC.md` | section 4 read rule by rule, the measurements, and the gaps as questions |
 | `differential_corpus.py` | a control and one-variable mutations in six classes, registered on a local ledger; the chain per accepted vector, refusals in an admissibility matrix |
 | `differential_corpus/` | the recorded run of 2026-09-26 as raw hex text: `vectors/<id>/` holds request, receipt, returned statement and `record.json`; `summary.json` and `admissibility.json` are derived by `differential_corpus.py derive`, the `candidate_hashes.json` files and `preimage_summary.json` by `preimage_candidates.py` |
-| `preimage_candidates.py` | ten candidates for the preimage of the receipt's data-hash, per accepted corpus vector. It writes `candidate_hashes.json` next to each `record.json`, and `preimage_summary.json` |
+| `preimage_candidates.py` | ten candidates for the preimage of the receipt's data-hash, with named variants, the added variant 4-deep-tagged and the added candidate 11, per accepted corpus vector. It writes `candidate_hashes.json` next to each `record.json`, and `preimage_summary.json` |
 | `differential_corpus_round2.py` | the corpus's second round: protected-header encodings, duplicate and both-bucket labels, crit, and the control again after a configuration change and a restart |
 | `differential_corpus_round2/` | the recorded second round of 2026-09-26, in the first round's stored form, pinned per vector and phase |
 | `.gitignore` | keeps `fetched/` out of the repository |
