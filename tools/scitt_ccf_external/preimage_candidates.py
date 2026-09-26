@@ -426,8 +426,8 @@ def derive(corpus: Path) -> tuple:
     agree = [v["data_hash_cbor2_agrees"] for v in per.values()]
     summary = {
         "tool": "tools/scitt_ccf_external/preimage_candidates.py",
-        "corpus": "tools/scitt_ccf_external/differential_corpus",
-        "pins": man["pins"],
+        "corpus": "tools/scitt_ccf_external/" + corpus.name,
+        "pins": man.get("pins", "per vector, in vectors/<id>/record.json"),
         "rules": RULES,
         "candidate_names": NAMES,
         "accepted_vectors": n,
