@@ -39,13 +39,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   change: it already covers every key that is not the bundle's own.
 
   The sweep went over every Ed25519 verification under `src/`, `scripts/` and `tools/`. The bundle's
-  own key stays the one in-band key of the package. Under `scripts/` the three producer self-checks
-  (`assemble` in `gen_findings_register.py`, `sign_readiness_artifact.py`, `pre_tag_receipt.py`)
-  keep the §4a check of the pair handed to them, because the verifiers that read what they write
-  refuse a weak key; the third-party vector tools under `tools/` trust nothing. Contract
-  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 17 cases and 72 subtests: on
-  126ed1dc 9 cases fail, 68 of their subtests with them, and the 8 controls and preconditions pass
-  on both trees.
+  own key stays the one in-band key of the package. The three producers under `scripts/` where a key
+  enters a carrier (`assemble` in `gen_findings_register.py` and `sign_readiness_artifact.py`,
+  `assemble_receipt` in `pre_tag_receipt.py`) refuse such a key too, through the same shared rule,
+  with the reason named, a non-zero exit and nothing written; they had checked the handed-in pair
+  under §4a and written a carrier under the identity point with exit 0, relying on the verifiers of
+  their output, so the in-band list names no script any more, and the producer part of the entry
+  "The release tooling refuses a weak key it pins" below no longer holds. The third-party vector
+  tools under `tools/` trust nothing and stay named. Contract
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 23 cases and 111 subtests: on
+  126ed1dc 12 cases fail (8 outright, 4 through 68 subtests), and the 11 controls and
+  preconditions pass on both trees.
+
+  Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
+  `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
+  fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and
+  is no Ed25519 did:key. `trusted_authorizer_keys` is compared as text: the real authorizer key
+  listed in capitals gives exit 3, so the error falls on the closed side.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

@@ -202,19 +202,14 @@ class EveryWeakKeyIsRefusedByName(unittest.TestCase):
 
 #: The places under scripts/ and tools/ that check an Ed25519 signature under a key that arrives WITH
 #: the thing it signs, with their reason. Everything else goes through `verify_ed25519_pinned`.
+#:
+#: NO PLACE UNDER scripts/ STANDS HERE ANY MORE. Until 6.2.0 the three producer self-checks did
+#: (`assemble` in gen_findings_register.py and sign_readiness_artifact.py, `assemble_receipt` in
+#: pre_tag_receipt.py), with the reason that the verifiers of what they write refuse a weak key, and
+#: gen_findings_register.py also for `_signatur_lage`. A key enters the carrier at those steps, so
+#: they refuse it there now (tests/test_a_small_order_key_is_refused_at_every_carrier.py). What is
+#: left are the three tools that recompute a third party's published vector.
 IN_BAND_TOOLING = {
-    "scripts/sign_readiness_artifact.py": "`assemble` checks the externally made signature against the "
-                                           "public key handed in with it, before writing the artefact; "
-                                           "the relying check is the audit matrix against the anchor",
-    "scripts/pre_tag_receipt.py": "`assemble_receipt` checks the externally made signature against the "
-                                  "public key handed in with it, before writing the receipt; the relying "
-                                  "check is `pre_tag_receipt_lib.verify_receipt` against the anchor",
-    # Until 6.2.0 this entry also covered the self-check of a finished carrier, `_signatur_lage`,
-    # which is the one exit behind `pruefe_v2` and the generated views and relies on nothing else;
-    # it goes through the rule now (tests/test_a_small_order_key_is_refused_at_every_carrier.py).
-    "scripts/gen_findings_register.py": "`assemble` checks the handed-in pair before writing the v1 "
-                                        "register; the relying check is findings_register against "
-                                        "the anchor, which refuses a weak key",
     "tools/scitt_ccf_datahash_vector/nachrechnen.py": "recomputes a third party's published test vector "
                                                       "under the test key printed in that vector; it "
                                                       "trusts nothing",
@@ -311,6 +306,12 @@ class TheToolingSweep(unittest.TestCase):
     def test_every_named_in_band_file_is_seen(self):
         """Counter-direction: an exemption for a file the sweep never finds anything in is stale."""
         self.assertEqual({rel for rel, _l, _s in self._uses()}, set(IN_BAND_TOOLING))
+
+    def test_no_script_under_scripts_is_named_in_band(self):
+        """Since 6.2.0 every Ed25519 check under scripts/ goes through the rule, the producers
+        included: a producer is where a key enters a carrier. Adding one back here is a decision, and
+        this case makes it a visible one."""
+        self.assertEqual(sorted(r for r in IN_BAND_TOOLING if not r.startswith("tools/")), [])
 
     def test_the_four_relied_on_surfaces_are_walked(self):
         walked = {rel for rel, _p in _tooling_files()}

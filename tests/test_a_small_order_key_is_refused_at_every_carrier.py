@@ -357,5 +357,143 @@ class ShowEvalIssuerPin(unittest.TestCase):
         self.assertEqual(rc, 1, "the forgery against a real pin stays a mismatch")
 
 
+# ── 4. the producers: where a key ENTERS a carrier ─────────────────────────────────────────────────
+#
+# The three `assemble` steps under scripts/ wrap a signature made elsewhere and the public key handed
+# in with it, and write the carrier. Until the follow-up to D3 they checked the pair under the bare
+# SPEC section 4a profile and relied on the verifiers that read their output to refuse a weak key.
+# Measured on 3c9c98c3: each of the three wrote a carrier under the identity point with the signature
+# R = identity, S = 0, and exited 0. The class is "a weak key is accepted where a key enters", so the
+# refusal belongs here too, before anything is written.
+
+_PRODUCERS = {
+    # script, the assemble function, the module whose `canonical_bytes` the producer signs over
+    "gen_findings_register": ("scripts/gen_findings_register.py", "assemble", "gen_findings_register"),
+    "sign_readiness_artifact": ("scripts/sign_readiness_artifact.py", "assemble", "sign_readiness_artifact"),
+    "pre_tag_receipt": ("scripts/pre_tag_receipt.py", "assemble_receipt", "pre_tag_receipt_lib"),
+}
+
+
+def _script_module(name: str):
+    spec = importlib.util.spec_from_file_location(f"_t_d3_{name}", REPO / "scripts" / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _body(producer: str) -> dict:
+    """A body each producer accepts in shape; what it says does not matter, who signed it does."""
+    if producer == "gen_findings_register":
+        return {"schema": "proofbundle.findings_register.v1", "version": "9.9.9",
+                "generated_at": "2026-09-26T00:00:00Z", "findings": []}
+    if producer == "sign_readiness_artifact":
+        return {"schema": "x", "signer_role": "release-runner", "produced_at": "2026-09-26T00:00:00Z"}
+    lib = _script_module("pre_tag_receipt_lib")
+    return {"schema": lib.RECEIPT_SCHEMA, "version": "9.9.9", "subject_tree_digest": "a" * 64,
+            "gate_source_digest": "b" * 64, "audit_command": "nobody ran this", "audit_exit_code": 0,
+            "audit_output_digest": "c" * 64, "runner_identity": "nobody",
+            "produced_at": "2026-09-26T00:00:00Z"}
+
+
+def _canonical(producer: str, body: dict) -> bytes:
+    return _script_module(_PRODUCERS[producer][2]).canonical_bytes(body)
+
+
+def _assemble_cli(producer: str, body: dict, pub: bytes, sig: bytes, tmp: Path):
+    """The producer's own `--assemble` command line, in a process of its own: pre_tag_receipt.py
+    changes the process environment when it is imported, and a test must not inherit that."""
+    import os
+    import subprocess
+    ctx, sig_file, out = tmp / "context.json", tmp / "sig.b64", tmp / "carrier.json"
+    ctx.write_text(json.dumps(body), encoding="utf-8")
+    sig_file.write_text(_b64(sig), encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src"), PYTHONDONTWRITEBYTECODE="1")
+    r = subprocess.run([sys.executable, "-B", str(REPO / _PRODUCERS[producer][0]), "--assemble",
+                        "--context-in", str(ctx), "--sig-file", str(sig_file),
+                        "--signer-pubkey", _b64(pub), "--out", str(out)],
+                       capture_output=True, text=True, timeout=120, env=env, cwd=str(tmp))
+    return r, out
+
+
+_DRIVER = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("producer", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+fn, body = getattr(mod, sys.argv[2]), json.loads(sys.argv[3])
+out = []
+for pub, sig in json.loads(sys.argv[4]):
+    try:
+        fn(body, sig, pub)
+        out.append(["ACCEPTED", ""])
+    except SystemExit as exc:
+        out.append(["REFUSED", str(exc.code)])
+print(json.dumps(out))
+"""
+
+
+def _assemble_every_weak_key(producer: str, body: dict) -> list:
+    """The producer's `assemble` called once per WEAK key, in one process of its own."""
+    import os
+    import subprocess
+    path, fn, _lib = _PRODUCERS[producer]
+    cases = [[_b64(key), _b64(UNIV)] for key, _reason in WEAK]
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src"), PYTHONDONTWRITEBYTECODE="1")
+    r = subprocess.run([sys.executable, "-B", "-c", _DRIVER, str(REPO / path), fn, json.dumps(body),
+                        json.dumps(cases)], capture_output=True, text=True, timeout=120, env=env)
+    if r.returncode != 0:
+        raise AssertionError(f"driver for {producer} failed: {r.stderr[-800:]}")
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+class ProducerSelfChecks(unittest.TestCase):
+    """One refusal and one control per producer."""
+
+    def _refuses(self, producer: str):
+        body = _body(producer)
+        self.assertIs(verify_ed25519(I1, UNIV, _canonical(producer, body)), True,
+                      "precondition: the bare profile accepts the signature nobody made")
+        with tempfile.TemporaryDirectory() as d:
+            r, out = _assemble_cli(producer, body, I1, UNIV, Path(d))
+            self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertFalse(out.exists(), "a carrier under a weak key was written")
+            self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], r.stderr)
+        for (key, reason), (verdict, message) in zip(WEAK, _assemble_every_weak_key(producer, body)):
+            with self.subTest(key=key.hex()):
+                self.assertEqual(verdict, "REFUSED", message)
+                self.assertIn(TRUST_ANCHOR_REFUSAL[reason], message)
+
+    def _control(self, producer: str):
+        body = _body(producer)
+        k = Ed25519PrivateKey.generate()
+        with tempfile.TemporaryDirectory() as d:
+            r, out = _assemble_cli(producer, body, _raw(k), k.sign(_canonical(producer, body)), Path(d))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            carrier = json.loads(out.read_text(encoding="utf-8"))
+        self.assertIn(_b64(_raw(k)), json.dumps(carrier), "the carrier does not name the signer key")
+        with tempfile.TemporaryDirectory() as d:     # and a real key under a wrong signature still refuses
+            r, out = _assemble_cli(producer, body, _raw(k), k.sign(b"another body"), Path(d))
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse(out.exists())
+
+    def test_gen_findings_register_assemble_refuses_a_weak_key(self):
+        self._refuses("gen_findings_register")
+
+    def test_gen_findings_register_assemble_control_with_a_real_key(self):
+        self._control("gen_findings_register")
+
+    def test_sign_readiness_artifact_assemble_refuses_a_weak_key(self):
+        self._refuses("sign_readiness_artifact")
+
+    def test_sign_readiness_artifact_assemble_control_with_a_real_key(self):
+        self._control("sign_readiness_artifact")
+
+    def test_pre_tag_receipt_assemble_refuses_a_weak_key(self):
+        self._refuses("pre_tag_receipt")
+
+    def test_pre_tag_receipt_assemble_control_with_a_real_key(self):
+        self._control("pre_tag_receipt")
+
+
 if __name__ == "__main__":
     unittest.main()
