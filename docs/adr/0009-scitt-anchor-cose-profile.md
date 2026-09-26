@@ -70,12 +70,12 @@ The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/
   (22426 B, sha256 `7efdb7aa934ab0cfc1093e99932f7d2efd39bb66f5bf43594806d7b282ca0077`, retrieved
   2026-09-25);
 - inclusion proofs for the statement verdict. Consistency proofs (vdp key -2, new in -05) beside
-  them are reported as present, parsed under the -05 CDDL, and must compute the inclusion root as
-  their newer root (-05 section 5: all proofs in a receipt recompute the same root). Their older
-  roots and anchors are not evaluated in the statement verdict, because that needs an older root the
-  caller holds (`verify_consistency_receipt`, Decision 15). A vdp key other than -1 and -2 is
-  outside the -05 CDDL and `malformed`. (Codex, PR 278 round three; until then -2 was reported and
-  not parsed.)
+  them are reported as present, parsed under the -05 CDDL (one or more), and must compute the
+  inclusion root as their newer root (-05 section 5: all proofs in a receipt recompute the same
+  root). Their older roots and anchors are not evaluated in the statement verdict, because that
+  needs an older root the caller holds (`verify_consistency_receipt`, Decision 15). A vdp key other
+  than -1 and -2 is outside the -05 CDDL and `malformed`. (Codex, PR 278 rounds three and four;
+  until then -2 was reported and not parsed.)
 
 The value 2 is a requested assignment (`TBD_1`), not yet made by IANA (-05, section "Description
 of the Confidential Consortium Framework Ledger Verifiable Data Structure"). If IANA assigns a
@@ -308,7 +308,7 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
-| `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; a receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, a proof of either family that does not parse, more proofs than the limit); also a statement with no receipt | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; a receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, a proof of either family that does not parse, more proofs than the limit, an empty array of the family the verifier does not check; an empty array of the family it checks keeps that family's status, as the -05 pseudo-code asserts `len(proofs) > 0`); also a statement with no receipt | False | False |
 | `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |

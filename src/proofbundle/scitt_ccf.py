@@ -774,6 +774,10 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
                 return out("malformed", detail=f"the {name} proofs are not an array")
             if isinstance(arr, list) and len(arr) > limit:
                 return out("malformed", detail=f"more than {limit} {name} proofs")
+        # THE LOWER BOUND TOO (Codex, PR 278 round four): the CDDL says one or more. An empty -1 keeps
+        # its own status below (3.2 asserts len(proofs) > 0); an empty -2 beside it is malformed.
+        if consistency == []:
+            return out("malformed", detail="an empty consistency-proof array; -05 requires one or more")
         try:
             parsed = [_inclusion_root(p) for p in proofs or []]
             newer_roots = [_consistency_roots(p)[1] for p in consistency or []]
@@ -982,6 +986,10 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
                 return out("malformed", detail=f"the {name} proofs are not an array")
             if arr is not None and len(arr) > MAX_CONSISTENCY_PROOFS:
                 return out("malformed", detail=f"more than {MAX_CONSISTENCY_PROOFS} {name} proofs")
+        # THE LOWER BOUND TOO (Codex, PR 278 round four), as in _receipt: an empty -2 keeps its own
+        # status below (4.2 asserts len(proofs) > 0); an empty -1 beside it is malformed.
+        if inclusion == []:
+            return out("malformed", detail="an empty inclusion-proof array; -05 requires one or more")
         try:
             computed = [_consistency_roots(p) for p in proofs or []]
             inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]

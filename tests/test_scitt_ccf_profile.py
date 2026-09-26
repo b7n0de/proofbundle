@@ -740,13 +740,15 @@ def test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root()
     dh = dh_of(st)
     same = verify(transparent(st, [Rcpt(data_hash=dh, consistency="same_root").build()]))
     assert (same.status, same.profile_satisfied, same.receipts[0].consistency_proofs_present) == ("confirmed", True, True)
-    for bad, want in (([b"junk"], "malformed"), (b"junk", "malformed"),
+    for bad, want in (([b"junk"], "malformed"), (b"junk", "malformed"), ([], "malformed"),   # [] Codex round four
                       ([b"junk"] * (S.MAX_CONSISTENCY_PROOFS + 1), "malformed"), ("other_root", "root_mismatch")):
         r = verify(transparent(st, [Rcpt(data_hash=dh, consistency=bad).build()]))
         assert (r.status, r.receipts[0].status, r.profile_satisfied) == (want, want, False), bad
         assert r.receipts[0].readable is (want != "malformed"), bad
     unknown = verify(transparent(st, [Rcpt(data_hash=dh, vdp_extra={-3: [b"junk"]}).build()]))
     assert (unknown.status, unknown.receipts[0].readable, unknown.profile_satisfied) == ("malformed", False, False)
+    # the family this reader verifies keeps its own status when empty: 3.2 asserts len(proofs) > 0
+    assert verify(transparent(st, [Rcpt(data_hash=dh, proofs_override=[]).build()])).status == "outside_profile"
 
 
 def test_readable_needs_a_parsed_receipt_even_when_the_receipts_are_refused_early():
