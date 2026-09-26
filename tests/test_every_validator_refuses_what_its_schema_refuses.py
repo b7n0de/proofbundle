@@ -259,13 +259,34 @@ _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
 DOLLAR, UNICODE = "ends in `$`, which matches before a newline", "uses a Unicode class (`\\d` is 0-9 in ECMA-262)"
 
 
-def _re_names(tree) -> set:
-    """The names `re` is bound to in a module: `re` itself and every `import re as x`."""
+#: The functions of `re` that take a pattern first; what `from re import *` binds among them.
+_RE_FUNCTIONS = ("compile", "match", "fullmatch", "search", "findall", "finditer", "sub", "subn", "split")
+
+
+def _re_names(tree) -> tuple:
+    """The names `re` is bound to in a module (`re` itself and every `import re as x`), and the names
+    bound to one of its functions, mapped to the function: `from re import compile as c`,
+    `from re import *`, and an assignment `c = re.compile`.
+
+    Lens 235 (run 1) planted `from re import compile as recompile` with a `\\d` pattern: the first form
+    of this sweep read only calls written as an attribute of `re`, and found nothing."""
     names = {"re"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names |= {a.asname for a in node.names if a.name == "re" and a.asname}
-    return names
+    functions: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "re" and not node.level:
+            for a in node.names:
+                if a.name == "*":
+                    functions.update({f: f for f in _RE_FUNCTIONS})
+                else:
+                    functions[a.asname or a.name] = a.name
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            bound = _re_function(node.value, names, {})
+            if bound:
+                functions[node.targets[0].id] = bound
+    return names, functions
 
 
 def _is_re(value, names) -> bool:
@@ -276,16 +297,32 @@ def _is_re(value, names) -> bool:
             and len(value.args) == 1 and isinstance(value.args[0], ast.Constant) and value.args[0].value == "re")
 
 
+def _re_function(func, names, functions):
+    """The `re` function a callee names, or None: an attribute of `re` (or of an alias, or of
+    `__import__("re")`), `getattr(re, "<literal>")`, or a name bound to one of them."""
+    if isinstance(func, ast.Attribute) and _is_re(func.value, names):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return functions.get(func.id)
+    if (isinstance(func, ast.Call) and isinstance(func.func, ast.Name) and func.func.id == "getattr"
+            and len(func.args) >= 2 and _is_re(func.args[0], names)
+            and isinstance(func.args[1], ast.Constant) and isinstance(func.args[1].value, str)):
+        return func.args[1].value
+    return None
+
+
 def _whole_value_regex_readings(sources) -> list:
     """(module, source) pairs in; one (module, line, pattern, reading) per whole-value pattern read
     differently from ECMA-262, the named exceptions left out."""
     found = []
     for mod, text in sources:
         tree = ast.parse(text)
-        names = _re_names(tree)
+        names, functions = _re_names(tree)
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and _is_re(node.func.value, names) and node.args
+            if not isinstance(node, ast.Call):
+                continue
+            function = _re_function(node.func, names, functions)
+            if not (function and node.args
                     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
                 continue
             pattern = node.args[0].value
@@ -293,7 +330,7 @@ def _whole_value_regex_readings(sources) -> list:
             if any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
                 continue                     # `^` and `$` are line anchors there, not whole-value ones
             anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
-            if not (anchored or node.func.attr == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
+            if not (anchored or function == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
                 continue
             ascii_flag = any("ASCII" in f or re.search(r"\.A\b", f) for f in flags)
             if pattern.endswith("$"):
@@ -355,6 +392,17 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
                    'D = re.search(r"^\\d+$", "", flags=re.MULTILINE)\n')
         found = _whole_value_regex_readings([("scripts.planted", planted)])
         self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 3], found)
+
+    def test_the_sweep_sees_every_way_a_module_names_a_re_function(self):
+        """A function of `re` imported by name, under another name, by `*`, bound by assignment or taken
+        with getattr is seen; the clean pattern on the last line is not a finding."""
+        planted = ('from re import compile as recompile\nA = recompile(r"\\A\\d+\\Z")\n'
+                   'from re import fullmatch\nB = fullmatch(r"[0-9]+\\d", "")\n'
+                   'import re\nc = re.compile\nC = c(r"\\A\\d+\\Z")\n'
+                   'D = getattr(re, "compile")(r"\\A\\d+\\Z")\n'
+                   'from re import *\nE = search(r"^[0-9]+$", "")\nF = compile(r"\\A[0-9]+\\Z")\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 4, 7, 8, 10], found)
 
     def test_the_named_exceptions_are_still_there(self):
         """Counter-direction: an exception whose pattern is gone is stale and must be removed."""

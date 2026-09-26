@@ -70,11 +70,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   sit under a signature by the anchor key, so this was a copy of the class the predicate
   validators just closed rather than an open door; both read `[0-9]` now. The matrix's post-release
   version pattern and its anchor key pattern end in `\Z` instead of `$`. The key comes from a
-  whitespace split and cannot carry a newline; the version could only if `pyproject.toml` spread
-  its version string over two lines, which TOML does not allow. The sweep in
+  whitespace split and cannot carry a newline. The version can carry one only from a
+  `pyproject.toml` that is not valid TOML (a quoted string broken over two lines): the version
+  reader does not match TOML's multi-line strings at all, and it reads an escaped `\n` as two
+  characters (measured). The sweep in
   `tests/test_every_validator_refuses_what_its_schema_refuses.py` now reads `scripts/` and `tools/`
   for Unicode classes, sees an alias of `re` and `__import__("re")` (the register's copy sat behind
-  the second), and leaves MULTILINE patterns alone, whose anchors are per line. Four scripts still
+  the second), sees a function of `re` imported by name (`from re import compile as c`, `*`), bound
+  by assignment or taken with `getattr`, and leaves MULTILINE patterns alone, whose anchors are per
+  line. Four scripts still
   end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
   module and pattern, and the list is exact in both directions.
 
