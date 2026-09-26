@@ -286,9 +286,13 @@ MUTATIONS = [
     # refusals, through dict.get rather than the object's own get (gate run 3, 229-3-02). Killed by tests/test_an_ots_proof_is_capped_before_it_is_deserialized.py (TheCap and
     # TheBindingIsReadByMembership; both need the [anchors] extra, which the mutation job installs).
     ("src/proofbundle/anchors_ots.py",
-     "if isinstance(proof, (bytes, bytearray)) and len(proof) > _MAX_OTS_PROOF_BYTES:",
+     "if laenge > _MAX_OTS_PROOF_BYTES:",
      "if False:",
      "anchors_ots: proof-size cap before deserializing removed (work amplification)", True),
+    ("src/proofbundle/anchors_ots.py",
+     "laenge = memoryview(proof).nbytes",
+     "laenge = len(proof) if isinstance(proof, (bytes, bytearray)) else 0",
+     "anchors_ots: the cap measures only bytes and bytearray again (a memoryview goes uncapped)", True),
     ("src/proofbundle/anchors_ots.py",
      '    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)',
      '    return isinstance(result, dict) and not is_member(dict.get(result, "status"), _BINDING_NOT_HELD)',

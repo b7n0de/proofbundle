@@ -71,11 +71,21 @@ def ots_binding_held(result) -> bool:
 def _deserialize_detached(proof):
     """The one way this package deserializes a detached OTS proof: the length cap first, then the
     library. Raises `OtsProofTooLarge` over the cap, `ImportError` without the `[anchors]` extra, and
-    whatever the library raises for a malformed proof; each caller maps these to its own verdict."""
+    whatever the library raises for a malformed proof; each caller maps these to its own verdict.
+
+    EVERY BYTES-LIKE PROOF IS MEASURED IN BYTES, and anything else is refused before the library reads
+    it (`TypeError`, which every caller maps to its malformed verdict). The first version measured only
+    `bytes` and `bytearray` and had no else branch, so a `memoryview` of any length went to the library
+    uncapped: measured with 70 MB on 83dca0f5, found by a lens of another model family."""
     from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
     from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
-    if isinstance(proof, (bytes, bytearray)) and len(proof) > _MAX_OTS_PROOF_BYTES:
-        raise OtsProofTooLarge(f"OTS proof is {len(proof)} bytes, over the {_MAX_OTS_PROOF_BYTES}-byte "
+    try:
+        laenge = memoryview(proof).nbytes
+    except TypeError:
+        raise TypeError(f"an OTS proof is a bytes-like object, not {type(proof).__name__} "
+                        "(refused before the library reads it)") from None
+    if laenge > _MAX_OTS_PROOF_BYTES:
+        raise OtsProofTooLarge(f"OTS proof is {laenge} bytes, over the {_MAX_OTS_PROOF_BYTES}-byte "
                                "cap (checked before deserializing, fail-closed)")
     return DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
 

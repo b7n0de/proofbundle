@@ -181,6 +181,30 @@ class TheCap(unittest.TestCase):
         self.assertEqual(r_over["status"], "over_budget")
         self.assertIn(f"is {self.cap + 1} bytes, over the {self.cap}-byte cap", r_over["detail"])
 
+    def test_every_bytes_like_proof_is_measured_and_anything_else_refused(self):
+        """A lens of another model family on 83dca0f5: the cap measured only `bytes` and `bytearray`, with
+        no else branch, so a `memoryview` of any length reached the library (measured with 70 MB). Every
+        buffer is measured in bytes now, and an object that is no buffer never reaches the library."""
+        import array
+        from opentimestamps.core.timestamp import DetachedTimestampFile
+        from proofbundle.anchors_ots import verify_opentimestamps
+        for label, proof in (("memoryview", memoryview(self.over)), ("bytearray", bytearray(self.over)),
+                             ("array of bytes", array.array("B", self.over))):
+            with self.subTest(form=label), mock.patch.object(
+                    DetachedTimestampFile, "deserialize", wraps=DetachedTimestampFile.deserialize) as seen:
+                r = verify_opentimestamps(proof, _ROOT, frozen={})
+                self.assertEqual((r["status"], seen.call_count), ("over_budget", 0), r)
+        # counted at the library's reading context, not at `deserialize`: the context itself refuses these
+        # forms (`io.BytesIO` below it), so a count of `deserialize` stayed 0 with the refusal removed
+        from opentimestamps.core import serialize
+        for label, proof in (("str", "A" * (self.cap + 1)), ("int", self.cap + 1), ("list", [0] * (self.cap + 1))):
+            with self.subTest(form=label), mock.patch.object(
+                    serialize, "BytesDeserializationContext", wraps=serialize.BytesDeserializationContext) as seen:
+                r = verify_opentimestamps(proof, _ROOT, frozen={})
+                self.assertEqual((r["status"], seen.call_count), ("malformed", 0), r)
+        # the counter-direction: the same proof under the cap still reads through a memoryview
+        self.assertEqual(verify_opentimestamps(memoryview(self.under), _ROOT, frozen={})["status"], "pending")
+
     def test_anchor_upgrade_refuses_an_over_cap_proof_without_a_false_remedy(self):
         """Gate on the cap, lens B, 229B-01: `anchor upgrade` listed the refusals it knew, `over_budget` was
         not among them, and an over-cap proof fell through to the pending branch: exit 3 and "run `ots

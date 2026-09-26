@@ -19,7 +19,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   times in a fresh process: a 732 067-byte proof inside every budget peaked at 134.4 MiB in
   `verify_evidence_pack`. All five places that deserialize a proof now go through one helper that
   refuses a proof over 65 536 bytes first; the same proof is refused as `over_budget` at 3.3 MiB,
-  before any deserialization. The largest proof this repository carries has 1510 bytes. A proof just
+  before any deserialization. The length is taken of every bytes-like object in bytes, and anything
+  that is not bytes-like is refused before the library reads it (a `memoryview` of any length went
+  to the library uncapped in an earlier form of this change). The largest proof this repository carries has 1510 bytes. A proof just
   under the cap, built to amplify as much as the format allows (empty calendar URIs, two-byte fork
   labels), peaks at 18.2 MiB in one deserialization. `describe_proof` deserialized every proof twice
   with both copies alive, on main as well, and peaked at 36.5 MiB on that proof; it now deserializes
