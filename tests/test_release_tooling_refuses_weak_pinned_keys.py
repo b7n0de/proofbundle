@@ -223,6 +223,9 @@ IN_BAND_TOOLING = {
                                                         "pycose, under the test key printed in that "
                                                         "vector, and a control message it signs with the "
                                                         "vector's printed seed; it trusts nothing",
+    "tools/intoto_external/probe_python.py": "checks proofbundle's in-toto test attestations through "
+                                             "securesystemslib, under the test key printed in "
+                                             "make_inputs.py; it trusts nothing",
 }
 
 #: Every library outside the standard library that a file under scripts/ or tools/ imports, and why it
@@ -237,6 +240,10 @@ THIRD_PARTY = {
     "yaml": "a YAML parser; it verifies no signature",
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+    "securesystemslib": "UNMODELLED",
+    "in_toto_attestation": "the in-toto Statement protobuf binding, parsed and validated; it verifies no "
+                           "signature",
+    "google": "protobuf's JSON codec, under the in-toto binding; it verifies no signature",
 }
 
 _LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")

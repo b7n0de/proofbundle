@@ -1,0 +1,945 @@
+{
+  "guac_control": {
+    "error": "",
+    "exit": 0,
+    "graph_added": {
+      "CertifyGood": 0,
+      "HasMetadata": 0,
+      "HasSLSA": 1,
+      "IsOccurrence": 2,
+      "artifacts": [
+        "sha256:92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb",
+        "sha256:ed2dc81506537db83a33377fcae859d4306ebe7bffffc667fb6d054e560b0258"
+      ]
+    },
+    "ingested": ""
+  },
+  "image": "sha256:92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb",
+  "measured_on": "2026-09-26",
+  "not_applicable": {
+    "svr.public-model": "export_svr_dsse takes no subject profile; its subject is the receipt binder",
+    "svr.release-gate": "export_svr_dsse takes no subject profile; its subject is the receipt binder",
+    "test-result.public-model": "export_intoto_dsse takes no subject profile; its subject is the receipt binder",
+    "test-result.release-gate": "export_intoto_dsse takes no subject profile; its subject is the receipt binder"
+  },
+  "rows": {
+    "control.keyid.eval-result.receipt": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/control.keyid.eval-result.receipt.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: could not parse predicate with type map[string]interface {}"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: could not parse predicate with type map[string]interface {}"
+      },
+      "file": "control.keyid.eval-result.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.keyid.eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: no document parser registered for type: ITE6",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.keyid.eval-result.receipt/control.keyid.eval-result.receipt.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": true,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_verified": true,
+        "file": "control.keyid.eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "control.legacy.eval-result.public-model": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/control.legacy.eval-result.public-model.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: no matching subject digest found"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 0,
+        "last_line": "Verified OK"
+      },
+      "file": "control.legacy.eval-result.public-model.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.legacy.eval-result.public-model.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "b2ef35d2073ddff6c2711fb1b86150f93aaa2aa57a41c3a1c34df0898359a53d"
+            },
+            "name": "public_model.txt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.legacy.eval-result.public-model/control.legacy.eval-result.public-model.dsse.json"
+      },
+      "has_contentRootAlg": false,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "control.legacy.eval-result.public-model.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "b2ef35d2073ddff6c2711fb1b86150f93aaa2aa57a41c3a1c34df0898359a53d"
+            },
+            "name": "public_model.txt"
+          }
+        ]
+      }
+    },
+    "control.legacy.eval-result.receipt": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/control.legacy.eval-result.receipt.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: no matching subject digest found"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 0,
+        "last_line": "Verified OK"
+      },
+      "file": "control.legacy.eval-result.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.legacy.eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.legacy.eval-result.receipt/control.legacy.eval-result.receipt.dsse.json"
+      },
+      "has_contentRootAlg": false,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "control.legacy.eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "control.legacy.eval-result.release-gate": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/control.legacy.eval-result.release-gate.dsse.json",
+        "exit": 0,
+        "last_line": "  - The signatures were verified against the specified public key"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 0,
+        "last_line": "Verified OK"
+      },
+      "file": "control.legacy.eval-result.release-gate.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.legacy.eval-result.release-gate.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb"
+            },
+            "name": "z225/img"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.legacy.eval-result.release-gate/control.legacy.eval-result.release-gate.dsse.json"
+      },
+      "has_contentRootAlg": false,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "control.legacy.eval-result.release-gate.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb"
+            },
+            "name": "z225/img"
+          }
+        ]
+      }
+    },
+    "control.legacy.svr.receipt": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/control.legacy.svr.receipt.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: no matching subject digest found"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 0,
+        "last_line": "Verified OK"
+      },
+      "file": "control.legacy.svr.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.legacy.svr.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "properties",
+          "timeCreated",
+          "verifier"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.legacy.svr.receipt/control.legacy.svr.receipt.dsse.json"
+      },
+      "has_contentRootAlg": false,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "control.legacy.svr.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "properties",
+          "timeCreated",
+          "verifier"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "control.legacy.test-result.receipt": {
+      "control": true,
+      "cosign_verify_attestation": {
+        "attach_exit": 1,
+        "attach_last_line": "error during command execution: attaching payload from inputs/control.legacy.test-result.receipt.dsse.json: invalid payloadType application/vnd.in-toto.test-result+json on envelope. Expected application/vnd.in-toto+json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: "
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: invalid payloadType application/vnd.in-toto.test-result+json on envelope. Expected application/vnd.in-toto+json"
+      },
+      "file": "control.legacy.test-result.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "control.legacy.test-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto.test-result+json",
+        "predicate_keys": [
+          "configuration",
+          "passedTests",
+          "result"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/control.legacy.test-result.receipt/control.legacy.test-result.receipt.dsse.json"
+      },
+      "has_contentRootAlg": false,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto.test-result+json",
+      "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "control.legacy.test-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto.test-result+json",
+        "predicate_keys": [
+          "configuration",
+          "passedTests",
+          "result"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "eval-result.public-model": {
+      "control": false,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/eval-result.public-model.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: could not parse predicate with type map[string]interface {}"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: could not parse predicate with type map[string]interface {}"
+      },
+      "file": "eval-result.public-model.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "eval-result.public-model.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "b2ef35d2073ddff6c2711fb1b86150f93aaa2aa57a41c3a1c34df0898359a53d"
+            },
+            "name": "public_model.txt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/eval-result.public-model/eval-result.public-model.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "eval-result.public-model.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "b2ef35d2073ddff6c2711fb1b86150f93aaa2aa57a41c3a1c34df0898359a53d"
+            },
+            "name": "public_model.txt"
+          }
+        ]
+      }
+    },
+    "eval-result.receipt": {
+      "control": false,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/eval-result.receipt.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: could not parse predicate with type map[string]interface {}"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: could not parse predicate with type map[string]interface {}"
+      },
+      "file": "eval-result.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/eval-result.receipt/eval-result.receipt.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "eval-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectDigestNote",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "eval-result.release-gate": {
+      "control": false,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/eval-result.release-gate.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: could not parse predicate with type map[string]interface {}"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: could not parse predicate with type map[string]interface {}"
+      },
+      "file": "eval-result.release-gate.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "eval-result.release-gate.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb"
+            },
+            "name": "z225/img"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/eval-result.release-gate/eval-result.release-gate.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "eval-result.release-gate.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "assuranceLevel",
+          "claims",
+          "commitments",
+          "evaluatedAt",
+          "receipt",
+          "sampleSize",
+          "subjectProfile",
+          "suite",
+          "verifier"
+        ],
+        "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb"
+            },
+            "name": "z225/img"
+          }
+        ]
+      }
+    },
+    "svr.receipt": {
+      "control": false,
+      "cosign_verify_attestation": {
+        "attach_exit": 0,
+        "attach_last_line": "Using payload from: inputs/svr.receipt.dsse.json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: could not parse predicate with type map[string]interface {}"
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: could not parse predicate with type map[string]interface {}"
+      },
+      "file": "svr.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "svr.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "properties",
+          "timeCreated",
+          "verifier"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/svr.receipt/svr.receipt.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto+json",
+      "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "svr.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto+json",
+        "predicate_keys": [
+          "properties",
+          "timeCreated",
+          "verifier"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/svr/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    },
+    "test-result.receipt": {
+      "control": false,
+      "cosign_verify_attestation": {
+        "attach_exit": 1,
+        "attach_last_line": "error during command execution: attaching payload from inputs/test-result.receipt.dsse.json: invalid payloadType application/vnd.in-toto.test-result+json on envelope. Expected application/vnd.in-toto+json",
+        "exit": 1,
+        "last_line": "error during command execution: no matching attestations: "
+      },
+      "cosign_verify_blob_attestation": {
+        "exit": 1,
+        "last_line": "error during command execution: invalid payloadType application/vnd.in-toto.test-result+json on envelope. Expected application/vnd.in-toto+json"
+      },
+      "file": "test-result.receipt.dsse.json",
+      "go": {
+        "dsse_verified": true,
+        "file": "test-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto.test-result+json",
+        "predicate_keys": [
+          "configuration",
+          "passedTests",
+          "result"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+        "statement_strict_parse_error": "proto: (line 1:44): unknown field \"contentRootAlg\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      },
+      "guac": {
+        "error": "emit error: unable to ingest document: unable to ingest doc tree: getIdentity returned error: failed to verify identity: failed to find key from key providers",
+        "exit": 0,
+        "graph_added": {
+          "CertifyGood": 0,
+          "HasMetadata": 0,
+          "HasSLSA": 0,
+          "IsOccurrence": 0,
+          "artifacts": []
+        },
+        "ingested": "completed ingestion with error, 0 of 1 were successful - the following files did not ingest successfully:  file:///<scratch>/guac/test-result.receipt/test-result.receipt.dsse.json"
+      },
+      "has_contentRootAlg": true,
+      "has_keyid": false,
+      "payload_type": "application/vnd.in-toto.test-result+json",
+      "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+      "python": {
+        "dsse_error": "Envelope.from_dict: KeyError: 'keyid'",
+        "dsse_verified": false,
+        "file": "test-result.receipt.dsse.json",
+        "payload_type": "application/vnd.in-toto.test-result+json",
+        "predicate_keys": [
+          "configuration",
+          "passedTests",
+          "result"
+        ],
+        "predicate_type": "https://in-toto.io/attestation/test-result/v0.1",
+        "statement_strict_parse_error": "ParseError: Message type \"in_toto_attestation.v1.Statement\" has no field named \"contentRootAlg\" at \"Statement\".\n Available Fields(except extensions): \"['_type', 'subject', 'predicateType', 'predicate']\"",
+        "statement_type": "https://in-toto.io/Statement/v1",
+        "subjects": [
+          {
+            "digest": {
+              "sha256": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d"
+            },
+            "name": "eval-receipt"
+          }
+        ]
+      }
+    }
+  },
+  "tool": "tools/intoto_external/run.py",
+  "versions": {
+    "cosign": {
+      "sha256": "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71",
+      "version": "{\n  \"gitVersion\": \"v3.1.3\",\n  \"gitCommit\": \"11926fa5bbbbde47e88fc006b625a17769b743b2\",\n  \"gitTreeState\": \"clean\",\n  \"buildDate\": \"2026-08-05T23:43:27Z\",\n  \"goVersion\": \"go1.26.4\",\n  \"compiler\": \"gc\",\n  \"platform\": \"linux/amd64\"\n}"
+    },
+    "crane": {
+      "sha256": "dadceee2c671a563385340413a9a379e9d8f0e0f96defad1706a931085626aa4",
+      "version": "v0.22.1"
+    },
+    "go_probe_build": [
+      "mod\tz225probe\t(devel)",
+      "dep\tgithub.com/in-toto/attestation\tv1.2.0\th1:aPRUZ3azbqD7yEBD5fP3TD8Dszf+YHo284SOcpahjQk=",
+      "dep\tgithub.com/secure-systems-lab/go-securesystemslib\tv0.11.1\th1:ayahDPjfSIqKegyt5YVGEvQ7SAi72GHXTy+b2YjUd5w=",
+      "dep\tgolang.org/x/crypto\tv0.55.0\th1:+KWHjbgOaAQ66dh/YlkZKHlz9ZUlq61AFirAR9ntP8M=",
+      "dep\tgoogle.golang.org/protobuf\tv1.36.11\th1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE="
+    ],
+    "go_toolchain": "go1.25.0",
+    "guacgql": {
+      "sha256": "afd3231a3fa65933385a7f03caeee11e83120bee095ba23a06e6635242fed534"
+    },
+    "guacone": {
+      "sha256": "fb929dfb5a96dc3e5d8c6af52806f565c465662e5de3af42926b886bac1675d2",
+      "version": "guacone version v1.1.0"
+    },
+    "python_probe_packages": [
+      "cffi==2.1.1",
+      "cryptography==50.0.1",
+      "in-toto-attestation==0.9.3",
+      "pip==24.0",
+      "protobuf==7.36.2",
+      "pycparser==3.0",
+      "securesystemslib==1.5.1",
+      "setuptools==79.0.1"
+    ]
+  }
+}
