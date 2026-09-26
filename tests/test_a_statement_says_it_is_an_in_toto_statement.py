@@ -386,6 +386,35 @@ class RustParity(unittest.TestCase):
                     self.assertEqual((py["structure_ok"], rs.returncode), (False, 2), rs.stdout)
                     self.assertIn("not an in-toto Statement v1: _type is", rs.stdout)
 
+    def test_a_wrong_string_reads_the_same_on_both_sides(self):
+        """A review lens on the fixes for this pull request: a wrong `_type` string was quoted as JSON
+        in Rust and as a repr in Python. Word for word now, for `_type` and for the payloadType pin, with
+        Python's own refusal as the oracle."""
+        from proofbundle.trust_pack import verify_trust_pack
+        env, sk = _trust_pack()
+        stmt = _statement(env)
+        body = base64.b64decode(env["payload"])
+        for value in ("https://in-toto.io/Statement/v0.1", "a'b", 'a"b', "a'b\"c", "a\\b", "a\tb\nc\r",
+                      "\x01\x7f", "prüfung"):
+            for field in ("_type", "payloadType"):
+                if field == "_type":
+                    pack = _resigned_pack(_with_type(stmt, value), sk)
+                else:
+                    sig = base64.b64encode(sk.sign(dsse.pae(value, body))).decode()
+                    pack = {"payload": env["payload"], "payloadType": value,
+                            "signatures": [{"keyid": "r", "sig": sig}]}
+                py = verify_trust_pack(pack)
+                with tempfile.TemporaryDirectory() as d:
+                    path = pathlib.Path(d) / "tp.json"
+                    path.write_text(json.dumps(pack), encoding="utf-8")
+                    rs = subprocess.run([str(self.rust), "verify-trust-pack-threshold", str(path)],
+                                        capture_output=True, text=True, timeout=120)
+                reason = py["errors"][0]
+                if field == "_type":
+                    reason = reason.split("(fail-closed): ", 1)[1]
+                with self.subTest(field=field, value=value):
+                    self.assertEqual((rs.returncode, rs.stdout.strip()), (2, "MALFORMED: " + reason))
+
     def test_a_trust_pack_under_another_payload_type(self):
         """The neighbour in the same function: signed under another payloadType, the Rust slice met its
         threshold with exit 0 and Python refused the pack. Same verdict now, and the same words."""

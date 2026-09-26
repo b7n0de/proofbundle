@@ -536,9 +536,55 @@ fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
         )),
         Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => None,
         Some(v) => Some(format!(
-            "DSSE payload is not an in-toto Statement v1: _type is {v}, expected '{INTOTO_STATEMENT_TYPE}'"
+            "DSSE payload is not an in-toto Statement v1: _type is {}, expected '{INTOTO_STATEMENT_TYPE}'",
+            wie_python_zeigt(v)
         )),
     }
+}
+
+/// A value as Python's `budget.render_safe` shows it in a refusal, for the cases this verifier meets:
+/// a string as `repr()` writes it, anything else as JSON. A review lens on PR 282 measured the `_type`
+/// refusal of a wrong string in double quotes here and in single quotes in Python.
+///
+/// Named limits: Python escapes a non-ASCII character it does not count as printable (U+0085, U+2028,
+/// a lone surrogate) and elides a string longer than 256 characters; this keeps both as they are. A
+/// value that is no string is JSON here and a repr there (`null` against `None`).
+fn wie_python_zeigt(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => python_repr(s),
+        andere => andere.to_string(),
+    }
+}
+
+/// Python's `repr()` of a `str`: single quotes, or double quotes when the text holds a single quote and
+/// no double quote; a backslash, the chosen quote, `\t`, `\n`, `\r` and the other ASCII control
+/// characters escaped the way Python escapes them.
+fn python_repr(s: &str) -> String {
+    let zeichen = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut aus = String::with_capacity(s.len() + 2);
+    aus.push(zeichen);
+    for c in s.chars() {
+        match c {
+            '\\' => aus.push_str("\\\\"),
+            '\t' => aus.push_str("\\t"),
+            '\n' => aus.push_str("\\n"),
+            '\r' => aus.push_str("\\r"),
+            c if c == zeichen => {
+                aus.push('\\');
+                aus.push(c);
+            }
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                aus.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c => aus.push(c),
+        }
+    }
+    aus.push(zeichen);
+    aus
 }
 
 fn verify_dsse(
@@ -1017,14 +1063,11 @@ fn verify_trust_pack_threshold(
             BUDGET_SIGNATURES,
         ));
     }
-    // The pin, in Python's words; a value that is no string is shown as JSON (Python shows its repr).
+    // The pin, in Python's words: Python writes the value with a plain `repr()`, which a string
+    // mirrors here within the limits `wie_python_zeigt` names (no elision applies to a plain repr).
     let payload_type = envelope.get("payloadType");
     if payload_type.and_then(|v| v.as_str()) != Some(INTOTO_STATEMENT_PAYLOAD_TYPE) {
-        let gezeigt = match payload_type {
-            Some(serde_json::Value::String(s)) => format!("'{s}'"),
-            Some(v) => v.to_string(),
-            None => "None".to_string(),
-        };
+        let gezeigt = payload_type.map_or_else(|| "None".to_string(), wie_python_zeigt);
         return Err(format!(
             "envelope.payloadType is {gezeigt}, expected '{INTOTO_STATEMENT_PAYLOAD_TYPE}' \
              (payloadType-confusion, fail-closed)"
@@ -3185,6 +3228,24 @@ mod tests {
         let e = verify_trust_pack_threshold(&ohne_praedikat)
             .expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn a_string_is_shown_as_python_repr_shows_it() {
+        // Each expected text is what CPython's repr() prints for the same string.
+        for (roh, erwartet) in [
+            ("abc", "'abc'"),
+            ("a'b", "\"a'b\""),
+            ("a'b\"c", "'a\\'b\"c'"),
+            ("a\"b", "'a\"b'"),
+            ("a\\b", "'a\\\\b'"),
+            ("a\tb\nc\rd", "'a\\tb\\nc\\rd'"),
+            ("\u{1}\u{7f}", "'\\x01\\x7f'"),
+            ("pr\u{fc}fung", "'pr\u{fc}fung'"),
+        ] {
+            assert_eq!(python_repr(roh), erwartet, "{roh:?}");
+        }
+        assert_eq!(wie_python_zeigt(&serde_json::json!(5)), "5");
     }
 
     #[test]
