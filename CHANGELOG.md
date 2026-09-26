@@ -25,7 +25,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
   to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
   whose listing is hashed and never opened. 0 of the 1705 tracked paths at this change need quoting, so no
-  verdict on this repository changes.
+  verdict on this repository changes. A name that is not UTF-8 decodes to a lone surrogate, and each of
+  the four tools raised on one while writing its report, with exit 1, the exit code of a finding
+  (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
+  is the escape of the same code point, so the name reads back as it was.
 
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff

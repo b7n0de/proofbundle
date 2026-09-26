@@ -116,6 +116,12 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--receipt", required=True, type=Path)
     ap.add_argument("--repo", type=Path, default=Path("."))

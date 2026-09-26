@@ -49,6 +49,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -902,6 +903,12 @@ def check_external(version: str, timeout: float = 15.0,
 
 
 def main() -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description="proofbundle release-integrity gate")
     ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
     ap.add_argument("--external", action="store_true",

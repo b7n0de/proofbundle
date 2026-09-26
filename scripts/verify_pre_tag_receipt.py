@@ -417,6 +417,12 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--repo", type=Path, default=Path("."), help="the clone (default: .)")
     p.add_argument("--commit", required=True, help="full 40-hex commit id named by the attestation")

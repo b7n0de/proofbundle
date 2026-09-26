@@ -394,6 +394,12 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
 
 
 def main(argv=None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--base", default="origin/main",
                    help="the base of the change range (default origin/main)")
