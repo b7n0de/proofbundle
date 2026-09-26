@@ -82,6 +82,10 @@ _NAME_PATTERN = re.compile(
     # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
     # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
     r"|expected_origin_wellformed"
+    # 2026-09-26, deep gate Z195: `ed25519_trust_anchor_weakness` is the same kind of predicate over a
+    # caller-supplied key (any type) and must name a reason ("malformed") instead of crashing. In the
+    # denominator; `verify_ed25519_pinned` already falls in through its prefix.
+    r"|ed25519_trust_anchor_weakness"
     # 2026-09-05, CAP-1 Teil B: `is_conformant` ist ein Praedikat ueber ein vom Aufrufer geliefertes
     # Dokument (untrusted) und muss urteilen statt zu crashen — in den Nenner, wie das Vorbild eine
     # Zeile darueber. `check_cap1_document`/`load_cap1_document` fallen ueber ihre Praefixe hinein.
