@@ -104,6 +104,9 @@ def kid_of(key) -> bytes:
 # ------------------------------------------------------------------------------------------------
 # The synthetic control, and the one-argument deviations from it
 # ------------------------------------------------------------------------------------------------
+AUTO = object()     # the protected x5chain names the signer, which v1 requires (owner answer N7 b)
+
+
 @dataclass
 class Stmt:
     prot_map: dict = field(default_factory=lambda: {1: -7, 258: -16, 259: "application/json",
@@ -113,9 +116,17 @@ class Stmt:
     unprot: dict = field(default_factory=dict)
     key: object = None
     sig: bytes | None = None
+    x5chain: object = AUTO      # AUTO: the signer's chain; None: no protected x5chain; else this value
+
+    def header(self) -> dict:
+        """The protected map as signed: prot_map, plus label 33 unless the map carries its own."""
+        m = dict(self.prot_map)
+        if 33 not in m and self.x5chain is not None:
+            m[33] = chain_of(self.key or STMT_KEY) if self.x5chain is AUTO else self.x5chain
+        return m
 
     def protected(self) -> bytes:
-        return self.prot_raw if self.prot_raw is not None else enc(self.prot_map)
+        return self.prot_raw if self.prot_raw is not None else enc(self.header())
 
     def signature(self) -> bytes:
         # made once per statement: ECDSA is randomised, and every call must see the same bytes
@@ -489,7 +500,7 @@ def test_signed_bytes_kept_original():
     st, ts = control()
     assert verify(ts).status == "confirmed"
     assert S.recompute_data_hash(ts) == dh_of(st)
-    reordered = {15: {1: "did:example:signer"}, 259: "application/json", 258: -16, 1: -7}
+    reordered = dict(reversed(list(st.header().items())))          # the same map, other order
     st2 = Stmt(prot_raw=enc(reordered), sig=st.signature())     # same map, other order, old signature
     ts2 = transparent(st2, [Rcpt(data_hash=dh_of(st)).build()])
     r = verify(ts2)
@@ -568,7 +579,8 @@ def test_algorithm_label_and_key_type_must_belong_together():
     assert verify(transparent(st, [right]), rp=trust(service_keys=[spki(p256_service)])).status == "confirmed"
     # an EC label with an RSA statement key
     rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    assert verify(control()[1], rp=trust(statement_keys=[spki(rsa_key)])).status == "statement_signature_invalid"
+    ec_label_rsa_chain = control(x5chain=chain_of(rsa_key))[1]              # ES256, the chain names the RSA key
+    assert verify(ec_label_rsa_chain, rp=trust(statement_keys=[spki(rsa_key)])).status == "statement_signature_invalid"
 
 
 def test_algorithm_outside_v1_is_not_invalid():
@@ -587,7 +599,7 @@ def test_algorithm_ecdsa_signature_of_wrong_length():
 
 def test_algorithm_pss_salt_length_and_key_size():
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    prot = {1: -37, 258: -16, 15: {1: "i"}}
+    prot = {1: -37, 258: -16, 15: {1: "i"}, 33: chain_of(key)}
     good_sig = key.sign(tbs(enc(prot), ROOT), padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32),
                         hashes.SHA256())
     st = Stmt(prot_map=prot, sig=good_sig)
@@ -598,6 +610,7 @@ def test_algorithm_pss_salt_length_and_key_size():
     st = Stmt(prot_map=prot, sig=other_salt)
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()]), rp=rp).status == "statement_signature_invalid"
     small = rsa.generate_private_key(public_exponent=65537, key_size=1024)
+    prot = {**prot, 33: chain_of(small)}
     small_sig = small.sign(tbs(enc(prot), ROOT), padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32),
                            hashes.SHA256())
     st = Stmt(prot_map=prot, sig=small_sig)
@@ -707,7 +720,9 @@ def test_statement_signer_is_always_required():
     _st, ts = control()
     assert verify(ts, rp=trust(statement_keys=[])).status == "needs_rp_trust"
     other = ec.generate_private_key(ec.SECP256R1())
-    assert verify(ts, rp=trust(statement_keys=[spki(other)])).status == "statement_signature_invalid"
+    assert verify(ts, rp=trust(statement_keys=[spki(other)])).status == "needs_rp_trust"      # not the named key
+    named_other = control(x5chain=chain_of(other))[1]                  # names other, STMT_KEY signed
+    assert verify(named_other, rp=trust(statement_keys=[spki(other)])).status == "statement_signature_invalid"
     status, valid = S.verify_statement_signature(ts, statement_keys=None)
     assert (status, valid) == ("needs_rp_trust", None)
     assert S.verify_statement_signature(ts, statement_keys=[spki(STMT_KEY)]) == ("confirmed", True)
@@ -735,8 +750,15 @@ def cert_der(key, cn: str = "statement signer", issuer_key=None) -> bytes:
             .sign(issuer_key or CA_KEY, hashes.SHA256()).public_bytes(serialization.Encoding.DER))
 
 
+_CHAINS: dict = {}
+
+
 def chain_of(key) -> list:
-    return [cert_der(key), cert_der(CA_KEY, "test ca")]
+    """A two-certificate chain for key, made once per key: certificates are not free to sign."""
+    k = spki(key)
+    if k not in _CHAINS:
+        _CHAINS[k] = [cert_der(key), cert_der(CA_KEY, "test ca")]
+    return _CHAINS[k]
 
 
 def x5(x5chain, signer=None) -> Stmt:
@@ -767,15 +789,19 @@ def test_x5chain_a_key_the_rp_rotated_away_is_missing_trust_not_a_failed_signatu
     r = verify(with_chain, rp=trust(statement_keys=[spki(new_key)]))
     assert (r.status, r.statement_signature_valid, r.profile_satisfied) == ("needs_rp_trust", None, False)
     assert "x5chain end-entity key" in r.detail
-    # the same RP keys without a protected x5chain: every key is tried, and the entry fails
-    assert verify(control()[1], rp=trust(statement_keys=[spki(new_key)])).status == "statement_signature_invalid"
+    # owner answer N7 b: without a protected x5chain the statement is outside the profile, whatever the keys
+    no_chain = control(x5chain=None)[1]
+    assert verify(no_chain, rp=trust(statement_keys=[spki(new_key)])).status == "outside_profile"
+    assert verify(no_chain).status == "outside_profile"
+    assert S.verify_statement_signature(no_chain, statement_keys=[spki(STMT_KEY)]) == ("outside_profile", None)
+    assert S.verify_statement_signature(no_chain, statement_keys=None) == ("outside_profile", None)
 
 
 def test_x5chain_a_selected_key_must_verify_and_no_other_key_is_tried():
     signed_by_b = ts_of(x5(chain_of(STMT_KEY), signer=KEY_B))     # chain names STMT_KEY, KEY_B signed
     r = verify(signed_by_b, rp=trust(statement_keys=[spki(STMT_KEY), spki(KEY_B)]))
     assert (r.status, r.statement_signature_valid) == ("statement_signature_invalid", False)
-    # control: without the chain the same statement signed by KEY_B confirms under the same RP keys
+    # control: the chain naming its own signer, KEY_B, confirms under the same RP keys
     assert verify(control(key=KEY_B)[1], rp=trust(statement_keys=[spki(STMT_KEY), spki(KEY_B)])).status == \
         "confirmed"
 
@@ -799,12 +825,12 @@ def test_x5chain_keys_are_compared_as_keys_not_as_encodings():
 
 
 def test_x5chain_in_the_unprotected_header_selects_nothing():
-    st = Stmt()
-    stranger = ec.generate_private_key(ec.SECP256R1())
-    ts = ts_of(st, extra_unprot={33: chain_of(stranger)})
-    assert verify(ts).status == "confirmed"                              # every RP key tried
-    r = verify(ts, rp=trust(statement_keys=[spki(KEY_B)]))
-    assert r.status == "statement_signature_invalid" and "not integrity protected" in r.detail
+    assert verify(ts_of(Stmt())).status == "confirmed"                  # control: the chain protected
+    st = Stmt(x5chain=None)
+    ts = ts_of(st, extra_unprot={33: chain_of(STMT_KEY)})               # the signer's own chain, unprotected
+    r = verify(ts)
+    assert r.status == "outside_profile" and "not integrity protected" in r.detail
+    assert r.receipts[0].status == "confirmed"                          # the receipt is still reported
 
 
 def test_x5chain_a_kid_in_the_statement_selects_nothing():

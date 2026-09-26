@@ -34,8 +34,8 @@ evidence, an ``x5chain`` certificate or an algorithm label in a key set is never
 The statement's PROTECTED ``x5chain`` selects among the relying party's statement keys the same
 way (owner answer N4 b): only a key equal to the end-entity certificate's key is tried, no such
 key is ``needs_rp_trust``, and a selected key must verify. The certificate is never trust. An
-``x5chain`` in the unprotected bucket selects nothing, and a statement without a protected one has
-every relying-party statement key tried.
+``x5chain`` in the unprotected bucket selects nothing, and a statement without a protected one is
+outside the profile (owner answer N7 b).
 
 RESULTS are three separate booleans -- ``readable``, ``signature_valid``, ``profile_satisfied`` --
 next to one status from a closed set (ADR 0009, Decisions 9 and 10). No result sets ``warn`` and
@@ -103,6 +103,9 @@ _RSA_BITS = (2048, 8192)
 #: crit labels v1 processes (ADR 0009, Decision 7); anything else listed in crit is outside v1.
 _STATEMENT_CRIT_PROCESSED = (_ALG, _PAYLOAD_HASH_ALG)
 _RECEIPT_CRIT_PROCESSED = (_ALG, _KID, _CWT, _VDS)
+#: Why a statement without a protected x5chain is outside the profile (owner answer N7 b).
+_NO_X5CHAIN = "no protected x5chain: scitt-ccf/v1 selects the statement key by it (owner answer N7 b)"
+_UNPROTECTED_X5CHAIN = "; the x5chain in the unprotected header is not integrity protected and selects nothing"
 #: CWT claims that may carry tag 1 in a statement's protected header (owner decision Q8 a).
 _CWT_TIME_CLAIMS = (4, 5, 6)
 
@@ -519,6 +522,8 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
         return why
     if _CRIT in uh:
         return "crit in the unprotected header"
+    if _X5CHAIN not in ph:
+        return _NO_X5CHAIN + (_UNPROTECTED_X5CHAIN if _X5CHAIN in uh else "")
     if st.payload is None:
         return "the payload is detached; the data-hash rule is measured for embedded payloads only"
     if len(st.payload) != 32:
@@ -552,16 +557,15 @@ def _statement_key_selector(st: CoseSign1) -> tuple:
 
     Returns ``(mode, spki, note)``. ``mode`` is ``"x5chain"`` when the protected header carries
     label 33: then only a key equal to the end-entity certificate's key is tried (``spki``, None
-    when that key cannot be loaded, so none can match). Otherwise ``mode`` is ``"every"`` and every
-    key is tried. RFC 9360 (WG source, draft-ietf-cose-x509-08): ``COSE_X509 = bstr / [ 2*certs:
-    bstr ]``, the first certificate is the end-entity one, and it MUST be integrity protected, so
-    an unprotected ``x5chain`` selects nothing. Raises ``ScittFormatError`` for a protected
-    ``x5chain`` of another shape or whose end-entity certificate is not DER X.509.
+    when that key cannot be loaded, so none can match). Without a protected ``x5chain`` ``mode`` is
+    ``"none"``: v1 requires one (owner answer N7 b) and no key is tried. RFC 9360 (WG source,
+    draft-ietf-cose-x509-08): ``COSE_X509 = bstr / [ 2*certs: bstr ]``, the first certificate is
+    the end-entity one, and it MUST be integrity protected, so an unprotected ``x5chain`` selects
+    nothing. Raises ``ScittFormatError`` for a protected ``x5chain`` of another shape or whose
+    end-entity certificate is not DER X.509.
     """
     if _X5CHAIN not in st.protected:
-        note = ("an x5chain in the unprotected header is not integrity protected and selects "
-                "nothing; " if _X5CHAIN in st.unprotected else "")
-        return ("every", None, note + "no protected x5chain, every relying-party statement key tried")
+        return ("none", None, _NO_X5CHAIN + (_UNPROTECTED_X5CHAIN if _X5CHAIN in st.unprotected else ""))
     chain = st.protected[_X5CHAIN]
     if isinstance(chain, bytes):
         leaf = chain
@@ -595,11 +599,13 @@ def _statement_signature(st: CoseSign1, statement_keys, selector: tuple) -> tupl
     """-> (status, valid, ignored trust, detail)."""
     if st.payload is None:
         return ("outside_profile", None, [], "the payload is detached")
+    mode, leaf_spki, note = selector
+    if mode == "none":
+        return ("outside_profile", None, [], note)
     keys, ignored = _normalize_keys(statement_keys)
     if not keys:
         return ("needs_rp_trust", None, ignored,
                 "no relying-party statement key (the statement signer is always required)")
-    mode, leaf_spki, note = selector
     if mode == "x5chain":
         # compared as keys, not as encodings: both sides re-encoded from the loaded key
         candidates = [spki for spki, _kid in keys
@@ -608,7 +614,7 @@ def _statement_signature(st: CoseSign1, statement_keys, selector: tuple) -> tupl
             return ("needs_rp_trust", None, ignored,
                     f"{note}; no relying-party statement key is the x5chain end-entity key")
     else:
-        candidates = [spki for spki, _kid in keys]
+        raise ValueError(f"unknown selector mode {mode!r}")    # fail closed: no mode tries every key
     tbs = _sig_structure(st.protected_raw, st.payload)
     alg = st.protected.get(_ALG)
     for spki in candidates:
