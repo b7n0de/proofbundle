@@ -69,6 +69,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   non-ASCII name, and the tests cover a non-ASCII name, a double quote and a backslash in both
   modes. No file under `src/proofbundle` carries such a name today.
 
+- **A fail-closed stop exits 2, not the code of a finding** (`scripts/mutant_signature_guard.py`,
+  `tools/measurements/merkle_two_readings.py`). Both promise exit 2 for an internal or usage error
+  and stopped with `SystemExit` and a text, which exits 1: the guard said 1, its code for a mutant
+  found, outside a repository and when a git call failed under it, and the Merkle measurement said
+  1, its code for two different roots, for a checkout without the module (measured). Both exit 2
+  now, and the reason goes to stderr. Of the ten files under `scripts/`, `tools/` and `src/` that
+  stop with a text, these two promise a separate code for it; two others document 1 for any
+  failure, and six document no exit code.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

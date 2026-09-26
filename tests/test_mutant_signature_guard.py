@@ -341,6 +341,31 @@ class TestBaseMode(_RepoFixture):
         self.assertIn("scan skipped honestly", r.stdout)
 
 
+class TestAStopIsNotAFinding(_RepoFixture):
+    """Exit 2 for a fail-closed stop, as the docstring says; `SystemExit(<text>)` exits 1, the code
+    of a finding (a review lens of another model family, measured 2026-09-26)."""
+
+    def test_outside_a_repository_it_exits_2(self):
+        import os
+        with tempfile.TemporaryDirectory(prefix="guard-no-repo-") as tmp:
+            r = subprocess.run([sys.executable, str(SCRIPT), "--staged"], cwd=tmp, capture_output=True,
+                               text=True, timeout=60,
+                               env=dict(os.environ, GIT_CEILING_DIRECTORIES=str(pathlib.Path(tmp).parent)))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not inside a git repository", r.stderr)
+
+    def test_a_git_call_that_fails_under_it_exits_2(self):
+        self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+        (self.repo / ".git" / "index").write_bytes(b"not an index")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("(fail closed)", r.stderr)
+
+    def test_control_a_finding_still_exits_1(self):
+        self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+        self.assertEqual(_guard(self.repo, "--staged").returncode, 1)
+
+
 class TestTheHeaderPathIsDecoded(unittest.TestCase):
     """The decoder itself, over the forms git writes (C escapes, octal bytes) and one it does not."""
 

@@ -54,7 +54,10 @@ def _load_merkle(checkout: Path):
     """Import the SHIPPED module from the given checkout, never a copy of it."""
     src = checkout / "src"
     if not (src / "proofbundle" / "merkle.py").is_file():
-        raise SystemExit(f"no proofbundle/merkle.py under {src}")
+        # A usage error, so exit 2 as the docstring says: `SystemExit(<text>)` exits 1, which here
+        # reads as "the two readings differ" (a sweep for that class, 2026-09-26).
+        print(f"no proofbundle/merkle.py under {src}", file=sys.stderr)
+        raise SystemExit(2)
     sys.path.insert(0, str(src))
     import proofbundle.merkle as m  # noqa: E402
     return m

@@ -508,10 +508,20 @@ def main(argv: list[str] | None = None) -> int:
     # below this change write such a name with backslash escapes; so does this report.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
-    if a.self_test:
-        return self_test()
-    repo = _repo_root()
-    findings = run_staged(repo) if a.staged else run_base(a.base, repo)
+    # ONE EXIT FOR EVERY FAIL-CLOSED STOP. Each stop raises SystemExit with its reason as text, and
+    # Python exits 1 on a text, the exit code of a finding, while the docstring says 2: a caller who
+    # reads the exit code took "not inside a git repository" or "git diff failed" for a mutant found
+    # (a review lens of another model family, measured 2026-09-26).
+    try:
+        if a.self_test:
+            return self_test()
+        repo = _repo_root()
+        findings = run_staged(repo) if a.staged else run_base(a.base, repo)
+    except SystemExit as stop:
+        if isinstance(stop.code, str):
+            print(stop.code, file=sys.stderr)
+            return 2
+        raise
     if findings:
         print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
         for f in findings:
