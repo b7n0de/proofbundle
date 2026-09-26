@@ -12,9 +12,17 @@ out of the receipt itself would check nothing.
 
 The three cases, each with the reaction it must get:
 
-1. The answer's bytes changed: the body digest no longer matches and the receipt is not usable.
+1. The answer's bound bytes changed: the body digest no longer matches and the receipt is not
+   usable.
 2. A validly signed receipt presented for another head: the subject no longer matches.
 3. A key outside the trust rule: no trusted statement results.
+
+WHAT THE RECEIPT DOES NOT BIND, and it is pinned here so that it cannot be read into case 1. The
+body digest is taken with the disclosure block, the text between the agent-review markers, replaced
+by a token. This receipt carries no disclosureCoreDigest, as its known gaps state, so a change
+inside that block is NOT refused by it (Codex on this pull request, round one). The last case says
+so as a measurement: if the receipt ever does bind the block, that case fails and this paragraph is
+wrong.
 
 A precondition case first shows that the same receipt IS usable with the right answer, subject
 and key; without it, three refusals could come from a receipt that fails for any reason at all.
@@ -56,23 +64,40 @@ class ThreeNegativeCasesOnARealReceipt(unittest.TestCase):
         self.subject, self.env, self.key, self.body = _load()
         self.context = self.subject["subjectContext"]
 
+    def _block(self):
+        begin, end = "<!-- proofbundle:agent-review:begin -->", "<!-- proofbundle:agent-review:end -->"
+        return self.body[self.body.index(begin):self.body.index(end) + len(end)]
+
     def test_precondition_the_real_receipt_is_usable_as_published(self):
         r = _verify(self.env, self.key, self.body, self.context)
         self.assertIs(r["ok"], True, r["errors"])
         self.assertEqual(r["body_core_digest_match"], "MATCH")
         self.assertEqual(r["expected_subject_match"], "MATCH")
 
-    def test_1_changed_answer_bytes_are_refused(self):
+    def test_1_changed_bound_answer_bytes_are_refused(self):
         for label, changed in (("one word", self.body.replace("Confirmed", "Refuted", 1)),
                                ("a trailing space", self.body + " "),
                                ("a verdict line", self.body.replace("Verdict Confirmed",
                                                                     "Verdict Refuted", 1))):
             with self.subTest(change=label):
                 self.assertNotEqual(changed, self.body, "the change must change something")
+                self.assertIn(self._block(), changed, "the change must fall outside the block")
                 # a reader derives everything from the text in front of them
                 r = _verify(self.env, self.key, changed, self.context)
                 self.assertIs(r["ok"], False)
                 self.assertEqual(r["body_core_digest_match"], "MISMATCH")
+
+    def test_the_disclosure_block_is_not_bound_by_this_receipt(self):
+        """The named limit, measured: an edit between the markers leaves the receipt usable."""
+        begin, end = "<!-- proofbundle:agent-review:begin -->", "<!-- proofbundle:agent-review:end -->"
+        i, j = self.body.index(begin), self.body.index(end)
+        self.assertIn("Tier 1", self.body[i:j], "the edit below must fall inside the block")
+        changed = self.body[:i] + self.body[i:j].replace("Tier 1", "Tier 9", 1) + self.body[j:]
+        self.assertNotEqual(changed, self.body)
+        r = _verify(self.env, self.key, changed, self.context)
+        self.assertEqual(r["body_core_digest_match"], "MATCH")
+        self.assertEqual(r["disclosure_core_digest_match"], "ABSENT_IN_RECEIPT")
+        self.assertIs(r["ok"], True, r["errors"])
 
     def test_2_a_receipt_presented_for_another_head_is_refused(self):
         other = copy.deepcopy(self.context)
