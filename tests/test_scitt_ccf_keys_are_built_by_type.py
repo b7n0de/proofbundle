@@ -159,7 +159,7 @@ REFUSED = {
     "EC P-521": (ec.generate_private_key(ec.SECP521R1()).public_key(), "P-256 and P-384"),
     "EC secp256k1": (ec.generate_private_key(ec.SECP256K1()).public_key(), "P-256 and P-384"),
     "EC brainpoolP256r1": (ec.generate_private_key(ec.BrainpoolP256R1()).public_key(), "P-256 and P-384"),
-    "DSA": (dsa.generate_private_key(key_size=1024).public_key(), "1.2.840.10040.4.1"),
+    "DSA": (dsa.generate_private_key(key_size=2048).public_key(), "1.2.840.10040.4.1"),
     "RSA under id-RSASSA-PSS": (_RSA.public_key(), "1.2.840.113549.1.1.10"),
 }
 
