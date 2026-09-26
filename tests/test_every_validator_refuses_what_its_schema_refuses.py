@@ -39,12 +39,14 @@ import subprocess
 import tempfile
 import unittest
 
-from _schema_oracle import EcmaValidator, ecma_pattern, mutations, schema_accepts
-
 try:
     import jsonschema
 except ImportError:  # pragma: no cover - dev-only dependency
     jsonschema = None
+else:
+    # only with jsonschema: the oracle needs it, and a bare install must still collect this
+    # module, whose regex sweep and end-to-end cases do not
+    from _schema_oracle import EcmaValidator, ecma_pattern, mutations, schema_accepts
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SCHEMAS = REPO / "schemas"
