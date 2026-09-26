@@ -27,7 +27,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64
@@ -467,7 +467,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 f"envelope.payloadType is {env_ptype!r}, expected {INTOTO_STATEMENT_PAYLOAD_TYPE!r} "
                 "(payloadType-confusion, fail-closed)")
             return _finalize_failclosed(r)
-        statement = loads_strict(body.decode("utf-8"))
+        # The ONE Statement oracle (strict parse, object, `_type` = in-toto Statement v1; deep gate Z195,
+        # L3-Z195-01 class, mirror of decision.py): a pack is a Statement, and structure_ok says so.
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
         r["errors"].append(f"trust pack envelope is malformed or over-limit (fail-closed): {exc}")

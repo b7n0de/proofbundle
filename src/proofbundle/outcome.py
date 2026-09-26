@@ -21,7 +21,7 @@ import hashlib
 import re
 from typing import Any, Callable
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member
@@ -597,9 +597,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
         body = dsse.load_payload(envelope)
-        # Finding 15b: refuse an absurdly oversized payload before any JSON parsing work.
-        DEFAULT_BUDGET.check("input_bytes", len(body))
-        statement = loads_strict(body.decode("utf-8"))
+        # Finding 15b: the input_bytes budget runs before any JSON parsing work, inside the ONE Statement
+        # oracle, which since deep gate Z195 (L3-Z195-01) also refuses a `_type` that is not in-toto
+        # Statement v1 (mirror of decision.py).
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input -> STABLE
         # fail-closed verdict, never a raw exception. The reason is preserved in errors[].

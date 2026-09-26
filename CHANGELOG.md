@@ -10,6 +10,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A signed statement says it is an in-toto Statement v1, and every verifier that reports
+  `structure_ok` reads it** (`_statement_payload.load_statement_strict`). Decision, outcome and
+  relation-statement verify reported `structure_ok=true`, and `decision verify --strict` under a
+  signer-pinning policy `safeForAutomation=true`, for a signed statement whose `_type` was absent,
+  JSON null or `Statement/v0.1`; measured on main 10f3466b (deep gate finding L3-Z195-01). Each of
+  these verifiers wrote `_type` when it emitted and none read it back. The one Statement oracle
+  now refuses any `_type` other than exactly `https://in-toto.io/Statement/v1`, and decision,
+  outcome, verification-summary, run-ledger and trust-pack verify parse through it, as
+  relation-statement verify and the `--with-related` resolver already did. The Rust verifier
+  refuses the same bytes on `verify-relation`, `verify-relation-statement` and for attached
+  targets, with the same exit class and lineage. A sweep fails when a module that reports
+  `structure_ok` for an in-toto Statement parses without the oracle. `intoto --verify` and
+  `svr --verify` are unchanged: what their `ok` covers is listed in their contract, and `_type`
+  is not on that list.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

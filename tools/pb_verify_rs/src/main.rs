@@ -457,6 +457,28 @@ const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty 
 // relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
 // verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
 const INTOTO_STATEMENT_PAYLOAD_TYPE: &str = "application/vnd.in-toto+json";
+const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
+
+/// Why a parsed payload is not an in-toto Statement v1, or None: mirror of Python
+/// `_statement_payload.load_statement_strict` (a JSON object) and `statement_type_problem` (an exact
+/// `_type`). Deep gate Z195, L3-Z195-01: the Python verifiers built `_type` when they emitted and never
+/// read it back, so a receipt with `_type` absent, null or v0.1 reached structure_ok=true. Python now
+/// refuses such a payload before any predicate is read; this side does the same, or the two would
+/// disagree on exactly those bytes.
+fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
+    if !statement.is_object() {
+        return Some("DSSE payload is not a JSON object — not an in-toto Statement".into());
+    }
+    match statement.get("_type") {
+        None => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is absent, expected '{INTOTO_STATEMENT_TYPE}'"
+        )),
+        Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => None,
+        Some(v) => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is {v}, expected '{INTOTO_STATEMENT_TYPE}'"
+        )),
+    }
+}
 
 fn verify_dsse(
     envelope: &serde_json::Value,
@@ -1858,8 +1880,14 @@ fn load_related(
         // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
         let mut payload_malformed = false;
         let mut subject_state: &'static str = "absent";
+        // Z195 (L3-Z195-01): the exact in-toto Statement v1 `_type` is part of that gate, as in Python.
         let parsed = match strict_parse(&body) {
-            Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
+            Ok(v)
+                if statement_typ_problem(&v).is_none()
+                    && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) =>
+            {
+                Some(v)
+            }
             _ => {
                 payload_malformed = true;
                 verified = false;
@@ -2017,6 +2045,12 @@ fn run_verify_relation(
         Ok(s) => s,
         Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
+    // Deep gate Z195, L3-Z195-01: an object with the exact in-toto Statement v1 `_type`, in BOTH modes.
+    // Python's decision, outcome and relation-statement verifiers refuse anything else before the
+    // predicate is read, so lineage stays null and the exit is 2; the same exit and lineage here.
+    if let Some(p) = statement_typ_problem(&statement) {
+        return (2, "null".into(), vec![format!("payload: {p}")]);
+    }
     let predicate = statement.get("predicate");
     let mut reasons: Vec<String> = Vec::new();
 
