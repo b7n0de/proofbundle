@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import io
 import os
 import re
@@ -144,8 +145,10 @@ _ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
 
 
 def _git(*args: str) -> tuple[int, str]:
-    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
-    return r.returncode, r.stdout
+    """git's output as it wrote it: bytes decoded, with no newline translation. Text mode turned a
+    lone CR into a line end, and the rest of that git line lost its `+` and was never read."""
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True)
+    return r.returncode, r.stdout.decode("utf-8", "surrogateescape")
 
 
 def _git_namen(*args: str) -> tuple[int, list[str]]:
@@ -155,24 +158,37 @@ def _git_namen(*args: str) -> tuple[int, list[str]]:
     return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
 
 
-def _git_path_decoder():
-    """The decoder for a path in a diff header, taken from `scripts/mutant_signature_guard.py` in the
-    tool's own tree and loaded by path, like the word list: one decoder for one grammar, not a copy.
+@functools.lru_cache(maxsize=1)
+def _diff_leser():
+    """The mutant guard's diff reader, loaded by path from the tool's own tree like the word list:
+    its pinned diff grammar, its parser and its line numbering. One reader for one grammar, not a
+    copy of it here.
 
-    git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
-    character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
-    of such a file went to the file before it in the diff, or nowhere when it came first. Measured
-    2026-09-26 in throwaway repositories with one German line in `docs/prüfung.md`: after
-    `docs/a.md` it was reported as `docs/a.md:1`; before `docs/z.md` the verdict was green over one
-    added line."""
+    WHY THIS TOOL TAKES IT (measured 2026-09-26 in throwaway repositories, one German line each, a
+    control with the same line in ROT). Its own parser read the diff by the shape of a line, in text
+    mode and under the caller's configuration, and each of these judged the change green:
+    - a quoted header (`+++ "b/docs/pr\\303\\274fung.md"`): the lines went to the file before it, or
+      nowhere when it came first;
+    - an added line `++ b/z.py`, valid Python, read as a header: the German docstring after it was
+      judged against a file that does not exist;
+    - a lone CR before a German comment: text mode split the git line and dropped the rest;
+    - `diff.mnemonicPrefix` in the working-tree form, and `diff.external`: no header matched `b/`,
+      or another program wrote the diff, and zero lines were read.
+    """
     import importlib.util as ilu  # noqa: PLC0415
     pfad = WERKZEUG_WURZEL / "scripts" / "mutant_signature_guard.py"
-    spec = ilu.spec_from_file_location("_neue_zeilen_git_path", pfad)
+    spec = ilu.spec_from_file_location("_neue_zeilen_diff_leser", pfad)
     if spec is None or spec.loader is None:
         raise ImportError(f"no loader for {pfad}")
     modul = ilu.module_from_spec(spec)
     spec.loader.exec_module(modul)
-    return modul._git_path
+    return modul
+
+
+def _python_zeilen(leser, text: str) -> list[str]:
+    """A file's lines as Python and CommonMark end them (CRLF, CR, LF), without a last empty one."""
+    zeilen, _ = leser._python_lines_of(text)
+    return zeilen[:-1] if zeilen and zeilen[-1] == "" else zeilen
 
 
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
@@ -192,25 +208,31 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # 2026-09-18, run 35287424973). A range is `<base>...<target>` in one string; the working
     # tree form passes the base alone.
     bereich = f"{basis}...{ziel}" if ziel else basis
-    rc, aus = _git("diff", "--unified=0", bereich, "--", *_ENDUNGEN)
+    try:
+        leser = _diff_leser()
+    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
+        return {}, f"NOT MEASURABLE: the diff reader is not loadable ({type(fehler).__name__})"
+    rc, aus = _git("diff", "--unified=0", *leser.DIFF_GRAMMAR, bereich, "--", *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
     try:
-        _git_path = _git_path_decoder()
-    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
-        return {}, f"NOT MEASURABLE: the diff-header decoder is not loadable ({type(fehler).__name__})"
+        je_git = leser._added_lines_by_file(aus)
+    except ValueError as fehler:
+        return {}, f"NOT MEASURABLE: the diff does not parse as git writes it ({fehler})"
+    # FROM GIT'S NUMBERING TO PYTHON'S. git numbers lines at LF; the prose maps below number them
+    # as Python and CommonMark do, where a lone CR ends a line too. Each added git line is cut at
+    # its inner CRs, and the pieces take their numbers from the same file the prose maps read.
     je_datei: dict[str, list[tuple[int, str]]] = {}
-    datei, nr = None, 0
-    for zeile in aus.splitlines():
-        if zeile.startswith(("+++ b/", '+++ "b/')):
-            datei = _git_path(zeile[4:])[2:]
-            je_datei.setdefault(datei, [])
-        elif zeile.startswith("@@"):
-            m = re.search(r"\+(\d+)", zeile)
-            nr = int(m.group(1)) if m else 0
-        elif zeile.startswith("+") and not zeile.startswith("+++") and datei:
-            je_datei[datei].append((nr, zeile[1:]))
-            nr += 1
+    for datei, zeilen in je_git.items():
+        try:
+            _, spannen = leser._python_lines_of(
+                (REPO / datei).read_bytes().decode("utf-8", "surrogateescape"))
+        except OSError:
+            spannen = []
+        for nr, text in zeilen:
+            erste = spannen[nr - 1].start if nr <= len(spannen) else nr
+            je_datei.setdefault(datei, []).extend(
+                (erste + i, stueck) for i, stueck in enumerate(leser._python_lines_of(text)[0]))
     if arbeitsbaum:
         # UNTRACKED FILES ARE NEW MATERIAL TOO. `git diff` never lists a file git does not know,
         # so a brand-new .py with German prose read as clean in the working-tree form (un, round 1,
@@ -225,11 +247,11 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
         for rel in neu:
             try:
-                text = (REPO / rel).read_text(encoding="utf-8")
+                text = (REPO / rel).read_bytes().decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 return {}, f"NOT MEASURABLE: untracked file {rel!r} is not readable"
             je_datei.setdefault(rel, [])
-            je_datei[rel].extend((i, z) for i, z in enumerate(text.splitlines(), start=1))
+            je_datei[rel].extend(enumerate(_python_zeilen(leser, text), start=1))
     return je_datei, "measured"
 
 
@@ -306,9 +328,12 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
     as a pass.
     """
     p = REPO / datei
+    # Lines as CommonMark ends them (CRLF, CR, LF). `splitlines()` also ends one at U+2028, a form
+    # feed and five more characters, and every line after such a character was numbered one higher
+    # than the diff numbers it.
     try:
-        zeilen = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
+        zeilen = _python_zeilen(_diff_leser(), p.read_bytes().decode("utf-8", "replace"))
+    except (OSError, ImportError, AttributeError, SyntaxError):
         return None
     # The quotation brackets first, because an unbalanced pair is a measurement failure and must
     # not be reported as a clean file.

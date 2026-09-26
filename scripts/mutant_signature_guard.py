@@ -82,12 +82,24 @@ _VERIFYISH_NAME = re.compile(r"(?:verify|validate|check)", re.IGNORECASE)
 
 
 def _git(*args: str, cwd: Path) -> str:
-    proc = subprocess.run(["git", "-C", str(cwd), *args],
-                          capture_output=True, text=True)
+    """git's output as it wrote it: bytes decoded, with no newline translation.
+
+    Text mode turned a lone CR into a line end. git ends a line at LF only, so one added line
+    `x = 1<CR>if False:` came back as two, the second without its `+`, and it was never judged
+    (measured 2026-09-26: exit 0 over a staged `if False:` that Python reads as its own statement).
+    """
+    proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True)
     if proc.returncode != 0:
         raise SystemExit(f"mutant_signature_guard: git {' '.join(args[:2])} failed (fail closed): "
-                         f"{proc.stderr.strip()[:200]}")
-    return proc.stdout
+                         f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return proc.stdout.decode("utf-8", "surrogateescape")
+
+
+#: The diff's grammar, pinned against configuration. With `diff.mnemonicPrefix` the new side is
+#: `i/` or `w/` instead of `b/`, and with `diff.external` another program writes the diff; either
+#: made the guard report clean over a staged `if False:` (measured 2026-09-26). A textconv filter
+#: would hand it converted text instead of the source.
+DIFF_GRAMMAR = ("--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
 
 
 #: The C escapes git writes inside a quoted path, besides octal `\ooo` for a byte.
@@ -124,31 +136,72 @@ def _git_path(field: str) -> str:
     return out.decode("utf-8", "surrogateescape")
 
 
+#: A hunk header: old start and count, new start and count; a count left out is 1.
+_HUNK = re.compile(r"@@ -[0-9]+(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@")
+
+
 def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
-    """Parse a -U0 unified diff into {new_path: [(new_lineno, added_line_text), ...]}."""
+    """Parse a unified diff into {new_path: [(new_lineno, added_line_text), ...]}, in git's grammar.
+
+    A line is a header or a hunk line by its POSITION, not by its shape. The hunk header states how
+    many old and new lines follow, and exactly those are read as the hunk; everything else is a
+    header. Read by shape, an added line `++ 1` (valid Python) came out as `+++ 1`, was taken for a
+    header naming the path `1`, and the `if False:` after it was attributed to that path and never
+    judged (measured 2026-09-26: exit 0). Lines end at LF only, as git ends them.
+
+    Raises ValueError when the text does not parse that way (a hunk header of another form, or a
+    hunk that ends before its count); the callers stop fail-closed on it.
+    """
     out: dict[str, list[tuple[int, str]]] = {}
     current: str | None = None
-    lineno = 0
-    for raw in diff_text.splitlines():
-        if raw.startswith("+++ "):
+    old_left = new_left = lineno = 0
+    for raw in diff_text.split("\n"):
+        if old_left or new_left:
+            kind = raw[:1]
+            if kind == "+" and new_left:
+                if current is not None:
+                    out.setdefault(current, []).append((lineno, raw[1:]))
+                lineno += 1
+                new_left -= 1
+            elif kind == "-" and old_left:
+                old_left -= 1
+            elif kind == " " and old_left and new_left:
+                lineno += 1
+                old_left -= 1
+                new_left -= 1
+            elif kind != "\\":            # `\ No newline at end of file` is counted by neither side
+                raise ValueError(f"a hunk ends before its count at {raw[:60]!r}")
+        elif raw.startswith("diff --git "):
+            current = None
+        elif raw.startswith("+++ "):
             path = _git_path(raw[4:])
             current = None if path == "/dev/null" else path.removeprefix("b/")
         elif raw.startswith("@@"):
-            # GEPRUEFT UND KEIN FUND (Klassen-Sweep 2026-09-07). Diese Suche sieht aus wie die
-            # Klasse "Suche ohne Anker entscheidet ueber eine Grenze", ist aber keine: der Hunk-Kopf
-            # hat die Form `@@ -alt,n +neu,m @@ <kontext>`, und `+neu` steht damit STRUKTURELL vor
-            # jedem `+` aus dem Kontextausschnitt. Ein Anker wurde gebaut und wieder entfernt, weil
-            # der Fangnachweis dazu gruen blieb — ein Fix ohne widerlegbaren Defekt ist keine
-            # Haertung, sondern eine Behauptung ueber eine Gefahr, die es hier nicht gibt.
-            m = re.search(r"\+(\d+)", raw)
-            lineno = int(m.group(1)) if m else 0
-        elif raw.startswith("+") and not raw.startswith("+++"):
-            if current is not None:
-                out.setdefault(current, []).append((lineno, raw[1:]))
-            lineno += 1
-        elif raw.startswith(" "):
-            lineno += 1
+            m = _HUNK.match(raw)
+            if not m:
+                raise ValueError(f"a hunk header git does not write here: {raw[:60]!r}")
+            old_left = 1 if m.group(1) is None else int(m.group(1))
+            lineno = int(m.group(2))
+            new_left = 1 if m.group(3) is None else int(m.group(3))
+    if old_left or new_left:
+        raise ValueError("the diff ends inside a hunk")
     return out
+
+
+def _python_lines_of(content: str) -> tuple[list[str], list[range]]:
+    """The file's lines as Python numbers them, and for each line git numbers, the Python lines in it.
+
+    Python ends a line at CRLF, a lone CR or LF; git ends one at LF only. A lone CR inside a git
+    line therefore starts a new Python line, which is how `x = 1<CR>if False:` is one line to git
+    and two statements to Python. The CR of a CRLF stays at the end of its line.
+    """
+    lines: list[str] = []
+    spans: list[range] = []
+    for git_line in content.split("\n"):
+        pieces = re.split(r"\r(?!\Z)", git_line)
+        spans.append(range(len(lines) + 1, len(lines) + 1 + len(pieces)))
+        lines.extend(pieces)
+    return lines, spans
 
 
 def _allowlisted(file_lines: list[str], lineno: int) -> bool:
@@ -186,21 +239,35 @@ def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
 
 
 def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
-    if staged:
-        return _git("show", f":{path}", cwd=cwd)
-    p = cwd / path
-    return p.read_text(encoding="utf-8") if p.is_file() else ""
+    """The new side of the diff: the index for --staged, HEAD for --base (the range ends at HEAD, so
+    the file on disk is not what the diff describes once the working tree differs)."""
+    return _git("show", f":{path}" if staged else f"HEAD:{path}", cwd=cwd)
 
 
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
+    """Judge the added lines as Python reads them: the diff says WHICH git lines are new, the file
+    says which Python lines those are. Line numbers and the allow marker are Python's."""
+    try:
+        per_file = _added_lines_by_file(diff_text)
+    except ValueError as exc:
+        raise SystemExit(f"mutant_signature_guard: the diff does not parse as git writes it "
+                         f"(fail closed): {exc}") from exc
     findings: list[str] = []
-    for path, added in _added_lines_by_file(diff_text).items():
+    for path, added in per_file.items():
         if not _SECURITY_PATH.match(path):
             continue
         content = _file_content(path, staged=staged, cwd=cwd)
-        file_lines = content.splitlines()
-        added_nums = {n for n, _ in added}
-        for lineno, text in added:
+        git_lines = content.split("\n")
+        file_lines, spans = _python_lines_of(content)
+        added_nums: set[int] = set()
+        for git_no, text in added:
+            # The diff and the file are two readings of one state; if they disagree, neither is judged.
+            if not 1 <= git_no <= len(git_lines) or git_lines[git_no - 1] != text:
+                raise SystemExit(f"mutant_signature_guard: {path}:{git_no}: the diff and the file "
+                                 f"disagree about this line (fail closed)")
+            added_nums.update(spans[git_no - 1])
+        for lineno in sorted(added_nums):
+            text = file_lines[lineno - 1]
             reason = None
             if _TRIVIAL_TRUTH.match(text):
                 reason = "trivial-truth branch (`if/elif False|True` / `while False`) at a check"
@@ -228,7 +295,7 @@ def _resolve_base(base: str, cwd: Path) -> str | None:
 
 
 def run_staged(cwd: Path) -> list[str]:
-    diff = _git("diff", "--cached", "-U0", "--no-color", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "--cached", "-U0", *DIFF_GRAMMAR, "--", "src/proofbundle", cwd=cwd)
     return scan(diff, staged=True, cwd=cwd)
 
 
@@ -238,7 +305,7 @@ def run_base(base: str, cwd: Path) -> list[str]:
         print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
               "nothing to diff, scan skipped honestly")
         return []
-    diff = _git("diff", "-U0", "--no-color", resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "-U0", *DIFF_GRAMMAR, resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
     return scan(diff, staged=False, cwd=cwd)
 
 
@@ -281,6 +348,13 @@ _CASES: list[tuple[str, str, bool]] = [
     ("negative: allowlist marker suppresses, visibly",
      _BENIGN.replace('if not isinstance(data, dict):',
                      'if True:  # mutant-guard: allow (fixture, reviewed)'), False),
+    # A line is a header by position, not by shape (2026-09-26): `++ 1` is valid Python, and its
+    # diff line `+++ 1` once read as a header naming the path `1`.
+    ("A: after an added line that looks like a diff header",
+     _BENIGN + "++ 1\nif False:\n    pass\n", True),
+    # Python ends a line at a lone CR, git does not (2026-09-26).
+    ("A: after a lone CR, which Python reads as a line end",
+     _BENIGN.replace('    if not isinstance(data, dict):', '    x = 1\r    if False:'), True),
 ]
 
 
@@ -307,8 +381,12 @@ def self_test() -> int:
             print(f"  {'ok  ' if ok else 'FAIL'} [{label}] "
                   f"{'caught' if found else 'quiet'} ({'expected' if ok else 'UNEXPECTED'})")
             failures += 0 if ok else 1
-            _git("checkout", "-q", "--", ".", cwd=repo)
+            # Unstage FIRST, then restore the file from the index. The other order restored the
+            # file from the staged case and left it in the working tree, so the next `add -A`
+            # staged it again: the negative control below held only while the last case happened
+            # to be one that stays quiet (found 2026-09-26, when a catching case became the last).
             _git("reset", "-q", cwd=repo)
+            _git("checkout", "-q", "--", ".", cwd=repo)
         # negative: the same planted signature OUTSIDE the security path stays quiet
         outside.write_text("if False:\n    pass\n", encoding="utf-8")
         _git("add", "-A", cwd=repo)
@@ -323,6 +401,18 @@ def self_test() -> int:
         _git("add", "-A", cwd=repo)
         caught = bool(run_staged(repo))
         print(f"  {'ok  ' if caught else 'FAIL'} [A: a security path git quotes (non-ASCII name)] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
+        # configuration that rewrites the diff's grammar does not blind the guard (2026-09-26)
+        quoted.unlink()
+        _git("add", "-A", cwd=repo)
+        _git("config", "diff.mnemonicPrefix", "true", cwd=repo)
+        _git("config", "diff.external", "true", cwd=repo)
+        target.write_text(_BENIGN.replace('if not isinstance(data, dict):', 'if False:'),
+                          encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        caught = bool(run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [A: with diff.mnemonicPrefix and diff.external set] "
               f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
         failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")

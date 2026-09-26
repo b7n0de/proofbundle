@@ -106,6 +106,71 @@ class TestStagedMode(_RepoFixture):
         r = _guard(self.repo, "--staged")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    # The diff is read in git's grammar and judged in Python's (2026-09-26). Each case below was
+    # reported clean with exit 0 before, measured in a throwaway repository.
+
+    def test_a_line_that_looks_like_a_diff_header_does_not_end_the_hunk(self):
+        """`++ 1` is valid Python; its diff line `+++ 1` was read as a header naming the path `1`."""
+        self._stage(BENIGN + "++ 1\nif False:\n    pass\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:7", r.stdout)
+
+    def test_a_lone_cr_ends_a_line_as_python_reads_it(self):
+        """git ends a line at LF only, Python at a lone CR too: `x = 1<CR>if False:` is one git line
+        and two statements. The finding carries Python's line number."""
+        self.target.write_bytes(BENIGN.replace("    if not isinstance(data, dict):",
+                                               "    x = 1\r    if False:").encode())
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:4: trivial-truth branch", r.stdout)
+
+    def test_configuration_does_not_rewrite_the_grammar_the_guard_reads(self):
+        """`diff.mnemonicPrefix` writes `i/` instead of `b/`, and `diff.external` hands the diff to
+        another program."""
+        for key in ("diff.mnemonicPrefix", "diff.external"):
+            with self.subTest(key=key):
+                _git(self.repo, "config", key, "true")
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                _git(self.repo, "config", "--unset", key)
+
+    def test_a_textconv_filter_does_not_replace_the_source(self):
+        """A diff driver's textconv hands git converted text; the guard reads the source itself."""
+        _git(self.repo, "config", "diff.upper.textconv", "tr a-z A-Z")
+        (self.repo / ".gitattributes").write_text("*.py diff=upper\n", encoding="utf-8")
+        self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("trivial-truth branch", r.stdout)
+
+    def test_a_diff_that_disagrees_with_the_file_is_not_judged(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_msg_guard_disagree", SCRIPT)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        self._stage("x = 1\n")
+        lie = ("diff --git a/src/proofbundle/guarded.py b/src/proofbundle/guarded.py\n"
+               "+++ b/src/proofbundle/guarded.py\n@@ -0,0 +1 @@\n+y = 2\n")
+        with self.assertRaises(SystemExit) as caught:
+            guard.scan(lie, staged=True, cwd=self.repo)
+        self.assertIn("disagree", str(caught.exception))
+
+    def test_the_allow_marker_is_read_on_python_lines(self):
+        """A U+2028 in a comment is no line end for Python, and `splitlines()` read it as one, so a
+        marker two lines above a finding counted as the line directly above it."""
+        self._stage("# a b\ny = 2  # mutant-guard: allow\nz = 3\nif False:\n    pass\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:4", r.stdout)
+
+    def test_control_a_marker_directly_above_still_suppresses(self):
+        self._stage("y = 2\nz = 3  # mutant-guard: allow\nif False:\n    pass\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
 
 class TestBaseMode(_RepoFixture):
     def test_committed_mutant_in_range_is_blocked(self):
@@ -127,6 +192,17 @@ class TestBaseMode(_RepoFixture):
         r = _guard(self.repo, "--base", base)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/pr\u00fcfung.py:1", r.stdout)
+
+    def test_committed_mutants_in_both_grammar_cases_are_blocked(self):
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.target.write_bytes((BENIGN + "++ 1\nif False:\n    pass\n"
+                                 + "x = 1\r" + "while False:\n    pass\n").encode())
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "two mutants git and Python number differently")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:7", r.stdout)
+        self.assertIn("src/proofbundle/guarded.py:10", r.stdout)
 
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
@@ -158,6 +234,38 @@ class TestTheHeaderPathIsDecoded(unittest.TestCase):
         self.assertEqual(gp('"b/src/proofbundle/a\\\\b.py"'), "b/src/proofbundle/a\\b.py")
         self.assertEqual(gp("b/src/proofbundle/with space.py\t"), "b/src/proofbundle/with space.py")
         self.assertEqual(gp('"b/x\\q"'), "b/x\\q")  # an escape git does not write stays as it stands
+
+
+class TestTheDiffIsReadInGitsGrammar(unittest.TestCase):
+    """The parser itself: position by the hunk counts, and a text that is not git's diff refused."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_msg_guard_grammar", SCRIPT)
+        self.guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.guard)
+
+    def test_the_counts_decide_what_is_a_hunk_line(self):
+        diff = ("diff --git a/p.py b/p.py\n--- a/p.py\n+++ b/p.py\n"
+                "@@ -1,0 +2,3 @@\n+++ 1\n+--- 2\n+@@ 3\n"
+                "@@ -9 +11 @@\n-old\n+new\n\\ No newline at end of file\n")
+        self.assertEqual(self.guard._added_lines_by_file(diff),
+                         {"p.py": [(2, "++ 1"), (3, "--- 2"), (4, "@@ 3"), (11, "new")]})
+
+    def test_a_hunk_that_ends_before_its_count_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.guard._added_lines_by_file("+++ b/p.py\n@@ -0,0 +1,2 @@\n+one\n")
+        with self.assertRaises(ValueError):
+            self.guard._added_lines_by_file("+++ b/p.py\n@@ -0,0 +1,2 @@\n+one\nnot a hunk line\n")
+
+    def test_a_hunk_header_of_another_form_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.guard._added_lines_by_file("+++ b/p.py\n@@@ -1 -1 +1 @@@\n+x\n")
+
+    def test_python_numbers_the_lines_a_git_line_holds(self):
+        lines, spans = self.guard._python_lines_of("a\r\nb\rc\nd e\n")
+        self.assertEqual(lines, ["a\r", "b", "c", "d e", ""])
+        self.assertEqual([list(s) for s in spans], [[1], [2, 3], [4], [5]])
 
 
 class TestSelfTest(unittest.TestCase):
