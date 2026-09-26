@@ -73,6 +73,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `origin/main...HEAD` the new pass adds no line and over `v6.1.0...HEAD` two (a table rule and an
   empty line).
 
+  The language gate follows CommonMark's HTML blocks. A fence-shaped line inside `<details>`, `<!--`
+  or `<pre>` is HTML, and the gate took it for a fence opener: the German paragraph after the block
+  was judged as code, green with exit 0. The fence reader now follows the start and end conditions of
+  the seven kinds of HTML block as far as they decide whether a later line is a fence, including the
+  rule that the seventh kind cannot interrupt a paragraph; where it cannot be sure a paragraph is
+  open, it opens the block, which can only make it read more lines as prose. A quoted line moves the
+  fence and HTML state too, as CommonMark reads it, and is only not judged. All 345 tracked `.md`
+  files agree with markdown-it-py after the change, as before it; 24 of them hold an HTML block.
+  markdown-it-py stays a test oracle, and where it and the spec differ (a lowercase `<!doctype`,
+  `<pre/>`) the gate follows the spec.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in
@@ -157,7 +168,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   change no verdict; `diff.noprefix` had blinded the language gate on main, which the pinned prefixes
   above already close. Named limit: a fence inside a block quote or a list item is not tracked, so the
   paragraph after an unclosed fence in a list item is still read as code; no tracked `.md` file has a
-  fence in a container.
+  fence in a container. (A fence line inside an HTML block was a second such shape; the first entry
+  above closes it.)
 
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,

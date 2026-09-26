@@ -158,6 +158,88 @@ def _zaun_schliesst(zeile: str, offen: str) -> bool:
     m = _ZAUN_ZU.match(zeile.removesuffix("\r"))
     return m is not None and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen)
 
+
+#: CommonMark's HTML blocks (spec 0.31.2, 4.6), as far as they decide whether a later line is a fence.
+#: Inside an HTML block a fence-shaped line is HTML, and CommonMark ends the block by its own rule.
+#: This gate took such a line for a fence opener and the paragraph after the block for code:
+#: `<details>`, `<!--` and `<pre>` each holding a fence line, then a German paragraph, green with
+#: exit 0 (a review lens, run 10, measured 2026-09-26 at 50f3ef33). Seven kinds, each a start
+#: condition on a line indented by at most three spaces, and an end: kinds 1 to 5 end on the line that
+#: holds their end string, the start line included; kinds 6 and 7 end before the next blank line.
+#: Kind 7 cannot interrupt a paragraph (`_absatz_danach`). Where the spec and markdown-it-py differ
+#: (a lowercase `<!doctype`, `<pre/>`), this follows the spec.
+_HTML_BLOCKNAMEN = (
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col",
+    "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure",
+    "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr",
+    "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol",
+    "optgroup", "option", "p", "param", "search", "section", "summary", "table", "tbody", "td", "tfoot",
+    "th", "thead", "title", "tr", "track", "ul")
+_HTML_ATTRIBUT = (r"""(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"""
+                  r"""(?:[ \t]*=[ \t]*(?:[^ \t"'=<>`]+|'[^']*'|"[^"]*"))?)""")
+_HTML_NICHT_7 = r"(?!(?:pre|script|style|textarea)(?![A-Za-z0-9-]))"
+_LEERZEILE = re.compile(r"[ \t]*\Z")
+_HTML_BLOECKE = (   # (start, end or `_LEERZEILE`, may interrupt a paragraph)
+    (re.compile(r"<(?:script|pre|style|textarea)(?:[ \t>]|\Z)", re.IGNORECASE),
+     re.compile(r"</(?:script|pre|style|textarea)>", re.IGNORECASE), True),
+    (re.compile(r"<!--"), re.compile(r"-->"), True),
+    (re.compile(r"<\?"), re.compile(r"\?>"), True),
+    (re.compile(r"<![A-Za-z]"), re.compile(r">"), True),
+    (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>"), True),
+    (re.compile(r"</?(?:" + "|".join(_HTML_BLOCKNAMEN) + r")(?:[ \t]|/?>|\Z)", re.IGNORECASE),
+     _LEERZEILE, True),
+    (re.compile(r"(?:<" + _HTML_NICHT_7 + r"[A-Za-z][A-Za-z0-9-]*" + _HTML_ATTRIBUT + r"*[ \t]*/?>"
+                r"|</" + _HTML_NICHT_7 + r"[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*\Z", re.IGNORECASE),
+     _LEERZEILE, False),
+)
+
+
+def _html_block(zeile: str, im_absatz: bool):
+    """The end of the HTML block this line starts (a pattern its last line holds, or `_LEERZEILE` for a
+    block that ends before the next blank line), or None when it starts none."""
+    m = re.match(r" {0,3}(?=<)", zeile)
+    if m is None:
+        return None
+    rest = zeile[m.end():]
+    for anfang, ende, unterbricht in _HTML_BLOECKE:
+        if anfang.match(rest):
+            return ende if unterbricht or not im_absatz else None
+    return None
+
+
+def _absatz_danach(zeile: str, im_absatz: bool) -> bool:
+    """Whether CommonMark is certainly inside a paragraph after this line, outside any fence or HTML
+    block, which decides whether the next line may start an HTML block of kind 7.
+
+    Where it is not certain, the answer is no. An HTML block the gate opens and CommonMark does not
+    makes the gate read more lines as prose, never fewer: a line the gate should not judge may turn it
+    red, a line it should judge is never hidden. So a line that may open a container (a block quote, a
+    list item) or a link reference definition counts as no paragraph, since this reader follows
+    neither (the named limit of `_md_prosazeilen`)."""
+    if _LEERZEILE.match(zeile):
+        return False
+    spalte = 0
+    for zeichen in zeile:
+        if zeichen == " ":
+            spalte += 1
+        elif zeichen == "\t":
+            spalte += 4 - spalte % 4
+        else:
+            break
+    if spalte >= 4:
+        return im_absatz                  # the lazy continuation of a paragraph, or indented code
+    rest = zeile.lstrip(" ")
+    if re.match(r"#{1,6}(?:[ \t]|\Z)", rest):
+        return False                      # an ATX heading
+    if re.fullmatch(r"(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}", rest):
+        return False                      # a thematic break
+    if im_absatz and re.fullmatch(r"(?:=+|-+)[ \t]*", rest):
+        return False                      # the underline of a setext heading ends the paragraph
+    if re.match(r">|[-+*](?:[ \t]|\Z)|[0-9]{1,9}[.)](?:[ \t]|\Z)", rest):
+        return False                      # a container may start here
+    return im_absatz or not rest.startswith("[")    # a link reference definition may start here
+
+
 #: A VERBATIM QUOTATION of existing material, which keeps the wording it is quoted from.
 #:
 #: It exists because two owner instructions met on 2026-09-19 and both are right. New and re-cast
@@ -514,10 +596,14 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     SAME character ends the block, which is what CommonMark says; `_zaun_oeffnet` and
     `_zaun_schliesst` hold the rest of its rules for a fence line.
 
+    AN HTML BLOCK IS FOLLOWED TOO, as far as it decides whether a later line is a fence
+    (`_html_block`): inside one, a fence-shaped line is HTML.
+
     NAMED LIMIT: containers are not tracked. CommonMark ends a fence inside a block quote or a list
     item where that container ends, so the paragraph after an unclosed fence in a list item is prose
     there and code here. Measured 2026-09-26: none of the 345 tracked `.md` files has a fence in a
-    container, and on all 345 the lines outside fences are the ones markdown-it-py finds.
+    container, and on all 345 the lines outside fences are the ones markdown-it-py finds; 24 of them
+    hold an HTML block, and all 345 agree again with HTML blocks followed.
 
     Returns None when the file cannot be read or its quotation pairs do not balance, and the run
     then says NOT MEASURABLE for the file (`_ist_prosa`).
@@ -543,19 +629,41 @@ def _md_karte(zeilen: list[str]) -> set[int] | None:
     for a, b in zip(auf, zu):
         zitat.update(range(a, b + 1))
 
+    # EVERY LINE MOVES THE STATE, a quoted one too: CommonMark reads the quotation as Markdown, and a
+    # fence or an HTML block that opens inside it is open after it. A quoted line is only not judged.
     aus: set[int] = set()
-    offen: str | None = None
+    offen: str | None = None              # the run of an open fenced block
+    html = None                           # the end of an open HTML block
+    im_absatz = False
     for i, z in enumerate(zeilen, start=1):
-        if i in zitat:
-            continue
-        if offen is None:
-            offen = _zaun_oeffnet(z)
-            if offen is None:
+        prosa = i not in zitat
+        if offen is not None:
+            if _zaun_schliesst(z, offen):
+                offen = None
+            continue                      # inside the block, and the closing line too, stay out
+        s = z.removesuffix("\r")
+        if html is not None:
+            if html is _LEERZEILE and _LEERZEILE.match(s):
+                html = None               # the blank line ends the block and is prose of its own
+            elif html is not _LEERZEILE and html.search(s):
+                html = None               # this line holds the end, and belongs to the block
+            if prosa:
                 aus.add(i)
-            # the fence line itself is not prose
-        elif _zaun_schliesst(z, offen):
-            offen = None
-            # inside the block, and the closing line too, stay out
+            im_absatz = False
+            continue
+        lauf = _zaun_oeffnet(z)
+        if lauf is not None:
+            offen = lauf                  # the fence line itself is not prose
+            im_absatz = False
+            continue
+        ende = _html_block(s, im_absatz)
+        if ende is not None:
+            html = None if ende is not _LEERZEILE and ende.search(s) else ende
+            im_absatz = False
+        else:
+            im_absatz = _absatz_danach(s, im_absatz)
+        if prosa:
+            aus.add(i)
     return aus
 
 

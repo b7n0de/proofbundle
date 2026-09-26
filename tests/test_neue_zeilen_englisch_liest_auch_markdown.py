@@ -209,6 +209,28 @@ class TestFencesOpenAndCloseAsCommonMarkSays(unittest.TestCase):
             ("control: three spaces of indentation open and close", f"   ~~~ ok `x`\ncode\n   ~~~\n{self.G}\n",
              {4}),
             ("control: a CRLF closer closes", f"```\r\ncode\r\n```\r\n{self.G}\r\n", {4}),
+            # A fence-shaped line inside an HTML block is HTML (a review lens, run 10, measured
+            # 2026-09-26 at 50f3ef33): the gate opened a fence there, and read the paragraph after the
+            # block as code. One case per kind of HTML block, and the controls that decide where one
+            # starts and ends.
+            ("kind 6, a fence line inside <details>", f"<details>\n```\n</details>\n\n{self.G}\n", {1, 2, 3, 4, 5}),
+            ("kind 2, a fence line inside a comment", f"<!--\n```\n-->\n\n{self.G}\n", {1, 2, 3, 4, 5}),
+            ("kind 1, a fence line inside <pre>", f"<pre>\n```\n</pre>\n\n{self.G}\n", {1, 2, 3, 4, 5}),
+            ("kind 1 runs over a blank line", f"<pre>\n\n```\n</pre>\n{self.G}\n", {1, 2, 3, 4, 5}),
+            ("kind 3, a processing instruction", f"<?php\n```\n?>\n{self.G}\n", {1, 2, 3, 4}),
+            ("kind 4, a declaration", f"<!DOCTYPE\n```\n>\n{self.G}\n", {1, 2, 3, 4}),
+            ("kind 5, CDATA", f"<![CDATA[\n```\n]]>\n{self.G}\n", {1, 2, 3, 4}),
+            ("kind 7 after a blank line", f"<span>\n```\n\n{self.G}\n", {1, 2, 3, 4}),
+            ("kind 7 after a heading", f"# T\n<span>\n```\n\n{self.G}\n", {1, 2, 3, 4, 5}),
+            ("control: kind 7 cannot interrupt a paragraph", f"text\n<span>\n```\ncode\n```\n{self.G}\n",
+             {1, 2, 6}),
+            ("control: a kind 6 block ends at a blank line", f"<div>\n\n```\n{self.G}\n```\n", {1, 2}),
+            ("control: a kind 2 block can end on its first line", f"<!-- a -->\n```\ncode\n```\n{self.G}\n",
+             {1, 5}),
+            ("control: four spaces of indentation start no HTML block", f"    <div>\n```\ncode\n```\n{self.G}\n",
+             {1, 5}),
+            ("control: text after a tag starts no kind 7 block", f"<span> text\n```\ncode\n```\n{self.G}\n",
+             {1, 5}),
         ]
 
     def _prose(self, mod, text):

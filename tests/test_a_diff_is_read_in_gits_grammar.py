@@ -234,6 +234,15 @@ def test_a_markdown_fence_opens_and_closes_as_commonmark_says(repo, added, line)
     assert _judge(repo, "a.md", added) == ("ROT", [("a.md", line)])
 
 
+@pytest.mark.parametrize("opener,closer", [("<details>", "</details>"), ("<!--", "-->"), ("<pre>", "</pre>")],
+                         ids=["details", "comment", "pre"])
+def test_a_fence_line_inside_an_html_block_is_html(repo, opener, closer):
+    """Each was judged green with exit 0 (a review lens, run 10, measured 2026-09-26 at 50f3ef33): the
+    gate took the fence line inside the HTML block for an opener and read the paragraph after the block
+    as code, where CommonMark reads it as a paragraph."""
+    assert _judge(repo, "a.md", f"{opener}\n```\n{closer}\n\n{GERMAN}\n") == ("ROT", [("a.md", 6)])
+
+
 def _existing_german_file(r: Path) -> str:
     (r / "de.md").write_text(f"{GERMAN}\n" * 3, encoding="utf-8")
     _git(r, "add", "-A")
