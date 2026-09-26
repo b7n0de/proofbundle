@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 import functools
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -242,6 +243,53 @@ def test_the_language_gate_lists_untracked_names_as_bytes(repo):
     gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
     rc, names = gate._git_namen("ls-files", "--others", "--exclude-standard", "-z")
     assert rc == 0 and os.fsdecode(b"\xff.md") in names, names
+
+
+def _bytes_file(r: Path, raw: bytes, content: bytes) -> None:
+    try:
+        fd = os.open(os.fsencode(r) + b"/" + raw, os.O_WRONLY | os.O_CREAT, 0o644)
+    except OSError as exc:
+        pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
+    os.write(fd, content)
+    os.close(fd)
+
+
+@pytest.mark.parametrize("form", [["--json"], []], ids=["json", "text"])
+def test_the_language_gate_reports_a_name_that_is_not_utf8(repo, form):
+    """Read as git names it, the name carries a surrogate, and a strict stdout raised on it with
+    exit 1, the exit code of a finding (measured 2026-09-26). The finding is reported now."""
+    _bytes_file(repo, b"\xff.py", ('"""' + GERMAN.strip() + '"""\n').encode("utf-8"))
+    base = _commit(repo, {})
+    p = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "neue_zeilen_sind_englisch.py"),
+                        "--base", base, "--repo", str(repo), *form], capture_output=True, cwd=str(repo))
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    out = p.stdout.decode("utf-8")
+    assert p.returncode == 1, out
+    assert chr(92) + "udcff.py" in out, out
+    if form:
+        assert json.loads(out)["befunde"][0]["datei"] == os.fsdecode(b"\xff.py"), out
+
+
+def test_the_version_gate_reports_a_name_that_is_not_utf8(repo):
+    """The version gate over this tree, with one tracked file whose name is not UTF-8 and which
+    names the current version. It names that file now instead of raising on it."""
+    tree = repo.parent / "tree"
+    tree.mkdir()
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True)
+    if archive.returncode != 0:
+        pytest.skip("NOT MEASURABLE here: this tree is not a git checkout")
+    subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+    version = next(line.split("=", 1)[1].strip().strip('"') for line in
+                   (tree / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+                   if line.startswith("version"))
+    _bytes_file(tree, b"docs/\xff.md", f"current release: {version}\n".encode("utf-8"))
+    for args in (("init", "-q"), ("add", "-A"), ("commit", "-q", "-m", "tree")):
+        subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    p = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "check_version_and_changelog.py"),
+                        "--repo", str(tree)], capture_output=True, cwd=str(tree))
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    out = p.stdout.decode("utf-8")
+    assert p.returncode == 1 and "docs/" + chr(92) + "udcff.md" in out, out
 
 
 if __name__ == "__main__":

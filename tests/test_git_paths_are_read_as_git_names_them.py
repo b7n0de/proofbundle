@@ -21,6 +21,7 @@ in a developer's configuration would hide the quoting these cases are about.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -153,6 +154,53 @@ def test_the_verifier_reads_a_receipt_named_in_bytes_that_are_not_utf8(tmp_path)
     result = vp.measure(repo, commit, "9.9.9")
     assert [r["path"] for r in result["rejected"]] == [name], result
     assert "not readable JSON" in result["rejected"][0]["reason"], result
+
+
+def _cli(script: str, *args: str, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-B", str(REPO / script), *args], capture_output=True,
+                          cwd=str(cwd))
+
+
+@pytest.mark.parametrize("form", [["--json"], []], ids=["json", "text"])
+def test_the_resolver_reports_a_name_that_is_not_utf8(tmp_path, form):
+    """Read as git names it, the name carries a surrogate, and a strict stdout raised on it with
+    exit 1, the exit code of a finding (measured 2026-09-26). The name is written escaped now."""
+    ao = _load("scripts/audit_output_aufloesbar.py", "_gp_resolvable_cli")
+    repo = _repo(tmp_path, {"README.md": "# r\n", "audit_artifacts/keep.md": "x\n"})
+    name = _write_bytes_name(repo, b"audit_artifacts/\xff.md", b"the record\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a record whose name is not UTF-8")
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps({"audit_output_digest": ao.sha256_text("the record\n")}),
+                       encoding="utf-8")
+    p = _cli("scripts/audit_output_aufloesbar.py", "--receipt", str(receipt), "--repo", str(repo),
+             *form, cwd=repo)
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    out = p.stdout.decode("utf-8")
+    assert p.returncode == 0, out
+    if form:
+        assert json.loads(out)["treffer"] == [name], out
+
+
+@pytest.mark.parametrize("form", [["--json"], []], ids=["json", "text"])
+def test_the_verifier_reports_a_name_that_is_not_utf8(tmp_path, form):
+    """The same for the receipt verifier: the rejection is reported, the name escaped."""
+    repo = _repo(tmp_path, {"audit_artifacts/999/.keep": ""})
+    name = _write_bytes_name(repo, b"audit_artifacts/999/\xff.json", b"not json")
+    (repo / "scripts").mkdir()
+    shutil.copy(REPO / "scripts" / "pre_tag_audit_gate.py", repo / "scripts" / "pre_tag_audit_gate.py")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a receipt whose name is not UTF-8")
+    commit = _git(repo, "rev-parse", "HEAD").strip()
+    p = _cli("scripts/verify_pre_tag_receipt.py", "--repo", str(repo), "--commit", commit,
+             "--version", "9.9.9", *form, cwd=repo)
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    out = p.stdout.decode("utf-8")
+    assert p.returncode == 1, out
+    if form:
+        assert [r["path"] for r in json.loads(out)["rejected"]] == [name], out
+    else:
+        assert chr(92) + "udcff.json" in out, out
 
 
 def test_the_verifier_sees_a_receipt_under_a_quoted_name(tmp_path):
