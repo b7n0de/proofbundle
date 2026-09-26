@@ -277,7 +277,8 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     return effective, contradictions, anomalies, legit_superseded
 
 
-_RFC3339_Z = __import__("re").compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+# [0-9], not \d: the same shape as proofbundle._schema_shapes.RFC3339_Z (RFC 3339 digits are ASCII).
+_RFC3339_Z = __import__("re").compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 
 CODE_REGISTER_VERSION_MISMATCH = "REGISTER_VERSION_MISMATCH"
 

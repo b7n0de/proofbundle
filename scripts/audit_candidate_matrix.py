@@ -183,7 +183,7 @@ def _slot_schluessel(version: str) -> str:
     ungemessenen Code. Sie fallen weiter durch, und das ist die richtige Antwort.
     """
     import re as _re
-    m = _re.match(r"^([0-9]+\.[0-9]+\.[0-9]+)\.post[0-9]+$", version or "")
+    m = _re.match(r"\A([0-9]+\.[0-9]+\.[0-9]+)\.post[0-9]+\Z", version or "")
     return m.group(1) if m else version
 
 
@@ -313,7 +313,10 @@ _EVIDENCE_FUTURE_SKEW = timedelta(minutes=5)
 
 _HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
 _HEX40 = re.compile(r"\A[0-9a-f]{40}\Z")
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+# [0-9], not \d: Python's \d takes every Unicode digit, RFC 3339 only ASCII (the shape of
+# proofbundle._schema_shapes.RFC3339_Z; tests/test_every_validator_refuses_what_its_schema_refuses.py
+# sweeps scripts/ for the class).
+_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 
 #: Die Pflichtfelder der Kandidatenbindung, jedes mit seinem Formtest.
 _CANDIDATE_FIELDS = (("commit", _HEX40), ("tree_digest", _HEX64),
@@ -559,7 +562,7 @@ def _autorisierte_schluessel(repo: Path, check_id: str, *,
 #: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
 #: faengt zusaetzlich Alphabetfremdes, und der Vergleich der Rueckkodierung faengt die nicht
 #: kanonischen Varianten, bei denen die letzten Bits ungleich null sind.
-_ANKER_B64 = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+_ANKER_B64 = re.compile(r"\A[A-Za-z0-9+/]{43}=\Z")
 
 
 def _anker_pubkey_ok(pub: str) -> bool:

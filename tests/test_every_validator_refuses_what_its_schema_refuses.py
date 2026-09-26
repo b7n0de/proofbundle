@@ -18,14 +18,16 @@ undeclared key. Whatever the oracle refuses, the validator refuses, strict or le
 this generator on main 10f3466b, leaking paths: decision 64, outcome 13, run_ledger 4,
 verification_summary 3, trust_pack 7 (two of them raised TypeError out of the validator). (3) Every
 regular expression literal under src/proofbundle that judges a whole value reads it as the schema
-does: `\\A..\\Z`, no Unicode class. (4) End to end, the three consequences that were measured, and
-agent-review's time and version in non-ASCII digits.
+does: `\\A..\\Z`, no Unicode class; under scripts/ and tools/, no Unicode class either. (4) End to
+end, the three consequences that were measured, and agent-review's time and version in non-ASCII
+digits.
 
 NAMED EXCEPTIONS. None among the predicates: the one this change started with, a bare string in
 decision's notChecked, is the schema's deprecated legacy form since the owner decided it (owner decision,
-2026-09-26). None in the regex sweep either: agent_review's two patterns, the last ones with
-`\\d`, are fixed as a bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26). The reverse direction (the
-validator refusing what the schema accepts) is deliberate where a validator asks more than its
+2026-09-26). The regex sweep: agent_review's two patterns, the last ones with `\\d` under src/,
+are fixed as a bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26); outside src/ the sweep names what
+it has not judged yet (see `_REGEX_EXCEPTIONS` and `_DOLLAR_OPEN_OUTSIDE_SRC`). The reverse direction
+(the validator refusing what the schema accepts) is deliberate where a validator asks more than its
 schema, and is not pinned here.
 """
 from __future__ import annotations
@@ -225,47 +227,113 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # ── Every regular expression that judges a whole value reads it as the schema does ─────────────────
 #
 # a9269f65 (2026-07-18) moved eight modules from `^..$` to `\A..\Z`, and its guard checked the modules it
-# named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived:
-# every `re.*` call with a literal pattern under src/proofbundle that is anchored at both ends (or is a
-# fullmatch).
-#: (module, pattern) pairs this sweep leaves out, each with its reason. Empty since the owner decision,
-#: 2026-09-26: agent_review's two patterns were the entries here, and they read ASCII digits now.
-_REGEX_EXCEPTIONS: set[tuple[str, str]] = set()
+# named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived: every
+# `re.*` call with a literal pattern that is anchored at both ends (or is a fullmatch) and not MULTILINE.
+#
+# WHERE IT SWEEPS. Under src/proofbundle, both readings. Under scripts/ and tools/ (follow-up 235 of this
+# class, 2026-09-26) the Unicode half: the release tools carried their own RFC3339 copies with `\d`
+# (audit_candidate_matrix, findings_register, the one of them behind `__import__("re")`, which the first
+# form of this sweep did not see). The `$` half outside src/ is listed site by site in
+# `_DOLLAR_OPEN_OUTSIDE_SRC`: whether a newline can reach each of them depends on its callers, which
+# were not all read for this change. The list is exact in both directions, so a new site turns this file
+# red and so does a fixed one that stays listed.
+#: (module, pattern) pairs this sweep leaves out, each with its reason. agent_review's two patterns were
+#: entries here until the owner decision, 2026-09-26; they read ASCII digits now.
+_REGEX_EXCEPTIONS = {
+    # required_check_reachability_gate reads a GitHub expression, not a schema value: `\s` stands against
+    # GitHub's expression grammar, and which whitespace GitHub accepts there was not measured. Its `$`
+    # follows `\s*`, which takes a trailing newline either way. Follow-up 236.
+    ("scripts.required_check_reachability_gate",
+     r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$"),
+}
+#: The `$` half outside src/, open and named (follow-up 236): each pattern ends in `$`, which also
+#: matches before a trailing newline, and whether one can reach it depends on the callers.
+_DOLLAR_OPEN_OUTSIDE_SRC = {
+    ("scripts.check_version_and_changelog",
+     r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.?(a|b|rc)([0-9]+))?(?:\.post([0-9]+))?(?:\.dev([0-9]+))?$"),
+    ("scripts.codex_threads_check", r"^ {0,3}(`{3,}|~{3,})(.*)$"),
+    ("scripts.fork_pr_secret_isolation", r"^[0-9a-f]{40}$"),
+    ("scripts.mutant_signature_guard", r"^src/proofbundle/.*\.py$"),
+}
 _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
+DOLLAR, UNICODE = "ends in `$`, which matches before a newline", "uses a Unicode class (`\\d` is 0-9 in ECMA-262)"
 
 
-def _whole_value_regex_findings(sources) -> list:
-    """(module, source) pairs in, one finding per whole-value pattern read differently from ECMA-262."""
+def _re_names(tree) -> set:
+    """The names `re` is bound to in a module: `re` itself and every `import re as x`."""
+    names = {"re"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.asname for a in node.names if a.name == "re" and a.asname}
+    return names
+
+
+def _is_re(value, names) -> bool:
+    """`re`, an alias of it, or `__import__("re")` (scripts/findings_register.py writes the last one)."""
+    if isinstance(value, ast.Name):
+        return value.id in names
+    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "__import__"
+            and len(value.args) == 1 and isinstance(value.args[0], ast.Constant) and value.args[0].value == "re")
+
+
+def _whole_value_regex_readings(sources) -> list:
+    """(module, source) pairs in; one (module, line, pattern, reading) per whole-value pattern read
+    differently from ECMA-262, the named exceptions left out."""
     found = []
     for mod, text in sources:
-        for node in ast.walk(ast.parse(text)):
+        tree = ast.parse(text)
+        names = _re_names(tree)
+        for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "re" and node.args
+                    and _is_re(node.func.value, names) and node.args
                     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
                 continue
             pattern = node.args[0].value
+            flags = [ast.unparse(a) for a in list(node.args[1:]) + [k.value for k in node.keywords]]
+            if any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
+                continue                     # `^` and `$` are line anchors there, not whole-value ones
             anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
             if not (anchored or node.func.attr == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
                 continue
-            ascii_flag = any("ASCII" in ast.unparse(a) or ast.unparse(a).endswith(".A")
-                             for a in list(node.args[1:]) + [k.value for k in node.keywords])
+            ascii_flag = any("ASCII" in f or re.search(r"\.A\b", f) for f in flags)
             if pattern.endswith("$"):
-                found.append(f"{mod}:{node.lineno} {pattern!r} ends in `$`, which matches before a newline")
+                found.append((mod, node.lineno, pattern, DOLLAR))
             if _UNICODE_CLASSES.search(pattern) and not ascii_flag:
-                found.append(f"{mod}:{node.lineno} {pattern!r} uses a Unicode class (`\\d` is 0-9 in ECMA-262)")
+                found.append((mod, node.lineno, pattern, UNICODE))
     return found
 
 
+def _whole_value_regex_findings(sources) -> list:
+    return [f"{mod}:{line} {pattern!r} {reading}" for mod, line, pattern, reading in
+            _whole_value_regex_readings(sources)]
+
+
+def _modules(root: str):
+    base = REPO / root
+    for path in sorted(base.rglob("*.py")):
+        rel = path.relative_to(REPO / "src" if root.startswith("src") else REPO).with_suffix("")
+        yield rel.as_posix().replace("/", ".").removesuffix(".__init__"), path.read_text(encoding="utf-8")
+
+
 def _tree():
-    for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
-        mod = path.relative_to(REPO / "src").with_suffix("").as_posix().replace("/", ".")
-        yield mod.removesuffix(".__init__"), path.read_text(encoding="utf-8")
+    yield from _modules("src/proofbundle")
+
+
+def _tree_outside_src():
+    yield from _modules("scripts")
+    yield from _modules("tools")
 
 
 class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
 
     def test_no_pattern_under_src_reads_a_value_differently(self):
         self.assertEqual(_whole_value_regex_findings(_tree()), [])
+
+    def test_no_pattern_under_scripts_or_tools_reads_digits_differently(self):
+        readings = _whole_value_regex_readings(_tree_outside_src())
+        self.assertEqual([r for r in readings if r[3] == UNICODE], [])
+        self.assertEqual({(mod, pattern) for mod, _line, pattern, reading in readings if reading == DOLLAR},
+                         _DOLLAR_OPEN_OUTSIDE_SRC, "a `$` site outside src/ came or went; list it or remove it")
 
     def test_the_sweep_sees_both_readings(self):
         """Positive control, with the sweep itself: the two old readings, planted into a module, are found;
@@ -277,9 +345,20 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
         self.assertIn("ends in `$`", found[0] + found[1])
         self.assertIn("Unicode class", found[0] + found[1])
 
+    def test_the_sweep_sees_the_routes_the_scripts_use(self):
+        """An alias of `re` and `__import__("re")` are seen; a MULTILINE pattern is a line anchor and is not.
+        The first form of this sweep read only a name spelled `re`, and the copy in findings_register
+        passed it."""
+        planted = ('import re as rx\nA = rx.compile(r"\\A\\d+\\Z")\n'
+                   'B = __import__("re").compile(r"\\A\\d+\\Z")\n'
+                   'import re\nC = re.search(r"^x\\s*:\\s*(.+)$", "", re.M)\n'
+                   'D = re.search(r"^\\d+$", "", flags=re.MULTILINE)\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 3], found)
+
     def test_the_named_exceptions_are_still_there(self):
         """Counter-direction: an exception whose pattern is gone is stale and must be removed."""
-        text = dict(_tree())
+        text = dict(_tree()) | dict(_tree_outside_src())
         for mod, pattern in _REGEX_EXCEPTIONS:
             with self.subTest(module=mod, pattern=pattern):
                 self.assertIn(pattern, text[mod])

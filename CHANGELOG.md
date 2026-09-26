@@ -63,6 +63,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   patterns; 0 of them change their verdict). A test refuses both values on a published v0.1
   receipt under each of the three validators.
 
+- **The release tools read RFC 3339 digits as ASCII, and the whole-value sweep reads `scripts/` and
+  `tools/` too** (`scripts/audit_candidate_matrix.py`, `scripts/findings_register.py`). Both kept
+  their own RFC3339 pattern with Python's `\d`, which takes every Unicode digit: for the
+  `produced_at` of readiness evidence and the `generated_at` of the findings register. Both values
+  sit under a signature by the anchor key, so this was a copy of the class the predicate
+  validators just closed rather than an open door; both read `[0-9]` now. The matrix's post-release
+  version pattern and its anchor key pattern end in `\Z` instead of `$`. The key comes from a
+  whitespace split and cannot carry a newline; the version could only if `pyproject.toml` spread
+  its version string over two lines, which TOML does not allow. The sweep in
+  `tests/test_every_validator_refuses_what_its_schema_refuses.py` now reads `scripts/` and `tools/`
+  for Unicode classes, sees an alias of `re` and `__import__("re")` (the register's copy sat behind
+  the second), and leaves MULTILINE patterns alone, whose anchors are per line. Four scripts still
+  end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
+  module and pattern, and the list is exact in both directions.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
