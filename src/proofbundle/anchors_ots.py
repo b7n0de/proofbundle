@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._membership import is_member   # an unhashable status is not bound, and does not raise
+
 #: The largest serialized OTS proof this package deserializes (deep gate Z195, finding
 #: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). The structural budget bounds the base64 STRING of
 #: a proof (string_len), not the work the OpenTimestamps deserializer does on it: every fork creates a
@@ -52,8 +54,12 @@ _BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
 
 def ots_binding_held(result) -> bool:
     """True iff `result`, a verdict of `verify_opentimestamps`, says the proof was read and commits the
-    canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound."""
-    return isinstance(result, dict) and result.get("status") in _BINDING_HELD
+    canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound.
+
+    The binding only, never a confirmation (`null_op` and `block_mismatch` are bound and not confirmed),
+    and only for a verdict of `verify_opentimestamps` itself. A verifier that forwards these statuses
+    verbatim, as `anchors_markovian` does behind its own envelope checks, is not read through this."""
+    return isinstance(result, dict) and is_member(result.get("status"), _BINDING_HELD)
 
 
 def _deserialize_detached(proof):

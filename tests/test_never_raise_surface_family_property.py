@@ -326,6 +326,13 @@ _OUT_OF_SCOPE = frozenset({
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
     # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).
     "pack_key_binds_signer",
+    # 2026-09-26, the OTS cap: `ots_binding_held` is a judgement of the same family. It reads a verdict
+    # dict that `verify_opentimestamps` itself produced and answers one question about it (did the
+    # binding hold); it consumes no foreign bytes. It does not raise either: a non-dict, a missing
+    # status and an unhashable one are all "not bound" (`_membership.is_member`), and the OTS cap's
+    # own test pins those cases. Listed here, not in the name pattern, for the reason
+    # `binding_present` gives above.
+    "ots_binding_held",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
