@@ -135,3 +135,18 @@ def test_a_log_that_cannot_be_read_is_not_an_empty_log(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "_git", lambda repo, *args: (128, "fatal: bad revision"))
     problems = gate.check(ROOT)
     assert any("post-tag drift is NICHT MESSBAR: fatal: bad revision" in p for p in problems), problems
+
+
+def test_the_reason_of_a_failed_log_is_not_read_as_a_commit():
+    """On a failure the answer holds git's reason; read on as subjects, it was counted as one
+    non-trivial commit and quoted as one (measured 2026-09-26)."""
+    spec = importlib.util.spec_from_file_location("_version_gate_bounds_reason", GATE)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    version, _ = gate._source_version(ROOT)
+    gate._last_release_tag = lambda repo: ("v" + version, "")
+    gate._changelog_headings = lambda repo: [version]
+    gate._git = lambda repo, *args: (128, "fatal: bad revision")
+    problems = gate.check(ROOT)
+    assert any("post-tag drift is NICHT MESSBAR" in p for p in problems), problems
+    assert not any("non-trivial commit" in p for p in problems), problems

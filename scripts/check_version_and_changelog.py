@@ -666,11 +666,15 @@ def _check(repo: Path) -> list[str]:
     else:
         last_tag = last_tag_raw.lstrip("v")
         rc2, log = _git(repo, "log", "--format=%s", f"{last_tag_raw}..HEAD")
+        # A log that could not be read is no empty log: "no commit since the tag" is an answer. Nor is
+        # it a log: on a failure `log` holds git's reason, and read on as subjects it was counted as a
+        # non-trivial commit and quoted as one (measured 2026-09-26).
+        nontrivial = []
         if rc2 != 0:
-            # A log that could not be read is no empty log: "no commit since the tag" is an answer.
             problems.append(f"git log {last_tag_raw}..HEAD failed, so the post-tag drift is "
                             f"{NICHT_MESSBAR}: {log[:200]}")
-        nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
+        else:
+            nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
         version_bumped = bool(version) and _semver_tuple(version) > _semver_tuple(last_tag)
         has_unreleased = any(h.strip().lower() == "unreleased" for h in headings)
         if nontrivial and not version_bumped and not has_unreleased:

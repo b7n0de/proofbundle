@@ -150,7 +150,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   only, up to 64 MiB, and never opens a FIFO; a file over the bound, or one it must read as text that
   is not UTF-8, is a problem naming the file and saying NICHT MESSBAR, where the sweep still skips a
   binary file as before. Every git answer is decoded with `surrogateescape`, and a `git log` that
-  fails is a problem too, not an empty log. The largest file the sweep reads is 1603370 bytes, so
+  fails is a problem too, not an empty log, and its reason is not read on as a commit subject. The largest file the sweep reads is 1603370 bytes, so
   no verdict on this repository changes.
 
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
