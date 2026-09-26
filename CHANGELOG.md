@@ -24,7 +24,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   gate's list through its text decoder), and the language gate decodes a diff header with the
   mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
   to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
-  whose listing is hashed and never opened. 0 of the 1703 tracked paths need quoting today, so no
+  whose listing is hashed and never opened. 0 of the 1705 tracked paths at this change need quoting, so no
   verdict on this repository changes.
 
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a

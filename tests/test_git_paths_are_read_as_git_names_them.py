@@ -114,6 +114,47 @@ def test_a_record_under_a_quoted_name_resolves_and_is_counted(tmp_path):
     assert result["geprueft"] == 2, result
 
 
+def _write_bytes_name(repo: Path, raw_rel: bytes, content: bytes) -> str:
+    """Write a file whose name is raw bytes (not UTF-8) and return the name as Python decodes it."""
+    try:
+        fd = os.open(os.fsencode(repo) + b"/" + raw_rel, os.O_WRONLY | os.O_CREAT, 0o644)
+    except OSError as exc:
+        pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
+    os.write(fd, content)
+    os.close(fd)
+    return os.fsdecode(raw_rel)
+
+
+def test_a_record_under_a_name_that_is_not_utf8_resolves(tmp_path):
+    """Decoded with `replace` instead of os.fsdecode, the name opened no file and the record was not
+    counted (a lens measured that mutation passing every other case here, 2026-09-26)."""
+    ao = _load("scripts/audit_output_aufloesbar.py", "_gp_resolvable_bytes")
+    repo = _repo(tmp_path, {"README.md": "# r\n", "audit_artifacts/keep.md": "x\n"})
+    name = _write_bytes_name(repo, b"audit_artifacts/\xff.md", b"the record\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a record whose name is not UTF-8")
+    result = ao.aufloesbar({"audit_output_digest": ao.sha256_text("the record\n")}, repo)
+    assert result["zustand"] == "AUFLOESBAR", result
+    assert result["treffer"] == [name], result
+    assert result["geprueft"] == 3, result
+
+
+def test_the_verifier_reads_a_receipt_named_in_bytes_that_are_not_utf8(tmp_path):
+    """Decoded with `replace`, the name sent to `git show` was not the name in the tree, and the
+    receipt was reported unreadable from the commit instead of being read."""
+    vp = _load("scripts/verify_pre_tag_receipt.py", "_gp_verifier_bytes")
+    repo = _repo(tmp_path, {"audit_artifacts/999/.keep": ""})
+    name = _write_bytes_name(repo, b"audit_artifacts/999/\xff.json", b"not json")
+    (repo / "scripts").mkdir()
+    shutil.copy(REPO / "scripts" / "pre_tag_audit_gate.py", repo / "scripts" / "pre_tag_audit_gate.py")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a receipt whose name is not UTF-8")
+    commit = _git(repo, "rev-parse", "HEAD").strip()
+    result = vp.measure(repo, commit, "9.9.9")
+    assert [r["path"] for r in result["rejected"]] == [name], result
+    assert "not readable JSON" in result["rejected"][0]["reason"], result
+
+
 def test_the_verifier_sees_a_receipt_under_a_quoted_name(tmp_path):
     """The receipt is not valid JSON on purpose: the question is whether the verifier sees the file.
     Before the fix the answer was "no receipt under audit_artifacts/999/"."""
