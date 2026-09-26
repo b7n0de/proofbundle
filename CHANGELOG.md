@@ -10,6 +10,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **Every tool that reads a path list from git reads it as git names the paths**
+  (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,
+  `scripts/verify_pre_tag_receipt.py`, `scripts/neue_zeilen_sind_englisch.py`). The mutant guard's
+  fix above was one instance of a class: without `-z`, git quotes a path that holds a byte outside
+  ASCII, and the quoted string opens no file. Measured in throwaway repositories, each against the
+  state before: the version gate's sweep for undeclared release claims skipped `docs/prüfung.md`;
+  the digest-resolvability check said `NICHT_AUFLOESBAR` for a tracked record under such a name and
+  did not count it; the third-party receipt verifier did not see a receipt under such a name; the
+  language gate reported a German line in `docs/prüfung.md` under the file before it, judged green
+  when no file came before it, and said NOT MEASURABLE for such an untracked file. The lists are
+  read with `-z` and as bytes now (one name that is not UTF-8 would otherwise empty the version
+  gate's list through its text decoder), and the language gate decodes a diff header with the
+  mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
+  to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
+  whose listing is hashed and never opened. 0 of the 1703 tracked paths need quoting today, so no
+  verdict on this repository changes.
+
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
   header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read

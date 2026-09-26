@@ -332,8 +332,11 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     ordner = f"audit_artifacts/{_version_token(version)}/"
     out["receipt_path"] = ordner
     out["receipt_read_from"] = f"git ls-tree/show {commit[:12]}:{ordner}"
-    rc, listing, err = _git(repo, "ls-tree", "-r", "--name-only", commit, "--", ordner)
-    kandidaten = [ln for ln in listing.decode("utf-8", "replace").splitlines() if ln.endswith(".json")]
+    # READ WITH -z (2026-09-26, measured in a throwaway repository). Without it git quotes a name
+    # that holds a byte outside ASCII, the quoted line ends in `.json"` rather than `.json`, and a
+    # receipt the release gate reads from disk was not a candidate here at all.
+    rc, listing, err = _git(repo, "ls-tree", "-r", "--name-only", "-z", commit, "--", ordner)
+    kandidaten = [n for n in (os.fsdecode(b) for b in listing.split(b"\0") if b) if n.endswith(".json")]
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"
         out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- this commit carries "

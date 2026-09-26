@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -55,15 +56,20 @@ def _tracked_files(repo: Path) -> list[str] | None:
     """Tracked paths, or None if git cannot answer — None is the NICHT_MESSBAR signal, not [].
 
     The distinction is the whole point: an empty list would read as 'searched everything, found
-    nothing', which is a verdict. A broken git has no verdict to give."""
+    nothing', which is a verdict. A broken git has no verdict to give.
+
+    READ WITH -z AND AS BYTES (2026-09-26, measured in a throwaway repository). Without -z git
+    quotes a path that holds a byte outside ASCII (`"audit_artifacts/pr\\303\\274fung.md"`), that
+    name opens no file, and the file was skipped without being counted: its digest was never
+    compared, and a record under such a name read as NICHT_AUFLOESBAR."""
     try:
-        r = subprocess.run(["git", "-C", str(repo), "ls-files"],
-                           capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
+                           capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
         return None
-    return [z for z in r.stdout.splitlines() if z.strip()]
+    return [os.fsdecode(z) for z in r.stdout.split(b"\0") if z]
 
 
 def _digest_wie_das_receipt(p: Path) -> str | None:
