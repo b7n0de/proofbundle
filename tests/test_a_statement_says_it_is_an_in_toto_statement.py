@@ -10,8 +10,10 @@ code shape and report structure_ok as well.
 WHAT IS PINNED. All six verifiers parse through `_statement_payload.load_statement_strict`, which reads
 `_type`, and the --with-related resolver already did. For each: a positive control re-signed from the
 emitter's own statement, then seven spellings of a wrong `_type`, each refused with structure_ok False.
-The Rust verifier refuses the same bytes on both relation subcommands and as an attached target. A sweep
-fails when a module that reports structure_ok for an in-toto Statement parses without the oracle.
+The Rust verifier refuses the same bytes on both relation subcommands, as an attached target and on the
+trust-pack threshold subcommand. A sweep fails when a module that reports structure_ok for an in-toto
+Statement parses without the oracle, and a second one when a Rust function parses a DSSE payload
+without `statement_typ_problem`.
 
 WHAT IS NOT IN SCOPE. `intoto --verify` and `svr --verify` list what their `ok` covers, `_type` is not on
 that list, and they report no structure_ok; the jury refuted L3-Z195-02 for that reason.
@@ -24,6 +26,7 @@ import contextlib
 import io
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -227,31 +230,34 @@ class EverySingleSignerVerifier(unittest.TestCase):
                                          (2, False, False))
 
 
+def _trust_pack():
+    """A valid 1-of-1 root pack and its signer."""
+    from proofbundle.trust_pack import sign_trust_pack
+    sk = generate_signer()
+    pred = {"schemaVersion": "0.1.0", "trustPackId": "tp", "version": 1,
+            "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+            "roles": {"root": {"keyIds": ["r"], "threshold": 1}},
+            "keys": {"r": {"publicKey": base64.b64encode(_pub(sk)).decode()}},
+            "nonClaims": ["does not assert the key holders are honest"]}
+    return sign_trust_pack(pred, {"r": sk}), sk
+
+
+def _resigned_pack(statement: dict, sk) -> dict:
+    body = rfc8785.dumps(statement)
+    return {"payload": base64.b64encode(body).decode(), "payloadType": PT,
+            "signatures": [{"keyid": "r", "sig": base64.b64encode(sk.sign(dsse.pae(PT, body))).decode()}]}
+
+
 class TheTrustPack(unittest.TestCase):
-
-    def _pack(self):
-        from proofbundle.trust_pack import sign_trust_pack
-        sk = generate_signer()
-        pred = {"schemaVersion": "0.1.0", "trustPackId": "tp", "version": 1,
-                "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
-                "roles": {"root": {"keyIds": ["r"], "threshold": 1}},
-                "keys": {"r": {"publicKey": base64.b64encode(_pub(sk)).decode()}},
-                "nonClaims": ["does not assert the key holders are honest"]}
-        return sign_trust_pack(pred, {"r": sk}), sk
-
-    def _resigned(self, statement: dict, sk) -> dict:
-        body = rfc8785.dumps(statement)
-        return {"payload": base64.b64encode(body).decode(), "payloadType": PT,
-                "signatures": [{"keyid": "r", "sig": base64.b64encode(sk.sign(dsse.pae(PT, body))).decode()}]}
 
     def test_the_pack_reads_its_type(self):
         from proofbundle.trust_pack import verify_trust_pack
-        env, sk = self._pack()
+        env, sk = _trust_pack()
         stmt = _statement(env)
-        self.assertIs(verify_trust_pack(self._resigned(stmt, sk))["ok"], True)
+        self.assertIs(verify_trust_pack(_resigned_pack(stmt, sk))["ok"], True)
         for label, value in WRONG_TYPES.items():
             with self.subTest(type=label):
-                r = verify_trust_pack(self._resigned(_with_type(stmt, value), sk))
+                r = verify_trust_pack(_resigned_pack(_with_type(stmt, value), sk))
                 self.assertIs(r["structure_ok"], False)
                 self.assertIs(r["ok"], False)
                 self.assertTrue(any("_type" in e for e in r["errors"]), r["errors"])
@@ -358,6 +364,28 @@ class RustParity(unittest.TestCase):
                 self.assertSameLabel(py, rs)
                 self.assertEqual((py["exitClass"], py["lineage"]), want)
 
+    def test_a_wrong_type_on_a_trust_pack(self):
+        """Codex on PR 282: Python refused such a pack (structure_ok False) while the Rust slice met its
+        threshold with exit 0, on the same bytes."""
+        from proofbundle.trust_pack import verify_trust_pack
+        env, sk = _trust_pack()
+        stmt = _statement(env)
+        for label, value in (("control", STATEMENT_TYPE), ("absent", _DELETE), ("null", None),
+                             ("v0.1", WRONG_TYPES["v0.1"])):
+            pack = _resigned_pack(_with_type(stmt, value), sk)
+            py = verify_trust_pack(pack)
+            with tempfile.TemporaryDirectory() as d:
+                path = pathlib.Path(d) / "tp.json"
+                path.write_text(json.dumps(pack), encoding="utf-8")
+                rs = subprocess.run([str(self.rust), "verify-trust-pack-threshold", str(path)],
+                                    capture_output=True, text=True, timeout=120)
+            with self.subTest(type=label):
+                if label == "control":
+                    self.assertEqual((py["ok"], rs.returncode), (True, 0), rs.stdout)
+                else:
+                    self.assertEqual((py["structure_ok"], rs.returncode), (False, 2), rs.stdout)
+                    self.assertIn("not an in-toto Statement v1: _type is", rs.stdout)
+
 
 # Modules that report structure_ok for an in-toto Statement without the oracle, with the reason.
 READS_TYPE_ITSELF = {
@@ -393,6 +421,72 @@ class TheSweep(unittest.TestCase):
         self.assertEqual(set(self._statement_verifiers()),
                          {"decision.py", "outcome.py", "relation_statement.py", "verification_summary.py",
                           "run_ledger.py", "trust_pack.py"} | set(READS_TYPE_ITSELF))
+
+
+class TheRustSweep(unittest.TestCase):
+    """The same generator on the Rust side: a function that decodes a DSSE payload (`b64_dsse`) and parses
+    it (`strict_parse`) reads a Statement, and reads its `_type`. The trust-pack slice parsed the Statement
+    and never asked (Codex on PR 282)."""
+
+    def setUp(self):
+        main_rs = RUST_DIR / "src" / "main.rs"
+        if not main_rs.is_file():
+            self.skipTest("NOT MEASURABLE: tools/pb_verify_rs/src/main.rs is not in this tree; the Rust "
+                          "sweep did NOT run")
+        self.text = main_rs.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _payload_readers(text: str) -> dict:
+        """{function: True when it asks `statement_typ_problem` after its parse and before it reads the
+        predicate}, for each function that decodes and parses a DSSE payload. Comments are removed first
+        (the reader of the key sweep, one reading for both), so a comment naming the oracle counts for
+        nothing. It reads text, names a function by its `fn` line at column 0, and asks whether the oracle
+        is CALLED in that place, not whether its answer is obeyed."""
+        sys.path.insert(0, str(REPO))
+        from tests.test_trust_anchor_keys_refused_on_every_surface import _rust_code_only
+        code = _rust_code_only(text.split("#[cfg(test)]")[0])
+        found, name, body = {}, None, []
+        for line in code.splitlines() + ["fn end_of_file("]:
+            start = re.match(r"(?:pub )?fn (\w+)", line)
+            if start:
+                fn = "\n".join(body)
+                if name and "b64_dsse(" in fn and "strict_parse(" in fn:
+                    parse = fn.index("strict_parse(")
+                    oracle = fn.find("statement_typ_problem(", parse)
+                    predicate = fn.find('get("predicate")', parse)
+                    found[name] = oracle >= 0 and (predicate < 0 or oracle < predicate)
+                name, body = start.group(1), []
+            body.append(line)
+        return found
+
+    def test_every_rust_payload_reader_reads_the_type(self):
+        blind = sorted(n for n, reads in self._payload_readers(self.text).items() if not reads)
+        self.assertEqual(blind, [], "a Rust function parses a DSSE payload without statement_typ_problem "
+                                    "before it reads the predicate")
+
+    def test_the_rust_sweep_sees_the_three_readers(self):
+        """Counter-direction: the two relation paths and the trust-pack slice."""
+        self.assertEqual(set(self._payload_readers(self.text)),
+                         {"verify_trust_pack_threshold", "load_related", "run_verify_relation"})
+
+    def test_a_reader_without_the_oracle_is_caught(self):
+        """Planted on the trust-pack slice: the check removed, commented out, and moved behind the
+        predicate read; each leaves exactly that function blind."""
+        check = ("    if let Some(p) = statement_typ_problem(&statement) {\n"
+                 "        return Err(p);\n    }\n")
+        read = '    let predicate = statement\n        .get("predicate")'
+        self.assertEqual(self.text.count(check + read), 1, "the plant no longer hits the trust-pack slice")
+        planted = {
+            "removed": self.text.replace(check + read, read, 1),
+            "in a comment": self.text.replace(check + read, "    // statement_typ_problem(&statement)\n" + read, 1),
+            "after the predicate read": self.text.replace(
+                check + read, read.replace("let predicate", "let _read_first") + ';\n' + check + read, 1),
+        }
+        for label, text in planted.items():
+            with self.subTest(plant=label):
+                self.assertNotEqual(text, self.text)
+                self.assertEqual(sorted(n for n, ok in self._payload_readers(text).items() if not ok),
+                                 ["verify_trust_pack_threshold"])
 
 
 if __name__ == "__main__":

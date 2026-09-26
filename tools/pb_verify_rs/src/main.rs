@@ -1013,6 +1013,13 @@ fn verify_trust_pack_threshold(
     }
 
     let statement = strict_parse(&body)?;
+    // A pack is a Statement: the same oracle as the relation paths, at the place Python's
+    // `verify_trust_pack` reads it (`load_statement_strict`, before the predicate). Without it a pack
+    // whose `_type` was null, absent or v0.1 met its threshold here and failed in Python (Codex on
+    // PR 282, measured on both verifiers).
+    if let Some(p) = statement_typ_problem(&statement) {
+        return Err(p);
+    }
     let predicate = statement
         .get("predicate")
         .ok_or("statement has no predicate")?;
@@ -2983,6 +2990,7 @@ mod tests {
             })
             .collect();
         let statement = serde_json::json!({
+            "_type": INTOTO_STATEMENT_TYPE,
             "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
         });
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3144,12 +3152,60 @@ mod tests {
         let e = verify_trust_pack_threshold(&leer)
             .expect_err("an empty signature list produced a threshold verdict");
         assert_eq!(e, LEERE_SIGNATURLISTE);
-        // With a list present, the statement is judged next, as before.
+        // With a list present, the statement is judged next: its `_type` first, then its predicate.
         let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
-        let e =
-            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
+        let e = verify_trust_pack_threshold(&voll).expect_err("a payload without _type passed");
+        assert!(e.contains("_type is absent"), "{e}");
+        let std = base64::engine::general_purpose::STANDARD;
+        let ohne_praedikat = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(serde_json::to_vec(&serde_json::json!({"_type": INTOTO_STATEMENT_TYPE}))
+                .expect("json")),
+            "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&ohne_praedikat)
+            .expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn a_pack_that_is_no_in_toto_statement_v1_meets_no_threshold() {
+        // Codex on PR 282: Python's `verify_trust_pack` refuses such a pack (structure_ok=false), and
+        // this slice counted its signatures. The control proves each refusal comes from `_type`.
+        let mut env = trust_pack_mit_root_keyids(1);
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement: serde_json::Value = serde_json::from_slice(
+            &std.decode(env["payload"].as_str().expect("payload"))
+                .expect("b64"),
+        )
+        .expect("json");
+        assert!(
+            verify_trust_pack_threshold(&env).is_ok(),
+            "control: the pack with the right _type is refused"
+        );
+        for (name, wert) in [
+            ("absent", None),
+            ("null", Some(serde_json::Value::Null)),
+            (
+                "v0.1",
+                Some(serde_json::json!("https://in-toto.io/Statement/v0.1")),
+            ),
+            ("a list", Some(serde_json::json!([INTOTO_STATEMENT_TYPE]))),
+        ] {
+            let mut s = statement.clone();
+            match wert {
+                None => {
+                    s.as_object_mut().expect("object").remove("_type");
+                }
+                Some(v) => s["_type"] = v,
+            }
+            env["payload"] = serde_json::json!(std.encode(serde_json::to_vec(&s).expect("json")));
+            let e = verify_trust_pack_threshold(&env)
+                .expect_err("a pack that is no in-toto Statement v1 was judged");
+            assert!(
+                e.contains("not an in-toto Statement v1: _type is"),
+                "{name}: {e}"
+            );
+        }
     }
 
     #[test]
@@ -3305,7 +3361,7 @@ mod tests {
         let mut i2 = identitaet();
         i2[31] = 0x80;
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
             "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3323,7 +3379,7 @@ mod tests {
     fn a_weak_key_in_any_role_refuses_the_pack() {
         // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
                      "dm1": {"publicKey": std.encode([0u8; 32])}},
             "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
