@@ -54,7 +54,7 @@ except ImportError:  # pragma: no cover - CI installs pyyaml for the guard job
     print(json.dumps({"result": "ERROR", "findings": ["pyyaml not installed — pip install pyyaml"]}))
     sys.exit(2)
 
-_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
 # secrets.NAME  OR  secrets['NAME'] / secrets["NAME"]  (both are valid GHA expression syntax).
 # IGNORECASE: GHA context names are case-insensitive — `${{ Secrets.X }}` resolves the same as
 # `${{ secrets.x }}`, so a one-letter uppercase must not evade detection (final-verify bypass).

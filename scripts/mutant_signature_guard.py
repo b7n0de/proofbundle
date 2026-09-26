@@ -49,7 +49,7 @@ def _repo_root() -> Path:
     return Path(proc.stdout.strip())
 
 
-_SECURITY_PATH = re.compile(r"^src/proofbundle/.*\.py$")
+_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.py\Z")
 _ALLOW_MARKER = "mutant-guard: allow"
 
 # Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).

@@ -18,17 +18,17 @@ undeclared key. Whatever the oracle refuses, the validator refuses, strict or le
 this generator on main 10f3466b, leaking paths: decision 64, outcome 13, run_ledger 4,
 verification_summary 3, trust_pack 7 (two of them raised TypeError out of the validator). (3) Every
 regular expression literal under src/proofbundle that judges a whole value reads it as the schema
-does: `\\A..\\Z`, no Unicode class; under scripts/ and tools/, no Unicode class either. (4) End to
+does: `\\A..\\Z`, no Unicode class, and so does every one under scripts/ and tools/. (4) End to
 end, the three consequences that were measured, and agent-review's time and version in non-ASCII
 digits.
 
 NAMED EXCEPTIONS. None among the predicates: the one this change started with, a bare string in
 decision's notChecked, is the schema's deprecated legacy form since the owner decided it (owner decision,
 2026-09-26). The regex sweep: agent_review's two patterns, the last ones with `\\d` under src/,
-are fixed as a bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26); outside src/ the sweep names what
-it has not judged yet (see `_REGEX_EXCEPTIONS` and `_DOLLAR_OPEN_OUTSIDE_SRC`). The reverse direction
-(the validator refusing what the schema accepts) is deliberate where a validator asks more than its
-schema, and is not pinned here.
+are fixed as a bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26), and one script that reads a GitHub
+expression keeps Python's `\\s` (see `_REGEX_EXCEPTIONS`). The reverse direction (the validator
+refusing what the schema accepts) is deliberate where a validator asks more than its schema, and is
+not pinned here.
 """
 from __future__ import annotations
 
@@ -230,30 +230,25 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived: every
 # `re.*` call with a literal pattern that is anchored at both ends (or is a fullmatch) and not MULTILINE.
 #
-# WHERE IT SWEEPS. Under src/proofbundle, both readings. Under scripts/ and tools/ (follow-up 235 of this
-# class, 2026-09-26) the Unicode half: the release tools carried their own RFC3339 copies with `\d`
-# (audit_candidate_matrix, findings_register, the one of them behind `__import__("re")`, which the first
-# form of this sweep did not see). The `$` half outside src/ is listed site by site in
-# `_DOLLAR_OPEN_OUTSIDE_SRC`: whether a newline can reach each of them depends on its callers, which
-# were not all read for this change. The list is exact in both directions, so a new site turns this file
-# red and so does a fixed one that stays listed.
+# WHERE IT SWEEPS. Under src/proofbundle, scripts/ and tools/, both readings. The release tools carried
+# their own RFC3339 copies with `\d` (audit_candidate_matrix, findings_register, the one of them behind
+# `__import__("re")`, which the first form of this sweep did not see; follow-up 235). Four script
+# patterns ended in `$` (check_version_and_changelog, codex_threads_check, fork_pr_secret_isolation,
+# mutant_signature_guard); each caller was read, none can pass a trailing newline, and each ends in
+# `\Z` now, so the change moves no verdict (follow-up 236).
 #: (module, pattern) pairs this sweep leaves out, each with its reason. agent_review's two patterns were
 #: entries here until the owner decision, 2026-09-26; they read ASCII digits now.
 _REGEX_EXCEPTIONS = {
-    # required_check_reachability_gate reads a GitHub expression, not a schema value: `\s` stands against
-    # GitHub's expression grammar, and which whitespace GitHub accepts there was not measured. Its `$`
-    # follows `\s*`, which takes a trailing newline either way. Follow-up 236.
+    # required_check_reachability_gate reads a GitHub expression, not a schema value. GitHub's lexer skips
+    # whitespace with .NET `Char.IsWhiteSpace` (actions/runner at 15231bede4aa,
+    # src/Sdk/Expressions/Tokens/LexicalAnalyzer.cs, read 2026-09-26), and that set is Python's `\s` less
+    # U+001C..U+001F (25 against 29 code points, measured). ASCII would be further from GitHub, not
+    # nearer. The gate reads GitHub expressions with Python's whitespace in 21 lines by a text search (13
+    # patterns with `\s`, 8 folds with `str.split()`, one of them in the digest its declarations bind), so
+    # a change belongs to that whole file, not to this pattern. What GitHub does with a condition holding
+    # U+001C..U+001F was not measured. Its `$` follows `\s*`, which takes a trailing newline either way.
     ("scripts.required_check_reachability_gate",
      r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$"),
-}
-#: The `$` half outside src/, open and named (follow-up 236): each pattern ends in `$`, which also
-#: matches before a trailing newline, and whether one can reach it depends on the callers.
-_DOLLAR_OPEN_OUTSIDE_SRC = {
-    ("scripts.check_version_and_changelog",
-     r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.?(a|b|rc)([0-9]+))?(?:\.post([0-9]+))?(?:\.dev([0-9]+))?$"),
-    ("scripts.codex_threads_check", r"^ {0,3}(`{3,}|~{3,})(.*)$"),
-    ("scripts.fork_pr_secret_isolation", r"^[0-9a-f]{40}$"),
-    ("scripts.mutant_signature_guard", r"^src/proofbundle/.*\.py$"),
 }
 _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
 DOLLAR, UNICODE = "ends in `$`, which matches before a newline", "uses a Unicode class (`\\d` is 0-9 in ECMA-262)"
@@ -366,11 +361,8 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
     def test_no_pattern_under_src_reads_a_value_differently(self):
         self.assertEqual(_whole_value_regex_findings(_tree()), [])
 
-    def test_no_pattern_under_scripts_or_tools_reads_digits_differently(self):
-        readings = _whole_value_regex_readings(_tree_outside_src())
-        self.assertEqual([r for r in readings if r[3] == UNICODE], [])
-        self.assertEqual({(mod, pattern) for mod, _line, pattern, reading in readings if reading == DOLLAR},
-                         _DOLLAR_OPEN_OUTSIDE_SRC, "a `$` site outside src/ came or went; list it or remove it")
+    def test_no_pattern_under_scripts_or_tools_reads_a_value_differently(self):
+        self.assertEqual(_whole_value_regex_findings(_tree_outside_src()), [])
 
     def test_the_sweep_sees_both_readings(self):
         """Positive control, with the sweep itself: the two old readings, planted into a module, are found;

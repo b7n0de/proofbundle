@@ -529,10 +529,10 @@ def _semver_tuple(v: str) -> tuple:
     """
     _VOR, _NACH = -(10 ** 9), 10 ** 9
     core = v.split("-")[0].split("+")[0]
-    m = re.match(r"^([0-9]+)\.([0-9]+)\.([0-9]+)"
+    m = re.match(r"\A([0-9]+)\.([0-9]+)\.([0-9]+)"
                  r"(?:\.?(a|b|rc)([0-9]+))?"
                  r"(?:\.post([0-9]+))?"
-                 r"(?:\.dev([0-9]+))?$", core)
+                 r"(?:\.dev([0-9]+))?\Z", core)
     if not m:
         # UNVERAENDERT fuer alles, was keine Version ist (Review-Tags etwa). Die Zahl der Glieder
         # muss trotzdem stimmen, sonst sind Treffer und Fallback nicht vergleichbar.

@@ -80,7 +80,7 @@ API = "https://api.github.com"
 _MEASURED = re.compile(r"(?m)^ {0,3}Commit measured[ \t`:]*([0-9a-f]{40})\b")
 _REGISTER = re.compile(r"^ {0,3}Thread[ \t]")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
-_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_FENCE_LINE = re.compile(r"\A {0,3}(`{3,}|~{3,})(.*)\Z")
 #: A form this check does not model: past such a line nothing is read (deep gate iteration 3, lens 1:
 #: a fence in a list item, an info string with a backtick and a collapsed <details> were each shown
 #: to the check while GitHub hid them).

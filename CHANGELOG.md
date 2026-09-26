@@ -82,6 +82,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
   module and pattern, and the list is exact in both directions.
 
+- **Four script patterns end at the value, and the sweep reads `scripts/` and `tools/` whole**
+  (`scripts/check_version_and_changelog.py`, `scripts/codex_threads_check.py`,
+  `scripts/fork_pr_secret_isolation.py`, `scripts/mutant_signature_guard.py`). Each ended a
+  whole-value pattern in `$`, which also matches before a trailing newline. Each caller was read:
+  the values come from `splitlines()`, a split on `\n` or a stripped string, so no newline reaches
+  them, and `\Z` changes no verdict. The sweep now reads both readings under `scripts/` and
+  `tools/`. One pattern keeps Python's `\s`, in `required_check_reachability_gate`, and is named
+  with the measurement: GitHub's expression lexer skips whitespace with .NET `Char.IsWhiteSpace`,
+  which is Python's `\s` less U+001C to U+001F, so ASCII would be further from GitHub, and the gate
+  reads expressions that way in 21 lines, one of them the digest its declarations bind.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
