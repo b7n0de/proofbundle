@@ -417,6 +417,10 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
 - Oracle, every pair up to 64 leaves: 2016 of 2016 equal, 1824 of 1824 deeper-anchor proofs rejected.
 - The verifier is `proofbundle.scitt_ccf.verify_consistency_receipt`, with its own status set; the
   run-2 states are committed as `tests/fixtures/scitt_ccf/local_ledger_consistency.json`.
+- `consistency_issuer_mismatch` is proofbundle's own rule, not a requirement of -05: the older root
+  must come from a receipt of the same issuer. -05 says nothing about which service the older root
+  comes from (`SECTION4_WGLC.md`, G3); the rule stays until the working group answers (owner answer
+  S1 a).
 
 ## NOT MEASURED, NOT MEASURABLE
 

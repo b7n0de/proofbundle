@@ -80,7 +80,8 @@ CONSISTENCY_STATUS_ORDER = (
     "consistency_newer_roots_differ",    # 4.1: every proof MUST compute to the same newer root
     "consistency_anchor_not_canonical",  # 4: the anchor MUST be the largest complete subtree
     "consistency_older_root_mismatch",   # 4.2: no proof recomputes the older root the caller holds
-    "consistency_issuer_mismatch",       # not in -05: the older root came from another service
+    "consistency_issuer_mismatch",       # PROOFBUNDLE'S OWN RULE, not a requirement of -05: the older
+                                         # root came from another service's receipt (SECTION4_WGLC.md, G3)
     "signature_invalid", "needs_rp_trust")
 MAX_CONSISTENCY_PROOFS = 8
 
@@ -888,7 +889,8 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     and every inclusion proof beside them, computes the same newer root (4.1, section 5), every
     proof's first path element is a right sibling, which is what the anchor section 4 requires
     looks like (see below), at least one proof recomputes ``older_root`` (4.2), the receipt's issuer
-    is ``older_issuer`` (not in -05), and a relying-party key for that issuer and kid verifies the
+    is ``older_issuer`` (proofbundle's own rule, not a requirement of -05; owner answer S1 a keeps it
+    until the working group answers gap G3), and a relying-party key for that issuer and kid verifies the
     receipt signature over the newer root (4.2). Anything else is one of
     ``CONSISTENCY_STATUS_ORDER``, the first that applies.
 
@@ -980,8 +982,9 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
         return out("consistency_older_root_mismatch",
                    detail="no proof recomputes the older root the caller holds (4.2)")
     if not isinstance(older_issuer, str) or older_issuer != iss:
-        return out("consistency_issuer_mismatch",
-                   detail="the older root was verified from another service's receipt")
+        return out("consistency_issuer_mismatch",  # proofbundle's own rule, not a requirement of -05
+                   detail="the older root was verified from another service's receipt (proofbundle's "
+                          "own rule, not a requirement of -05)")
     if not candidates:
         return out("needs_rp_trust", detail="no relying-party key for this issuer and kid")
     if not good:

@@ -118,7 +118,7 @@ Variants on the run 2 states, proofbundle against a literal transcription of the
 | inclusion and consistency proofs in one receipt | `confirmed` | accepts |
 
 Two more, proofbundle only:
-- older root verified from another service's receipt: `consistency_issuer_mismatch`
+- older root verified from another service's receipt: `consistency_issuer_mismatch`, proofbundle's own rule, not a requirement of -05
 - no relying-party key set: `needs_rp_trust`
 
 Run 1 gave the same outcome in every row, except the deeper-anchor row. That row does not exist in
