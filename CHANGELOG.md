@@ -14,8 +14,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
   verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
   low-order key: the fixed signature R = identity, S = 0 for every message under the identity point, and
-  for about one message in the key's order under the other points of small order. The trust policy
-  refused such keys; nothing else did. Measured by
+  for about one message in the key's order under the other points of small order. A non-canonical
+  spelling (y >= p) is refused because a trusted key has exactly one encoding; of the nineteen, only
+  y = p and y = p + 1 also spell points of small order, and every refusal message now says which
+  reason applies. The trust policy refused such keys; nothing else did. Measured by
   the deep gate against main 5b53ab3e (findings L1-Z195-01 to 03): two witness vkeys carrying the
   identity point, once with the x-sign bit set, met a 2-of-2 witness quorum on a checkpoint neither
   witness saw; `decision verify --pub <identity>` printed `CRYPTO: OK` and exited 0 for a receipt nobody

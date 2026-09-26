@@ -452,11 +452,13 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
 /// Mirror of Python `signature.ed25519_trust_anchor_weakness`: why a 32-byte key cannot stand as a
 /// TRUSTED Ed25519 identity, or `None` when it can. The same rule in the same order, on the bytes, so
 /// both verifiers refuse the same keys: "non-canonical" when y >= p, "low-order" when y is one of the
-/// five y-values of the 8-torsion subgroup (either sign). Under such a key a signature made with no
+/// five y-values of the 8-torsion subgroup (either sign). Under a low-order key a signature made with no
 /// private key verifies (the fixed R = identity, S = 0 for every message under the identity point, after
 /// a few tries under the other points of small order), and nobody holds a private key (deep gate Z195,
-/// L1-Z195-01..03). A key that passes has exactly one encoding, so counting distinct key bytes counts
-/// distinct points. The in-band key of a bundle keeps the SPEC section 4a profile and does not come here.
+/// L1-Z195-01..03). A non-canonical spelling is refused for its encoding: of the nineteen, only y = p
+/// and y = p + 1 also spell points of small order (`grund_der_schwaeche`). A key that passes has exactly
+/// one encoding, so counting distinct key bytes counts distinct points. The in-band key of a bundle keeps
+/// the SPEC section 4a profile and does not come here.
 fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static str> {
     // The x-sign bit is not part of y.
     let mut y = *schluessel;
@@ -492,6 +494,20 @@ fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static st
         }
     }
     None
+}
+
+/// Mirror of Python `signature.TRUST_ANCHOR_REFUSAL`: why each answer of
+/// `schwaeche_eines_vertrauensankers` refuses a key, word for word, so a refusal reads the same on
+/// both sides and names the forgery only where it holds (gate run 2, iteration 2, R2I2A-01).
+fn grund_der_schwaeche(schwaeche: &str) -> &'static str {
+    match schwaeche {
+        "low-order" => "a signature made with no private key verifies under a point of small order",
+        "non-canonical" => {
+            "a trusted key has exactly one encoding (y < p), and y = p and y = p + 1 also spell \
+             points of small order"
+        }
+        _ => "a trusted Ed25519 key is exactly 32 bytes",
+    }
 }
 
 // S106: Python's wording for the two empty-container cases, so a reason reads the same on both sides.
@@ -1015,8 +1031,8 @@ fn verify_trust_pack_threshold(
         };
         if let Some(schwaeche) = schwaeche_eines_vertrauensankers(&arr) {
             return Err(format!(
-                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} a signature made with \
-                 no private key verifies under it (fail-closed)"
+                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} {} (fail-closed)",
+                grund_der_schwaeche(schwaeche)
             ));
         }
     }
@@ -3230,6 +3246,10 @@ mod tests {
 
     #[test]
     fn a_weak_key_verifies_no_envelope_and_no_attached_target() {
+        // LIMIT, named: `universal()` is a live forgery only under the identity point, so for the other
+        // entries this case would stay green without the rule. What binds the rule for every entry is
+        // `every_weak_encoding_is_named_with_python_reason` here and, with a live forgery per key,
+        // tests/test_trust_anchor_keys_refused_on_every_surface.py::RustParity on the Python side.
         let env = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
             "signatures": [{"sig": base64::engine::general_purpose::STANDARD.encode(universal())}]});
         for (key, _) in weak_corpus() {

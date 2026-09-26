@@ -123,7 +123,10 @@ vkeys of §7c/§7d, a status-list issuer key, a time-authority key, a RATS Verif
 key, trust-pack keys of every role and a caller-supplied previous root, the
 classical leg of a hybrid signature, an AGT authorizer key) and the keys that
 authenticate on another party's behalf (the SD-JWT issuer key of §6, the KB-JWT
-holder key). A refused vkey is a malformed input; any other refused key simply
+holder key). The forgery is the reason for the torsion points; a non-canonical
+spelling is refused because a trusted key has exactly one encoding, and of the
+nineteen (y = p … p + 18) only y = p and y = p + 1 also spell points of small
+order. A refused vkey is a malformed input; any other refused key simply
 verifies nothing. The bundle's own key keeps the §4a profile: it is in-band, and
 trust in it comes from a pin that already carries this rule.
 

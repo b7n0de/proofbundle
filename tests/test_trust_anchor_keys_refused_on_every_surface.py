@@ -138,12 +138,14 @@ class _Nobody:
 
 
 _DSSE_TYPE = "application/vnd.test"
-_NOT_A_POINT = (P + 18).to_bytes(32, "little")   # the one WEAK entry that admits no forgery at all
+# The one WEAK entry that admits no forgery at all. It IS a point (y = 18 decodes, of large order); it is
+# refused because it is a second spelling (gate run 2, iteration 2: the old name said "not a point").
+_NO_SMALL_ORDER = (P + 18).to_bytes(32, "little")
 
 
 def _forged_envelope(key: bytes):
     """A DSSE envelope signed with no private key that the bare profile accepts under `key`: the payload
-    is varied until a torsion point works as R with S = 0. None for the entry that is no point."""
+    is varied until a torsion point works as R with S = 0. None for the entry of large order."""
     for i in range(64):
         body = b'{"a":%d}' % i
         msg = dsse.pae(_DSSE_TYPE, body)
@@ -170,7 +172,7 @@ class TheRule(unittest.TestCase):
         for key, reason in WEAK:
             with self.subTest(key=key.hex()):
                 f = _forged(key, b"forge-")
-                if key == (P + 18).to_bytes(32, "little"):
+                if key == _NO_SMALL_ORDER:
                     self.assertIsNone(f)
                     self.assertEqual(ed25519_trust_anchor_weakness(key), "non-canonical")
                     continue
@@ -208,6 +210,46 @@ class TheRule(unittest.TestCase):
                 load_policy({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x",
                              "allowed_issuers": [{"public_key_b64": _b64(key)}]})
             self.assertIn(reason, str(ctx.exception))
+
+    def test_of_the_nineteen_non_canonical_spellings_only_two_admit_a_forgery(self):
+        """The fact behind the non-canonical reason text (gate run 2, iteration 2, R2I2A-01): five
+        messages had given the forgery as the reason for every refused key. Over y = p .. p + 18 the rule
+        says non-canonical every time, and a signature made with no private key exists for y = p and
+        y = p + 1 only. If a spelling beyond those two ever admitted one, the text would understate; if
+        one of the two stopped, it would overstate."""
+        forgeable = set()
+        for off in range(19):
+            key = (P + off).to_bytes(32, "little")
+            with self.subTest(y=f"p+{off}"):
+                self.assertEqual(ed25519_trust_anchor_weakness(key), "non-canonical")
+                if _forged(key, b"spelling-") is not None:
+                    forgeable.add(off)
+        self.assertEqual(forgeable, {0, 1})
+
+    def test_every_refusal_carries_the_one_reason_text(self):
+        """One table, every surface: the policy loader, the C2SP vkey parsers and the trust-pack
+        validator say the reason `TRUST_ANCHOR_REFUSAL` gives for the key's weakness, and no surface
+        names the forgery for a spelling of large order."""
+        from proofbundle.policy import PolicyError, load_policy
+        from proofbundle.signature import TRUST_ANCHOR_REFUSAL
+        from proofbundle.trust_pack import validate_trust_pack_predicate
+        for key, reason in WEAK:
+            text = TRUST_ANCHOR_REFUSAL[reason]
+            with self.subTest(key=key.hex()):
+                with self.assertRaises(PolicyError) as ctx:
+                    load_policy({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x",
+                                 "allowed_issuers": [{"public_key_b64": _b64(key)}]})
+                self.assertIn(text, str(ctx.exception))
+                with self.assertRaises(BundleFormatError) as ctx:
+                    cp._refuse_weak_ed25519_vkey(key, "vkey")
+                self.assertIn(text, str(ctx.exception))
+                errs = validate_trust_pack_predicate(
+                    {"keys": {"k": {"publicKey": _b64(key)}},
+                     "roles": {"root": {"keyIds": ["k"], "threshold": 1}}})
+                mine = [e for e in errs if e.startswith("keys['k'].publicKey is a")]
+                self.assertEqual(mine, [f"keys['k'].publicKey is a {reason} Ed25519 key — {text} "
+                                        "(fail-closed)"], errs)
+        self.assertNotIn("no private key", TRUST_ANCHOR_REFUSAL["non-canonical"])
 
 
 class Checkpoints(unittest.TestCase):
@@ -381,7 +423,7 @@ class Dsse(unittest.TestCase):
         for key, _reason in WEAK:
             with self.subTest(key=key.hex()):
                 env = _forged_envelope(key)
-                if key == _NOT_A_POINT:
+                if key == _NO_SMALL_ORDER:
                     self.assertIsNone(env)
                     continue
                 msg = dsse.pae(_DSSE_TYPE, base64.b64decode(env["payload"]))
@@ -661,9 +703,15 @@ class RustParity(unittest.TestCase):
             forged = Path(d) / "forged.json"
             for key, _reason in WEAK:
                 with self.subTest(key=key.hex()):
-                    # a live forgery per key (R2B-01); the entry that is no point keeps UNIV
-                    env = _forged_envelope(key) or dsse.sign_envelope(b'{"a":1}', _Nobody(),
-                                                                      payload_type=_DSSE_TYPE)
+                    # A live forgery per key (R2B-01). The fallback belongs to the one entry of large
+                    # order only: for any other entry a search that finds nothing must fail here, not
+                    # pass on an envelope the rule never had to refuse (R2I2A-02).
+                    env = _forged_envelope(key)
+                    if key == _NO_SMALL_ORDER:
+                        self.assertIsNone(env)
+                        env = dsse.sign_envelope(b'{"a":1}', _Nobody(), payload_type=_DSSE_TYPE)
+                    else:
+                        self.assertIsNotNone(env, "no forgery found; this entry would measure nothing")
                     forged.write_text(json.dumps(env), encoding="utf-8")
                     out = self._run("verify-dsse", str(forged), _b64(key))
                     self.assertEqual((out.returncode, out.stdout.strip()), (1, "FAIL"), out.stderr)
@@ -750,6 +798,30 @@ class RustParity(unittest.TestCase):
         # Refused as malformed before any signature is counted, as Python's validator refuses the pack.
         self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
         self.assertIn("keys['l1'].publicKey is a low-order", out.stdout)
+
+    def test_the_trust_pack_refusal_reads_the_same_on_both_sides_for_every_weak_key(self):
+        """Word for word (R2I2A-01): the Rust slice mirrors `TRUST_ANCHOR_REFUSAL` in
+        `grund_der_schwaeche`; a drift in either text turns this red, which the prefix checks above
+        would not notice."""
+        import tempfile
+        from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE, validate_trust_pack_predicate
+        real = generate_signer()
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "pack.json"
+            for key, _reason in WEAK:
+                with self.subTest(key=key.hex()):
+                    pred = {"keys": {"r1": {"publicKey": _b64(_raw(real))}, "dm1": {"publicKey": _b64(key)}},
+                            "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
+                                      "decisionMakers": {"keyIds": ["dm1"], "threshold": 1}}}
+                    py = [e for e in validate_trust_pack_predicate(pred)
+                          if e.startswith("keys['dm1'].publicKey is a")]
+                    env = {"payload": _b64(json.dumps({"predicate": pred}).encode()),
+                           "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
+                           "signatures": [{"keyid": "r1", "sig": _b64(UNIV)}]}
+                    path.write_text(json.dumps(env), encoding="utf-8")
+                    out = self._run("verify-trust-pack-threshold", str(path))
+                    self.assertEqual(len(py), 1, py)
+                    self.assertEqual((out.returncode, out.stdout.strip()), (2, f"MALFORMED: {py[0]}"))
 
     def test_a_weak_key_in_another_role_gets_the_same_verdict_on_both_sides(self):
         """Gate lens 2 (L2-PK-01): real root signatures and a weak `decisionMakers` key. Python's

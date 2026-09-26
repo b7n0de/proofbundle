@@ -30,7 +30,7 @@ from typing import Any, TypeGuard
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
-from .signature import ed25519_trust_anchor_weakness
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
@@ -187,13 +187,13 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                     elif want_len == _KEY_RAW_LEN["ed25519"]:
                         # A pack IS the root of trust, so its Ed25519 keys get the trust-anchor rule the
                         # policy loader applies to a pinned key (deep gate Z195, L1-Z195-01): a low-order
-                        # or non-canonical key lets a fixed signature count toward a threshold with no
-                        # secret, and a second encoding of one point would count twice.
+                        # key lets a signature made with no secret count toward a threshold, and a second
+                        # encoding of one point would count twice. The reason text is the shared one.
                         weakness = ed25519_trust_anchor_weakness(raw)
                         if weakness is not None:
                             errors.append(
-                                f"keys[{kid!r}].publicKey is a {weakness} {label} key — a signature made with "
-                                "no private key verifies under it (fail-closed)")
+                                f"keys[{kid!r}].publicKey is a {weakness} {label} key — "
+                                f"{TRUST_ANCHOR_REFUSAL[weakness]} (fail-closed)")
                 except Exception:  # noqa: BLE001
                     errors.append(f"keys[{kid!r}].publicKey is not valid base64")
                 if is_hybrid:

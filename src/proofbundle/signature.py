@@ -43,6 +43,21 @@ def _low_order_ed25519_y() -> frozenset:
 _LOW_ORDER_ED25519_Y = _low_order_ed25519_y()
 
 
+#: Why each answer of :func:`ed25519_trust_anchor_weakness` refuses a key, in one place, so that every
+#: refusal says what was measured and nothing more (gate run 2, iteration 2, R2I2A-01). The earlier
+#: messages gave the forgery as the reason for every refused key. Measured over the nineteen
+#: non-canonical spellings y = p .. p + 18: only y = p and y = p + 1 admit a signature made with no
+#: private key (they spell the points of order 4 and 1), twelve spell points of large order and seven
+#: are no point at all. So the non-canonical reason is the encoding, and the forgery is named only
+#: where it holds. ``pb_verify_rs`` carries the same texts (``grund_der_schwaeche``).
+TRUST_ANCHOR_REFUSAL = {
+    "low-order": "a signature made with no private key verifies under a point of small order",
+    "non-canonical": ("a trusted key has exactly one encoding (y < p), and y = p and y = p + 1 "
+                      "also spell points of small order"),
+    "malformed": "a trusted Ed25519 key is exactly 32 bytes",
+}
+
+
 def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     """Why ``public_key`` cannot stand as a TRUSTED Ed25519 identity, or None when it can.
 
@@ -57,7 +72,9 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     each of those places asks the same question in the same words.
 
     Returns ``"malformed"`` (not 32 bytes), ``"non-canonical"`` (y >= p) or ``"low-order"`` (y of the
-    8-torsion subgroup, either sign), else None.
+    8-torsion subgroup, either sign), else None. The forgery above is the reason for ``"low-order"``;
+    a non-canonical spelling is refused for its encoding, and only two of the nineteen (y = p and
+    y = p + 1) also spell points of small order (``TRUST_ANCHOR_REFUSAL``).
 
     WHAT THE CHECK BUYS BEYOND THE FORGERY. With y < p and the torsion y-values excluded, a key has
     exactly one encoding: the only points whose x-sign bit can be set without meaning anything are

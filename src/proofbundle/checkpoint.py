@@ -28,7 +28,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError
-from .signature import ed25519_trust_anchor_weakness, verify_ed25519_pinned
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 # NUR der C2SP-Decoder: jedes base64-Feld dieses Moduls ist ein C2SP-Note-Feld (Wurzel,
 # Signaturzeile, vkey-Schluesselmaterial), und fuer die gilt die dokumentierte Ausnahme zur
 # Ein-Drahtform-Regel. Der strikte `decode_b64` wird hier bewusst NICHT importiert, damit ein
@@ -224,8 +224,8 @@ def _refuse_weak_ed25519_vkey(pubkey: bytes, what: str) -> None:
     weakness = ed25519_trust_anchor_weakness(pubkey)
     if weakness is not None:
         raise BundleFormatError(
-            f"{what} key material is a {weakness} Ed25519 key — refused: a signature made with no "
-            "private key verifies under such a key, so it cannot be a trusted key")
+            f"{what} key material is a {weakness} Ed25519 key, refused as a trusted key: "
+            f"{TRUST_ANCHOR_REFUSAL[weakness]}")
 
 
 def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, bytes, bytes]:
