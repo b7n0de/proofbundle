@@ -27,9 +27,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   than from disk, and stops fail-closed when the diff and the file disagree. The language gate takes
   the same parser and grammar from the guard. The guard's self-test plants the new shapes, and its
   cleanup between cases now unstages before it restores: the other order left each case in the
-  working tree, and one negative control held only while the last case happened to stay quiet. No
-  tracked `.py` or `.md` file carries a lone CR or a U+2028 today, so no verdict on this repository
-  changes.
+  working tree, and one negative control held only while the last case happened to stay quiet. A
+  symlink under `src/proofbundle` is now a finding of the guard's own: the diff shows the link's
+  text and Python runs its target, so a mutant planted in a file outside the security path and
+  linked in was reported clean with exit 0 (measured). The check reads the judged state, not the
+  diff, because a link committed earlier would hide every later change to its target. The language
+  gate's HEAD form read the files that say which lines are prose from disk; it now reads them at
+  HEAD. No tracked `.py` or `.md` file carries a lone CR or a U+2028 today, and no tracked path is
+  a symlink, so no verdict on this repository changes.
 
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,

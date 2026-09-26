@@ -137,6 +137,24 @@ def test_a_markdown_line_after_a_u2028_is_numbered_as_the_diff_numbers_it(repo):
     assert _judge(repo, "a.md", added) == ("ROT", [("a.md", 6)])
 
 
+@pytest.mark.parametrize("rel,added,disk,line", [
+    ("m.py", f'def f():\n    """\n    {GERMAN}\n    """\n', "y = 0\n", 4),
+    ("a.md", f"{GERMAN}\n", "# T\n```\n\n```\n", 2),
+], ids=["docstring", "markdown"])
+def test_the_head_form_judges_the_file_at_head_not_the_disk(repo, rel, added, disk, line):
+    """The lines come from `<base>...HEAD`, so the file that says which are prose is HEAD's. Here
+    the working tree holds another version: no docstring, or a fence where the line was."""
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / rel).write_bytes((repo / rel).read_bytes() + added.encode("utf-8"))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "change")
+    (repo / rel).write_text(disk, encoding="utf-8")
+    gate = _language_gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [(rel, line)], result
+
+
 def test_an_untracked_file_is_numbered_in_pythons_grammar(repo):
     (repo / "neu.py").write_bytes(f"x = 1\r# {GERMAN}\n".encode("utf-8"))
     gate = _language_gate()

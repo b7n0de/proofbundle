@@ -191,7 +191,34 @@ def _python_zeilen(leser, text: str) -> list[str]:
     return zeilen[:-1] if zeilen and zeilen[-1] == "" else zeilen
 
 
-def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
+def _stand_leser(aus_head: bool):
+    """The judged state's files, each read once per run: the blob at HEAD, or the file on disk.
+
+    THE HEAD FORM READ THE DISK (a review lens on this change, measured 2026-09-26). The added lines
+    came from `<base>...HEAD`, but the prose maps that say which of them are comments or docstrings,
+    and the numbering that takes git's lines to Python's, were read from the working tree. A run
+    over a tree that differs from HEAD judged HEAD's lines against another file. CI checks out HEAD,
+    so there the two agree; the form is named HEAD, and it now reads HEAD. A blob is read once per
+    file, not once per added line.
+    """
+    gelesen: dict[str, bytes | None] = {}
+
+    def lies(datei: str) -> bytes | None:
+        if datei not in gelesen:
+            if aus_head:
+                r = subprocess.run(["git", "-C", str(REPO), "cat-file", "blob", f"HEAD:{datei}"],
+                                   capture_output=True)
+                gelesen[datei] = r.stdout if r.returncode == 0 else None
+            else:
+                try:
+                    gelesen[datei] = (REPO / datei).read_bytes()
+                except OSError:
+                    gelesen[datei] = None
+        return gelesen[datei]
+    return lies
+
+
+def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
         dict[str, list[tuple[int, str]]], str]:
     """Added lines per file. Returns ({} , reason) when the range cannot be read.
 
@@ -222,13 +249,12 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # FROM GIT'S NUMBERING TO PYTHON'S. git numbers lines at LF; the prose maps below number them
     # as Python and CommonMark do, where a lone CR ends a line too. Each added git line is cut at
     # its inner CRs, and the pieces take their numbers from the same file the prose maps read.
+    lies = lies or _stand_leser(aus_head=not arbeitsbaum)
     je_datei: dict[str, list[tuple[int, str]]] = {}
     for datei, zeilen in je_git.items():
-        try:
-            _, spannen = leser._python_lines_of(
-                (REPO / datei).read_bytes().decode("utf-8", "surrogateescape"))
-        except OSError:
-            spannen = []
+        inhalt = lies(datei)
+        spannen = ([] if inhalt is None
+                   else leser._python_lines_of(inhalt.decode("utf-8", "surrogateescape"))[1])
         for nr, text in zeilen:
             erste = spannen[nr - 1].start if nr <= len(spannen) else nr
             je_datei.setdefault(datei, []).extend(
@@ -255,7 +281,7 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     return je_datei, "measured"
 
 
-def _prosazeilen(datei: str) -> set[int] | None:
+def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     """Every line of the file that is a comment or part of a string literal, by TOKEN.
 
     THE FIRST VERSION COUNTED QUOTE CHARACTERS, and an adversarial read caught it the same day.
@@ -272,11 +298,11 @@ def _prosazeilen(datei: str) -> set[int] | None:
     re-deriving it. Returns None when the file cannot be read or does not tokenize, and the
     caller treats that as not-prose rather than as a pass.
     """
-    p = REPO / datei
-    try:
-        quelle = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    inhalt = (lies or _stand_leser(aus_head=False))(datei)
+    if inhalt is None:
         return None
+    # Decoded as `read_text` decoded the file before: universal newlines, undecodable bytes replaced.
+    quelle = io.TextIOWrapper(io.BytesIO(inhalt), encoding="utf-8", errors="replace").read()
     aus: set[int] = set()
     try:
         for tok in tokenize.generate_tokens(io.StringIO(quelle).readline):
@@ -311,7 +337,7 @@ def _prosazeilen(datei: str) -> set[int] | None:
     return aus
 
 
-def _md_prosazeilen(datei: str) -> set[int] | None:
+def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     """Every line of a Markdown file that is NOT inside a fenced code block.
 
     In Markdown there is no comment/code split to make: the file IS prose, and the exception is the
@@ -327,13 +353,15 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
     Returns None when the file cannot be read, and the caller treats that as not-prose rather than
     as a pass.
     """
-    p = REPO / datei
+    inhalt = (lies or _stand_leser(aus_head=False))(datei)
+    if inhalt is None:
+        return None
     # Lines as CommonMark ends them (CRLF, CR, LF). `splitlines()` also ends one at U+2028, a form
     # feed and five more characters, and every line after such a character was numbered one higher
     # than the diff numbers it.
     try:
-        zeilen = _python_zeilen(_diff_leser(), p.read_bytes().decode("utf-8", "replace"))
-    except (OSError, ImportError, AttributeError, SyntaxError):
+        zeilen = _python_zeilen(_diff_leser(), inhalt.decode("utf-8", "replace"))
+    except (ImportError, AttributeError, SyntaxError):
         return None
     # The quotation brackets first, because an unbalanced pair is a measurement failure and must
     # not be reported as a clean file.
@@ -363,18 +391,19 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
     return aus
 
 
-def _ist_prosa(datei: str, nr: int, text: str) -> bool:
+def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool:
     """Comment, or inside a string literal. The answer comes from the FILE, not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
-    fragment would call a string literal a comment. The file at HEAD does say.
+    fragment would call a string literal a comment. The file in the judged state does say: the
+    blob at HEAD, or the working tree in that form (`lies`; without it, the disk).
     """
     if datei.endswith(".md"):
-        zeilen = _md_prosazeilen(datei)
+        zeilen = _md_prosazeilen(datei, lies)
         return bool(zeilen and nr in zeilen)
     if _KOMMENTAR.search(text):
         return True
-    zeilen = _prosazeilen(datei)
+    zeilen = _prosazeilen(datei, lies)
     return bool(zeilen and nr in zeilen)
 
 
@@ -386,7 +415,8 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
                 "grund": ("no tree to judge here, and git's own reason is carried in "
                           f"baum_herkunft; name one with --repo instead of taking this tool's own "
                           f"({REPO_HERKUNFT})")}
-    je_datei, lage = _neue_zeilen(basis, arbeitsbaum)
+    lies = _stand_leser(aus_head=not arbeitsbaum)
+    je_datei, lage = _neue_zeilen(basis, arbeitsbaum, lies)
     if lage != "measured":
         return {"urteil": "NOT MEASURABLE", "grund": lage, "befunde": [],
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
@@ -394,7 +424,7 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     befunde = []
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
-            if not _ist_prosa(datei, nr, text):
+            if not _ist_prosa(datei, nr, text, lies):
                 continue
             w = DP.treffer(text)
             if len(w) >= SCHWELLE:

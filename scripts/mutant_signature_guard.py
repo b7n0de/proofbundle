@@ -13,6 +13,11 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
   B  a commented-out verification line: a comment whose content reads like a code statement
      calling a verify/validate/check/compare_digest function (prose comments do not match)
   C  `return True` as the first statement of a function whose name says verify/validate/check
+  D  a symlink anywhere under src/proofbundle in the judged state: the diff shows the link's text,
+     Python runs its target, which the scan does not reach (a mutant planted in a file outside the
+     security path and linked in was reported clean with exit 0, measured 2026-09-26). Not diff-
+     scoped on purpose: an existing link would hide every later change to its target. No allow
+     marker: a link carries no comment.
 
 Scope: added lines under src/proofbundle/**/*.py (the verification library, every path there is
 security-relevant). Legitimate exceptions are possible but must be VISIBLE in the diff: put a
@@ -251,6 +256,19 @@ def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
     return _git("show", f":{path}" if staged else f"HEAD:{path}", cwd=cwd)
 
 
+_SYMLINK_FINDING = "a symlink on a security path"
+
+
+def _symlinks_on_security_paths(*, staged: bool, cwd: Path) -> list[str]:
+    """Every symlink under src/proofbundle in the judged state: the index for --staged, HEAD for --base."""
+    if staged:
+        listing = _git("ls-files", "-s", "-z", "--", "src/proofbundle", cwd=cwd)   # mode object stage\tpath
+    else:
+        listing = _git("ls-tree", "-r", "-z", "HEAD", "--", "src/proofbundle", cwd=cwd)  # mode type object\tpath
+    return sorted(entry.split("\t", 1)[1] for entry in listing.split("\0")
+                  if entry.startswith("120000 ") and "\t" in entry)
+
+
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
     """Judge the added lines as Python reads them: the diff says WHICH git lines are new, the file
     says which Python lines those are. Line numbers and the allow marker are Python's."""
@@ -285,6 +303,11 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
         for lineno, reason in _class_c_findings(content, added_nums):
             if not _allowlisted(file_lines, lineno):
                 findings.append(f"{path}:{lineno}: {reason}")
+    for link in _symlinks_on_security_paths(staged=staged, cwd=cwd):
+        target = _file_content(link, staged=staged, cwd=cwd).strip()
+        findings.append(f"{link}: {_SYMLINK_FINDING} (to {target}) — the guard reads the link, "
+                        "Python runs its target, which this scan does not reach; a link carries no "
+                        "allow marker, so put the file itself there")
     return findings
 
 
@@ -431,6 +454,15 @@ def self_test() -> int:
         print(f"  {'ok  ' if caught else 'FAIL'} [A: with a committed-style `*.py -diff` attribute] "
               f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
         failures += 0 if caught else 1
+        # a symlink on a security path, its target outside the scanned tree (2026-09-26)
+        target.write_text(_BENIGN, encoding="utf-8")
+        outside.write_text(_BENIGN.replace('if not isinstance(data, dict):', 'if False:'), encoding="utf-8")
+        (target.parent / "linked.py").symlink_to("../../scripts/not_security.py")
+        _git("add", "-A", cwd=repo)
+        caught = any("symlink on a security path" in f for f in run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [D: a symlink under src/proofbundle to a file outside] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")
     return 0 if failures == 0 else 1
 
@@ -450,8 +482,9 @@ def main(argv: list[str] | None = None) -> int:
         print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
         for f in findings:
             print(f"  {f}")
-        print("If this is intentional and legitimate, add a visible `# mutant-guard: allow` "
-              "comment on (or directly above) the flagged line so review sees the exception.")
+        if any(_SYMLINK_FINDING not in f for f in findings):
+            print("If this is intentional and legitimate, add a visible `# mutant-guard: allow` "
+                  "comment on (or directly above) the flagged line so review sees the exception.")
         return 1
     print("mutant_signature_guard: clean, no mutant signatures in the scanned change")
     return 0

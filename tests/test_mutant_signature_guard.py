@@ -184,6 +184,32 @@ class TestStagedMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/guarded.py:4", r.stdout)
 
+    def test_a_symlink_on_a_security_path_is_a_finding(self):
+        """The diff under src/proofbundle shows the link's text; Python runs its target. Before this,
+        a mutant in a file outside the security path, linked in, was reported clean with exit 0."""
+        outside = self.repo / "scripts" / "impl.py"
+        outside.parent.mkdir(exist_ok=True)
+        outside.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"), encoding="utf-8")
+        (self.target.parent / "evil.py").symlink_to("../../scripts/impl.py")
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/evil.py: a symlink on a security path", r.stdout)
+        # a link carries no comment, so the output names the way out instead of the marker
+        self.assertIn("put the file itself there", r.stdout)
+        self.assertNotIn("If this is intentional", r.stdout)
+
+    def test_a_verify_name_given_to_a_function_whose_return_true_stays_is_caught(self):
+        """Class C when only the `def` line is new: the `return True` below it is not an added line."""
+        _git(self.repo, "rm", "-q", "--cached", "--", "src/proofbundle/guarded.py")
+        self.target.write_text("def helper(data):\n    return True\n", encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "a helper that is not a check")
+        self._stage("def verify_helper(data):\n    return True\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("return True` opens verification function `verify_helper`", r.stdout)
+
     def test_control_a_marker_directly_above_still_suppresses(self):
         self._stage("y = 2\nz = 3  # mutant-guard: allow\nif False:\n    pass\n")
         r = _guard(self.repo, "--staged")
@@ -221,6 +247,23 @@ class TestBaseMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/guarded.py:7", r.stdout)
         self.assertIn("src/proofbundle/guarded.py:10", r.stdout)
+
+    def test_an_existing_symlink_hides_no_later_change_to_its_target(self):
+        """A link committed earlier and a mutant planted in its target later: the range holds no line
+        under src/proofbundle, and the link is still a finding."""
+        outside = self.repo / "scripts" / "impl.py"
+        outside.parent.mkdir(exist_ok=True)
+        outside.write_text(BENIGN, encoding="utf-8")
+        (self.target.parent / "linked.py").symlink_to("../../scripts/impl.py")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "a link, before this guard knew links")
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        outside.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"), encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "the mutant goes into the target")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/linked.py: a symlink on a security path", r.stdout)
 
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
