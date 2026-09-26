@@ -48,8 +48,20 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   was counted, and it is a verdict now. The same generator found `scheme` (`const: "ed25519"`)
   never read, and outcome's `traceContext.traceparent`, `validity.audience` and `validity.nonce`
   never typed. Every count is 0 now. A test walks every
-  regular expression literal under `src/proofbundle` that judges a whole value; `agent_review`,
-  which has no published schema, keeps its own `\d` patterns and is named there.
+  regular expression literal under `src/proofbundle` that judges a whole value and names no
+  exception; `agent_review`, the last module with `\d`, follows in the next entry.
+
+- **agent-review reads its times and its schema version in ASCII digits, in v0.1, v0.2 and v0.3**
+  (`agent_review._RFC3339_Z`, `agent_review._SEMVER_0_1_X`). Both patterns used Python's `\d`, which
+  matches every Unicode decimal digit, so a `times.declaredAt` in fullwidth digits and a
+  `schemaVersion` of `0.1.٣` were valid; `revisedAt` and the other times read the same pattern.
+  **An exception to the predicate's version rule, by owner decision**: a change to what a verifier
+  must reject is otherwise a new predicate version, and this one is a bug fix in all three
+  versions instead. The reasons: RFC 3339 writes dates in ASCII digits only, and no receipt or
+  vector is affected, measured on 2026-09-26 over the 616 tracked JSON files of this repository
+  (255 DSSE envelopes decoded, 138 agent-review statements, 1055 values that matched the old
+  patterns; 0 of them change their verdict). A test refuses both values on a published v0.1
+  receipt under each of the three validators.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

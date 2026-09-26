@@ -87,10 +87,15 @@ DISCLOSURE_SELFREF_TOKEN = "<selfref>"
 _SELFREF_FULL = re.compile(r"sha256:[0-9a-f]{64}")
 _SELFREF_SHORT = re.compile(r"\[[0-9a-f]{12}\]\(")
 
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+#: ASCII DIGITS, NOT `\d` (owner decision, 2026-09-26). Python's `\d` takes every
+#: Unicode decimal digit, so "２０２６-01-01T00:00:00Z" (fullwidth) and "0.1.٣" (Arabic-Indic) passed
+#: both checks; RFC 3339 and the schemas' ECMA-262 `\d` mean 0-9 only. A bug fix in v0.1, v0.2 and
+#: v0.3 alike, all three read these two constants; the exception to the version rule is in the
+#: CHANGELOG, with the measurement that no receipt or vector in this repository is affected.
+_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
 _GIT_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 #: The assurance ladder. v0.1 ACCEPTS only the weakest rung — see `_ASSURANCE_ALLOWED_V0_1`.
 _ASSURANCE_ALL = {"selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"}

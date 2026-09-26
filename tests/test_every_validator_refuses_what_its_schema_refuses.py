@@ -18,14 +18,15 @@ undeclared key. Whatever the oracle refuses, the validator refuses, strict or le
 this generator on main 10f3466b, leaking paths: decision 64, outcome 13, run_ledger 4,
 verification_summary 3, trust_pack 7 (two of them raised TypeError out of the validator). (3) Every
 regular expression literal under src/proofbundle that judges a whole value reads it as the schema
-does: `\\A..\\Z`, no Unicode class. (4) End to end, the three consequences that were measured.
+does: `\\A..\\Z`, no Unicode class. (4) End to end, the three consequences that were measured, and
+agent-review's time and version in non-ASCII digits.
 
 NAMED EXCEPTIONS. None among the predicates: the one this change started with, a bare string in
 decision's notChecked, is the schema's deprecated legacy form since the owner decided it (owner decision,
-2026-09-26). The regex sweep: agent_review keeps its own `\\d` patterns; that predicate has no published
-schema, the module was not read for this change, and the follow-up is recorded in the step list. The
-reverse direction (the validator refusing what the schema accepts) is deliberate where a validator asks
-more than its schema, and is not pinned here.
+2026-09-26). None in the regex sweep either: agent_review's two patterns, the last ones with
+`\\d`, are fixed as a bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26). The reverse direction (the
+validator refusing what the schema accepts) is deliberate where a validator asks more than its
+schema, and is not pinned here.
 """
 from __future__ import annotations
 
@@ -227,12 +228,9 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived:
 # every `re.*` call with a literal pattern under src/proofbundle that is anchored at both ends (or is a
 # fullmatch).
-_REGEX_EXCEPTIONS = {
-    # agent_review has no published schema, and the module (3243 lines) was not read for this change;
-    # its two patterns keep Python's `\d`. Recorded as a follow-up in the step list, not decided here.
-    ("proofbundle.agent_review", r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z"),
-    ("proofbundle.agent_review", r"\A0\.1\.\d+\Z"),
-}
+#: (module, pattern) pairs this sweep leaves out, each with its reason. Empty since the owner decision,
+#: 2026-09-26: agent_review's two patterns were the entries here, and they read ASCII digits now.
+_REGEX_EXCEPTIONS: set[tuple[str, str]] = set()
 _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
 
 
@@ -288,7 +286,32 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
 
 
 class TheMeasuredConsequencesAreGone(unittest.TestCase):
-    """The three consequences measured on 3562dc71, end to end."""
+    """The three consequences measured on 3562dc71, end to end, and the agent-review digits."""
+
+    def test_an_agent_review_time_or_version_in_other_digits_is_refused(self):
+        """Owner decision, 2026-09-26. agent_review read RFC3339 times and schemaVersion with Python's `\\d`,
+        which takes every Unicode decimal digit. On our published v0.1 receipt, a declaredAt in fullwidth
+        digits and a schemaVersion with an Arabic-Indic digit were valid before this change; now each is
+        refused by the check v0.1, v0.2 and v0.3 share (for v0.2 and v0.3, over the errors the base
+        already has there). `revisedAt` reads the same constant as declaredAt."""
+        from proofbundle import agent_review as ar
+        env = json.loads((REPO / "receipts" / "agent_review" / "inspect_ai_5141.r3.receipt.json")
+                         .read_text(encoding="utf-8"))
+        base = json.loads(base64.b64decode(env["payload"]))["predicate"]
+        self.assertEqual(ar.validate_agent_review_predicate(base), [])
+        versions = (("v0.1", ar.validate_agent_review_predicate), ("v0.2", ar.validate_agent_review_v02_predicate),
+                    ("v0.3", ar.validate_agent_review_v03_predicate))
+        for field, path, value in (("declaredAt", ("times", "declaredAt"), "２０２６-09-26T00:00:00Z"),
+                                   ("schemaVersion", ("schemaVersion",), "0.1.٣")):
+            doc = copy.deepcopy(base)
+            target = doc
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            for name, validate in versions:
+                with self.subTest(field=field, version=name):
+                    added = set(validate(doc)) - set(validate(base))
+                    self.assertTrue(any(field in e for e in added), added)
 
     def _signer(self):
         from proofbundle.emit import generate_signer
