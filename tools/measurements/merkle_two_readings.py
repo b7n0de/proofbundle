@@ -147,8 +147,8 @@ def _child(checkout: Path, channel: Path) -> int:
     """Run in the child process: measure, and write ONE record to the channel, whatever happens.
 
     Whatever the module raises is named in the record, `BaseException` included: a `GeneratorExit`,
-    an `asyncio.CancelledError`, a `SystemExit` or a `KeyboardInterrupt` raised in this process can
-    only come from the module, since the user's interrupt reaches the parent as well."""
+    an `asyncio.CancelledError`, a `SystemExit`, a `KeyboardInterrupt`. The user's interrupt reaches
+    the parent as well and ends the run there, so a record is only read when it came from the module."""
     try:
         record = {"schema": CHILD_SCHEMA, "readings": _readings(checkout)}
     except NotMeasured as stop:
