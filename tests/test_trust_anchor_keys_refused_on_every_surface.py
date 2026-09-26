@@ -74,6 +74,7 @@ WEAK = [
     (I3, "non-canonical"),
     (P.to_bytes(32, "little"), "non-canonical"),                       # y = p, i.e. 0
     (b"\x00" * 32, "low-order"),                                       # y = 0, order 4
+    (b"\x00" * 31 + b"\x80", "low-order"),                             # y = 0, x sign set, order 4
     ((P - 1).to_bytes(32, "little"), "low-order"),                     # y = p - 1, order 2
     (bytes.fromhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), "low-order"),
     (bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"), "low-order"),
@@ -180,6 +181,23 @@ class TheRule(unittest.TestCase):
                 msg, sig = f
                 self.assertIs(verify_ed25519(key, sig, msg), True)
                 self.assertIs(verify_ed25519_pinned(key, sig, msg), False)
+
+    def test_weak_holds_every_encoding_of_a_point_of_small_order(self):
+        """Every loop over WEAK is only as wide as WEAK. Gate run 1 on the release tooling fix (lens B,
+        231-1B-05): nothing pinned its contents, and dropping an entry left every case green. Measured
+        then: of the ten encodings of a point of small order, WEAK held nine; y = 0 with the x sign set,
+        the second point of order 4, was missing. The low-order part is held here to the eight canonical
+        torsion points of TORSION_R plus the two points with x = 0 spelled with the sign bit set, and to
+        the rule's own y-values; the non-canonical part to the two spellings that admit a forgery and the
+        one of large order."""
+        from proofbundle.signature import _LOW_ORDER_ED25519_Y
+        low = {k for k, r in WEAK if r == "low-order"}
+        x_null_signed = {I2, ((P - 1) | (1 << 255)).to_bytes(32, "little")}
+        self.assertEqual(low, set(TORSION_R) | x_null_signed)
+        self.assertEqual({int.from_bytes(k, "little") & ((1 << 255) - 1) for k in low}, set(_LOW_ORDER_ED25519_Y))
+        self.assertEqual({k for k, r in WEAK if r == "non-canonical"},
+                         {P.to_bytes(32, "little"), I3, _NO_SMALL_ORDER})
+        self.assertEqual(len(WEAK), len({k for k, _r in WEAK}), "an entry is listed twice")
 
     def test_every_weak_encoding_is_named_with_its_reason(self):
         for key, reason in WEAK:
@@ -937,9 +955,9 @@ class RustParity(unittest.TestCase):
 
 class ThePinnedReleaseKeys(unittest.TestCase):
     """Gate iteration 3, lens A (A3-01..04): the release tooling under scripts/ checks its signatures
-    under these pinned keys with the SPEC section 4a profile, which is a change of its own. Until then
-    the CHANGELOG says the keys pinned today pass the rule, and this holds it: a weak key landing in
-    either file turns this red before any receipt is signed under it."""
+    under these pinned keys. It refuses a weak one since tests/test_release_tooling_refuses_weak_pinned_keys.py;
+    this data case stays as the earlier warning: a weak key landing in either file turns it red before
+    any receipt is signed under it."""
 
     def test_every_pinned_key_passes_the_rule(self):
         seen = 0
@@ -990,8 +1008,9 @@ def _sweep_source(rel: str, text: str) -> list:
     "ed25519"), whether it goes to `getattr` or to a module `importlib` returned, and code run from a
     string by `exec` or `eval`. A module from `importlib` read with the literal name
     (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
-    of this sentence listed `importlib` as unseen outright). Its walk is the package, src/proofbundle;
-    the release tooling under scripts/ is outside it and is a change of its own. Inside the two IN_BAND
+    of this sentence listed `importlib` as unseen outright). Its walk here is the package,
+    src/proofbundle; tests/test_release_tooling_refuses_weak_pinned_keys.py walks scripts/ and tools/
+    with it. Inside the two IN_BAND
     files it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
     `anker=True` in the AGT adapter left it green); AgtAdapter holds that behaviourally."""
     tree = ast.parse(text)

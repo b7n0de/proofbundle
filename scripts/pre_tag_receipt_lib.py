@@ -229,7 +229,11 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
     """(ok, reason). ok iff the receipt is a well-formed, SIGNED (by a trusted key) attestation that
     BINDS this exact tree + version + gate source, and records a SUCCESSFUL audit (exit 0)."""
     from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
-    from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+    from proofbundle.signature import (  # noqa: PLC0415
+        TRUST_ANCHOR_REFUSAL,
+        ed25519_trust_anchor_weakness,
+        verify_ed25519_pinned,
+    )
     if not isinstance(receipt, dict):
         return False, "receipt is not an object"
     # ── DER ERSATZWERT DARF NICHT BINDBAR SEIN (Gegenlesung 2026-09-07, Fund 1) ────────────────────
@@ -279,7 +283,15 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
         msg = canonical_bytes(receipt)
         # LAUF11-L2: strikt und kanonisch. Vorher nahm diese Zeile jede zweite Schreibweise
         # derselben Bytes an — 35 von 35 Mutanten verifizierten weiter (Deep Gate Lauf 11).
-        ok = verify_ed25519(decode_b64(signer), decode_b64(sig), msg)
+        signer_raw = decode_b64(signer)
+        # THE PINNED KEY GETS THE TRUST-ANCHOR RULE (SPEC 4b). With the bare profile a receipt nobody
+        # signed verified under a low-order key standing in the anchor (gate iteration 3 on the rule,
+        # lens A, A3-01, measured). The weakness is named before any signature arithmetic.
+        weakness = ed25519_trust_anchor_weakness(signer_raw)
+        if weakness is not None:
+            return False, (f"receipt signer_pubkey is a {weakness} Ed25519 key, refused as a trusted "
+                           f"key: {TRUST_ANCHOR_REFUSAL[weakness]}")
+        ok = verify_ed25519_pinned(signer_raw, decode_b64(sig), msg)
     except Exception as e:  # noqa: BLE001
         return False, f"signature check errored (fail-closed): {type(e).__name__}: {e}"
     if not ok:
