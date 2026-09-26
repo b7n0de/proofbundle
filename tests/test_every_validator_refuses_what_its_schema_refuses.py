@@ -5,9 +5,10 @@ one level down: lens A, 228bcA-01, a digest object with a second key passed alth
 closed; 228bcA-02, outcome's nested value types were never read; lens B, 228bcB-03, the generator of
 tests/test_the_decision_validator_refuses_what_its_schema_refuses.py tried no value of the right type
 and the wrong shape. Measuring the premise showed two more readings. trust_pack still anchored with
-`^..$` after a9269f65 changed eight other modules and its guard named the ones it checked. And every RFC3339 and 0.1.x pattern in nine
-modules took Unicode digits, which the schemas' ECMA-262 `\\d` does not, while the oracle itself,
-python-jsonschema, reads `pattern` with Python's `re` and could see neither.
+`^..$` after a9269f65 changed eight other modules and its guard named the ones it checked. And every
+RFC3339 and 0.1.x pattern in eight modules took Unicode digits, which the schemas' ECMA-262 `\\d` does
+not, while the oracle itself, python-jsonschema, reads `pattern` with Python's `re` and could see
+neither.
 
 WHAT IS PINNED. (1) The oracle (tests/_schema_oracle.py) reads `pattern` as ECMA-262, and a case shows
 plain jsonschema does not. (2) One generator per predicate schema: over a predicate that fills every
@@ -146,8 +147,9 @@ class TheOracleReadsPatternsAsTheSchemaMeansThem(unittest.TestCase):
 
     def test_a_pattern_it_does_not_know_is_refused_not_guessed(self):
         for pattern in ("^\\w+$", "^a$|^b$", "[0-9]+", "^(?i)x$",
-                        # in the vocabulary, and not compilable (228bc-2B-01/02)
-                        "^a{4294967295}$", "^a{3,1}$", "^[9-0]$", "^(a$", "^a)$"):
+                        # in the vocabulary, and not compilable (228bc-2B-01/02, 228bc-3-01)
+                        "^a{4294967295}$", "^a{3,1}$", "^[9-0]$", "^(a$", "^a)$",
+                        "^" + "(" * 1100 + "a" + ")" * 1100 + "$"):
             with self.subTest(pattern=pattern), self.assertRaises(ValueError):
                 ecma_pattern(pattern)
 
@@ -220,8 +222,9 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # ── Every regular expression that judges a whole value reads it as the schema does ─────────────────
 #
 # a9269f65 (2026-07-18) moved eight modules from `^..$` to `\A..\Z`, and its guard checked the modules it
-# named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived: every `re.*` call with a literal pattern
-# under src/proofbundle that is anchored at both ends (or is a fullmatch).
+# named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived:
+# every `re.*` call with a literal pattern under src/proofbundle that is anchored at both ends (or is a
+# fullmatch).
 _REGEX_EXCEPTIONS = {
     # agent_review has no published schema, and the module (3243 lines) was not read for this change;
     # its two patterns keep Python's `\d`. Recorded as a follow-up in the step list, not decided here.

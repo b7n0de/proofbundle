@@ -39,9 +39,12 @@ def ecma_pattern(pattern: str) -> re.Pattern:
     # Python's `re` cannot hold (`{4294967295}` is its MAXREPEAT; node compiles it). Whatever Python
     # cannot compile, the oracle does not translate, with the error it promises (gate run 2 on
     # 63ddaaab, lens B, 228bc-2B-01/02: an OverflowError and a re.error escaped instead).
+    # EVERY exception, not a list of them: a list names the ones someone has seen. Gate run 3 on
+    # 7d189e21 (228bc-3-01) nested a thousand plain groups, which the vocabulary accepts, and
+    # RecursionError escaped past the two types the list named.
     try:
         return re.compile(r"\A" + body.replace(r"\d", "[0-9]") + r"\Z")
-    except (re.error, OverflowError) as exc:
+    except Exception as exc:  # noqa: BLE001 - whatever `re` raises here means "cannot compile"
         raise ValueError(f"the ECMA oracle does not translate {pattern!r} ({exc}); extend it "
                          "deliberately") from exc
 
