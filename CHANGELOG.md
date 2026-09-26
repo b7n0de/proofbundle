@@ -23,6 +23,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   The values of sections outside `relations` are still not read by Rust while Python refuses a bad
   one; the parity registry names that gap and a test measures it.
 
+- **A zlib field is one complete stream and nothing after it, and a receipt token is capped before it
+  is decoded** (`hf_evals.verify_receipt_token`, `statuslist.verify_status_snapshot`, new
+  `_inflate.inflate_whole_stream`). Measured by the deep gate against main 5b53ab3e (finding
+  L2-Z195-TOKEN-TRAILING-DATA-01, confirmed 2 of 3): a genuine `pb1.` token with bytes appended after
+  the end of its zlib stream verified ok=True, from the library and from `hf-token --verify`; with
+  12 MiB appended the library still said ok=True while the CLI refused the same token on its input
+  budget. The token body was also base64-decoded in full before any size check (64 MiB of `A` took
+  0.97 s to refuse on main 1f7a62d2, measured again for this change; now about 25 microseconds), where
+  kbjwt, sdjwt and statuslist refuse an oversized segment first. Both zlib
+  fields now require the stream to end and nothing to follow it, and the token body is refused over
+  `input_bytes` before decoding. The status list's `lst` had the same shape. A token still has no
+  single wire form: another zlib level or other JSON whitespace verifies as before.
+
 - **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
   (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
   verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
