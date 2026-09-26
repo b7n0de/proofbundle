@@ -223,7 +223,7 @@ class TestSyntheticConfirmedPathNoRipemd(unittest.TestCase):
     def test_no_rp_header_is_honest_not_pass(self):
         from proofbundle.anchors_ots import verify_opentimestamps
         res = verify_opentimestamps(self.proof, self.root, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "needs_rp_trust")
 
     def test_self_contained(self):
@@ -272,7 +272,7 @@ class TestAdversarialCalendarRisk(unittest.TestCase):
         pack, _ = self._pack_from_synth(bundled_headers={"800000": correct_root})
         self.assertTrue(pack["bundledHeaderEvidence"])
         res = verify_evidence_pack(pack)   # no rp_trust — producer alone
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "needs_rp_trust")
         self.assertTrue(res["frozenEvidence"])   # the bundled header is reported as evidence, not trust
 
@@ -450,7 +450,7 @@ class TestAnchorCliContract(unittest.TestCase):
         rc, txt = _run(["anchor", "verify-pack", pack, "--bitcoin-header", f"400000:{'aa' * 32}", "--json"])
         self.assertNotEqual(rc, 0, txt)                        # never exit 0 / CONFIRMED
         report = json.loads(txt)
-        self.assertFalse(report["ok"])
+        self.assertIs(report["ok"], False)
         self.assertEqual(report["status"], "null_op")
 
     def test_verify_pack_canonical_require_anchor_path_unaffected(self):

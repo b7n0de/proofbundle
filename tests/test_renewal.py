@@ -98,13 +98,13 @@ def test_break_in_sequence_fails() -> None:
     # corrupt the covered digest of the renewal ATS → the chain no longer covers its prior
     broken_ats = dataclasses.replace(seq[1][0], covered_digest="00" * 32)
     broken = [seq[0], [broken_ats]]
-    assert not verify_sequence(broken, DATA).ok
+    assert verify_sequence(broken, DATA).ok is False
 
 
 def test_tamper_after_renewal_fails() -> None:
     seq = renew_hashtree(_initial(), DATA, new_hash_alg="sha512", time=2000)
     tampered_data = ["a" * 64, "b" * 64, "d" * 64]  # one object changed after renewal
-    assert not verify_sequence(seq, tampered_data).ok
+    assert verify_sequence(seq, tampered_data).ok is False
 
 
 def test_renew_without_prior_anchor_fails() -> None:
@@ -126,7 +126,7 @@ def test_sequence_ordered_ascending_by_time() -> None:
     # and verify catches an out-of-order sequence assembled by hand
     a0 = ArchiveTimeStamp("sha256", "x", 3000)
     a1 = ArchiveTimeStamp("sha256", "y", 1000)
-    assert not verify_sequence([[a0, a1]], DATA).ok
+    assert verify_sequence([[a0, a1]], DATA).ok is False
 
 
 def test_renewal_never_seeds_a_deprecated_hash() -> None:
@@ -146,7 +146,7 @@ def test_data_digest_delimiter_injection_rejected() -> None:
         build_initial_sequence(forged_single, hash_alg="sha256", time=1000)
     # and a sequence built over the real set must not verify against the forged single-object list
     seq = _initial()
-    assert not verify_sequence(seq, forged_single).ok
+    assert verify_sequence(seq, forged_single).ok is False
 
 
 def test_non_hex_data_digest_rejected() -> None:
@@ -178,7 +178,7 @@ def test_renewed_sequence_survives_algorithm_deprecation() -> None:
 def test_unknown_algorithm_still_fails_closed() -> None:
     # tolerance is only for DEPRECATED (known) algorithms — an UNKNOWN algorithm cannot be computed → fail
     a = ArchiveTimeStamp("sha999", "ab" * 32, 1000)
-    assert not verify_sequence([[a]], DATA).ok
+    assert verify_sequence([[a]], DATA).ok is False
 
 
 # --- finding 09: renewal seeding trusted a bare anchor_status marker, never cryptography -----------

@@ -76,7 +76,7 @@ class DieKappeLaeuftVorDerArbeit(unittest.TestCase):
     def test_verify_bundle_dekodiert_die_ueberlange_liste_nicht(self):
         with _Zaehler() as z:
             res = B.verify_bundle(_bundle(_UEBER_DER_KAPPE))
-        self.assertFalse(res.ok)
+        self.assertIs(res.ok, False)
         self.assertLess(
             z.n, 10,
             f"{z.n} Dekodier-Aufrufe auf dem zentralen Entrypoint — Kappe wieder nach der Arbeit")
@@ -86,7 +86,7 @@ class DieKappeLaeuftVorDerArbeit(unittest.TestCase):
         res = P.verify_sample_opening(
             {"index": 0, "disclosure": "x", "proof_b64": ["!!kein-base64!!"] * _UEBER_DER_KAPPE},
             _ROOT_B64, 1000)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("refused before decoding", res["detail"])
 
     def test_die_kappe_ist_ohne_die_arbeit_berechenbar(self):

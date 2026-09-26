@@ -79,21 +79,21 @@ class TestProfile(unittest.TestCase):
     def test_wrong_typ_fails(self):
         r = check_vc_profile(_hand_jwt("kb+jwt", {"vct": _VCT}), {"vctAllowlist": [_VCT]})
         self.assertFalse(r["typ_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_vct_not_on_allowlist_fails(self):
         r = check_vc_profile(_hand_jwt(SD_JWT_VC_TYP, {"vct": "https://evil/vct"}), {"vctAllowlist": [_VCT]})
         self.assertFalse(r["vct_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_missing_vct_fails(self):
         r = check_vc_profile(_hand_jwt(SD_JWT_VC_TYP, {}), {"vctAllowlist": [_VCT]})
         self.assertFalse(r["vct_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_alg_none_issuer_header_fails(self):
         r = check_vc_profile(_hand_jwt2_alg_none(), {"vctAllowlist": [_VCT]})
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("alg" in e for e in r["errors"]))
 
     def test_metadata_integrity_missing_offline_entry_fails_closed(self):
@@ -101,7 +101,7 @@ class TestProfile(unittest.TestCase):
         r = check_vc_profile(_hand_jwt(SD_JWT_VC_TYP, {"vct": _VCT}),
                              {"vctAllowlist": [_VCT], "requireTypeMetadataIntegrity": True})
         self.assertFalse(r["metadata_integrity_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_metadata_integrity_match_from_offline_cache(self):
         meta = b'{"vct":"eval","claims":[]}'
@@ -119,7 +119,7 @@ class TestProfile(unittest.TestCase):
                              {"vctAllowlist": [_VCT], "requireTypeMetadataIntegrity": True},
                              offline_metadata=cache)
         self.assertFalse(r["metadata_integrity_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class TestVerifyEndToEnd(unittest.TestCase):
@@ -137,13 +137,13 @@ class TestVerifyEndToEnd(unittest.TestCase):
         issuer = generate_signer()
         compact = issue_sd_jwt(_claim(issuer), issuer, root_b64="cm9vdA==", exact_score="0.9", vct=_VCT)
         r = verify_sdjwt_vc(compact, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(issuer))
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_wrong_vct_end_to_end_fails(self):
         presented, _, issuer = _real_bound_vc("https://other/vct")
         r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(issuer),
                             expected_aud=_AUD, expected_nonce=_NONCE)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["profile"]["vct_ok"])
 
 
@@ -167,7 +167,7 @@ class TestIssuerSignatureAuthenticity(unittest.TestCase):
                             expected_aud=_AUD, expected_nonce=_NONCE)
         self.assertTrue(r["issuer"]["sig_checked"])
         self.assertFalse(r["issuer"]["sig_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_missing_issuer_pubkey_fails_closed(self):
         # the old broken behavior: no issuer key supplied → the credential is NOT authenticated → ok=False.
@@ -175,7 +175,7 @@ class TestIssuerSignatureAuthenticity(unittest.TestCase):
         r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]},
                             expected_aud=_AUD, expected_nonce=_NONCE)
         self.assertFalse(r["issuer"]["sig_checked"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_explicit_opt_out_is_honest(self):
         # a caller may explicitly opt out (requireIssuerSignature=False) — then issuer is not evaluated and the
@@ -202,16 +202,16 @@ class TestProfileAlgCasing(unittest.TestCase):
 
     def test_alg_none_uppercase_rejected(self):
         r = check_vc_profile(_hand_jwt_alg("NONE"), {"vctAllowlist": [_VCT]})
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("alg" in e for e in r["errors"]))
 
     def test_alg_mixed_case_rejected(self):
         r = check_vc_profile(_hand_jwt_alg("nOnE"), {"vctAllowlist": [_VCT]})
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_alg_non_string_rejected(self):
         r = check_vc_profile(_hand_jwt_alg(123), {"vctAllowlist": [_VCT]})
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_alg_eddsa_still_ok(self):
         r = check_vc_profile(_hand_jwt_alg("EdDSA"), {"vctAllowlist": [_VCT]})
@@ -245,6 +245,6 @@ class TestForgedDisclosureRejected(unittest.TestCase):
         tampered = compact.rstrip("~") + "~" + forged + "~"     # nie-committete Disclosure mitpraesentiert
         r = verify_sdjwt_vc(tampered, {"vctAllowlist": [_VCT], "requireKeyBinding": False},
                             issuer_pubkey=_raw_pub(issuer))
-        self.assertFalse(r["ok"], "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
+        self.assertIs(r["ok"], False, "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
         self.assertFalse((r.get("issuer") or {}).get("structure_ok"),
                          "structure_ok muss False sein bei einer nicht-committeten Disclosure")

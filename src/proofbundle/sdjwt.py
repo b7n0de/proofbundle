@@ -49,14 +49,18 @@ from typing import Optional, Set
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
-from .signature import verify_ecdsa_p256, verify_ed25519
+from .signature import verify_ecdsa_p256, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
 # Finding 20 / issue #27: issuer-signature algorithms this verifier accepts, each dispatched to its
 # own alg-specific primitive with its own fixed key/signature length (32-byte Ed25519 raw key + Ed25519
 # verify, vs. 65-byte SEC1 P-256 point + ECDSA verify) — no algorithm can be confused for another.
-_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}
+# The Ed25519 issuer key is a key the verifier relies on (a caller's pin in sdjwt_vc, the key that
+# authenticates the disclosures in a bundle), so it gets the trust-anchor rule: a low-order issuer key
+# would authenticate disclosures with a signature made with no secret (deep gate Z195). The
+# ES256 path already refuses a point that is not on P-256.
+_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}
 
 __all__ = ["verify_sd_jwt"]
 

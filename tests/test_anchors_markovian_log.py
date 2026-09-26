@@ -286,7 +286,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
             if entry["alg"] == "ml-dsa-44" and not HAVE_MLDSA:
                 # the recording was made WITH the [pq] extra; without it the same two lines must
                 # report the missing backend, fail-closed — never skip, never pretend to verify
-                self.assertFalse(live["ok"], name)
+                self.assertIs(live["ok"], False, name)
                 self.assertIn("[pq]", live.get("detail", ""), name)
             else:
                 self.assertTrue(live["ok"], name)
@@ -298,7 +298,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         for key in ("ok", "log_ok", "witnesses_ok", "inclusion_ok"):
             self.assertEqual(res[key], recorded[key], f"{key} drifted from the recorded counter-test")
         # the point of the counter-test: signatures stay valid, only membership fails
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["inclusion_ok"])
         self.assertTrue(res["log_ok"])
         self.assertTrue(res["witnesses_ok"])
@@ -307,7 +307,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         self.assertTrue(self._verify(_leaf_bytes(), expected_origin=_ORIGIN)["ok"])
         wrong = self._verify(_leaf_bytes(), expected_origin="attacker.example/log")
         self.assertFalse(wrong["log_ok"])       # a validly signed checkpoint from another origin
-        self.assertFalse(wrong["ok"])
+        self.assertIs(wrong["ok"], False)
         self.assertTrue(wrong["inclusion_ok"])  # the tree membership itself is untouched
 
     def test_expected_origin_is_exact_at_the_library_level_too(self):
@@ -336,7 +336,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
             with self.subTest(near_miss=name):
                 res = self._verify(_leaf_bytes(), expected_origin=kandidat)
                 self.assertFalse(res["log_ok"], f"{name}: {kandidat!r} was accepted")
-                self.assertFalse(res["ok"])
+                self.assertIs(res["ok"], False)
                 self.assertTrue(res["inclusion_ok"], f"{name}: inclusion flipped — wrong cause")
 
     def test_threshold_at_and_above_the_verifying_witnesses(self):
@@ -350,7 +350,7 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         above = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey, self.witness_vkeys,
                                   threshold=n + 1)
         self.assertFalse(above["witnesses_ok"])
-        self.assertFalse(above["ok"])
+        self.assertIs(above["ok"], False)
 
     def test_no_witness_keys_still_reports_the_log_signature(self):
         res = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey)

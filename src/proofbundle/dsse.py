@@ -13,7 +13,8 @@ padding, NOT base64url); `payloadType` and `keyid` are plaintext.
 
 Verification decodes `payload` and reconstructs PAE over the exact decoded bytes — it never re-serializes
 or re-canonicalizes the JSON (that would change bytes and break the signature). We never roll our own
-crypto: signing is `cryptography`'s Ed25519, verification is `proofbundle.signature.verify_ed25519`.
+crypto: signing is `cryptography`'s Ed25519, verification is
+`proofbundle.signature.verify_ed25519_pinned`.
 
 Base64 note: the envelope's `payload` and each `signatures[].sig` are base64. We EMIT standard RFC 4648 §4
 (with padding), but the DSSE spec says a signer MAY use either standard or url-safe base64 and a verifier
@@ -28,7 +29,7 @@ import binascii
 from typing import Optional
 
 from .errors import BundleFormatError
-from .signature import verify_ed25519
+from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
 
 __all__ = ["pae", "sign_envelope", "verify_envelope"]
@@ -115,7 +116,16 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     """Verify a DSSE envelope against `public_key` (32 raw Ed25519 bytes). Decodes `payload` and rebuilds
     PAE over exactly those bytes (never re-serialized). True iff at least one signature verifies. If
     `payload_type` is given it MUST equal the envelope's payloadType (pin the type — a Sign/Verify type
-    mismatch silently changes the PAE and would otherwise reject a genuine envelope for the wrong reason)."""
+    mismatch silently changes the PAE and would otherwise reject a genuine envelope for the wrong reason).
+
+    `public_key` is always a key the CALLER trusts (a DSSE envelope carries none of its own), so a
+    malformed, non-canonical or low-order key verifies nothing: under a low-order key a signature made
+    with no private key is valid (for every payload under the identity point), and a non-canonical one
+    is refused because a trusted key has exactly one encoding. Deep gate Z195, L1-Z195-03: `decision verify --pub`
+    with the identity point printed "CRYPTO: OK" and exited 0 for a receipt nobody signed, while the
+    same key in a trust policy was refused. Every DSSE verify path (decision, outcome, relation
+    statement, run ledger, verification summary, in-toto exports, agent review, the CLI's related
+    targets) funnels through this one call."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import matches repo convention, avoids any cycle
     body = _payload_bytes(envelope)
     ptype = envelope.get("payloadType")
@@ -151,7 +161,7 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
             sig = _b64decode_any(raw)
         except (ValueError, TypeError, binascii.Error):
             continue
-        if verify_ed25519(public_key, sig, msg):
+        if verify_ed25519_pinned(public_key, sig, msg):
             return True
     return False
 

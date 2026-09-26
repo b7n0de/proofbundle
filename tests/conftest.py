@@ -563,6 +563,119 @@ def _liegt_im_baum(datei: object, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
         return False
 
 
+# ── Which SOURCES.txt is THIS distribution's: one selector for every reader under tests/ ─────────
+#
+# FOUR READERS ASKED THE SAME QUESTION and answered it the same way: the two functions below, the
+# class guard in `tests/test_kein_blanker_import_eines_nicht_ausgelieferten.py` and the two-truths
+# case in `tests/test_bare_install_degrades_to_clean_skips.py` each took the first non-empty
+# SOURCES.txt in alphabetical glob order. Order is not identity. An adversarial lens showed on
+# 2026-09-24 that an egg-info sorting before the real one decides the answer, and measured on
+# 2026-09-25 the main checkout carries exactly such a stranger: beside `src/proofbundle.egg-info`
+# lies an `UNKNOWN.egg-info` from 2026-08-08 with 26 scripts. The order picked the right one only
+# because the one-level glob is searched first.
+#
+# THE RULE: a SOURCES.txt belongs to this distribution when the PKG-INFO beside it names the
+# project `pyproject.toml` names, compared as normalised distribution names (PEP 503). Every sdist
+# carries both files. THREE OUTCOMES: exactly one non-empty list of this project is the answer;
+# none is no basis; more than one is no basis as well, because choosing between two lists of one
+# project is the guess this replaces. What a reader does without a basis stays its own rule.
+#
+# IT LIVES HERE AND NOT IN A HELPER MODULE, on purpose: tests copy this file alone into throwaway
+# trees (`tests/test_sammelabbruch_vor_dem_import.py::_baum`), and a conftest that needs a sibling
+# file would fail to load there. The two checkout readers load this file by path instead.
+
+
+def _normalisierter_name(name: str) -> str:
+    import re  # noqa: PLC0415
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _projektname(wurzel: pathlib.Path) -> str | None:
+    """`name` under `[project]` in pyproject.toml, or None when it cannot be read.
+
+    PARSED AS TOML, NOT SEARCHED AS TEXT. The first version used two regular expressions, and a
+    review lens refuted it the same day: a comment after the `[project]` header hid the name, so
+    one real list became "no basis", and a `name = ...` line inside a multi-line string before the
+    real key picked another distribution's list. Searching text for a structure is the class this
+    selector replaces. `tomllib` is in the standard library from 3.11; on 3.10 pytest itself
+    depends on `tomli`, and this file is only ever loaded where pytest runs.
+    """
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:            # Python 3.10
+        import tomli as tomllib  # noqa: PLC0415
+    try:
+        daten = tomllib.loads((pathlib.Path(wurzel) / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    projekt = daten.get("project")
+    name = projekt.get("name") if isinstance(projekt, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
+def _eintraege_von(liste: pathlib.Path) -> set[str] | None:
+    try:
+        return {z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()}
+    except OSError:
+        return None
+
+
+def _quellenliste_waehlen(wurzel: pathlib.Path) -> tuple[pathlib.Path | None, str]:
+    """(the SOURCES.txt of this project, "") or (None, why there is no basis)."""
+    wurzel = pathlib.Path(wurzel)
+    projekt = _projektname(wurzel)
+    if projekt is None:
+        return None, "no [project] name readable in pyproject.toml, so no list can be attributed"
+    kandidaten = sorted(set(wurzel.glob("*/*.egg-info/SOURCES.txt"))
+                        | set(wurzel.glob("*.egg-info/SOURCES.txt")))
+
+    def _name(liste: pathlib.Path) -> str:
+        try:
+            for zeile in (liste.parent / "PKG-INFO").read_text(
+                    encoding="utf-8", errors="replace").splitlines():
+                if zeile.startswith("Name:"):
+                    return zeile.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        return ""
+
+    zugeordnet = [k for k in kandidaten
+                  if _normalisierter_name(_name(k)) == _normalisierter_name(projekt)]
+    # ONE ENTRY PER FILE, not per path: a symlink to the same egg-info is one list, and counting it
+    # twice turned one real list into a false ambiguity (review lens, 2026-09-25).
+    #
+    # ATTRIBUTED FIRST, DEDUPLICATED AFTER, and the order is the point. The first version merged
+    # aliases by resolved file before reading any PKG-INFO and kept whichever path sorted first.
+    # Codex measured on 2026-09-25 what that does: a foreign `aaa/y.egg-info` whose SOURCES.txt
+    # links to this project's list sorts first, only the foreign alias survives, and the real list
+    # is gone, so path order decided identity again. Each path is attributed by the PKG-INFO beside
+    # it, and only aliases that all belong to this project collapse into one.
+    je_datei: dict[pathlib.Path, pathlib.Path] = {}
+    for k in zugeordnet:
+        je_datei.setdefault(k.resolve(), k)
+    eigene = list(je_datei.values())
+    brauchbar = [k for k in eigene if _eintraege_von(k)]
+    if not brauchbar:
+        fremde = [str(k.relative_to(wurzel)) for k in kandidaten if k not in zugeordnet]
+        return None, (f"no non-empty SOURCES.txt of {projekt} in this tree"
+                      + (f"; lists of other distributions ignored: {fremde}" if fremde else ""))
+    if len(brauchbar) > 1:
+        return None, (f"{len(brauchbar)} non-empty SOURCES.txt of {projekt}: "
+                      f"{[str(k.relative_to(wurzel)) for k in brauchbar]}; picking one is a guess")
+    return brauchbar[0], ""
+
+
+def _verteilungsliste(wurzel: pathlib.Path) -> tuple[set[str] | None, str]:
+    """The entries of the list `_quellenliste_waehlen` chose, or (None, why there is no basis)."""
+    liste, grund = _quellenliste_waehlen(wurzel)
+    if liste is None:
+        return None, grund
+    eintraege = _eintraege_von(liste)
+    if not eintraege:
+        return None, f"{liste} became unreadable or empty after it was chosen"
+    return eintraege, ""
+
+
 def _verteilung_sollte_enthalten(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     """Fuehrt die Verteilung diese Datei in ihrer EIGENEN Dateiliste?
 
@@ -591,17 +704,15 @@ def _verteilung_sollte_enthalten(rel: str, wurzel: pathlib.Path = _REPO_ROOT) ->
     FAIL-CLOSED: gibt es keine Liste oder ist sie unlesbar, gilt "sollte enthalten sein" — dann
     bleibt der Fehler laut. Ein Riegel, der ohne Grundlage nachgibt, ist genau dann am weichsten,
     wenn am wenigsten bekannt ist.
+
+    WHICH LIST is decided by `_quellenliste_waehlen`, the one selector for all four readers of
+    SOURCES.txt under tests/. It takes the list whose PKG-INFO names this project, not the first in
+    alphabetical order; an ambiguous tree counts as no basis, which here means staying loud.
     """
-    wurzel = pathlib.Path(wurzel)
-    for liste in sorted(wurzel.glob("*/*.egg-info/SOURCES.txt")) + \
-            sorted(wurzel.glob("*.egg-info/SOURCES.txt")):
-        try:
-            eintraege = {z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()}
-        except OSError:
-            continue
-        if eintraege:
-            return rel in eintraege
-    return True                                    # keine Grundlage -> nicht nachgeben
+    eintraege, _grund = _verteilungsliste(pathlib.Path(wurzel))
+    if eintraege is None:
+        return True                                # no basis -> do not give way
+    return rel in eintraege
 
 
 def _verteilung_kennt_den_ort(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
@@ -621,16 +732,10 @@ def _verteilung_kennt_den_ort(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bo
     kopf = rel.split("/", 1)[0]
     if not kopf or kopf == rel:                    # kein Verzeichnis -> nicht entscheidbar
         return False
-    wurzel = pathlib.Path(wurzel)
-    for liste in sorted(wurzel.glob("*/*.egg-info/SOURCES.txt")) + \
-            sorted(wurzel.glob("*.egg-info/SOURCES.txt")):
-        try:
-            eintraege = [z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()]
-        except OSError:
-            continue
-        if eintraege:
-            return any(e.startswith(kopf + "/") for e in eintraege)
-    return False
+    eintraege, _grund = _verteilungsliste(pathlib.Path(wurzel))
+    if eintraege is None:
+        return False                               # no basis -> stays loud, as before
+    return any(e.startswith(kopf + "/") for e in eintraege)
 
 
 def _fehlende_datei_aus(fehler: BaseException, wurzel: pathlib.Path = _REPO_ROOT):

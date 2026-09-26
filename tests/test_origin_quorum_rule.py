@@ -80,7 +80,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok, "a log satisfied its own witness quorum with its own signature")
         (entry,) = witnesses.values()
-        self.assertFalse(entry["ok"])
+        self.assertIs(entry["ok"], False)
         self.assertIs(entry.get("origin_excluded"), True)
         self.assertIn("origin", entry["detail"])
 
@@ -123,7 +123,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         over = cp.verify_witnessed_checkpoint(note, log_vkey, roster, threshold=3)
         self.assertFalse(over["witnesses_ok"],
                          "threshold 3 was met — the excluded origin line counted after all")
-        self.assertFalse(over["ok"])
+        self.assertIs(over["ok"], False)
 
     @unittest.skipUnless(HAVE_MLDSA, "cryptography build without ML-DSA (install proofbundle[pq])")
     def test_mldsa_self_cosignature_is_excluded_too(self):
@@ -204,7 +204,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         res = verify_tlog_proof(proof, payload, cp.vkey(ORIGIN, _raw(log_key)),
                                 [cp.cosign_vkey(ORIGIN, _raw(self_witness))], threshold=1)
         self.assertFalse(res["witnesses_ok"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(res["log_ok"] and res["inclusion_ok"])    # precise verdicts: only the quorum fails
         excluded = next(iter(res["witnesses"].values()))
         self.assertIs(excluded.get("origin_excluded"), True)
@@ -285,7 +285,7 @@ class TestLiveCheckpointVector(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(len(witnesses), 2)
         for entry in witnesses.values():
-            self.assertFalse(entry["ok"])
+            self.assertIs(entry["ok"], False)
             self.assertIs(entry.get("origin_excluded"), True)
 
     def test_the_logs_note_signature_key_is_never_a_witness(self):
@@ -408,7 +408,7 @@ class TestCliCarriesTheExclusionReason(unittest.TestCase):
                 pass
         out = json.loads(buf.getvalue())
         (w,) = out["witnesses"].values()
-        self.assertFalse(w["ok"])
+        self.assertIs(w["ok"], False)
         self.assertIs(w.get("origin_excluded"), True)
         self.assertIn("key material", w["detail"])
         self.assertFalse(out["witnesses_ok"])
@@ -434,7 +434,7 @@ class TestOriginQuorumHardening(unittest.TestCase):
         note, log_vkey, alias_vkey, _ = self._note_with_log_cosign("independent.example/w")
         res = cp.verify_witnessed_checkpoint(note, log_vkey, [alias_vkey], threshold=1)
         self.assertFalse(res["witnesses_ok"], "the log voted in its own quorum under an alias")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         entry = next(iter(res["witnesses"].values()))
         self.assertIs(entry.get("origin_excluded"), True)
         self.assertIn("key material", entry["detail"])
@@ -462,7 +462,7 @@ class TestOriginQuorumHardening(unittest.TestCase):
         res = cp.verify_witnessed_checkpoint(forged_note, log_vkey,
                                              [cp.cosign_vkey(alias, _raw(log))], threshold=1)
         self.assertFalse(res["witnesses_ok"], "a relabelled log cosignature counted as a witness")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_f2_inherited_by_tlogproof_surface(self):
         from proofbundle import emit_bundle  # noqa: PLC0415
@@ -477,7 +477,7 @@ class TestOriginQuorumHardening(unittest.TestCase):
         res = verify_tlog_proof(proof, payload, cp.vkey(ORIGIN, _raw(log)),
                                 [cp.cosign_vkey("independent.example/w", _raw(log))], threshold=1)
         self.assertFalse(res["witnesses_ok"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(res["log_ok"] and res["inclusion_ok"])       # precise verdicts
 
     def test_f1_zero_width_origin_is_malformed_at_verify(self):

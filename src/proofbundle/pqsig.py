@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from .errors import ProofBundleError
-from .signature import verify_ed25519
+from .signature import verify_ed25519_pinned
 
 __all__ = [
     "PQUnavailable",
@@ -101,8 +101,12 @@ def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, 
     """True iff BOTH the Ed25519 and the ML-DSA signature over ``message`` verify.
 
     A hybrid signature's security is the OR of its parts (an attacker must forge both to forge the
-    hybrid), so the verify is the AND of its parts: both components must be present and valid."""
-    return (verify_ed25519(classical_pub, classical_sig, message)
+    hybrid), so the verify is the AND of its parts: both components must be present and valid.
+
+    ``classical_pub`` is a key the caller trusts, so it gets the trust-anchor rule: a low-order Ed25519
+    leg would verify a signature made with no private key and leave the hybrid resting on ML-DSA alone,
+    which is exactly the single point the hybrid exists to avoid (deep gate Z195, class of L1-Z195-02)."""
+    return (verify_ed25519_pinned(classical_pub, classical_sig, message)
             and verify_mldsa(pq_pub, pq_sig, message, level=pq_level))
 
 

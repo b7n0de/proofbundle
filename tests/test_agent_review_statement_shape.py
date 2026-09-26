@@ -146,7 +146,7 @@ def test_kein_verify_pfad_wirft_bei_beliebigem_muell():
                    "payloadType": AR.INTOTO_STATEMENT_PAYLOAD_TYPE,
                    "signatures": [{"sig": base64.b64encode(b"\x00" * 64).decode()}]}]:
         r = AR.verify_agent_review(muell, PK)      # darf NICHT werfen
-        assert r["ok"] is not True
+        assert r["ok"] is False
 
 
 # ── die Reihenfolge selbst: Semantik erst NACH der Typisierung ─────────────────────────────────

@@ -35,7 +35,7 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
         res = verify_eval_results_entry(entry)
         self.assertTrue(res["crypto_ok"], "the token itself is untouched")
         self.assertFalse(res["value_consistent"])
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("contradicts", res["detail"])
 
     def test_tampered_token_fails_crypto(self):
@@ -45,7 +45,7 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
         # not raised — a batch verifier over an untrusted list must not crash (consistent with the sibling
         # missing-token test). Previously this enshrined the never-raise-contract violation as expected.
         res = verify_eval_results_entry(entry)
-        self.assertIsNot(res["ok"], True)
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["crypto_ok"])
         self.assertIn("not verifiable", res["detail"])
 
@@ -55,7 +55,7 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
         entry = to_eval_results_entry(_receipt(), dataset_id="d/x", task_id="t", value=0.9)
         no_token = {k: v for k, v in entry.items() if k != "verifyToken"}
         res = verify_eval_results_entry(no_token)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["crypto_ok"])
         self.assertIn("nothing to verify", res["detail"])
 
@@ -64,13 +64,13 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
         bad = copy.deepcopy(entry)
         bad["value"] = "not-a-number"
         res = verify_eval_results_entry(bad)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("not a number", res["detail"])
         # six-lens review: a bool must NOT be coerced to 1.0/0.0 (the builder rejects bool too)
         boolean = copy.deepcopy(entry)
         boolean["value"] = True
         res2 = verify_eval_results_entry(boolean)
-        self.assertFalse(res2["ok"])
+        self.assertIs(res2["ok"], False)
         self.assertIn("boolean", res2["detail"])
 
     def test_non_eval_bundle_and_crypto_fail_are_fail_closed(self):
@@ -85,13 +85,13 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
         res = verify_eval_results_entry(entry)
         self.assertTrue(res["crypto_ok"])            # the bundle itself verifies
         self.assertFalse(res["value_consistent"])    # but it is not a decodable eval receipt
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         # (2) a tampered token → crypto fails → fail-closed
         good = to_eval_results_entry(_receipt(), dataset_id="d/x", task_id="t", value=0.9)
         good["verifyToken"] = good["verifyToken"][:-8] + "AAAAAAAA"
         try:
             r2 = verify_eval_results_entry(good)
-            self.assertFalse(r2["ok"])
+            self.assertIs(r2["ok"], False)
         except BundleFormatError:
             pass   # a token that is no longer valid zlib/json is malformed — either fail-closed path is ok
 
