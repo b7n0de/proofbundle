@@ -54,6 +54,7 @@ of the 3.2 pseudo-code that checks no sizes accepted 23 of 23.
 4. Leaf preimages are 96 bytes in 24 of 24 transactions, and interior node preimages 64 bytes in 23 of 23; this ledger has 0 leaves of the 64-byte form the code also knows. Forgeries at the last signed state, every interior node presented as a leaf:
    - A, children as components: a lax 3.2 transcription 0 of 23; the reader 0 accepted.
    - B, sizes and types unchecked (evidence = the right child's own preimage, data-hash empty): the lax transcription 23 of 23; the reader 0 accepted, 22 refused for the -05 CDDL sizes, 1 for an empty path.
+   - B32, as B with a 32-byte data-hash, so the leaf preimage is 96 bytes again and not a 64-byte node's: the reader 0 accepted of 23, 22 computed another root, 1 refused for an empty path (`reader_result.json`, `B32`).
    - The right child's preimage is valid UTF-8 in 0 of 23, so strict CBOR text blocks B independently of the sizes.
    - The real newer receipt computes the signed root through the same reader harness (positive control).
 
