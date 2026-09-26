@@ -75,6 +75,15 @@ LIMIT = ("LIMIT: the trust anchor is a public key committed in this same reposit
 #: that judges. Evidence outside them (the receipt folder, the anchor) is read from the commit.
 _CODE_PFADE = ("scripts", "src")
 
+#: A candidate in the receipt folder is read whole, so its size is asked first. The largest receipt
+#: this repository holds is 6667 bytes (`audit_artifacts/600/pre_tag_receipt_v6.0.0.json`), and the
+#: largest JSON file in any receipt folder 326135 bytes (`audit_artifacts/600/findings_register_v2.json`,
+#: which the loop sets aside as a foreign artefact), measured 2026-09-26. 4 MiB is twelve times the
+#: second; a larger candidate is rejected unread. Named limit: the gate source is read whole too and
+#: not capped; it is a file of the checkout this script runs only when it equals the commit, and
+#: `_gate` executes that file anyway.
+RECEIPT_CAP = 4 * 1024 * 1024
+
 
 #: Where Python keeps bytecode for THIS run: a fresh directory, never `__pycache__` next to the
 #: sources. Created once, and set again on every measurement, because the process-wide import state
@@ -365,13 +374,23 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     rejected: list[dict] = []
     foreign: list[str] = []
     for rel in sorted(kandidaten):
+        rc, groesse, err = _git(repo, "cat-file", "-s", f"{commit}:{rel}")
+        if rc != 0 or not groesse.strip().isdigit():
+            rejected.append({"path": rel, "reason": f"not readable from the commit: {err}"})
+            continue
+        if int(groesse) > RECEIPT_CAP:
+            rejected.append({"path": rel, "reason": (f"the committed file is {int(groesse)} bytes, more "
+                                                     f"than a receipt is ({RECEIPT_CAP}), and is not read")})
+            continue
         rc, blob, err = _git(repo, "show", f"{commit}:{rel}")
         if rc != 0:
             rejected.append({"path": rel, "reason": f"not readable from the commit: {err}"})
             continue
+        # RecursionError: a receipt nested deeper than the parser's stack ended the run with a
+        # traceback and exit 1 (a review of the stack at 1ecc2aca, on main as well, measured at 100000).
         try:
             receipt = json.loads(blob.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:
             rejected.append({"path": rel, "reason": f"the committed receipt is not readable JSON "
                                                     f"({type(exc).__name__}: {exc})"})
             continue

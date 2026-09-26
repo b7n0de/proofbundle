@@ -131,3 +131,75 @@ def test_exit_codes_trennen_alle_drei_zustaende(baum, tmp_path, capsys):
 def test_unlesbares_receipt_stuerzt_nicht_ab_sondern_meldet(tmp_path, baum):
     fehlt = tmp_path / "gibt_es_nicht.json"
     assert A.main(["--receipt", str(fehlt), "--repo", str(baum)]) == 2
+
+
+# What the resolver reads whole is bounded, and a receipt it cannot read is NICHT_MESSBAR (a review of
+# the stack at 1ecc2aca, on main as well, measured 2026-09-26). Each case below ended the run with a
+# traceback and exit 1, the code of NICHT_AUFLOESBAR.
+
+@pytest.mark.parametrize("inhalt", ["[1]", '"x"', "null", "7"], ids=["list", "string", "null", "number"])
+def test_a_receipt_that_is_no_object_is_not_measurable(baum, tmp_path, inhalt):
+    q = tmp_path / "q.json"
+    q.write_text(inhalt, encoding="utf-8")
+    assert A.main(["--receipt", str(q), "--repo", str(baum)]) == 2
+    assert A.aufloesbar(json.loads(inhalt), baum)["zustand"] == "NICHT_MESSBAR"
+
+
+def test_a_receipt_nested_too_deep_is_not_measurable(baum, tmp_path, capsys):
+    q = tmp_path / "q.json"
+    q.write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+    assert A.main(["--receipt", str(q), "--repo", str(baum)]) == 2
+    assert "NICHT_MESSBAR" in capsys.readouterr().out
+
+
+def test_a_receipt_larger_than_a_receipt_is_not_read(baum, tmp_path, monkeypatch, capsys):
+    d = _digest(baum / "audit_artifacts" / "lauf.md")
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"audit_output_digest": d, "pad": "x" * 100}), encoding="utf-8")
+    monkeypatch.setattr(A, "RECEIPT_CAP", 64)
+    assert A.main(["--receipt", str(q), "--repo", str(baum)]) == 2
+    assert "at most 64 bytes" in capsys.readouterr().out
+
+
+def test_a_tracked_path_that_cannot_be_hashed_leaves_a_hole_not_a_negative(baum, monkeypatch):
+    """Too large, missing from the working tree, a FIFO: the negative over such a set is no negative.
+    A match elsewhere is still a match."""
+    import os
+    fremd = A.sha256_text("no artefact\n")
+    monkeypatch.setattr(A, "FILE_CAP", 8)
+    r = A.aufloesbar({"audit_output_digest": fremd}, baum)
+    assert r["zustand"] == "NICHT_MESSBAR" and "audit_artifacts/lauf.md" in r["nicht_gehasht"], r
+    monkeypatch.setattr(A, "FILE_CAP", 64 * 1024 * 1024)
+    lauf = baum / "audit_artifacts" / "lauf.md"
+    lauf.unlink()
+    r = A.aufloesbar({"audit_output_digest": fremd}, baum)
+    assert r["zustand"] == "NICHT_MESSBAR" and r["nicht_gehasht"] == ["audit_artifacts/lauf.md"], r
+    os.mkfifo(lauf)
+    r = A.aufloesbar({"audit_output_digest": fremd}, baum)
+    assert r["zustand"] == "NICHT_MESSBAR" and r["nicht_gehasht"] == ["audit_artifacts/lauf.md"], r
+    r = A.aufloesbar({"audit_output_digest": _digest(baum / "README.md")}, baum)
+    assert r["zustand"] == "AUFLOESBAR" and r["treffer"] == ["README.md"], r
+
+
+def test_a_sparse_file_of_12_gb_is_not_read_under_an_address_space_limit(baum, tmp_path):
+    """Measured with `ulimit -v 8000000`: the resolver read the whole file and ended with MemoryError."""
+    import os
+    resource = pytest.importorskip("resource")
+    if not sys.platform.startswith("linux"):
+        pytest.skip("RLIMIT_AS is measured on Linux here")
+    gross = baum / "audit_artifacts" / "lauf.md"
+    try:
+        os.truncate(gross, 12 * 1024 ** 3)
+    except OSError as exc:
+        pytest.skip(f"this file system refuses a sparse file of 12 GB: {exc}")
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"audit_output_digest": "a" * 64}), encoding="utf-8")
+
+    def _begrenzt():
+        resource.setrlimit(resource.RLIMIT_AS, (8_000_000 * 1024, 8_000_000 * 1024))
+
+    r = subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "audit_output_aufloesbar.py"),
+                        "--receipt", str(q), "--repo", str(baum)], capture_output=True, text=True,
+                       preexec_fn=_begrenzt, timeout=120)
+    assert "MemoryError" not in r.stderr, r.stderr
+    assert r.returncode == 2 and "NICHT_MESSBAR" in r.stdout, r.stdout + r.stderr

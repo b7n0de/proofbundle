@@ -116,6 +116,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
   is the escape of the same code point, so the name reads back as it was.
 
+- **The digest resolver and the third-party receipt verifier refuse a receipt they cannot read,
+  and read nothing whole without a bound** (`scripts/audit_output_aufloesbar.py`,
+  `scripts/verify_pre_tag_receipt.py`). Measured at the state before this entry and on main alike:
+  the resolver, whose docstring says it never raises on a bad receipt, ended with an AttributeError
+  and exit 1, its code for NICHT_AUFLOESBAR, on a receipt `[1]` or `"x"`; both tools ended with a
+  RecursionError traceback on a receipt nested 100000 deep, the verifier with exit 1, its code for
+  NOT VERIFIED; and the resolver, which hashes every tracked file, ended with a MemoryError on a
+  12 GB sparse file at a tracked path under an 8 GB address-space limit. The resolver now reports
+  NICHT_MESSBAR, exit 2, for a receipt that is no JSON object or nests too deep, reads a receipt up
+  to 4 MiB and a tracked file up to 64 MiB, and counts a tracked path it cannot read as a regular
+  file within that bound, a missing file and a FIFO included, as not hashed: with such a hole and no
+  match the result is NICHT_MESSBAR, where the first form skipped the path uncounted and could say
+  NICHT_AUFLOESBAR over a set with a hole in it. The verifier rejects a receipt nested too deep with
+  its reason, and asks git for a candidate's size before it reads it, rejecting one over 4 MiB unread.
+  The bounds come from this repository, measured: the largest receipt is 6667 bytes, the largest JSON
+  file in a receipt folder 326135 bytes, the largest tracked file 1603370 bytes. A receipt `[1]` was
+  already a typed rejection in the verifier. Named limit: the verifier reads the gate source whole;
+  it is a file of the checkout the verifier runs only when it equals the commit, and executes anyway.
+
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
   header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
