@@ -95,3 +95,35 @@ def test_the_stored_candidate_hashes_are_what_the_tool_derives():
         assert (CORPUS / "vectors" / vid / "candidate_hashes.json").read_text(encoding="utf-8") == t._dump(obj), vid
     assert (CORPUS / "preimage_summary.json").read_text(encoding="utf-8") == t._dump(summary)
     assert summary["data_hash_readers"] == {"own_reader": 29, "cbor2_agrees": 29}
+
+
+#: the two vectors kept as fixtures: a label in both header buckets, accepted by the service,
+#: refused by the v1 reader as submitted; (label, the same value in both buckets, file digests)
+BOTH_BUCKETS = {
+    "a09-x5chain-both-buckets": (33, True, {
+        "request.hex": "1cc09f823f7031db19ff403ef77543c13f4d6450498c7e6a575f5fead1dc697b",
+        "statement.hex": "2856c9b32cd52ae7ae3823e9374951d6691b07dc5ef694813c2fc504be7c873f"}),
+    "a10-cwt-claims-unprotected": (15, False, {
+        "request.hex": "438162d8f74c898e9833226658c15b09c65e1dfd6d6f8f5df7700ce3b255ef4c",
+        "statement.hex": "e24d0282ef36295053f1915980ed572e5a3d85b4295713c93f66d08c50662453"}),
+}
+
+
+@pytest.mark.parametrize("vid", sorted(BOTH_BUCKETS))
+def test_the_both_bucket_vectors_are_kept_as_submitted_and_as_returned(vid):
+    t = _tool("preimage_candidates.py")
+    label, equal, digests = BOTH_BUCKETS[vid]
+    d = CORPUS / "vectors" / vid
+    raw = {name: _hex(d / name) for name in digests}
+    assert {name: hashlib.sha256(b).hexdigest() for name, b in raw.items()} == digests
+    _tag, (prot, unprot, _payload, _sig) = t.sign1(raw["request.hex"])
+    pmap, _end = t.parse(prot.value)
+    in_prot = [v for k, v in pmap.value if k.value == label]
+    in_unprot = [v for k, v in unprot.value if k.value == label]
+    assert len(in_prot) == 1 and len(in_unprot) == 1
+    assert (t.encode(in_prot[0], sort=False) == t.encode(in_unprot[0], sort=False)) is equal
+    _tag, (_p, returned_unprot, _pl, _s) = t.sign1(raw["statement.hex"])
+    assert [k.value for k, _v in returned_unprot.value] == [394]
+    summary = json.loads((CORPUS / "summary.json").read_text(encoding="utf-8"))
+    row = next(v for v in summary["vectors"] if v["id"] == vid)
+    assert (row["v1_reader_on_submitted_bytes"], row["v1_reader_on_returned"]) == ("malformed", "confirmed")

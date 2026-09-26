@@ -224,11 +224,29 @@ NOT MEASURED here:
   refuses.
 - The v1 reader also refuses all 6 statements the service refused.
 
+## KEPT AS FIXTURES: THE TWO VECTORS WITH A LABEL IN BOTH HEADER BUCKETS
+
+The v1 reader refuses two submitted statements for a label that stands in both header buckets. The
+service accepted both. Their exact submitted and returned encodings are kept, byte for byte, as
+regression fixtures:
+
+| vector | label in both buckets | submitted encoding | returned encoding | v1 reader, submitted / returned |
+|---|---|---|---|---|
+| a09-x5chain-both-buckets | 33 `x5chain`, the same value in both | `vectors/a09-x5chain-both-buckets/request.hex`, 2011 bytes, sha256 `1cc09f823f7031db19ff403ef77543c13f4d6450498c7e6a575f5fead1dc697b` | `vectors/a09-x5chain-both-buckets/statement.hex`, 1692 bytes, sha256 `2856c9b32cd52ae7ae3823e9374951d6691b07dc5ef694813c2fc504be7c873f` | malformed / confirmed |
+| a10-cwt-claims-unprotected | 15 CWT claims, conflicting: the unprotected issuer is `did:example:spoofed` | `vectors/a10-cwt-claims-unprotected/request.hex`, 1163 bytes, sha256 `438162d8f74c898e9833226658c15b09c65e1dfd6d6f8f5df7700ce3b255ef4c` | `vectors/a10-cwt-claims-unprotected/statement.hex`, 1692 bytes, sha256 `e24d0282ef36295053f1915980ed572e5a3d85b4295713c93f66d08c50662453` | malformed / confirmed |
+
+- The returned encoding carries label 394 alone in its unprotected map. The submitted label is gone.
+- The data-hash of both vectors is the control's.
+- A rerun of `../differential_corpus.py run` would replace `vectors/` with new signatures. These
+  bytes are therefore not regenerated. Further classes go into a directory of their own.
+- `tests/test_scitt_ccf_differential_corpus.py` holds both files of both vectors to the digests above,
+  and holds the labels to the buckets named.
+
 ## LIMITS
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 163 text files, 465517 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
+- Stored: 163 text files, 467204 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
 - No further mutation classes for now (owner answer C2 c).
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
