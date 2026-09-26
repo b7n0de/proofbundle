@@ -245,6 +245,13 @@ _REGEX_EXCEPTIONS = {
     # follows `\s*`, which takes a trailing newline either way. Follow-up 236.
     ("scripts.required_check_reachability_gate",
      r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$"),
+    # The release-scope title form, read through its f-strings since the fold reads a placeholder
+    # (2026-09-26). Its identifier digits are ASCII now; its `\S` asks that the subject start with a
+    # character that is whitespace in no script, and an ASCII class there would accept U+00A0, the
+    # separator the gate's own comment refuses. A title, not a schema value.
+    ("scripts.b7_release_scope_title_gate",
+     r"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>[A-Z]\.?-?[A-Z]?[0-9]+(?:[.\-][0-9a-z]+)*) *\]"
+     r" +(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?: +\S[^\r\n]*\Z"),
 }
 #: The `$` half outside src/, open and named (follow-up 236): each pattern ends in `$`, which also
 #: matches before a trailing newline, and whether one can reach it depends on the callers.
@@ -254,6 +261,25 @@ _DOLLAR_OPEN_OUTSIDE_SRC = {
     ("scripts.codex_threads_check", r"^ {0,3}(`{3,}|~{3,})(.*)$"),
     ("scripts.fork_pr_secret_isolation", r"^[0-9a-f]{40}$"),
     ("scripts.mutant_signature_guard", r"^src/proofbundle/.*\.py$"),
+}
+#: Every call whose pattern the fold cannot state completely, keyed by (module, enclosing definition,
+#: re function, argument form), with how many such calls there are and why none of them is a
+#: whole-value pattern the sweep would have to judge. Deny by default: a new unfolded call, or one more
+#: under a listed key, turns the sweep red until it is read and listed here (measured 2026-09-26 under
+#: src/, scripts/ and tools/: four calls, each read in its source).
+_UNFOLDED_PATTERN_SITES = {
+    ("scripts.claims_hygiene_check", "<module>", "compile", "Name p"): (
+        1, "a loop variable over _FORBIDDEN: 37 word patterns, none anchored at both ends (read by "
+           "importing the module), so it judges no whole value"),
+    ("scripts.codex_threads_check", "register_threads", "compile", "JoinedStr"): (
+        1, "a run-time value (re.escape of the repository and pull request) in a pattern that is not "
+           "anchored at its start, so it judges no whole value"),
+    ("scripts.gen_findings_register", "_titel", "sub", "JoinedStr"): (
+        1, "a run-time value (re.escape of the identifier) in a pattern anchored at the start only, a "
+           "prefix strip that judges no whole value"),
+    ("scripts.gen_findings_register", "baue_v2", "search", "JoinedStr"): (
+        1, "a run-time value (re.escape of an identifier) in an unanchored search, which judges no "
+           "whole value"),
 }
 _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
 DOLLAR, UNICODE = "ends in `$`, which matches before a newline", "uses a Unicode class (`\\d` is 0-9 in ECMA-262)"
@@ -324,82 +350,159 @@ def _module_bindings(tree) -> dict:
     return bound
 
 
-#: How many values one expression may fold to before the sweep stops widening it; a product of choices
-#: that grows past this is a named limit, not a silent cut (the fold says so in `_folded`).
+#: How many values one expression may fold to, and how long one folded text may grow, before the fold
+#: stops widening it. Past either bound the fold records a gap (`_folded`), it does not cut silently.
 _FOLD_CAP = 64
+_FOLD_SIZE = 10_000
 _FOLD_OPS = {ast.Add: lambda a, b: a + b, ast.Mod: lambda a, b: a % b, ast.Mult: lambda a, b: a * b}
 
 
-def _folded(expr, bound, classes, _seen=frozenset()) -> list:
-    """Every value an expression can have as the source states it, folded without running the module:
-    str, bytes, int and literal lists or tuples of them.
+_WIDE_FIELD = re.compile(r"[0-9]{5,}")
 
-    Read: literals; an f-string with no placeholder; `+`, `%` and `*` between folded values; both
-    branches of a conditional; a module-level name through every value it is bound to; an attribute of a
-    class defined at module level, through its class body; an index into a folded list, tuple or string;
-    `str.join` and `str.format` on folded values. The 228bc stack delta planted a conditional, a partial, a
-    name bound twice, bytes, an f-string and `+` (run 1), then a class attribute, `%`, `str.join` and a
-    list index (run 2) past a sweep that read one form at a time; the fold reads the expression instead.
-    NAMED LIMIT: a value that exists only at run time is not folded: a parameter, a loop variable, a
-    local name, an f-string with a placeholder, a call other than `str.join` or `str.format`, an inherited
-    or instance attribute, and a fold that would exceed `_FOLD_CAP` values."""
+
+def _too_large(a, b) -> bool:
+    """`*` would build a text or sequence longer than `_FOLD_SIZE` (the third delta run on 9aaa79c0
+    folded `r"\\A\\d+\\Z" * 100000000` and used 0.68 GB for one call), or a format text asks for a
+    field five digits wide or wider (`"%100000000s" % x`, `"{:100000000}".format(x)`)."""
+    for seq, n in ((a, b), (b, a)):
+        if isinstance(seq, (str, bytes, list, tuple)) and isinstance(n, int) and len(seq) * n > _FOLD_SIZE:
+            return True
+    return False
+
+
+def _wide_format(head) -> bool:
+    text = head.decode("latin-1") if isinstance(head, bytes) else head
+    return isinstance(text, str) and bool(_WIDE_FIELD.search(text))
+
+
+def _folded(expr, bound, classes, _seen=frozenset(), gaps=None) -> list:
+    """Every value an expression can have as the source states it, folded without running the module:
+    str, bytes, int, and literal lists, tuples, dicts and slices of them.
+
+    Read: literals; an f-string whose placeholders fold (no conversion, no format spec); `+`, `%` and `*`
+    between folded values; both branches of a conditional; a module-level name through every value it
+    is bound to; an attribute of a class defined at module level, through its class body; an index or a
+    slice of a folded list, tuple or string; `str.join` and `str.format` on folded values, keywords
+    included. The 228bc stack delta planted a conditional, a partial, a name bound twice, bytes, an
+    f-string and `+` (run 1), then a class attribute, `%`, `str.join` and a list index (run 2), then `%`
+    with a dict, a slice and `format` with keywords (run 3) past a sweep that dropped what it could not
+    fold.
+
+    DENY BY DEFAULT: every part the fold cannot state is appended to `gaps` (when given), and the values
+    of the other parts are still returned. A parameter, a loop variable, a local name, a call other than
+    `str.join` or `str.format`, an inherited or instance attribute, a fold past `_FOLD_CAP` values or
+    `_FOLD_SIZE` characters: each is a gap, and a pattern site with a gap is reported by
+    `_unfolded_pattern_sites`, so a form nobody listed turns the sweep red instead of passing it."""
+    gaps = [] if gaps is None else gaps
+
     def each(sub):
-        return _folded(sub, bound, classes, _seen)
-    if isinstance(expr, ast.Constant) and isinstance(expr.value, (str, bytes, int)) \
-            and not isinstance(expr.value, bool):
-        return [expr.value]
-    if isinstance(expr, ast.JoinedStr) and all(isinstance(v, ast.Constant) for v in expr.values):
-        return ["".join(v.value for v in expr.values)]
-    if isinstance(expr, (ast.List, ast.Tuple)):
-        combos = [[]]
-        for elt in expr.elts:
-            combos = [c + [v] for c in combos for v in each(elt)][:_FOLD_CAP]
-        return [tuple(c) if isinstance(expr, ast.Tuple) else c for c in combos]
-    if isinstance(expr, ast.BinOp) and type(expr.op) in _FOLD_OPS:
+        return _folded(sub, bound, classes, _seen, gaps)
+
+    def capped(values):
+        if len(values) > _FOLD_CAP:
+            gaps.append("more than _FOLD_CAP values")
+        kept = [v for v in values if not (isinstance(v, (str, bytes)) and len(v) > _FOLD_SIZE)]
+        if len(kept) < len(values):
+            gaps.append("a text longer than _FOLD_SIZE")
+        return kept[:_FOLD_CAP]
+
+    def combos(parts):
+        out = [[]]
+        for values in parts:
+            out = [c + [v] for c in out for v in values]
+            if len(out) > _FOLD_CAP:
+                gaps.append("more than _FOLD_CAP values")
+                out = out[:_FOLD_CAP]
+        return out
+
+    if isinstance(expr, ast.Constant):
+        if isinstance(expr.value, (str, bytes, int)) and not isinstance(expr.value, bool):
+            return [expr.value]
+        if expr.value is None:
+            return [None]
+    elif isinstance(expr, ast.JoinedStr):
+        parts = []
+        for v in expr.values:
+            if isinstance(v, ast.Constant):
+                parts.append([v.value])
+            elif isinstance(v, ast.FormattedValue) and v.conversion == -1 and v.format_spec is None:
+                parts.append([x for x in each(v.value) if isinstance(x, str)])
+            else:
+                gaps.append(ast.unparse(v))
+                return []
+        return capped(["".join(c) for c in combos(parts)])
+    elif isinstance(expr, (ast.List, ast.Tuple)):
+        return [tuple(c) if isinstance(expr, ast.Tuple) else c for c in combos([each(e) for e in expr.elts])]
+    elif isinstance(expr, ast.Dict) and None not in expr.keys:
+        keys, values = combos([each(k) for k in expr.keys]), combos([each(v) for v in expr.values])
+        out = []
+        for ks in keys:
+            for vs in values:
+                try:
+                    out.append(dict(zip(ks, vs)))
+                except TypeError:
+                    gaps.append(ast.unparse(expr))
+        return capped(out)
+    elif isinstance(expr, ast.UnaryOp) and isinstance(expr.op, (ast.USub, ast.UAdd)):
+        return [(-v if isinstance(expr.op, ast.USub) else v) for v in each(expr.operand)
+                if isinstance(v, int) and not isinstance(v, bool)]
+    elif isinstance(expr, ast.Slice):
+        ends = [each(e) if e is not None else [None] for e in (expr.lower, expr.upper, expr.step)]
+        return capped([slice(*c) for c in combos(ends)])
+    elif isinstance(expr, ast.BinOp) and type(expr.op) in _FOLD_OPS:
         out = []
         for a in each(expr.left):
             for b in each(expr.right):
+                if ((isinstance(expr.op, ast.Mult) and _too_large(a, b))
+                        or (isinstance(expr.op, ast.Mod) and _wide_format(a))):
+                    gaps.append("a text longer than _FOLD_SIZE")
+                    continue
                 try:
                     out.append(_FOLD_OPS[type(expr.op)](a, b))
-                except (TypeError, ValueError, OverflowError, MemoryError):
-                    continue
-        return out[:_FOLD_CAP]
-    if isinstance(expr, ast.IfExp):
-        return (each(expr.body) + each(expr.orelse))[:_FOLD_CAP]
-    if isinstance(expr, ast.Name) and expr.id in bound and expr.id not in _seen:
-        return [v for value in bound[expr.id]
-                for v in _folded(value, bound, classes, _seen | {expr.id})][:_FOLD_CAP]
-    if (isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) and expr.value.id in classes
+                except (TypeError, ValueError, OverflowError, MemoryError, KeyError):
+                    gaps.append(ast.unparse(expr))
+        return capped(out)
+    elif isinstance(expr, ast.IfExp):
+        return capped(each(expr.body) + each(expr.orelse))
+    elif isinstance(expr, ast.Name) and expr.id in bound and expr.id not in _seen:
+        return capped([v for value in bound[expr.id]
+                       for v in _folded(value, bound, classes, _seen | {expr.id}, gaps)])
+    elif (isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) and expr.value.id in classes
+            and expr.attr in classes[expr.value.id]
             and (key := f"{expr.value.id}.{expr.attr}") not in _seen):
-        return [v for value in classes[expr.value.id].get(expr.attr, [])
-                for v in _folded(value, bound, classes, _seen | {key})][:_FOLD_CAP]
-    if isinstance(expr, ast.Subscript):
+        return capped([v for value in classes[expr.value.id][expr.attr]
+                       for v in _folded(value, bound, classes, _seen | {key}, gaps)])
+    elif isinstance(expr, ast.Subscript):
         out = []
         for container in each(expr.value):
             for index in each(expr.slice):
                 try:
                     out.append(container[index])
                 except (TypeError, IndexError, KeyError):
-                    continue
-        return out[:_FOLD_CAP]
-    if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)
-            and expr.func.attr in ("join", "format") and not expr.keywords):
+                    gaps.append(ast.unparse(expr))
+        return capped(out)
+    elif (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)
+            and expr.func.attr in ("join", "format") and all(k.arg for k in expr.keywords)):
         out = []
+        names = [k.arg for k in expr.keywords]
         for head in each(expr.func.value):
-            if not isinstance(head, (str, bytes)):
+            if (not isinstance(head, (str, bytes)) or (expr.func.attr == "format" and not isinstance(head, str))
+                    or (expr.func.attr == "format" and _wide_format(head))):
+                gaps.append(ast.unparse(expr))
                 continue
-            arg_sets = [each(a) for a in expr.args]
-            combos = [[]]
-            for values in arg_sets:
-                combos = [c + [v] for c in combos for v in values][:_FOLD_CAP]
-            for args in combos:
+            for args in combos([each(a) for a in expr.args] + [each(k.value) for k in expr.keywords]):
+                positional, keywords = args[:len(expr.args)], dict(zip(names, args[len(expr.args):]))
                 try:
-                    out.append(head.join(args[0]) if expr.func.attr == "join" and len(args) == 1
-                               else head.format(*args) if expr.func.attr == "format" and isinstance(head, str)
-                               else None)
+                    if expr.func.attr == "join" and len(positional) == 1 and not keywords:
+                        out.append(head.join(positional[0]))
+                    elif expr.func.attr == "format":
+                        out.append(head.format(*positional, **keywords))
+                    else:
+                        gaps.append(ast.unparse(expr))
                 except (TypeError, ValueError, IndexError, KeyError):
-                    continue
-        return [v for v in out if v is not None][:_FOLD_CAP]
+                    gaps.append(ast.unparse(expr))
+        return capped(out)
+    gaps.append(ast.unparse(expr))
     return []
 
 
@@ -418,10 +521,18 @@ def _module_classes(tree) -> dict:
     return classes
 
 
-def _pattern_texts(expr, bound, classes=None) -> list:
-    """The pattern texts among the folded values: (text, is_bytes) pairs."""
+def _pattern_texts(expr, bound, classes=None, gaps=None) -> list:
+    """The pattern texts among the folded values: (text, is_bytes) pairs. A fold nested too deep for
+    the interpreter is a gap, not an error that ends the collection (the third delta run on 9aaa79c0
+    planted 3000 `+` in a row and `RecursionError` left the sweep)."""
     out = []
-    for v in _folded(expr, bound, classes or {}):
+    try:
+        values = _folded(expr, bound, classes or {}, gaps=gaps)
+    except RecursionError:
+        if gaps is not None:
+            gaps.append("nested deeper than the interpreter's recursion limit")
+        values = []
+    for v in values:
         if isinstance(v, str):
             out.append((v, False))
         elif isinstance(v, bytes):
@@ -447,33 +558,41 @@ def _is_partial(func, modules, partials) -> bool:
             and isinstance(func.value, ast.Name) and func.value.id in modules)
 
 
+def _pattern_calls(tree):
+    """(call, re function, pattern argument or None, flag texts, line-anchored) for every call of a
+    function of `re` in a module, however the module names it."""
+    names, functions = _re_names(tree)
+    modules, partials = _partial_names(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function, args = _re_function(node.func, names, functions), list(node.args)
+        # `functools.partial(re.compile, PATTERN)` binds the pattern where the partial is made (235 D-2).
+        if not function and _is_partial(node.func, modules, partials) and args:
+            function, args = _re_function(args[0], names, functions), args[1:]
+        if not function:
+            continue
+        # The pattern as the first argument or as `pattern=` (a review lens of another family planted
+        # `re.compile(pattern=...)`, which the first form of this sweep did not see).
+        arg = args[0] if args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
+        flags = [ast.unparse(a) for a in args[1:] + [k.value for k in node.keywords if k.arg != "pattern"]]
+        # `^` and `$` are line anchors under MULTILINE, not whole-value ones.
+        multiline = any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags)
+        yield node, function, arg, flags, multiline
+
+
 def _whole_value_regex_readings(sources) -> list:
     """(module, source) pairs in; one (module, line, pattern, reading) per whole-value pattern read
     differently from ECMA-262, the named exceptions left out."""
     found = []
     for mod, text in sources:
         tree = ast.parse(text)
-        names, functions = _re_names(tree)
         bound, classes = _module_bindings(tree), _module_classes(tree)
-        modules, partials = _partial_names(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+        for node, function, arg, flags, multiline in _pattern_calls(tree):
+            if arg is None or multiline:
                 continue
-            function, args = _re_function(node.func, names, functions), list(node.args)
-            # `functools.partial(re.compile, PATTERN)` binds the pattern where the partial is made (235 D-2).
-            if not function and _is_partial(node.func, modules, partials) and args:
-                function, args = _re_function(args[0], names, functions), args[1:]
-            if not function:
-                continue
-            # The pattern as the first argument or as `pattern=` (a review lens of another family planted
-            # `re.compile(pattern=...)`, which the first form of this sweep did not see), read through
-            # `_pattern_texts`.
-            arg = args[0] if args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
-            flags = [ast.unparse(a) for a in args[1:] + [k.value for k in node.keywords if k.arg != "pattern"]]
-            if arg is None or any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
-                continue                     # `^` and `$` are line anchors there, not whole-value ones
             ascii_flag = any("ASCII" in f or re.search(r"\.A\b", f) for f in flags)
-            for pattern, is_bytes in _pattern_texts(arg, bound, classes):
+            for pattern, is_bytes in _pattern_texts(arg, bound, classes, gaps=[]):
                 anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
                 if not (anchored or function == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
                     continue
@@ -483,6 +602,44 @@ def _whole_value_regex_readings(sources) -> list:
                 if _UNICODE_CLASSES.search(pattern) and not ascii_flag and not is_bytes:
                     found.append((mod, node.lineno, pattern, UNICODE))
     return found
+
+
+def _definitions(tree) -> dict:
+    """id(node) -> qualified name of the def or class around it, '<module>' at module level."""
+    where: dict = {}
+    stack = [(tree, "<module>")]
+    while stack:                     # a loop, not recursion: a planted 3000-deep `+` chain is valid source
+        node, name = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            inner = (f"{name}.{child.name}" if name != "<module>" else child.name) if isinstance(
+                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else name
+            where[id(child)] = inner
+            stack.append((child, inner))
+    return where
+
+
+def _unfolded_pattern_sites(sources) -> dict:
+    """(module, enclosing definition, re function, argument form) -> the gaps of each such call, for
+    every call of a pattern-taking function of `re` whose pattern the fold cannot state completely. MULTILINE calls are
+    left out as they are by the readings. The argument form is the node type (and a name's identifier),
+    so the key does not depend on how one Python version unparses an f-string."""
+    sites: dict = {}
+    for mod, text in sources:
+        tree = ast.parse(text)
+        bound, classes, where = _module_bindings(tree), _module_classes(tree), _definitions(tree)
+        for node, function, arg, _flags, multiline in _pattern_calls(tree):
+            if function not in _RE_FUNCTIONS or multiline:
+                continue
+            gaps: list = []
+            if arg is None:
+                gaps.append("no pattern argument the sweep can read")
+                form = "none"
+            else:
+                _pattern_texts(arg, bound, classes, gaps=gaps)
+                form = f"Name {arg.id}" if isinstance(arg, ast.Name) else type(arg).__name__
+            if gaps:
+                sites.setdefault((mod, where.get(id(node), "<module>"), function, form), []).append(gaps)
+    return sites
 
 
 def _whole_value_regex_findings(sources) -> list:
@@ -586,24 +743,66 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
         found = _whole_value_regex_readings([("scripts.planted", planted)])
         self.assertEqual(sorted(line for _mod, line, _p, _r in found), [4, 5, 6, 8, 9], found)
 
-    def test_named_limit_a_value_computed_at_run_time_is_not_folded(self):
-        """A call other than `str.join` or `str.format` is not run by the sweep. If this turns red,
-        the fold learned it; rewrite the limit, do not delete the case."""
-        planted = 'import re\nA = re.compile(str(r"\\A\\d+\\Z"))\nB = re.compile(r"\\A\\d+\\Z".strip())\n'
+    def test_a_value_computed_at_run_time_is_reported_unfolded_not_passed(self):
+        """A call other than `str.join` or `str.format` is not run by the sweep, and a loop variable is
+        not resolved; neither is read as a pattern. Each is reported as an unfolded site instead of
+        passing silently, which the fold did until the third delta run on 9aaa79c0."""
+        planted = ('import re\nA = re.compile(str(r"\\A\\d+\\Z"))\nB = re.compile(r"\\A\\d+\\Z".strip())\n'
+                   'for _p in (r"\\A\\d+\\Z",):\n    re.compile(_p)\n')
         self.assertEqual(_whole_value_regex_readings([("scripts.planted", planted)]), [])
+        self.assertEqual(sorted((k[3], len(v)) for k, v in
+                                _unfolded_pattern_sites([("scripts.planted", planted)]).items()),
+                         [("Call", 2), ("Name _p", 1)])
 
-    def test_named_limit_a_loop_variable_is_not_resolved(self):
-        """Stated rather than hidden: a pattern that reaches `re` through a loop variable is not read.
-        If this turns red, the sweep learned it; rewrite the limit, do not delete the case."""
-        planted = 'import re\nfor _p in (r"\\A\\d+\\Z",):\n    re.compile(_p)\n'
-        self.assertEqual(_whole_value_regex_readings([("scripts.planted", planted)]), [])
+    def test_the_third_delta_forms_are_folded(self):
+        """The third delta run on 9aaa79c0 wrote three forms the fold dropped without a word: `%` with a
+        dict, a slice, and `str.format` with keywords. The fold reads each now, and an f-string whose
+        placeholder names a module constant; a clean pattern built the same way is no finding."""
+        planted = ('import re\nA = re.compile(r"\\A\\d+%(z)s" % {"z": r"\\Z"})\n'
+                   'PAT = r"\\A\\d+\\Zx"\nB = re.compile(PAT[:-1])\n'
+                   'C = re.compile("{x}{y}".format(x=r"\\A\\d", y="+\\\\Z"))\n'
+                   'D_PART = r"\\d+"\nD = re.compile(rf"\\A{D_PART}\\Z")\n'
+                   'E = re.compile(rf"\\A{PAT[:-1][2:4]}\\Z")\nF = re.compile("{x}".format(x=r"\\A[0-9]+\\Z"))\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 4, 5, 7, 8], found)
+        self.assertEqual(_unfolded_pattern_sites([("scripts.planted", planted)]), {})
+
+    def test_a_fold_too_deep_or_too_large_is_a_gap_not_a_crash(self):
+        """3000 `+` in a row raised RecursionError out of the sweep and ended the collection, and
+        `r"\\A\\d+\\Z" * 100000000` folded to 0.68 GB for one call (both measured in the third delta
+        run). Each is a gap now: reported as unfolded, not read, not raised."""
+        import time
+        deep = "import re\nA = re.compile(" + " + ".join(['r"\\A\\d+\\Z"'] + ['""'] * 3000) + ")\n"
+        large = ('import re\nB = re.compile(r"\\A\\d+\\Z" * 100000000)\n'
+                 'C = re.compile("%100000000s" % "x")\nD = re.compile("{:100000000}".format("x"))\n')
+        t0 = time.monotonic()
+        for planted in (deep, large):
+            with self.subTest(planted=planted[:40]):
+                self.assertEqual(_whole_value_regex_readings([("scripts.planted", planted)]), [])
+                self.assertTrue(_unfolded_pattern_sites([("scripts.planted", planted)]))
+        self.assertLess(time.monotonic() - t0, 30)
+
+    def test_every_unfolded_site_in_the_tree_is_listed_with_its_count(self):
+        """Deny by default, in both directions: a site the fold cannot state is listed with the reason
+        it judges no whole value, and a listed site that is gone leaves the list."""
+        seen = {k: len(v) for k, v in _unfolded_pattern_sites(list(_tree()) + list(_tree_outside_src())).items()}
+        self.assertEqual(seen, {k: n for k, (n, _why) in _UNFOLDED_PATTERN_SITES.items()},
+                         "an unfolded pattern site came, went or changed its count: read it and list it")
+        for key, (_n, why) in _UNFOLDED_PATTERN_SITES.items():
+            with self.subTest(site=key):
+                self.assertRegex(why, r"judges no whole value")
 
     def test_the_named_exceptions_are_still_there(self):
-        """Counter-direction: an exception whose pattern is gone is stale and must be removed."""
+        """Counter-direction: an exception whose pattern is gone is stale and must be removed. Read as
+        the sweep reads it, folded, since a pattern built in an f-string is in no source line whole."""
         text = dict(_tree()) | dict(_tree_outside_src())
         for mod, pattern in _REGEX_EXCEPTIONS:
             with self.subTest(module=mod, pattern=pattern):
-                self.assertIn(pattern, text[mod])
+                tree = ast.parse(text[mod])
+                bound, classes = _module_bindings(tree), _module_classes(tree)
+                folded = {p for _n, _f, arg, _fl, _m in _pattern_calls(tree) if arg is not None
+                          for p, _b in _pattern_texts(arg, bound, classes, gaps=[])}
+                self.assertIn(pattern, folded)
 
 
 class TheMeasuredConsequencesAreGone(unittest.TestCase):

@@ -45,7 +45,12 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 #: verdict turned green on the way. Whoever reads only the verdict sees a fix; whoever reads the
 #: count sees three lines that stopped existing. The collision had not been resolved, it had been
 #: made invisible.
-_KENNUNG = r"[A-Z]\.?-?[A-Z]?\d+(?:[.\-][0-9a-z]+)*"
+#:
+#: The digits are ASCII, as the version beside them always was. `\d` took every Unicode decimal digit,
+#: so a title whose identifier carried an Arabic-Indic digit held the form; the regex sweep of the
+#: schema tests read this expression through the f-strings below on 2026-09-26, after it learned
+#: to fold a placeholder.
+_KENNUNG = r"[A-Z]\.?-?[A-Z]?[0-9]+(?:[.\-][0-9a-z]+)*"
 
 #: THE WHOLE TITLE FORM, anchored at both ends. The contract in the module docstring above reads
 #: `[<version> <ID>] type(scope): subject`, exactly one identifier, at the start.

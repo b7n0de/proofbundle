@@ -79,13 +79,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the second), sees a function of `re` imported by name (`from re import compile as c`, `*`), bound
   by assignment, taken with `getattr` or bound in `functools.partial`, and folds a pattern given as
   `pattern=` without running the module: literals (a bytes literal's `\d` is ASCII in Python),
-  an f-string without a placeholder, `+`, `%` and `*`, both branches of a conditional, a
-  module-level name through every value it is bound to, an attribute of a module-level class, an
-  index into a folded list, and `str.join` and `str.format`; a value that exists only at run time
-  (a parameter, a loop variable, a local name, another call) is a named limit. It leaves MULTILINE patterns alone, whose anchors are
-  per line. Four scripts still
-  end a whole-value pattern in `$`, and one reads a GitHub expression with `\s`; they are listed by
-  module and pattern, and the list is exact in both directions.
+  an f-string whose placeholders fold, `+`, `%` and `*` (a dict on the right of `%` included), both
+  branches of a conditional, a module-level name through every value it is bound to, an attribute
+  of a module-level class, an index or a slice of a folded list or string, and `str.join` and
+  `str.format` (keywords included). What the fold cannot state is no longer dropped: a value that
+  exists only at run time (a parameter, a loop variable, another call), a fold past 64 values or
+  10,000 characters, and one nested deeper than the interpreter recurses (3000 `+` in a row raised
+  `RecursionError` out of the sweep) make the call an unfolded site, and every unfolded site is
+  listed with its count and the reason it judges no whole value: four under `src/`, `scripts/` and
+  `tools/`, each read in its source. A new one turns the sweep red. Folding a placeholder made one
+  more pattern visible: the release-scope title form read its identifier digits with `\d`, so a
+  title whose identifier carried an Arabic-Indic digit held the form
+  (`scripts/b7_release_scope_title_gate.py`); it reads `[0-9]` now. The sweep leaves MULTILINE
+  patterns alone, whose anchors are per line. Four scripts still end a whole-value pattern in `$`,
+  one reads a GitHub expression with `\s`, and the title form keeps `\S` for the subject's first
+  character, where an ASCII class would accept U+00A0; they are listed by module and pattern, and
+  the lists are exact in both directions.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
