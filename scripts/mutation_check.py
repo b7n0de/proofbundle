@@ -350,9 +350,14 @@ MUTATIONS = [
     # Removing the ES256 dispatch entry must fail the real (now cryptographically verified) vendored
     # ES256 vectors — tests/test_sdjwtvc_external_vectors.py's
     # TestSdjwtVcIssuerSignatureExternalVectors.test_all_examples_issuer_signature_verifies.
+    # 2026-09-26: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Z195 (L1-Z195-01..03)
+    # fuehrte den SD-JWT-Ausstellerschluessel ueber `verify_ed25519_pinned` (SPEC 4b); der Operator
+    # nannte weiter `verify_ed25519` und waere damit STALE gewesen — gefunden vor dem Push beim
+    # Abgleich aller 100 Ziel-Literale gegen den Zweig, nicht erst im CI-Job. Verdikt unveraendert:
+    # der ES256-Eintrag faellt weg.
     ("src/proofbundle/sdjwt.py",
-     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}',
-     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned}',
      "sdjwt: Finding 20 ES256 issuer-signature dispatch removed (real ES256 vectors stop verifying)", True),
     # signature.verify_ecdsa_p256 fail-open: dropping the real cryptographic verify call while still
     # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
@@ -370,6 +375,16 @@ MUTATIONS = [
      "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
      "        return True",
      "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
+    # DIE ANKERREGEL SELBST (deep gate Z195, SPEC 4b). Faellt sie in `verify_ed25519_pinned` weg,
+    # verifiziert die feste Signatur R = Identitaet, S = 0 wieder fuer jede Nachricht unter jedem
+    # Schluessel niedriger Ordnung, an allen Flaechen zugleich. Getoetet von
+    # tests/test_trust_anchor_keys_refused_on_every_surface.py (TheRule und jede Flaechenklasse);
+    # ohne diesen Operator saehe das Tor ein Schrumpfen genau dieser Tests nicht.
+    ("src/proofbundle/signature.py",
+     "    if ed25519_trust_anchor_weakness(public_key) is not None:\n        return False\n"
+     "    return verify_ed25519(public_key, signature, message)",
+     "    return verify_ed25519(public_key, signature, message)",
+     "signature: trust-anchor rule dropped from verify_ed25519_pinned (low-order keys verify again)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
     # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
     # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's

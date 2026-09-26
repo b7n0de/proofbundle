@@ -43,6 +43,7 @@ import unittest
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "proofbundle"
@@ -214,6 +215,15 @@ def _clamped(seed: bytes) -> int:
     return int.from_bytes(h, "little")
 
 
+def _throwaway() -> "tuple[bytes, bytes]":
+    """(seed, public key) of a throwaway key. Made with `generate()`, never `from_private_bytes`: the
+    distribution ships this file, and tests/test_sdist_ohne_signierwerkzeug.py refuses a shipped module
+    that loads a private key from a value it did not write out itself."""
+    k = Ed25519PrivateKey.generate()
+    return (k.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()),
+            k.public_key().public_bytes_raw())
+
+
 def _plus_order_two(pub: bytes) -> bytes:
     """A + T2 for the order-2 point T2 = (0, -1), which is the point (-x, -y): y becomes p - y and the
     x sign flips (x is never 0 for a key the rule lets through). No decompression needed."""
@@ -224,11 +234,12 @@ def _plus_order_two(pub: bytes) -> bytes:
 
 class _SameSecretSecondPoint:
     """Signs under A + T2 with the secret of A, as RFC 8032 does, grinding the nonce until [k]T2 is the
-    identity, i.e. k is even: one try in two on average. R = [r]B comes from `cryptography` itself."""
+    identity, i.e. k is even: one try in two on average. R = [r]B comes from `cryptography` itself: the
+    public key of a throwaway key is [clamp(SHA-512(seed)[:32])]B."""
 
-    def __init__(self, seed: bytes):
+    def __init__(self, seed: bytes, pub: bytes):
         self._a = _clamped(seed)
-        self._pub = _plus_order_two(Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes_raw())
+        self._pub = _plus_order_two(pub)
         self.tries: list = []
 
     def public_key(self):
@@ -242,8 +253,7 @@ class _SameSecretSecondPoint:
 
     def sign(self, msg: bytes) -> bytes:
         for i in range(1, 129):
-            seed_r = hashlib.sha256(b"nonce" + i.to_bytes(2, "big") + msg).digest()
-            big_r = Ed25519PrivateKey.from_private_bytes(seed_r).public_key().public_bytes_raw()
+            seed_r, big_r = _throwaway()
             k = int.from_bytes(hashlib.sha512(big_r + self._pub + msg).digest(), "little") % _L
             sig = big_r + ((_clamped(seed_r) + k * self._a) % _L).to_bytes(32, "little")
             if verify_ed25519(self._pub, sig, msg):
@@ -261,29 +271,36 @@ class DistinctPointsAreNotDistinctParties(unittest.TestCase):
     def test_one_secret_meets_a_two_of_two_witness_quorum(self):
         log = generate_signer()
         note = cp.sign_checkpoint("example.com/log", 5, b"\x11" * 32, log, "log")
-        seed = hashlib.sha256(b"one secret").digest()
-        first = Ed25519PrivateKey.from_private_bytes(seed)
-        second = _SameSecretSecondPoint(seed)
+        first = Ed25519PrivateKey.generate()
+        second = _SameSecretSecondPoint(first.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()),
+                                        _raw(first))
         self.assertNotEqual(_raw(first), second.public_bytes_raw())
         self.assertIsNone(ed25519_trust_anchor_weakness(second.public_bytes_raw()))
-        note = cp.cosign_checkpoint(note, first, "wa", 1_700_000_000)
+        base = note
+        note = cp.cosign_checkpoint(base, first, "wa", 1_700_000_000)
         note = cp.cosign_checkpoint(note, second, "wb", 1_700_000_001)
         roster = [cp.cosign_vkey("wa", _raw(first)), cp.cosign_vkey("wb", second.public_bytes_raw())]
         r = cp.verify_witnessed_checkpoint(note, cp.vkey("log", _raw(log)), roster, threshold=2)
         self.assertIs(r["ok"], True, r)
         self.assertIs(r["witnesses_ok"], True, r)
         self.assertEqual(len(second.tries), 1)
+        # Negative control (gate iteration 3, lens B, B3-01): the same roster, but the wb line is signed
+        # by a stranger. A quorum that counted roster entries instead of verified ones still said ok.
+        stranger = Ed25519PrivateKey.generate()
+        bad = cp.cosign_checkpoint(cp.cosign_checkpoint(base, first, "wa", 1_700_000_000),
+                                   stranger, "wb", 1_700_000_001)
+        r_bad = cp.verify_witnessed_checkpoint(bad, cp.vkey("log", _raw(log)), roster, threshold=2)
+        self.assertIs(r_bad["witnesses_ok"], False, r_bad)
+        self.assertIs(r_bad["ok"], False, r_bad)
 
     def test_the_second_point_signs_only_when_k_is_even(self):
         """The mechanism, not just the outcome: under A + T2 a signature made with the secret of A
         verifies exactly when [k]T2 is the identity."""
-        seed = hashlib.sha256(b"one secret").digest()
-        signer = _SameSecretSecondPoint(seed)
+        signer = _SameSecretSecondPoint(*_throwaway())
         pub, seen = signer.public_bytes_raw(), set()
         for i in range(1, 65):
             msg = b"message %d" % i
-            seed_r = hashlib.sha256(b"r" + msg).digest()
-            big_r = Ed25519PrivateKey.from_private_bytes(seed_r).public_key().public_bytes_raw()
+            seed_r, big_r = _throwaway()
             k = int.from_bytes(hashlib.sha512(big_r + pub + msg).digest(), "little") % _L
             sig = big_r + ((_clamped(seed_r) + k * signer._a) % _L).to_bytes(32, "little")
             self.assertIs(verify_ed25519(pub, sig, msg), k % 2 == 0, i)
@@ -612,6 +629,45 @@ class RustParity(unittest.TestCase):
                 out = self._run("verify-bundle", str(path))
                 self.assertEqual(out.returncode, rust_rc, out.stdout + out.stderr)
 
+    def test_an_attached_target_under_a_weak_related_key_agrees(self):
+        """Gate iteration 3, lens B (B3-02): `ed25519_schluessel` had only a unit test, so its rule could
+        be computed and ignored with nothing red. End to end through verify-relation-statement: a target
+        signed by nobody, attached under the identity key, is unverified on both sides; the same target
+        signed by a real key, attached under that key, is verified on both sides."""
+        import tempfile
+        from proofbundle import anchors
+        from proofbundle.cli import main as cli
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.relation_statement import emit_relation_statement
+        base = json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        issuer, real = generate_signer(), generate_signer()
+        issuer_b64 = _b64(_raw(issuer))
+        for label, target_signer, related_key, want in (("real", real, _raw(real), (0, "VERIFIED")),
+                                                         ("weak", _Nobody(), I1, (2, "FAIL"))):
+            target = emit_decision_receipt(base, target_signer, strict=True)
+            root = anchors.statement_content_root(dsse.load_payload(target)).hex()
+            stmt = emit_relation_statement({"schemaVersion": "0.1.0", "statementId": "urn:uuid:s-1",
+                                            "relationships": [{"relation": "retracts", "targetReceiptDigest": {
+                                                "digestAlgorithm": "jcs-sha256-v1", "digest": root}}]}, issuer)
+            with self.subTest(target=label), tempfile.TemporaryDirectory() as d:
+                sp, tp = Path(d) / "stmt.json", Path(d) / "target.json"
+                sp.write_text(json.dumps(stmt), encoding="utf-8")
+                tp.write_text(json.dumps(target), encoding="utf-8")
+                extra = ["--with-related", str(tp), "--related-pub", _b64(related_key)]
+                import contextlib
+                import io
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        py_rc = cli(["relation-statement", "verify", str(sp), "--pub", issuer_b64, "--json", *extra])
+                    except SystemExit as e:
+                        py_rc = e.code
+                py = (py_rc, (json.loads(out.getvalue()).get("lineage") or {}).get("lineage"))
+                rs_out = self._run("verify-relation-statement", str(sp), issuer_b64, *extra)
+                rs = (rs_out.returncode, json.loads(rs_out.stdout)["lineage"])
+                self.assertEqual(py, want, out.getvalue()[:400])
+                self.assertEqual(rs, want, rs_out.stdout[:400])
+
     def test_the_trust_pack_threshold_agrees(self):
         import tempfile
         from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
@@ -675,6 +731,26 @@ class RustParity(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
+class ThePinnedReleaseKeys(unittest.TestCase):
+    """Gate iteration 3, lens A (A3-01..04): the release tooling under scripts/ checks its signatures
+    under these pinned keys with the SPEC section 4a profile, which is a change of its own. Until then
+    the CHANGELOG says the keys pinned today pass the rule, and this holds it: a weak key landing in
+    either file turns this red before any receipt is signed under it."""
+
+    def test_every_pinned_key_passes_the_rule(self):
+        seen = 0
+        for rel in ("audit_artifacts/pre_tag_trusted_pubkeys.txt", "audit_artifacts/readiness_trusted_pubkeys.txt"):
+            for line in (REPO / rel).read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                seen += 1
+                with self.subTest(file=rel, key=line.split()[0][:12]):
+                    self.assertIsNone(ed25519_trust_anchor_weakness(base64.b64decode(line.split()[0],
+                                                                                     validate=True)))
+        self.assertGreater(seen, 0, "no pinned key read; this case would measure nothing")
+
+
 # The two keys that stay on the bare SPEC section 4a profile, with their reason. Nothing else may.
 IN_BAND = {
     "bundle.py": "the bundle's own signature.public_key_b64 arrives in the bundle; SPEC section 4a pins "
@@ -687,6 +763,12 @@ IN_BAND = {
 
 _BARE = "verify_ed25519"
 _KEY_CLASS = "Ed25519PublicKey"
+# The generic public-key loaders of `cryptography.hazmat.primitives.serialization`. Each returns a live
+# Ed25519 key object for an Ed25519 input without the key class ever being named: gate iteration 3,
+# lens A (A3-05) verified the universal forgery through `load_der_public_key` while the sweep saw nothing.
+_GENERIC_LOADERS = ("load_der_public_key", "load_pem_public_key", "load_ssh_public_key",
+                    "load_ssh_public_identity")
+_WATCHED = (_BARE, _KEY_CLASS) + _GENERIC_LOADERS
 
 
 def _sweep_source(rel: str, text: str) -> list:
@@ -698,28 +780,31 @@ def _sweep_source(rel: str, text: str) -> list:
     and `getattr(signature, "verify_ed25519")`. It now follows the module's own imports of the bare
     primitive under any alias, counts the name as a string (the `getattr` form), and counts every
     reference to the `cryptography` key class, since constructing an Ed25519 public key outside
-    `signature.py` is a second path to the same arithmetic. What it cannot see, said here so it is not
-    read into it: a name built at run time ("verify_" + "ed25519"), whether it goes to `getattr` or
-    to a module `importlib` returned, and code run from a string by `exec` or `eval`. A module from
-    `importlib` read with the literal name (`m.verify_ed25519`) is seen, as an attribute (gate iteration
-    2, lens C, C2-03: an earlier version of this sentence listed `importlib` as unseen outright)."""
+    `signature.py` is a second path to the same arithmetic. The generic key loaders of `cryptography`
+    count the same way (`_GENERIC_LOADERS`): they build that key object without naming its class. What
+    it cannot see, said here so it is not read into it: a name built at run time ("verify_" +
+    "ed25519"), whether it goes to `getattr` or to a module `importlib` returned, and code run from a
+    string by `exec` or `eval`. A module from `importlib` read with the literal name
+    (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
+    of this sentence listed `importlib` as unseen outright). Its walk is the package, src/proofbundle;
+    the release tooling under scripts/ is outside it and is a change of its own."""
     tree = ast.parse(text)
-    names = {_BARE}
+    names = set(_WATCHED)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
-                if alias.name == _BARE:
+                if alias.name in _WATCHED:
                     names.add(alias.asname or alias.name)
     found = []
     for node in ast.walk(tree):
         spelling = None
-        if isinstance(node, ast.ImportFrom) and any(a.name in (_BARE, _KEY_CLASS) for a in node.names):
-            spelling = "import of " + ", ".join(a.name for a in node.names if a.name in (_BARE, _KEY_CLASS))
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in names | {_KEY_CLASS}:
+        if isinstance(node, ast.ImportFrom) and any(a.name in _WATCHED for a in node.names):
+            spelling = "import of " + ", ".join(a.name for a in node.names if a.name in _WATCHED)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in names:
             spelling = f"name {node.id}"
-        elif isinstance(node, ast.Attribute) and node.attr in (_BARE, _KEY_CLASS):
+        elif isinstance(node, ast.Attribute) and node.attr in _WATCHED:
             spelling = f"attribute {node.attr}"
-        elif isinstance(node, ast.Constant) and node.value in (_BARE, _KEY_CLASS):
+        elif isinstance(node, ast.Constant) and node.value in _WATCHED:
             spelling = f"string {node.value!r}"
         if spelling:
             found.append((rel, node.lineno, spelling))
@@ -764,7 +849,7 @@ class TheSweep(unittest.TestCase):
 
     def test_no_verification_bypasses_the_rule_outside_the_named_in_band_keys(self):
         stray = [f"{rel}:{line} {spelling}" for rel, line, spelling in self._uses()
-                 if rel not in IN_BAND or _KEY_CLASS in spelling]
+                 if rel not in IN_BAND or any(w in spelling for w in (_KEY_CLASS,) + _GENERIC_LOADERS)]
         self.assertEqual(stray, [], "a trusted key reaches the bare SPEC 4a profile; route it through "
                                     "verify_ed25519_pinned or name it in IN_BAND with its reason")
 
@@ -784,6 +869,12 @@ class TheSweep(unittest.TestCase):
                                          "Ed25519PublicKey as K\nK.from_public_bytes(k)\n"),
             "the class through its module": ("from cryptography.hazmat.primitives.asymmetric import ed25519\n"
                                              "ed25519.Ed25519PublicKey.from_public_bytes(k)\n"),
+            "a generic DER loader (A3-05)": ("from cryptography.hazmat.primitives.serialization import "
+                                             "load_der_public_key\nload_der_public_key(der).verify(s, m)\n"),
+            "a PEM loader through its module": ("from cryptography.hazmat.primitives import serialization\n"
+                                                "serialization.load_pem_public_key(pem).verify(s, m)\n"),
+            "an SSH loader under an alias": ("from cryptography.hazmat.primitives.serialization import "
+                                             "load_ssh_public_key as L\nL(line).verify(s, m)\n"),
         }
         for label, text in planted.items():
             with self.subTest(spelling=label):
@@ -831,7 +922,9 @@ RUST_MAIN = RUST_DIR / "src" / "main.rs"
 RUST_KEY_SITES_WITH_RULE = {"verify_dsse", "ed25519_schluessel", "verify_sdjwt_issuer",
                             "verify_trust_pack_threshold"}
 RUST_IN_BAND = {"verify_bundle": "the bundle's own signature.public_key_b64, as bundle.py in IN_BAND"}
-_RUST_KEY_CONSTRUCTION = re.compile(r"\bVerifyingKey::\w+\s*\(")
+# A local name for the key type: `type VK = VerifyingKey;` or `use ...::VerifyingKey as VK;`. Gate
+# iteration 3, lens C (C3-02) built a key through `VK::from_bytes` and the sweep saw nothing.
+_RUST_ALIAS = re.compile(r"\btype\s+(\w+)\s*=\s*(?:[\w:]*::)?VerifyingKey\s*;|\bVerifyingKey\s+as\s+(\w+)")
 _RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)", re.M)
 
 
@@ -855,15 +948,17 @@ def _rust_key_sites(text: str) -> list:
     module; "code before it" runs from the function's `fn` to the construction, comments removed.
 
     What it cannot see, said here so it is not read into it: a key built by type inference
-    (`let vk: VerifyingKey = arr.try_into()?`), through a trait not named `VerifyingKey::`, or by
-    another crate; a block comment (main.rs has none today) or a line comment inside a multi-line
+    (`let vk: VerifyingKey = arr.try_into()?`), through a trait not named `VerifyingKey::` or one of its
+    aliases, or by another crate; an alias of an alias; a block comment (main.rs has none today) or a line comment inside a multi-line
     string. It reads text, not a parse tree, names a function by the nearest `fn` above, and asks
     whether the rule is CALLED before the key is built, not whether its answer is obeyed."""
     cut = text.find("#[cfg(test)]\nmod tests")
     prod = _rust_code_only(text if cut < 0 else text[:cut])
     fns = [(m.start(), m.group(1)) for m in _RUST_FN.finditer(prod)]
+    typ_names = {"VerifyingKey"} | {a or b for a, b in _RUST_ALIAS.findall(prod)}
+    construction = re.compile(r"\b(?:" + "|".join(sorted(typ_names)) + r")::\w+\s*\(")
     sites = []
-    for m in _RUST_KEY_CONSTRUCTION.finditer(prod):
+    for m in construction.finditer(prod):
         start, name = max((f for f in fns if f[0] < m.start()), default=(0, "<top level>"))
         sites.append((name, prod.count("\n", 0, m.start()) + 1, prod[start:m.start()]))
     return sites
@@ -902,6 +997,14 @@ class TheRustSweep(unittest.TestCase):
             "#[cfg(test)]\nmod tests", 1)
         self.assertNotEqual(planted, self.text)
         self.assertEqual([s.split(" in ")[1] for s in _rust_stray(planted)], ["neuer_pfad"])
+        for label, alias_line in (("a type alias", "type Vk = VerifyingKey;\n"),
+                                  ("a use alias", "use ed25519_dalek::VerifyingKey as Vk;\n")):
+            aliased = self.text.replace(
+                "#[cfg(test)]\nmod tests",
+                alias_line + "fn ueber_alias(b: &[u8; 32]) -> bool {\n    Vk::from_bytes(b).is_ok()\n}\n\n"
+                "#[cfg(test)]\nmod tests", 1)
+            with self.subTest(construction=label):
+                self.assertEqual([s.split(" in ")[1] for s in _rust_stray(aliased)], ["ueber_alias"])
         dropped = self.text.replace("if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {\n"
                                     "        return Ok(false);\n    }\n    let vk = VerifyingKey::from_bytes"
                                     "(&pk_arr).map_err(|e| format!(\"bad issuer key", "let vk = VerifyingKey"

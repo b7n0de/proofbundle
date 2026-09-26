@@ -67,9 +67,10 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     component) is not refused. Signing under it still needs the discrete log of the prime-order part,
     so it gives no forgery without a secret. Its owner can sign under all eight variants A + T of one
     key A (T of the 8-torsion subgroup, A itself included) by grinding each signature's nonce until
-    [k]T is the identity. On average that takes as many tries as the order of T; measured on this
-    change over 400 signatures per order: 1.95, 3.98 and 8.35 tries for orders 2, 4 and 8, at most 45.
-    A 2-of-2 witness quorum met by two points of ONE secret is kept as a test
+    [k]T is the identity. Each try succeeds with probability 1/ord(T), so the number of tries is
+    geometric: on average ord(T) (2, 4 or 8), with no upper bound, since a signature under an order-8
+    variant still needs more than n tries with probability (7/8)**n. The test on the k parity pins that
+    mechanism for order 2. A 2-of-2 witness quorum met by two points of ONE secret is kept as a test
     (``DistinctPointsAreNotDistinctParties``). That is one party holding several keys, which any party
     can do by generating a second key; no signature reveals it, so a count of distinct keys is never a
     count of distinct parties."""

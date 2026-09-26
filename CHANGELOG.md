@@ -30,6 +30,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
   are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
   SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
+  Not yet covered: the release tooling under `scripts/` (the pre-tag receipt, readiness artifacts, the
+  findings register and the status page) still checks signatures under its pinned keys with the §4a
+  profile; the keys pinned today pass the rule, and that tooling gets its own change.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
