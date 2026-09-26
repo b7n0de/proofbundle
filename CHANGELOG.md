@@ -36,6 +36,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   The values of sections outside `relations` are still not read by Rust while Python refuses a bad
   one; the parity registry names that gap and a test measures it.
 
+- **A path the sdist promised and does not carry fails the shipped suite instead of skipping it**
+  (`tests/conftest.py`). From an extracted sdist, a test module that names an absent root-relative
+  path was skipped as repo-context without asking whether the distribution was supposed to carry the
+  path. Measured by the deep gate against main 5b53ab3e (finding L6-Z195-01, confirmed 3 of 3) with
+  one appended line, `exclude examples/trust_policy_strict.json`, while `graft examples` still stood:
+  `tests/test_trust_policy.py` went from 47 passed to 47 skipped and the shipped suite stayed rc 0. A
+  path that a positive line of MANIFEST.in promises, that setuptools adds by itself (the template,
+  `pyproject.toml`, the README, the license files), or that setuptools' build_py ships from the
+  package configuration in `pyproject.toml` (the modules of every package its discovery finds, the
+  declared package data), now makes the module run and fail when it is absent; a negative line does
+  not withdraw the promise, because that is exactly the accident being caught. The template is read as
+  setuptools reads it, including continuation lines, inline comments, `\#`, and the difference between
+  the glob behind `include` and the pattern behind `global-include`; vectors from a real `build_sdist`
+  with setuptools 69.5.1 are the oracle (`tests/fixtures/manifest_semantics/`, 15 cases, three of them
+  varying the package discovery; a directory without `__init__.py` is a package only where that
+  discovery allows namespace packages, and a candidate for it holds the reader to setuptools in both
+  cases). Measured end to end from sdists built at 66809c50, before build_py was
+  read: the planted exclude gave 2 failed, 45 passed, rc 1, and an unplanted sdist ran as before.
+
 - **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
   (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
   verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
