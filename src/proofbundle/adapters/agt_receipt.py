@@ -49,7 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Iterable, Optional, Sequence
 
 from .._membership import is_member
 from ..errors import VerificationResult
@@ -184,13 +184,28 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> boo
     return verify_ed25519_pinned(schluessel, signatur, nutzlast)
 
 
-def _schwaeche(pubkey_hex) -> "str | None":
-    """Why a hex-spelled key cannot stand as a trusted Ed25519 key (`low-order`, `non-canonical`),
-    or None. Text that decodes to no 32-byte key is None here: it names no key, verifies nothing and
-    matches nothing, and the signature check or the list comparison says so on its own."""
-    try:
-        roh = bytes.fromhex(pubkey_hex)
-    except (ValueError, TypeError):
+def _schluesselbytes(eintrag) -> "bytes | None":
+    """The 32 key bytes an entry names, or None when it names no key. Hex text is decoded; raw
+    `bytes`/`bytearray` are taken as they are (lens run 1 at 053c7800, K2-01: the identity point given
+    as raw bytes was never judged). Anything else, including a nested list, names no key."""
+    if isinstance(eintrag, (bytes, bytearray)):
+        roh = bytes(eintrag)
+    elif isinstance(eintrag, str):
+        try:
+            roh = bytes.fromhex(eintrag)
+        except ValueError:
+            return None
+    else:
+        return None
+    return roh if len(roh) == 32 else None
+
+
+def _schwaeche(eintrag) -> "str | None":
+    """Why an entry cannot stand as a trusted Ed25519 key (`low-order`, `non-canonical`), or None.
+    An entry that names no 32-byte key is None here: it names no key, verifies nothing and matches
+    nothing, and the signature check or the list comparison says so on its own."""
+    roh = _schluesselbytes(eintrag)
+    if roh is None:
         return None
     grund = ed25519_trust_anchor_weakness(roh)
     return grund if grund in ("low-order", "non-canonical") else None
@@ -202,24 +217,45 @@ def _abgewiesen(feld: str, grund: str) -> str:
             f"arithmetic: {TRUST_ANCHOR_REFUSAL[grund]}")
 
 
-def _abgewiesene_liste(schluessel) -> "str | None":
-    """The refusal of a relying party's `trusted_authorizer_keys`, or None when every entry can stand.
+def _kurz(eintrag) -> str:
+    """A short spelling of an entry for a message: hex for raw bytes, the text itself otherwise."""
+    if isinstance(eintrag, (bytes, bytearray)):
+        return bytes(eintrag).hex()[:16]
+    return str(eintrag)[:16]
+
+
+def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
+    """The relying party's `trusted_authorizer_keys`, materialised ONCE, and its refusal or None.
 
     AT THE LIST, when a key is AUTHORISED, not only when a receipt happens to name it. A weak key on
     that list authorised nothing before either, because the authorization signature goes through the
     rule; but the list stood as accepted, and the defect showed only on the one receipt that used it.
     The trust policy refuses a weak pin when it is LOADED (`policy._validate_pinned_ed25519_pubkey`),
-    and this list is the same kind of object. An entry that decodes to no 32-byte key is left alone,
-    as before: it names no key and matches nothing. A container this function cannot walk is left to
-    the comparison further down, unchanged."""
-    if not isinstance(schluessel, (list, tuple, set, frozenset)):
-        return None
+    and this list is the same kind of object.
+
+    THE SAME ITERABLE AS THE COMPARISON, and that is the fix for lens run 1 at 053c7800 (K2-01). The
+    first version walked only list, tuple, set and frozenset, while the comparison below walked any
+    iterable: a `deque`, a `UserList`, a `dict` or a `dict.keys()` view carrying the identity point
+    next to the real authorizer key gave exit 0 with the weak key never judged. Both now read ONE
+    tuple built here, so a one-shot iterator is not consumed by the refusal before the comparison
+    sees it, and the two can never again disagree about what the list holds.
+
+    An entry that names no key (text that is no 32-byte hex, bytes of another length, a nested list,
+    a number, None) is left standing and matches nothing, as `"x"` has since 3c9c98c3: a list whose
+    job is to name keys cannot authorise anything through a non-key. Something that cannot be walked
+    at all is no list of keys, and that is a refusal of the list (exit 2), never a TypeError.
+    """
+    try:
+        eintraege = tuple(schluessel)
+    except TypeError:
+        return None, (f"trusted_authorizer_keys is {type(schluessel).__name__}, not a collection of "
+                      f"keys — it cannot be read as a relying party's list")
     gruende = []
-    for i, eintrag in enumerate(schluessel):
+    for i, eintrag in enumerate(eintraege):
         grund = _schwaeche(eintrag)
         if grund is not None:
-            gruende.append(_abgewiesen(f"trusted_authorizer_keys[{i}] ({str(eintrag)[:16]}…)", grund))
-    return "; ".join(gruende) or None
+            gruende.append(_abgewiesen(f"trusted_authorizer_keys[{i}] ({_kurz(eintrag)}…)", grund))
+    return eintraege, ("; ".join(gruende) or None)
 
 
 def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
@@ -236,7 +272,7 @@ def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
 def verify_agt_receipt(
     receipt: Dict[str, Any],
     *,
-    trusted_authorizer_keys: Optional[Sequence[str]] = None,
+    trusted_authorizer_keys: Optional[Iterable[Any]] = None,
     require_external_authorization: bool = False,
     now: Optional[float] = None,
 ) -> VerificationResult:
@@ -270,13 +306,15 @@ def verify_agt_receipt(
     key and each key on `trusted_authorizer_keys`. A low-order or non-canonical key is refused before
     any signature arithmetic, and the check says which key and why. A weak key on the relying
     party's list refuses the list before the receipt is read (`trusted-authorizer-keys`, exit 2, the
-    malformed-input code, as a weak pin in a trust policy is).
+    malformed-input code, as a weak pin in a trust policy is). The list may be any iterable; it is
+    read once, and an entry is a key as hex text or as 32 raw bytes (see `_vertrauensliste`).
     """
     ergebnis = VerificationResult()
+    vertraut: "tuple | None" = None
     if trusted_authorizer_keys is not None:
-        liste = _abgewiesene_liste(trusted_authorizer_keys)
-        if liste is not None:
-            ergebnis.add("trusted-authorizer-keys", False, liste)
+        vertraut, abgewiesen = _vertrauensliste(trusted_authorizer_keys)
+        if abgewiesen is not None:
+            ergebnis.add("trusted-authorizer-keys", False, abgewiesen)
             return ergebnis
     # NEVER-RAISE AT THE VERIFY SURFACE, and the house gate was right to insist. The first version
     # let `canonical_payload` raise through here so that unreadable input could be told apart from
@@ -382,16 +420,22 @@ def verify_agt_receipt(
         ergebnis.add("external-authorization-unexpired", False,
                      "expiry or reference instant is not a number")
 
-    if trusted_authorizer_keys is None:
+    if vertraut is None:
         # NOT a pass. The check is recorded as not evaluated so the verdict cannot be read as
         # "the authorizer was trusted".
         ergebnis.add("external-authorization-trusted", False,
                      "no trusted authorizer keys supplied — the authorization was NOT evaluated "
                      "against a relying party's list, and this is not an acceptance")
     else:
-        ergebnis.add("external-authorization-trusted", a_key in set(trusted_authorizer_keys),
-                     f"authorizer key {a_key[:16]}… against {len(trusted_authorizer_keys)} "
-                     f"trusted key(s)")
+        # THE MATERIALISED TUPLE, compared as TEXT, and never through `set(...)`: an unhashable
+        # entry raised TypeError there (lens run 1 at 053c7800, a nested list; on main too). Text
+        # equality is what `a_key in set(...)` computed for every text entry, so the verdict for a
+        # list of hex strings is unchanged, hex case included (a named limit in the CHANGELOG).
+        treffer = any(isinstance(e, str) and e == a_key for e in vertraut)
+        ohne = sum(1 for e in vertraut if _schluesselbytes(e) is None)
+        ergebnis.add("external-authorization-trusted", treffer,
+                     f"authorizer key {a_key[:16]}… against {len(vertraut)} trusted key(s)"
+                     + (f", {ohne} of which name no key" if ohne else ""))
     return ergebnis
 
 
@@ -417,6 +461,16 @@ def verify_agt_receipt_chain(
     if not receipts:
         ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
         return ergebnis
+
+    # ONE READING OF THE RELYING PARTY'S LIST FOR THE WHOLE CHAIN. Every receipt gets the same
+    # object, and a one-shot iterator read by the first receipt would be empty for the one that
+    # carries the authorization. Something that cannot be walked is passed on as it is, so that each
+    # receipt reports the refusal in its own verdict.
+    if kwargs.get("trusted_authorizer_keys") is not None:
+        try:
+            kwargs = dict(kwargs, trusted_authorizer_keys=tuple(kwargs["trusted_authorizer_keys"]))
+        except TypeError:
+            pass
 
     for i, r in enumerate(receipts):
         teil = verify_agt_receipt(r, **kwargs)

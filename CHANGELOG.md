@@ -34,7 +34,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   key on the relying party's `trusted_authorizer_keys` refuses the list before the receipt is read
   (new check `trusted-authorizer-keys`, exit 2), and a weak `--expect-issuer` pin is refused when it
   is supplied (exit 2, the code a weak trust-policy pin gets). An entry or pin that decodes to no
-  32-byte key still matches nothing, as before. The register exit has a new state `KEY_REFUSED`,
+  32-byte key still matches nothing, as before. A lens run at 053c7800 measured that the list
+  refusal walked only list, tuple, set and frozenset while the comparison walked any iterable, so a
+  `deque`, a `UserList`, a `dict` or a `dict.keys()` view holding the identity point next to the
+  real authorizer key gave exit 0, as did the identity point given as raw bytes, and a nested-list
+  entry raised `TypeError` (on main too): the list is now read once, as one tuple that the refusal
+  and the comparison share (once per chain), 32 raw bytes are judged as a key, an entry that names
+  no key matches nothing and is counted in the check detail, and a value that cannot be walked
+  refuses the list (exit 2). The register exit has a new state `KEY_REFUSED`,
   which `pruefe_v2` counts as an error and the views print as unauthenticated. SPEC §4b needed no
   change: it already covers every key that is not the bundle's own.
 
@@ -55,7 +62,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
   fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and
   is no Ed25519 did:key. `trusted_authorizer_keys` is compared as text: the real authorizer key
-  listed in capitals gives exit 3, so the error falls on the closed side.
+  listed in capitals gives exit 3, and so does the real key given as 32 raw bytes, which the rule
+  judges but which is not text, so the error falls on the closed side.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

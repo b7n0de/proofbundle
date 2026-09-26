@@ -193,6 +193,102 @@ class AgtAuthorizerList(unittest.TestCase):
         self.assertEqual(exit_code(verify_agt_receipt(r, trusted_authorizer_keys=["aa" * 32])), 3,
                          "a real key that is not the authorizer stays a relying-party miss")
 
+    # ── K2-01 (lens run 1 at 053c7800): the refusal walked fewer containers than the comparison ──
+
+    @staticmethod
+    def _containers():
+        """Every shape of collection the comparison further down walks, each as a FACTORY, so a one-shot
+        iterator is built fresh per call. On 053c7800 only list, tuple, set and frozenset were walked by
+        the refusal, while `set(trusted_authorizer_keys)` walks any iterable."""
+        import collections
+        return {"list": list, "tuple": tuple, "set": set, "frozenset": frozenset,
+                "deque": collections.deque, "UserList": collections.UserList,
+                "dict": dict.fromkeys, "dict.keys()": lambda xs: dict.fromkeys(xs).keys(),
+                "generator": lambda xs: (x for x in xs)}
+
+    def test_a_weak_key_is_refused_in_every_container_the_comparison_walks(self):
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        for name, make in self._containers().items():
+            with self.subTest(container=name):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=make([I1.hex(), r["authorizer_public_key"]]))
+                self.assertEqual((e.ok, exit_code(e), e.checks[0].name),
+                                 (False, 2, "trusted-authorizer-keys"))
+                self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], e.checks[0].detail)
+
+    def test_positive_control_every_container_still_authorises_the_real_key(self):
+        """A one-shot generator is walked ONCE: the refusal and the comparison read one materialised
+        copy, so the real key is still found after the refusal looked at the list."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        for name, make in self._containers().items():
+            with self.subTest(container=name):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=make(["aa" * 32, r["authorizer_public_key"]]))
+                self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+
+    def test_a_raw_bytes_entry_is_judged_as_a_key(self):
+        """32 raw bytes name a key and go through the rule; on 053c7800 the identity point as bytes next
+        to the real key gave exit 0. A raw entry is still not TEXT, so it matches nothing: the
+        comparison is by hex text (a named limit of the CHANGELOG entry), which errs on the closed side."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        real = r["authorizer_public_key"]
+        for weak, reason in WEAK:
+            with self.subTest(key=weak.hex()):
+                for form in (bytes(weak), bytearray(weak)):
+                    e = verify_agt_receipt(r, trusted_authorizer_keys=[form, real])
+                    self.assertEqual((exit_code(e), e.checks[0].name), (2, "trusted-authorizer-keys"))
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], e.checks[0].detail)
+        self.assertEqual(exit_code(verify_agt_receipt(r, trusted_authorizer_keys=[bytes.fromhex(real)])), 3)
+        self.assertEqual(exit_code(verify_agt_receipt(r, trusted_authorizer_keys=[b"\x01" * 31, real])), 0,
+                         "bytes of another length name no key and match nothing, as text junk does")
+
+    def test_an_entry_that_is_no_key_spelling_never_raises_and_names_no_key(self):
+        """Out-of-scope finding 2 of the same lens run: a nested-list entry raised TypeError from
+        `set(...)` (on main too). DECIDED: such an entry names no key and matches nothing, exactly like
+        text that decodes to no key (`"x"`, pinned since 3c9c98c3). The list's only job is to name keys;
+        a non-key entry cannot authorise anything, and refusing a list for a Python type while accepting
+        junk text would give one question two answers. The check detail counts such entries, so the
+        caller's slip is visible without being a refusal."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        real = r["authorizer_public_key"]
+        for junk in ([I1.hex()], {"k": real}, 5, None, 1.5, object()):
+            with self.subTest(entry=type(junk).__name__):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=[junk, real])      # must not raise
+                self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+                trusted = [c for c in e.checks if c.name == "external-authorization-trusted"]
+                self.assertIn("1 of which name no key", trusted[0].detail)
+                e2 = verify_agt_receipt(r, trusted_authorizer_keys=[junk, I1.hex(), real])
+                self.assertEqual(exit_code(e2), 2, "a weak key beside the junk is still refused")
+
+    def test_a_one_shot_list_is_read_once_for_the_whole_chain(self):
+        """The chain verifier hands the same object to every receipt. A generator read by the first
+        receipt would be empty for the third, the one that carries the authorization, and the real
+        authorizer would read as untrusted (exit 3); on 053c7800 the same call raised TypeError from
+        `len(...)`. The chain reads the list once and passes the copy on."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+        e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=(k for k in [real]))
+        self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+        e2 = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=(k for k in [I1.hex(), real]))
+        self.assertEqual(exit_code(e2), 2)
+        self.assertEqual(sum(1 for c in e2.checks if c.name.endswith("trusted-authorizer-keys")), 3,
+                         "every receipt of the chain reports the refused list, not only the first")
+
+    def test_a_container_that_cannot_be_walked_is_malformed_not_a_crash(self):
+        """A non-iterable (an int) reached `set(...)` and raised TypeError on 053c7800. It is the
+        relying party's own input and cannot be read as a list of keys: exit 2, reason named."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        for bad in (5, 1.5, object()):
+            with self.subTest(container=type(bad).__name__):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=bad)               # must not raise
+                self.assertEqual((e.ok, exit_code(e), e.checks[0].name),
+                                 (False, 2, "trusted-authorizer-keys"))
+                self.assertIn("not a collection", e.checks[0].detail)
+
 
 # ── 2. the findings register's carrier: `_signatur_lage` and the views ──────────────────────────
 
