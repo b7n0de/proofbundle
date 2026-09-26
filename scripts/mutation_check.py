@@ -281,6 +281,18 @@ MUTATIONS = [
      '"ok": False, "warn": False, "status": "needs_rp_trust"',
      '"ok": True, "warn": False, "status": "needs_rp_trust"',
      "anchors_ots: WP-A1 needs_rp_trust self-trust re-enabled (backdating)", True),
+    # Deep gate Z195 (L2-Z195-OTS-WORK-AMPLIFICATION-01) and the gate on its fix (lens B, 229B-01):
+    # the cap before the library runs, and the binding read by membership instead of by a list of
+    # refusals. Killed by tests/test_an_ots_proof_is_capped_before_it_is_deserialized.py (TheCap and
+    # TheBindingIsReadByMembership; both need the [anchors] extra, which the mutation job installs).
+    ("src/proofbundle/anchors_ots.py",
+     "if isinstance(proof, (bytes, bytearray)) and len(proof) > _MAX_OTS_PROOF_BYTES:",
+     "if False:",
+     "anchors_ots: proof-size cap before deserializing removed (work amplification)", True),
+    ("src/proofbundle/anchors_ots.py",
+     '    return isinstance(result, dict) and result.get("status") in _BINDING_HELD',
+     '    return isinstance(result, dict) and result.get("status") not in _BINDING_NOT_HELD',
+     "anchors_ots: binding read by a list of refusals again (an unknown status reads as bound)", True),
     ("src/proofbundle/anchors_rfc3161.py",
      '"ok": False, "status": "needs_rp_trust"',
      '"ok": True, "status": "needs_rp_trust"',

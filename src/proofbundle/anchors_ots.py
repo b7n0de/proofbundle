@@ -35,6 +35,27 @@ class OtsProofTooLarge(ValueError):
     """A proof over `_MAX_OTS_PROOF_BYTES`: refused before the deserializer does any work."""
 
 
+#: The statuses `verify_opentimestamps` returns only after it READ the proof and found that it commits
+#: exactly the canonical root. A caller asking "is this proof bound?" reads membership in this set, never
+#: the absence of a refusal: when the cap added `over_budget`, the three callers that listed the refusals
+#: instead ("unbound", "malformed", "no_lib") read a proof nobody had read as bound — a rootcommit anchor
+#: whose proof commits a different digest came out binding=True, reject=False once it was padded past the
+#: cap (gate on the cap, lens B, 229B-01 and its neighbours). A status added later is unbound until it is
+#: listed here. `malformed` stays out although two of its returns come after the binding check: the same
+#: word also means "the proof did not deserialize", and a word with two meanings is read as the worse one.
+_BINDING_HELD = frozenset({"pending", "empty", "needs_rp_trust", "confirmed", "null_op",
+                           "block_mismatch", "bad_header", "upgraded_unverified"})
+#: Every other status `verify_opentimestamps` returns. Kept as a list so a test can hold the partition:
+#: each status the function can return is in exactly one of the two sets.
+_BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
+
+
+def ots_binding_held(result) -> bool:
+    """True iff `result`, a verdict of `verify_opentimestamps`, says the proof was read and commits the
+    canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound."""
+    return isinstance(result, dict) and result.get("status") in _BINDING_HELD
+
+
 def _deserialize_detached(proof):
     """The one way this package deserializes a detached OTS proof: the length cap first, then the
     library. Raises `OtsProofTooLarge` over the cap, `ImportError` without the `[anchors]` extra, and
@@ -302,15 +323,23 @@ def calendar_uris(proof: bytes) -> list[str]:
     An UPGRADED proof that no longer retains pending attestations honestly returns ``[]`` — its calendar
     dependency is already discharged, which is precisely the calendar-independence being surfaced."""
     try:
+        dtf = _deserialize_detached(proof)
+    except Exception:   # no [anchors] extra (ImportError), malformed, or over the cap → no calendars,
+        return []       # never raise (fail-closed transparency)
+    return _calendar_uris_of(dtf.timestamp)
+
+
+def _calendar_uris_of(timestamp) -> list[str]:
+    """``calendar_uris`` on an already deserialized timestamp, so a reader that needs the calendars AND
+    something else deserializes the proof once (gate on the cap, lens A, 229A-01: `describe_proof`
+    deserialized the same proof twice, both copies alive at once, and a proof just under the cap peaked at
+    36.5 MiB where one deserialization peaks at 18.2 MiB). Never raises."""
+    try:
         from opentimestamps.core.notary import PendingAttestation  # noqa: PLC0415
     except ImportError:
         return []
-    try:
-        dtf = _deserialize_detached(proof)
-    except Exception:   # malformed or over the cap → no calendars, never raise (fail-closed transparency)
-        return []
     uris: set[str] = set()
-    for _msg, att in dtf.timestamp.all_attestations():
+    for _msg, att in timestamp.all_attestations():
         if isinstance(att, PendingAttestation):
             uri = getattr(att, "uri", None)
             if isinstance(uri, bytes):

@@ -30,8 +30,8 @@ from __future__ import annotations
 import base64
 from typing import Optional
 
-from .anchors_ots import (OtsProofTooLarge, _classify, _deserialize_detached, calendar_operators,
-                          calendar_uris, verify_opentimestamps)
+from .anchors_ots import (OtsProofTooLarge, _calendar_uris_of, _classify, _deserialize_detached,
+                          calendar_operators, verify_opentimestamps)
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -89,15 +89,24 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
       ``provenCalendars`` is WHERE the field comes from (proof bytes vs a CLI flag); both are unverified.
 
     ``bundled_headers`` (a ``height -> block merkle-root hex`` map) is copied into the pack as EVIDENCE only
-    (``frozen`` block, WP-A1: never trusted by the verifier). The pack never contains a secret."""
-    proven = calendar_uris(proof)                       # embedded in the proof bytes, but UNVERIFIED
+    (``frozen`` block, WP-A1: never trusted by the verifier). The pack never contains a secret.
+
+    The proof is deserialized ONCE for both figures below (the same class as 229A-01 in
+    ``describe_proof``; here the two deserializations ran one after the other, doubling the work, not the
+    peak)."""
+    try:
+        timestamp = _deserialize_detached(proof).timestamp
+    except Exception:   # no [anchors] extra, malformed, or over the cap: no calendars, not self-contained
+        timestamp = None
+    # embedded in the proof bytes, but UNVERIFIED
+    proven = _calendar_uris_of(timestamp) if timestamp is not None else []
     proven_operators = calendar_operators(proven)
     pack: dict = {
         "type": "opentimestamps-evidence-pack",
         "packVersion": "v0.2",
         "canonicalRoot": base64.b64encode(canonical_root).decode(),
         "proof": base64.b64encode(proof).decode(),
-        "selfContained": ots_upgraded_proof_is_self_contained(proof),
+        "selfContained": _classify(timestamp)[0] if timestamp is not None else False,
         "provenCalendars": proven,
         "provenCalendarOperators": proven_operators,
         # WP-B1: operator count = distinct hostname-operators the proof EMBEDS in its retained
@@ -182,7 +191,7 @@ def describe_proof(proof: bytes) -> dict:
     except Exception:
         return base
     has_bitcoin, heights, has_pending = _classify(dtf.timestamp)
-    cals = calendar_uris(proof)
+    cals = _calendar_uris_of(dtf.timestamp)     # the same deserialization, not a second one (229A-01)
     ops = calendar_operators(cals)
     state = "upgraded" if has_bitcoin else ("pending" if has_pending else "empty")
     return {"state": state, "selfContained": has_bitcoin, "bitcoinHeights": sorted(heights),

@@ -11,14 +11,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ### Fixed
 
 - **An OTS proof is capped before it is deserialized, on every reader** (`anchors_ots`,
-  `evidence_pack`). The structural budget bounds the base64 string of a proof, not what the
-  OpenTimestamps deserializer builds from it: every fork creates a timestamp holding its own copy of the
-  message. Measured by the deep gate against main 5b53ab3e (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
-  confirmed 3 of 3) and again for this change in a fresh process: a 732 067-byte proof inside every
-  budget peaked at 137.1 MiB in `verify_evidence_pack`. All four places that deserialize a proof now go
-  through one helper that refuses a proof over 65 536 bytes first; the same proof is refused as
-  `over_budget` at 3.9 MiB, the pack itself. The largest proof this repository carries has 1510 bytes,
-  and a proof just under the cap peaks at about 14 MiB. `describe_proof` gains the state `over_budget`.
+  `evidence_pack`, `anchors_rootcommit`, `anchor upgrade`). The structural budget bounds the base64
+  string of a proof, not what the OpenTimestamps deserializer builds from it: every fork creates a
+  timestamp holding its own copy of the message. Measured by the deep gate against main 5b53ab3e
+  (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
+  confirmed 3 of 3) and again for this change, tracemalloc around the call alone, each figure three
+  times in a fresh process: a 732 067-byte proof inside every budget peaked at 134.4 MiB in
+  `verify_evidence_pack`. All four places that deserialize a proof now go through one helper that
+  refuses a proof over 65 536 bytes first; the same proof is refused as `over_budget` at 3.3 MiB,
+  before any deserialization. The largest proof this repository carries has 1510 bytes. A proof just
+  under the cap, built to amplify as much as the format allows (empty calendar URIs, two-byte fork
+  labels), peaks at 18.2 MiB in one deserialization. `describe_proof` deserialized every proof twice
+  with both copies alive, on main as well, and peaked at 36.5 MiB on that proof; it now deserializes
+  once, as every reader does (18.2 MiB). `describe_proof` gains the state `over_budget`. Adding that
+  status showed that three callers decided "bound" by the absence of the refusals they had listed;
+  they now read membership in the statuses that say the binding held (`anchors_ots.ots_binding_held`,
+  deny by default). So `anchor upgrade` refuses an over-cap proof with exit 2 and names the cap,
+  instead of reporting it as not upgraded yet and advising `ots upgrade`, and a rootcommit anchor whose
+  proof is over the cap is not bound.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
