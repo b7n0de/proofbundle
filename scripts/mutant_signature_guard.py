@@ -25,11 +25,17 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
      source (a committed `__pycache__/x.cpython-310.pyc` and a sourceless `evil.pyc` were reported
      clean with exit 0, measured 2026-09-26). No allow marker: compiled code carries no comment.
 
-Scope: added lines under src/proofbundle/**/*.py and *.pyw (the verification library, every path
-there is security-relevant), read as Python reads the file: from its bytes, with its BOM and its
-PEP 263 coding cookie. A changed file there that Python itself cannot decode or parse is not judged;
-the run stops fail-closed with the reason. Legitimate exceptions are possible but must be VISIBLE in
-the diff: put a `# mutant-guard: allow` comment on the flagged line or the line directly above it.
+Scope: every file under src/proofbundle/**/*.py and *.pyw (the verification library, every path
+there is security-relevant) that the change adds or modifies, judged WHOLE, read as Python reads the
+file: from its bytes, with its BOM and its PEP 263 coding cookie. The diff says which files changed;
+it does not say which lines mean something new. A change of only the coding-cookie line decodes every
+line after it anew, and a change that only removes, or only adds, lines that open and close a string
+turns text that stood in the string into statements; each left a `return True` opening a verify
+function unreported with exit 0 while only the added lines were judged (a review lens, and its
+sibling measured the same day, 2026-09-26). A changed file there that
+Python itself cannot decode or parse is not judged; the run stops fail-closed with the reason.
+Legitimate exceptions are possible but must be VISIBLE in the diff: put a `# mutant-guard: allow`
+comment on the flagged line or the line directly above it.
 
 Modes:
   --staged        scan the staged diff (pre-commit hook; content read from the index)
@@ -84,6 +90,13 @@ def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
     `if False == x:`). Read per physical line, a branch written over a backslash continuation (`if \\`
     and `True:` on the next line) was reported clean with exit 0 (a review lens, measured 2026-09-26);
     the tree holds the statement Python sees. A name such as `Falsey_thing` is no constant, as before.
+
+    PARENTHESES DO NOT MOVE THE START. The tree places `(True) and data` at its opening parenthesis and
+    the constant one column later, so `if (True) and data:` and `while (False) or x:` were reported
+    clean with exit 0 (a review lens, run 10, measured 2026-09-26). The first operand is therefore
+    followed down, by `_first_operand`, to the first atom of the condition. A unary operator is not
+    followed: `if not True:` and `if -True:` begin with an operator, not with the constant, and stay
+    outside this class as they were.
     """
     headers = []
     for node in ast.walk(tree):
@@ -95,10 +108,30 @@ def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
             continue
         test = node.test
         start = (test.lineno, test.col_offset)
+        first = _first_operand(test)
         if any(isinstance(n, ast.Constant) and isinstance(n.value, bool) and n.value in truths
-               and (n.lineno, n.col_offset) == start for n in ast.walk(test)):
+               and (n is first or (n.lineno, n.col_offset) == start) for n in ast.walk(test)):
             headers.append((node.lineno, test.end_lineno or test.lineno))
     return sorted(headers)
+
+
+def _first_operand(node: ast.AST) -> ast.AST:
+    """The atom a condition begins with, parentheses aside: the first operand of `and`/`or`, the left
+    side of a binary operator or a comparison, what an attribute, a subscript or a call is taken from,
+    and the value a conditional expression gives first. Iterative, so a long chain costs no stack."""
+    while True:
+        if isinstance(node, ast.BoolOp):
+            node = node.values[0]
+        elif isinstance(node, (ast.BinOp, ast.Compare)):
+            node = node.left
+        elif isinstance(node, (ast.Attribute, ast.Subscript)):
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        elif isinstance(node, ast.IfExp):
+            node = node.body
+        else:
+            return node
 
 
 # Class B — commented-out verification CODE, two-stage: a cheap prefilter (a comment whose
@@ -202,6 +235,10 @@ _HUNK = re.compile(r"@@ -[0-9]+(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@")
 def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
     """Parse a unified diff into {new_path: [(new_lineno, added_line_text), ...]}, in git's grammar.
 
+    Every path the new side of the diff names is a key, with an empty list when its change only
+    removes lines: such a change can give the lines that stay a new meaning, so the file is one the
+    change touched even though no line of it is added (a review lens, run 10, measured 2026-09-26).
+
     A line is a header or a hunk line by its POSITION, not by its shape. The hunk header states how
     many old and new lines follow, and exactly those are read as the hunk; everything else is a
     header. Read by shape, an added line `++ 1` (valid Python) came out as `+++ 1`, was taken for a
@@ -235,6 +272,8 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
         elif raw.startswith("+++ "):
             path = _git_path(raw[4:])
             current = None if path == "/dev/null" else path.removeprefix("b/")
+            if current is not None:
+                out.setdefault(current, [])
         elif raw.startswith("@@"):
             m = _HUNK.match(raw)
             if not m:
@@ -329,9 +368,9 @@ def _allowlisted(file_lines: list[str], lineno: int, last: int | None = None) ->
     return False
 
 
-def _class_c_findings(tree: ast.Module, added: set[int]) -> list[tuple[int, str]]:
-    """`return True` as first non-docstring statement of a verify-ish function, if the def or
-    the return line is part of the change (pre-existing code is out of scope for a diff guard)."""
+def _class_c_findings(tree: ast.Module, judged: set[int]) -> list[tuple[int, str]]:
+    """`return True` as first non-docstring statement of a verify-ish function, if the def or the
+    return line is among the judged lines (every line of a file the change touched, see `scan`)."""
     findings: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -346,7 +385,7 @@ def _class_c_findings(tree: ast.Module, added: set[int]) -> list[tuple[int, str]
             continue
         val = body[0].value
         if isinstance(val, ast.Constant) and val.value is True:
-            if node.lineno in added or body[0].lineno in added:
+            if node.lineno in judged or body[0].lineno in judged:
                 findings.append((body[0].lineno,
                                  f"`return True` opens verification function `{node.name}`"))
     return findings
@@ -391,8 +430,15 @@ def _links_on_security_paths(*, staged: bool, cwd: Path) -> list[tuple[str, str,
 
 
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
-    """Judge the added lines as Python reads them: the diff says WHICH git lines are new, the file
-    says which Python lines those are. Line numbers and the allow marker are Python's."""
+    """Judge every file the change touched under the security path whole, as Python reads it. The
+    diff says WHICH files changed and which git lines are new; the lines it adds are held against the
+    file, and then every Python line of the file is judged, because a change can give the lines it
+    leaves alone a new meaning (see the module docstring). Line numbers and the allow marker are
+    Python's.
+
+    Measured when this became so, 2026-09-26: none of the tracked `.py` files under src/proofbundle
+    carries a class A, B or C signature when read whole, so judging a changed file whole reports no
+    line that was there before."""
     try:
         per_file = _added_lines_by_file(diff_text)
     except ValueError as exc:
@@ -411,25 +457,23 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
             if not 1 <= git_no <= len(git_lines) or git_lines[git_no - 1] != text:
                 raise SystemExit(f"mutant_signature_guard: {path}:{git_no}: the diff and the file "
                                  f"disagree about this line (fail closed)")
-        tree, file_lines, spans = _read_as_python(path, raw)
-        added_nums: set[int] = set()
-        for git_no, _ in added:
-            added_nums.update(spans[git_no - 1])
+        tree, file_lines, _ = _read_as_python(path, raw)
+        judged = set(range(1, len(file_lines) + 1))
         in_order: list[tuple[int, str]] = []
         for first, last in _trivial_truth_headers(tree):
-            if added_nums.isdisjoint(range(first, last + 1)) or _allowlisted(file_lines, first, last):
+            if _allowlisted(file_lines, first, last):
                 continue
             header = " ".join(file_lines[n - 1].strip() for n in range(first, last + 1))
             in_order.append((first, f"{path}:{first}: trivial-truth branch (`if/elif False|True` / "
                                     f"`while False`) at a check\n    {header}"))
-        for lineno in sorted(added_nums):
+        for lineno in sorted(judged):
             text = file_lines[lineno - 1]
             if _COMMENTED_VERIFY.match(text) and _commented_content_parses(text) \
                     and not _allowlisted(file_lines, lineno):
                 in_order.append((lineno, f"{path}:{lineno}: commented-out verification call\n"
                                          f"    {text.strip()}"))
         findings.extend(finding for _, finding in sorted(in_order))
-        for lineno, reason in _class_c_findings(tree, added_nums):
+        for lineno, reason in _class_c_findings(tree, judged):
             if not _allowlisted(file_lines, lineno):
                 findings.append(f"{path}:{lineno}: {reason}")
     for path, mode, obj in links:
@@ -565,6 +609,9 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
      b"# -*- coding: latin-1 -*-\ns = '\xfc'\ndef verify_thing(data):\n    return True\n", True),
     ("A: in a file whose coding cookie says utf-7",
      "# coding: utf-7\n+AGkAZg- True:\n    pass\n", True),
+    # Parentheses around the first operand do not move where the condition starts (2026-09-26).
+    ("A: a parenthesized constant as the first operand",
+     _BENIGN.replace('if not isinstance(data, dict):', 'if (True) and data:'), True),
 ]
 
 
@@ -597,6 +644,20 @@ def self_test() -> int:
             # to be one that stays quiet (found 2026-09-26, when a catching case became the last).
             _git("reset", "-q", cwd=repo)
             _git("checkout", "-q", "--", ".", cwd=repo)
+        # a change that only removes lines gives the lines it leaves a new meaning (2026-09-26): the
+        # two lines that held `return True` in a string go, and it opens the function
+        target.write_text('def verify_thing(data):\n    """\n    return True\n    """\n    return data == 1\n',
+                          encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        _git("commit", "-q", "-m", "a string that holds a return", cwd=repo)
+        target.write_text("def verify_thing(data):\n    return True\n    return data == 1\n", encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        caught = bool(run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [C: a change that only removes lines] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
+        _git("reset", "-q", cwd=repo)
+        _git("checkout", "-q", "--", ".", cwd=repo)
         # negative: the same planted signature OUTSIDE the security path stays quiet
         outside.write_text("if False:\n    pass\n", encoding="utf-8")
         _git("add", "-A", cwd=repo)

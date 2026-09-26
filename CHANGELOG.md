@@ -10,6 +10,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The five release tools read a file as Python reads it, bound what they parse, and print every
+  path on one line** (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`,
+  `scripts/audit_output_aufloesbar.py`, `scripts/verify_pre_tag_receipt.py`,
+  `scripts/check_version_and_changelog.py`). A review lens, run 10 at 50f3ef33, executed each case
+  named here in a throwaway repository, and each was reproduced there before its fix.
+
+  A change is judged by what it means, not only by the lines it adds. The mutant guard judged the
+  Python lines inside added git lines. Changing only the coding-cookie line from latin-1 to utf-7
+  decoded an unchanged comment `#+AAo-    return True` as a `return True` opening `verify_signature`;
+  removing the two lines that opened and closed a string around an unchanged `return True` added no
+  line at all; and adding two such lines, removing none, did the same (measured beside the lens's
+  cases). Each was clean with exit 0 in `--staged` and in `--base`. The guard now judges every file
+  under `src/proofbundle` that the change adds or modifies whole, as Python reads it, and a file whose
+  change only removes lines counts as touched. Read whole, none of the 72 tracked `.py` files there
+  carries a class A, B or C signature, so no verdict on this repository changes. Class A now follows
+  the first operand of a condition down to its first atom, so `if (True) and data:` and
+  `while (False) or x:`, clean with exit 0 before, are trivial truths as `if True and data:` was; a
+  unary operator is not followed, and `if not True:` stays outside the class.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in

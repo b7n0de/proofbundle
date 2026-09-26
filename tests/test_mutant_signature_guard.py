@@ -511,6 +511,79 @@ class TestBaseMode(_RepoFixture):
             self.assertIn(expected, r.stdout)
 
 
+class TestAChangedFileIsJudgedWhole(_RepoFixture):
+    """A change can give the lines it leaves alone a new meaning, so a file the change touches is
+    judged whole (a review lens, run 10, measured 2026-09-26 at 50f3ef33). Each change below was
+    reported clean with exit 0 in both modes while only its added lines were judged."""
+
+    COOKIE_BASE = (b"# -*- coding: latin-1 -*-\ndef verify_signature(data):\n"
+                   b"    #+AAo-    return True\n    return data == 1\n")
+
+    def _both_modes(self, before: bytes, after: bytes, expected: str):
+        self.target.write_bytes(before)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "before")
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.target.write_bytes(after)
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(expected, r.stdout)
+        _git(self.repo, "commit", "-q", "-m", "after")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(expected, r.stdout)
+
+    def test_a_change_of_only_the_coding_cookie_is_judged(self):
+        """latin-1 to utf-7 decodes the unchanged comment `#+AAo-    return True` as a `return True`
+        on a line of its own; the only added line is the cookie."""
+        self._both_modes(self.COOKIE_BASE, self.COOKIE_BASE.replace(b"latin-1", b"utf-7"),
+                         "src/proofbundle/guarded.py:4: `return True` opens verification function "
+                         "`verify_signature`")
+
+    def test_a_change_that_only_removes_lines_is_judged(self):
+        """Two lines that opened and closed a string go; the `return True` they held stays unchanged."""
+        before = b'def verify_signature(data):\n    """\n    return True\n    """\n    return data == 1\n'
+        self._both_modes(before, before.replace(b'    """\n', b""),
+                         "src/proofbundle/guarded.py:2: `return True` opens verification function")
+
+    def test_a_change_that_only_adds_lines_is_judged(self):
+        """The sibling the lens did not name: two added lines that close and reopen the docstring turn
+        the unchanged `return True` inside it into the first statement. No line is removed."""
+        before = b'def verify_x(d):\n    """Doc.\n    return True\n    """\n    return check(d)\n'
+        after = b'def verify_x(d):\n    """Doc.\n    """\n    return True\n    """\n    return check(d)\n    """\n'
+        self._both_modes(before, after, "src/proofbundle/guarded.py:4: `return True` opens verification "
+                                        "function `verify_x`")
+
+    def test_control_an_allowed_line_elsewhere_in_a_changed_file_stays_allowed(self):
+        """Judged whole, a file keeps its visible exceptions: the marker still suppresses."""
+        self._stage(BENIGN + "def f():\n    if True:  # mutant-guard: allow (reviewed)\n        return 1\n")
+        _git(self.repo, "commit", "-q", "-m", "a reviewed branch")
+        self._stage(BENIGN.replace('data.get("ok")', 'data.get("okay")')
+                    + "def f():\n    if True:  # mutant-guard: allow (reviewed)\n        return 1\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_parenthesized_constant_as_the_first_operand_is_a_trivial_truth(self):
+        """The tree places `(True) and data` at its parenthesis and the constant one column later."""
+        for condition in ("if (True) and data:", "while (False) or data:", "if ((True) and data) or data:",
+                          "if (True == data) and data:", "if (True).real and data:"):
+            with self.subTest(condition):
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", condition))
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("src/proofbundle/guarded.py:3: trivial-truth branch", r.stdout)
+
+    def test_control_a_unary_operator_before_the_constant_stays_outside_the_class(self):
+        """`not`, `-` and `~` begin the condition with an operator; the class stays as narrow as its
+        docstring says."""
+        for condition in ("if not True:", "if (not False) and data:", "if -True:"):
+            with self.subTest(condition):
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", condition))
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 class TestAStopIsNotAFinding(_RepoFixture):
     """Exit 2 for a fail-closed stop, as the docstring says; `SystemExit(<text>)` exits 1, the code
     of a finding (a review lens of another model family, measured 2026-09-26)."""
