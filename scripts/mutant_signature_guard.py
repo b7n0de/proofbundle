@@ -40,6 +40,7 @@ import argparse
 import ast
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -495,6 +496,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--base", metavar="SHA", help="scan merge-base(SHA, HEAD)..HEAD (CI)")
     mode.add_argument("--self-test", action="store_true", help="prove the guard catches each class")
     a = p.parse_args(argv)
+    # A path is read as git names it, so a name that is not UTF-8 carries surrogates, and a strict
+    # stdout raised on one with exit 1 and a traceback instead of the finding (measured 2026-09-26,
+    # a mutant under src/proofbundle/ in a file whose name is the byte 0xff). The four path readers
+    # below this change write such a name with backslash escapes; so does this report.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     if a.self_test:
         return self_test()
     repo = _repo_root()

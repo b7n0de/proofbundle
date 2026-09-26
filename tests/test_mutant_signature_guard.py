@@ -209,6 +209,21 @@ class TestStagedMode(_RepoFixture):
         (self.repo / "src").symlink_to("real_src")
         _git(self.repo, "add", "-A")
 
+    def test_a_mutant_under_a_name_that_is_not_utf8_is_reported(self):
+        """The name carries a surrogate; the report names it escaped instead of raising on it."""
+        import os
+        try:
+            fd = os.open(os.fsencode(self.repo) + b"/src/proofbundle/\xff.py", os.O_WRONLY | os.O_CREAT, 0o644)
+        except OSError as exc:
+            self.skipTest(f"this file system refuses a name that is not UTF-8: {exc}")
+        os.write(fd, b"if False:\n    pass\n")
+        os.close(fd)
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/" + chr(92) + "udcff.py:1", r.stdout)
+
     def test_a_symlinked_src_is_a_finding(self):
         self._link_src_to_a_mutant()
         r = _guard(self.repo, "--staged")
