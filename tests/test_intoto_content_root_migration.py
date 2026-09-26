@@ -201,7 +201,7 @@ class TestProofC_P0Reject(unittest.TestCase):
         signer = generate_signer()
         env = self._signed(signer, _attack_statement(CONTENT_ROOT_ALG))
         res = verify_eval_result_dsse(env, _raw_pub(signer))
-        self.assertFalse(res["ok"], res)                 # P0: rejected
+        self.assertIs(res["ok"], False, res)                 # P0: rejected
         self.assertFalse(res["content_root_ok"])         # rejected BY the binding, not the signature
         self.assertIn("canonical", res["content_root_detail"].lower())
 
@@ -230,14 +230,14 @@ class TestProofC_P0Reject(unittest.TestCase):
         self.assertNotEqual(body, _legacy_json(json.loads(body)))  # guard: divergence survives reparse
         env = dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         res = verify_eval_result_dsse(env, _raw_pub(signer))
-        self.assertFalse(res["ok"], res)
+        self.assertIs(res["ok"], False, res)
         self.assertFalse(res["content_root_ok"])
 
     def test_C4_unknown_alg_is_rejected_no_silent_default(self):
         signer = generate_signer()
         env = self._signed(signer, _attack_statement("totally-made-up-v9"))
         res = verify_eval_result_dsse(env, _raw_pub(signer))
-        self.assertFalse(res["ok"], res)
+        self.assertIs(res["ok"], False, res)
         self.assertIn("unknown contentRootAlg", res["content_root_detail"])
 
     def test_C5_p0_guard_holds_on_all_three_released_paths(self):
@@ -250,7 +250,7 @@ class TestProofC_P0Reject(unittest.TestCase):
         for verify_fn, ptype in cases:
             env = self._signed(signer, _attack_statement(CONTENT_ROOT_ALG), payload_type=ptype)
             res = verify_fn(env, _raw_pub(signer))
-            self.assertFalse(res["ok"], (verify_fn.__name__, res))
+            self.assertIs(res["ok"], False, (verify_fn.__name__, res))
             self.assertFalse(res["content_root_ok"], verify_fn.__name__)
 
 

@@ -449,6 +449,71 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
+/// Mirror of Python `signature.ed25519_trust_anchor_weakness`: why a 32-byte key cannot stand as a
+/// TRUSTED Ed25519 identity, or `None` when it can. The same rule in the same order, on the bytes, so
+/// both verifiers refuse the same keys: "non-canonical" when y >= p, "low-order" when y is one of the
+/// five y-values of the 8-torsion subgroup (either sign). Under a low-order key a signature made with no
+/// private key verifies (the fixed R = identity, S = 0 for every message under the identity point, after
+/// a few tries under the other points of small order), and nobody holds a private key (deep gate Z195,
+/// L1-Z195-01..03). A non-canonical spelling is refused for its encoding: of the nineteen, only y = p
+/// and y = p + 1 also spell points of small order (`grund_der_schwaeche`). A key that passes has exactly
+/// one encoding, so counting distinct key bytes counts distinct points. The in-band key of a bundle keeps
+/// the SPEC section 4a profile and does not come here.
+fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static str> {
+    // The x-sign bit is not part of y.
+    let mut y = *schluessel;
+    y[31] &= 0x7f;
+    // p = 2^255 - 19, little-endian: ed ff .. ff 7f. With bit 255 cleared, y >= p iff bytes 1..=30
+    // are 0xff, byte 31 is 0x7f and byte 0 is at least 0xed.
+    if y[31] == 0x7f && y[1..31].iter().all(|b| *b == 0xff) && y[0] >= 0xed {
+        return Some("non-canonical");
+    }
+    // The torsion y-values: 0 (order 4), 1 (identity), p - 1 (order 2) and the two order-8 values,
+    // computed from the same encodings Python's `_low_order_ed25519_y` reads.
+    let null = [0u8; 32];
+    let mut eins = [0u8; 32];
+    eins[0] = 1;
+    let mut p_minus_1 = [0xffu8; 32];
+    p_minus_1[0] = 0xec;
+    p_minus_1[31] = 0x7f;
+    let ordnung_8 = [
+        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    ];
+    if y == null || y == eins || y == p_minus_1 {
+        return Some("low-order");
+    }
+    for h in ordnung_8 {
+        let mut t: [u8; 32] = hex::decode(h)
+            .expect("fixed hex")
+            .try_into()
+            .expect("32 bytes");
+        t[31] &= 0x7f;
+        if y == t {
+            return Some("low-order");
+        }
+    }
+    None
+}
+
+/// Mirror of Python `signature.TRUST_ANCHOR_REFUSAL`: why each answer of
+/// `schwaeche_eines_vertrauensankers` refuses a key, word for word, so a refusal reads the same on
+/// both sides and names the forgery only where it holds (gate run 2, iteration 2, R2I2A-01).
+fn grund_der_schwaeche(schwaeche: &str) -> &'static str {
+    match schwaeche {
+        "low-order" => "a signature made with no private key verifies under a point of small order",
+        "non-canonical" => {
+            "a trusted key has exactly one encoding (y < p), and y = p and y = p + 1 also spell \
+             points of small order"
+        }
+        _ => "a trusted Ed25519 key is exactly 32 bytes",
+    }
+}
+
+// S106: Python's wording for the two empty-container cases, so a reason reads the same on both sides.
+const LEERE_SIGNATURLISTE: &str = "DSSE envelope.signatures must be a non-empty list";
+const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty string";
+
 // The in-toto Statement payload type every proofbundle receipt/statement is signed under. The
 // relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
 // verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
@@ -459,49 +524,38 @@ fn verify_dsse(
     pubkey_b64: &str,
     expected_payload_type: Option<&str>,
 ) -> Result<bool, String> {
-    let payload_type = envelope
-        .get("payloadType")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payloadType")?;
-    // Type-confusion defense (mirror of Python dsse.verify_envelope's payload_type pin —
-    // relation_statement.py:189-190 / cli.py:1241-1242): when an expected payloadType is given it
-    // MUST equal the envelope's payloadType BEFORE the PAE is built. A Sign/Verify type mismatch
-    // silently changes the PAE, so an envelope carrying the WRONG payloadType is rejected fail-closed
-    // here instead of being authenticated under its own attacker-chosen type (Rust fail-open, fixed).
-    if let Some(expected) = expected_payload_type {
-        if payload_type != expected {
-            return Ok(false);
-        }
-    }
-    let payload_b64 = envelope
-        .get("payload")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payload")?;
-    let body = b64_dsse(payload_b64)?;
-    let msg = dsse_pae(payload_type, &body);
-
-    // LAUF12-L1 (P0): dieselbe Kappe wie Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
-    // "signatures"), VOR dem Schluessel und vor der Verify-Schleife — ein DoS-Riegel, der erst nach
-    // der Arbeit greift, ist keiner.
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope has no signatures array")?;
-    if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten(
-            "signatures",
-            sigs.len(),
-            BUDGET_SIGNATURES,
-        ));
-    }
-
+    let Some((msg, sigs)) = dsse_bestandteile(envelope, expected_payload_type)? else {
+        return Ok(false);
+    };
     let pk_bytes = b64_strict(pubkey_b64)?;
     let pk_arr: [u8; 32] = pk_bytes
         .as_slice()
         .try_into()
         .map_err(|_| "public key is not 32 bytes".to_string())?;
+    // The key is the caller's trust anchor (a DSSE envelope carries none): a weak key verifies
+    // nothing, as in Python `dsse.verify_envelope`, which answers False for it (Z195, L1-Z195-03).
+    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+        return Ok(false);
+    }
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
+    Ok(signatur_passt(&vk, &msg, sigs))
+}
 
+/// The key as Python's `dsse.verify_envelope` accepts it: 32 bytes that decode to a point and pass
+/// the trust-anchor rule (`signature.verify_ed25519_pinned`, Z195). Anything else is `None`, and a
+/// signature checked under it does not verify -- in Python that is `False`, never an error (PR 272,
+/// Codex round one: the attached-target seam turned it into one).
+fn ed25519_schluessel(bytes: &[u8]) -> Option<VerifyingKey> {
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    if schwaeche_eines_vertrauensankers(&arr).is_some() {
+        return None;
+    }
+    VerifyingKey::from_bytes(&arr).ok()
+}
+
+/// True iff one signature of the list verifies over `msg` under `vk`; malformed entries are skipped,
+/// as in Python `dsse.verify_envelope`.
+fn signatur_passt(vk: &VerifyingKey, msg: &[u8], sigs: &[serde_json::Value]) -> bool {
     for s in sigs {
         let Some(sig_b64) = s.get("sig").and_then(|v| v.as_str()) else {
             continue;
@@ -513,11 +567,65 @@ fn verify_dsse(
             continue;
         };
         let sig = Signature::from_bytes(&sig_arr);
-        if vk.verify(&msg, &sig).is_ok() {
-            return Ok(true);
+        if vk.verify(msg, &sig).is_ok() {
+            return true;
         }
     }
-    Ok(false)
+    false
+}
+
+/// What a DSSE signature is checked over: the PAE bytes and the envelope's signature list.
+type DsseBestandteile<'a> = (Vec<u8>, &'a Vec<serde_json::Value>);
+
+/// Everything `verify_dsse` checks before it touches a key, in Python's order: the payload, the
+/// payloadType, its pin, the signature list and its cap. `Ok(None)` when the pinned type differs (a
+/// verdict, not an error); `Err` for a structural fault of the envelope itself.
+fn dsse_bestandteile<'a>(
+    envelope: &'a serde_json::Value,
+    expected_payload_type: Option<&str>,
+) -> Result<Option<DsseBestandteile<'a>>, String> {
+    // The payload first, as Python `dsse.verify_envelope` reads `_payload_bytes` before anything
+    // else: an envelope broken in two places gives the same first reason on both sides.
+    let payload_b64 = envelope
+        .get("payload")
+        .and_then(|v| v.as_str())
+        .ok_or("envelope has no string payload")?;
+    let body = b64_dsse(payload_b64)?;
+    // S106 (6.2.0 E1): an EMPTY container is malformed, as in Python `dsse.verify_envelope`, which
+    // raises "must be a non-empty string/list" where this verifier went on to "does not verify".
+    let payload_type = envelope
+        .get("payloadType")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(LEERER_PAYLOADTYPE)?;
+    // Type-confusion defense (mirror of Python dsse.verify_envelope's payload_type pin —
+    // relation_statement.py:189-190 / cli.py:1241-1242): when an expected payloadType is given it
+    // MUST equal the envelope's payloadType BEFORE the PAE is built. A Sign/Verify type mismatch
+    // silently changes the PAE, so an envelope carrying the WRONG payloadType is rejected fail-closed
+    // here instead of being authenticated under its own attacker-chosen type (Rust fail-open, fixed).
+    if let Some(expected) = expected_payload_type {
+        if payload_type != expected {
+            return Ok(None);
+        }
+    }
+    let msg = dsse_pae(payload_type, &body);
+
+    // LAUF12-L1 (P0): the same cap as Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
+    // "signatures"), BEFORE the key and before the verify loop -- a DoS guard that only acts after
+    // the work is none.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty())
+        .ok_or(LEERE_SIGNATURLISTE)?;
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
+    }
+    Ok(Some((msg, sigs)))
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +769,11 @@ fn verify_sdjwt_issuer(
         .as_slice()
         .try_into()
         .map_err(|_| "issuer key not 32 bytes")?;
+    // Python `sdjwt._ISSUER_SIG_VERIFIERS["EdDSA"]` is `verify_ed25519_pinned` (Z195): a weak issuer
+    // key authenticates no disclosure, and the part is rejected, not malformed.
+    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+        return Ok(false);
+    }
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad issuer key: {e}"))?;
     let signing_input = format!("{hdr_b64}.{pl_b64}");
     let sig_bytes = b64url_nopad(sig_b64)?;
@@ -857,6 +970,26 @@ fn verify_trust_pack_threshold(
     let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
+    // S106: the signature list is judged BEFORE the statement, in Python's order
+    // (`trust_pack.verify_trust_pack`: payload, input_bytes, signatures non-empty list, cap, then the
+    // statement). An empty list used to reach the threshold loop and come out as "threshold not met",
+    // where Python reports the envelope malformed.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty())
+        .ok_or(LEERE_SIGNATURLISTE)?;
+    // A neighbour of the same class: Python `verify_trust_pack` also caps the envelope's signature
+    // list (trust_pack.py, DEFAULT_BUDGET.check "signatures"); otherwise an envelope with a million
+    // entries is a million Ed25519 checks.
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten(
+            "signatures",
+            sigs.len(),
+            BUDGET_SIGNATURES,
+        ));
+    }
+
     let statement = strict_parse(&body)?;
     let predicate = statement
         .get("predicate")
@@ -874,6 +1007,34 @@ fn verify_trust_pack_threshold(
             keys.len(),
             BUDGET_WITNESSES,
         ));
+    }
+    // Deep gate NORMAL on the Z195 fix, lens 2 (L2-PK-01): Python's `validate_trust_pack_predicate`
+    // refuses a pack whose `keys` carries a weak Ed25519 key in ANY role, because a pack is the root of
+    // trust and every role's key is an anchor. This slice read only the root role, so a pack with real
+    // root signatures and a low-order `decisionMakers` key was `ok=False` in Python and `OK` here.
+    // Same bytes, opposite verdicts. The same rule over every key, in Python's words.
+    for (kid, kv) in keys {
+        let alg = kv.get("alg").and_then(|v| v.as_str()).unwrap_or("ed25519");
+        let label = match alg {
+            "ed25519" => "Ed25519",
+            "hybrid-ed25519-mldsa65" => "Ed25519 (hybrid classical leg)",
+            _ => continue,
+        };
+        let Some(pub_b64) = kv.get("publicKey").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Ok(roh) = b64_strict(pub_b64) else {
+            continue;
+        };
+        let Ok(arr): Result<[u8; 32], _> = roh.as_slice().try_into() else {
+            continue;
+        };
+        if let Some(schwaeche) = schwaeche_eines_vertrauensankers(&arr) {
+            return Err(format!(
+                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} {} (fail-closed)",
+                grund_der_schwaeche(schwaeche)
+            ));
+        }
     }
     let revoked: HashSet<String> = predicate
         .get("revoked")
@@ -913,20 +1074,6 @@ fn verify_trust_pack_threshold(
 
     let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
     let mut skipped_non_ed25519: u64 = 0;
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope.signatures missing")?;
-    // Nachbar derselben Klasse: Python `verify_trust_pack` kappt auch die Signaturliste des
-    // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
-    // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
-    if sigs.len() > BUDGET_SIGNATURES {
-        return Err(budget_ueberschritten(
-            "signatures",
-            sigs.len(),
-            BUDGET_SIGNATURES,
-        ));
-    }
     for entry in sigs {
         let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else {
             continue;
@@ -952,6 +1099,11 @@ fn verify_trust_pack_threshold(
         if valid_root.contains(&pk_arr) {
             continue; // same key material already counted under a different keyId (aliasing defense)
         }
+        // No weak-key check here: the scan over every key above already refused the pack, and a
+        // second check in this loop would be code no case can reach (Rust has no caller-supplied
+        // previous root, which is what keeps the loop check alive on the Python side). Because every
+        // key that gets here passed the rule, distinct bytes are distinct points, and the aliasing
+        // defense above counts points.
         let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
             continue;
         };
@@ -1206,6 +1358,11 @@ struct TargetInfo {
     verified: bool,
     verified_under: String,
     subject_digest: Option<String>,
+    /// The state of the target's actual subject, classified exactly as Python `cli._load_related`
+    /// does: "present", "absent", "ambiguous" or "malformed". `subject_digest` is Some only for
+    /// "present". Kept so a failing subject pin can NAME its reason (S32): until 2026-09-25 the three
+    /// non-present states were one `None`, and the verdict was right while the reason was lost.
+    subject_state: &'static str,
     relationships: Option<serde_json::Value>,
     /// Deep gate 2026-09-05, L4-01 (P1): the attached target's SIGNED payload failed the strict parse
     /// (duplicate key / not an object / non-canonical). Mirrors Python `payload_malformed`: a hard FAIL
@@ -1224,6 +1381,46 @@ struct LineageResult {
     lineage: String,
     edges: Vec<EdgeOut>,
     superseded_by_attached: Option<String>,
+    /// Why an edge failed, in Python's wording and with Python's stable codes (mirror of the
+    /// `errors` list of `relation.verify_relationship_edges`: `relation:malformed:<e>` for a
+    /// structural error, `relationships[<i>]:<e>` per failing edge). S32: the corpus' `errorContains`
+    /// markers were checked on the Python side only, because this verifier printed no reason at all.
+    errors: Vec<String>,
+}
+
+const CODE_TARGET_MALFORMED_MELDUNG: &str =
+    "relation:attached_target_malformed (RELATION_TARGET_MALFORMED): an ATTACHED target's signed \
+     payload is not a well-formed statement (present-and-malformed is a hard FAIL at any hop; the \
+     same bytes fail standalone)";
+
+/// Mirror of `relation._target_subject_pin_error`: None when the edge declares no subject pin or
+/// the resolved target exposes a present, EQUAL subject; otherwise the stable reason, with the same
+/// code Python emits. The order is Python's: ambiguous, absent, malformed, mismatch.
+fn target_subject_pin_error(edge: &serde_json::Value, target: &TargetInfo) -> Option<String> {
+    let declared = edge_subject_hex(edge)?;
+    match (target.subject_state, &target.subject_digest) {
+        ("ambiguous", _) => Some(
+            "relation:target_subject_ambiguous (RELATION_TARGET_SUBJECT_AMBIGUOUS): resolved target \
+             exposes multiple subjects; a declared targetSubjectDigest cannot bind an ambiguous subject"
+                .into(),
+        ),
+        ("absent", _) => Some(
+            "relation:target_subject_missing (RELATION_TARGET_SUBJECT_MISSING): declared \
+             targetSubjectDigest but the resolved target exposes no subject digest"
+                .into(),
+        ),
+        ("present", Some(actual)) if *actual == declared => None,
+        ("present", Some(_)) => Some(
+            "relation:target_subject_mismatch (RELATION_TARGET_SUBJECT_MISMATCH): declared \
+             targetSubjectDigest does not match the resolved target's subject"
+                .into(),
+        ),
+        _ => Some(
+            "relation:target_subject_malformed (RELATION_TARGET_SUBJECT_MALFORMED): resolved target \
+             subject digest is not a well-formed sha-256"
+                .into(),
+        ),
+    }
 }
 
 /// DFS per-path cycle + depth walk (mirror relation._walk_chain). Returns Some(error) on a cycle
@@ -1276,13 +1473,9 @@ fn walk_chain(
         // L4-01 (deep gate 2026-09-05): the payload gate binds at EVERY hop, exactly like the
         // receipt's own edge — otherwise the hop an attacker inserts is precisely the one nobody checks.
         if node.payload_malformed {
-            return Some(
-                "relation:ancestor_edge: relation:attached_target_malformed \
-                 (RELATION_TARGET_MALFORMED): an ATTACHED target's signed payload is not a \
-                 well-formed statement (present-and-malformed is a hard FAIL at any hop; the same \
-                 bytes fail standalone)"
-                    .into(),
-            );
+            return Some(format!(
+                "relation:ancestor_edge: {CODE_TARGET_MALFORMED_MELDUNG}"
+            ));
         }
         if !node.verified {
             return Some(
@@ -1321,20 +1514,12 @@ fn walk_chain(
                     // The subject pin binds at EVERY hop, not only on the receipt's own edge.
                     // Same accept path as the direct arm: no declared pin -> optional; declared ->
                     // the resolved target must expose a present, EQUAL actual subject.
+                    // S32: the SAME reason as on the receipt's own edge, prefixed with the position
+                    // exactly as Python does (`relation:ancestor_edge: <pin error>`). Before, every
+                    // non-equal state was reported as a MISMATCH, whatever it was.
                     if let Some(anc) = related.get(&nxt) {
-                        if let Some(d) = edge_subject_hex(edge) {
-                            match &anc.subject_digest {
-                                Some(a) if &d == a => {}
-                                _ => {
-                                    return Some(
-                                        "relation:ancestor_edge: relation:target_subject_mismatch \
-                                         (RELATION_TARGET_SUBJECT_MISMATCH): a declared \
-                                         targetSubjectDigest on an ancestor edge does not bind a \
-                                         present, equal subject on the resolved target"
-                                            .into(),
-                                    );
-                                }
-                            }
+                        if let Some(pin) = target_subject_pin_error(edge, anc) {
+                            return Some(format!("relation:ancestor_edge: {pin}"));
                         }
                     }
                     if related.contains_key(&nxt) || next_path.contains(&nxt) {
@@ -1377,20 +1562,27 @@ fn verify_relationship_edges(
             lineage: LINEAGE_NOT_EVALUATED.into(),
             edges: vec![],
             superseded_by_attached: None,
+            errors: vec![],
         };
     };
-    if !validate_relationships(rels).is_empty() {
+    let strukturfehler = validate_relationships(rels);
+    if !strukturfehler.is_empty() {
         return LineageResult {
             lineage: LINEAGE_FAIL.into(),
             edges: vec![],
             superseded_by_attached: None,
+            errors: strukturfehler
+                .iter()
+                .map(|e| format!("relation:malformed:{e}"))
+                .collect(),
         };
     }
     let empty: Vec<serde_json::Value> = Vec::new();
     let arr = rels.as_array().unwrap_or(&empty);
     let mut edges_out: Vec<EdgeOut> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
     let (mut any_fail, mut any_unresolved, mut any_verified) = (false, false, false);
-    for edge in arr {
+    for (i, edge) in arr.iter().enumerate() {
         let target_hex = edge_target_hex(edge);
         let mut entry = EdgeOut {
             relation: edge
@@ -1401,42 +1593,48 @@ fn verify_relationship_edges(
             resolution: LINEAGE_DECLARED_UNRESOLVED.into(),
             verified_under: None,
         };
+        // The reason an edge fails, named where the verdict is made (S32), in Python's wording.
+        let mut grund: Option<String> = None;
         if subject_hex.is_some() && target_hex.as_deref() == subject_hex {
             entry.resolution = LINEAGE_FAIL.into();
+            grund = Some("relation:cycle: edge targets the receipt itself".into());
         } else if let Some(th) = &target_hex {
             if let Some(target) = related.get(th) {
                 if target.payload_malformed {
                     // L4-01: the target's signed payload is not a well-formed statement — the same bytes
                     // fail standalone, so the edge FAILs here (RELATION_TARGET_MALFORMED), never VERIFIED.
                     entry.resolution = LINEAGE_FAIL.into();
+                    grund = Some(CODE_TARGET_MALFORMED_MELDUNG.into());
                 } else if !target.verified {
                     entry.resolution = LINEAGE_FAIL.into(); // attached-but-unverified = present-and-wrong
+                    grund = Some("relation:target_verification_failed".into());
                 } else {
                     let mut seed: HashSet<String> = HashSet::new();
                     if let Some(s) = subject_hex {
                         seed.insert(s.to_string());
                     }
-                    if walk_chain(th, related, &seed, MAX_CHAIN_DEPTH).is_some() {
+                    if let Some(kette) = walk_chain(th, related, &seed, MAX_CHAIN_DEPTH) {
                         entry.resolution = LINEAGE_FAIL.into();
+                        grund = Some(kette);
                     } else {
                         entry.verified_under = Some(target.verified_under.clone());
                         // PB-2026-0717-01 fail-closed: a DECLARED targetSubjectDigest requires a
-                        // present, well-formed, EQUAL actual subject. subject_digest is None whenever
-                        // the resolved target subject is absent / ambiguous (>1) / malformed (the
-                        // loader normalises those to None), and that case now FAILs — before 3.6.1 it
-                        // fell into VERIFIED (the False Accept). No declared pin -> optional (verified).
-                        let declared_subj = edge_subject_hex(edge);
-                        entry.resolution = match declared_subj {
-                            None => LINEAGE_VERIFIED.into(),
-                            Some(d) => match &target.subject_digest {
-                                Some(a) if &d == a => LINEAGE_VERIFIED.into(),
-                                _ => LINEAGE_FAIL.into(), // absent / ambiguous / malformed / mismatch
-                            },
-                        };
+                        // present, well-formed, EQUAL actual subject; absent, ambiguous, malformed and
+                        // unequal all FAIL, each with its own code. No declared pin -> optional.
+                        match target_subject_pin_error(edge, target) {
+                            None => entry.resolution = LINEAGE_VERIFIED.into(),
+                            Some(pin) => {
+                                entry.resolution = LINEAGE_FAIL.into();
+                                grund = Some(pin);
+                            }
+                        }
                     }
                 }
             }
             // else: target absent -> stays DECLARED_UNRESOLVED
+        }
+        if let Some(g) = grund {
+            errors.push(format!("relationships[{i}]:{g}"));
         }
         match entry.resolution.as_str() {
             LINEAGE_FAIL => any_fail = true,
@@ -1459,6 +1657,7 @@ fn verify_relationship_edges(
         lineage: lineage.into(),
         edges: edges_out,
         superseded_by_attached: None,
+        errors,
     }
 }
 
@@ -1589,10 +1788,9 @@ fn keys_equal(a_b64: &str, b_b64: &str) -> bool {
 
 struct Violation {
     // The stable policy-verdict code (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH /
-    // LINEAGE_REQUIREMENT_FAILED). The differential compares exit CLASS + lineage, not the code text
-    // (the code-text assertion is the Python side's errorContains), so the field is retained for
-    // parity/debuggability but not emitted.
-    #[allow(dead_code)]
+    // LINEAGE_REQUIREMENT_FAILED). EMITTED since 2026-09-25 (S32): this comment used to say the field
+    // was kept but not printed, because the code-text assertion `errorContains` was the Python side's
+    // alone. The corpus read as though it checked both implementations; it checked one.
     code: String,
 }
 
@@ -1724,18 +1922,40 @@ fn load_related(
             .map(|s| s.as_str())
             .filter(|s| !s.is_empty());
         let verify_key_b64 = rp.unwrap_or(main_pub_b64);
+        // The per-target key is decoded BEFORE the file, as in Python `_load_related`; text that is
+        // not base64 is a usage error in Python's wording. Bytes that decode but are no Ed25519 key
+        // are not an error: the target does not verify under them (see `ed25519_schluessel`).
+        let verify_key = b64_strict(verify_key_b64).map_err(|e| match rp {
+            Some(_) => format!("cannot decode --related-pub for {path}: {e}"),
+            None => e,
+        })?;
         let env = strict_parse(&read_file(path))
             .map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
         let payload_b64 = env
             .get("payload")
             .and_then(|v| v.as_str())
-            .ok_or("related has no payload")?;
-        let body = b64_dsse(payload_b64)?;
+            .ok_or_else(|| format!("cannot read --with-related {path}: related has no payload"))?;
+        let body =
+            b64_dsse(payload_b64).map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
         let root_hex = statement_content_root_hex(&body);
         // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
         // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
-        let mut verified =
-            verify_dsse(&env, verify_key_b64, Some(expected_payload_type)).unwrap_or(false);
+        // S106 at the resolver seam: a STRUCTURAL error of the attached envelope (an empty signature
+        // list, an empty payloadType, bad base64, over budget) ends the resolution with a reason, as
+        // Python `cli._load_related` does ("cannot read --with-related <path>: <error>", exit 2). Until
+        // 2026-09-25 it was folded into `verified = false`, and the edge FAILed as "target verification
+        // failed" -- the same exit class for a different reason. A signature that is present and does
+        // not verify stays what it was: attached-but-unverified. So does a target checked under key
+        // material that is no Ed25519 key (PR 272, Codex round one): only the ENVELOPE's structure
+        // ends the resolution, never the key, which Python hands to `verify_ed25519` and gets False.
+        let mut verified = match dsse_bestandteile(&env, Some(expected_payload_type))
+            .map_err(|e| format!("cannot read --with-related {path}: {e}"))?
+        {
+            None => false,
+            Some((msg, sigs)) => ed25519_schluessel(&verify_key)
+                .map(|vk| signatur_passt(&vk, &msg, sigs))
+                .unwrap_or(false),
+        };
         let mut relationships = None;
         let mut subject_digest = None;
         // Deep gate 2026-09-05, L4-01 (P1): the SAME payload gate as the standalone verify path, mirroring
@@ -1745,11 +1965,13 @@ fn load_related(
         // failing ancestor hidden behind a duplicate `predicate` key came out lineage=VERIFIED / exit 0 in
         // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
         let mut payload_malformed = false;
+        let mut subject_state: &'static str = "absent";
         let parsed = match strict_parse(&body) {
             Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
             _ => {
                 payload_malformed = true;
                 verified = false;
+                subject_state = "malformed";
                 None
             }
         };
@@ -1762,33 +1984,44 @@ fn load_related(
             if praedikat_ist_positiv_falsch(&stmt) {
                 payload_malformed = true;
                 verified = false;
-            } else if let Some(pred) = stmt.get("predicate") {
-                if let Some(r) = pred.get("relationships") {
-                    relationships = Some(r.clone());
+                subject_state = "malformed";
+            } else {
+                if let Some(pred) = stmt.get("predicate") {
+                    if let Some(r) = pred.get("relationships") {
+                        relationships = Some(r.clone());
+                    }
+                }
+                // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject, and
+                // CLASSIFY the others the way Python `cli._load_related` does (S32): no subject list
+                // or an empty one is "absent", more than one is "ambiguous" (never silently take
+                // subject[0]), one without a well-formed sha-256 is "malformed".
+                match stmt.get("subject").and_then(|v| v.as_array()) {
+                    None => subject_state = "absent",
+                    Some(a) if a.is_empty() => subject_state = "absent",
+                    Some(a) if a.len() != 1 => subject_state = "ambiguous",
+                    Some(a) => {
+                        subject_digest = a[0]
+                            .get("digest")
+                            .and_then(|d| d.get("sha256"))
+                            .and_then(|v| v.as_str())
+                            .filter(|s| is_sha256_hex(s))
+                            .map(String::from);
+                        subject_state = if subject_digest.is_some() {
+                            "present"
+                        } else {
+                            "malformed"
+                        };
+                    }
                 }
             }
-            // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject. An empty subject
-            // array (absent), MULTIPLE subjects (ambiguous — never silently take subject[0]), or a
-            // malformed sha256 all leave subject_digest = None, which the verifier treats fail-closed
-            // against a declared targetSubjectDigest pin.
-            subject_digest = stmt
-                .get("subject")
-                .and_then(|v| v.as_array())
-                .filter(|a| a.len() == 1)
-                .and_then(|a| a.first())
-                .and_then(|s| s.get("digest"))
-                .and_then(|d| d.get("sha256"))
-                .and_then(|v| v.as_str())
-                .filter(|s| is_sha256_hex(s))
-                .map(String::from);
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
-        let verified_under =
-            base64::engine::general_purpose::STANDARD.encode(b64_strict(verify_key_b64)?);
+        let verified_under = base64::engine::general_purpose::STANDARD.encode(&verify_key);
         roh.entry(root_hex).or_default().push(TargetInfo {
             verified,
             verified_under,
             subject_digest,
+            subject_state,
             relationships,
             payload_malformed,
         });
@@ -1825,6 +2058,7 @@ fn load_related(
         if rest.iter().any(|k| {
             k.relationships != erste.relationships
                 || k.subject_digest != erste.subject_digest
+                || k.subject_state != erste.subject_state
                 || k.payload_malformed != erste.payload_malformed
         }) {
             return Err(format!(
@@ -1853,25 +2087,46 @@ fn run_verify_relation(
     related_pubs: &[String],
     policy: Option<&serde_json::Value>,
     statement_mode: bool,
-) -> (i32, String) {
+) -> (i32, String, Vec<String>) {
+    // EVERY EXIT NAMES ITS REASON (S32, and the `Err(_)` discards of S108 on this path). The third
+    // element is the list the dispatcher prints as `reasons`: Python's wording and stable codes where
+    // Python has them, the error text of the failing step where it does not.
+    //
     // Crypto FIRST (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
     // relation_statement.py:189-190 / the decision/outcome verify paths) so a statement/receipt
     // presented under the WRONG payloadType fails crypto here, never authenticated under a foreign type.
-    let crypto_ok =
-        verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)).unwrap_or(false);
-    if !crypto_ok {
-        return (1, "null".into());
+    match verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)) {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                1,
+                "null".into(),
+                vec![
+                    "crypto: the envelope does not verify under the given key and the in-toto \
+                      payloadType"
+                        .into(),
+                ],
+            )
+        }
+        Err(e) => return (1, "null".into(), vec![format!("crypto: {e}")]),
     }
     let Some(payload_b64) = envelope.get("payload").and_then(|v| v.as_str()) else {
-        return (2, "null".into());
+        return (
+            2,
+            "null".into(),
+            vec!["envelope has no string payload".into()],
+        );
     };
-    let Ok(body) = b64_dsse(payload_b64) else {
-        return (2, "null".into());
+    let body = match b64_dsse(payload_b64) {
+        Ok(b) => b,
+        Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
-    let Ok(statement) = strict_parse(&body) else {
-        return (2, "null".into());
+    let statement = match strict_parse(&body) {
+        Ok(s) => s,
+        Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
     let predicate = statement.get("predicate");
+    let mut reasons: Vec<String> = Vec::new();
 
     // Structure gate — compute a flag but do NOT early-return: Python computes `lineage` over the
     // exact signed bytes REGARDLESS of a structure error (only after crypto passes), then applies the
@@ -1885,19 +2140,37 @@ fn run_verify_relation(
             != Some(RELATION_STATEMENT_PREDICATE_TYPE)
         {
             structure_ok = false;
+            reasons.push(format!(
+                "relation-statement: predicateType is not {RELATION_STATEMENT_PREDICATE_TYPE}"
+            ));
         }
         if let Some(pred) = predicate.and_then(|v| v.as_object()) {
-            for k in pred.keys() {
-                if !["schemaVersion", "statementId", "relationships"].contains(&k.as_str()) {
-                    structure_ok = false; // additionalProperties:false, fail-closed
-                }
+            let mut fremd: Vec<&str> = pred
+                .keys()
+                .map(|k| k.as_str())
+                .filter(|k| !["schemaVersion", "statementId", "relationships"].contains(k))
+                .collect();
+            if !fremd.is_empty() {
+                structure_ok = false; // additionalProperties:false, fail-closed
+                fremd.sort_unstable();
+                reasons.push(format!(
+                    "relation-statement: unknown field(s) in predicate: {fremd:?} \
+                     (additionalProperties:false, fail-closed)"
+                ));
             }
             match pred.get("relationships").and_then(|v| v.as_array()) {
                 Some(a) if a.len() == 1 => {}
-                _ => structure_ok = false,
+                _ => {
+                    structure_ok = false;
+                    reasons.push(
+                        "relation-statement: relationships must be an array of exactly one edge"
+                            .into(),
+                    );
+                }
             }
         } else {
             structure_ok = false;
+            reasons.push("relation-statement: predicate is not an object".into());
         }
     }
 
@@ -1911,19 +2184,27 @@ fn run_verify_relation(
         INTOTO_STATEMENT_PAYLOAD_TYPE,
     ) {
         Ok(r) => r,
-        Err(_) => return (2, "null".into()),
+        Err(e) => {
+            reasons.push(e);
+            return (2, "null".into(), reasons);
+        }
     };
 
     let mut lineage = verify_relationship_edges(relationships, &related, Some(&subject_hex));
     lineage.superseded_by_attached = successor_warning(&related, Some(&subject_hex));
     let lineage_state = lineage.lineage.clone();
+    reasons.extend(lineage.errors.iter().cloned());
+    if let Some(w) = &lineage.superseded_by_attached {
+        // Python reports it as `lineage.supersededByAttached`; a policy may turn it into a blocker.
+        reasons.push(w.clone());
+    }
 
     // Exit ladder, mirroring Python order: structure (2) · lineage FAIL (2) · policy (3).
     if !structure_ok {
-        return (2, lineage_state);
+        return (2, lineage_state, reasons);
     }
     if lineage_state == LINEAGE_FAIL {
-        return (2, lineage_state);
+        return (2, lineage_state, reasons);
     }
 
     // Relations policy gate (exit 3 class).
@@ -1962,12 +2243,13 @@ fn run_verify_relation(
                     }
                 }
                 if !viol.is_empty() {
-                    return (3, lineage_state);
+                    reasons.extend(viol.into_iter().map(|v| v.code));
+                    return (3, lineage_state, reasons);
                 }
             }
         }
     }
-    (0, lineage_state)
+    (0, lineage_state, reasons)
 }
 
 /// CLI dispatch for the two relation subcommands: parse
@@ -2016,8 +2298,11 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
     }
     let env = match strict_parse(&read_file(path)) {
         Ok(v) => v,
-        Err(_) => {
-            println!("{{\"lineage\":null}}");
+        Err(e) => {
+            println!(
+                "{}",
+                serde_json::json!({"lineage": null, "reasons": [format!("envelope: {e}")]})
+            );
             exit(2);
         }
     };
@@ -2032,7 +2317,7 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         policy_huelle_pruefen(&pol).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
         pol
     });
-    let (code, lineage) = run_verify_relation(
+    let (code, lineage, reasons) = run_verify_relation(
         &env,
         pub_b64,
         &related_paths,
@@ -2040,11 +2325,17 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         policy.as_ref(),
         statement_mode,
     );
-    if lineage == "null" {
-        println!("{{\"lineage\":null}}");
+    // `lineage` stays the one field the common vocabulary reads; `reasons` is new (S32) and says WHY,
+    // so the differential can hold a case's `errorContains` against this verifier too.
+    let lineage_wert = if lineage == "null" {
+        serde_json::Value::Null
     } else {
-        println!("{{\"lineage\":\"{lineage}\"}}");
-    }
+        serde_json::Value::String(lineage)
+    };
+    println!(
+        "{}",
+        serde_json::json!({"lineage": lineage_wert, "reasons": reasons})
+    );
     exit(code);
 }
 
@@ -2282,10 +2573,11 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 }
             }
             // strict parse first: a duplicate JSON key / malformed bundle is exit 2 (malformed).
+            // S108: every MALFORMED names its reason; the prefix and the exit class stay.
             let v = match strict_parse(&read_file(path)) {
                 Ok(v) => v,
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             };
@@ -2303,8 +2595,8 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     println!("FAIL");
                     exit(1);
                 }
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             }
@@ -2330,8 +2622,8 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 .unwrap_or_else(|| fatal("verify-trust-pack-threshold needs an envelope file"));
             let v = match strict_parse(&read_file(path)) {
                 Ok(v) => v,
-                Err(_) => {
-                    println!("MALFORMED");
+                Err(e) => {
+                    println!("MALFORMED: {e}");
                     exit(2);
                 }
             };
@@ -2728,6 +3020,300 @@ mod tests {
             b"{\"a\":1}"
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn ziel(state: &'static str, digest: Option<&str>) -> TargetInfo {
+        TargetInfo {
+            verified: true,
+            verified_under: String::new(),
+            subject_digest: digest.map(String::from),
+            subject_state: state,
+            relationships: None,
+            payload_malformed: false,
+        }
+    }
+
+    #[test]
+    fn ein_subjekt_pin_nennt_seinen_grund_mit_dem_code_von_python() {
+        // S32: jeder Zustand seinen eigenen Code, in der Reihenfolge von Python. Bis 2026-09-25
+        // war das Urteil richtig und der Grund weg — drei Zustaende waren ein `None`.
+        let d = "a".repeat(64);
+        let kante = serde_json::json!({"relation": "supersedes",
+            "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b".repeat(64)},
+            "targetSubjectDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": d.clone()}});
+        let faelle = [
+            (
+                ziel("ambiguous", None),
+                Some("RELATION_TARGET_SUBJECT_AMBIGUOUS"),
+            ),
+            (
+                ziel("absent", None),
+                Some("RELATION_TARGET_SUBJECT_MISSING"),
+            ),
+            (
+                ziel("malformed", None),
+                Some("RELATION_TARGET_SUBJECT_MALFORMED"),
+            ),
+            (
+                ziel("present", Some(&"c".repeat(64))),
+                Some("RELATION_TARGET_SUBJECT_MISMATCH"),
+            ),
+            (ziel("present", Some(&d)), None),
+        ];
+        for (t, code) in faelle {
+            let got = target_subject_pin_error(&kante, &t);
+            match code {
+                None => assert!(got.is_none(), "ein gleiches Subjekt meldete {got:?}"),
+                Some(c) => assert!(
+                    got.as_deref().unwrap_or("").contains(c),
+                    "{}: erwartet {c}, bekommen {got:?}",
+                    t.subject_state
+                ),
+            }
+        }
+        // Ohne deklarierten Pin gibt es nichts zu pruefen, in keinem Zustand.
+        let ohne = serde_json::json!({"relation": "supersedes",
+            "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b".repeat(64)}});
+        assert!(target_subject_pin_error(&ohne, &ziel("absent", None)).is_none());
+    }
+
+    #[test]
+    fn an_empty_container_is_malformed_not_unverified() {
+        // S106 (6.2.0 E1): Python `dsse.verify_envelope` raises "must be a non-empty list/string",
+        // and here the empty list ran through the loop to Ok(false). Two taxonomies for the same
+        // bytes; now one.
+        let leer = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                      "signatures": []});
+        let e = verify_dsse(&leer, &gueltiger_pubkey_b64(), None)
+            .expect_err("an empty signature list was reported as 'not verified'");
+        assert_eq!(e, LEERE_SIGNATURLISTE);
+        let ohne_typ = serde_json::json!({"payloadType": "", "payload": "e30=",
+                                          "signatures": [{"sig": "AA=="}]});
+        let e = verify_dsse(&ohne_typ, &gueltiger_pubkey_b64(), None)
+            .expect_err("an empty payloadType was accepted");
+        assert_eq!(e, LEERER_PAYLOADTYPE);
+        // THE COUNTER-DIRECTION: a present signature that does not match stays a verdict, not an error.
+        let muell = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                       "signatures": [{"sig": "AA=="}]});
+        assert_eq!(
+            verify_dsse(&muell, &gueltiger_pubkey_b64(), None),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn the_trust_pack_checks_the_list_before_the_statement() {
+        // Python's order: payload, signature list, cap, THEN the statement. A payload without a
+        // predicate must not hide the reason when the list is empty.
+        let leer = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+                                      "payload": "e30=", "signatures": []});
+        let e = verify_trust_pack_threshold(&leer)
+            .expect_err("an empty signature list produced a threshold verdict");
+        assert_eq!(e, LEERE_SIGNATURLISTE);
+        // With a list present, the statement is judged next, as before.
+        let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+                                      "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e =
+            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
+        assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn key_material_that_is_no_ed25519_key_is_no_key_not_an_error() {
+        // PR 272, Codex round one: Python `signature.verify_ed25519` answers False for such bytes.
+        let gut = base64::engine::general_purpose::STANDARD
+            .decode(gueltiger_pubkey_b64())
+            .expect("b64");
+        assert!(ed25519_schluessel(&gut).is_some());
+        assert!(ed25519_schluessel(&[0u8]).is_none(), "one byte is no key");
+        assert!(
+            ed25519_schluessel(&[0u8; 33]).is_none(),
+            "33 bytes are no key"
+        );
+        // PRECONDITION: some 32-byte value is no point, so the case below can fail.
+        let kein_punkt = (0u8..=255)
+            .map(|b| [b; 32])
+            .find(|k| VerifyingKey::from_bytes(k).is_err())
+            .expect("no 32-byte pattern [b; 32] is refused as a point");
+        assert!(ed25519_schluessel(&kein_punkt).is_none());
+        // Python's order: the payload is read before the payloadType, so an envelope broken in both
+        // places names the payload on both sides.
+        let doppelt = serde_json::json!({"payloadType": "", "payload": 5, "signatures": []});
+        assert_eq!(
+            verify_dsse(&doppelt, &gueltiger_pubkey_b64(), None),
+            Err("envelope has no string payload".to_string())
+        );
+        // The direct callers keep their error: `verify_dsse` still refuses a bad key loudly.
+        let umschlag = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+                                          "signatures": [{"sig": "AA=="}]});
+        assert!(verify_dsse(&umschlag, "AA==", None).is_err());
+    }
+
+    // Deep gate Z195 (L1-Z195-01..03): the same trust-anchor rule as Python
+    // `signature.ed25519_trust_anchor_weakness`, over the same corpus as
+    // tests/test_trust_anchor_keys_refused_on_every_surface.py.
+    const P_LE: [u8; 32] = [
+        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ];
+
+    fn plus(mut a: [u8; 32], n: u8) -> [u8; 32] {
+        let mut carry = n as u16;
+        for b in a.iter_mut() {
+            let s = *b as u16 + carry;
+            *b = (s & 0xff) as u8;
+            carry = s >> 8;
+        }
+        a
+    }
+
+    fn identitaet() -> [u8; 32] {
+        let mut i = [0u8; 32];
+        i[0] = 1;
+        i
+    }
+
+    fn universal() -> [u8; 64] {
+        let mut s = [0u8; 64];
+        s[0] = 1; // R = identity, S = 0
+        s
+    }
+
+    fn weak_corpus() -> Vec<([u8; 32], &'static str)> {
+        let hx = |h: &str| -> [u8; 32] { hex::decode(h).expect("hex").try_into().expect("32") };
+        let mut i2 = identitaet();
+        i2[31] = 0x80;
+        let mut p_minus_1 = P_LE;
+        p_minus_1[0] = 0xec;
+        vec![
+            (identitaet(), "low-order"),
+            (i2, "low-order"),
+            (plus(P_LE, 1), "non-canonical"),
+            (P_LE, "non-canonical"),
+            ([0u8; 32], "low-order"),
+            (p_minus_1, "low-order"),
+            (
+                hx("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                "low-order",
+            ),
+            (
+                hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+                "low-order",
+            ),
+            (
+                hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+                "low-order",
+            ),
+            (
+                hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+                "low-order",
+            ),
+            (
+                hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+                "low-order",
+            ),
+            (plus(P_LE, 18), "non-canonical"),
+        ]
+    }
+
+    #[test]
+    fn precondition_the_forgery_is_live_against_dalek() {
+        // Without this, every refusal below could come from a forgery that never verified.
+        let vk = VerifyingKey::from_bytes(&identitaet()).expect("the identity decodes");
+        for msg in [&b"x"[..], &b"another message"[..], &b""[..]] {
+            assert!(vk.verify(msg, &Signature::from_bytes(&universal())).is_ok());
+        }
+    }
+
+    #[test]
+    fn every_weak_encoding_is_named_with_python_reason() {
+        for (key, reason) in weak_corpus() {
+            assert_eq!(
+                schwaeche_eines_vertrauensankers(&key),
+                Some(reason),
+                "{}",
+                hex::encode(key)
+            );
+        }
+        let gut: [u8; 32] = base64::engine::general_purpose::STANDARD
+            .decode(gueltiger_pubkey_b64())
+            .expect("b64")
+            .try_into()
+            .expect("32");
+        assert_eq!(schwaeche_eines_vertrauensankers(&gut), None);
+    }
+
+    #[test]
+    fn a_weak_key_verifies_no_envelope_and_no_attached_target() {
+        // LIMIT, named and measured (gate run 2, iteration 3, R2I3B-05): without the rule, dalek accepts
+        // `universal()` under 5 of the 12 entries (the three spellings of the identity, and the x-sign-set
+        // spellings of the order-2 point and of one order-8 point), so for the other 7 this case would
+        // stay green without the rule. What binds the rule for every entry is
+        // `every_weak_encoding_is_named_with_python_reason` here and, with a live forgery per key,
+        // tests/test_trust_anchor_keys_refused_on_every_surface.py::RustParity on the Python side.
+        let env = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+            "signatures": [{"sig": base64::engine::general_purpose::STANDARD.encode(universal())}]});
+        for (key, _) in weak_corpus() {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(key);
+            assert_eq!(
+                verify_dsse(&env, &b64, None),
+                Ok(false),
+                "{}",
+                hex::encode(key)
+            );
+            assert!(ed25519_schluessel(&key).is_none(), "{}", hex::encode(key));
+        }
+    }
+
+    #[test]
+    fn forged_root_signatures_under_weak_keys_meet_no_threshold() {
+        let mut i2 = identitaet();
+        i2[31] = 0x80;
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement = serde_json::json!({"predicate": {
+            "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
+            "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
+        let body = serde_json::to_vec(&statement).expect("json");
+        let sig = std.encode(universal());
+        let env = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(body),
+            "signatures": [{"keyid": "l1", "sig": sig}, {"keyid": "l2", "sig": sig}]});
+        // The pack is refused before any signature is counted, as Python's validator refuses it.
+        let e = verify_trust_pack_threshold(&env)
+            .expect_err("two encodings of the identity were counted toward a threshold");
+        assert!(e.contains("keys['l1']") && e.contains("low-order"), "{e}");
+    }
+
+    #[test]
+    fn a_weak_key_in_any_role_refuses_the_pack() {
+        // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement = serde_json::json!({"predicate": {
+            "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
+                     "dm1": {"publicKey": std.encode([0u8; 32])}},
+            "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
+                      "decisionMakers": {"keyIds": ["dm1"], "threshold": 1}}}});
+        let body = serde_json::to_vec(&statement).expect("json");
+        let env = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(body), "signatures": [{"keyid": "r1", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&env).expect_err("a pack with a weak key was judged");
+        assert!(e.contains("keys['dm1']") && e.contains("low-order"), "{e}");
+    }
+
+    #[test]
+    fn a_weak_sd_jwt_issuer_key_authenticates_nothing() {
+        let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let std = base64::engine::general_purpose::STANDARD;
+        let kopf = url.encode(br#"{"alg":"EdDSA"}"#);
+        let inhalt = url.encode(br#"{"x":1}"#);
+        let compact = format!("{kopf}.{inhalt}.{}~", url.encode(universal()));
+        let sd = serde_json::json!({"compact": compact,
+                                    "issuer_public_key_b64": std.encode(identitaet())});
+        assert_eq!(
+            verify_sdjwt_issuer(&sd, &serde_json::Value::Null, ""),
+            Ok(false)
+        );
     }
 
     #[test]

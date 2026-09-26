@@ -65,7 +65,7 @@
       "status": "PENDING",
       "rust_subcommands": [],
       "crosscheck_refs": [],
-      "notes": "The v0.2 verifier. Separate time axes — event, observation, signature, external — each saying WHERE its value came from, never whether it is true; a relying party decides which source its policy accepts, and this verifier deliberately does not decide that for it (policy_decision stays None). It REFUSES a v0.1 envelope rather than reinterpreting: in v0.1 a producer-supplied observedAt was allowed, and judging it by v0.2 rules would rewrite what that receipt meant when it was signed. A second implementation would have to reproduce that refusal, not just the happy path — which is exactly where parity would pay. No Rust counterpart exists yet."
+      "notes": "The v0.2 verifier. Separate time axes — event, observation, signature, external — each saying WHERE its value came from, never whether it is true; a relying party decides which source its policy accepts, and this verifier does not decide that for it. No decision is NOT a neutral pass: without a named policy the result carries policy_decision: null, the advisory code POLICY_NOT_EVALUATED, and automation.safeForAutomation is false with POLICY_NOT_EVALUATED as its blocker (ok is unaffected, a check that was not run is not a failed one). With a named policy it decides accept, reject or insufficient_evidence, names the policy digest, and a time block in the policy is reported as time_policy_decision. A second implementation that read null as neutral would hand an automation verdict the reference withholds. It REFUSES a v0.1 envelope rather than reinterpreting: in v0.1 a producer-supplied observedAt was allowed, and judging it by v0.2 rules would rewrite what that receipt meant when it was signed. A second implementation would have to reproduce that refusal, not just the happy path — which is exactly where parity would pay. No Rust counterpart exists yet."
     },
     "proofbundle.agent_review.verify_agent_review_v03": {
       "status": "PENDING",
@@ -418,6 +418,18 @@
         "_run(\"verify-bundle\""
       ],
       "notes": "Ed25519 (RFC 8032) primitive used inside both verify-dsse and verify-bundle; exercised by both."
+    },
+    "proofbundle.signature.verify_ed25519_pinned": {
+      "status": "PARTIAL",
+      "rust_subcommands": [
+        "verify-bundle",
+        "verify-dsse",
+        "verify-relation",
+        "verify-relation-statement",
+        "verify-trust-pack-threshold"
+      ],
+      "crosscheck_refs": [],
+      "notes": "Ed25519 verify for a key the caller relies on: refuses a non-canonical or low-order key (SPEC section 4b, deep gate Z195) before any signature arithmetic. The Rust verifier applies the same byte rule (schwaeche_eines_vertrauensankers) wherever it builds a relied-on key: verify-dsse (the --pub key), verify-relation and verify-relation-statement (the --pub key through verify_dsse and every attached target through ed25519_schluessel), verify-bundle (the SD-JWT issuer key; the bundle's own key stays in-band) and verify-trust-pack-threshold (every key of every role). Agreement is measured end to end by tests/test_trust_anchor_keys_refused_on_every_surface.py::RustParity on verify-dsse (the weak-key corpus), verify-bundle (a weak SD-JWT issuer key), verify-trust-pack-threshold and verify-relation-statement (an attached target under a weak related key); verify-relation shares that engine and is not driven on its own, and none of it by crosscheck.py. ::TheRustSweep fails when a key construction outside these functions skips the rule. PARTIAL because no subcommand exposes the primitive on its own."
     },
     "proofbundle.statuslist.verify_status_snapshot": {
       "status": "PENDING",

@@ -32,7 +32,7 @@ class TestEmit(unittest.TestCase):
         signer = generate_signer()
         bundle = emit_bundle(b"immutable", signer)
         bundle["payload_b64"] = "AAAA"  # replace payload, signature no longer matches
-        self.assertFalse(verify_bundle(bundle).ok)
+        self.assertIs(verify_bundle(bundle).ok, False)
 
     def test_key_save_and_load_roundtrip(self):
         signer = generate_signer()

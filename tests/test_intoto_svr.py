@@ -125,12 +125,12 @@ class TestSVRVerify(unittest.TestCase):
         res = verify_svr_dsse(env, _raw_pub(s))
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["predicate_type"], SVR_PREDICATE_TYPE)
-        self.assertFalse(verify_svr_dsse(env, _raw_pub(generate_signer()))["ok"])
+        self.assertIs(verify_svr_dsse(env, _raw_pub(generate_signer()))["ok"], False)
         tampered = dict(env)
         stmt = _statement(env)
         stmt["predicate"]["properties"].append("PROOFBUNDLE_ANCHOR_VALID")   # inject an unearned property
         tampered["payload"] = base64.b64encode(json.dumps(stmt).encode()).decode()
-        self.assertFalse(verify_svr_dsse(tampered, _raw_pub(s))["ok"])
+        self.assertIs(verify_svr_dsse(tampered, _raw_pub(s))["ok"], False)
 
 
 if __name__ == "__main__":

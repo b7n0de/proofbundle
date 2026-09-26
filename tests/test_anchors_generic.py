@@ -143,7 +143,7 @@ class TestSchemaValidation(AnchorRegistryFixture):
 
     def test_bad_target_fails(self):
         res = anchors.verify_anchor(_anchor(target="nonsense", proof=b"good"), target_roots=_ROOTS)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_prereg_canonical_root_helper(self):
         self.assertEqual(anchors.prereg_canonical_root("ab" * 32), bytes.fromhex("ab" * 32))

@@ -1711,9 +1711,9 @@ class TestProduktbudget:
         r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
         treffer = self._budget_checks(r)
         assert treffer, "kein Budget-Check auf die gemessene Kombination"
-        assert not treffer[0].ok
+        assert treffer[0].ok is False
         assert "renewal_work" in treffer[0].detail
-        assert not r.ok
+        assert r.ok is False
 
     def test_jede_einzelachse_ist_dabei_eingehalten(self):
         """Der Beweis, dass das Produkt eine EIGENE Aussage ist: beide Achsen melden nichts."""
@@ -1741,7 +1741,7 @@ class TestProduktbudget:
         seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(3)]
         r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
         treffer = self._budget_checks(r)
-        assert treffer and not treffer[0].ok
+        assert treffer and treffer[0].ok is False
         assert "renewal_work" in treffer[0].detail
 
 

@@ -10,6 +10,109 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
+  (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
+  verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
+  low-order key: the fixed signature R = identity, S = 0 for every message under the identity point, and
+  for about one message in the key's order under the other points of small order. A non-canonical
+  spelling (y >= p) is refused because a trusted key has exactly one encoding; of the nineteen, only
+  y = p and y = p + 1 also spell points of small order, and every refusal message now says which
+  reason applies. The trust policy refused such keys; nothing else did. Measured by
+  the deep gate against main 5b53ab3e (findings L1-Z195-01 to 03): two witness vkeys carrying the
+  identity point, once with the x-sign bit set, met a 2-of-2 witness quorum on a checkpoint neither
+  witness saw; `decision verify --pub <identity>` printed `CRYPTO: OK` and exited 0 for a receipt nobody
+  signed; a trust pack met its root threshold and a rotation vouch with the same forgery. The rule now
+  runs at the C2SP log and witness vkey parsers, `dsse.verify_envelope` (every DSSE verify path), the
+  status-list issuer key, the hybrid's classical leg, the renewal time-authority key, the KB-JWT holder
+  key, the SD-JWT issuer key, trust-pack keys and caller-supplied previous root keys, the RATS Verifier
+  key, and the AGT adapter's authorizer key, which now goes through the house primitive and whose
+  "distinct from the signer" check compares key bytes instead of hex spellings. The independent Rust
+  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths, and like the
+  Python validator it refuses a trust pack with a weak key in any role, not only in the root role. The
+  bundle's own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses
+  the rule in any spelling it models: a call, an import alias, a `getattr` string or the `cryptography`
+  key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
+  are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
+  SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
+  The release tooling under `scripts/` is covered by the entry below.
+
+- **The release tooling refuses a weak key it pins, like the package does** (SPEC §4b). The pre-tag
+  receipt (`pre_tag_receipt_lib.verify_receipt`, which the release workflow and the reader's
+  `verify_pre_tag_receipt.py` run), the readiness artefacts of the audit matrix
+  (`audit_candidate_matrix._artifact_signature_ok`), the findings register
+  (`findings_register._signature_ok`) and the status page's receipt check
+  (`render_site_data._check_receipt`) checked their signatures under a pinned key with the §4a profile.
+  Measured on each: with the identity point in the trust anchor, a record nobody signed was admitted
+  (`ok=True`, `verified`, `signature valid`, `passed`). Each now refuses such a key before any signature
+  arithmetic and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. The keys pinned today pass the
+  rule, so this closes a path, not a live attack. The package's sweep now also walks `scripts/` and
+  `tools/`. It models the spellings of `cryptography` only, so every library those files import is
+  classified in a closed table, and an import of a signature library the sweep does not model counts
+  as a use; pycose is one. The six places there that check a key arriving with the thing it signs
+  (producer self-checks that take the key with the signature or read it from the record itself, and
+  the recomputation and reading of a third party's published test vector under its printed test key,
+  once through pycose) are named with their reason.
+
+- **A pre-tag verifier judges a tree, it does not install it into the process that asked**
+  (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
+  `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
+  undid it, so a later plain `import pre_tag_receipt_lib` in the same process resolved to whatever the
+  judged tree carried under that name. Measured on main 166aec47: eight cases of
+  `tests/test_pretag_gate_state_typed_l5_g6_01.py` failed with `cannot import name 'canonical_bytes'`
+  under PYTHONHASHSEED 5 and 7, and in 1 of 8 unseeded runs. Each verifier now restores the three
+  settings when it returns and sets the bytecode protection on every call, and it removes the
+  modules it loaded for the first time from a path it put on `sys.path` (Codex on PR 274: after the
+  path was restored, `proofbundle` and `proofbundle._wire_b64` from the judged checkout stayed in
+  `sys.modules`). The producer
+  `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
+  it starts inherits them.
+
+- **An empty container is malformed in both implementations, and every malformed exit names its
+  reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
+  and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
+  signature list through its loop to "not verified". Measured on 2026-09-25 at four surfaces: the
+  generic DSSE verify answered `FAIL`/exit 1 where Python refuses the envelope, the trust-pack
+  threshold reached the statement and reported on it, and an attached relation target with an empty
+  list was carried on as attached-but-unverified, the same exit class as Python with a different
+  reason. The empty list and the empty `payloadType` are now errors in Python's wording, the trust
+  pack judges the list before the statement as Python does, and a structural error of an attached
+  target ends the resolution with "cannot read --with-related", as in Python. A present signature
+  that does not verify is unchanged. The three remaining bare `MALFORMED` exits (`verify-bundle`
+  twice, `verify-trust-pack-threshold` once) print their reason. `crosscheck.py` holds the empty list
+  on three surfaces with the reason, not only the exit; the old behaviour turns all three red.
+  The per-target key is not the envelope (Codex on PR 272): key material that decodes but is no
+  Ed25519 key leaves the target attached-but-unverified, as Python's `verify_ed25519` answers False,
+  and only a `--related-pub` that is not base64 is refused, as "cannot decode --related-pub". The
+  checks before the key run in Python's order, the payload first.
+
+- **The parity registry states what the verifier does when no policy is named** (release scope line
+  R1, `scripts/rust_parity_registry.json`). The registry ships in the sdist and is what a second
+  implementation reads. Its v0.2 entry said the verifier "deliberately does not decide that for it
+  (policy_decision stays None)", which reads as a neutral outcome. Measured on 2026-09-25 against
+  `verify_agent_review_v02`: without a named policy the result carries `policy_decision: null`, the
+  advisory code `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false with that code as
+  its blocker; with the named default policy the same receipt is `accept` and released for
+  automation. The entry now says so. A new contract measures the no-policy state and requires every
+  registry note that speaks of `policy_decision` to name each blocker the verifier reports and the
+  false automation verdict; the old wording fails it. `docs/AGENT_REVIEW_PREDICATE.md` already
+  described the state correctly and is unchanged.
+
+- **A declared error marker is checked against both implementations** (release scope line S32,
+  `tools/pb_verify_rs`). A relation vector's `errorContains` read as a statement about the case,
+  and it was held against the Python output only: the Rust verifier printed `{"lineage": ...}` and
+  no reason, and the differential compared exit class and lineage. Measured on 2026-09-25: 21
+  relation vectors declare a marker, the Python output carried 21, the Rust output 0. So Rust could
+  reach the same verdict for a different reason and nothing would notice.
+
+  The Rust relation subcommands now print `reasons` beside `lineage`, in Python's wording and with
+  Python's stable codes: the reason of each failing edge, the structural errors, the successor
+  warning and the policy violation codes, which were computed and deliberately not printed. The
+  paths that returned exit 2 through a bare `Err(_)` now name what failed. The loader keeps the
+  target subject's state (present, absent, ambiguous, malformed) as Python does, so a failing
+  subject pin names its own code instead of one shared mismatch. `crosscheck.py` requires the
+  marker in both outputs: 21 of 21. Verdicts are unchanged, and the common vocabulary still reads
+  `lineage` only.
+
 - **A foreign identifier on the bundle itself is a refusal, not `invalid`** (release scope line
   Z.278, `src/proofbundle/evalclaim.py`). `classify_eval_claim` answered `invalid` for a bundle whose
   top-level `schema` names another format: `verify_bundle` raised the typed `UnsupportedError`, and

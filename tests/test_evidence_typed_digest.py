@@ -161,7 +161,7 @@ class TestKonformitaetsHandlerFailClosed(unittest.TestCase):
         case, d = self._fall()
         case = dict(case, expected={})
         r = self._handler()(case, d)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertIn("EXACTLY ONE", r["detail"])
 
     def test_ein_fall_mit_zwei_achsen_faellt_durch(self):
@@ -170,7 +170,7 @@ class TestKonformitaetsHandlerFailClosed(unittest.TestCase):
         case, d = self._fall()
         case = dict(case, expected=dict(case["expected"], classification="voelliger_unsinn"))
         r = self._handler()(case, d)
-        self.assertFalse(r["ok"], "eine zweite Achse darf nicht still ignoriert werden")
+        self.assertIs(r["ok"], False, "eine zweite Achse darf nicht still ignoriert werden")
         self.assertIn("EXACTLY ONE", r["detail"])
 
     def test_genau_eine_achse_geht_durch(self):

@@ -42,7 +42,7 @@ def test_verify_sequence_returns_verdict_on_malformed_field(field, shape):
     if field == "external_token_type":
         bad = _ats(external_token_type=MALFORMED[shape], external_token=b"x")
     r = verify_sequence([[bad]], DATA)            # must NOT raise
-    assert not r.ok                               # a malformed field can never verify
+    assert r.ok is False                               # a malformed field can never verify
     # exercise the require_pq / require_current_hash branches too (they render fields)
     verify_sequence([[bad]], DATA, require_pq=True)
     verify_sequence([[bad]], DATA, require_current_hash=True)
@@ -109,7 +109,7 @@ def test_verify_sequence_container_nested_giant_int(field):
                   else {field: CONTAINER_GIANT}))
     if field == "external_token_type":
         bad = _ats(external_token_type=CONTAINER_GIANT, external_token=b"x")
-    assert not verify_sequence([[bad]], DATA).ok
+    assert verify_sequence([[bad]], DATA).ok is False
     # the standalone never-raise bool surface must also survive it
     from proofbundle.renewal import _verify_ats_signature
     assert _verify_ats_signature(_ats(sig_alg=CONTAINER_GIANT), {"ed25519": b"\0" * 32}) is False

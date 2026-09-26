@@ -122,7 +122,7 @@ class TestTrustPackVerify(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})  # only 1, need 2
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_wrong_key_signature_does_not_count(self):
         pred, sks = _fixture(threshold=2)
@@ -150,14 +150,14 @@ class TestTrustPackVerify(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["not_expired"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_rollback_fails(self):
         pred, sks = _fixture(threshold=1, version=3)
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW, prev_version=3)  # not > 3
         self.assertFalse(r["version_monotone"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_monotone_version_ok(self):
         # a v4 pack chains to a predecessor (version > 1 requires prevVersionDigest); this unit test isolates
@@ -173,7 +173,7 @@ class TestTrustPackVerify(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})  # prevVersionDigest is null
         r = verify_trust_pack(env, strict=True, now=_NOW, prev_version_digest="a" * 64)
         self.assertFalse(r["version_monotone"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_tamper_breaks_threshold(self):
         pred, sks = _fixture(threshold=2)
@@ -184,7 +184,7 @@ class TestTrustPackVerify(unittest.TestCase):
         import json as _j
         env["payload"] = _b.b64encode(_j.dumps(tampered).encode()).decode()
         r = verify_trust_pack(env, now=_NOW)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["root_threshold_met"])
 
     def test_sign_rejects_unknown_signer_keyid(self):
@@ -283,7 +283,7 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         r = verify_trust_pack(env, strict=True, now=_NOW,
                               prev_root_keys=old_root_keys, prev_root_threshold=2)
         self.assertFalse(r["rotation_authorized"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_rotation_below_old_threshold_rejected(self):
         # only ONE old-root vouch when the old threshold is 2 → not authorized.
@@ -295,7 +295,7 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         r = verify_trust_pack(env, strict=True, now=_NOW,
                               prev_root_keys=old_root_keys, prev_root_threshold=2)
         self.assertFalse(r["rotation_authorized"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_zero_prev_root_threshold_rejected(self):
         # a caller-supplied prev_root_threshold of 0 must not "authorize" a rotation with zero old-root vouches.
@@ -306,7 +306,7 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         r = verify_trust_pack(env, strict=True, now=_NOW,
                               prev_root_keys=old_root_keys, prev_root_threshold=0)
         self.assertFalse(r["rotation_authorized"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_no_prev_root_is_backward_compatible(self):
         # a first pack / non-rotation verify does NOT require rotation authorization (field stays None).
@@ -327,7 +327,7 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["rotation_authorized"])
-        self.assertFalse(r["ok"], r)   # the fail-open closes: was ok=True (warn only) before the fix
+        self.assertIs(r["ok"], False, r)   # the fail-open closes: was ok=True (warn only) before the fix
         self.assertTrue(any("rotation authorization was NOT verified" in e for e in r["errors"]), r["errors"])
 
     def test_rotation_claim_self_signature_only_opt_out(self):
@@ -391,7 +391,7 @@ class TestTrustPackAttackSimulator(unittest.TestCase):
         env3 = sign_trust_pack(p3, {"rbv3-0": s3["rbv3-0"], "rbv3-1": s3["rbv3-1"]})
         r = verify_trust_pack(env3, strict=True, now=_NOW, prev_version=4)
         self.assertFalse(r["version_monotone"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_fast_forward_jump_rejected_then_legit_recovers(self):
         # attacker mints a v100 with self-owned keys (no old-root vouch) → rejected; the legit v4 (old-root
@@ -402,7 +402,7 @@ class TestTrustPackAttackSimulator(unittest.TestCase):
         rj = verify_trust_pack(envj, strict=True, now=_NOW, prev_version=3,
                                prev_version_digest=self._digest(3),
                                prev_root_keys=self._old_root_keys(p3), prev_root_threshold=2)
-        self.assertFalse(rj["ok"])   # rotation not authorized by the old root
+        self.assertIs(rj["ok"], False)   # rotation not authorized by the old root
         p4, s4 = self._issue("ffv4", 4, prev_version=3)
         env4 = self._rotate_env(p4, s4, "ffv3", s3)
         r4 = verify_trust_pack(env4, strict=True, now=_NOW, prev_version=3,
@@ -422,7 +422,7 @@ class TestTrustPackSecurityGaps(unittest.TestCase):
         env["signatures"].append(dict(env["signatures"][0]))   # replay the same entry
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertEqual(r["root_signers"], ["root-0"])
 
     def test_non_dict_and_bad_b64_signature_entries_are_skipped_not_crash(self):
@@ -450,7 +450,7 @@ class TestTrustPackSecurityGaps(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["not_expired"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_revoked_key_does_not_count_toward_threshold(self):
         # a revoked root key's signature must not count — pins the revocation fail-closed at verify time.
@@ -459,7 +459,7 @@ class TestTrustPackSecurityGaps(unittest.TestCase):
         env = sign_trust_pack(pred, {"root-1": sks["root-1"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class TestTrustPackSignaturesFailClosed(unittest.TestCase):

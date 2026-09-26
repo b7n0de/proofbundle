@@ -130,6 +130,15 @@ include Makefile
 # derived skip set in `tests/conftest.py::modul_ist_repo_kontext` marks it repo-context outside a
 # checkout and skips it honestly, while inside a checkout the path exists and every case runs.
 #
+# OUT, and deliberately decided (2026-09-26): scripts/codex_threads_check.py. It asks the GitHub API
+# for the Codex review threads, the issue comments and the head of one pull request of this
+# repository, and `.github/workflows/codex-threads.yml` runs it on every pull request. An installed
+# package has no pull request and no repository to ask, so the script could only fail to reach its
+# input, the same reason `required_context_presence_gate.py` stands outside. Its contract
+# `tests/test_codex_threads_check.py` loads it through `spec_from_file_location` on module level;
+# outside a checkout the file is absent and not in SOURCES.txt, so `tests/conftest.py` reports the
+# module as a skip that names the file instead of aborting collection.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der

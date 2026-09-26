@@ -142,8 +142,8 @@ class KeinProsaErteiltDasTor(unittest.TestCase):
             with self.subTest(form=name):
                 baum = self._baum_ohne_receipt(**{"RECORD.md": text})
                 erg = self.gate.evaluate(baum, _VERSION)
-                self.assertFalse(
-                    erg["ok"],
+                self.assertIs(
+                    erg["ok"], False,
                     f"Prosa der Form {name!r} hat eine Freigabe erteilt — ADR 0008 Punkt 2 gebrochen")
 
     def test_auch_der_changelog_abschnitt_erteilt_nichts(self) -> None:
@@ -154,7 +154,7 @@ class KeinProsaErteiltDasTor(unittest.TestCase):
         (d / "CHANGELOG.md").write_text(
             f"## [{_VERSION}]\n\nThe adversarial audit ran for this release.\n", encoding="utf-8")
         erg = self.gate.evaluate(d, _VERSION)
-        self.assertFalse(erg["ok"], "ein CHANGELOG-Abschnitt hat eine Freigabe erteilt")
+        self.assertIs(erg["ok"], False, "ein CHANGELOG-Abschnitt hat eine Freigabe erteilt")
         self.assertTrue(erg.get("changelog_is_presentational"),
                         "das Ergebnis weist den CHANGELOG nicht mehr als presentational aus")
 
