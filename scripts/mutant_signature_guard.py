@@ -98,8 +98,12 @@ def _git(*args: str, cwd: Path) -> str:
 #: The diff's grammar, pinned against configuration. With `diff.mnemonicPrefix` the new side is
 #: `i/` or `w/` instead of `b/`, and with `diff.external` another program writes the diff; either
 #: made the guard report clean over a staged `if False:` (measured 2026-09-26). A textconv filter
-#: would hand it converted text instead of the source.
-DIFF_GRAMMAR = ("--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/")
+#: would hand it converted text instead of the source. And a `-diff` or `binary` attribute in a
+#: committed `.gitattributes` made git write `Binary files ... differ` instead of the lines, so
+#: nothing was added and the guard reported clean, in CI too (measured the same day); `--text`
+#: diffs every file as text.
+DIFF_GRAMMAR = ("--text", "--no-ext-diff", "--no-textconv", "--no-color",
+                "--src-prefix=a/", "--dst-prefix=b/")
 
 
 #: The C escapes git writes inside a quoted path, besides octal `\ooo` for a byte.
@@ -194,10 +198,13 @@ def _python_lines_of(content: str) -> tuple[list[str], list[range]]:
     Python ends a line at CRLF, a lone CR or LF; git ends one at LF only. A lone CR inside a git
     line therefore starts a new Python line, which is how `x = 1<CR>if False:` is one line to git
     and two statements to Python. The CR of a CRLF stays at the end of its line.
+
+    A UTF-8 BOM before the first line is skipped, as Python skips it: with it in place, `^\\s*`
+    did not match a first line `<BOM>if False:`, which Python runs (measured 2026-09-26).
     """
     lines: list[str] = []
     spans: list[range] = []
-    for git_line in content.split("\n"):
+    for git_line in content.removeprefix("\ufeff").split("\n"):
         pieces = re.split(r"\r(?!\Z)", git_line)
         spans.append(range(len(lines) + 1, len(lines) + 1 + len(pieces)))
         lines.extend(pieces)
@@ -355,6 +362,8 @@ _CASES: list[tuple[str, str, bool]] = [
     # Python ends a line at a lone CR, git does not (2026-09-26).
     ("A: after a lone CR, which Python reads as a line end",
      _BENIGN.replace('    if not isinstance(data, dict):', '    x = 1\r    if False:'), True),
+    ("A: behind a BOM on the first line, which Python skips",
+     "\ufeffif False:\n    pass\n", True),
 ]
 
 
@@ -413,6 +422,13 @@ def self_test() -> int:
         _git("add", "-A", cwd=repo)
         caught = bool(run_staged(repo))
         print(f"  {'ok  ' if caught else 'FAIL'} [A: with diff.mnemonicPrefix and diff.external set] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
+        # an attribute that makes git print `Binary files differ` does not hide the lines
+        (repo / ".gitattributes").write_text("*.py -diff\n", encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        caught = bool(run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [A: with a committed-style `*.py -diff` attribute] "
               f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
         failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")

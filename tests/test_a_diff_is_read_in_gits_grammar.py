@@ -113,8 +113,27 @@ def test_configuration_does_not_rewrite_the_grammar(repo, key, commit):
                   config=[(key, "true")]) == ("ROT", [("m.py", 3)])
 
 
+@pytest.mark.parametrize("attribute", ["-diff", "binary"])
+def test_an_attribute_that_makes_git_skip_the_lines_does_not_hide_them(repo, attribute):
+    (repo / ".gitattributes").write_text(f"*.py {attribute}\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "attributes")
+    assert _judge(repo, "m.py", f"x = 1\n# {GERMAN}\n") == ("ROT", [("m.py", 3)])
+
+
+def test_a_bom_before_the_first_line_is_skipped(repo):
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "n.py").write_bytes(b"\xef\xbb\xbf# " + GERMAN.encode("utf-8") + b"\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a file that starts with a BOM")
+    gate = _language_gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("n.py", 1)], result
+
+
 def test_a_markdown_line_after_a_u2028_is_numbered_as_the_diff_numbers_it(repo):
-    added = f"One line.\n```\ncode\n```\n{GERMAN}\n"
+    added = f"One\u2028line.\n```\ncode\n```\n{GERMAN}\n"
     assert _judge(repo, "a.md", added) == ("ROT", [("a.md", 6)])
 
 

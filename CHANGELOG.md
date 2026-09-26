@@ -14,19 +14,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in
   throwaway repositories, each of these left a staged `if False:` unreported with exit 0, and a
-  German line judged green by the language gate: an added line that looks like a header (`++ 1`
-  and `++ b/z.py` are valid Python); a lone CR, which Python reads as a line end and git does not;
+  German line judged green by the language gate: an added line that looks like a header (`++ 1` and
+  `++ b/z.py` are valid Python); a lone CR, which Python reads as a line end and git does not;
   `diff.mnemonicPrefix` or `diff.external` in the configuration (the guard's local pre-commit use;
-  CI carries no such configuration); and, for the guard's allow marker and the language gate's
-  Markdown fences, a U+2028 that `splitlines()` reads as a line end and Python does not. The guard
-  now reads git's output as bytes, takes a hunk's lines by the counts in its header, pins the
-  diff's grammar (`--no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/`), judges the
-  Python lines of the new file, reads that file from the index or from HEAD rather than from disk,
-  and stops fail-closed when the diff and the file disagree. The language gate takes the same
-  parser and grammar from the guard. The guard's self-test plants the new shapes, and its cleanup
-  between cases now unstages before it restores: the other order left each case in the working
-  tree, and one negative control held only while the last case happened to stay quiet. No tracked
-  `.py` or `.md` file carries a lone CR or a U+2028 today, so no verdict on this repository changes.
+  CI carries no such configuration); for the guard's allow marker and the language gate's Markdown
+  fences, a U+2028 that `splitlines()` reads as a line end and Python does not; a `-diff` or
+  `binary` attribute, which makes git write `Binary files ... differ` and reaches CI through a
+  committed `.gitattributes`; and a UTF-8 BOM before a first line, which Python skips. The guard now
+  reads git's output as bytes, takes a hunk's lines by the counts in its header, pins the diff's
+  grammar (`--text --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/`), judges the Python
+  lines of the new file (a leading BOM skipped), reads that file from the index or from HEAD rather
+  than from disk, and stops fail-closed when the diff and the file disagree. The language gate takes
+  the same parser and grammar from the guard. The guard's self-test plants the new shapes, and its
+  cleanup between cases now unstages before it restores: the other order left each case in the
+  working tree, and one negative control held only while the last case happened to stay quiet. No
+  tracked `.py` or `.md` file carries a lone CR or a U+2028 today, so no verdict on this repository
+  changes.
 
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,

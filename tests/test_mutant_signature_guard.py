@@ -137,6 +137,24 @@ class TestStagedMode(_RepoFixture):
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
                 _git(self.repo, "config", "--unset", key)
 
+    def test_an_attribute_that_makes_git_skip_the_lines_does_not_hide_them(self):
+        """With `-diff` or `binary` git writes `Binary files ... differ` instead of the lines; a
+        committed `.gitattributes` reaches CI as well."""
+        for attribute in ("-diff", "binary"):
+            with self.subTest(attribute=attribute):
+                (self.repo / ".gitattributes").write_text(f"*.py {attribute}\n", encoding="utf-8")
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("trivial-truth branch", r.stdout)
+
+    def test_a_bom_before_the_first_line_is_skipped_as_python_skips_it(self):
+        self.target.write_bytes(b"\xef\xbb\xbfif False:\n    pass\n")
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:1: trivial-truth branch", r.stdout)
+
     def test_a_textconv_filter_does_not_replace_the_source(self):
         """A diff driver's textconv hands git converted text; the guard reads the source itself."""
         _git(self.repo, "config", "diff.upper.textconv", "tr a-z A-Z")
@@ -161,7 +179,7 @@ class TestStagedMode(_RepoFixture):
     def test_the_allow_marker_is_read_on_python_lines(self):
         """A U+2028 in a comment is no line end for Python, and `splitlines()` read it as one, so a
         marker two lines above a finding counted as the line directly above it."""
-        self._stage("# a b\ny = 2  # mutant-guard: allow\nz = 3\nif False:\n    pass\n")
+        self._stage("# a\u2028b\ny = 2  # mutant-guard: allow\nz = 3\nif False:\n    pass\n")
         r = _guard(self.repo, "--staged")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/guarded.py:4", r.stdout)
@@ -263,8 +281,8 @@ class TestTheDiffIsReadInGitsGrammar(unittest.TestCase):
             self.guard._added_lines_by_file("+++ b/p.py\n@@@ -1 -1 +1 @@@\n+x\n")
 
     def test_python_numbers_the_lines_a_git_line_holds(self):
-        lines, spans = self.guard._python_lines_of("a\r\nb\rc\nd e\n")
-        self.assertEqual(lines, ["a\r", "b", "c", "d e", ""])
+        lines, spans = self.guard._python_lines_of("a\r\nb\rc\nd\u2028e\n")
+        self.assertEqual(lines, ["a\r", "b", "c", "d\u2028e", ""])
         self.assertEqual([list(s) for s in spans], [[1], [2, 3], [4], [5]])
 
 
