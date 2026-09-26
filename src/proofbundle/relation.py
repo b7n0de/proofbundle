@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any
 
 from .budget import render_keys_safe
@@ -36,6 +35,10 @@ from .canonical import _ein_stand, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError, _origin_authentic, _origin_token
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
+# RFC3339-Z and 64-hex as the schemas read them (ECMA-262): one definition, not a copy. A `\d` copy here
+# took every Unicode decimal digit, so an Arabic-Indic year passed while the Rust verifier
+# (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SHA256_HEX as _SHA256_HEX
 
 # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): domain tag for the lineage-result
 # verified-snapshot origin token. The relation_signer rule binds the SUCCESSOR issuer key of the receipt under
@@ -118,11 +121,6 @@ LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
-# \A..\Z (not ^..$): $ matches before a trailing newline. [0-9], not \d: in a str pattern \d is every Unicode
-# decimal digit, so an Arabic-Indic year or Devanagari seconds passed here while the Rust verifier
-# (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 #: The words a resolver writes into `subject_digest_state` (`cli._load_related`); any other value is malformed.
 _SUBJECT_DIGEST_STATES = frozenset({"present", "absent", "ambiguous", "malformed"})
 

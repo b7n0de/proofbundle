@@ -21,15 +21,39 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   None, so `decision verify --strict` under a signer-pinning policy reported
   `safeForAutomation=true` for such a receipt (deep gate finding L3-Z195-03). Beyond null, 311
   type-confused predicates that `schemas/decision-receipt-v0.1.schema.json` refuses passed the
-  validator in strict mode (L3-Z195-05); both measured on main 10f3466b. The value checks now read
-  presence, and a type table beside the existing key closure gives every nested schema path its
-  type; the same generator now measures 0. A test derives the typed paths from the schema and fails
+  validator in strict mode (L3-Z195-05; the gate's generator, over the allow example); both measured
+  on main 10f3466b. The value checks now read presence, and a type table beside the existing key
+  closure gives every nested schema path its type; the same generator now measures 0. A test derives
+  the typed paths from the schema and fails
   when one has no check, and a generator replaces every leaf of a fully populated predicate with
   eleven type-confused values. Where the validator already asked for more than the schema (empty
   identifiers, an `actionOutcome` without `status`, the strict-mode requirements), nothing changed:
-  the same 39 cases over the three golden examples, before and after. One divergence is left and
-  named: a bare string entry in `notChecked`, which the vendored third-party receipt in
-  `conformance/decision/crossimpl/` uses; whether the schema or that receipt gives way is open.
+  the same 39 cases over the three golden examples, before and after. The validator did not read the
+  type of a `notChecked` entry before this change: it accepted a bare string where the schema asked
+  for an object `{field, reason, impact}`, and the vendored third-party receipt in
+  `conformance/decision/crossimpl/` writes strings. The string stays allowed as a deprecated legacy
+  form, and the schema now says so (`anyOf`, `deprecated: true`); the object form is preferred.
+- **Five predicate validators read the shapes of their schemas as the schemas do**
+  (`_schema_shapes`, `decision`, `outcome`, `run_ledger`, `verification_summary`, `trust_pack`,
+  `relation`, `relation_statement`, `subject_binding`). A `pattern` in `schemas/` is an ECMA-262
+  regular expression, and `sha256Digest` is a closed object. Measured on main 570dd164 with a
+  generator that also bends strings and adds keys, over fully populated predicates, against an
+  oracle that reads `pattern` as ECMA-262 (python-jsonschema reads it with Python's `re`): a digest
+  object with a second key passed all five validators; `\d` in decision, outcome, run_ledger,
+  verification_summary and relation_statement matched every Unicode digit, so an Arabic-Indic
+  `performedAt`, `startedAt`, `producedAt` or `schemaVersion` passed; trust_pack never read `scheme`
+  (`const: "ed25519"`); outcome never typed `traceContext.traceparent`, `validity.audience` and
+  `validity.nonce`; and a list as a key's `alg` made `verify_trust_pack` raise `TypeError` before
+  any signature was counted. Leaking paths were decision 63 (9 after the entry above), outcome 12,
+  run_ledger 6, verification_summary 3 and trust_pack 4. Every count is 0 now, and the raise is a
+  verdict. The three shapes and the closed digest object have one definition, which every one of
+  these modules reads in place of a private copy; `trust_pack` and `relation` had been corrected
+  on main already and read the same definition now. A test walks every regular expression literal
+  under `src/proofbundle` that judges a whole value; `agent_review`, which has no published schema,
+  keeps its own `\d` patterns and is named there.
+- The eval-result v0.2 checks (`intoto`) read the digits of an RFC 3339 `evaluatedAt` as ASCII, as
+  RFC 3339 writes them. Measured on main 570dd164, a signed v0.2 statement whose `evaluatedAt` had
+  an Arabic-Indic year, fullwidth seconds or a Devanagari offset verified.
 - The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
 
 ## [6.3.0] - 2026-10-14

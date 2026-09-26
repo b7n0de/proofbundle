@@ -1221,8 +1221,12 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
 
 # A URI with a scheme and no whitespace or control character (RFC 3986 shape, not a registry lookup).
 _URI_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z")
+# [0-9], not \d: RFC 3339 writes its digits as the ABNF DIGIT, %x30-39, and in a str pattern \d is every
+# Unicode decimal digit, which int() then reads as a number. Measured on main 570dd164: a signed v0.2
+# statement whose evaluatedAt had an Arabic-Indic year, fullwidth seconds or a Devanagari offset verified.
 _RFC3339_RE = re.compile(
-    r"\A(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))\Z")
+    r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]+)?"
+    r"(?:[Zz]|[+-]([0-9]{2}):([0-9]{2}))\Z")
 _LOWER_HEX_RE = re.compile(r"\A[0-9a-f]+\Z")
 # The claim builder's grammar for a decimal string (evalclaim._DECIMAL_RE): the draft says "decimal
 # string" and gives no grammar, so this is the reading implemented (ambiguity A3, docs/IN_TOTO_PROFILE.md).

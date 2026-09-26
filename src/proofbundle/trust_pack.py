@@ -36,20 +36,17 @@ from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _r
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
+# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for `pattern`),
+# from the one definition in _schema_shapes. The private copy that stood here was corrected to `\A..\Z`
+# with [0-9] in round 11 (lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion`
+# with a trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
 TRUST_PACK_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for
-# `pattern`): `$` is the end of the input and `\d` is [0-9]. Under Python `re`, `$` also matches before a
-# final newline and `\d` matches every Unicode decimal digit, so these are written `\A..\Z` with [0-9]
-# (round 11, lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion` with a
-# trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 _ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
               "timeAuthorities", "witnesses")
@@ -96,7 +93,7 @@ class TrustPackError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> TypeGuard[dict]:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def _zahl_text(v: Any) -> str:
@@ -201,11 +198,18 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
+                # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
+                if "scheme" in kv and kv.get("scheme") != "ed25519":
+                    errors.append(f"keys[{kid!r}].scheme, when present, must be 'ed25519'")
                 # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
                 # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
                 # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
                 want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
-                label = _KEY_ALG_LABEL.get(alg, "Ed25519")
+                # A dict lookup hashes its key, and `alg` comes from the pack: a list here raised TypeError out of
+                # this validator and out of verify_trust_pack, before any signature was counted (same gate).
+                # An `alg` that is not one of _KEY_ALGS is already an error above; it is labelled as Ed25519.
+                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"
                 try:
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
