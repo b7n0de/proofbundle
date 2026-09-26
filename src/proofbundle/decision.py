@@ -14,7 +14,7 @@ import hashlib
 import re
 from typing import Any, Callable
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
@@ -566,11 +566,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
         body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
         # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
-        DEFAULT_BUDGET.check("input_bytes", len(body))
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
-        # but only when the rfc8785 extra is installed.
-        statement = loads_strict(body.decode("utf-8"))
+        # but only when the rfc8785 extra is installed. Deep gate Z195 (L3-Z195-01): through the ONE
+        # Statement oracle, which also refuses a `_type` that is not in-toto Statement v1 — before, a
+        # receipt with `_type` absent, null or v0.1 reached structure_ok=true and safeForAutomation=true.
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
         # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
