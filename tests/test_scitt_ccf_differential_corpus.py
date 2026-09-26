@@ -19,13 +19,13 @@ REPO = Path(__file__).resolve().parents[1]
 CORPUS = REPO / "tools" / "scitt_ccf_external" / "differential_corpus"
 
 
-def _tool():
-    name = "_scitt_ccf_differential_corpus"
+def _tool(file: str = "differential_corpus.py"):
+    name = "_scitt_ccf_" + file[:-3]
     if name not in sys.modules:
         tools = str(REPO / "tools" / "scitt_ccf_external")
         if tools not in sys.path:
             sys.path.insert(0, tools)
-        spec = importlib.util.spec_from_file_location(name, REPO / "tools" / "scitt_ccf_external" / "differential_corpus.py")
+        spec = importlib.util.spec_from_file_location(name, REPO / "tools" / "scitt_ccf_external" / file)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
@@ -44,7 +44,8 @@ def test_every_vector_is_stored_as_text_with_its_digest():
     for vid in man["vectors"]:
         d = CORPUS / "vectors" / vid
         rec = json.loads((d / "record.json").read_text(encoding="utf-8"))
-        assert {p.name for p in d.iterdir()} == set(rec["files"]) | {"record.json"}, vid
+        derived = {"candidate_hashes.json"} if rec["service"]["accepted"] else set()
+        assert {p.name for p in d.iterdir()} == set(rec["files"]) | {"record.json"} | derived, vid
         assert ("receipt.hex" in rec["files"]) == rec["service"]["accepted"], vid
         for name, want in rec["files"].items():
             raw = _hex(d / name)
@@ -70,3 +71,27 @@ def test_the_stored_summaries_are_what_the_tool_derives_from_the_raw_bytes():
     c = summary["what_the_data_hash_commits_to"]
     assert [c[k]["accepted"] for k in "abcdef"] == [13, 2, 3, 3, 3, 3]
     assert c["measured_rule_holds_for_every_accepted_vector"] is True
+
+
+def test_one_byte_string_is_the_data_hash_preimage_of_every_accepted_vector():
+    """The ten candidates of preimage_candidates.py, recomputed from the raw bytes by the tool's own
+    reader and encoder (no cbor2). Only the tagged COSE_Sign1 with an empty unprotected map matches
+    all 29, reached two ways: rebuilt from the contents (4) and cut from the returned statement (3)."""
+    per, summary = _tool("preimage_candidates.py").derive(CORPUS)
+    assert len(per) == 29
+    matches = {row["candidate"]: row["matches"] for row in summary["table"]}
+    assert [c for c, m in matches.items() if m == 29] == ["3-tagged", "4-tagged"]
+    assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == ["3-tagged", "4-tagged"]
+    assert matches["1"] == 5 and matches["5-sorted-tagged"] == 14 and matches["6"] == 0
+    stored = json.loads((CORPUS / "preimage_summary.json").read_text(encoding="utf-8"))
+    assert {row["candidate"]: row["matches"] for row in stored["table"]} == matches
+
+
+@pytest.mark.skipif(importlib.util.find_spec("cbor2") is None, reason="the foreign readings need cbor2")
+def test_the_stored_candidate_hashes_are_what_the_tool_derives():
+    t = _tool("preimage_candidates.py")
+    per, summary = t.derive(CORPUS)
+    for vid, obj in per.items():
+        assert (CORPUS / "vectors" / vid / "candidate_hashes.json").read_text(encoding="utf-8") == t._dump(obj), vid
+    assert (CORPUS / "preimage_summary.json").read_text(encoding="utf-8") == t._dump(summary)
+    assert summary["data_hash_readers"] == {"own_reader": 29, "cbor2_agrees": 29}

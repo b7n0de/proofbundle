@@ -53,6 +53,7 @@ the tool.
 - `vectors/<id>/record.json`: class, base, mutation, the pins, the service's answer (HTTP status, txid, error) and the SHA-256 of every file
 - `scitt-keys.hex`: the service key set; `manifest.json`: the run, the signer's public key, the target
 - `summary.json`, `admissibility.json`: derived, and checked by `python3 ../differential_corpus.py derive --check` and by `tests/test_scitt_ccf_differential_corpus.py`
+- `vectors/<id>/candidate_hashes.json` (accepted vectors) and `preimage_summary.json`: derived by `python3 ../preimage_candidates.py --write`, and checked by `--check` and by the same test file
 - `python3 ../differential_corpus.py derive --vector <id>` prints the full chain below for one vector
 - Converted from the base64 JSON records of commit `56ac85678f83cce7c742fc093b596eb1a420db03`: every
   byte string was held against its recorded SHA-256 before it was written as hex, and the derived
@@ -108,6 +109,113 @@ The error for c04 and c05 names a detached or empty payload. The payload in both
   signed content or leaves this corpus's six classes. `../local_ledger_result.json` measured some of
   them on the same service commit.
 
+## THE DATA-HASH PREIMAGE, TEN CANDIDATES (owner order of 2026-09-26)
+
+A reviewer of this corpus asked for the exact preimage of the data-hash before the mutations are
+broadened. `../preimage_candidates.py` computes ten candidates per accepted vector from the stored
+bytes, with no new ledger run. Where the order leaves a choice open, it computes every named variant.
+Each candidate is compared with the data-hash in that vector's receipt. The result is in
+`vectors/<id>/candidate_hashes.json` and `preimage_summary.json`.
+
+Exactly one byte string matches all 29 accepted vectors:
+
+- the COSE_Sign1 tag 18 (`d2`)
+- a definite array of four (`84`)
+- the protected, payload and signature byte strings, with their contents as submitted and preferred heads
+- an empty map (`a0`) as the unprotected header
+
+Two candidates name that byte string. Candidate 4-tagged rebuilds it from the contents. Candidate
+3-tagged cuts label 394 out of the returned statement. The two are the same bytes in 29 of 29
+vectors. No other candidate or variant matches all 29.
+
+| candidate | what | matches the receipt's data-hash | cbor2 encoding of the same candidate |
+|---|---|---|---|
+| `1` | exact request bytes | 5 of 29 | not encoded by cbor2 |
+| `2` | returned statement bytes | 0 of 29 | not encoded by cbor2 |
+| `3-tagged` | returned statement, label 394 removed, every other byte as served, tag 18 kept | 29 of 29 | not encoded by cbor2 |
+| `3-untagged` | returned statement, label 394 removed, every other byte as served, tag 18 dropped | 0 of 29 | not encoded by cbor2 |
+| `4-tagged` | deterministic [protected, {}, payload, signature], tag 18 | 29 of 29 | 29 of 29 equal |
+| `4-untagged` | deterministic [protected, {}, payload, signature], no tag | 0 of 29 | 29 of 29 equal |
+| `5-sorted-tagged` | deterministic [protected, U, payload, signature], U sorted per 4.2.1, tag 18 | 14 of 29 | 29 of 29 equal |
+| `5-sorted-untagged` | deterministic [protected, U, payload, signature], U sorted per 4.2.1, no tag | 0 of 29 | 29 of 29 equal |
+| `5-submitted-order-tagged` | [protected, U, payload, signature], U in submitted order, preferred heads, tag 18 | 14 of 29 | 29 of 29 equal |
+| `5-submitted-order-untagged` | [protected, U, payload, signature], U in submitted order, preferred heads, no tag | 0 of 29 | 29 of 29 equal |
+| `6` | Sig_structure, RFC 9052 section 4.4 | 0 of 29 | 29 of 29 equal |
+| `7-content` | protected header, content of the bstr | 0 of 29 | not encoded by cbor2 |
+| `7-element` | protected header, bstr with a preferred head | 0 of 29 | not encoded by cbor2 |
+| `7-element-as-submitted` | protected header, bstr exactly as submitted | 0 of 29 | not encoded by cbor2 |
+| `8-content` | payload, content of the bstr | 0 of 29 | not encoded by cbor2 |
+| `8-element` | payload, bstr with a preferred head | 0 of 29 | not encoded by cbor2 |
+| `9-content` | signature, content of the bstr | 0 of 29 | not encoded by cbor2 |
+| `9-element` | signature, bstr with a preferred head | 0 of 29 | not encoded by cbor2 |
+| `10-content` | protected, payload and signature contents, concatenated | 0 of 29 | not encoded by cbor2 |
+| `10-element` | protected, payload and signature as preferred-head bstrs, concatenated | 0 of 29 | not encoded by cbor2 |
+
+What the partial matches show:
+
+- Candidate 1 matches in 5 vectors: control, control-resubmitted, f01, f02 and f03. There, the
+  submitted bytes already are the matching form.
+- The tagged variants of candidate 5 match in 14 vectors. These are the vectors whose unprotected
+  map is empty once label 394 is removed: control, control-resubmitted, a08, b01, b02, c01 to c03,
+  d01 to d03 and f01 to f03.
+- The untagged variants match nowhere.
+
+Rules applied, written into every `candidate_hashes.json` and in full in `preimage_summary.json`:
+
+- Deterministic encoding follows RFC 8949 section 4.2.1, core deterministic encoding:
+  - preferred heads
+  - definite lengths
+  - map keys sorted bytewise by their encodings
+- String contents are never changed. The protected header stays the content of its bstr as
+  submitted.
+- In this corpus, that content is already core deterministic in 29 of 29 vectors, so re-encoding it
+  would change nothing here.
+- That the service keeps a protected header as sent, even with a non-preferred integer inside it,
+  was measured on 2026-09-25 (ADR 0009, section 3, `../local_ledger_result.json`).
+- Receipt material means the unprotected label 394, `receipts`, and nothing else. The sources are
+  the COSE Receipts WG source at `df5113e94e6b6788de0bfb112db63726516b88ab` and the SCITT
+  architecture WG source at `ba7d23d40557f0206735592036532414139d9a57`, both retrieved 2026-09-25.
+- Tag 18 is computed both ways, tagged and untagged, for candidates 3, 4 and 5. Candidates 1 and 2
+  are the stored bytes. Candidates 6 to 10 are not COSE_Sign1 messages.
+- Candidate 5 uses the key order of the kept map both ways: sorted, and in the submitted order.
+  Candidates 7 to 10 use both the content and a preferred-head bstr. Candidate 7 also uses the bstr
+  exactly as submitted.
+
+Oracles:
+
+- Every candidate is computed by the tool's own CBOR reader and encoder, and SHA-256 by hashlib.
+- The data-hash is read by the tool's own reader, and read again by cbor2 (foreign, pinned by the
+  `[scitt]` extra). The two agree in 29 of 29 vectors.
+- cbor2 encodes candidates 4, 5 and 6 a second time, from its own decoding of the request. Its
+  encoding equals the tool's in 29 of 29 vectors for each of them.
+- cbor2's canonical mode orders map keys length-first (RFC 8949 section 4.2.3). This was measured:
+  `{"x": 1, 1000: 2}` encodes as `a26178011903e802`. The sorted variant of candidate 5 still agrees
+  here, because no kept map in this corpus has keys that the two orders place differently.
+
+The service source that builds the hashed bytes, read at the pinned commits. The run used these;
+file digests are in `preimage_summary.json`.
+
+- scitt-ccf-ledger `00101f769d872711356e080fbb089ac48589c60a`, `app/src/main.cpp` lines 417 to 425:
+  - `set_unprotected_header(body, ccf::cose::edit::desc::Empty{})`
+  - then `set_claims_digest(ccf::ClaimsDigest::Digest(signed_statement))`
+- CCF `ccf-7.0.17`, `src/crypto/cose.cpp` lines 18 to 89, the function `ccf::cose::edit::set_unprotected_header`:
+  - it requires tag 18
+  - it copies the protected header, payload and signature
+  - it puts `make_map({})` in position 1
+  - it wraps the result in tag 18 and serializes it with `nondet_serialize()`
+- CCF `ccf-7.0.17`, `3rdparty/internal/tee-attestation-verification/cbor/src/lib.rs` lines 14 to 16:
+  both serializer modes "write preferred head widths".
+- CCF `ccf-7.0.17`, `include/ccf/claims_digest.h` line 12 and `src/crypto/sha256_hash.cpp` lines 17
+  to 20: the digest is SHA-256 over the byte vector.
+
+The source and the measurement name the same bytes. The source was read, not run.
+
+NOT MEASURED here:
+
+- a protected header that is not core deterministic, in this corpus (see the 2026-09-25 measurement above)
+- a detached payload: the service refused both indefinite payloads before hashing
+- any service other than this one commit
+
 ## THE ACCEPTANCE DIFFERENCE WITH THE PROOFBUNDLE V1 READER
 
 - The service accepted 10 submitted statements that the v1 reader refuses: a09 and a10 (a label in
@@ -120,7 +228,7 @@ The error for c04 and c05 names a detached or empty payload. The payload in both
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 133 text files, 312103 bytes; the largest is `summary.json`, 18125 bytes. Before C1 b: 38 files, 627944 bytes.
+- Stored: 163 text files, 465517 bytes; the largest is `summary.json`, 18125 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
 - No further mutation classes for now (owner answer C2 c).
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
