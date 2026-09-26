@@ -74,6 +74,7 @@ WEAK = [
     (I3, "non-canonical"),
     (P.to_bytes(32, "little"), "non-canonical"),                       # y = p, i.e. 0
     (b"\x00" * 32, "low-order"),                                       # y = 0, order 4
+    (b"\x00" * 31 + b"\x80", "low-order"),                             # y = 0, x sign set, order 4
     ((P - 1).to_bytes(32, "little"), "low-order"),                     # y = p - 1, order 2
     (bytes.fromhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), "low-order"),
     (bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"), "low-order"),
@@ -180,6 +181,23 @@ class TheRule(unittest.TestCase):
                 msg, sig = f
                 self.assertIs(verify_ed25519(key, sig, msg), True)
                 self.assertIs(verify_ed25519_pinned(key, sig, msg), False)
+
+    def test_weak_holds_every_encoding_of_a_point_of_small_order(self):
+        """Every loop over WEAK is only as wide as WEAK. Gate run 1 on the release tooling fix (lens B,
+        231-1B-05): nothing pinned its contents, and dropping an entry left every case green. Measured
+        then: of the ten encodings of a point of small order, WEAK held nine; y = 0 with the x sign set,
+        the second point of order 4, was missing. The low-order part is held here to the eight canonical
+        torsion points of TORSION_R plus the two points with x = 0 spelled with the sign bit set, and to
+        the rule's own y-values; the non-canonical part to the two spellings that admit a forgery and the
+        one of large order."""
+        from proofbundle.signature import _LOW_ORDER_ED25519_Y
+        low = {k for k, r in WEAK if r == "low-order"}
+        x_null_signed = {I2, ((P - 1) | (1 << 255)).to_bytes(32, "little")}
+        self.assertEqual(low, set(TORSION_R) | x_null_signed)
+        self.assertEqual({int.from_bytes(k, "little") & ((1 << 255) - 1) for k in low}, set(_LOW_ORDER_ED25519_Y))
+        self.assertEqual({k for k, r in WEAK if r == "non-canonical"},
+                         {P.to_bytes(32, "little"), I3, _NO_SMALL_ORDER})
+        self.assertEqual(len(WEAK), len({k for k, _r in WEAK}), "an entry is listed twice")
 
     def test_every_weak_encoding_is_named_with_its_reason(self):
         for key, reason in WEAK:

@@ -16,6 +16,66 @@ except ImportError:         # gate HONESTLY reports the population incomplete, s
     _HAS_OTS = False
 
 
+def _verdicts_in_a_fresh_interpreter(fn_names):
+    """Run harness classes in a new interpreter against the tree as it is on disk NOW and return each
+    class's verdict: "True", "False", or "raised <Type>" (``run()`` counts a class that raises as not
+    detected).
+
+    Gate run 1 on the weak pinned keys fix (lens B, 231-1B-02, measured): the strip loops below ran
+    ``python3`` with bytecode on, and every cc32 strip adds the same ten bytes, so all mutants have one
+    size. Written within one second they also share an mtime, and CPython took the first mutant's .pyc
+    for the others: under the test's own conditions all seven strips reported the schema strip's verdict.
+    ``-B`` writes no .pyc, and an empty PYTHONPYCACHEPREFIX makes the interpreter read none, so every run
+    compiles what is on disk. ``sys.executable`` replaces ``python3`` on a narrowed PATH, so the verdict
+    comes from the interpreter the suite runs under. A run that ends without a verdict fails here: before,
+    a crash printed nothing, and nothing read as a class going red."""
+    import json
+    import subprocess
+    import tempfile
+    repo = Path(__file__).resolve().parents[1]
+    code = ("import json, gate_qualification_harness as h\n"
+            "out = {}\n"
+            f"for n in {list(fn_names)!r}:\n"
+            "    try:\n"
+            "        out[n] = str(bool(getattr(h, n)()[0]))\n"
+            "    except Exception as e:  # noqa: BLE001\n"
+            "        out[n] = 'raised ' + type(e).__name__\n"
+            "print(json.dumps(out))\n")
+    with tempfile.TemporaryDirectory() as leer:
+        r = subprocess.run([sys.executable, "-B", "-c", code],
+                           env={"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
+                                "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPYCACHEPREFIX": leer},
+                           capture_output=True, text=True, timeout=600)
+    zeilen = r.stdout.strip().splitlines()
+    assert r.returncode == 0 and zeilen, (
+        f"the harness run ended without a verdict (rc={r.returncode}); a crash is not a class going red: "
+        f"{r.stderr.strip()[-600:]}")
+    return json.loads(zeilen[-1])
+
+
+def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral, fn_name):
+    """The strip loops' control for the run itself. Every strip is supposed to turn its class red, so a
+    run that reused an earlier strip's bytecode would stay unnoticed. Here a strip is run first, then an
+    edit that changes nothing, of the strip's size and stamped with the strip's mtime: bytecode cached
+    for the strip is valid for that source by both of CPython's checks. A run that reads cached
+    bytecode reports the strip's red twice, every time; a run that compiles what is on disk reports red,
+    then green."""
+    import os
+    assert orig.count(anker) == 1 and len(neutral) == len(strip), (anker, len(neutral), len(strip))
+    path.write_text(orig.replace(anker, strip, 1), encoding="utf-8")
+    stempel = path.stat().st_mtime_ns
+    try:
+        rot = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
+        path.write_text(orig.replace(anker, neutral, 1), encoding="utf-8")
+        os.utime(path, ns=(stempel, stempel))
+        gruen = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
+    finally:
+        path.write_text(orig, encoding="utf-8")
+    assert rot != "True" and gruen == "True", (
+        f"{fn_name}: {rot} after the strip, {gruen} after an edit that changes nothing, of the same size "
+        f"and mtime; only red then green says each run compiled what was on disk")
+
+
 @pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps): the gate's "
                     "full surface population includes anchor OTS surfaces that only import with it")
 def test_15_of_15_counterproofs_detected_with_green_positive_controls():
@@ -31,7 +91,6 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
     type_confusion_gate.evaluate() to its headline verdict. Proven by mutation: strip one wiring and EXACTLY
     the matching class must go red (a present-but-vacuous class — the cc01/cc02 failure mode — would stay
     green). This is the anti-rot guarantee: a stripped detection capability cannot pass as 20/20 green."""
-    import subprocess
     import shutil
     import tempfile
     from pathlib import Path
@@ -89,8 +148,6 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
         # cc23 binds them only as an all-or-nothing group; a PARTIAL break of one branch was unbound.
         "32_field_extraction_subscript": ('elif (isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant)', 'elif (False and isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant)'),
     }
-    env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
-
     # map each wiring to the class that binds it; run ONLY that class per mutation (fast: one evaluate()
     # call, not the full 20-class harness). Isolation ("only that class reddens") is proven once in the
     # deliverable's one-time plant-and-catch; here we protect the BINDING (strip -> that class red).
@@ -118,10 +175,12 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "32_field_extraction_subscript": "cc31_field_extraction_subscript_real"}
 
     def target_still_detects(fn_name):
-        code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
-        r = subprocess.run(["python3", "-c", code], env=dict(env, PYTHONPATH=f"{repo}/src:{repo}/scripts"),
-                           capture_output=True, text=True)
-        return r.stdout.strip().endswith("True")
+        return _verdicts_in_a_fresh_interpreter([fn_name])[fn_name] == "True"
+
+    # BASELINE: every target is green on the unmutated tree, in the same kind of run. Without it, a target
+    # that is red for another reason would read as a strip turning it red.
+    basis = _verdicts_in_a_fresh_interpreter(sorted(set(target_fn.values())))
+    assert all(v == "True" for v in basis.values()), f"a target is not green before any strip: {basis}"
 
     bak = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)
     bak.write(orig)
@@ -135,6 +194,9 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
             finally:
                 gate.write_text(orig, encoding="utf-8")   # ALWAYS restore
             assert not detects, f"stripping {target} must make {target_fn[target]} go red (binding vacuous?)"
+        o, n = muts["32_field_extraction_subscript"]
+        _assert_each_run_compiles_what_is_on_disk(gate, orig, o, n, o + "  # xxxxxx",
+                                                  "cc31_field_extraction_subscript_real")
     finally:
         gate.write_text(orig, encoding="utf-8")            # belt-and-suspenders restore
         shutil.os.unlink(bak.name)
@@ -269,9 +331,14 @@ def test_every_pretag_rejection_is_bound():
     expected digests), schema/version/subject_tree/gate_source/audit_exit (binding fields), no-trusted-key,
     untrusted-signer, no-signature(#9), WEAK-TRUSTED-KEY (new 2026-09-26: a pinned key the trust-anchor
     rule refuses, before any signature arithmetic), sig-errored, sig-not-verify(#10). cc32 binds
-    schema/version/gate_source/audit_exit + untrusted-signer + tampered-signature + BOTH placeholder cases
-    + the weak trusted key; cc09 subject_tree; cc10 no-trusted-key; #9 isinstance(sig,str) is inert
-    (subsumed by the fail-closed b64decode except, re-gate a785573f).
+    schema/version/gate_source/audit_exit + untrusted-signer + tampered-signature + BOTH placeholder cases,
+    and by their reason the weak trusted key and #9 no-signature; cc09 subject_tree; cc10 no-trusted-key by
+    its reason; cc08 the type guard (stripped, cc08 raises).
+
+    WHAT THIS PIN DOES NOT SEE (gate run 1 on the weak pinned keys fix, lens B, 231-1B-03): a check kept in
+    place with its condition switched off leaves the count at 13. That is the strip test's job below: it
+    takes the twelve conditions from the same AST and switches each one off. The thirteenth path is the
+    except handler around the signature check, which has no condition to switch off.
 
     THE NEW PATH IS DIFFERENT IN KIND, and that is why cc32 had to grow a differently-shaped case: every
     other rejection reads a field OF THE RECEIPT. This one reads an INPUT THE GATE SUPPLIES — the placeholder
@@ -292,39 +359,65 @@ def test_every_pretag_rejection_is_bound():
         f"and update this pin. AST-based so it is robust to the condition form (subscript / is-None / not-in).")
 
 
+#: Every condition in verify_receipt that refuses, and the harness class that must turn red when it is
+#: switched off. The test below takes the conditions from the AST, so a new one is either here or red.
+_PRETAG_STRIPS = {
+    "not isinstance(receipt, dict)": "cc08_bare_or_copied_attestation_line",
+    "not isinstance(erwartet, str) or not _IST_SHA256.match(erwartet)": "cc32_pretag_check_coverage",
+    'receipt.get("schema") != RECEIPT_SCHEMA': "cc32_pretag_check_coverage",
+    'receipt.get("version") != expected_version': "cc32_pretag_check_coverage",
+    'receipt.get("subject_tree_digest") != subject_tree_digest': "cc09_wrong_subject_digest",
+    'receipt.get("gate_source_digest") != gate_source_digest': "cc32_pretag_check_coverage",
+    'receipt.get("audit_exit_code") != 0': "cc32_pretag_check_coverage",
+    "not trusted_pubkeys": "cc10_unsigned_or_untrusted_receipt",
+    "signer not in trusted_pubkeys": "cc32_pretag_check_coverage",
+    "not isinstance(sig, str)": "cc32_pretag_check_coverage",
+    "weakness is not None": "cc32_pretag_check_coverage",
+    "not ok": "cc32_pretag_check_coverage",
+}
+
+
+def _pretag_rejection_conditions(src):
+    import ast
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
+    return [ast.get_source_segment(src, n.test) for n in ast.walk(fn)
+            if isinstance(n, ast.If) and n.body and isinstance(n.body[0], ast.Return)
+            and isinstance(n.body[0].value, ast.Tuple) and n.body[0].value.elts
+            and isinstance(n.body[0].value.elts[0], ast.Constant) and n.body[0].value.elts[0].value is False]
+
+
 def test_pretag_binding_check_strips_redden_cc32():
-    """Each verify_receipt binding-field check, stripped, must make cc32 go red -> genuinely bound, not
-    vacuous. Mutation on pre_tag_receipt_lib.py; the schema strip is the round-10 P3-1 that is now caught."""
-    import subprocess
+    """Each verify_receipt rejection, switched off, must turn the class that binds it red -> genuinely
+    bound, not vacuous. Mutation on pre_tag_receipt_lib.py; the schema strip is the round-10 P3-1.
+
+    The table covers every refusing condition, taken from the AST (gate run 1 on the weak pinned keys fix,
+    lens B, 231-1B-03). Before, seven strips were listed by hand, and measured in a fresh interpreter
+    three conditions stayed green when switched off: `not trusted_pubkeys`, `not isinstance(sig, str)`
+    and `weakness is not None`. A later layer refuses the same receipt under another reason, so cc10 and
+    cc32 now check the reason for those three. The condition is switched off in parentheses: `if False
+    and A or B:` still refuses on B, measured on the digest-form check."""
     from pathlib import Path
     lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
     orig = lib.read_text(encoding="utf-8")
-    repo = str(Path(__file__).resolve().parents[1])
-    strips = [
-        'if receipt.get("schema") != RECEIPT_SCHEMA:',
-        'if receipt.get("version") != expected_version:',
-        'if receipt.get("gate_source_digest") != gate_source_digest:',
-        'if receipt.get("audit_exit_code") != 0:',
-        'if signer not in trusted_pubkeys:',
-        'if not ok:',
-        'if weakness is not None:',
-    ]
-
-    def cc32_detects():
-        r = subprocess.run(
-            ["python3", "-c", "import gate_qualification_harness as h; print(h.cc32_pretag_check_coverage()[0])"],
-            env={"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin"},
-            capture_output=True, text=True)
-        return r.stdout.strip().endswith("True")
+    found = _pretag_rejection_conditions(orig)
+    assert sorted(found) == sorted(_PRETAG_STRIPS), (
+        f"verify_receipt refuses under {sorted(set(found) - set(_PRETAG_STRIPS))} with no strip here, and "
+        f"the table lists {sorted(set(_PRETAG_STRIPS) - set(found))} that it no longer has")
+    basis = _verdicts_in_a_fresh_interpreter(sorted(set(_PRETAG_STRIPS.values())))
+    assert all(v == "True" for v in basis.values()), f"a class is not green before any strip: {basis}"
 
     try:
-        for s in strips:
-            assert orig.count(s) == 1, f"pretag check anchor not unique: {s!r}"
-            lib.write_text(orig.replace(s, "if False and " + s[3:], 1), encoding="utf-8")
+        for cond, fn_name in _PRETAG_STRIPS.items():
+            anker = f"if {cond}:"
+            assert orig.count(anker) == 1, f"pretag check anchor not unique: {anker!r}"
+            lib.write_text(orig.replace(anker, f"if False and ({cond}):", 1), encoding="utf-8")
             try:
-                detects = cc32_detects()
+                verdict = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
             finally:
                 lib.write_text(orig, encoding="utf-8")
-            assert not detects, f"stripping {s!r} must make cc32 go red (binding vacuous?)"
+            assert verdict != "True", f"stripping {anker!r} must make {fn_name} go red (binding vacuous?)"
+        _assert_each_run_compiles_what_is_on_disk(lib, orig, "if not ok:", "if False and (not ok):",
+                                                  "if not ok:  # xxxxxxxx", "cc32_pretag_check_coverage")
     finally:
         lib.write_text(orig, encoding="utf-8")

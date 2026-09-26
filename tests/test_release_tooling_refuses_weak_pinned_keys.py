@@ -17,6 +17,12 @@ in the trust anchor: the precondition shows the bare profile accepts the signatu
 surface refuses it and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. Then a sweep over
 scripts/ and tools/ with the package's own sweep: every Ed25519 verification there goes through the
 rule, except the in-band keys named with their reason.
+
+WHAT THAT SWEEP COULD NOT SEE. It models the spellings of `cryptography`. Gate run 1 on this fix (lens
+A, 231-1A-01) found a verification through another library: tools/scitt_ccf_datahash_vector/
+reader_matrix.py checks Ed25519 signatures with pycose, and the sentence above was not true of it. So
+every library these files import is now classified in a closed table (`THIRD_PARTY`), a new one is red
+until it is, and an import of a signature library the sweep does not model counts as a use.
 """
 from __future__ import annotations
 
@@ -213,7 +219,27 @@ IN_BAND_TOOLING = {
     "tools/scitt_ccf_datahash_vector/mint_indefinite.py": "derives a variant of the same third-party "
                                                           "test vector under its printed test key; it "
                                                           "trusts nothing",
+    "tools/scitt_ccf_datahash_vector/reader_matrix.py": "checks the same third-party test vector through "
+                                                        "pycose, under the test key printed in that "
+                                                        "vector, and a control message it signs with the "
+                                                        "vector's printed seed; it trusts nothing",
 }
+
+#: Every library outside the standard library that a file under scripts/ or tools/ imports, and why it
+#: does or does not reach an Ed25519 verification the sweep cannot see. Closed on purpose: a list of
+#: signature libraries would be one short at the next one, so a new import is red here until it is
+#: classified. SWEPT: `_sweep_source` models its spellings. UNMODELLED: it can verify a signature and the
+#: sweep does not model it, so every file that imports it counts as a use below.
+THIRD_PARTY = {
+    "cryptography": "SWEPT",
+    "pycose": "UNMODELLED",
+    "cbor2": "a CBOR codec; it verifies no signature",
+    "yaml": "a YAML parser; it verifies no signature",
+    "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
+    "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+}
+
+_LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")
 
 
 def _tooling_files():
@@ -225,13 +251,53 @@ def _tooling_files():
             yield rel, path
 
 
+def _import_roots(text: str):
+    """(root, line) for every absolute import in `text`, and for `importlib.import_module` or
+    `__import__` called with a literal name. What it does not see, as `_sweep_source` says of itself: a
+    name built at run time and code run from a string by `exec` or `eval`."""
+    import ast
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name.split(".")[0], node.lineno
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            yield node.module.split(".")[0], node.lineno
+        elif (isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)
+              and isinstance(node.args[0].value, str)
+              and ((isinstance(node.func, ast.Attribute) and node.func.attr == "import_module")
+                   or (isinstance(node.func, ast.Name) and node.func.id == "__import__"))
+              and not node.args[0].value.startswith(".")):
+            yield node.args[0].value.split(".")[0], node.lineno
+
+
+def _local_roots() -> set:
+    """Names a module of this repository answers to: every module and package directory under the
+    places these files put on their path, and those places themselves."""
+    names = {"proofbundle", *_LOCAL_BASES}
+    for base in _LOCAL_BASES:
+        for path in (REPO / base).rglob("*"):
+            posix = path.as_posix()
+            if "/target/" in posix or "/.venv/" in posix or "__pycache__" in posix:
+                continue
+            if path.suffix == ".py":
+                names.add(path.stem)
+            elif path.is_dir():
+                names.add(path.name)
+    return names
+
+
+def _tooling_uses(rel: str, text: str) -> list:
+    return _sweep_source(rel, text) + [(rel, line, f"import of {root}") for root, line in _import_roots(text)
+                                       if THIRD_PARTY.get(root) == "UNMODELLED"]
+
+
 class TheToolingSweep(unittest.TestCase):
     """The package's sweep, walked over scripts/ and tools/ (its own docstring named them outside)."""
 
     def _uses(self):
         found = []
         for rel, path in _tooling_files():
-            found += _sweep_source(rel, path.read_text(encoding="utf-8"))
+            found += _tooling_uses(rel, path.read_text(encoding="utf-8"))
         return found
 
     def test_no_tooling_check_reaches_the_bare_profile_outside_the_named_in_band_keys(self):
@@ -249,6 +315,26 @@ class TheToolingSweep(unittest.TestCase):
         for rel in ("scripts/pre_tag_receipt_lib.py", "scripts/audit_candidate_matrix.py",
                     "scripts/findings_register.py", "scripts/render_site_data.py"):
             self.assertIn(rel, walked)
+
+    def test_every_library_the_tooling_imports_is_classified(self):
+        """Both directions: an import the table does not know, and an entry no file imports any more. A
+        module of this repository named like a library would hide that library's import, so none may."""
+        local = _local_roots()
+        seen = {}
+        for rel, path in _tooling_files():
+            for root, line in _import_roots(path.read_text(encoding="utf-8")):
+                if root in sys.stdlib_module_names or root in local or root == "__future__":
+                    continue
+                seen.setdefault(root, f"{rel}:{line}")
+        self.assertEqual(set(seen), set(THIRD_PARTY), seen)
+        self.assertEqual(set(THIRD_PARTY) & local, set(), "a module of this repository shadows a library")
+
+    def test_an_unclassified_library_and_an_unmodelled_import_are_seen(self):
+        planted = ("import nacl.signing\nfrom pycose.keys import OKPKey\nimport importlib\n"
+                   "importlib.import_module('ed25519')\n__import__('jwcrypto.jwk')\nfrom . import sibling\n")
+        self.assertEqual({r for r, _l in _import_roots(planted)},
+                         {"nacl", "pycose", "importlib", "ed25519", "jwcrypto"})
+        self.assertEqual([s for _r, _l, s in _tooling_uses("planted.py", planted)], ["import of pycose"])
 
 
 if __name__ == "__main__":

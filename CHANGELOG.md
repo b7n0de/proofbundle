@@ -46,10 +46,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (`ok=True`, `verified`, `signature valid`, `passed`). Each now refuses such a key before any signature
   arithmetic and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. The keys pinned today pass the
   rule, so this closes a path, not a live attack. The package's sweep now also walks `scripts/` and
-  `tools/`; the five places there that check a key arriving with the thing it signs (producer
-  self-checks that take the key with the signature or read it from the record itself, and the
-  recomputation of a third party's published test vector under its printed test key) are named with
-  their reason.
+  `tools/`. It models the spellings of `cryptography` only, so every library those files import is
+  classified in a closed table, and an import of a signature library the sweep does not model counts
+  as a use; pycose is one. The six places there that check a key arriving with the thing it signs
+  (producer self-checks that take the key with the signature or read it from the record itself, and
+  the recomputation and reading of a third party's published test vector under its printed test key,
+  once through pycose) are named with their reason.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
