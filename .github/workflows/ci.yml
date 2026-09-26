@@ -488,12 +488,21 @@ jobs:
     #
     # The acceptance was never time, it was the verdict: the full 88-operator run with the exclusion
     # active reproduced the canonical result exactly (87 KILLED, 1 expected SURVIVED, 0 gaps).
+    #
+    # 28 SHARDS AND THE SIX-HOUR JOB LIMIT ARE PROVISIONAL (owner word Z230, 2026-09-26). Since Z230 each
+    # mutant runs the test files that reach it, over a baseline of the same selection. Estimated from
+    # the per-file durations of a local baseline (908 s) scaled by the measured CI/local ratio of the
+    # whole suite (2168 s / 910.9 s): a selection still costs about 2000-2200 s in CI, because the
+    # heaviest test files import nearly every module. With the weighted partition the longest of 28
+    # shards comes to 4.8 h, of 24 to 6.0 h, of 20 to 7.1 h. The final values follow from the first
+    # measured CI run (the MUTATION_DURATIONS line and the wall-clock step of the summary job).
     strategy:
       fail-fast: false          # one red shard must not hide the verdicts of the others
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360        # GitHub's limit for a hosted job
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python
@@ -521,6 +530,9 @@ jobs:
         # Fehlschlagen ist, koennte still bestehen. Mit `shell: bash` faehrt GitHub
         # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
         shell: bash
+        # The step stops 15 minutes before the job does, so the steps below still record how far
+        # the shard got and upload it.
+        timeout-minutes: 345
         run: |
           # `-u` IS NOT COSMETIC — it is the condition under which this step can be diagnosed at all.
           # MEASURED 2026-09-10 on head 1b2adc2, shard 6 of this very matrix: the step started at
@@ -534,7 +546,7 @@ jobs:
           # switches Python's stdout from line- to block-buffering, so nothing is visible until a
           # 4-8 KB buffer fills. A long run without visible progress is indistinguishable from a
           # hung one, and both look identical to whoever reads the job while it is red.
-          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
+          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/28 \
             | tee "$RUNNER_TEMP/mutation-shard.log"
       - name: Record how many operators this shard actually ran
         # The count comes from the run's OWN closing line, not from the matrix index. A shard that
@@ -644,7 +656,7 @@ jobs:
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
           set -euo pipefail
-          K=10
+          K=28
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::mutation matrix result=$MUTATION_RESULT — mindestens ein Shard ist rot"
             exit 1

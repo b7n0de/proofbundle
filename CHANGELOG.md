@@ -10,6 +10,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The mutation gate judges each mutant by the test files that reach it, and a test red in the
+  baseline never kills** (`scripts/mutation_check.py`). On main, run 36253567619 measured a baseline
+  of 1226 to 1661 s over the whole suite (seven of ten shards stopped at the 1800 s limit before it
+  ended) and 1174 to 1610 s per mutant under a job limit of 60 minutes; the three shards that got a
+  baseline were cancelled after one mutant each, and no mutant was judged. A mutant now runs the test
+  files that import the mutated module directly or through other modules, together with every file
+  that can reach any module (a glob over `*.py`, a pytest subprocess, a non-literal import) and the
+  gate's own controls; imports under `TYPE_CHECKING` do not count, and a package's lazy attribute
+  table is read at the importer. Its baseline runs over the same files. The verdict counts tests, not
+  records: a mutant is killed only by a test that is red under it and was not red in that baseline.
+  Before, `red > baseline` counted failures plus errors, and a baseline-red test that also failed its
+  teardown under the mutant raised the count by one, so the mutant read as killed although no test
+  found it (a case pinned in `tests/test_mutation_selection.py`, red against the old gate). A test
+  that is red in a baseline must stand in `scripts/mutation_baseline_allowlist.json` with the class it
+  failed with, or the baseline stops. The work tree is a shared clone of the repository with the
+  tracked files copied over it, so tests that ask git about the tree run there as they do in a
+  checkout. The file an operator mutates is restored from its bytes and checked byte by byte, where a
+  last full run compared a red count (a file with CRLF line ends came back with LF). The candidate
+  matrix test `test_c12_1_nicht_anwendbar_vor_dem_tag` joins `test_audit_candidate_360` as a per-mutant
+  exclusion: it runs the whole matrix in a subprocess twelve times, 766 of the 1534 s the baseline took
+  in the gate's setup, and says nothing about one mutated line. The selection saves less time than
+  hoped in this repository: the heaviest test files import nearly every module, so a selection costs
+  about 2000 to 2200 s in CI by an estimate from local per-file durations scaled by the measured
+  CI/local ratio of the whole suite. The limit of one suite run rises from 1800 to 3600 s, the CI
+  job runs 28 shards instead of 10 under GitHub's six-hour job limit (the longest shard is estimated
+  at 4.8 h), and the mutation step stops 15 minutes before the job so the shard still reports how far
+  it got. Both numbers are provisional and are set again from the first measured CI run. The tests
+  of the summary job read the shard count from the workflow, and a new test holds the matrix, the
+  `--shard i/K` argument and the summary's `K=` to one number.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

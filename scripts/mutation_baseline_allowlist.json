@@ -1,0 +1,7 @@
+{
+  "schema": "proofbundle.mutation_baseline_allowlist.v1",
+  "why_this_file_exists": "A test that is red in a mutation-gate baseline is allowed only when it stands here with the class it failed with and a reason that lies in the environment (root, network, a time limit under load). A red test that is not listed exactly so stops the baseline. A real defect never goes on this list; it gets a register line and a fix. The list is meant to shrink.",
+  "history": "Until 2026-09-26 the gate printed 'baseline red (environment-only failures allowed): 38' and went on. Measured in the gate's own setup on main 727d161f: all 38 failed because the gate's copy of the tree had no .git (tree digest, trust anchors read with git show HEAD:, the tree root, a commit range, one commit of history); given a repository with the same HEAD, all 38 passed. The gate's work tree is a shared clone since then, and no test needed an entry.",
+  "allowed_kinds": ["root", "network", "time-limit-under-load"],
+  "eintraege": []
+}
