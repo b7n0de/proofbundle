@@ -212,6 +212,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   release-integrity, release, reusable-build-attest, scorecard and soak-nightly), none of them
   required.
 
+  The same lens found two readings in the evaluator. The status functions were matched with
+  `re.I`, which folds `ı`, `İ`, `ſ` and the Kelvin sign onto ASCII letters, while the key of the
+  enumeration used `.lower()`: `if: '!faılure()'` read as a guard where `!failure()` reads as none,
+  and with its digest accepted it exited 0. GitHub's lexer takes only ASCII letters, digits, `_` and
+  `-` into a keyword and looks a function up case-insensitively (read in actions/runner, not
+  measured), so such a name is no function there. The status functions now match ASCII case only,
+  a name spelled otherwise is not an atom (the condition is undecided and claims no guard), the key
+  folds ASCII only, and two values equal only under a case mapping outside ASCII are not
+  measurable (a label spelled with the Kelvin sign U+212A against `'kanary'`, which `.lower()` made
+  equal). And a matrix condition was found by a search: `fromJSON(true || X && '[..]' || '[..]')`
+  read `test (3.10)` as produced, although GitHub's `||` binds looser than `&&` and the value is the
+  bare `true`. The shape is now matched against the whole expression inside the value's one
+  `${{ }}`, with one operand before the `&&`, and a status function in the condition (GitHub allows
+  none in `strategy`, read in its docs) is not measurable. A live verdict of absence now needs
+  every job read, too: beside a job whose matrix was not read, the live step said "no workflow
+  produces it". Seven cases, each red on ac05d85d; the real workflows' reports are unchanged.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

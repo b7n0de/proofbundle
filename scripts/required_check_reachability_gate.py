@@ -23,8 +23,9 @@ reach, the ones this repository's conditions use. Anything it cannot read litera
 as NOT_MEASURABLE with the reason, and NOT_MEASURABLE is a failure, never a pass -- an unknown
 must not read as fine; a condition it cannot evaluate is named as undecided in the report. In
 particular it understands exactly one conditional matrix
-shape, `fromJSON( <condition> && '<json>' || '<json>' )`, because that is the shape this
-repository uses; it takes the second literal as the ordinary case and names the condition.
+shape, `${{ fromJSON( <condition> && '<json>' || '<json>' ) }}` as the whole value with one operand
+before the `&&`, because that is the shape this repository uses; it takes the second literal as
+the ordinary case and names the condition.
 
 KNOWN TRAPS, from the survey of prior art on 2026-09-16, each guarded below:
   * A job skipped by `if:` reports Success, so a required check on a conditional job never blocks.
@@ -74,10 +75,22 @@ ABSENT = "never-produced"
 UNKNOWN = "not-measurable"
 
 #: `fromJSON( <condition> && '<true arm>' || '<false arm>' )`. The false arm is the ordinary case.
+#: Matched against the WHOLE expression inside the value's one `${{ }}` (lens on ac05d85d, F5): a
+#: search found the shape inside `true || X && '[..]' || '[..]'`, which GitHub reads as
+#: `true || (X && '[..]') || '[..]'`, the bare `true`, since its `||` binds looser than `&&`. The
+#: condition must also be one operand (`_ein_operand`). Its whitespace is ASCII: a character outside
+#: ASCII there leaves the shape unread, which is not measurable, never another reading.
 _TERNARY = re.compile(
-    r"fromJSON\(\s*(?P<cond>.*?)&&\s*'(?P<wahr>\[[^']*\])'\s*\|\|\s*'(?P<sonst>\[[^']*\])'\s*\)",
+    r"fromJSON\([ \t\n\r\f\v]*(?P<cond>.*?)&&[ \t\n\r\f\v]*'(?P<wahr>\[[^']*\])'[ \t\n\r\f\v]*\|\|"
+    r"[ \t\n\r\f\v]*'(?P<sonst>\[[^']*\])'[ \t\n\r\f\v]*\)",
     re.S,
 )
+#: A status function called in an expression, in ASCII of any case. GitHub allows none in `strategy`
+#: (docs.github.com, contexts, "Context availability": `jobs.<job_id>.strategy` lists no special
+#: function, `jobs.<job_id>.if` lists always, cancelled, success and failure; read 2026-09-26), so a
+#: matrix condition with one is not measurable. The first form read `always() && A || B` as A.
+_STATUSAUFRUF = re.compile(r"(?<![\w.])(?:[aA][lL][wW][aA][yY][sS]|[sS][uU][cC][cC][eE][sS][sS]"
+                           r"|[fF][aA][iI][lL][uU][rR][eE]|[cC][aA][nN][cC][eE][lL][lL][eE][dD])\s*\(")
 
 #: A job condition made ONLY of a status function. `always()` and `!cancelled()` do not gate a job
 #: on the event: the job runs whenever the workflow runs (the second one except on a cancelled
@@ -90,8 +103,16 @@ _TERNARY = re.compile(
 #: The `${{` and the `}}` come as a pair or not at all (lens on ac05d85d): each was optional on its
 #: own, so `${{ always()`, which GitHub's template reader refuses as an expression not closed, read as
 #: a status function and its job as produced.
-_NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*\}\}"
-                                 r"|always\(\s*\)|!\s*cancelled\(\s*\))\s*$", re.I)
+#: CASE-INSENSITIVE IN ASCII ONLY (lens on ac05d85d, F4): `re.I` also folds `ı`, `İ`, `ſ` and the
+#: Kelvin sign onto ASCII letters, so `faılure()` read as `failure()`. GitHub's lexer takes only ASCII
+#: letters, digits, `_` and `-` into a keyword and looks a function up OrdinalIgnoreCase
+#: (actions/runner at 15231bede4aa, ExpressionUtility.IsLegalKeyword, ExpressionConstants and
+#: ExpressionParser, read 2026-09-26, not measured): a name with any other letter is no function
+#: there, and the expression does not parse. Every status function below is spelled in ASCII classes.
+_NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*(?:[aA][lL][wW][aA][yY][sS]\(\s*\)"
+                                 r"|!\s*[cC][aA][nN][cC][eE][lL][lL][eE][dD]\(\s*\))\s*\}\}"
+                                 r"|[aA][lL][wW][aA][yY][sS]\(\s*\)"
+                                 r"|!\s*[cC][aA][nN][cC][eE][lL][lL][eE][dD]\(\s*\))\s*$")
 #: The GUARD question is wider than the bucketing question (lens A, 2026-09-17): GitHub replaces
 #: the implicit `success()` as soon as ANY status function appears in the condition, so
 #: `always() && x` or `!cancelled() || y` is guarded even though it is a named condition for
@@ -112,7 +133,8 @@ _NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*(?:always\(\s*\)|!\s*cancelle
 #: stands directly before it, `!cancelled()` and `!success()` as the negated guard forms. A
 #: negated group `!( ... )` is not read by it at all (see `_wache_nach_schreibweise`).
 _TRAEGT_WACHE = re.compile(r"(?<![\w.!])(?<!! )"
-                           r"(?:always\(\s*\)|failure\(\s*\)|!\s*(?:cancelled|success)\(\s*\))", re.I)
+                           r"(?:[aA][lL][wW][aA][yY][sS]\(\s*\)|[fF][aA][iI][lL][uU][rR][eE]\(\s*\)"
+                           r"|!\s*(?:[cC][aA][nN][cC][eE][lL][lL][eE][dD]|[sS][uU][cC][cC][eE][sS][sS])\(\s*\))")
 _VERNEINTE_GRUPPE = re.compile(r"!\s*\(")
 #: A string literal of GitHub's expression grammar: single quotes, a quote inside it doubled.
 #: A status function written INSIDE one is text, not a call: `message == 'always()'` has no
@@ -285,9 +307,23 @@ def matrix_lesung(job: dict) -> tuple[dict[str, list], dict[str, list], str | No
         if not (isinstance(wert, str) and "fromJSON" in wert):
             gruende.append(f"matrix key {schluessel!r} is {type(wert).__name__}, not a list")
             continue
-        t = _TERNARY.search(wert)
+        try:
+            segmente = _vorlage(wert)
+        except NichtLesbar as exc:
+            gruende.append(f"matrix key {schluessel!r}: {exc}")
+            continue
+        t = (_TERNARY.fullmatch(segmente[0][1].strip())
+             if len(segmente) == 1 and segmente[0][0] else None)
         if not t:
             gruende.append(f"matrix key {schluessel!r} is not the one conditional shape this gate reads")
+            continue
+        if not _ein_operand(t.group("cond")):
+            gruende.append(f"matrix key {schluessel!r}: the text before `&&` is not one operand, and GitHub's "
+                           f"`||` binds looser than `&&`, so the value is not `cond && A || B`")
+            continue
+        if _STATUSAUFRUF.search(ohne_literale(t.group("cond"))):
+            gruende.append(f"matrix key {schluessel!r}: its condition calls a status function, which GitHub "
+                           f"allows in no `strategy`")
             continue
         try:
             wahr = json.loads(t.group("wahr"))
@@ -329,6 +365,27 @@ def matrix_lesung(job: dict) -> tuple[dict[str, list], dict[str, list], str | No
         if not sonst:
             gruende.append(f"matrix key {schluessel!r} has no values in its ordinary arm")
     return gewoehnlich, gegated, bedingung, hinweis, gruende
+
+
+def _ein_operand(text: str) -> bool:
+    """Is `text` one operand of GitHub's `&&`: parentheses balanced, and no `&&` or `||` outside them
+    and outside string literals? Then `text && A || B` is `(text && A) || B` in GitHub's grammar (`&&`
+    binds tighter than `||`); with a bare `||` in it, it is another expression. A bare `&&` would
+    still be read the same, and is refused all the same: one shape, read one way."""
+    ohne = ohne_literale(text).replace("''", "")
+    if "'" in ohne or not ohne.strip():
+        return False
+    tiefe = 0
+    for i, zeichen in enumerate(ohne):
+        if zeichen == "(":
+            tiefe += 1
+        elif zeichen == ")":
+            tiefe -= 1
+            if tiefe < 0:
+                return False
+        elif tiefe == 0 and ohne.startswith(("&&", "||"), i):
+            return False
+    return tiefe == 0
 
 
 def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list], str | None, str | None]:
@@ -918,7 +975,7 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
                 # 236): `!always()`, `always() && false`, `false && always()` never run their job
                 # either. The evaluator decides it over every result of the status functions
                 # (`always()` is true on every run) and every value of the event facts it reads.
-                tot = als_text.lower() in ("false", "${{ false }}")
+                tot = _ascii_klein(als_text) in ("false", "${{ false }}")
                 if not tot:
                     try:
                         tot = wahrheitswerte(als_text) == {False}
@@ -1345,6 +1402,47 @@ def _head_repo(ereignis: dict) -> str:
     return str((((pr.get("head") or {}).get("repo")) or {}).get("full_name") or "")
 
 
+def _faltungen(text: str) -> set:
+    return {text.casefold(), text.lower(), text.upper()}
+
+
+def _gleich_ohne_fall(a: str, b: str) -> bool:
+    """`==` of two texts in a GitHub expression, which ignores case. Equal in ASCII case: equal. Equal
+    only under a Unicode case mapping: not measurable, since GitHub compares OrdinalIgnoreCase in .NET
+    and how that maps a letter outside ASCII (the Kelvin sign, the long s, the dotless i) was not read;
+    Python's `.lower()` makes the Kelvin sign a `k` (lens on ac05d85d, F4). Otherwise: not equal."""
+    if _ascii_klein(a) == _ascii_klein(b):
+        return True
+    if _faltungen(a) & _faltungen(b):
+        raise NichtAuswertbar(f"{_einzeilig(repr(a), 40)} and {_einzeilig(repr(b), 40)} are equal only "
+                              f"under a case mapping of letters outside ASCII, which GitHub's was not read")
+    return False
+
+
+def _beginnt_ohne_fall(text: str, anfang: str) -> bool:
+    """`startsWith` as GitHub reads it, ignoring case, with the same three answers as `_gleich_ohne_fall`."""
+    if _ascii_klein(text).startswith(_ascii_klein(anfang)):
+        return True
+    if any(f(text).startswith(f(anfang)) for f in (str.casefold, str.lower, str.upper)):
+        raise NichtAuswertbar(f"{_einzeilig(repr(text), 40)} starts with {_einzeilig(repr(anfang), 40)} "
+                              f"only under a case mapping of letters outside ASCII, which GitHub's was not read")
+    return False
+
+
+def _enthaelt_ohne_fall(namen: list, name: str) -> bool:
+    """`contains` over a list of texts as GitHub reads it: an element equal to `name`, ignoring case."""
+    offen = None
+    for n in namen:
+        try:
+            if _gleich_ohne_fall(n, name):
+                return True
+        except NichtAuswertbar as exc:
+            offen = exc
+    if offen is not None:
+        raise offen
+    return False
+
+
 def _vor_dem_lauf_offen(m, ev):
     raise NichtAuswertbar(f"`{m.group(0)}` depends on how the needed jobs end, which no event says "
                           f"before they run")
@@ -1366,22 +1464,22 @@ def _vor_dem_lauf_offen(m, ev):
 #: `failure()` are not measurable: the event does not say how the needed jobs will end.
 _ATOME = [
     (re.compile(r"github\.event_name\s*(==|!=)\s*'([^']*)'"), "ereignis", True,
-     lambda m, ev: (ev["event_name"].lower() == m.group(2).lower()) == (m.group(1) == "==")),
+     lambda m, ev: _gleich_ohne_fall(ev["event_name"], m.group(2)) == (m.group(1) == "==")),
     (re.compile(r"startsWith\(\s*github\.head_ref\s*,\s*'([^']*)'\s*\)"), "ereignis", False,
-     lambda m, ev: ev.get("head_ref", "").lower().startswith(m.group(1).lower())),
+     lambda m, ev: _beginnt_ohne_fall(ev.get("head_ref", ""), m.group(1))),
     (re.compile(r"startsWith\(\s*github\.ref_name\s*,\s*'([^']*)'\s*\)"), "ereignis", False,
-     lambda m, ev: ev.get("ref_name", "").lower().startswith(m.group(1).lower())),
+     lambda m, ev: _beginnt_ohne_fall(ev.get("ref_name", ""), m.group(1))),
     (re.compile(r"contains\(\s*github\.event\.pull_request\.labels\.\*\.name\s*,\s*'([^']*)'\s*\)"),
-     "ereignis", False, lambda m, ev: m.group(1).lower() in [x.lower() for x in _labels(ev)]),
+     "ereignis", False, lambda m, ev: _enthaelt_ohne_fall(_labels(ev), m.group(1))),
     (re.compile(r"github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository"),
      "ereignis", True,
-     lambda m, ev: bool(_head_repo(ev)) and _head_repo(ev).lower() == str(ev.get("repository", "")).lower()),
+     lambda m, ev: bool(_head_repo(ev)) and _gleich_ohne_fall(_head_repo(ev), str(ev.get("repository", "")))),
     (re.compile(r"true\b"), "literal", False, lambda m, ev: True),
     (re.compile(r"false\b"), "literal", False, lambda m, ev: False),
-    (re.compile(r"always\(\s*\)", re.I), "immer", False, lambda m, ev: True),
-    (re.compile(r"cancelled\(\s*\)", re.I), "status", False, lambda m, ev: False),
-    (re.compile(r"success\(\s*\)", re.I), "status", False, _vor_dem_lauf_offen),
-    (re.compile(r"failure\(\s*\)", re.I), "status", False, _vor_dem_lauf_offen),
+    (re.compile(r"[aA][lL][wW][aA][yY][sS]\(\s*\)"), "immer", False, lambda m, ev: True),
+    (re.compile(r"[cC][aA][nN][cC][eE][lL][lL][eE][dD]\(\s*\)"), "status", False, lambda m, ev: False),
+    (re.compile(r"[sS][uU][cC][cC][eE][sS][sS]\(\s*\)"), "status", False, _vor_dem_lauf_offen),
+    (re.compile(r"[fF][aA][iI][lL][uU][rR][eE]\(\s*\)"), "status", False, _vor_dem_lauf_offen),
 ]
 #: `!` is a unary operator; `!=` belongs to a comparison atom and is never one.
 _ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\||!(?!=))")
@@ -1488,13 +1586,18 @@ def _werte(t: list, wert) -> bool:
 
 
 def _schluessel(tok: tuple):
-    """What an atom's value depends on, as a key of the enumeration; None for a constant."""
+    """What an atom's value depends on, as a key of the enumeration; None for a constant.
+
+    Folded in ASCII only, like the atom patterns (lens on ac05d85d, F4): two atoms get one key only
+    when GitHub reads them as the same fact. With `.lower()`, `faılure()` had its own key beside
+    `failure()`, so `failure() && !faılure()` read as satisfiable and as a guard. A text that differs
+    outside ASCII keeps its own key, which can only widen the values enumerated, never narrow them."""
     index, m = tok
     art = _ATOME[index][1]
     if art == "ereignis":
-        return ("ereignis", m.group(0).lower())
+        return ("ereignis", _ascii_klein(m.group(0)))
     if art == "status":
-        return ("status", "".join(m.group(0).split()).lower())
+        return ("status", _ascii_klein("".join(m.group(0).split())))
     return None
 
 
@@ -1622,11 +1725,14 @@ def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: 
             else:
                 z["live"] = ARRIVES if wahr else WILL_NOT_ARRIVE
                 z["condition"] = ausdruck
-        elif unlesbare_dateien:
+        elif unlesbare_dateien or r.get("unreadable"):
             # "Absent" is only a verdict when every workflow file was READ. With a file that did
             # not parse, the context may well be produced there, and this run cannot tell.
-            z["live"], z["why"] = UNKNOWN, ("a workflow file could not be read, so absence is not "
-                                           "measurable: " + "; ".join(unlesbare_dateien))
+            # THE SAME FOR A JOB (lens on ac05d85d): a job whose matrix, name or `if:` was not read
+            # may produce the context under a name this run cannot derive, and "no workflow produces
+            # it" pointed the advice at the ruleset.
+            z["live"], z["why"] = UNKNOWN, ("a workflow file or job could not be read, so absence is not "
+                                           "measurable: " + "; ".join(r.get("unreadable") or unlesbare_dateien))
         else:
             z["live"], z["why"] = WILL_NOT_ARRIVE, "no workflow produces it"
         je.append(z)
@@ -1638,7 +1744,7 @@ def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: 
         bedingt = [z for z in je if z["live"] == WILL_NOT_ARRIVE and z.get("condition")]
         # The label advice is for a PULL REQUEST. On a push or a dispatch there is nothing to
         # label; the generic sentence is the honest one there (lens 1, 2026-09-17).
-        auf_pr = str(ereignis.get("event_name", "")).lower() in ("pull_request", "pull_request_target")
+        auf_pr = _ascii_klein(str(ereignis.get("event_name", ""))) in _PR_EREIGNISSE
         if bedingt and auf_pr and any("'landung'" in (z.get("condition") or "") for z in bedingt):
             rat = ("add the label `landung` to this pull request (gh pr edit <number> --add-label landung); "
                    "the `labeled` trigger starts the full matrix")

@@ -2400,6 +2400,117 @@ class TestAContextIsProducedOnlyFromAFormTheGateReads(unittest.TestCase):
                          "a `}}` inside a string literal does not close the expression")
 
 
+class TestNamesFoldInAsciiAndTheMatrixShapeIsReadWhole(unittest.TestCase):
+    """Lens on ac05d85d, F4 and F5. F4: the status-function patterns used `re.I`, which folds `ı`, `İ`,
+    `ſ` and the Kelvin sign onto ASCII letters, while `_schluessel` used `.lower()`: `!faılure()` read
+    as a guard where `!failure()` reads as none, and an accepted digest on it exited 0. GitHub's lexer
+    takes only ASCII into a keyword (read in actions/runner, not measured), so such a name is no
+    function there. F5: `fromJSON(true || X && A || B)` read as the ternary, although GitHub's `||`
+    binds looser than `&&` and the value is the bare `true`; a status function in `strategy`, which
+    GitHub allows nowhere there, read as a constant."""
+
+    KOPF = "name: CI\non:\n  pull_request:\n    branches: [main]\njobs:\n"
+    PR = staticmethod(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis)
+    NICHT_ASCII = ("faılure()", "faİlure()", "succeſſ()", "alwayſ()")
+
+    def _sammler(self, bedingung: str, akzeptiert: bool = False):
+        wf = (self.KOPF + "  test:\n    runs-on: x\n    steps: [{run: 'true'}]\n  all:\n"
+              f"    needs: [test]\n    if: '{bedingung}'\n    runs-on: x\n    steps: [{{run: 'true'}}]\n")
+        b = Baum(self, {"ci.yml": wf}, ["all"])
+        if akzeptiert:
+            d = json.loads(b.decl.read_text(encoding="utf-8"))
+            d["accepted_gated"] = [{"context": "all",
+                                    "condition_sha256": G.bedingungs_digest(f"job `if: {bedingung}`")}]
+            b.decl.write_text(json.dumps(d), encoding="utf-8")
+        return b
+
+    def test_a_status_function_spelled_outside_ascii_is_no_atom(self):
+        for name in self.NICHT_ASCII:
+            with self.subTest(name=name):
+                for text in (name, "!" + name, "failure() && !" + name):
+                    with self.assertRaises(G.NichtAuswertbar):
+                        G.wahrheitswerte(text)
+                    with self.assertRaises(G.NichtAuswertbar):
+                        G.laeuft_bei_fehlschlag(text)
+                self.assertIsNone(G._TRAEGT_WACHE.search(name))
+                self.assertIsNone(G._NUR_STATUSFUNKTION.match(name))
+                self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["t"], "if": name}), "no guard is claimed")
+                self.assertTrue(G.ohne_wache_trotz_needs({"needs": ["t"], "if": "!" + name}))
+        # counter-direction: ASCII case is GitHub's case-insensitivity, and one fact under one key
+        self.assertEqual(G.wahrheitswerte("!FAILURE()"), {False, True})
+        self.assertEqual(G.wahrheitswerte("failure() && !FaIlUrE()"), {False})
+        self.assertTrue(G._NUR_STATUSFUNKTION.match("ALWAYS()"))
+        self.assertFalse(G.ohne_wache_trotz_needs({"needs": ["t"], "if": "Failure()"}))
+
+    def test_an_accepted_guard_spelled_outside_ascii_is_red(self):
+        """Measured at ac05d85d: `if: '!faılure()'` with its digest accepted exited 0, the same condition
+        in ASCII exited 1 as skipped-is-passed. Both are red now."""
+        for bedingung in ("!failure()", "!faılure()"):
+            with self.subTest(bedingung=bedingung):
+                b = self._sammler(bedingung, akzeptiert=True)
+                r = b.urteil()
+                self.assertEqual([h["context"] for h in r["skipped_reads_as_passed"]], ["all"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    def test_a_value_equal_only_under_a_unicode_case_mapping_is_not_measurable(self):
+        """`.lower()` makes the Kelvin sign a `k` and keeps the long s apart from `s`; how GitHub's .NET
+        comparison maps either was not read. Equal in ASCII case stays equal, different stays different."""
+        pr = self.PR(labels=("\u212aanary", "Landung"))   # the Kelvin sign, U+212A
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("contains(github.event.pull_request.labels.*.name, 'kanary')", pr)
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("github.event_name == 'puſh'", self.PR(event="push"))
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("startsWith(github.head_ref, 'ſ')", self.PR(head_ref="s/x"))
+        self.assertTrue(G.bedingung_am_ereignis("contains(github.event.pull_request.labels.*.name, 'landung')", pr))
+        self.assertFalse(G.bedingung_am_ereignis("contains(github.event.pull_request.labels.*.name, 'x')", pr))
+        self.assertFalse(G.bedingung_am_ereignis("github.event_name == 'push'", self.PR()))
+        self.assertTrue(G.bedingung_am_ereignis("startsWith(github.head_ref, 'DOCS/')", self.PR()))
+
+    def _matrix(self, wert: str, verlangt=("test (3.10)", "test (3.12)")):
+        wf = (self.KOPF + "  test:\n    runs-on: x\n    strategy:\n      matrix:\n"
+              f"        python-version: \"{wert}\"\n    steps: [{{run: 'true'}}]\n")
+        b = Baum(self, {"ci.yml": wf}, list(verlangt))
+        return b, b.urteil()
+
+    def test_an_or_before_the_and_is_not_the_ternary(self):
+        """GitHub reads `true || X && A || B` as `true || (X && A) || B`: the bare `true`, no list."""
+        for bedingung in ("true || github.event_name == 'push'", "github.event_name == 'push' || true",
+                          "github.event_name == 'push' || github.event_name == 'merge_group'"):
+            with self.subTest(bedingung=bedingung):
+                b, r = self._matrix("${{ fromJSON(" + bedingung + " && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}")
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual({e["state"] for e in r["per_context"]}, {G.ABSENT})
+                self.assertTrue(any("not one operand" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        b, r = self._matrix("${{ fromJSON(( github.event_name == 'push' || github.event_name == 'merge_group' )"
+                            " && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}")
+        self.assertEqual(r["produced_contexts"], ["test (3.12)"], "the parenthesised form is still the ternary")
+
+    def test_a_status_function_in_a_matrix_is_not_measurable(self):
+        for bedingung in ("always()", "!cancelled()", "Failure()"):
+            with self.subTest(bedingung=bedingung):
+                b, r = self._matrix("${{ fromJSON(" + bedingung + " && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}")
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertTrue(any("status function" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    def test_text_beside_the_matrix_expression_is_not_the_ternary(self):
+        """GitHub formats text beside `${{ }}` into one string, never a list."""
+        b, r = self._matrix("x ${{ fromJSON(github.event_name == 'push' && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}")
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    def test_a_job_not_read_makes_live_absence_not_measurable(self):
+        """A job whose matrix was not read may produce the context; "no workflow produces it" was a claim."""
+        b, r = self._matrix("${{ fromJSON(true || github.event_name == 'push' && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}",
+                            verlangt=("test (3.10)",))
+        d = G.lebend(self.PR(), b.decl, b.wf)
+        self.assertEqual((d["verdict"], d["not_measurable"], d["missing"]), (G.UNKNOWN, ["test (3.10)"], []))
+        self.assertIsNone(d["advice"])
+        self.assertIn("could not be read", d["per_context"][0]["why"])
+
+
 class TestTheCollectorScript(unittest.TestCase):
     """THE SCRIPT INSIDE THE JOB, executed -- not read. Lens B (2026-09-17) ran it by hand across
     eight synthetic inputs and found two things reading could not: on a `push` to main the full
