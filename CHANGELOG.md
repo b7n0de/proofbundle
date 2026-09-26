@@ -10,6 +10,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The decision validator refuses what the published decision schema refuses, null included**
+  (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
+  required fields schemaVersion and decidedAt, and in strict mode privacy, notChecked and
+  decisionChangeConditions: the required-field loop checks presence, and every value check skipped
+  None, so `decision verify --strict` under a signer-pinning policy reported
+  `safeForAutomation=true` for such a receipt (deep gate finding L3-Z195-03). Beyond null, 311
+  type-confused predicates that `schemas/decision-receipt-v0.1.schema.json` refuses passed the
+  validator in strict mode (L3-Z195-05); both measured on main 10f3466b. The value checks now read
+  presence, and a type table beside the existing key closure gives every nested schema path its
+  type; the same generator now measures 0. A test derives the typed paths from the schema and fails
+  when one has no check, and a generator replaces every leaf of a fully populated predicate with
+  eleven type-confused values. Where the validator already asked for more than the schema (empty
+  identifiers, an `actionOutcome` without `status`, the strict-mode requirements), nothing changed:
+  the same 39 cases over the three golden examples, before and after. One divergence is left and
+  named: a bare string entry in `notChecked`, which the vendored third-party receipt in
+  `conformance/decision/crossimpl/` uses; whether the schema or that receipt gives way is open.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

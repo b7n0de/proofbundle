@@ -384,7 +384,7 @@ class TestDecisionAudNonceRegression(unittest.TestCase):
         self.signer = generate_signer()
         self.pub = base64.b64decode(_pub_b64(self.signer))
 
-    def _env(self, validity=None):
+    def _env(self, validity=None, *, past_the_emitter=False):
         predicate = {
             "schemaVersion": "0.1.0",
             "decisionId": "urn:uuid:00000000-0000-0000-0000-000000000002",
@@ -403,7 +403,20 @@ class TestDecisionAudNonceRegression(unittest.TestCase):
         }
         if validity is not None:
             predicate["validity"] = validity
-        return emit_decision_receipt(predicate, self.signer, strict=False)
+        if not past_the_emitter:
+            return emit_decision_receipt(predicate, self.signer, strict=False)
+        # Deep gate Z195 (L3-Z195-05): the validator reads nested types now, so the emitter refuses a
+        # wrong-typed validity. A hostile signer does not use the emitter; the verify side has to hold
+        # on its own, so these receipts are signed directly, as an attacker would sign them.
+        import rfc8785
+        from proofbundle import dsse
+        from proofbundle.decision import (DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE,
+                                          STATEMENT_TYPE)
+        from proofbundle.subject_binding import derive_subject_digest
+        stmt = {"_type": STATEMENT_TYPE,
+                "subject": [{"name": "decision", "digest": {"sha256": derive_subject_digest(predicate)}}],
+                "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": predicate}
+        return dsse.sign_envelope(rfc8785.dumps(stmt), self.signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
 
     def test_required_audience_without_validity_fails(self):
         res = verify_decision_receipt(self._env(), self.pub, expected_audience="rp.example")
@@ -443,14 +456,16 @@ class TestDecisionAudNonceRegression(unittest.TestCase):
         self.assertIs(res["nonce_ok"], False)
 
     def test_wrong_type_audience_fails(self):
-        res = verify_decision_receipt(self._env({"audience": "rp.example", "nonce": "n-1"}),
+        res = verify_decision_receipt(self._env({"audience": "rp.example", "nonce": "n-1"}, past_the_emitter=True),
                                       self.pub, expected_audience="rp.example")
         self.assertIs(res["audience_ok"], False)
+        self.assertIs(res["ok"], False)
 
     def test_wrong_type_nonce_fails(self):
-        res = verify_decision_receipt(self._env({"audience": ["rp.example"], "nonce": 42}),
+        res = verify_decision_receipt(self._env({"audience": ["rp.example"], "nonce": 42}, past_the_emitter=True),
                                       self.pub, expected_nonce="42")
         self.assertIs(res["nonce_ok"], False)
+        self.assertIs(res["ok"], False)
 
     # NOTE (§7.3 expired_validity / future_not_before): decision-receipt/v0.1 `validity` carries
     # ONLY audience+nonce (schemas/decision-receipt-v0.1.schema.json) — there is no time window

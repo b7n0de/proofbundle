@@ -320,7 +320,10 @@ _OUT_OF_SCOPE = frozenset({
     "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
     "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
-    "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
+    "merkle_tree_hash",  "nested_closure_violations",
+    # Deep gate Z195 (L3-Z195-05): the type sibling of nested_closure_violations, same classification;
+    # it never raises on its object and raises ValueError only for a kind no type map may name.
+    "nested_type_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
     # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem

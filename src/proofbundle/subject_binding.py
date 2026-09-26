@@ -21,6 +21,7 @@ predicate's claim is true. ``EXTERNAL_ATTESTED`` is reported honestly, never sil
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from .errors import ProofBundleError
@@ -163,4 +164,72 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
             item_path = f"{cur_path}[]"
             for v in reversed(cur):
                 stack.append((v, item_path, depth + 1))
+    return out
+
+
+_SHA256_HEX_TYPE = re.compile(r"\A[0-9a-f]{64}\Z")
+_RFC3339_Z_TYPE = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+
+
+def _has_type(value: Any, kind: str) -> bool:
+    """One JSON Schema type, as the schemas in schemas/ use it. `sha256` is the `sha256Digest` object and
+    `rfc3339z` the `rfc3339z` string of their `$defs`; `boolean` is never an int, `string` never None."""
+    if kind == "string":
+        return isinstance(value, str)
+    if kind == "object":
+        return isinstance(value, dict)
+    if kind == "array":
+        return isinstance(value, list)
+    if kind == "boolean":
+        return isinstance(value, bool)
+    if kind == "null":
+        return value is None
+    if kind == "rfc3339z":
+        return isinstance(value, str) and bool(_RFC3339_Z_TYPE.match(value))
+    if kind == "sha256":
+        return (isinstance(value, dict) and set(value) == {"sha256"} and isinstance(value["sha256"], str)
+                and bool(_SHA256_HEX_TYPE.match(value["sha256"])))
+    raise ValueError(f"unknown type kind {kind!r} in a type map")
+
+
+def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"]) -> list[str]:
+    """Walk ``obj`` and report every value at a declared dotted path whose JSON type is not the declared one.
+
+    The sibling of :func:`nested_closure_violations`, with the same path convention (``"decision"``,
+    ``"notChecked[]"`` for each item, ``"notChecked[].field"``). A path that is absent is not a violation
+    (required-ness is the caller's job); a path that is PRESENT carries its type, and JSON null is a type
+    like any other, so a present null is refused wherever the map does not name ``"null"``. Deep gate
+    Z195, L3-Z195-03 and L3-Z195-05: the decision validator checked presence for required fields and
+    skipped every None, and 311 type-confused predicates its own published schema refuses passed it.
+
+    Iterative and bounded by the same budget as the closure walk, so a hostile structure is a returned
+    violation, never a RecursionError."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import render_safe  # noqa: PLC0415
+    max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
+    out: list[str] = []
+    stack: list[tuple[Any, str, int]] = [(obj, "", 0)]
+    nodes = 0
+    while stack:
+        cur, cur_path, depth = stack.pop()
+        nodes += 1
+        if nodes > max_nodes:
+            out.append("<root>: structure exceeds the validation node budget (type check fail-closed)")
+            break
+        if depth > max_depth:
+            out.append(f"{cur_path or '<root>'}: nesting exceeds the validation depth budget (type check fail-closed)")
+            continue
+        want = type_map.get(cur_path)
+        if want is not None:
+            kinds = (want,) if isinstance(want, str) else want
+            if not any(_has_type(cur, k) for k in kinds):
+                out.append(f"{cur_path}: must be {' or '.join(kinds)}, got {render_safe(cur)}")
+                continue   # a wrong container is not descended into; its own type is the finding
+        if isinstance(cur, dict):
+            for k, v in reversed(list(cur.items())):
+                if isinstance(k, str):
+                    stack.append((v, f"{cur_path}.{k}" if cur_path else k, depth + 1))
+        elif isinstance(cur, list):
+            for v in reversed(cur):
+                stack.append((v, f"{cur_path}[]", depth + 1))
     return out

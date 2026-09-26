@@ -17,7 +17,7 @@ from typing import Any, Callable
 from ._strict_json import loads_strict
 from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
-from .subject_binding import nested_closure_violations
+from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
@@ -84,6 +84,70 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "privacy": ("rawInputsIncluded", "redactionProfile", "erased", "masked"),
     "validity": ("audience", "nonce", "expiresAt"),
     "inputSnapshot[]": ("name", "uri", "digest", "mediaType"),
+}
+
+# Nested schema TYPES (deep gate Z195, L3-Z195-03 and L3-Z195-05): the closure above says which keys may
+# appear, not what they hold, and 311 type-confused predicates that schemas/decision-receipt-v0.1.schema.json
+# refuses passed this validator (measured on main 10f3466b), a JSON null among them. Every schema path with
+# a declared type is either here or checked by its own code above and below; the schema-derived test in
+# tests/test_the_decision_validator_refuses_what_its_schema_refuses.py fails when one is neither. Kinds:
+# `sha256` is the schema's sha256Digest object, `rfc3339z` its timestamp string. `decisionMaker.version`
+# stays untyped, as in the schema: it is the versioned extensions container.
+_NESTED_TYPES: dict[str, "str | tuple[str, ...]"] = {
+    "agent.version": "string",
+    "agent.configurationDigest": "sha256",
+    "principal.authnContextRef": "object",
+    "principal.authnContextRef.uri": "string",
+    "principal.authnContextRef.digest": "sha256",
+    "delegationRefs": "array",
+    "proposedAction.target": "object",
+    "proposedAction.target.name": "string",
+    "proposedAction.target.uri": "string",
+    "proposedAction.target.digest": "sha256",
+    "proposedAction.method": "string",
+    "proposedAction.parametersDigest": "sha256",
+    "proposedAction.parametersSchemaRef": "object",
+    "proposedAction.parametersSchemaRef.uri": "string",
+    "proposedAction.parametersSchemaRef.digest": "sha256",
+    "inputSnapshot[].name": "string",
+    "inputSnapshot[].uri": "string",
+    "inputSnapshot[].mediaType": "string",
+    "policyBoundary.policyDigest": "sha256",
+    "policyBoundary.bundleRevision": "string",
+    "policyBoundary.validFrom": "rfc3339z",
+    "policyBoundary.validUntil": "rfc3339z",
+    "evidenceRefs[].uri": "string",
+    "evidenceRefs[].predicateType": "string",
+    "decision.humanReadableSummary": "string",
+    "decision.obligations": "array",
+    "decision.allowedScope": "array",
+    "notChecked": "array",
+    # The ONE path left where the validator accepts what the schema refuses: a bare string entry. The
+    # schema asks for an object; the vendored third-party receipt in conformance/decision/crossimpl/
+    # schema-conformant writes strings, and this validator accepted them before it read item types at all.
+    # Whether the schema or the receipt gives way is an owner decision (2026-09-26), so the
+    # behaviour stays as it was and the test names this divergence instead of hiding it.
+    "notChecked[]": ("object", "string"),
+    "notChecked[].field": "string",
+    "notChecked[].reason": "string",
+    "notChecked[].impact": "string",
+    "decisionChangeConditions": "array",
+    "decisionChangeConditions[]": "object",
+    "decisionChangeConditions[].conditionType": "string",
+    "decisionChangeConditions[].description": "string",
+    "decisionChangeConditions[].requiredEvidenceType": "string",
+    "actionOutcome.performedAt": ("rfc3339z", "null"),
+    "actionOutcome.outcomeRef": ("object", "null"),
+    "actionOutcome.outcomeRef.uri": "string",
+    "actionOutcome.outcomeRef.digest": "sha256",
+    "traceContext": "object",
+    "privacy.rawInputsIncluded": "boolean",
+    "privacy.redactionProfile": "string",
+    "privacy.erased": "array",
+    "privacy.masked": "array",
+    "validity.audience": "array",
+    "validity.nonce": "string",
+    "validity.expiresAt": "rfc3339z",
 }
 
 
@@ -172,9 +236,11 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         if field not in predicate:
             errors.append(f"missing required field '{field}'" + (" (strict)" if field not in _REQUIRED_ALWAYS else ""))
 
-    # schemaVersion
+    # schemaVersion. PRESENT, not "not None" (deep gate Z195, L3-Z195-03): the required-field loop above
+    # checks presence only, so a check that skipped None let a JSON null satisfy a required field, and
+    # decision verify --strict reported safeForAutomation=true for it. outcome.py always read presence.
     sv = predicate.get("schemaVersion")
-    if sv is not None and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
+    if "schemaVersion" in predicate and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
         errors.append(f"schemaVersion must be a 0.1.x string, got {render_safe(sv)}")
 
     # decisionId (Finding 04, analogous to trustPackId in trust_pack.py): the required-field loop above only
@@ -186,13 +252,13 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
 
     # decisionType enum
     dt = predicate.get("decisionType")
-    if dt is not None and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
+    if "decisionType" in predicate and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
         errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {render_safe(dt)}")
 
     # RFC3339-Z time fields
     for path in _TIME_PATHS:
         v = predicate.get(path)
-        if v is not None and (not isinstance(v, str) or not _RFC3339_Z.match(v)):
+        if path in predicate and (not isinstance(v, str) or not _RFC3339_Z.match(v)):
             errors.append(f"{path} must be RFC3339 with trailing Z, got {render_safe(v)}")
 
     # decision.verdict + reasonCodes
@@ -213,7 +279,8 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         for k in ("policyEngine", "policyId", "decisionPath"):
             if not isinstance(pb.get(k), str) or not pb.get(k):
                 errors.append(f"policyBoundary.{k} must be a non-empty string")
-        if strict and not _is_digest(pb.get("policyDigest")):
+        # Presence here, the value in _NESTED_TYPES: one message per fact, whichever mode asked.
+        if strict and "policyDigest" not in pb:
             errors.append("policyBoundary.policyDigest with a sha256 is required in strict mode")
     elif "policyBoundary" in predicate:
         errors.append("policyBoundary must be a JSON object")
@@ -287,9 +354,10 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     val = predicate.get("validity")
     if isinstance(val, dict):
         if strict:
-            if not (isinstance(val.get("audience"), list) and val["audience"]):
+            # Presence and non-emptiness here, the type in _NESTED_TYPES (one message per fact).
+            if "audience" not in val or val.get("audience") == []:
                 errors.append("validity.audience (non-empty list) is required in strict mode when validity is present")
-            if not isinstance(val.get("nonce"), str) or not val.get("nonce"):
+            if "nonce" not in val or val.get("nonce") == "":
                 errors.append("validity.nonce is required in strict mode when validity is present")
     elif "validity" in predicate:
         errors.append("validity must be a JSON object")
@@ -297,9 +365,9 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # privacy inner shape: a bare {} must not pass strict — rawInputsIncluded is the field the policy's
     # allow_raw_inputs gate reads, so it MUST be an explicit boolean (§5.5 privacy).
     priv = predicate.get("privacy")
-    if priv is not None and not isinstance(priv, dict):
+    if "privacy" in predicate and not isinstance(priv, dict):
         errors.append("privacy must be a JSON object")
-    elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
+    elif strict and isinstance(priv, dict) and "rawInputsIncluded" not in priv:
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
 
     # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges to earlier
@@ -316,6 +384,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # close these nested objects — an undeclared key inside decision/policyBoundary/proposedAction/
     # decisionMaker/evidenceRefs[] (and their sub-objects) previously rode along silently.
     errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
+    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))
 
     return errors
 
