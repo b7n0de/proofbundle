@@ -28,7 +28,9 @@ comparison is NOT covered — that is stated here rather than left for someone t
 to use everywhere regardless. A LOOKUP or a WRITE hashes its key too (`CONST.get(x)`, `CONST[x]`,
 `CONST[x] = v`, `del CONST[x]`, `CONST.setdefault(x)`, `CONST.pop(x)`, and `add`, `discard`,
 `remove` on a set); those sites are listed one by one with the reason each is safe, in
-`_LOOKUPS_CLASSIFIED` below.
+`_LOOKUPS_CLASSIFIED` below. Every OTHER read of such a container name (handed to a function, put in a
+tuple, a method reached without a call) is listed in `_OTHER_USES_CLASSIFIED`: the guard reads every
+use of the name and reports what no known form covers, so a spelling nobody listed turns it red.
 """
 from __future__ import annotations
 
@@ -306,8 +308,8 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
 #: The methods that hash their first argument, per kind of module-level container. A lens on 3c513874
 #: (the 228bc stack delta, D-2) wrote `_VERIFIERS[type_name] = verifier` and `_VERIFIERS.setdefault(...)`
 #: past the first form, which knew `.get` and a read `CONST[x]` only: a write hashes its key as a read
-#: does. `update` and `|=` are read when their argument is a literal; a mapping or iterable held in a
-#: name, `fromkeys`, and an access through a function that receives the container are a named limit.
+#: does. `update` and `|=` are read when their argument is a literal; with a name, and when the
+#: container is handed to a function, the read is an other use (`other_uses` below) and is listed.
 _HASHING_METHODS = {"dict": {"get", "setdefault", "pop", "__getitem__", "__setitem__", "__delitem__",
                              "__contains__"},
                     "set": {"add", "discard", "remove", "__contains__"}, "frozenset": {"__contains__"}}
@@ -362,6 +364,108 @@ def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = No
         for key in keys:
             if not isinstance(key, ast.Constant):
                 found.append((node.lineno, const, ast.unparse(key)))
+    return found
+
+
+#: The calls that only iterate their one argument, and the dict views a loop or such a call iterates.
+_ITERATING_CALLS = {"sorted", "list", "tuple", "len", "set", "frozenset", "dict"}
+_VIEW_METHODS = {"items", "values", "keys"}
+
+
+def _iterated(node: ast.AST, parents: dict) -> bool:
+    """Is this expression the source of a `for`, of a comprehension, or the one argument of a call
+    that only iterates it? Iterating a container hashes nothing from outside."""
+    p = parents.get(node)
+    if isinstance(p, (ast.For, ast.comprehension)) and p.iter is node:
+        return True
+    return (isinstance(p, ast.Call) and isinstance(p.func, ast.Name) and p.func.id in _ITERATING_CALLS
+            and p.args == [node] and not p.keywords)
+
+
+def other_uses(quelle: str, name: str = "<quelle>", modul: str | None = None, ist_init: bool = False,
+               je_modul: dict[str, dict[str, str]] | None = None) -> list[tuple[int, str, str]]:
+    """(line, container, use) for every read of a module-level hashing container that none of the
+    known forms covers. DENY BY DEFAULT: the third delta run on 1ab75135 wrote five more spellings
+    past the two detectors above (`getter = CONST.get`, `getattr(CONST, "get")`,
+    `CONST.__class__.__getitem__`, `CONST.keys().__contains__`, `x in CONST.items()`), and each hashed
+    an unhashable key. A list of spellings is one spelling behind; a list of the forms that are known,
+    with everything else named, is not.
+
+    Known, and not reported here: a hashing access with a key (`constant_lookups`, including `update`
+    and `|=` with a literal), a membership test (`unguarded_membership_sites`, also through `.keys()`),
+    the second argument of `is_member`, iteration (a `for`, a comprehension, the one argument of
+    sorted/list/tuple/len/set/frozenset/dict, also through `.items()`, `.values()`, `.keys()`), a
+    condition, and a set operation or comparison whose other side is another constant container or a
+    literal. Every other read is reported: passing the container to a function, putting it in a tuple,
+    reaching a method without calling it, `update` or `|=` with a name. Keys are version-stable forms,
+    not `ast.unparse` of the whole expression."""
+    tree = ast.parse(quelle, filename=name)
+    behaelter = _behaelter(tree, modul, ist_init, je_modul)
+    operator_names = {"operator"} | {a.asname for n in ast.walk(tree) if isinstance(n, ast.Import)
+                                     for a in n.names if a.name == "operator" and a.asname}
+    parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+
+    def constant(e: ast.AST) -> bool:
+        return isinstance(e, (ast.Constant, ast.Set, ast.Dict)) or (isinstance(e, ast.Name) and e.id in behaelter)
+
+    found: list[tuple[int, str, str]] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name) and n.target.id in behaelter:
+            if not (isinstance(n.op, ast.BitOr) and isinstance(n.value, (ast.Dict, ast.Set, ast.List, ast.Tuple))):
+                found.append((n.lineno, n.target.id, f"{type(n.op).__name__}= {ast.unparse(n.value)}"))
+            continue
+        if not (isinstance(n, ast.Name) and n.id in behaelter and isinstance(n.ctx, ast.Load)):
+            continue
+        art, p, known = behaelter[n.id], parents.get(n), False
+        if isinstance(p, ast.Attribute):
+            call = parents.get(p)
+            called = isinstance(call, ast.Call) and call.func is p
+            if called and p.attr in _HASHING_METHODS[art] and call.args:
+                known = True
+            elif called and p.attr == "update" and call.args and _literal_keys(call.args[0]):
+                known = True
+            elif called and p.attr in _VIEW_METHODS and not call.args:
+                over = parents.get(call)
+                known = _iterated(call, parents) or (
+                    p.attr == "keys" and isinstance(over, ast.Compare) and len(over.ops) == 1
+                    and isinstance(over.ops[0], (ast.In, ast.NotIn)) and over.comparators[0] is call)
+            use = f".{p.attr}()" if called else f".{p.attr}"
+        elif isinstance(p, ast.Subscript) and p.value is n:
+            known, use = art == "dict", "[...]"
+        elif isinstance(p, ast.Compare):
+            if len(p.ops) == 1 and isinstance(p.ops[0], (ast.In, ast.NotIn)) and p.comparators[0] is n:
+                known = True
+            else:
+                others = [e for e in (p.left, *p.comparators) if e is not n]
+                known = (not any(isinstance(o, (ast.In, ast.NotIn)) for o in p.ops)
+                         and all(constant(e) for e in others))
+            use = " ".join(type(o).__name__ for o in p.ops) + " " + " ".join(
+                ast.unparse(e) for e in (p.left, *p.comparators) if e is not n)
+        elif isinstance(p, ast.Call):
+            func = ast.unparse(p.func)
+            if func == "is_member" and len(p.args) == 2 and p.args[1] is n:
+                known = True
+            elif (isinstance(p.func, ast.Attribute) and isinstance(p.func.value, ast.Name)
+                  and p.func.value.id in operator_names and p.func.attr in _OPERATOR_ACCESS
+                  and len(p.args) >= 2 and p.args[0] is n):
+                known = True
+            else:
+                known = _iterated(n, parents)
+            use = f"{func}(argument {p.args.index(n) + 1})" if n in p.args else f"{func}(*)"
+        elif isinstance(p, ast.keyword):
+            call = parents.get(p)
+            use = f"{ast.unparse(call.func)}({p.arg}=)" if isinstance(call, ast.Call) else f"{p.arg}="
+        elif isinstance(p, (ast.For, ast.comprehension)) and p.iter is n:
+            known, use = True, "iteration"
+        elif isinstance(p, (ast.If, ast.IfExp, ast.While)) and p.test is n:
+            known, use = True, "condition"
+        elif isinstance(p, ast.BinOp):
+            other = p.right if p.left is n else p.left
+            known, use = constant(other), f"{type(p.op).__name__} {ast.unparse(other)}"
+        else:
+            use = type(p).__name__ if p is not None else "module"
+        if not known:
+            found.append((n.lineno, n.id, use))
     return found
 
 
@@ -431,6 +535,103 @@ def _constant_lookups_in_tree() -> set:
         wo = _umschliessende_definition(quelle)
         for zeile, const, key in constant_lookups(quelle, str(d), modul, ist_init, je_modul):
             seen.add((str(d.relative_to(SRC.parent)), wo.get(zeile, "<modulebene>"), const, key))
+    return seen
+
+
+_REJECT_UNKNOWN = ("passed to _reject_unknown: it computes set(obj) - allowed over a dict the caller "
+                   "checked before it (isinstance or _require_dict), and the keys of a dict are hashable")
+_REJECT_PAIR = ("passed to _reject_unknown: the loop over these pairs hands it a section only after "
+                "isinstance(sect, dict), and the keys of a dict are hashable")
+_NESTED = ("passed to {fn}: it looks up only paths it builds itself (the empty string, a dict key or an "
+           "f-string over them), all hashable")
+_OWN_SET = "own value: set({x}) is built from {what}, so the set operation hashes nothing new"
+
+#: Every other read of a module-level hashing container, and why it cannot hash a value from outside.
+#: Keyed like `_LOOKUPS_CLASSIFIED`. Measured on 1ab75135 (2026-09-26): 35 reads, each read at its
+#: callee or at the check before it. A new read turns the tree test red until it is classified here,
+#: and a classified read that is gone has to leave the list.
+_OTHER_USES_CLASSIFIED = {
+    ("proofbundle/agent_review.py", "_validate_coverage", "_COVERAGE_FIELDS_V02", "LtE zusatz"):
+        "own value: zusatz comes from the package (_COVERAGE_FIELDS_V02 or the empty default), and a "
+        "subset test between two frozensets hashes nothing new",
+    ("proofbundle/agent_review.py", "_validate_declaration", "_DECLARATION_FIELDS", "BitOr zusatz"):
+        "own value: zusatz comes from the package (_DECLARATION_FIELDS_V02 or the empty default), and the "
+        "key tested against the union is a key of a dict",
+    ("proofbundle/agent_review.py", "validate_agent_review_v02_predicate", "_COVERAGE_FIELDS_V02",
+     "validate_agent_review_predicate(cov_zusatz=)"):
+        "passed to validate_agent_review_predicate: _validate_coverage tests keys of a dict against it",
+    ("proofbundle/agent_review.py", "validate_agent_review_v02_predicate", "_DECLARATION_FIELDS_V02",
+     "validate_agent_review_predicate(decl_zusatz=)"):
+        "passed to validate_agent_review_predicate: _validate_declaration tests keys of a dict against it",
+    ("proofbundle/agent_review.py", "validate_agent_review_v03_predicate", "_PRODUCER_FIELDS_V03",
+     "validate_agent_review_v02_predicate(_producer_zusatz=)"):
+        "passed to validate_agent_review_v02_predicate: it reaches `k in producer_zusatz` only after "
+        "k == \"verifier\"",
+    ("proofbundle/anchors.py", "verify_anchor", "_ANCHOR_KEYS", "Sub set(anchor)"):
+        _OWN_SET.format(x="anchor", what="a dict (isinstance(anchor, dict) returns before it)"),
+    ("proofbundle/bundle.py", "verify_bundle", "_MERKLE_KEYS", "_reject_unknown(argument 2)"): _REJECT_UNKNOWN,
+    ("proofbundle/bundle.py", "verify_bundle", "_SD_KEYS", "_reject_unknown(argument 2)"): _REJECT_UNKNOWN,
+    ("proofbundle/bundle.py", "verify_bundle", "_SIG_KEYS", "_reject_unknown(argument 2)"): _REJECT_UNKNOWN,
+    ("proofbundle/bundle.py", "verify_bundle", "_TOP_KEYS", "_reject_unknown(argument 2)"): _REJECT_UNKNOWN,
+    ("proofbundle/cap1.py", "_is_digest", "_HEX", "LtE set(x)"):
+        _OWN_SET.format(x="x", what="a str (isinstance(x, str) in the same expression)"),
+    ("proofbundle/decision.py", "validate_decision_predicate", "_NESTED_ALLOWED",
+     "nested_closure_violations(argument 2)"): _NESTED.format(fn="nested_closure_violations"),
+    ("proofbundle/decision.py", "validate_decision_predicate", "_NESTED_TYPES",
+     "nested_type_violations(argument 2)"): _NESTED.format(fn="nested_type_violations"),
+    ("proofbundle/evalclaim.py", "decode_eval_claim", "_OPTIONAL", "Sub set(claim) - _REQUIRED"):
+        _OWN_SET.format(x="claim", what="a dict (load_claim_text returns a dict or raises)"),
+    ("proofbundle/evalclaim.py", "decode_eval_claim", "_REQUIRED", "Sub set(claim)"):
+        _OWN_SET.format(x="claim", what="a dict (load_claim_text returns a dict or raises)"),
+    ("proofbundle/evalclaim.py", "emit_eval_receipt", "_OPTIONAL", "Sub set(claim) - _REQUIRED"):
+        _OWN_SET.format(x="claim", what="dict(claim)"),
+    ("proofbundle/evalclaim.py", "emit_eval_receipt", "_REQUIRED", "Sub set(claim)"):
+        _OWN_SET.format(x="claim", what="dict(claim)"),
+    ("proofbundle/outcome.py", "validate_outcome_predicate", "_NESTED_ALLOWED",
+     "nested_closure_violations(argument 2)"): _NESTED.format(fn="nested_closure_violations"),
+    ("proofbundle/outcome.py", "validate_outcome_predicate", "_NESTED_TYPES",
+     "nested_type_violations(argument 2)"): _NESTED.format(fn="nested_type_violations"),
+    ("proofbundle/policy.py", "_huelle_pruefen", "_ANCHORS_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_ASSURANCE_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_CHECKPOINT_KEYS", "_reject_unknown(argument 2)"):
+        _REJECT_UNKNOWN,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_DECISION_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_DECISION_MAKER_KEYS", "_reject_unknown(argument 2)"):
+        _REJECT_UNKNOWN,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_ISSUER_KEYS", "_reject_unknown(argument 2)"):
+        _REJECT_UNKNOWN,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_MERKLE_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_SDJWT_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_SIG_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_STATUS_KEYS", "Tuple"): _REJECT_PAIR,
+    ("proofbundle/policy.py", "_huelle_pruefen", "_TOP_KEYS", "_reject_unknown(argument 2)"): _REJECT_UNKNOWN,
+    ("proofbundle/policy.py", "_huelle_relations", "_RELATIONS_KEYS", "_reject_unknown(argument 2)"):
+        _REJECT_UNKNOWN,
+    ("proofbundle/policy.py", "_validate_checkpoint_entry", "_CHECKPOINT_KEYS", "_reject_unknown(argument 2)"):
+        _REJECT_UNKNOWN,
+    ("proofbundle/policy_profiles.py", "instantiate_template", "_RESERVED_OVERLAY_KEYS", "BitAnd set(overlay)"):
+        _OWN_SET.format(x="overlay", what="a dict (a non-dict overlay raises before it)"),
+    ("proofbundle/trust_pack.py", "_finalize_failclosed", "_AUTOMATION_REQUIRED_CHECKS",
+     "automation_summary(required_checks=)"):
+        "passed to automation_summary: it reads the mapping with literal keys only",
+    ("proofbundle/trust_pack.py", "verify_trust_pack", "_AUTOMATION_REQUIRED_CHECKS",
+     "automation_summary(required_checks=)"):
+        "passed to automation_summary: it reads the mapping with literal keys only",
+}
+
+
+def _other_uses_in_tree() -> set:
+    quellen = _package_sources()
+    je_modul = containers_by_module({m: q for m, (q, _i) in quellen.items()})
+    seen = set()
+    for d in sorted(SRC.rglob("*.py")):
+        if "__pycache__" in d.parts:
+            continue
+        modul = _modulname(d, SRC.parent)
+        quelle, ist_init = quellen[modul]
+        wo = _umschliessende_definition(quelle)
+        for zeile, const, use in other_uses(quelle, str(d), modul, ist_init, je_modul):
+            seen.add((str(d.relative_to(SRC.parent)), wo.get(zeile, "<modulebene>"), const, use))
     return seen
 
 
@@ -688,8 +889,10 @@ class TestTheScannerActuallyCatches(unittest.TestCase):
 class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
     """The third form of the class: a lookup hashes its key as a membership test does.
 
-    STATED LIMIT: the guard finds every such lookup and holds the list exact; it does NOT prove the
-    reasons in `_LOOKUPS_CLASSIFIED`. A person read each guard before classifying the site, and a
+    STATED LIMIT: the guard reads every use of a container's NAME, covers it by a known form or lists
+    it, and holds both lists exact. A container reached as a module attribute (`x.NAME`), through a
+    string (`globals()`, `vars()`) or built at run time is not a name it reads. It does NOT prove the
+    reasons in `_LOOKUPS_CLASSIFIED` and `_OTHER_USES_CLASSIFIED`. A person read each guard before classifying the site, and a
     guard removed later leaves the reason standing. Only a test that sends an unhashable value to the
     surface can catch that; this one cannot."""
 
@@ -740,8 +943,8 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
 
     def test_every_spelling_of_a_hashing_access_is_found(self):
         """The second delta run on e4ea49b9 wrote five more spellings past the guard; each hashes k.
-        NAMED LIMIT: an access through a function that receives the container as an argument, and a
-        mapping or iterable handed to `update` or `|=` that is not a literal there, are not seen."""
+        A mapping or iterable handed to `update` or `|=` that is not a literal there, and the container
+        handed to a function, are not keys this detector can list; `other_uses` reports them."""
         quelle = textwrap.dedent('''
             import operator
             import operator as op
@@ -766,6 +969,55 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
                          [("_M", "k")] * 5 + [("_S", "k")] * 4)
         self.assertEqual([(links, c) for _l, links, c in unguarded_membership_sites(quelle)],
                          [("p.get('r')", "_M")])
+
+    def test_the_tree_holds_exactly_the_classified_other_uses(self):
+        seen = _other_uses_in_tree()
+        self.assertEqual(sorted(seen - set(_OTHER_USES_CLASSIFIED)), [],
+                         "a new read of a module-level hashing container that no known form covers: "
+                         "classify it in _OTHER_USES_CLASSIFIED with the reason it hashes nothing from outside")
+        self.assertEqual(sorted(set(_OTHER_USES_CLASSIFIED) - seen), [],
+                         "a classified read is gone: remove it from _OTHER_USES_CLASSIFIED")
+
+    def test_every_other_use_says_why(self):
+        for key, reason in _OTHER_USES_CLASSIFIED.items():
+            with self.subTest(site=key):
+                self.assertRegex(reason, r"^(own value|passed to [\w.]+): \S")
+
+    def test_a_spelling_nobody_listed_is_an_other_use(self):
+        """The third delta run on 1ab75135 wrote five spellings past both detectors; each hashed an
+        unhashable key. Deny by default: every one of them, and a name handed to `update` or `|=`, is
+        reported, while the forms that hash nothing from outside are not."""
+        quelle = textwrap.dedent('''
+            _M = {"a": 1}
+            _S = {"a"}
+            _T = {"b"}
+            def f(k, item, other):
+                global _M, _S
+                getter = _M.get
+                getattr(_M, "get")(k)
+                _M.__class__.__getitem__(_M, k)
+                _M.keys().__contains__(k)
+                _M.update(other)
+                _S |= other
+                return getter(k), item in _M.items()
+            def known(p, k):
+                for x in _S:
+                    pass
+                if _M:
+                    pass
+                return (sorted(_M), is_member(k, _S), _M.get(k), k in _M, k in _M.keys(),
+                        _S - _T, _S <= {"a"}, [v for v in _M.values()], sorted(_M.items()))
+        ''')
+        self.assertEqual(sorted((c, u) for _l, c, u in other_uses(quelle)),
+                         [("_M", ".__class__"), ("_M", ".get"), ("_M", ".items()"), ("_M", ".keys()"),
+                          ("_M", ".update()"), ("_M", "_M.__class__.__getitem__(argument 1)"),
+                          ("_M", "getattr(argument 1)"), ("_S", "BitOr= other")])
+        for label, access in (("bound", lambda m: (m.get)([])), ("getattr", lambda m: getattr(m, "get")([])),
+                              ("__class__", lambda m: m.__class__.__getitem__(m, [])),
+                              ("keys().__contains__", lambda m: m.keys().__contains__([])),
+                              ("items", lambda m: ([], "v") in m.items())):
+            with self.subTest(spelling=label), self.assertRaises(TypeError):
+                access({"a": 1})
 
     def test_an_imported_container_is_seen_in_both_forms(self):
         """234-1-02 as a planted package: a dict and a frozenset defined in one module, read in another

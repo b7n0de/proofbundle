@@ -14,24 +14,30 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
   `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack
   fix above was one such site, and the membership scanner sees only `in` and `not in`. The guard
-  now lists every lookup on a module-level dict whose key is not a literal, keyed by file,
+  now lists every lookup by name on a module-level dict whose key is not a literal, keyed by file,
   enclosing definition, dict and key, each with the reason it cannot raise. Both detectors, this
   one and the membership scanner, now also see a container another module of the package imports
   by name (`from .x import NAME`, inside a function too); before, a dict or set was a container
   only in the file that defined it. A write hashes its key as a read does, so the guard counts
   `CONST[x] = v`, `del CONST[x]`, `setdefault` and `pop` on a dict and `add`, `discard` and
-  `remove` on a set as well, and so does every other spelling of the same access: `__getitem__`,
-  `__setitem__`, `__delitem__` and `__contains__`, `operator.getitem` and its siblings, `x in
-  CONST.keys()`, and `update` or `|=` with a literal. An access through a function that receives
-  the container, and a mapping held in a name handed to `update` or `|=`, are a named limit. A
-  membership test is not classified but routed through `is_member`. Measured: 19 sites, 13 guarded by a membership or type check before
+  `remove` on a set as well, and so do the other spellings of the same access with a key it can
+  name: `__getitem__`, `__setitem__`, `__delitem__` and `__contains__`, `operator.getitem` and its
+  siblings, `x in CONST.keys()`, and `update` or `|=` with a literal. Past those, the guard reads
+  every use of the container's name and reports what no known form covers: the container handed to
+  a function or put in a tuple, a method reached without a call (`getter = CONST.get`),
+  `getattr(CONST, ...)`, `CONST.keys().__contains__(x)`, `x in CONST.items()`, and `update` or `|=`
+  with a name. Each such read is listed with the reason it hashes nothing from outside, 35 of them,
+  so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get` in
+  `anchors.py` did). A membership test is not classified but routed through `is_member`. Measured:
+  19 lookup sites, 13 guarded by a membership or type check before
   them, 5 reading a value the package produced itself, and the trust pack one, whose check runs
   against a tuple. None is open. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
   gone has to leave the list. The reasons are read by a person, not proven by the guard. Not
-  seen: a container reached as a module attribute (`x.NAME`) or built at run time.
+  seen: a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
+  built at run time.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
