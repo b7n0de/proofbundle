@@ -518,6 +518,74 @@ const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty 
 // relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
 // verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
 const INTOTO_STATEMENT_PAYLOAD_TYPE: &str = "application/vnd.in-toto+json";
+const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
+
+/// Why a parsed payload is not an in-toto Statement v1, or None: mirror of Python
+/// `_statement_payload.load_statement_strict` (a JSON object) and `statement_type_problem` (an exact
+/// `_type`). Deep gate Z195, L3-Z195-01: the Python verifiers built `_type` when they emitted and never
+/// read it back, so a receipt with `_type` absent, null or v0.1 reached structure_ok=true. Python now
+/// refuses such a payload before any predicate is read; this side does the same, or the two would
+/// disagree on exactly those bytes.
+fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
+    if !statement.is_object() {
+        return Some("DSSE payload is not a JSON object — not an in-toto Statement".into());
+    }
+    match statement.get("_type") {
+        None => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is absent, expected '{INTOTO_STATEMENT_TYPE}'"
+        )),
+        Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => None,
+        Some(v) => Some(format!(
+            "DSSE payload is not an in-toto Statement v1: _type is {}, expected '{INTOTO_STATEMENT_TYPE}'",
+            wie_python_zeigt(v)
+        )),
+    }
+}
+
+/// A value as Python's `budget.render_safe` shows it in a refusal, for the cases this verifier meets:
+/// a string as `repr()` writes it, anything else as JSON. A review lens on PR 282 measured the `_type`
+/// refusal of a wrong string in double quotes here and in single quotes in Python.
+///
+/// Named limits: Python escapes a non-ASCII character it does not count as printable (U+0085, U+2028,
+/// a lone surrogate) and elides a string longer than 256 characters; this keeps both as they are. A
+/// value that is no string is JSON here and a repr there (`null` against `None`).
+fn wie_python_zeigt(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => python_repr(s),
+        andere => andere.to_string(),
+    }
+}
+
+/// Python's `repr()` of a `str`: single quotes, or double quotes when the text holds a single quote and
+/// no double quote; a backslash, the chosen quote, `\t`, `\n`, `\r` and the other ASCII control
+/// characters escaped the way Python escapes them.
+fn python_repr(s: &str) -> String {
+    let zeichen = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut aus = String::with_capacity(s.len() + 2);
+    aus.push(zeichen);
+    for c in s.chars() {
+        match c {
+            '\\' => aus.push_str("\\\\"),
+            '\t' => aus.push_str("\\t"),
+            '\n' => aus.push_str("\\n"),
+            '\r' => aus.push_str("\\r"),
+            c if c == zeichen => {
+                aus.push('\\');
+                aus.push(c);
+            }
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                aus.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c => aus.push(c),
+        }
+    }
+    aus.push(zeichen);
+    aus
+}
 
 fn verify_dsse(
     envelope: &serde_json::Value,
@@ -959,21 +1027,27 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
 fn verify_trust_pack_threshold(
     envelope: &serde_json::Value,
 ) -> Result<(bool, u64, u64, u64), String> {
-    let payload_type = envelope
-        .get("payloadType")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payloadType")?;
+    // Python's order (`trust_pack.verify_trust_pack`): payload, input_bytes, signatures non-empty list,
+    // cap, the payloadType pin, then the Statement. The payloadType used to be read first, without a
+    // pin, and the PAE built under whatever type the envelope named: a pack signed under
+    // `application/vnd.other+json` met its threshold here with exit 0 while Python refused it as a
+    // payloadType confusion (measured on both verifiers, with the Codex finding on PR 282).
     let payload_b64 = envelope
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
     let body = b64_dsse(payload_b64)?;
-    let msg = dsse_pae(payload_type, &body);
+    if body.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            body.len(),
+            BUDGET_INPUT_BYTES,
+        ));
+    }
 
-    // S106: the signature list is judged BEFORE the statement, in Python's order
-    // (`trust_pack.verify_trust_pack`: payload, input_bytes, signatures non-empty list, cap, then the
-    // statement). An empty list used to reach the threshold loop and come out as "threshold not met",
-    // where Python reports the envelope malformed.
+    // S106: the signature list is judged BEFORE the statement, in Python's order. An empty list used
+    // to reach the threshold loop and come out as "threshold not met", where Python reports the
+    // envelope malformed.
     let sigs = envelope
         .get("signatures")
         .and_then(|v| v.as_array())
@@ -989,8 +1063,26 @@ fn verify_trust_pack_threshold(
             BUDGET_SIGNATURES,
         ));
     }
+    // The pin, in Python's words: Python writes the value with a plain `repr()`, which a string
+    // mirrors here within the limits `wie_python_zeigt` names (no elision applies to a plain repr).
+    let payload_type = envelope.get("payloadType");
+    if payload_type.and_then(|v| v.as_str()) != Some(INTOTO_STATEMENT_PAYLOAD_TYPE) {
+        let gezeigt = payload_type.map_or_else(|| "None".to_string(), wie_python_zeigt);
+        return Err(format!(
+            "envelope.payloadType is {gezeigt}, expected '{INTOTO_STATEMENT_PAYLOAD_TYPE}' \
+             (payloadType-confusion, fail-closed)"
+        ));
+    }
+    let msg = dsse_pae(INTOTO_STATEMENT_PAYLOAD_TYPE, &body);
 
     let statement = strict_parse(&body)?;
+    // A pack is a Statement: the same oracle as the relation paths, at the place Python's
+    // `verify_trust_pack` reads it (`load_statement_strict`, before the predicate). Without it a pack
+    // whose `_type` was null, absent or v0.1 met its threshold here and failed in Python (Codex on
+    // PR 282, measured on both verifiers).
+    if let Some(p) = statement_typ_problem(&statement) {
+        return Err(p);
+    }
     let predicate = statement
         .get("predicate")
         .ok_or("statement has no predicate")?;
@@ -1966,8 +2058,14 @@ fn load_related(
         // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
         let mut payload_malformed = false;
         let mut subject_state: &'static str = "absent";
+        // Z195 (L3-Z195-01): the exact in-toto Statement v1 `_type` is part of that gate, as in Python.
         let parsed = match strict_parse(&body) {
-            Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
+            Ok(v)
+                if statement_typ_problem(&v).is_none()
+                    && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) =>
+            {
+                Some(v)
+            }
             _ => {
                 payload_malformed = true;
                 verified = false;
@@ -2125,6 +2223,12 @@ fn run_verify_relation(
         Ok(s) => s,
         Err(e) => return (2, "null".into(), vec![format!("payload: {e}")]),
     };
+    // Deep gate Z195, L3-Z195-01: an object with the exact in-toto Statement v1 `_type`, in BOTH modes.
+    // Python's decision, outcome and relation-statement verifiers refuse anything else before the
+    // predicate is read, so lineage stays null and the exit is 2; the same exit and lineage here.
+    if let Some(p) = statement_typ_problem(&statement) {
+        return (2, "null".into(), vec![format!("payload: {p}")]);
+    }
     let predicate = statement.get("predicate");
     let mut reasons: Vec<String> = Vec::new();
 
@@ -3359,6 +3463,7 @@ mod tests {
             })
             .collect();
         let statement = serde_json::json!({
+            "_type": INTOTO_STATEMENT_TYPE,
             "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
         });
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3520,12 +3625,106 @@ mod tests {
         let e = verify_trust_pack_threshold(&leer)
             .expect_err("an empty signature list produced a threshold verdict");
         assert_eq!(e, LEERE_SIGNATURLISTE);
-        // With a list present, the statement is judged next, as before.
+        // With a list present, the statement is judged next: its `_type` first, then its predicate.
         let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
-        let e =
-            verify_trust_pack_threshold(&voll).expect_err("a statement without a predicate passed");
+        let e = verify_trust_pack_threshold(&voll).expect_err("a payload without _type passed");
+        assert!(e.contains("_type is absent"), "{e}");
+        let std = base64::engine::general_purpose::STANDARD;
+        let ohne_praedikat = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(serde_json::to_vec(&serde_json::json!({"_type": INTOTO_STATEMENT_TYPE}))
+                .expect("json")),
+            "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&ohne_praedikat)
+            .expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn a_string_is_shown_as_python_repr_shows_it() {
+        // Each expected text is what CPython's repr() prints for the same string.
+        for (roh, erwartet) in [
+            ("abc", "'abc'"),
+            ("a'b", "\"a'b\""),
+            ("a'b\"c", "'a\\'b\"c'"),
+            ("a\"b", "'a\"b'"),
+            ("a\\b", "'a\\\\b'"),
+            ("a\tb\nc\rd", "'a\\tb\\nc\\rd'"),
+            ("\u{1}\u{7f}", "'\\x01\\x7f'"),
+            ("pr\u{fc}fung", "'pr\u{fc}fung'"),
+        ] {
+            assert_eq!(python_repr(roh), erwartet, "{roh:?}");
+        }
+        assert_eq!(wie_python_zeigt(&serde_json::json!(5)), "5");
+    }
+
+    #[test]
+    fn a_pack_under_another_payload_type_is_refused_in_pythons_order() {
+        // Measured with the Codex finding on PR 282: signed under `application/vnd.other+json`, the pack
+        // met its threshold here and Python refused it as a payloadType confusion.
+        let mut env = trust_pack_mit_root_keyids(1);
+        env["payloadType"] = serde_json::json!("application/vnd.other+json");
+        assert_eq!(
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged"),
+            "envelope.payloadType is 'application/vnd.other+json', expected \
+             'application/vnd.in-toto+json' (payloadType-confusion, fail-closed)"
+        );
+        // Python's order: the list and its cap before the pin, the pin before the Statement.
+        let mut leer = env.clone();
+        leer["signatures"] = serde_json::json!([]);
+        assert_eq!(
+            verify_trust_pack_threshold(&leer).expect_err("an empty list was judged"),
+            LEERE_SIGNATURLISTE
+        );
+        env["payload"] = serde_json::json!("e30=");
+        let e =
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged");
+        assert!(e.contains("payloadType-confusion"), "{e}");
+        let mut ohne = trust_pack_mit_root_keyids(1);
+        ohne.as_object_mut().expect("object").remove("payloadType");
+        let e = verify_trust_pack_threshold(&ohne).expect_err("a pack without a type was judged");
+        assert!(e.starts_with("envelope.payloadType is None"), "{e}");
+    }
+
+    #[test]
+    fn a_pack_that_is_no_in_toto_statement_v1_meets_no_threshold() {
+        // Codex on PR 282: Python's `verify_trust_pack` refuses such a pack (structure_ok=false), and
+        // this slice counted its signatures. The control proves each refusal comes from `_type`.
+        let mut env = trust_pack_mit_root_keyids(1);
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement: serde_json::Value = serde_json::from_slice(
+            &std.decode(env["payload"].as_str().expect("payload"))
+                .expect("b64"),
+        )
+        .expect("json");
+        assert!(
+            verify_trust_pack_threshold(&env).is_ok(),
+            "control: the pack with the right _type is refused"
+        );
+        for (name, wert) in [
+            ("absent", None),
+            ("null", Some(serde_json::Value::Null)),
+            (
+                "v0.1",
+                Some(serde_json::json!("https://in-toto.io/Statement/v0.1")),
+            ),
+            ("a list", Some(serde_json::json!([INTOTO_STATEMENT_TYPE]))),
+        ] {
+            let mut s = statement.clone();
+            match wert {
+                None => {
+                    s.as_object_mut().expect("object").remove("_type");
+                }
+                Some(v) => s["_type"] = v,
+            }
+            env["payload"] = serde_json::json!(std.encode(serde_json::to_vec(&s).expect("json")));
+            let e = verify_trust_pack_threshold(&env)
+                .expect_err("a pack that is no in-toto Statement v1 was judged");
+            assert!(
+                e.contains("not an in-toto Statement v1: _type is"),
+                "{name}: {e}"
+            );
+        }
     }
 
     #[test]
@@ -3681,7 +3880,7 @@ mod tests {
         let mut i2 = identitaet();
         i2[31] = 0x80;
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
             "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3699,7 +3898,7 @@ mod tests {
     fn a_weak_key_in_any_role_refuses_the_pack() {
         // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
             "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
                      "dm1": {"publicKey": std.encode([0u8; 32])}},
             "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
