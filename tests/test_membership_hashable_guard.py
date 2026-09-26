@@ -21,9 +21,10 @@ they are not violations now — but the day someone changes ``_ALLOWED = ("a", "
 scanner turns red in the same commit. A hand-maintained list of "dangerous containers" would have to
 be updated by exactly the person who forgot.
 
-HONEST LIMIT: this scans `src/proofbundle/**`, module-level container constants, and single-operator
-comparisons. A container built at runtime, imported from another module, or a chained comparison is
-NOT covered — that is stated here rather than left for someone to discover, and `is_member` is safe
+HONEST LIMIT: this scans `src/proofbundle/**`, module-level container constants (also when another
+module of the package imports them by name, `from .x import NAME`), and single-operator
+comparisons. A container built at runtime, reached as a module attribute (`x.NAME`), or a chained
+comparison is NOT covered — that is stated here rather than left for someone to discover, and `is_member` is safe
 to use everywhere regardless. A LOOKUP hashes its key too (`CONST.get(x)`, `CONST[x]`); those sites
 are listed one by one with the reason each is safe, in `_LOOKUPS_CLASSIFIED` below.
 """
@@ -66,14 +67,67 @@ def _hashing_containers(tree: ast.Module) -> dict[str, str]:
     return gefunden
 
 
-def unguarded_membership_sites(quelle: str, name: str = "<quelle>") -> list[tuple[int, str, str]]:
+def _modulname(pfad: Path, wurzel: Path) -> str:
+    return pfad.relative_to(wurzel).with_suffix("").as_posix().replace("/", ".").removesuffix(".__init__")
+
+
+def containers_by_module(quellen: dict[str, str]) -> dict[str, dict[str, str]]:
+    """module -> {name: art} for the module-level hashing containers of every module given."""
+    return {modul: _hashing_containers(ast.parse(text)) for modul, text in quellen.items()}
+
+
+def _package_sources() -> dict[str, tuple[str, bool]]:
+    """module -> (source, is_package_init) for every module under src/proofbundle."""
+    return {_modulname(p, SRC.parent): (p.read_text(encoding="utf-8"), p.name == "__init__.py")
+            for p in sorted(SRC.rglob("*.py")) if "__pycache__" not in p.parts}
+
+
+def imported_containers(tree: ast.Module, modul: str, ist_init: bool,
+                        je_modul: dict[str, dict[str, str]]) -> dict[str, str]:
+    """Names this module binds by `from <module> import NAME [as ALIAS]` to a hashing container that
+    module defines. Gate run 1 on 11110281 (234-1-02): `_hashing_containers` read one file, so a dict
+    imported from another module was no container at all; `renewal.py` read `HASH_REGISTRY` from
+    `hashalg`, `cli.py` read `AUTOMATION_BLOCKER_REASONS` from `bundle`, and `relation_statement.py`
+    tested membership in `SUCCESSOR_RELATIONS` from `relation`, all four unseen. An import inside a
+    function counts for the whole file: that reads more, never less."""
+    paket = modul if ist_init else modul.rpartition(".")[0]
+    gefunden: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level:
+            basis = paket
+            for _ in range(node.level - 1):
+                basis = basis.rpartition(".")[0]
+            ziel = f"{basis}.{node.module}" if node.module else basis
+        else:
+            ziel = node.module or ""
+        for alias in node.names:
+            art = je_modul.get(ziel, {}).get(alias.name)
+            if art:
+                gefunden[alias.asname or alias.name] = art
+    return gefunden
+
+
+def _behaelter(tree: ast.Module, modul: str | None, ist_init: bool = False,
+               je_modul: dict[str, dict[str, str]] | None = None) -> dict[str, str]:
+    """The hashing containers a module can see: its own, and with `modul` the ones it imports."""
+    eigene = _hashing_containers(tree)
+    if modul is None or je_modul is None:
+        return eigene
+    return {**imported_containers(tree, modul, ist_init, je_modul), **eigene}
+
+
+def unguarded_membership_sites(quelle: str, name: str = "<quelle>", modul: str | None = None,
+                               ist_init: bool = False,
+                               je_modul: dict[str, dict[str, str]] | None = None) -> list[tuple[int, str, str]]:
     """(Zeile, linker Ausdruck, Behälter) für jeden ungeschützten Mitgliedstest.
 
     A CONSTANT left operand is skipped on purpose: ``"status" in predicate`` asks whether a KEY is
     present, the left side is a literal string, and a literal is always hashable. Flagging it would
     make the scanner noisy exactly where it is always right, and a noisy scanner gets silenced."""
     tree = ast.parse(quelle, filename=name)
-    behaelter = _hashing_containers(tree)
+    behaelter = _behaelter(tree, modul, ist_init, je_modul)
     treffer: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Compare) or len(node.ops) != 1:
@@ -243,16 +297,14 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
     return funde
 
 
-def _module_dicts(tree: ast.Module) -> set:
-    """Module-level names bound to a dict: a lookup on them hashes its key."""
-    return {name for name, art in _hashing_containers(tree).items() if art == "dict"}
-
-
-def constant_lookups(quelle: str, name: str = "<quelle>") -> list[tuple[int, str, str]]:
-    """(line, dict, key) for every `CONST.get(x, ...)` and `CONST[x]` with a module-level dict CONST and a
-    key that is not a literal. Such a lookup hashes `x` and raises TypeError for an unhashable one."""
+def constant_lookups(quelle: str, name: str = "<quelle>", modul: str | None = None,
+                     ist_init: bool = False,
+                     je_modul: dict[str, dict[str, str]] | None = None) -> list[tuple[int, str, str]]:
+    """(line, dict, key) for every `CONST.get(x, ...)` and `CONST[x]` with a module-level dict CONST (its
+    own, or with `modul` one it imports from the package) and a key that is not a literal. Such a lookup
+    hashes `x` and raises TypeError for an unhashable one."""
     tree = ast.parse(quelle, filename=name)
-    dicts = _module_dicts(tree)
+    dicts = {n for n, art in _behaelter(tree, modul, ist_init, je_modul).items() if art == "dict"}
     found: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
@@ -273,8 +325,9 @@ def constant_lookups(quelle: str, name: str = "<quelle>") -> list[tuple[int, str
 #: WHERE THIS COMES FROM: the ECMA-reading generator of the 228bc fix sent a list as a trust pack key's
 #: `alg`, and `_KEY_ALG_LABEL.get(alg)` raised TypeError out of `verify_trust_pack` before any signature
 #: was counted. The membership scanner above sees `in` and `not in`, not a lookup. Measured on 9151e4ca
-#: (2026-09-26): 14 sites, none open. A new site turns this red until it is classified here; a site that
-#: is gone must leave the list.
+#: (2026-09-26): 14 sites, none open. Gate run 1 on 11110281 (234-1-02) found three more that the first
+#: form could not see, because their dict is imported from another module: 17 now, none open. A new
+#: site turns this red until it is classified here; a site that is gone must leave the list.
 _LOOKUPS_CLASSIFIED = {
     ("proofbundle/__init__.py", "__getattr__", "_LAZY", "name"):
         "own value: the attribute protocol passes a str",
@@ -304,27 +357,42 @@ _LOOKUPS_CLASSIFIED = {
         "own value: an int read from the bit array",
     ("proofbundle/trust_pack.py", "validate_trust_pack_predicate", "_KEY_ALG_LABEL", "alg"):
         "guarded: `alg in _KEY_ALGS` against a tuple, which compares and hashes nothing",
+    # Three more, seen once imported containers counted (gate run 1 on 11110281, 234-1-02).
+    ("proofbundle/renewal.py", "_is_deprecated_hash", "HASH_REGISTRY", "alg"):
+        "guarded: a non-str alg returns False before it",
+    ("proofbundle/renewal.py", "verify_sequence", "HASH_REGISTRY", "newest.hash_alg"):
+        "guarded: isinstance(newest.hash_alg, str) in the same expression",
+    ("proofbundle/cli.py", "_cmd_verify", "AUTOMATION_BLOCKER_REASONS", "_blk"):
+        "own value: bundle.py builds automationBlockers from string literals only",
 }
 
 
 def _constant_lookups_in_tree() -> set:
+    quellen = _package_sources()
+    je_modul = containers_by_module({m: q for m, (q, _i) in quellen.items()})
     seen = set()
     for d in sorted(SRC.rglob("*.py")):
-        quelle = d.read_text(encoding="utf-8")
+        if "__pycache__" in d.parts:
+            continue
+        modul = _modulname(d, SRC.parent)
+        quelle, ist_init = quellen[modul]
         wo = _umschliessende_definition(quelle)
-        for zeile, const, key in constant_lookups(quelle, str(d)):
+        for zeile, const, key in constant_lookups(quelle, str(d), modul, ist_init, je_modul):
             seen.add((str(d.relative_to(SRC.parent)), wo.get(zeile, "<modulebene>"), const, key))
     return seen
 
 
 class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
     def test_no_source_file_hashes_attacker_data_in_a_membership_test(self):
+        quellen = _package_sources()
+        je_modul = containers_by_module({m: q for m, (q, _i) in quellen.items()})
         befunde = []
         for pfad in sorted(SRC.rglob("*.py")):
             if "__pycache__" in pfad.parts or pfad.name == "_membership.py":
                 continue
+            modul = _modulname(pfad, SRC.parent)
             for zeile, links, cont in unguarded_membership_sites(
-                    pfad.read_text(encoding="utf-8"), str(pfad)):
+                    quellen[modul][0], str(pfad), modul, quellen[modul][1], je_modul):
                 befunde.append(f"{pfad.relative_to(SRC.parent)}:{zeile}  {links} in {cont}")
         self.assertEqual(
             befunde, [],
@@ -595,6 +663,30 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
         ''')
         self.assertEqual([(c, k) for _l, c, k in constant_lookups(quelle)],
                          [("_M", "p.get('k')"), ("_M", "p['k']")])
+
+    def test_an_imported_container_is_seen_in_both_forms(self):
+        """234-1-02 as a planted package: a dict and a frozenset defined in one module, read in another
+        through `from .a import ...` (one of them inside a function, as cli.py does)."""
+        a = '_M = {"x": 1}\n_S = frozenset({"x"})\n'
+        b = ("from .a import _M\n"
+             "def f(p):\n"
+             "    from .a import _S as S\n"
+             "    return _M.get(p.get('k')), p.get('r') in S\n")
+        je_modul = containers_by_module({"pkg.a": a, "pkg.b": b})
+        self.assertEqual([(c, k) for _l, c, k in constant_lookups(b, "b.py", "pkg.b", False, je_modul)],
+                         [("_M", "p.get('k')")])
+        self.assertEqual([(links, c) for _l, links, c in
+                          unguarded_membership_sites(b, "b.py", "pkg.b", False, je_modul)],
+                         [("p.get('r')", "S")])
+        # anti-parity: without the package view the same file shows nothing, which was the first form
+        self.assertEqual(constant_lookups(b, "b.py"), [])
+
+    def test_a_relative_import_resolves_from_a_subpackage_and_an_init(self):
+        je_modul = containers_by_module({"pkg.a": '_M = {"x": 1}\n', "pkg.sub.c": "", "pkg": ""})
+        tiefer = "from ..a import _M\ndef f(p):\n    return _M[p]\n"
+        self.assertEqual(len(constant_lookups(tiefer, "c.py", "pkg.sub.c", False, je_modul)), 1)
+        init = "from .a import _M\ndef f(p):\n    return _M[p]\n"
+        self.assertEqual(len(constant_lookups(init, "__init__.py", "pkg", True, je_modul)), 1)
 
     def test_the_trust_pack_shape_raised_before_it_was_guarded(self):
         """The measured consequence, as the lookup reads it: an unhashable key raises."""

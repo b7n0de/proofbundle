@@ -352,7 +352,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
                 "message": ("reject_retracted: a verified relation-statement RETRACTS the target; "
                             "the target stays crypto-valid for its bytes but is no longer safe for "
                             "automated use under this policy")}]
-        if resolved and relations.get("reject_superseded") and rel0 in SUCCESSOR_RELATIONS:
+        if resolved and relations.get("reject_superseded") and is_member(rel0, SUCCESSOR_RELATIONS):
             _viol = list(_viol) + [{
                 "code": CODE_LINEAGE_REQUIREMENT_FAILED,
                 "message": (f"reject_superseded: a verified relation-statement declares {rel0!r} over "

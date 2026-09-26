@@ -15,11 +15,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack
   fix above was one such site, and the membership scanner sees only `in` and `not in`. The guard
   now lists every lookup on a module-level dict whose key is not a literal, keyed by file,
-  enclosing definition, dict and key, each with the reason it cannot raise. Measured: 14 sites, 10
-  guarded by a membership or type check before them, 3 reading a value the package produced itself,
-  and the trust pack one, whose check runs against a tuple. None is open. A new site turns the
-  guard red until it is classified, and a classified site that is gone has to leave the list. The
-  reasons are read by a person, not proven by the guard.
+  enclosing definition, dict and key, each with the reason it cannot raise. Both detectors, this
+  one and the membership scanner, now also see a container another module of the package imports
+  by name (`from .x import NAME`, inside a function too); before, a dict or set was a container
+  only in the file that defined it. Measured: 17 sites, 12 guarded by a membership or type check
+  before them, 4 reading a value the package produced itself, and the trust pack one, whose check
+  runs against a tuple. None is open. The one membership test the wider view found,
+  `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
+  as its sibling one line above already did: for a hashable value the answer is the same, and an
+  unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
+  gone has to leave the list. The reasons are read by a person, not proven by the guard. Not
+  seen: a container reached as a module attribute (`x.NAME`) or built at run time.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
