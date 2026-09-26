@@ -1686,6 +1686,47 @@ class TestTheCollectorJob(unittest.TestCase):
                         "the report must SAY the condition was read as a status function")
         self.assertEqual(b.rc("--drift-marker", ""), 0)
 
+    def test_a_character_python_calls_whitespace_and_github_does_not_is_not_measurable(self):
+        """Lens 236-B: U+001C before `always()`. Folded with `str.split()` it read as a status function
+        and the collector as produced; GitHub's expression lexer skips .NET whitespace, which holds
+        none of U+001C to U+001F, so it parses another condition than the one this gate judged. Each
+        of the four is not measurable now, and the gate is red; a plain space stays a status function."""
+        for code in range(0x1C, 0x20):
+            wf = CI + f"""
+  all-checks-passed:
+    needs: [test, coverage]
+    if: "\\x{code:02x}always()"
+    runs-on: ubuntu-latest
+    steps: [{{run: "true"}}]
+"""
+            with self.subTest(code=f"U+{code:04X}"):
+                b = Baum(self, {"ci.yml": wf}, ["coverage", "all-checks-passed"])
+                r = b.urteil()
+                self.assertNotIn("all-checks-passed", r["produced_contexts"])
+                self.assertTrue(any(f"U+{code:04X}" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        b = Baum(self, {"ci.yml": self.ALWAYS_FORM.replace("if: always()", 'if: " always()"')},
+                 ["coverage", "all-checks-passed"])
+        self.assertEqual(self._zustand(b.urteil())["all-checks-passed"], G.ALWAYS)
+
+    def test_a_matrix_condition_with_such_a_character_is_not_read_literally(self):
+        wf = """
+name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    strategy:
+      matrix:
+        python-version: "${{ fromJSON(github.event_name == 'push' \\x1c&& '[\\"3.10\\"]' || '[\\"3.12\\"]') }}"
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+        r = Baum(self, {"ci.yml": wf}, ["test (3.12)"]).urteil()
+        self.assertNotIn("test (3.12)", r["produced_contexts"])
+        self.assertTrue(any("matrix values not readable literally" in u for u in r["unreadable"]), r["unreadable"])
+
     def test_always_is_read_the_same_way(self):
         b = Baum(self, {"ci.yml": self.ALWAYS_FORM}, ["coverage", "all-checks-passed"])
         self.assertEqual(self._zustand(b.urteil())["all-checks-passed"], G.ALWAYS)

@@ -90,8 +90,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   them, and `\Z` changes no verdict. The sweep now reads both readings under `scripts/` and
   `tools/`. One pattern keeps Python's `\s`, in `required_check_reachability_gate`, and is named
   with the measurement: GitHub's expression lexer skips whitespace with .NET `Char.IsWhiteSpace`,
-  which is Python's `\s` less U+001C to U+001F, so ASCII would be further from GitHub, and the gate
-  reads expressions that way in 21 lines, one of them the digest its declarations bind.
+  which is Python's `\s` less U+001C to U+001F, so ASCII would be further from GitHub. Those four
+  are where the two readings part, and the gate took them for whitespace: `if:` with U+001C before
+  `always()` was folded to a status function and its job reported as produced, while GitHub's
+  parser for a condition without `${{` stops at that character (read in its source, not measured
+  against GitHub). A job or matrix condition holding one of the four is not measurable now, before
+  any pattern reads it, so on every condition the gate reads, `\s` is GitHub's set.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

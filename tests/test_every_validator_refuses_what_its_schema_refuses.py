@@ -243,10 +243,13 @@ _REGEX_EXCEPTIONS = {
     # whitespace with .NET `Char.IsWhiteSpace` (actions/runner at 15231bede4aa,
     # src/Sdk/Expressions/Tokens/LexicalAnalyzer.cs, read 2026-09-26), and that set is Python's `\s` less
     # U+001C..U+001F (25 against 29 code points, measured). ASCII would be further from GitHub, not
-    # nearer. The gate reads GitHub expressions with Python's whitespace in 21 lines by a text search (13
-    # patterns with `\s`, 8 folds with `str.split()`, one of them in the digest its declarations bind), so
-    # a change belongs to that whole file, not to this pattern. What GitHub does with a condition holding
-    # U+001C..U+001F was not measured. Its `$` follows `\s*`, which takes a trailing newline either way.
+    # nearer. The gate reads GitHub expressions with Python's whitespace in many places (patterns with
+    # `\s`, folds with `str.split()`), so the fix sits where a condition enters the file: one holding any
+    # of U+001C..U+001F is not measurable before a pattern reads it (`fremder_leerraum`, lens 236-B,
+    # whose U+001C before `always()` read as a status function). On every condition the gate does read,
+    # `\s` is GitHub's set. What GitHub does with such a condition was read in its source
+    # (WorkflowTemplateConverter.ConvertToIfCondition, then the lexer), not measured against GitHub.
+    # Its `$` follows `\s*`, which takes a trailing newline either way.
     ("scripts.required_check_reachability_gate",
      r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$"),
 }

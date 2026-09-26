@@ -87,6 +87,22 @@ _NUR_STATUSFUNKTION = re.compile(r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancel
 #: guard). `success()` is the default and guards nothing.
 _TRAEGT_WACHE = re.compile(r"always\(\s*\)|!\s*cancelled\(\s*\)|failure\(\s*\)", re.I)
 
+#: The characters Python reads as whitespace and GitHub's expression lexer does not. The lexer skips
+#: .NET `Char.IsWhiteSpace` (actions/runner, src/Sdk/DTExpressions2/Expressions2/Tokens/
+#: LexicalAnalyzer.cs, read 2026-09-26); `str.split()`, `str.isspace()` and `\s` take four more,
+#: U+001C to U+001F (on Python 3.10.12, Unicode 13.0.0, against the .NET definition applied to the
+#: same tables, not against .NET itself). Folded the Python way, `if: "<U+001C>always()"` read as
+#: `always()` and its job as produced, while the parser GitHub runs on a condition without `${{`
+#: stops at that character (lens 236-B, 2026-09-26). A condition that carries one is not
+#: measurable, before any pattern here reads it; on everything else Python's whitespace and
+#: GitHub's are the same set, so `\s` and `split()` below read it as GitHub does.
+_NICHT_GITHUBS_LEERRAUM = frozenset(map(chr, range(0x1C, 0x20)))
+
+
+def fremder_leerraum(text: str) -> list[str]:
+    """The characters of `text` that Python reads as whitespace and GitHub does not, as U+XXXX."""
+    return sorted({f"U+{ord(c):04X}" for c in text if c in _NICHT_GITHUBS_LEERRAUM})
+
 
 def ohne_wache_trotz_needs(job: dict) -> bool:
     """Does this job have `needs` and no `always()`/`!cancelled()` guard?
@@ -145,7 +161,7 @@ def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list],
             continue
         if isinstance(wert, str) and "fromJSON" in wert:
             t = _TERNARY.search(wert)
-            if not t:
+            if not t or fremder_leerraum(wert):
                 gewoehnlich[schluessel] = []
                 gegated[schluessel] = []
                 continue
@@ -246,6 +262,11 @@ def erhebe(verzeichnis: Path | None = None) -> dict:
             # uebersprungener Job meldet GitHub ein Success, ein Pflichtkontext auf ihm blockiert
             # also nie und beweist auch nichts.
             job_if = job.get("if")
+            fremd = fremder_leerraum(str(job_if)) if job_if is not None else []
+            if fremd:
+                unlesbar.append(f"{pfad.name}:{job_id}: `if:` carries {', '.join(fremd)}, which Python reads "
+                                f"as whitespace and GitHub's expression lexer does not")
+                continue
             if job_if is not None and _NUR_STATUSFUNKTION.match(" ".join(str(job_if).split())):
                 # `if: ${{ !cancelled() }}` or `if: always()` -- the job runs whenever the
                 # workflow runs. Treated like no condition at all, and said so, because the
