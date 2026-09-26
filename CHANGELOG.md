@@ -34,7 +34,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   for a linked file, a symlinked `src` and a gitlink). The check reads the judged state, not the
   diff, because a link committed earlier would hide every later change to its target. The language
   gate's HEAD form read the files that say which lines are prose from disk; it now reads them at
-  HEAD. No tracked `.py` or `.md` file carries a lone CR or a U+2028 today, and no tracked path is
+  HEAD. It counted a string as prose only in docstring position, so a German sentence in an
+  f-string there, in a bare string as a later statement, in a bytes literal, after
+  `from __future__` or in two literals joined by `+` was judged green; every string that stands
+  alone as a statement is prose now, and a string handed to a call or a name stays out. No tracked `.py` or `.md` file carries a lone CR or a U+2028 today, and no tracked path is
   a symlink or a gitlink, so no verdict on this repository changes.
 
 - **Every tool that reads a path list from git reads it as git names the paths**

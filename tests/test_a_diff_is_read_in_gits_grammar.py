@@ -80,7 +80,8 @@ def _git(r: Path, *args: str) -> str:
 
 def _judge(r: Path, rel: str, added: str, *, commit: bool = True, config=()):
     base = _git(r, "rev-parse", "HEAD")
-    (r / rel).write_bytes((r / rel).read_bytes() + added.encode("utf-8"))
+    before = (r / rel).read_bytes() if (r / rel).exists() else b""
+    (r / rel).write_bytes(before + added.encode("utf-8"))
     if commit:
         _git(r, "add", "-A")
         _git(r, "commit", "-q", "-m", "change")
@@ -160,6 +161,28 @@ def test_a_string_in_docstring_position_is_prose_whatever_its_prefix(repo, prefi
     """An f-string where a docstring stands is not a docstring to Python, and it is prose all the
     same; the plain form is the control."""
     assert _judge(repo, "m.py", f'def f():\n    {prefix}"""{GERMAN}"""\n') == ("ROT", [("m.py", 3)])
+
+
+@pytest.mark.parametrize("rel,added,line", [
+    ("m.py", f'def f():\n    x = 1\n    "{GERMAN}"\n    return x\n', 4),
+    ("m.py", f'def f():\n    b"{GERMAN}"\n', 3),
+    ("n.py", f'from __future__ import annotations\n"{GERMAN}"\n', 2),
+    ("m.py", f'def f():\n    "{GERMAN[:20]}" + "{GERMAN[20:]}"\n', 3),
+    ("m.py", f'x = 1\n(\n    "{GERMAN}"\n    " ok"\n)\n', 4),
+], ids=["a-later-statement", "bytes", "after-a-future-import", "joined-by-plus", "parenthesized"])
+def test_a_string_that_stands_alone_as_a_statement_is_prose(repo, rel, added, line):
+    """Nothing runs such a string and nothing prints it; its reader is a person, as with a comment.
+    Each of these was judged green while only the docstring position counted (a review lens,
+    measured 2026-09-26)."""
+    assert _judge(repo, rel, added) == ("ROT", [(rel, line)])
+
+
+@pytest.mark.parametrize("added", [f'print("{GERMAN}")\n', f'x = "{GERMAN}"\n'],
+                         ids=["handed-to-a-call", "bound-to-a-name"])
+def test_anti_parity_a_string_that_is_used_is_not_prose(repo, added):
+    """A string handed to a call or a name is output or data, a separate question; the gate that
+    called every string prose would report the program's own messages."""
+    assert _judge(repo, "m.py", added) == ("gruen", [])
 
 
 def test_an_untracked_file_is_numbered_in_pythons_grammar(repo):

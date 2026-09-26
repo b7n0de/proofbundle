@@ -12,9 +12,10 @@ MEASURED 2026-09-16 on fix/anchor-verifier-zweischicht-phase2: 159 of 1577 Pytho
 German comment or docstring lines, 2687 lines in total. Those stay. What this refuses is the
 2688th.
 
-WHAT IT READS: added lines of the change range. In `.py` that is comments and docstrings only,
-because code identifiers are not prose and a German variable name is a naming question rather than a
-language one. In `.md` it is every line outside a fenced code block, because a Markdown file is
+WHAT IT READS: added lines of the change range. In `.py` that is comments, and strings that stand
+alone as a statement (a docstring is one), because code identifiers are not prose and a German
+variable name is a naming question rather than a language one; a string handed to a call or a name
+is output or data, a separate question. In `.md` it is every line outside a fenced code block, because a Markdown file is
 prose and the fence is where its commands and identifiers live.
 
 `.md` JOINED ON 2026-09-19, by owner decision, as the fourth item of the 6.1.0 release step. Until
@@ -108,7 +109,7 @@ REPO, REPO_HERKUNFT = _gemessener_baum()
 #: 2687 existing lines used, so the number a future reader compares against means the same thing.
 SCHWELLE = 2
 
-#: A comment, or a line inside a docstring. Everything else is code.
+#: A comment line. Strings that stand alone as statements come from the syntax tree.
 _KOMMENTAR = re.compile(r"^\s*#")
 
 #: WHICH FILES THIS READS, in ONE place. It was `*.py` written twice, in the diff call and in the
@@ -282,7 +283,8 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
 
 
 def _prosazeilen(datei: str, lies=None) -> set[int] | None:
-    """Every line of the file that is a comment or part of a string literal, by TOKEN.
+    """Every line of the file that is a comment, by TOKEN, or part of a string that stands alone as
+    a statement, by the syntax tree.
 
     THE FIRST VERSION COUNTED QUOTE CHARACTERS, and an adversarial read caught it the same day.
     It walked the lines before the one in question and flipped a flag on every odd count of a
@@ -315,30 +317,34 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     # source comments at all. Measured on this very branch, it reported the gate's own German
     # error messages, and those are a separate question about who reads the output.
     #
-    # The syntax tree says which string is a docstring: the first statement of a module, class or
-    # function. Nothing else qualifies, whatever its quoting.
+    # The syntax tree says which strings are notes rather than values.
+    #
+    # A STRING THAT STANDS ALONE AS A STATEMENT IS PROSE, wherever it stands and however it is
+    # written: nothing runs it and nothing prints it, so its only reader is a person, as with a
+    # comment. A docstring is one such string. Counting the docstring position alone let German
+    # sentences through in green in every form of this gate (review lenses, measured 2026-09-26): an
+    # f-string where a docstring stands, a bare string as a later statement, a bytes literal, a
+    # string after `from __future__`, and two literals joined by `+`. A string handed to a call or
+    # a name is not such a string and stays out.
     try:
         baum = ast.parse(quelle)
     except (SyntaxError, ValueError):
         return None
     for knoten in ast.walk(baum):
-        if not isinstance(knoten, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                   ast.AsyncFunctionDef)):
-            continue
-        koerper = getattr(knoten, "body", None) or []
-        if not koerper:
-            continue
-        erstes = koerper[0]
-        # An f-string there counts too. Python gives it no __doc__, but it stands where a docstring
-        # stands and carries prose; read as code, a German sentence in it passed as green in every
-        # form of this gate (a review lens, measured 2026-09-26).
-        if not (isinstance(erstes, ast.Expr)
-                and (isinstance(erstes.value, ast.JoinedStr)
-                     or (isinstance(erstes.value, ast.Constant) and isinstance(erstes.value.value, str)))):
-            continue
-        for n in range(erstes.lineno, (erstes.end_lineno or erstes.lineno) + 1):
-            aus.add(n)
+        if isinstance(knoten, ast.Expr) and _nur_text(knoten.value):
+            aus.update(range(knoten.lineno, (knoten.end_lineno or knoten.lineno) + 1))
     return aus
+
+
+def _nur_text(ausdruck: ast.AST) -> bool:
+    """A str, bytes or f-string literal, or such literals joined by `+`: text and nothing else.
+    A string built by another operator or by a call is code (named limit)."""
+    if isinstance(ausdruck, ast.Constant):
+        return isinstance(ausdruck.value, (str, bytes))
+    if isinstance(ausdruck, ast.JoinedStr):
+        return True
+    return (isinstance(ausdruck, ast.BinOp) and isinstance(ausdruck.op, ast.Add)
+            and _nur_text(ausdruck.left) and _nur_text(ausdruck.right))
 
 
 def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
@@ -396,7 +402,8 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
 
 
 def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool:
-    """Comment, or inside a string literal. The answer comes from the FILE, not from the hunk.
+    """Comment, or inside a string that stands alone as a statement. The answer comes from the FILE,
+    not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file in the judged state does say: the
