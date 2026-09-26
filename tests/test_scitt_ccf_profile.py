@@ -721,6 +721,19 @@ def test_missing_trust_is_never_reported_as_an_unbound_receipt():
     assert (r.status, r.signature_valid, r.bound, no_key.status) == ("needs_rp_trust", None, False, "needs_rp_trust")
 
 
+def test_readable_needs_a_parsed_receipt_even_when_the_receipts_are_refused_early():
+    """Codex, PR 278 round two: readable is at least one receipt parsed under the -05 CDDL (ADR 0009,
+    Decision 10), so an early refusal that parses no receipt is never readable."""
+    st = Stmt()
+    no_394 = b"\xd2\x84" + enc(st.protected()) + enc({}) + enc(st.payload) + enc(st.signature())
+    rc = Rcpt(data_hash=dh_of(st)).build()
+    for ts in (no_394, transparent(st, []), transparent(st, [rc] * (S.MAX_RECEIPTS + 1))):
+        r = verify(ts)
+        assert (r.status, r.readable, r.signature_valid, r.receipts) == ("malformed", False, False, ())
+        assert r.statement_status == "confirmed"                          # the statement is still reported
+    assert verify(transparent(st, [rc] * S.MAX_RECEIPTS)).readable is True      # the control at L
+
+
 def test_receipt_verification_trust_is_missing_not_failed():
     st, ts = control()
     for rp in ({}, {"scitt_ccf_services": {}}, {"scitt_ccf_services": {ISSUER: []}},

@@ -864,13 +864,15 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
         statement_status, stmt_valid, ignored, why = _statement_signature(
             st, trust.get("scitt_statement_keys"), selector)
 
+    # readable is at least one receipt parsed under the -05 CDDL (ADR 0009, Decision 10): these two
+    # refusals parse none, so they are never readable (Codex, PR 278 round two).
     receipts = st.unprotected.get(_RECEIPTS)
     if not isinstance(receipts, list) or not receipts:
-        return verdict("malformed", readable=True, statement_status=statement_status,
+        return verdict("malformed", statement_status=statement_status,
                        statement_signature_valid=stmt_valid, payload_digest=payload_digest,
                        detail="no receipt under label 394: a Signed Statement is not a Transparent Statement")
     if len(receipts) > MAX_RECEIPTS:
-        return verdict("malformed", readable=True, statement_status=statement_status,
+        return verdict("malformed", statement_status=statement_status,
                        detail=f"more than {MAX_RECEIPTS} receipts")
     data_hash = _data_hash(st) if st.tagged else None
     checks = tuple(_receipt(i, r, data_hash if data_hash is not None else b"", trust.get("scitt_ccf_services"))
