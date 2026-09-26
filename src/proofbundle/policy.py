@@ -29,6 +29,7 @@ from .budget import DEFAULT_BUDGET, render_keys_safe
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
 
 __all__ = ["POLICY_SCHEMA", "POLICY_PURPOSES", "PolicyError", "load_policy", "evaluate_policy",
@@ -58,62 +59,57 @@ class PolicyError(ProofBundleError):
     """The trust policy JSON is missing fields, malformed, or carries unknown fields (fail-closed)."""
 
 
-_ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
-_ED25519_SIGN_MASK = 1 << 255         # bit 255 is the x sign, not part of y
-_ED25519_Y_MASK = _ED25519_SIGN_MASK - 1
-
-
-def _low_order_ed25519_y() -> frozenset:
-    """The y-coordinates of the Ed25519 8-torsion subgroup (identity y=1, order-2 y=p-1, order-4 y=0,
-    and the two order-8 y-values). Checking the y-VALUE (sign-independent) rejects a low-order key under
-    ANY encoding — both sign variants — where a hand-kept byte-string blocklist misses the sign/field
-    variants (6-lens fix-review re-break found 3 missing). Computed from the known order-8 encodings."""
-    ys = {0, 1, _ED25519_P - 1}
-    for h in ("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
-              "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"):
-        ys.add(int.from_bytes(bytes.fromhex(h), "little") & _ED25519_Y_MASK)
-    return frozenset(ys)
-
-
-_LOW_ORDER_ED25519_Y = _low_order_ed25519_y()
-
-
 def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
     """Fail-closed check for a PINNED trusted Ed25519 public key. Must decode to 32 bytes, be a CANONICAL
     encoding (y < p), and NOT be a low-order point. The core verifier deliberately accepts small-order,
-    mixed-order and non-canonical keys (SPEC §4a, "Taming the Many EdDSAs"); pinning any of them as a
-    trusted identity lets a fixed signature verify for many (for the identity encodings, ALL) messages
-    with no private key — forgery of a trusted identity without a secret. Rejects the whole low-order
-    class by the y-value (sign-independent) plus the non-canonical (y >= p) class, so no encoding variant
-    slips past. Raises PolicyError."""
+    mixed-order and non-canonical keys (SPEC §4a, "Taming the Many EdDSAs"); pinning a small-order one
+    as a trusted identity lets a signature made with no private key verify for many (for the identity
+    encodings, ALL) messages — forgery of a trusted identity without a secret. A non-canonical one is
+    refused because a trusted key has exactly one encoding (only y = p and y = p + 1 also spell points
+    of small order), and a mixed-order one is not refused: signing under it needs its owner's secret
+    (see ``ed25519_trust_anchor_weakness``). Rejects the whole low-order class by the y-value
+    (sign-independent) plus the non-canonical (y >= p) class, so no encoding variant slips past. Raises
+    PolicyError.
+
+    The rule itself is :func:`proofbundle.signature.ed25519_trust_anchor_weakness`, shared with every
+    other place that takes a trusted key; this function only turns its answer into a PolicyError."""
     try:
         raw = decode_b64(b64)
     except Exception as exc:  # noqa: BLE001
         raise PolicyError(f"{ctx} public_key_b64 is not valid base64") from exc
     if len(raw) != 32:
         raise PolicyError(f"{ctx} public_key_b64 must decode to 32 bytes, got {len(raw)}")
-    y = int.from_bytes(raw, "little") & _ED25519_Y_MASK   # strip the x sign bit
-    if y >= _ED25519_P:
+    weakness = ed25519_trust_anchor_weakness(raw)
+    if weakness == "non-canonical":
         raise PolicyError(
-            f"{ctx} public_key_b64 is a non-canonical Ed25519 encoding (y >= p) — rejected: it encodes a "
-            "low-order/identity point that a fixed signature verifies against with no private key")
-    if y in _LOW_ORDER_ED25519_Y:
+            f"{ctx} public_key_b64 is a non-canonical Ed25519 encoding (y >= p) — rejected: "
+            f"{TRUST_ANCHOR_REFUSAL[weakness]}")
+    if weakness is not None:
         raise PolicyError(
-            f"{ctx} public_key_b64 is a low-order Ed25519 point — rejected: a fixed signature under such "
-            "a key verifies for many messages with no private key, so it cannot be a trusted identity")
+            f"{ctx} public_key_b64 is a low-order Ed25519 point — rejected: "
+            f"{TRUST_ANCHOR_REFUSAL[weakness]}, so it cannot be a trusted identity")
+
+
+def _pinned_key_refusal(b64: str, ctx: str = "pinned key") -> "str | None":
+    """Why a pinned key must never grant trust, in the words ``load_policy`` uses, or None when it may.
+    Non-raising, for the EVALUATION layer. One source for the reason: the evaluation layer used to write
+    its own sentence here (gate run 2, iteration 3, R2I3B-02), and now it says what the loader says,
+    which reads ``signature.TRUST_ANCHOR_REFUSAL``."""
+    try:
+        _validate_pinned_ed25519_pubkey(b64, ctx)
+        return None
+    except PolicyError as exc:
+        return str(exc)
 
 
 def _pinned_key_forgeable(b64: str) -> bool:
     """True iff the pinned key is a low-order / non-canonical / malformed encoding that must never grant
     trust. Non-raising defense-in-depth for the EVALUATION layer (fix-review Finding 2): load_policy
     already rejects such keys, but evaluate_policy / evaluate_decision_policy are public and a caller
-    could hand them a policy dict that never went through load_policy — a matched-but-forgeable pinned
-    key must not yield signer_trusted=True there either."""
-    try:
-        _validate_pinned_ed25519_pubkey(b64, "pinned key")
-        return False
-    except PolicyError:
-        return True
+    could hand them a policy dict that never went through load_policy — a matched pinned key that fails
+    the trust-anchor rule must not yield signer_trusted=True there either. (The name predates the
+    measurement that most non-canonical spellings admit no forgery; the rule refuses them all.)"""
+    return _pinned_key_refusal(b64) is not None
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
@@ -671,12 +667,13 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         signer_trusted = match is not None
         if match is None:
             errors.append("signer key is not in trusted_decision_makers")
-        elif _pinned_key_forgeable(match.get("public_key_b64") or ""):
+        elif (grund := _pinned_key_refusal(match.get("public_key_b64") or "",
+                                           "trusted_decision_makers[]")) is not None:
             # defense-in-depth (fix-review Finding 2): even if this policy dict never went through
-            # load_policy, a matched low-order/non-canonical pinned key must not grant trust.
+            # load_policy, a matched low-order/non-canonical pinned key must not grant trust. The
+            # reason is the loader's, which reads the one table (R2I3B-02).
             signer_trusted = False
-            errors.append("trusted_decision_makers entry is a low-order/non-canonical key (forgeable) "
-                          "— refusing to trust it")
+            errors.append(f"{grund} — refusing to trust it")
         elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
             signer_trusted = False
             errors.append("decisionMaker.id does not match the trusted entry for this signer key")
@@ -851,8 +848,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     require_signer = bool(_as_dict(policy.get("signature")).get("require_expected_signer"))
     if allowed_issuers or require_signer:
         signer_key = sig.get("public_key_b64")
-        # defense-in-depth (fix-review Finding 2): a low-order/non-canonical allowed_issuers key is
-        # forgeable — never let it match, even if this policy dict skipped load_policy.
+        # defense-in-depth (fix-review Finding 2): a low-order or non-canonical allowed_issuers key fails
+        # the trust-anchor rule — never let it match, even if this policy dict skipped load_policy.
         allowed_keys = {i.get("public_key_b64") for i in allowed_issuers  # adversarial re-audit r5: non-dict element guard
                         if isinstance(i, dict) and not _pinned_key_forgeable(i.get("public_key_b64") or "")}
         matched = signer_key in allowed_keys and signer_key is not None

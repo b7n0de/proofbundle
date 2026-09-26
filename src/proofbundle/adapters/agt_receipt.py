@@ -53,6 +53,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from .._membership import is_member
 from ..errors import VerificationResult
+from ..signature import verify_ed25519, verify_ed25519_pinned
 
 __all__ = [
     "AGT_AUTHORIZATION_TYPE",
@@ -159,19 +160,37 @@ def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
     return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> bool:
+def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes, *,
+                     anker: bool = False) -> bool:
     """One Ed25519 check. Returns False on any failure; never raises for bad input.
 
     A verifier that raises on a malformed key cannot finish a verdict over a list of receipts, and
     an unfinished verdict reads like a clean one.
+
+    THROUGH THE HOUSE PRIMITIVE, not a second path to `cryptography` (deep gate Z195). The receipt's
+    own signer key arrives in the receipt, so it gets the plain check, as a bundle's key does. The
+    authorizer key is the second party a relying party trusts, so `anker=True` applies the
+    trust-anchor rule: under a low-order key a signature made with no private key is valid, and an
+    "external authorization" would need no external party at all.
     """
     try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-        schluessel = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
-        schluessel.verify(bytes.fromhex(signatur_hex), nutzlast)
-        return True
-    except Exception:                                    # noqa: BLE001 — invalid is False, not a raise
+        schluessel = bytes.fromhex(pubkey_hex)
+        signatur = bytes.fromhex(signatur_hex)
+    except (ValueError, TypeError):
         return False
+    pruefe = verify_ed25519_pinned if anker else verify_ed25519
+    return pruefe(schluessel, signatur, nutzlast)
+
+
+def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
+    """Whether two hex spellings name the same key BYTES. Hex is case-insensitive, so `ab…` and `AB…`
+    are one key; comparing the strings counted them as two, and `authorizer-key-distinct` passed for a
+    receipt whose authorizer was its own signer spelled in capitals (deep gate Z195, the identity-by-
+    encoding half of L1-Z195-02). Text that is not hex compares as text."""
+    try:
+        return bytes.fromhex(a_hex) == bytes.fromhex(b_hex)
+    except (ValueError, TypeError):
+        return a_hex == b_hex
 
 
 def verify_agt_receipt(
@@ -280,16 +299,17 @@ def verify_agt_receipt(
     # this check appears on a correctly authorized receipt; it did not, because the check was only
     # added on the failing branch. A property that is only named when it is violated is invisible
     # when it holds, and a reader of a green verdict cannot tell whether it was examined.
-    ergebnis.add("authorizer-key-distinct", a_key != pubkey,
-                 "authorizer key differs from the receipt signer key" if a_key != pubkey else
+    derselbe = _derselbe_schluessel(a_key, pubkey)
+    ergebnis.add("authorizer-key-distinct", not derselbe,
+                 "authorizer key differs from the receipt signer key" if not derselbe else
                  "authorizer key equals the receipt signer key — a second signature from the same "
                  "key adds no second party at all")
-    if a_key == pubkey:
+    if derselbe:
         return ergebnis
 
     a_nutzlast = canonical_authorization_payload(receipt)
     ergebnis.add("external-authorization-signature",
-                 _ed25519_gueltig(a_key, a_sig, a_nutzlast),
+                 _ed25519_gueltig(a_key, a_sig, a_nutzlast, anker=True),
                  f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
 
     frist = receipt.get("authorization_expires_at")

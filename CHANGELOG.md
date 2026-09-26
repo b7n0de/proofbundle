@@ -29,6 +29,49 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   cases). Measured end to end from sdists built at 66809c50, before build_py was
   read: the planted exclude gave 2 failed, 45 passed, rc 1, and an unplanted sdist ran as before.
 
+- **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
+  (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
+  verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
+  low-order key: the fixed signature R = identity, S = 0 for every message under the identity point, and
+  for about one message in the key's order under the other points of small order. A non-canonical
+  spelling (y >= p) is refused because a trusted key has exactly one encoding; of the nineteen, only
+  y = p and y = p + 1 also spell points of small order, and every refusal message now says which
+  reason applies. The trust policy refused such keys; nothing else did. Measured by
+  the deep gate against main 5b53ab3e (findings L1-Z195-01 to 03): two witness vkeys carrying the
+  identity point, once with the x-sign bit set, met a 2-of-2 witness quorum on a checkpoint neither
+  witness saw; `decision verify --pub <identity>` printed `CRYPTO: OK` and exited 0 for a receipt nobody
+  signed; a trust pack met its root threshold and a rotation vouch with the same forgery. The rule now
+  runs at the C2SP log and witness vkey parsers, `dsse.verify_envelope` (every DSSE verify path), the
+  status-list issuer key, the hybrid's classical leg, the renewal time-authority key, the KB-JWT holder
+  key, the SD-JWT issuer key, trust-pack keys and caller-supplied previous root keys, the RATS Verifier
+  key, and the AGT adapter's authorizer key, which now goes through the house primitive and whose
+  "distinct from the signer" check compares key bytes instead of hex spellings. The independent Rust
+  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths, and like the
+  Python validator it refuses a trust pack with a weak key in any role, not only in the root role. The
+  bundle's own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses
+  the rule in any spelling it models: a call, an import alias, a `getattr` string or the `cryptography`
+  key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
+  are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
+  SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
+  The release tooling under `scripts/` is covered by the entry below.
+
+- **The release tooling refuses a weak key it pins, like the package does** (SPEC §4b). The pre-tag
+  receipt (`pre_tag_receipt_lib.verify_receipt`, which the release workflow and the reader's
+  `verify_pre_tag_receipt.py` run), the readiness artefacts of the audit matrix
+  (`audit_candidate_matrix._artifact_signature_ok`), the findings register
+  (`findings_register._signature_ok`) and the status page's receipt check
+  (`render_site_data._check_receipt`) checked their signatures under a pinned key with the §4a profile.
+  Measured on each: with the identity point in the trust anchor, a record nobody signed was admitted
+  (`ok=True`, `verified`, `signature valid`, `passed`). Each now refuses such a key before any signature
+  arithmetic and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. The keys pinned today pass the
+  rule, so this closes a path, not a live attack. The package's sweep now also walks `scripts/` and
+  `tools/`. It models the spellings of `cryptography` only, so every library those files import is
+  classified in a closed table, and an import of a signature library the sweep does not model counts
+  as a use; pycose is one. The six places there that check a key arriving with the thing it signs
+  (producer self-checks that take the key with the signature or read it from the record itself, and
+  the recomputation and reading of a third party's published test vector under its printed test key,
+  once through pycose) are named with their reason.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

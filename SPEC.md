@@ -106,6 +106,43 @@ repository's CI red (a deliberate, documented decision), never a silent drift.
 No wire or behavior change is made by documenting this; switching profiles would
 be a breaking, versioned change.
 
+### 4b. Trust-anchor keys (normative for this implementation)
+
+The §4a profile is right for checking a signature and wrong for a key a verifier
+RELIES on: under a low-order key a signature made with no private key verifies.
+Under the identity point the fixed signature R = identity, S = 0 verifies for
+every message; under the other points of small order it verifies for about one
+message in the key's order, and a forger who varies the message or R finds one
+after a few tries. No private key exists for such a key. Therefore every
+Ed25519 key that is not the bundle's own `signature.public_key_b64` MUST be
+canonical (y < p) and MUST NOT be one of the 8-torsion points (y ∈ {0, 1, p−1}
+or either order-8 value, under both x-sign bits); a verifier refuses such a key
+before any signature arithmetic. This covers the keys a relying party supplies
+(trust-policy pins, a DSSE verification key such as `--pub`, C2SP log and witness
+vkeys of §7c/§7d, a status-list issuer key, a time-authority key, a RATS Verifier
+key, trust-pack keys of every role and a caller-supplied previous root, the
+classical leg of a hybrid signature, an AGT authorizer key) and the keys that
+authenticate on another party's behalf (the SD-JWT issuer key of §6, the KB-JWT
+holder key). The forgery is the reason for the torsion points; a non-canonical
+spelling is refused because a trusted key has exactly one encoding, and of the
+nineteen (y = p … p + 18) only y = p and y = p + 1 also spell points of small
+order. A refused vkey is a malformed input; any other refused key simply
+verifies nothing. The bundle's own key keeps the §4a profile: it is in-band, and
+trust in it comes from a pin that already carries this rule.
+
+A key that passes has exactly one encoding, so counting DISTINCT key material
+(§7d witness quorums, trust-pack thresholds) counts distinct points. Distinct
+points are NOT distinct secrets or parties. A mixed-order key is not refused, and
+whoever holds the secret of a key can also sign under its mixed-order variants
+(seven, besides the key itself), grinding the nonce of each signature: on average
+as many tries as the order of the torsion component (2, 4 or 8). A test keeps a
+2-of-2 witness quorum met by two variants of one key against this implementation.
+No forgery without a secret follows from that, but a quorum or threshold counts
+keys, and whether they belong to different parties is a property of the roster,
+as it is for any party that simply holds several keys. The rule is `signature.ed25519_trust_anchor_weakness`, and the
+independent Rust verifier applies the same rule on its DSSE, attached-target,
+SD-JWT and trust-pack paths.
+
 ### 5. `merkle`
 
 | field | required | type | meaning |

@@ -350,9 +350,14 @@ MUTATIONS = [
     # Removing the ES256 dispatch entry must fail the real (now cryptographically verified) vendored
     # ES256 vectors — tests/test_sdjwtvc_external_vectors.py's
     # TestSdjwtVcIssuerSignatureExternalVectors.test_all_examples_issuer_signature_verifies.
+    # 2026-09-26: the target line follows today's source. The deep gate on Z195 (L1-Z195-01..03)
+    # routed the SD-JWT issuer key through `verify_ed25519_pinned` (SPEC 4b); the operator still
+    # named `verify_ed25519` and would have been STALE. Found before the push, by checking all 100
+    # target literals against the branch, not in the CI job. The verdict is unchanged: the ES256
+    # entry is removed.
     ("src/proofbundle/sdjwt.py",
-     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}',
-     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned}',
      "sdjwt: Finding 20 ES256 issuer-signature dispatch removed (real ES256 vectors stop verifying)", True),
     # signature.verify_ecdsa_p256 fail-open: dropping the real cryptographic verify call while still
     # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
@@ -370,6 +375,25 @@ MUTATIONS = [
      "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
      "        return True",
      "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
+    # THE TRUST-ANCHOR RULE ITSELF (deep gate Z195, SPEC 4b). Without it in `verify_ed25519_pinned`,
+    # a signature made with no private key verifies again under a key of small order, on every
+    # surface at once: R = identity, S = 0 for every message under the identity point, and about one
+    # message in the key's order under the other points. Killed by
+    # tests/test_trust_anchor_keys_refused_on_every_surface.py (TheRule and each surface class);
+    # without this operator the gate would not see those tests shrink.
+    ("src/proofbundle/signature.py",
+     "    if ed25519_trust_anchor_weakness(public_key) is not None:\n        return False\n"
+     "    return verify_ed25519(public_key, signature, message)",
+     "    return verify_ed25519(public_key, signature, message)",
+     "signature: trust-anchor rule dropped from verify_ed25519_pinned (low-order keys verify again)", True),
+    # THE REASON FROM THE ONE TABLE (run 2, iteration 3, R2I3B-01): every surface reads
+    # `TRUST_ANCHOR_REFUSAL`, so every surface case would have carried a wrong text along. Killed by
+    # TheRule.test_the_table_says_what_the_measurement_shows (the text against the measurement, no
+    # binary needed) and by test_the_rust_mirror_carries_the_same_texts_without_the_binary.
+    ("src/proofbundle/signature.py",
+     '    "low-order": "a signature made with no private key verifies under a point of small order",',
+     '    "low-order": "a key of small order is refused",',
+     "signature: the low-order refusal reason no longer says what was measured (TRUST_ANCHOR_REFUSAL)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
     # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
     # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's
