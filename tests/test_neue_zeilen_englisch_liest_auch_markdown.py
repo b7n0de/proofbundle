@@ -183,6 +183,98 @@ class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
             self.assertIsNone(mod._md_prosazeilen(rel))
 
 
+
+class TestFencesOpenAndCloseAsCommonMarkSays(unittest.TestCase):
+    """A fence opens and closes by the CommonMark rules (a review of the stack at 1ecc2aca, on main
+    as well, measured 2026-09-26). Each shape below ended a block for the gate where CommonMark kept
+    reading code, or opened one CommonMark never opens; either way a German paragraph after it was
+    judged as code, green with exit 0."""
+
+    G = "Eine deutsche Zeile, die nach dem Zaun als Absatz steht."
+    NBSP = chr(0xA0)
+    TAB = chr(9)
+
+    def cases(self):
+        """(label, text, the prose lines CommonMark renders outside a fence)."""
+        return [
+            ("text after the run is no closer", f"```\ncode\n``` x\n```\n{self.G}\n", {5}),
+            ("a tab before a tilde run is no closer", f"~~~\ncode\n{self.TAB}~~~\n~~~\n{self.G}\n", {5}),
+            ("a no-break space before a tilde run is no closer",
+             f"~~~\ncode\n{self.NBSP}~~~\n~~~\n{self.G}\n", {5}),
+            ("four spaces before a run is no closer", f"```\ncode\n    ```\n```\n{self.G}\n", {5}),
+            ("a tab before a backtick run is no opener", f"{self.TAB}```\n\n{self.G}\n", {1, 2, 3}),
+            ("a backtick in the info string is no opener", f"``` a`b\n\n{self.G}\n", {1, 2, 3}),
+            ("control: spaces and a tab after a closer still close it", f"```\ncode\n```  {self.TAB}\n{self.G}\n",
+             {4}),
+            ("control: three spaces of indentation open and close", f"   ~~~ ok `x`\ncode\n   ~~~\n{self.G}\n",
+             {4}),
+            ("control: a CRLF closer closes", f"```\r\ncode\r\n```\r\n{self.G}\r\n", {4}),
+        ]
+
+    def _prose(self, mod, text):
+        with tempfile.TemporaryDirectory(dir=REPO) as d:
+            rel = pathlib.Path(d).name
+            (pathlib.Path(d) / "probe.md").write_bytes(text.encode("utf-8"))
+            return mod._md_prosazeilen(f"{rel}/probe.md")
+
+    def test_each_shape_is_read_as_commonmark_reads_it(self):
+        mod = _laden()
+        for label, text, expected in self.cases():
+            with self.subTest(label):
+                self.assertEqual(self._prose(mod, text), expected)
+
+    def test_markdown_it_agrees_as_an_oracle(self):
+        """markdown-it-py, where it is installed, reads the same fence lines; the gate does not import it.
+        Over the constructed shapes, and over every tracked .md file of this repository."""
+        try:
+            from markdown_it import MarkdownIt
+        except ImportError:
+            self.skipTest("markdown-it-py is not installed here, so the oracle is not measured")
+        import re
+        import subprocess as sp
+        md = MarkdownIt("commonmark")
+
+        def outside_fences(text):
+            lines = re.split(r"\r\n|\r|\n", text)
+            count = len(lines) - (1 if lines and lines[-1] == "" else 0)
+            fence = set()
+            for token in md.parse(text):
+                if token.type == "fence" and token.map:
+                    fence.update(range(token.map[0] + 1, token.map[1] + 1))
+            return set(range(1, count + 1)) - fence
+
+        mod = _laden()
+        for label, text, _ in self.cases():
+            with self.subTest(label):
+                self.assertEqual(self._prose(mod, text), outside_fences(text))
+        listed = sp.run(["git", "-C", str(REPO), "ls-files", "-z", "*.md"], capture_output=True)
+        if listed.returncode != 0:
+            self.skipTest("not a git checkout, so the tracked files are not measured")
+        for name in (n for n in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if n):
+            path = REPO / name
+            if not path.is_file():
+                continue
+            text = path.read_bytes().decode("utf-8", "replace")
+            gate = mod._md_prosazeilen(name, lambda _, raw=path.read_bytes(): raw)
+            if gate is None:
+                continue
+            quoted = set()
+            lines = re.split(r"\r\n|\r|\n", text)
+            opened = [i for i, z in enumerate(lines, 1) if z.strip() == mod._ZITAT_AUF]
+            closed = [i for i, z in enumerate(lines, 1) if z.strip() == mod._ZITAT_ZU]
+            for a, b in zip(opened, closed):
+                quoted.update(range(a, b + 1))
+            with self.subTest(name):
+                self.assertEqual(gate - quoted, outside_fences(text) - quoted)
+
+    def test_named_limit_a_fence_in_a_list_item_is_not_tracked(self):
+        """CommonMark ends a fence where its list item ends; this gate does not track containers, so
+        the paragraph after such an unclosed fence is still read as code. Pinned so that a change here
+        is seen; none of the tracked .md files has a fence in a container (measured 2026-09-26)."""
+        prose = self._prose(_laden(), f"- item\n\n  ```\n  code\n{self.G}\n")
+        self.assertEqual(prose, {1, 2})
+
+
 # THE MAIN BLOCK BELONGS AT THE END OF THE FILE, and this file learned why.
 # It sat in the middle, because four cases were appended later. Under pytest all eight ran; run
 # directly, unittest.main() executed BEFORE the class below it was defined, and reported five.

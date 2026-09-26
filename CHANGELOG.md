@@ -22,7 +22,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `binary` attribute, which makes git write `Binary files ... differ` and reaches CI through a
   committed `.gitattributes`; and a UTF-8 BOM before a first line, which Python skips. The guard now
   reads git's output as bytes, takes a hunk's lines by the counts in its header, pins the diff's
-  grammar (`--text --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/`), judges the Python
+  grammar (`--text --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/`), judges the Python
   lines of the new file (a leading BOM skipped), reads that file from the index or from HEAD rather
   than from disk, and stops fail-closed when the diff and the file disagree. The language gate takes
   the same parser and grammar from the guard. The guard's self-test plants the new shapes, and its
@@ -70,6 +70,31 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   whole, and no compiled file is tracked there, so no verdict on this repository changes. Named
   limit: a CI push event after a force push names a `before` sha the clone does not have, and that
   run now stops with exit 2 where it reported clean.
+
+- **The language gate opens and closes a Markdown fence as CommonMark does, and reads a copied or
+  moved file whole** (`scripts/neue_zeilen_sind_englisch.py`, `scripts/mutant_signature_guard.py`).
+  Measured in throwaway repositories, at the state before this entry and on main alike, a German
+  paragraph was judged green with exit 0 after each of these: `` ``` x `` inside a block, which the
+  gate took for a closer and CommonMark reads as code, so the next fence line opened a block for the
+  gate where CommonMark closed one; the same with a tab or a no-break space before a closing `~~~`;
+  and a tab before an opening `` ``` `` or a backtick in a backtick fence's info string, which open a
+  block for the gate and none for CommonMark. A fence line now follows the CommonMark rules: at most
+  three spaces of indentation and nothing else before the run, no backtick in a backtick opener's info
+  string, and a closer of the same character, at least as long, followed only by spaces or tabs. On
+  all 345 tracked `.md` files the lines outside fences are the ones markdown-it-py finds, before this
+  change and after it; markdown-it-py is a test oracle where it is installed, not a dependency. With
+  `diff.renames=copies` in the configuration, git wrote a new file as a copy of a changed one and
+  showed only its differing lines: a copied German file was judged green, and for the mutant guard a
+  copy that dropped the allow marker above an `if True:` was clean (both measured). The shared diff
+  grammar pins `--no-renames` now, so every line at a new path is an added line; a file moved with
+  `git mv` is judged whole at its new path as well, where git's default rename detection showed no
+  added line of it. The other configuration keys that shape a diff (`diff.noprefix`, `diff.relative`,
+  `diff.submodule`, `diff.suppressBlankEmpty`, `diff.interHunkContext`, `diff.context`,
+  `diff.algorithm`, `diff.indentHeuristic`, `core.quotePath`) were measured against both tools and
+  change no verdict; `diff.noprefix` had blinded the language gate on main, which the pinned prefixes
+  above already close. Named limit: a fence inside a block quote or a list item is not tracked, so the
+  paragraph after an unclosed fence in a list item is still read as code; no tracked `.md` file has a
+  fence in a container.
 
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,

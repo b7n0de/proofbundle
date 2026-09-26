@@ -16,7 +16,8 @@ WHAT IT READS: added lines of the change range. In `.py` that is comments, and s
 alone as a statement (a docstring is one), because code identifiers are not prose and a German
 variable name is a naming question rather than a language one; a string handed to a call or a name
 is output or data, a separate question. In `.md` it is every line outside a fenced code block, because a Markdown file is
-prose and the fence is where its commands and identifiers live.
+prose and the fence is where its commands and identifiers live. A file at a new path is read whole,
+whether git would call it a copy or a move: the diff grammar pins `--no-renames`.
 
 `.md` JOINED ON 2026-09-19, by owner decision, as the fourth item of the 6.1.0 release step. Until
 then the tool read `*.py` alone and said so nowhere: a cut that rewrote two `.md` scope files got
@@ -123,9 +124,34 @@ _KOMMENTAR = re.compile(r"^\s*#")
 #: list is a constant and both call sites take it from here.
 _ENDUNGEN = ("*.py", "*.md")
 
-#: A fenced code block in Markdown. CommonMark: the opener is three or more backticks or tildes,
-#: the closer is at least as long and uses the SAME character.
-_ZAUN = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+#: A fenced code block in Markdown, opened and closed by the CommonMark rules (spec 0.31.2, 4.5): at
+#: most three spaces of indentation, spaces only; a run of three or more backticks or tildes; an
+#: opening backtick run whose info string holds no backtick; and a closer of the SAME character, at
+#: least as long as the opener, followed by nothing but spaces or tabs.
+#:
+#: MEASURED 2026-09-26 (a review of the stack at 1ecc2aca, on main as well): the first form matched
+#: `\s{0,3}`, which lets a tab or a no-break space stand for indentation, and closed a block on any
+#: run of the character, text after it or not. So `` ``` x ``, a tab-indented or a no-break-space
+#: indented `~~~` ended the block for the gate while CommonMark kept reading code, the next fence
+#: line opened a block for the gate where CommonMark closed one, and a German paragraph after it was
+#: judged as code: green, exit 0. A tab-indented `` ``` `` and `` ``` a`b `` opened a block for the
+#: gate that CommonMark never opens, with the same result for the prose after them.
+_ZAUN_AUF = re.compile(r" {0,3}(`{3,}|~{3,})(.*)\Z", re.DOTALL)
+_ZAUN_ZU = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*\Z")
+
+
+def _zaun_oeffnet(zeile: str) -> str | None:
+    """The fence run a line opens a block with, or None. The CR of a CRLF is the line end."""
+    m = _ZAUN_AUF.match(zeile.removesuffix("\r"))
+    if m is None or (m.group(1)[0] == "`" and "`" in m.group(2)):
+        return None
+    return m.group(1)
+
+
+def _zaun_schliesst(zeile: str, offen: str) -> bool:
+    """Whether a line closes the block the run `offen` opened."""
+    m = _ZAUN_ZU.match(zeile.removesuffix("\r"))
+    return m is not None and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen)
 
 #: A VERBATIM QUOTATION of existing material, which keeps the wording it is quoted from.
 #:
@@ -358,7 +384,13 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     module already fixed once for docstrings: a stray marker then inverts the rest of the file, and
     the report stays green because the tool stopped looking rather than started being wrong. So the
     opener's character and length are remembered, and only a closer of at least that length in the
-    SAME character ends the block, which is what CommonMark says.
+    SAME character ends the block, which is what CommonMark says; `_zaun_oeffnet` and
+    `_zaun_schliesst` hold the rest of its rules for a fence line.
+
+    NAMED LIMIT: containers are not tracked. CommonMark ends a fence inside a block quote or a list
+    item where that container ends, so the paragraph after an unclosed fence in a list item is prose
+    there and code here. Measured 2026-09-26: none of the 345 tracked `.md` files has a fence in a
+    container, and on all 345 the lines outside fences are the ones markdown-it-py finds.
 
     Returns None when the file cannot be read or its quotation pairs do not balance, and the run
     then says NOT MEASURABLE for the file (`_ist_prosa`).
@@ -388,15 +420,13 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     for i, z in enumerate(zeilen, start=1):
         if i in zitat:
             continue
-        m = _ZAUN.match(z)
         if offen is None:
-            if m:
-                offen = m.group(1)
-                continue          # the fence line itself is not prose
-            aus.add(i)
-        else:
-            if m and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen):
-                offen = None
+            offen = _zaun_oeffnet(z)
+            if offen is None:
+                aus.add(i)
+            # the fence line itself is not prose
+        elif _zaun_schliesst(z, offen):
+            offen = None
             # inside the block, and the closing line too, stay out
     return aus
 

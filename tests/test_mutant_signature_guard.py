@@ -434,6 +434,26 @@ class TestBaseMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src: a symlink on a security path", r.stdout)
 
+    def test_a_copy_that_drops_an_allow_marker_is_judged_whatever_diff_renames_says(self):
+        """With `diff.renames=copies` git wrote the new file as a copy of a changed one and showed only
+        the dropped marker line, so the `if True:` it no longer covers was clean with exit 0 (measured
+        2026-09-26 at 1ecc2aca and at main)."""
+        allowed = ('def f(x):\n    """A helper whose branch was reviewed."""\n'
+                   "    # mutant-guard: allow (reviewed fixture)\n    if True:\n        return 1\n    return 2\n")
+        (self.repo / "src" / "proofbundle" / "a.py").write_text(allowed, encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "an allowed branch")
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        (self.repo / "src" / "proofbundle" / "a.py").write_text(allowed + "y = 1\n", encoding="utf-8")
+        (self.repo / "src" / "proofbundle" / "b.py").write_text(
+            allowed.replace("    # mutant-guard: allow (reviewed fixture)\n", ""), encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "a copy without the marker")
+        _git(self.repo, "config", "diff.renames", "copies")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/b.py:3: trivial-truth branch", r.stdout)
+
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
                                encoding="utf-8")

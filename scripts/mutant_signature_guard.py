@@ -152,8 +152,12 @@ def _git(*args: str, cwd: Path) -> str:
 #: would hand it converted text instead of the source. And a `-diff` or `binary` attribute in a
 #: committed `.gitattributes` made git write `Binary files ... differ` instead of the lines, so
 #: nothing was added and the guard reported clean, in CI too (measured the same day); `--text`
-#: diffs every file as text.
-DIFF_GRAMMAR = ("--text", "--no-ext-diff", "--no-textconv", "--no-color",
+#: diffs every file as text. With `diff.renames=copies` git wrote a new file as a copy of a changed
+#: one and showed only the lines that differ: a copied German `.md` was judged green by the language
+#: gate, and a copy that dropped the allow marker above an `if True:` was clean for the guard
+#: (measured 2026-09-26 at 1ecc2aca and at main); `--no-renames` makes every line at a new path an
+#: added line, a moved file's too.
+DIFF_GRAMMAR = ("--text", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
                 "--src-prefix=a/", "--dst-prefix=b/")
 
 

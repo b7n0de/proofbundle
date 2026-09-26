@@ -219,5 +219,54 @@ def test_an_untracked_file_is_numbered_in_pythons_grammar(repo):
     assert lines["neu.py"] == [(1, "x = 1"), (2, f"# {GERMAN}")], lines["neu.py"]
 
 
+
+@pytest.mark.parametrize("added,line", [
+    (f"```\ncode\n``` x\n```\n{GERMAN}\n", 6),
+    (f"~~~\ncode\n\t~~~\n~~~\n{GERMAN}\n", 6),
+    (f"~~~\ncode\n\u00a0~~~\n~~~\n{GERMAN}\n", 6),
+    (f"\t```\n\n{GERMAN}\n", 4),
+    (f"``` a`b\n\n{GERMAN}\n", 4),
+], ids=["text-after-the-run", "tab-before-a-closer", "no-break-space-before-a-closer",
+        "tab-before-an-opener", "backtick-in-the-info-string"])
+def test_a_markdown_fence_opens_and_closes_as_commonmark_says(repo, added, line):
+    """Each of these was judged green with exit 0 (a review of the stack at 1ecc2aca, on main as well):
+    the gate's fence state had turned against CommonMark's, and the German paragraph read as code."""
+    assert _judge(repo, "a.md", added) == ("ROT", [("a.md", line)])
+
+
+def _existing_german_file(r: Path) -> str:
+    (r / "de.md").write_text(f"{GERMAN}\n" * 3, encoding="utf-8")
+    _git(r, "add", "-A")
+    _git(r, "commit", "-q", "-m", "an existing German file, which the decision keeps")
+    return _git(r, "rev-parse", "HEAD")
+
+
+def test_a_copy_is_new_material_whatever_diff_renames_says(repo):
+    """With `diff.renames=copies` git wrote the new file as a copy of the changed one and showed no
+    added line of it: green, exit 0 (measured 2026-09-26 at 1ecc2aca and at main)."""
+    base = _existing_german_file(repo)
+    (repo / "de.md").write_text(f"{GERMAN}\n" * 3 + "An English line.\n", encoding="utf-8")
+    (repo / "copy.md").write_text(f"{GERMAN}\n" * 3, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a copy")
+    _git(repo, "config", "diff.renames", "copies")
+    gate = _language_gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("copy.md", n) for n in (1, 2, 3)]
+
+
+def test_a_moved_file_is_read_at_its_new_path(repo):
+    """With the grammar pinned, git pairs no files: every line at a new path is an added line, so a
+    moved file is judged whole there, whatever `diff.renames` says."""
+    base = _existing_german_file(repo)
+    _git(repo, "mv", "de.md", "moved.md")
+    _git(repo, "commit", "-q", "-m", "a move")
+    gate = _language_gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("moved.md", n) for n in (1, 2, 3)]
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
