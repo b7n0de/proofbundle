@@ -184,6 +184,34 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   atoms are varied as if independent, so a condition that is false only by a combination no run has
   (two event names at once) stays a live one, a limit a test states.
 
+  The review of this change (a lens on ac05d85d) then executed five forms the gate read as
+  `produced` with exit 0 that GitHub never produces: a matrix of two keys (the gate read
+  `test (3.10)`, while the job carries both values), an `exclude` that removes 3.10, an `include`
+  that gives the 3.10 combination a second value, a workflow with only `on: push` (the live step also
+  said `arrives` on a pull request), and `if: ${{ always()` without its `}}`. The class is a context
+  name or its production derived from a form the gate does not read, and the gate now reads each
+  form or says it cannot. A workflow is read with YAML 1.2's core schema, the one both of GitHub's
+  readers use (PyYAML's YAML 1.1 read `on` as True and `010` as 8). Its `on:` is read: a context is
+  produced unconditionally only when its workflow runs on every pull request into the declared
+  branch, and a path filter, activity types without a default one, a branch filter without that
+  branch or no pull request trigger at all make it a named condition (GitHub's docs: a workflow
+  skipped by such a filter leaves its required checks Pending); a glob branch filter, a filter key
+  it does not know and a workflow without `on:` are not measurable. On a live event a context
+  arrives only when its workflow runs on that event; a push run on the head commit of a pull
+  request from this repository may carry the check and is not measurable, a fork's cannot. A matrix
+  is expanded as GitHub documents it, every combination of its keys, then `exclude`, then `include`,
+  and a name carries every value of its combination, comma-separated in the order of the keys (the
+  form the lens states; GitHub's docs, read, do not document the default name of a matrix job); a
+  value it cannot spell (a boolean, a fraction, an expression) is not measurable. An `if:` is split
+  as GitHub's template reader splits `${{ }}` (read in actions/runner, not measured against GitHub):
+  one not closed, or text beside one, is not measurable. Eleven cases pin these forms, and each
+  fails on ac05d85d. On this repository's workflows no verdict moves: both required contexts stay
+  produced, the text report is byte-identical and the exit is 0; the JSON report gains `triggers`,
+  and `produced_contexts` loses eleven contexts whose workflows have a path filter or no pull
+  request trigger (the jobs of codeql, demo-reproducible, published-artifact-gate,
+  release-integrity, release, reusable-build-attest, scorecard and soak-nightly), none of them
+  required.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

@@ -268,9 +268,10 @@ _REGEX_EXCEPTIONS = {
     # whose U+001C before `always()` read as a status function). On every condition the gate does read,
     # `\s` is GitHub's set. What GitHub does with such a condition was read in its source
     # (WorkflowTemplateConverter.ConvertToIfCondition, then the lexer), not measured against GitHub.
-    # Its `$` follows `\s*`, which takes a trailing newline either way.
+    # Its `$` follows `\s*`, which takes a trailing newline either way. Its `${{` and `}}` come as a
+    # pair since a lens on ac05d85d read `${{ always()`, which GitHub refuses, as a status function.
     ("scripts.required_check_reachability_gate",
-     r"^\s*(?:\$\{\{\s*)?(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*(?:\}\})?\s*$"),
+     r"^\s*(?:\$\{\{\s*(?:always\(\s*\)|!\s*cancelled\(\s*\))\s*\}\}|always\(\s*\)|!\s*cancelled\(\s*\))\s*$"),
     # The release-scope title form, read through its f-strings since the fold reads a placeholder
     # (2026-09-26). Its identifier digits are ASCII now; its `\S` asks that the subject start with a
     # character that is whitespace in no script, and an ASCII class there would accept U+00A0, the

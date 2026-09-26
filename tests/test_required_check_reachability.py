@@ -36,11 +36,15 @@ G = importlib.util.module_from_spec(_spec)
 sys.modules["_required_check_reachability_gate"] = G
 _spec.loader.exec_module(G)
 
+# The events the live cases below run on are events this workflow runs on: since the gate reads
+# `on:` (lens on ac05d85d), a context arrives only on an event its workflow is triggered by.
 CI = """
 name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+  workflow_dispatch:
 jobs:
   coverage:
     runs-on: ubuntu-latest
@@ -982,8 +986,8 @@ class TestTheAcceptedLimitIsBoundToItsReason(unittest.TestCase):
         decl, wf = self._baum(grund, zusage)
         echt = G.erhebe
 
-        def gefaelscht(verzeichnis=None):
-            e = echt(verzeichnis)
+        def gefaelscht(verzeichnis=None, zweig=None):
+            e = echt(verzeichnis, zweig)
             e["unlesbar"] = [f"ci.yml:tot: {grund}"]
             return e
 
@@ -1423,7 +1427,7 @@ class TestTheLivePullRequestIsJudgedNotOnlyTheStructure(unittest.TestCase):
         self.assertEqual(G.main(["--verify-live-pr", "--declaration", str(b.decl), "--workflows", str(b.wf)]), 1)
 
     def test_a_job_level_if_is_judged_on_the_event_too(self):
-        wf = ("name: CI\non: {pull_request: {branches: [main]}}\njobs:\n"
+        wf = ("name: CI\non: {pull_request: {branches: [main]}, push: null}\njobs:\n"
               "  coverage:\n    if: github.event_name == 'push'\n"
               '    runs-on: ubuntu-latest\n    steps: [{run: "true"}]\n')
         b = Baum(self, {"ci.yml": wf}, ["coverage"])
@@ -2051,7 +2055,7 @@ class TestNoPatternReadsWhatGitHubLexesDifferently(unittest.TestCase):
             with self.subTest(code=f"U+{code:04X}"):
                 b = Baum(self, {"ci.yml": wf}, ["sammler"])
                 protokoll.clear()
-                r = G.erhebe(b.wf)
+                r = G.erhebe(b.wf, "main")
                 self.assertEqual(protokoll, [])
                 self.assertEqual(len(r["unlesbar"]), 2, r["unlesbar"])
                 self.assertEqual(r["gewoehnlich"], {})
@@ -2207,6 +2211,193 @@ class TestAConditionFalseOnEveryRunIsDead(unittest.TestCase):
         viele = " || ".join(f"contains(github.event.pull_request.labels.*.name, 'l{i}')" for i in range(13))
         with self.assertRaises(G.NichtAuswertbar):
             G.wahrheitswerte(viele)
+
+
+class TestAContextIsProducedOnlyFromAFormTheGateReads(unittest.TestCase):
+    """Lens on ac05d85d (F7): five forms read as `produced` with exit 0 that GitHub never produces. A
+    matrix of two keys, an `exclude` that removes the value, an `include` that gives the combination a
+    second value, a workflow that runs on push only, and `if: ${{ always()` without its `}}`. The class
+    is "a context name or its production derived from a form the gate does not read"; each case below
+    plants one form, and the verdict must be the one GitHub's rules give or NOT MEASURABLE, never
+    produced. What GitHub does is read from its docs and source (see the gate), not measured."""
+
+    KOPF = "name: CI\non:\n  pull_request:\n    branches: [main]\njobs:\n"
+    PR = staticmethod(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis)
+
+    def _matrix(self, matrix: str, name: str = "") -> str:
+        return (self.KOPF + "  test:\n" + (f"    name: {name}\n" if name else "")
+                + "    runs-on: x\n    strategy:\n      matrix:\n" + matrix + "    steps: [{run: 'true'}]\n")
+
+    def _zustand(self, workflow: str, verlangt, datei="ci.yml"):
+        b = Baum(self, {datei: workflow}, list(verlangt))
+        r = b.urteil()
+        return b, r, {e["context"]: e["state"] for e in r["per_context"]}
+
+    def test_a_matrix_of_two_keys_names_every_value(self):
+        """(a) `python: ['3.10']` beside `os: [ubuntu-latest]` is ONE job, `test (3.10, ubuntu-latest)`."""
+        wf = self._matrix("        python: ['3.10']\n        os: [ubuntu-latest]\n")
+        b, r, zustand = self._zustand(wf, ["test (3.10)", "test (3.10, ubuntu-latest)"])
+        self.assertEqual(zustand, {"test (3.10)": G.ABSENT, "test (3.10, ubuntu-latest)": G.ALWAYS})
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        self.assertEqual(r["produced_contexts"], ["test (3.10, ubuntu-latest)"])
+        wf = self._matrix("        python: ['3.10', '3.12']\n        os: [a, b]\n", "py ${{ matrix.python }} on ${{ Matrix.OS }}")
+        _b, r, _z = self._zustand(wf, ["py 3.10 on a"])
+        self.assertEqual(r["produced_contexts"], ["py 3.10 on a", "py 3.10 on b", "py 3.12 on a", "py 3.12 on b"])
+
+    def test_exclude_removes_a_combination(self):
+        """(b) The docs' own example: 12 combinations, one excluded on three keys and two on a partial
+        match, nine jobs."""
+        wf = self._matrix("        python: ['3.10', '3.12']\n        exclude:\n          - python: '3.10'\n")
+        b, r, zustand = self._zustand(wf, ["test (3.10)", "test (3.12)"])
+        self.assertEqual(zustand, {"test (3.10)": G.ABSENT, "test (3.12)": G.ALWAYS})
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        docs = ("        os: [macos-latest, windows-latest]\n        version: [12, 14, 16]\n"
+                "        environment: [staging, production]\n        exclude:\n"
+                "          - os: macos-latest\n            version: 12\n            environment: production\n"
+                "          - os: windows-latest\n            version: 16\n")
+        _b, r, _z = self._zustand(self._matrix(docs), ["x"])
+        self.assertEqual(len(r["produced_contexts"]), 9, r["produced_contexts"])
+        self.assertNotIn("test (macos-latest, 12, production)", r["produced_contexts"])
+        self.assertIn("test (macos-latest, 12, staging)", r["produced_contexts"])
+
+    def test_include_adds_to_the_original_combinations_or_makes_its_own(self):
+        """(c) An `include` entry that adds a key to `3.10` makes its name `test (3.10, yes)`; the docs'
+        example yields exactly its six combinations, `{fruit: banana, animal: cat}` not added to the
+        `{fruit: banana}` another entry made."""
+        wf = self._matrix("        python: ['3.10']\n        include:\n          - python: '3.10'\n"
+                          "            experimental: 'yes'\n")
+        b, r, zustand = self._zustand(wf, ["test (3.10)", "test (3.10, yes)"])
+        self.assertEqual(zustand, {"test (3.10)": G.ABSENT, "test (3.10, yes)": G.ALWAYS})
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        docs = ("        fruit: [apple, pear]\n        animal: [cat, dog]\n        include:\n"
+                "          - color: green\n          - color: pink\n            animal: cat\n"
+                "          - fruit: apple\n            shape: circle\n          - fruit: banana\n"
+                "          - fruit: banana\n            animal: cat\n")
+        _b, r, _z = self._zustand(self._matrix(docs), ["x"])
+        self.assertEqual(r["produced_contexts"], sorted([
+            "test (apple, cat, pink, circle)", "test (apple, dog, green, circle)", "test (pear, cat, pink)",
+            "test (pear, dog, green)", "test (banana)", "test (banana, cat)"]))
+        _b, r, _z = self._zustand(self._matrix("        include:\n          - site: production\n"
+                                               "          - site: staging\n"), ["x"])
+        self.assertEqual(r["produced_contexts"], ["test (production)", "test (staging)"])
+
+    def test_a_value_or_a_key_it_does_not_read_is_not_measurable(self):
+        """A boolean, a fraction and an expression in a value, a key that is another spelling of one,
+        an exclude on no key of the matrix, and `strategy` written as an expression (which raised
+        AttributeError out of the whole survey) are each named, and no context of theirs is produced."""
+        for matrix in ("        python: ['3.10']\n        include:\n          - python: '3.10'\n"
+                       "            experimental: true\n",
+                       "        python: [3.10]\n",
+                       "        python: ['${{ vars.V }}']\n",
+                       "        os: [a]\n        OS: [b]\n",
+                       "        python: ['3.10']\n        exclude:\n          - os: a\n",
+                       "        python: []\n"):
+            with self.subTest(matrix=matrix):
+                b, r, zustand = self._zustand(self._matrix(matrix), ["test (3.10)"])
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual(len(r["newly_unreadable"]), 1, r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        wf = self.KOPF + "  test:\n    runs-on: x\n    strategy: ${{ fromJSON(x) }}\n    steps: [{run: 'true'}]\n"
+        _b, r, _z = self._zustand(wf, ["test"])
+        self.assertTrue(any("`strategy` is str" in u for u in r["unreadable"]), r["unreadable"])
+
+    def test_a_workflow_is_read_as_github_reads_yaml(self):
+        """YAML 1.2's core schema, as both of GitHub's readers use it: `on` is the key `on`, a matrix
+        value `on` is the text `on` (YAML 1.1 made it True), `010` is ten (YAML 1.1: eight)."""
+        wf = self._matrix("        v: [on, '010', 010]\n")
+        _b, r, _z = self._zustand(wf, ["x"])
+        self.assertEqual(r["produced_contexts"], ["test (010)", "test (10)", "test (on)"])
+        self.assertEqual(list(r["triggers"]["ci.yml"]), ["pull_request"])
+
+    def test_a_workflow_that_runs_on_push_only_produces_nothing_on_a_pull_request(self):
+        """(d) `on: push` to main: offline a named condition, not produced; live on a pull request it
+        will not arrive, and the advice points at `on:`; on a push to main it arrives."""
+        wf = "name: G\non:\n  push:\n    branches: [main]\njobs:\n  guard:\n    runs-on: x\n    steps: [{run: 'true'}]\n"
+        b, r, zustand = self._zustand(wf, ["guard"])
+        self.assertEqual(zustand, {"guard": G.GATED})
+        self.assertIn("runs it on no pull request into main", r["per_context"][0]["condition"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        d = G.lebend(self.PR(), b.decl, b.wf)
+        self.assertEqual((d["verdict"], d["missing"]), (G.ABSENT, ["guard"]))
+        self.assertIn("does not run on this event", d["advice"])
+        push = dict(self.PR(event="push", ref_name="main"), ref_type="branch")
+        self.assertEqual(G.lebend(push, b.decl, b.wf)["verdict"], G.ALWAYS)
+        self.assertEqual(G.lebend(dict(push, ref_name="f"), b.decl, b.wf)["verdict"], G.ABSENT)
+        self.assertEqual(G.lebend(dict(push, ref_type=""), b.decl, b.wf)["verdict"], G.UNKNOWN)
+
+    def test_a_push_run_on_the_head_commit_is_not_decided_and_a_fork_gets_none(self):
+        """A required check is matched by name, whatever event made it (GitHub's docs), so an unfiltered
+        `on: push` MAY carry it on a pull request from this repository: not measurable. A fork's push runs
+        in the fork, so on a fork pull request it will not arrive."""
+        wf = "name: G\non: [push]\njobs:\n  guard:\n    runs-on: x\n    steps: [{run: 'true'}]\n"
+        b, _r, zustand = self._zustand(wf, ["guard"])
+        self.assertEqual(zustand, {"guard": G.GATED})
+        self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.UNKNOWN)
+        self.assertEqual(G.lebend(self.PR(head_repo="fremd/r"), b.decl, b.wf)["verdict"], G.ABSENT)
+
+    def test_a_trigger_filter_on_pull_requests_is_a_named_condition(self):
+        """A path filter or activity types without a default one run the workflow on some pull requests
+        only; a skipped workflow leaves its required checks Pending (GitHub's docs). Named, not
+        produced; live not measurable. A branch filter without the protected branch runs it on none."""
+        job = "jobs:\n  guard:\n    runs-on: x\n    steps: [{run: 'true'}]\n"
+        for on, wort in (("{pull_request: {branches: [main], paths-ignore: ['docs/**']}}", "paths-ignore"),
+                         ("{pull_request: {types: [opened, labeled]}}", "types"),
+                         ("{pull_request: {branches: [develop]}}", "no pull request into main")):
+            with self.subTest(on=on):
+                b, r, zustand = self._zustand(f"name: G\non: {on}\n" + job, ["guard"])
+                self.assertEqual(zustand, {"guard": G.GATED})
+                self.assertIn(wort, r["per_context"][0]["condition"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+                self.assertNotEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.ALWAYS)
+        b, _r, zustand = self._zustand("name: G\non: {pull_request: {types: [opened, synchronize, reopened, "
+                                       "labeled]}, merge_group: null}\n" + job, ["guard"])
+        self.assertEqual(zustand, {"guard": G.ALWAYS}, "the default types and more run on every pull request")
+        self.assertEqual(G.lebend(self.PR(event="merge_group"), b.decl, b.wf)["verdict"], G.ALWAYS)
+        self.assertEqual(G.lebend(self.PR(event="workflow_dispatch"), b.decl, b.wf)["verdict"], G.ABSENT)
+
+    def test_a_trigger_it_does_not_read_is_not_measurable(self):
+        """A glob branch filter, a branch filter with no declared branch, a filter key it does not know
+        and a workflow without `on:`: the file is not read, and live absence is not measurable."""
+        job = "jobs:\n  guard:\n    runs-on: x\n    steps: [{run: 'true'}]\n"
+        for kopf in ("name: G\non: {pull_request: {branches: ['releases/**']}}\n",
+                     "name: G\non: {pull_request: {branches: [main], unbekannt: 1}}\n",
+                     "name: G\n"):
+            with self.subTest(kopf=kopf):
+                b, r, zustand = self._zustand(kopf + job, ["guard"])
+                self.assertEqual(zustand, {"guard": G.ABSENT})
+                self.assertTrue(any("`on:` not read" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.UNKNOWN)
+        b = Baum(self, {"ci.yml": "name: G\non: {pull_request: {branches: [main]}}\n" + job}, ["guard"])
+        b.decl.write_text(json.dumps({"required_contexts": ["guard"]}), encoding="utf-8")
+        self.assertTrue(any("is not known" in u for u in b.urteil()["unreadable"]))
+
+    def test_a_context_from_two_workflows_arrives_from_either(self):
+        """Produced by two workflows, the context arrives on an event either of them runs on."""
+        job = "jobs:\n  guard:\n    runs-on: x\n    steps: [{run: 'true'}]\n"
+        b = Baum(self, {"a.yml": "name: A\non: {pull_request: {branches: [main]}}\n" + job,
+                        "b.yml": "name: B\non: {pull_request: {branches: [main]}, workflow_dispatch: null}\n" + job},
+                 ["guard"])
+        e = b.urteil()["per_context"][0]
+        self.assertEqual((e["state"], e["sources"]), (G.ALWAYS, ["a.yml", "b.yml"]))
+        self.assertEqual(G.lebend(self.PR(event="workflow_dispatch"), b.decl, b.wf)["verdict"], G.ALWAYS)
+
+    def test_an_if_whose_expression_is_not_closed_is_not_measurable(self):
+        """(e) `${{ always()` is refused by GitHub's template reader; text beside `${{ }}` is formatted
+        into a string. Neither is a status function, neither job is produced."""
+        for bedingung in ("${{ always()", "${{ always() }} && true", "${{ !cancelled()"):
+            with self.subTest(bedingung=bedingung):
+                wf = (self.KOPF + "  test:\n    runs-on: x\n    steps: [{run: 'true'}]\n  all:\n"
+                      f"    needs: [test]\n    if: {bedingung}\n    runs-on: x\n    steps: [{{run: 'true'}}]\n")
+                b, r, zustand = self._zustand(wf, ["all"])
+                self.assertEqual(zustand, {"all": G.ABSENT})
+                self.assertTrue(any("`if:` not read" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+                self.assertFalse(G._NUR_STATUSFUNKTION.match(bedingung))
+                with self.assertRaises(G.NichtAuswertbar):
+                    G.bedingung_am_ereignis(bedingung, self.PR())
+        self.assertTrue(G._NUR_STATUSFUNKTION.match("${{ always() }}"))
+        self.assertFalse(G.bedingung_am_ereignis("${{ github.event_name == 'a}}b' }}", self.PR()),
+                         "a `}}` inside a string literal does not close the expression")
 
 
 class TestTheCollectorScript(unittest.TestCase):
