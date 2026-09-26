@@ -35,6 +35,7 @@ from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _r
                         _zeichen_von, _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
+from ._membership import is_member
 from ._wire_b64 import decode_b64
 # The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for `pattern`),
 # from the one definition in _schema_shapes. The private copy that stood here was corrected to `\A..\Z`
@@ -144,7 +145,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
