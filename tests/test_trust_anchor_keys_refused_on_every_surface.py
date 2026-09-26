@@ -835,28 +835,44 @@ _RUST_KEY_CONSTRUCTION = re.compile(r"\bVerifyingKey::\w+\s*\(")
 _RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)", re.M)
 
 
+def _rust_code_only(text: str) -> str:
+    """Line comments removed, line numbers kept. `//` opens a comment only where the quotes before it
+    on its line are balanced, so the `//` of a URL inside a string literal stays code."""
+    out = []
+    for line in text.split("\n"):
+        cut, pos = len(line), 0
+        while (i := line.find("//", pos)) >= 0:
+            if line[:i].replace('\\"', "").count('"') % 2 == 0:
+                cut = i
+                break
+            pos = i + 2
+        out.append(line[:cut])
+    return "\n".join(out)
+
+
 def _rust_key_sites(text: str) -> list:
-    """(function, line, body) for every `VerifyingKey::<constructor>(` outside the test module.
+    """(function, line, code before it) for every `VerifyingKey::<constructor>(` outside the test
+    module; "code before it" runs from the function's `fn` to the construction, comments removed.
 
     What it cannot see, said here so it is not read into it: a key built by type inference
     (`let vk: VerifyingKey = arr.try_into()?`), through a trait not named `VerifyingKey::`, or by
-    another crate. It reads text, not a parse tree, and names a function by the nearest `fn` above."""
+    another crate; a block comment (main.rs has none today) or a line comment inside a multi-line
+    string. It reads text, not a parse tree, names a function by the nearest `fn` above, and asks
+    whether the rule is CALLED before the key is built, not whether its answer is obeyed."""
     cut = text.find("#[cfg(test)]\nmod tests")
-    prod = text if cut < 0 else text[:cut]
+    prod = _rust_code_only(text if cut < 0 else text[:cut])
     fns = [(m.start(), m.group(1)) for m in _RUST_FN.finditer(prod)]
     sites = []
     for m in _RUST_KEY_CONSTRUCTION.finditer(prod):
         start, name = max((f for f in fns if f[0] < m.start()), default=(0, "<top level>"))
-        following = [f[0] for f in fns if f[0] > start]
-        body = prod[start:following[0] if following else len(prod)]
-        sites.append((name, prod.count("\n", 0, m.start()) + 1, body))
+        sites.append((name, prod.count("\n", 0, m.start()) + 1, prod[start:m.start()]))
     return sites
 
 
 def _rust_stray(text: str) -> list:
-    return [f"main.rs:{line} in {name}" for name, line, body in _rust_key_sites(text)
+    return [f"main.rs:{line} in {name}" for name, line, before in _rust_key_sites(text)
             if name not in RUST_IN_BAND
-            and (name not in RUST_KEY_SITES_WITH_RULE or "schwaeche_eines_vertrauensankers(" not in body)]
+            and (name not in RUST_KEY_SITES_WITH_RULE or "schwaeche_eines_vertrauensankers(" not in before)]
 
 
 class TheRustSweep(unittest.TestCase):
@@ -892,6 +908,23 @@ class TheRustSweep(unittest.TestCase):
                                     "::from_bytes(&pk_arr).map_err(|e| format!(\"bad issuer key", 1)
         self.assertNotEqual(dropped, self.text, "the plant must hit verify_sdjwt_issuer's rule")
         self.assertEqual([s.split(" in ")[1] for s in _rust_stray(dropped)], ["verify_sdjwt_issuer"])
+
+    def test_the_rule_in_a_comment_or_after_the_key_does_not_count(self):
+        """Found on the sweep's first version by reading it: it matched the rule's name anywhere in the
+        function's text, so a comment naming it, or a call after the key was built, satisfied it."""
+        block = ("    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {\n        return Ok(false);\n    }\n")
+        build = "    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!(\"bad issuer key: {e}\"))?;\n"
+        self.assertEqual(self.text.count(block + build), 1)
+        commented = self.text.replace(block + build,
+                                      "    // schwaeche_eines_vertrauensankers(&pk_arr) was asked by the caller\n"
+                                      + build, 1)
+        after = self.text.replace(block + build, build + block, 1)
+        for label, text in (("in a comment", commented), ("after the key", after)):
+            with self.subTest(rule=label):
+                self.assertNotEqual(text, self.text)
+                self.assertEqual([s.split(" in ")[1] for s in _rust_stray(text)], ["verify_sdjwt_issuer"])
+        url = 'let u = "https://example.test/x"; // VerifyingKey::from_bytes(k) in a comment\n'
+        self.assertEqual(_rust_code_only(url), 'let u = "https://example.test/x"; \n')
 
 
 if __name__ == "__main__":
