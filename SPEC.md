@@ -128,8 +128,9 @@ A key that passes has exactly one encoding, so counting DISTINCT key material
 (§7d witness quorums, trust-pack thresholds) counts distinct points. Distinct
 points are NOT distinct secrets or parties. A mixed-order key is not refused, and
 whoever holds the secret of a key can also sign under its mixed-order variants
-(up to eight) after a few tries per signature; this was measured against this
-implementation, including a 2-of-2 witness quorum met by two variants of one key.
+(seven, besides the key itself), grinding the nonce of each signature: on average
+as many tries as the order of the torsion component (2, 4 or 8). A test keeps a
+2-of-2 witness quorum met by two variants of one key against this implementation.
 No forgery without a secret follows from that, but a quorum or threshold counts
 keys, and whether they belong to different parties is a property of the roster,
 as it is for any party that simply holds several keys. The rule is `signature.ed25519_trust_anchor_weakness`, and the

@@ -22,7 +22,10 @@ cannot come from a fixture that fails for any reason at all. The last class is t
 Ed25519 verification in the package goes through the rule, except the two in-band keys named with
 their reason. A new verification in any spelling the sweep models (a call, an import alias, a
 `getattr` string, the `cryptography` key class) turns this file red; `_sweep_source` names the
-spellings it cannot see.
+spellings it cannot see. The same sweep runs over the Rust verifier's key constructions.
+
+WHAT THE RULE LEAVES OPEN, also pinned: one secret still meets a 2-of-2 quorum under two distinct
+points, as SPEC section 4b says.
 
 WHAT IS NOT CHANGED, on purpose. `verify_ed25519` keeps the SPEC section 4a profile: a bundle's own
 key is in-band, its trust comes from a policy pin, and switching that profile is a versioned change.
@@ -31,7 +34,9 @@ from __future__ import annotations
 
 import ast
 import base64
+import hashlib
 import json
+import re
 import subprocess
 import sys
 import unittest
@@ -196,6 +201,94 @@ class Checkpoints(unittest.TestCase):
                     cp._parse_witness_vkey(cp.cosign_vkey("w", key))
                 with self.assertRaises(BundleFormatError):
                     cp._parse_vkey(cp.vkey("log", key))
+
+
+_L = (1 << 252) + 27742317777372353535851937790883648493    # the prime order of the base point
+
+
+def _clamped(seed: bytes) -> int:
+    """RFC 8032 secret scalar of a seed; `cryptography` derives the same public key [a]B from it."""
+    h = bytearray(hashlib.sha512(seed).digest()[:32])
+    h[0] &= 248
+    h[31] = (h[31] & 127) | 64
+    return int.from_bytes(h, "little")
+
+
+def _plus_order_two(pub: bytes) -> bytes:
+    """A + T2 for the order-2 point T2 = (0, -1), which is the point (-x, -y): y becomes p - y and the
+    x sign flips (x is never 0 for a key the rule lets through). No decompression needed."""
+    v = int.from_bytes(pub, "little")
+    y, sign = v & ((1 << 255) - 1), v >> 255
+    return ((P - y) | ((1 - sign) << 255)).to_bytes(32, "little")
+
+
+class _SameSecretSecondPoint:
+    """Signs under A + T2 with the secret of A, as RFC 8032 does, grinding the nonce until [k]T2 is the
+    identity, i.e. k is even: one try in two on average. R = [r]B comes from `cryptography` itself."""
+
+    def __init__(self, seed: bytes):
+        self._a = _clamped(seed)
+        self._pub = _plus_order_two(Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes_raw())
+        self.tries: list = []
+
+    def public_key(self):
+        return self
+
+    def public_bytes(self, *_args, **_kwargs) -> bytes:
+        return self._pub
+
+    def public_bytes_raw(self) -> bytes:
+        return self._pub
+
+    def sign(self, msg: bytes) -> bytes:
+        for i in range(1, 129):
+            seed_r = hashlib.sha256(b"nonce" + i.to_bytes(2, "big") + msg).digest()
+            big_r = Ed25519PrivateKey.from_private_bytes(seed_r).public_key().public_bytes_raw()
+            k = int.from_bytes(hashlib.sha512(big_r + self._pub + msg).digest(), "little") % _L
+            sig = big_r + ((_clamped(seed_r) + k * self._a) % _L).to_bytes(32, "little")
+            if verify_ed25519(self._pub, sig, msg):
+                self.tries.append(i)
+                return sig
+        raise AssertionError("128 nonces without an even k")
+
+
+class DistinctPointsAreNotDistinctParties(unittest.TestCase):
+    """SPEC section 4b: the rule refuses no mixed-order key, and one secret meets a 2-of-2 quorum under
+    two distinct points. Gate iteration 2, lens C (C2-01): the claim stood in the docstring and SPEC
+    with no test behind it. If the rule ever refuses mixed-order keys, this turns red, and 4b changes
+    with it."""
+
+    def test_one_secret_meets_a_two_of_two_witness_quorum(self):
+        log = generate_signer()
+        note = cp.sign_checkpoint("example.com/log", 5, b"\x11" * 32, log, "log")
+        seed = hashlib.sha256(b"one secret").digest()
+        first = Ed25519PrivateKey.from_private_bytes(seed)
+        second = _SameSecretSecondPoint(seed)
+        self.assertNotEqual(_raw(first), second.public_bytes_raw())
+        self.assertIsNone(ed25519_trust_anchor_weakness(second.public_bytes_raw()))
+        note = cp.cosign_checkpoint(note, first, "wa", 1_700_000_000)
+        note = cp.cosign_checkpoint(note, second, "wb", 1_700_000_001)
+        roster = [cp.cosign_vkey("wa", _raw(first)), cp.cosign_vkey("wb", second.public_bytes_raw())]
+        r = cp.verify_witnessed_checkpoint(note, cp.vkey("log", _raw(log)), roster, threshold=2)
+        self.assertIs(r["ok"], True, r)
+        self.assertIs(r["witnesses_ok"], True, r)
+        self.assertEqual(len(second.tries), 1)
+
+    def test_the_second_point_signs_only_when_k_is_even(self):
+        """The mechanism, not just the outcome: under A + T2 a signature made with the secret of A
+        verifies exactly when [k]T2 is the identity."""
+        seed = hashlib.sha256(b"one secret").digest()
+        signer = _SameSecretSecondPoint(seed)
+        pub, seen = signer.public_bytes_raw(), set()
+        for i in range(1, 65):
+            msg = b"message %d" % i
+            seed_r = hashlib.sha256(b"r" + msg).digest()
+            big_r = Ed25519PrivateKey.from_private_bytes(seed_r).public_key().public_bytes_raw()
+            k = int.from_bytes(hashlib.sha512(big_r + pub + msg).digest(), "little") % _L
+            sig = big_r + ((_clamped(seed_r) + k * signer._a) % _L).to_bytes(32, "little")
+            self.assertIs(verify_ed25519(pub, sig, msg), k % 2 == 0, i)
+            seen.add(k % 2)
+        self.assertEqual(seen, {0, 1}, "64 messages must show both parities, or this measured one side")
 
 
 class Dsse(unittest.TestCase):
@@ -585,7 +678,10 @@ def _sweep_source(rel: str, text: str) -> list:
     primitive under any alias, counts the name as a string (the `getattr` form), and counts every
     reference to the `cryptography` key class, since constructing an Ed25519 public key outside
     `signature.py` is a second path to the same arithmetic. What it cannot see, said here so it is not
-    read into it: a name built at run time ("verify_" + "ed25519"), `importlib`, `exec`."""
+    read into it: a name built at run time ("verify_" + "ed25519"), whether it goes to `getattr` or
+    to a module `importlib` returned, and code run from a string by `exec` or `eval`. A module from
+    `importlib` read with the literal name (`m.verify_ed25519`) is seen, as an attribute (gate iteration
+    2, lens C, C2-03: an earlier version of this sentence listed `importlib` as unseen outright)."""
     tree = ast.parse(text)
     names = {_BARE}
     for node in ast.walk(tree):
@@ -609,6 +705,31 @@ def _sweep_source(rel: str, text: str) -> list:
     return found
 
 
+_SIGNATURE_OWN = ("verify_ed25519", "verify_ed25519_pinned")
+
+
+def _signature_py_stray(text: str) -> list:
+    """What `_sweep_source` finds in signature.py OUTSIDE the two places the bare primitive belongs.
+
+    Gate iteration 2, lens A (A2-01): the first sweep left signature.py out wholesale, so a helper
+    added there under a third name (`verify_ed25519_v2`, calling the bare primitive) and every caller
+    of it were invisible; the lens planted exactly that and the universal forgery went through. The
+    module is swept now, and the bare primitive and the key class may appear only inside the
+    definitions of `verify_ed25519` and `verify_ed25519_pinned`, in `__all__` and in the import of the
+    key class."""
+    tree = ast.parse(text)
+    allowed: set = set()
+    for node in tree.body:
+        own_def = isinstance(node, ast.FunctionDef) and node.name in _SIGNATURE_OWN
+        key_import = (isinstance(node, (ast.Import, ast.ImportFrom))
+                      and any(a.name == _KEY_CLASS for a in node.names))
+        dunder_all = isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets)
+        if own_def or key_import or dunder_all:
+            allowed |= set(range(node.lineno, node.end_lineno + 1))
+    return [f for f in _sweep_source("signature.py", text) if f[1] not in allowed]
+
+
 class TheSweep(unittest.TestCase):
     """Generator, not fixture: every Ed25519 verification in the package is classified."""
 
@@ -616,8 +737,8 @@ class TheSweep(unittest.TestCase):
         found = []
         for path in sorted(SRC.rglob("*.py")):
             rel = path.relative_to(SRC).as_posix()
-            if rel != "signature.py":
-                found += _sweep_source(rel, path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            found += _signature_py_stray(text) if rel == "signature.py" else _sweep_source(rel, text)
         return found
 
     def test_no_verification_bypasses_the_rule_outside_the_named_in_band_keys(self):
@@ -648,6 +769,108 @@ class TheSweep(unittest.TestCase):
                 self.assertNotEqual(_sweep_source("planted.py", text), [], label)
         clean = "from .signature import verify_ed25519_pinned\nverify_ed25519_pinned(k, s, m)\n"
         self.assertEqual(_sweep_source("clean.py", clean), [])
+
+    def test_a_third_name_inside_signature_py_is_caught(self):
+        """Lens A of iteration 2: a new helper in signature.py itself reaching the bare primitive."""
+        real = (SRC / "signature.py").read_text(encoding="utf-8")
+        self.assertEqual(_signature_py_stray(real), [], "signature.py as it stands must be clean")
+        planted = real + ("\n\ndef verify_ed25519_v2(public_key, signature, message):\n"
+                          "    return verify_ed25519(public_key, signature, message)\n")
+        self.assertNotEqual(_signature_py_stray(planted), [])
+        planted_class = real + ("\n\ndef _raw_check(k, s, m):\n"
+                                "    Ed25519PublicKey.from_public_bytes(k).verify(s, m)\n")
+        self.assertNotEqual(_signature_py_stray(planted_class), [])
+
+    def test_the_named_limits_are_the_real_ones(self):
+        """C2-03: what the docstring says the sweep cannot see is unseen, and what it no longer lists
+        as unseen is seen. A limit stated wider than it is hides nothing, but it is still wrong."""
+        seen = {
+            "importlib, literal name": ("import importlib\nm = importlib.import_module('.signature', "
+                                        "'proofbundle')\nm.verify_ed25519(k, s, m)\n"),
+            "importlib, literal class": ("import importlib\nimportlib.import_module('cryptography.hazmat."
+                                         "primitives.asymmetric.ed25519').Ed25519PublicKey\n"),
+        }
+        unseen = {
+            "a built name through getattr": ("from . import signature\n"
+                                             "getattr(signature, 'verify_' + 'ed25519')(k, s, m)\n"),
+            "exec": "exec('from proofbundle.signature import verify_ed25519 as v')\n",
+            "eval": "f = eval('__import__(\"proofbundle.signature\").signature.verify_ed25519')\n",
+        }
+        for label, text in seen.items():
+            with self.subTest(seen=label):
+                self.assertNotEqual(_sweep_source("x.py", text), [])
+        for label, text in unseen.items():
+            with self.subTest(unseen=label):
+                self.assertEqual(_sweep_source("x.py", text), [])
+
+
+# The Rust verifier builds an Ed25519 key in these functions. Each one asks the trust-anchor rule
+# (`schwaeche_eines_vertrauensankers`) in its own body, except the bundle's own in-band key.
+RUST_MAIN = RUST_DIR / "src" / "main.rs"
+RUST_KEY_SITES_WITH_RULE = {"verify_dsse", "ed25519_schluessel", "verify_sdjwt_issuer",
+                            "verify_trust_pack_threshold"}
+RUST_IN_BAND = {"verify_bundle": "the bundle's own signature.public_key_b64, as bundle.py in IN_BAND"}
+_RUST_KEY_CONSTRUCTION = re.compile(r"\bVerifyingKey::\w+\s*\(")
+_RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)", re.M)
+
+
+def _rust_key_sites(text: str) -> list:
+    """(function, line, body) for every `VerifyingKey::<constructor>(` outside the test module.
+
+    What it cannot see, said here so it is not read into it: a key built by type inference
+    (`let vk: VerifyingKey = arr.try_into()?`), through a trait not named `VerifyingKey::`, or by
+    another crate. It reads text, not a parse tree, and names a function by the nearest `fn` above."""
+    cut = text.find("#[cfg(test)]\nmod tests")
+    prod = text if cut < 0 else text[:cut]
+    fns = [(m.start(), m.group(1)) for m in _RUST_FN.finditer(prod)]
+    sites = []
+    for m in _RUST_KEY_CONSTRUCTION.finditer(prod):
+        start, name = max((f for f in fns if f[0] < m.start()), default=(0, "<top level>"))
+        following = [f[0] for f in fns if f[0] > start]
+        body = prod[start:following[0] if following else len(prod)]
+        sites.append((name, prod.count("\n", 0, m.start()) + 1, body))
+    return sites
+
+
+def _rust_stray(text: str) -> list:
+    return [f"main.rs:{line} in {name}" for name, line, body in _rust_key_sites(text)
+            if name not in RUST_IN_BAND
+            and (name not in RUST_KEY_SITES_WITH_RULE or "schwaeche_eines_vertrauensankers(" not in body)]
+
+
+class TheRustSweep(unittest.TestCase):
+    """Gate iteration 2, lens C and the Fix-the-class step: the Python sweep had no Rust sibling, and
+    the rule landing on one verifier while the other kept the old shape is this change's own class."""
+
+    def setUp(self):
+        if not RUST_MAIN.is_file():
+            self.skipTest("NOT MEASURABLE: tools/pb_verify_rs/src/main.rs is not in this tree; the Rust "
+                          "sweep did NOT run")
+        self.text = RUST_MAIN.read_text(encoding="utf-8")
+
+    def test_every_key_construction_asks_the_rule_or_is_named_in_band(self):
+        self.assertEqual(_rust_stray(self.text), [],
+                         "a Rust key reaches ed25519-dalek without the trust-anchor rule; ask "
+                         "schwaeche_eines_vertrauensankers or name it in RUST_IN_BAND")
+
+    def test_the_sweep_sees_every_named_site(self):
+        """Counter-direction: each named function holds a construction, so none of the names is stale."""
+        self.assertEqual({name for name, _l, _b in _rust_key_sites(self.text)},
+                         RUST_KEY_SITES_WITH_RULE | set(RUST_IN_BAND))
+
+    def test_a_planted_construction_without_the_rule_is_caught(self):
+        planted = self.text.replace(
+            "#[cfg(test)]\nmod tests",
+            "fn neuer_pfad(b: &[u8; 32]) -> bool {\n    VerifyingKey::from_bytes(b).is_ok()\n}\n\n"
+            "#[cfg(test)]\nmod tests", 1)
+        self.assertNotEqual(planted, self.text)
+        self.assertEqual([s.split(" in ")[1] for s in _rust_stray(planted)], ["neuer_pfad"])
+        dropped = self.text.replace("if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {\n"
+                                    "        return Ok(false);\n    }\n    let vk = VerifyingKey::from_bytes"
+                                    "(&pk_arr).map_err(|e| format!(\"bad issuer key", "let vk = VerifyingKey"
+                                    "::from_bytes(&pk_arr).map_err(|e| format!(\"bad issuer key", 1)
+        self.assertNotEqual(dropped, self.text, "the plant must hit verify_sdjwt_issuer's rule")
+        self.assertEqual([s.split(" in ")[1] for s in _rust_stray(dropped)], ["verify_sdjwt_issuer"])
 
 
 if __name__ == "__main__":

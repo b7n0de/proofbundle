@@ -27,8 +27,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   Python validator it refuses a trust pack with a weak key in any role, not only in the root role. The
   bundle's own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses
   the rule in any spelling it models: a call, an import alias, a `getattr` string or the `cryptography`
-  key class. Distinct keys are still not distinct parties: one secret can sign under the mixed-order
-  variants of its key, which SPEC §4b now says.
+  key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
+  are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
+  SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

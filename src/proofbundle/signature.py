@@ -65,11 +65,14 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
 
     WHAT IT DOES NOT CHECK, on purpose. A mixed-order key (a prime-order point plus a torsion
     component) is not refused. Signing under it still needs the discrete log of the prime-order part,
-    so it gives no forgery without a secret. Its owner can sign under up to eight such variants of one
-    key, each signature after a few tries: measured on this change, a 2-of-2 witness quorum was met
-    by two variants of ONE secret (``verify_witnessed_checkpoint`` returned ok=True). That is one party
-    holding several keys, which any party can do by generating a second key; no signature reveals it,
-    so a count of distinct keys is never a count of distinct parties."""
+    so it gives no forgery without a secret. Its owner can sign under all eight variants A + T of one
+    key A (T of the 8-torsion subgroup, A itself included) by grinding each signature's nonce until
+    [k]T is the identity. On average that takes as many tries as the order of T; measured on this
+    change over 400 signatures per order: 1.95, 3.98 and 8.35 tries for orders 2, 4 and 8, at most 45.
+    A 2-of-2 witness quorum met by two points of ONE secret is kept as a test
+    (``DistinctPointsAreNotDistinctParties``). That is one party holding several keys, which any party
+    can do by generating a second key; no signature reveals it, so a count of distinct keys is never a
+    count of distinct parties."""
     if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
         return "malformed"
     y = int.from_bytes(bytes(public_key), "little") & _ED25519_Y_MASK   # strip the x sign bit
