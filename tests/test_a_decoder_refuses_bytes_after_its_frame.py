@@ -108,6 +108,22 @@ class TheToken(unittest.TestCase):
         # microseconds.
         self.assertLess(time.perf_counter() - t0, 0.1)
 
+    def test_the_pre_decode_cap_refuses_a_body_over_it_not_one_of_its_length(self):
+        """Gate lens 226-B, 226B-01: no case sat on the boundary, so `>=` in place of `>` stayed green and
+        refused a body of exactly the budget as over it. A body of exactly the budget passes the length
+        check and is refused later, as no zlib stream. Four bytes more, still a whole number of base64
+        quads, is refused by the cap itself: 226B-02 showed that the case above, one byte over, is also
+        refused by the base64 layer for its length, so it cannot tell which check fired."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        cap = gedeckelt(DEFAULT_BUDGET.input_bytes, bytes_je_element=KOSTEN_JE_ELEMENT["input_bytes"])
+        self.assertEqual(cap % 4, 0, "the boundary body must be valid base64 by length, or this proves nothing")
+        with self.assertRaises(BundleFormatError) as at:
+            verify_receipt_token(TOKEN_PREFIX + "A" * cap)
+        self.assertNotIn("pre-decode", str(at.exception))
+        with self.assertRaises(BundleFormatError) as over:
+            verify_receipt_token(TOKEN_PREFIX + "A" * (cap + 4))
+        self.assertIn("pre-decode", str(over.exception))
+
     def test_the_decompression_cap_keeps_its_own_message(self):
         with self.assertRaises(BundleFormatError) as ctx:
             verify_receipt_token(_token_with_stream(zlib.compress(b" " * 300_000, 9)))
@@ -165,6 +181,50 @@ class TheStatusList(unittest.TestCase):
             statuslist._MAX_STATUS_LIST_BYTES = original
         self.assertIs(r["ok"], False)
         self.assertIn("maximum decompressed size", r["detail"])
+
+
+class TheNeighboursAlreadyRefuseTrailingBytes(unittest.TestCase):
+    """The commit that added `inflate_whole_stream` said "the OTS and DER parsers were checked and already
+    refuse trailing bytes". Gate lens 226-B, 226B-03: that was a manual check with no test behind it. It is
+    one now, through this package's own entry points, so a library that stops refusing is noticed here."""
+
+    def test_an_ots_proof_with_a_byte_after_it_is_refused(self):
+        try:
+            from opentimestamps.core.notary import PendingAttestation
+            from opentimestamps.core.op import OpSHA256
+            from opentimestamps.core.serialize import BytesSerializationContext
+            from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
+        except ImportError:
+            self.skipTest("NOT MEASURABLE: needs proofbundle[anchors] (opentimestamps); did NOT run")
+        from proofbundle.anchors_ots import verify_opentimestamps
+        root = bytes(range(32))
+        ts = Timestamp(root)
+        ts.attestations.add(PendingAttestation("https://a"))
+        ctx = BytesSerializationContext()
+        DetachedTimestampFile(OpSHA256(), ts).serialize(ctx)
+        proof = ctx.getbytes()
+        self.assertEqual(verify_opentimestamps(proof, root, frozen={})["status"], "pending")   # precondition
+        for tail in (b"\x00", b"trailing"):
+            with self.subTest(tail=tail):
+                self.assertEqual(verify_opentimestamps(proof + tail, root, frozen={})["status"], "malformed")
+
+    def test_a_der_certificate_with_a_byte_after_it_is_refused(self):
+        import datetime
+        from cryptography import x509
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding
+        from cryptography.x509.oid import NameOID
+        from proofbundle.anchors_rfc3161 import _load_der_cert
+        key = Ed25519PrivateKey.generate()
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "trailing-bytes probe")])
+        now = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        der = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+               .serial_number(1).not_valid_before(now).not_valid_after(now + datetime.timedelta(days=1))
+               .sign(key, None).public_bytes(Encoding.DER))
+        self.assertIsNotNone(_load_der_cert(base64.b64encode(der).decode()))   # precondition
+        for tail in (b"\x00", b"trailing"):
+            with self.subTest(tail=tail), self.assertRaises(ValueError):
+                _load_der_cert(base64.b64encode(der + tail).decode())
 
 
 if __name__ == "__main__":
