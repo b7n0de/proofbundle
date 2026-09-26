@@ -446,6 +446,50 @@ def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
     return r.returncode == 0
 
 
+def _manifest_verspricht(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Does this distribution's own MANIFEST.in PROMISE this path (graft, include, recursive-include)?
+
+    DEEP GATE Z195, FINDING L6-Z195-01 (P2, jury 3 of 3). The derived skip below counted every absent
+    root-relative path as "the sdist deliberately prunes this". It never asked whether the distribution
+    was supposed to carry the path. Measured with one appended line, `exclude
+    examples/trust_policy_strict.json`, while `graft examples` still stood: the built sdist lacked the
+    file, tests/test_trust_policy.py went from 47 passed to 47 skipped with the reason "repo-context
+    test", and the whole shipped suite stayed rc=0. The import guard further down asks SOURCES.txt,
+    but an `exclude` removes the path from SOURCES.txt as well, so that list cannot tell an intended
+    omission from an accidental one. The allowlist can: a path under a `graft` line, named by an
+    `include` line or matched by a `recursive-include` line was promised, and its absence is a
+    packaging failure, never a reason to skip.
+
+    WHY MANIFEST.in AND NOT A SECOND LIST. setuptools ships MANIFEST.in in every sdist, and it is the
+    document that states the promise. Another list would be the same promise written twice.
+
+    NO BASIS, NO PROMISE. Without a readable MANIFEST.in (a throwaway tree in a test, say) nothing is
+    promised and the old rule stands. `tests/test_a_promised_path_that_is_absent_is_a_packaging_failure.py`
+    binds that the distribution carries its MANIFEST.in, so a real sdist cannot switch this off by
+    losing the file. Whole-line `#` comments are ignored, as setuptools ignores them."""
+    import fnmatch  # noqa: PLC0415 - only on the from-sdist path
+    import posixpath  # noqa: PLC0415
+    try:
+        zeilen = (pathlib.Path(wurzel) / "MANIFEST.in").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for zeile in zeilen:
+        teile = zeile.strip().split()
+        if not teile or teile[0].startswith("#"):
+            continue
+        befehl, args = teile[0], teile[1:]
+        if befehl == "graft" and any(rel == a.rstrip("/") or rel.startswith(a.rstrip("/") + "/")
+                                     for a in args):
+            return True
+        if befehl == "include" and any(fnmatch.fnmatchcase(rel, a) for a in args):
+            return True
+        if (befehl == "recursive-include" and len(args) >= 2
+                and rel.startswith(args[0].rstrip("/") + "/")
+                and any(fnmatch.fnmatchcase(posixpath.basename(rel), m) for m in args[1:])):
+            return True
+    return False
+
+
 def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     """True iff this test module reads a root-relative path that is ABSENT here.
 
@@ -453,7 +497,8 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
     shown to be package-only, and outside a checkout the safe answer is to skip it.
 
     A path that is absent because it has not been BUILT is not the same signal (see
-    `_ist_bauartefakt`) and does not count.
+    `_ist_bauartefakt`) and does not count. Neither is a path the distribution's MANIFEST.in promised
+    (see `_manifest_verspricht`): its absence is a packaging failure, and the module runs and fails.
     """
     try:
         quelle = pfad.read_text(encoding="utf-8", errors="ignore")
@@ -477,8 +522,14 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
         tiefe = len(pfad.resolve().relative_to(pathlib.Path(wurzel).resolve()).parts)
     except (ValueError, OSError):
         tiefe = None                       # Modul liegt nicht unter der Wurzel: nicht binden
-    return any(not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)
-               for rel in _wurzel_relative_pfade(quelle, tiefe))
+    fehlend = [rel for rel in _wurzel_relative_pfade(quelle, tiefe)
+               if not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)]
+    # A PROMISED ABSENCE WINS. A module that reads a pruned path AND a promised one that is missing
+    # must not be skipped for the first, or the second, a packaging failure, would vanish into the
+    # same skip it is being told apart from.
+    if any(_manifest_verspricht(rel, wurzel) for rel in fehlend):
+        return False
+    return bool(fehlend)
 
 
 def pytest_collection_modifyitems(config, items):
