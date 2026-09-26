@@ -791,8 +791,7 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     """``(zustand, grund)`` fuer die Attestierung EINES Artefakts.
 
     REIHENFOLGE MIT ABSICHT: erst alles, was OHNE Anker entscheidbar ist (Algorithmus, base64,
-    Kanonisierung, die Vertrauensanker-Regel fuer den Schluessel, die Mathematik der Signatur), dann
-    die Zugehoerigkeit zum Anker. Sonst waere eine
+    Kanonisierung, die Mathematik der Signatur), dann die Zugehoerigkeit zum Anker. Sonst waere eine
     kaputt gerechnete Signatur in einem Baum ohne Anker nur „nicht messbar" statt widerlegt.
 
     ``repo`` ist optional NUR aus Rueckwaertskompatibilitaet zur Signatur; jeder produktive Aufrufer
@@ -873,13 +872,13 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
         return ART_UNTRUSTED, (f"the artifact cannot be canonicalized ({type(exc).__name__}: {exc}) "
                                "— this is a property of the document, not of this environment, so it "
                                "is not verified rather than not measurable")
-    # DER SCHLUESSEL BEKOMMT DIE VERTRAUENSANKER-REGEL (SPEC 4b; Tiefen-Gate Iteration 3 auf die Regel,
-    # Linse A, A3-02, ausgefuehrt gemessen): mit dem nackten Profil verifizierte ein von niemandem
-    # signiertes Artefakt unter einem Schluessel niedriger Ordnung, der im Anker stand. Die Frage ist
-    # ohne Anker entscheidbar und steht deshalb VOR der Signaturmathematik, mit ihrem eigenen Grund —
-    # sonst hiesse er "signature does not verify", und das waere nicht der Grund. NACH der
-    # Kanonisierung, damit ein fehlender Kanonisierer weiter UMGEBUNG bleibt (LAUF11-L5 haelt das mit
-    # einem Null-Schluessel fest, der selbst niedriger Ordnung ist).
+    # THE KEY GETS THE TRUST-ANCHOR RULE (SPEC 4b; deep gate iteration 3 on the rule, lens A, A3-02,
+    # executed): with the bare profile, an artifact signed by nobody verified under a key of small
+    # order that stood in the anchor. The question needs no anchor, so it comes BEFORE the signature
+    # arithmetic, with its own reason; otherwise the reason would read "signature does not verify",
+    # which is not the reason. It comes AFTER the canonicalization, so that a missing canonicalizer
+    # stays an ENVIRONMENT state (LAUF11-L5 pins that with an all-zero key, which is itself of small
+    # order). The anchor-order paragraph of this docstring predates the rule and does not list it.
     schwaeche = ed25519_trust_anchor_weakness(pub)
     if schwaeche is not None:
         return ART_UNTRUSTED, (f"the signing key is a {schwaeche} Ed25519 key, refused as a trusted "
