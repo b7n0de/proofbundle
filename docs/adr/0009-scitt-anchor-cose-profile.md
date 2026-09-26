@@ -309,7 +309,7 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
 | `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; a receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, a proof of either family that does not parse, more proofs than the limit, an empty array of the family the verifier does not check; an empty array of the family it checks keeps that family's status, as the -05 pseudo-code asserts `len(proofs) > 0`); also a statement with no receipt | False | False |
-| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
+| `outside_profile` | readable, but not scitt-ccf v1 (untagged, detached statement payload, not a hash envelope, 258 not SHA-256, 259 not uint / tstr or 260 not tstr (RFC 9995 CDDL), label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
 | `root_mismatch` | the proofs of one receipt compute different roots: two inclusion proofs, or a consistency proof whose newer root is not the inclusion root | False | False |
@@ -559,6 +559,7 @@ the separate consistency verifier of Decision 15 relates two roots only for a ca
 | N7 a statement without a protected `x5chain` (2026-09-26) | b | `outside_profile`, Decision 5 |
 | S1 the consistency issuer rule (2026-09-26) | a | kept, named in code and README as proofbundle's own rule, not a requirement of -05, until the working group answers G3; Decision 15 |
 | S2 the first-tag anchor check (2026-09-26) | a | kept: a proof starting with a left sibling is refused, because section 4 says MUST; Decision 15 |
+| the scope of vdp -2 beside inclusion proofs (2026-09-26) | kept | the change of `c79fbe4` and `30a2856` stays: -2 is parsed under the -05 CDDL, one or more, and must compute the inclusion root; its older roots and anchors are not evaluated in the statement verdict; Decision 1 |
 
 ## New questions for the owner
 

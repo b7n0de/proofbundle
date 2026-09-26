@@ -516,6 +516,13 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
     for label in (_PREIMAGE_CTY, _PAYLOAD_LOCATION):
         if label in uh:
             return f"label {label} in the unprotected header"
+    # THE VALUE TYPES TOO (Codex, PR 278 round five): RFC 9995's CDDL gives 259 uint / tstr and 260
+    # tstr, so the placement rule alone must not let any other value through.
+    cty = ph.get(_PREIMAGE_CTY, "")
+    if isinstance(cty, bool) or not (isinstance(cty, str) or (isinstance(cty, int) and cty >= 0)):
+        return f"label {_PREIMAGE_CTY} is not uint / tstr (RFC 9995)"
+    if not isinstance(ph.get(_PAYLOAD_LOCATION, ""), str):
+        return f"label {_PAYLOAD_LOCATION} is not tstr (RFC 9995)"
     if _CTY in ph or _CTY in uh:
         return "label 3 (content type) present in a hash envelope"
     why = _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)

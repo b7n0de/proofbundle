@@ -731,6 +731,23 @@ def test_missing_trust_is_never_reported_as_an_unbound_receipt():
     assert (r.status, r.signature_valid, r.bound, no_key.status) == ("needs_rp_trust", None, False, "needs_rp_trust")
 
 
+def test_the_hash_envelope_labels_have_their_rfc_9995_value_types():
+    """Codex, PR 278 round five: RFC 9995's CDDL gives label 259 uint / tstr and label 260 tstr
+    (draft-ietf-cose-hash-envelope, "payload_preimage_content_type" and "payload_location"). The
+    placement rule alone let any value through to confirmed."""
+    base = {1: -7, 258: -16, 15: {1: "did:example:signer"}}
+
+    def status(extra):
+        st = Stmt(prot_map={**base, **extra})
+        r = verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()]))
+        return r.status, r.statement_status, r.profile_satisfied
+
+    for good in ({}, {259: "application/json"}, {259: 50}, {259: 0}, {260: "https://example/x"}):
+        assert status(good) == ("confirmed", "confirmed", True), good
+    for bad in ({259: []}, {259: -1}, {259: True}, {259: b"x"}, {260: 0}, {260: b"x"}, {260: True}):
+        assert status(bad) == ("outside_profile", "outside_profile", False), bad
+
+
 def test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root():
     """Codex, PR 278 round three: the -05 CDDL closes vdp to -1 and -2, and section 5 says all proofs in
     a receipt recompute the same root, the newer root for a consistency proof. A consistency proof
