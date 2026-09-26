@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
 from .emit import emit_bundle
-from .budget import render_keys_safe
+from .budget import render_keys_safe, render_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
@@ -54,6 +54,13 @@ _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "thresh
              "assurance_level"}
 _OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance", "samples",
              "evaluation_card_sha256"}
+# The schema's type for the fields no older check reached (R-B1). Required and optional alike: a
+# present field is checked even when its value is null, because the schema types it and null is
+# none of those types. `_schema_domain_violation` reads these.
+_COMMITMENT_FIELDS = ("model_id_commit", "dataset_id_commit")
+_STRING_FIELDS = ("suite_version", "timestamp", "context_binding", "multiple_testing",
+                  "prereg_sha256", "evaluation_card_sha256")
+_OBJECT_FIELDS = ("provenance", "samples")
 
 __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
@@ -267,12 +274,58 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
     return claim, {"model_salt": m_salt, "dataset_salt": d_salt}
 
 
+def _schema_domain_violation(claim: dict) -> Optional[str]:
+    """Name the first domain of the published schema that ``claim`` violates, or return None.
+
+    ONE predicate for both boundaries (R-B1). ``decode_eval_claim`` turns a reason into its
+    documented refusal, None; ``emit_eval_receipt`` raises it as ``EvalClaimError`` before anything
+    is canonicalized or signed. Two copies of one rule are two promises, and the emit-vs-verify gap
+    this module keeps closing is what two copies drift into.
+
+    It covers what neither boundary enforced before 6.2.0: the ``sha256:<64 lowercase hex>`` form
+    of both commitments (``_COMMIT_RE``, the form ``salted_commit`` produces), the string type of
+    the six fields in ``_STRING_FIELDS``, ``ci95`` as exactly two plain decimal strings, and
+    ``provenance`` and ``samples`` as JSON objects. The older verify-boundary checks (comparator,
+    threshold, passed, n, metric, suite, commit_alg, the inner shape of samples) stay in
+    ``decode_eval_claim`` and are NOT repeated at emit; a claim from ``build_eval_claim`` meets
+    them, a hand-built one may not.
+
+    Called after the key-set check. Never raises for a dict: every message goes through the bounded
+    renderer, because the values it names are the untrusted ones.
+    """
+    for name in _COMMITMENT_FIELDS:
+        value = claim.get(name)
+        if not (isinstance(value, str) and _COMMIT_RE.match(value)):
+            return (f"{name} must be a salted commitment sha256:<64 lowercase hex>, the form "
+                    f"salted_commit produces; got {render_safe(value)}")
+    for name in _STRING_FIELDS:
+        if name in claim and not isinstance(claim[name], str):
+            return f"{name} must be a string, got {render_safe(claim[name])}"
+    if "ci95" in claim:
+        ci95 = claim["ci95"]
+        # A tuple is accepted as an array on the emit path, where a caller hands a Python object and
+        # the canonicalizer writes it as one; a decoded payload only ever holds lists.
+        if not (isinstance(ci95, (list, tuple)) and len(ci95) == 2
+                and all(isinstance(x, str) and _DECIMAL_RE.match(x) for x in ci95)):
+            return ("ci95 must be exactly two plain decimal strings (^-?[0-9]+(\\.[0-9]+)?$), "
+                    f"got {render_safe(ci95)}")
+    for name in _OBJECT_FIELDS:
+        if name in claim and not isinstance(claim[name], dict):
+            return f"{name} must be a JSON object, got {render_safe(claim[name])}"
+    return None
+
+
 def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: Sequence[bytes] = (),
                       sd_jwt: Optional[dict] = None) -> dict:
     """Emit a proofbundle/v0.1 bundle whose payload is the canonical eval claim.
 
     Sets `issuer` to the signer's fingerprint automatically (binding the receipt to the key),
     canonicalizes, and calls emit_bundle. The returned bundle is verified unchanged by verify_bundle.
+
+    Refuses, with ``EvalClaimError`` naming the field, a claim outside the published schema on the
+    fields ``_schema_domain_violation`` covers, the two commitments first among them, so a receipt
+    the verify boundary would refuse on those fields is never signed. It does not repeat the verify
+    boundary's older checks; see that function.
     """
     claim = dict(claim)
     claim["issuer"] = issuer_fingerprint(signer)
@@ -287,6 +340,13 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     extra = set(claim) - _REQUIRED - _OPTIONAL
     if extra:
         raise EvalClaimError(f"claim has unknown fields: {render_keys_safe(extra)}")
+    # R-B1: measured at 126ed1dc, this function signed `model_id_commit: "sha256:x"`, and the
+    # receipt it produced decoded, because the verify boundary did not check the pattern either.
+    # Before canonicalization, so the reason names the field rather than a float or a number that
+    # the canonicalizer happens to meet first.
+    reason = _schema_domain_violation(claim)
+    if reason is not None:
+        raise EvalClaimError(reason)
     payload = canonicalize(claim)
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
@@ -308,6 +368,15 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     about the committed tree size is rejected. ``expected_context`` enforces the signed
     ``context_binding`` field (cross-context replay guard): if supplied and the claim's binding
     is absent or different, the claim is rejected.
+
+    R-B1 (6.2.0): the constraints of ``schemas/eval_claim_v0_1.schema.json`` that the older checks
+    did not reach are refused here as well, through ``_schema_domain_violation``, the predicate the
+    emitter shares: both commitment patterns, six string types, ``ci95``, ``provenance`` and
+    ``samples`` as objects, and ``samples.n >= 1``. The boundary stays STRICTER than the schema in
+    three places (``assurance_level`` required, ``n <= 2**53-1``, a 32-byte samples root), and it
+    is meant to accept nothing the schema rejects.
+    ``tests/test_eval_claim_commitment_pattern_holds.py`` measures that with ``jsonschema`` as the
+    oracle over a generated corpus; a measurement over that corpus, not a proof over every input.
     """
     try:
         if isinstance(bundle, str):
@@ -404,14 +473,16 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             return None
         if claim.get("commit_alg") != COMMIT_ALG:           # schema: const sha256-salted-v1
             return None
-        # NOT ENFORCED HERE, and deliberately so: the schema's `^sha256:[0-9a-f]{64}$` on
-        # `model_id_commit` and `dataset_id_commit`. Enforcing it is correct and `salted_commit`
-        # always produces that form, but five existing CLI tests sign claims with placeholder
-        # commitments (`sha256:x`), so the check turns them red. Rewriting five house tests so a
-        # new check passes is not a thing to do inside a release cut whose order says no scope is
-        # added; it is its own change, with its own measurement of what else signs placeholders.
-        # Carried as COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, target 6.2.0, and named
-        # in tests/test_eval_claim_domains_are_enforced.py so it cannot be forgotten quietly.
+        # R-B1, register entry COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01. A comment stood
+        # here for one release saying the schema's `^sha256:[0-9a-f]{64}$` on both commitments was
+        # deliberately NOT enforced, because house tests signed `sha256:x`. Measured at 126ed1dc: a
+        # hand-signed `sha256:x`, `not-a-commitment`, upper-case hex and a bare `x` each decoded,
+        # and `show-eval --expect-issuer` printed `commit sha256:x` under `=> OK`. The sweep for
+        # the class found the neighbours in this same function: six string fields and
+        # `provenance` untyped, `ci95` unshaped, and null in an optional field read as absent while
+        # the schema types it. One predicate, shared with the emitter.
+        if _schema_domain_violation(claim) is not None:
+            return None
         samples = claim.get("samples")
         if samples is not None:
             if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:
@@ -423,6 +494,11 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             # type-check BOTH sides (release-review #8): a bool/non-int claim.n must not slip through the equality
             if (isinstance(s_n, bool) or not isinstance(s_n, int)
                     or isinstance(c_n, bool) or not isinstance(c_n, int) or s_n != c_n):
+                return None
+            # schema: samples.n minimum 1. The equality above let n == samples.n == 0 through, and
+            # a committed tree over zero samples is not one that build_eval_claim or
+            # build_sample_tree makes.
+            if s_n < 1:
                 return None
             if len(decode_b64(samples["root_b64"])) != 32:
                 return None

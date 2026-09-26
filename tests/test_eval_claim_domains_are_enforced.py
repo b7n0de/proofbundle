@@ -7,6 +7,11 @@ boundary used to implement only part of it: `schema`, `comparator`, `threshold` 
 hand-signed claims: 7 of 7 were accepted, `commit_alg: "md5-plain"` among them — a signed claim
 naming a commitment algorithm the receipt does not use.
 
+The two commitment patterns closed last, with R-B1 (6.2.0), and `ci95` is the other half of that
+change: it stood in the open-field list below while the schema gives it `minItems`, `maxItems` and
+a pattern on its items, because the generator read only top-level keywords and so derived nothing
+for it. Measured at `126ed1dc`, all three of its constraints were accepted at the boundary.
+
 THE CASES ARE DERIVED FROM THE SCHEMA, not listed here. A constraint added to the schema tomorrow
 produces a case tomorrow, without anyone remembering to come back to this file. That is the
 difference between closing this instance and closing the class: the previous round fixed the three
@@ -30,25 +35,25 @@ from proofbundle.evalclaim import build_eval_claim, decode_eval_claim, issuer_fi
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((REPO / "schemas" / "eval_claim_v0_1.schema.json").read_text())
 
-# Fields the schema deliberately leaves open. Listed so the generator below cannot silently produce
-# nothing for them and call that coverage.
-OHNE_DOMAENE = {"ci95", "context_binding", "evaluation_card_sha256", "multiple_testing", "passed",
+# Fields for which the generator below derives no case. Listed so it cannot silently produce nothing
+# for them and call that coverage. Each has a TYPE and no value domain beyond it, except `samples`,
+# whose constraints sit one level down in its own `properties`; the types and `samples` are held by
+# tests/test_eval_claim_commitment_pattern_holds.py (with jsonschema as the oracle) and by the
+# verify-side cases in tests/test_persample.py.
+OHNE_DOMAENE = {"context_binding", "evaluation_card_sha256", "multiple_testing", "passed",
                 "prereg_sha256", "provenance", "samples", "suite_version", "timestamp"}
 
-# Domains the schema documents and this boundary does NOT yet enforce, each with its reason. The
-# two commitment patterns are correct to enforce and `salted_commit` always produces that form, but
-# five existing CLI tests sign claims with placeholder commitments (`sha256:x`), so the check turns
-# them red. That is its own change with its own measurement, not a passenger on a release cut whose
-# order adds no scope. Carried as COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, target 6.2.0.
+# Domains the schema documents and this boundary does NOT yet enforce, each with its reason. EMPTY
+# since R-B1 (6.2.0). The two commitment patterns stood here, as
+# COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01, until the house tests that signed placeholder
+# commitments (`sha256:x`) carried the form `salted_commit` produces and both boundaries enforced
+# the pattern. An empty list still does its job: a gap added here that is already enforced fails.
 #
 # THIS LIST FAILS IN BOTH DIRECTIONS. An entry that is still open keeps the test green and keeps the
 # gap visible; an entry that has since been CLOSED fails the test and asks to be deleted. An
 # allowlist that only ever grows is how a temporary exception becomes permanent, and this project
 # has paid for that shape before.
-BEKANNTE_LUECKEN = {
-    ("model_id_commit", "pattern"),
-    ("dataset_id_commit", "pattern"),
-}
+BEKANNTE_LUECKEN: set[tuple[str, str]] = set()
 
 
 def _verletzungen(feld, regeln):
@@ -66,6 +71,16 @@ def _verletzungen(feld, regeln):
         aus.append(("enum", "not-a-member-of-the-enum"))
     if "pattern" in regeln:
         aus.append(("pattern", "does-not-match-the-pattern"))
+    # Array constraints, derived the same way. Each case keeps the array's other rules intact so it
+    # is refused for the rule it names: "0" matches the decimal pattern on the schema's only array
+    # (`ci95`), and the items case keeps the length at minItems.
+    if regeln.get("minItems", 0) >= 1:
+        aus.append(("minItems", ["0"] * (regeln["minItems"] - 1)))
+    if "maxItems" in regeln:
+        aus.append(("maxItems", ["0"] * (regeln["maxItems"] + 1)))
+    if "pattern" in regeln.get("items", {}):
+        laenge = max(regeln.get("minItems", 1), 1)
+        aus.append(("items.pattern", ["does-not-match-the-pattern"] * laenge))
     return aus
 
 
@@ -108,8 +123,9 @@ class TestEveryDocumentedDomainIsEnforced(unittest.TestCase):
                         continue
                     self.assertIsNone(ergebnis,
                                       f"{feld} violates its documented {art} and was accepted")
-        # A generator that produced nothing would pass this test in silence.
-        self.assertGreaterEqual(geprueft, 11, "the schema stopped yielding constraints — either it "
+        # A generator that produced nothing would pass this test in silence. 14 is the count on the
+        # schema as published: eleven top-level constraints plus the three of `ci95`.
+        self.assertGreaterEqual(geprueft, 14, "the schema stopped yielding constraints — either it "
                                               "changed or the generator no longer reads it")
 
     def test_the_upper_bound_from_the_prose_spec_is_enforced_too(self):

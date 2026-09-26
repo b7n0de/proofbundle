@@ -10,6 +10,52 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The commitment pattern holds at the verify boundary and at emit, and so does the rest of the
+  published claim schema** (release scope line R-B1, register entry
+  `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`, `src/proofbundle/evalclaim.py`).
+  `schemas/eval_claim_v0_1.schema.json` documents `^sha256:[0-9a-f]{64}$` for `model_id_commit`
+  and `dataset_id_commit`, and `_COMMIT_RE` carried that pattern without a caller. Measured on main
+  126ed1dc with correctly signed, hand-built claims: `sha256:x`, `not-a-commitment`, `sha256:`
+  followed by 64 upper-case hex digits, and a bare `x` each decoded and classified `valid`;
+  `emit_eval_receipt` signed `sha256:x`; and `proofbundle show-eval --expect-issuer <the signer>`
+  printed `commit sha256:x` and `=> OK` with exit 0. Both boundaries now refuse such a claim
+  through one predicate, `_schema_domain_violation`: `decode_eval_claim` returns None,
+  `classify_eval_claim` answers `invalid`, `emit_eval_receipt` raises `EvalClaimError` naming the
+  field before anything is signed, `emit-eval` exits 2 and `show-eval` exits 1.
+
+  The sweep for the class found the neighbours in the same function. The boundary did not check
+  the string type of `suite_version`, `timestamp`, `context_binding`, `multiple_testing`,
+  `prereg_sha256` and `evaluation_card_sha256`, the object type of `provenance`, `ci95` as exactly
+  two decimal strings, `samples.n >= 1`, or null in an optional field, which it read as absent
+  while the schema types the field. All of these are refused now. The emitter refuses them too,
+  except `samples.n`: the emitter checks that `samples` is an object, not what
+  is inside it. One consequence
+  for A-19: `build_eval_claim(ci95=[nan, inf])` still returns `["nan", "inf"]`, but
+  `emit_eval_receipt` no longer signs it.
+
+  A stricter check, and under `COMPATIBILITY.md` a fix rather than a break: every claim now refused
+  at decode or at emit was already invalid under `schemas/eval_claim_v0_1.schema.json`. From the
+  outside it looks like a break, which is why this says so. Claims that `build_eval_claim` produces
+  from valid inputs pass as before.
+
+  Contract `tests/test_eval_claim_commitment_pattern_holds.py`. It also holds the class invariant
+  against `jsonschema` as an independent oracle: nothing the boundary accepts may be rejected by the
+  schema. The corpus is 444 hand-signed claims: every schema property set to each of 21 values
+  covering every JSON type, plus three samples cases. On 126ed1dc the boundary accepted 171 claims
+  that the schema rejects; now it accepts none. `tests/test_eval_claim_domains_are_enforced.py`
+  has an empty `BEKANNTE_LUECKEN` and derives the three array constraints of `ci95`. Catch proof
+  against 126ed1dc: every non-control case of the two files is red there.
+
+  The placeholder fixtures, measured on the full suite with the check in place and the old
+  fixtures: seven existing tests in three files signed `sha256:x` / `sha256:y` and turned red,
+  four of the five in `tests/test_cli_eval.py`, one in `tests/test_eval_evidence_class.py` and two
+  in `tests/test_persample.py`. The 6.2.0 scope's "four of five" holds for the one file it counted;
+  `RESTRISIKO_610.md` says both "five" and "4 red", and neither document counted the other two
+  files. Three more cases in `tests/test_persample.py` would have stayed green for the wrong reason:
+  they expect a refusal and got it from the placeholder, not from the samples defect each one names.
+  All ten now carry the commitment form `salted_commit` produces. The two `BEKANNTE_LUECKEN`
+  subtests went red as well, which is what that list is built to do.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust
