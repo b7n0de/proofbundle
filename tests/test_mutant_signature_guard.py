@@ -87,10 +87,10 @@ class TestStagedMode(_RepoFixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_a_path_git_quotes_is_read_as_the_path_it_names(self):
-        """A byte outside ASCII, a double quote and a backslash in a name make git quote the diff
-        header. Each planted mutant is caught and named by its real path (2026-09-26: the first one
-        was reported clean with exit 0)."""
-        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+        """A byte outside ASCII, a double quote, a backslash or a newline in a name make git quote the
+        diff header. Each planted mutant is caught and named by its real path (2026-09-26: the first
+        and the last were reported clean with exit 0)."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py", "a\nb.py"):
             with self.subTest(name=name):
                 p = self.repo / "src" / "proofbundle" / name
                 self._stage("if False:\n    pass\n", path=p)
@@ -267,9 +267,10 @@ class TestBaseMode(_RepoFixture):
         self.assertIn("trivial-truth branch", r.stdout)
 
     def test_committed_mutant_under_a_quoted_path_is_blocked(self):
-        """The same three names as in the staged form: a byte outside ASCII, a double quote and a
-        backslash (a review lens, 2026-09-26: the base form had only the first)."""
-        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+        """The same names as in the staged form: a byte outside ASCII, a double quote, a backslash
+        and a newline (review lenses, 2026-09-26: the base form had only the first, and a newline
+        stopped the path pattern)."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py", "a\nb.py"):
             with self.subTest(name=name):
                 base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
                 (self.repo / "src" / "proofbundle" / name).write_text("if False:\n    pass\n",

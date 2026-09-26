@@ -56,7 +56,10 @@ def _repo_root() -> Path:
     return Path(proc.stdout.strip())
 
 
-_SECURITY_PATH = re.compile(r"^src/proofbundle/.*\.py$")
+#: `.` crosses a newline here: git writes a name with a newline quoted, the header decoder gives the
+#: real name back, and without DOTALL `.*` stopped at it, so a mutant in such a file passed with
+#: exit 0 (a review lens, measured 2026-09-26). The name ends where the value ends.
+_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.py\Z", re.DOTALL)
 _ALLOW_MARKER = "mutant-guard: allow"
 
 # Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).
