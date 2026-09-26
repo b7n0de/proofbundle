@@ -117,16 +117,22 @@ or either order-8 value, under both x-sign bits); a verifier refuses such a key
 before any signature arithmetic. This covers the keys a relying party supplies
 (trust-policy pins, a DSSE verification key such as `--pub`, C2SP log and witness
 vkeys of §7c/§7d, a status-list issuer key, a time-authority key, a RATS Verifier
-key, trust-pack root keys and a caller-supplied previous root) and the keys that
+key, trust-pack keys of every role and a caller-supplied previous root, the
+classical leg of a hybrid signature, an AGT authorizer key) and the keys that
 authenticate on another party's behalf (the SD-JWT issuer key of §6, the KB-JWT
 holder key). A refused vkey is a malformed input; any other refused key simply
 verifies nothing. The bundle's own key keeps the §4a profile: it is in-band, and
 trust in it comes from a pin that already carries this rule.
 
 A key that passes has exactly one encoding, so counting DISTINCT key material
-(§7d witness quorums, trust-pack thresholds) counts distinct points. A
-mixed-order key is not refused: signing under it still needs the secret of its
-prime-order part. The rule is `signature.ed25519_trust_anchor_weakness`, and the
+(§7d witness quorums, trust-pack thresholds) counts distinct points. Distinct
+points are NOT distinct secrets or parties. A mixed-order key is not refused, and
+whoever holds the secret of a key can also sign under its mixed-order variants
+(up to eight) after a few tries per signature; this was measured against this
+implementation, including a 2-of-2 witness quorum met by two variants of one key.
+No forgery without a secret follows from that, but a quorum or threshold counts
+keys, and whether they belong to different parties is a property of the roster,
+as it is for any party that simply holds several keys. The rule is `signature.ed25519_trust_anchor_weakness`, and the
 independent Rust verifier applies the same rule on its DSSE, attached-target,
 SD-JWT and trust-pack paths.
 

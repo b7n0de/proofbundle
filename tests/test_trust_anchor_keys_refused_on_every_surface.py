@@ -20,7 +20,9 @@ WHAT IS PINNED HERE. The rule itself (`signature.ed25519_trust_anchor_weakness`)
 with a real forgery made by nobody next to a positive control made by a real key, so a refusal
 cannot come from a fixture that fails for any reason at all. The last class is the sweep: every
 Ed25519 verification in the package goes through the rule, except the two in-band keys named with
-their reason, and a new call site that bypasses it turns this file red.
+their reason. A new verification in any spelling the sweep models (a call, an import alias, a
+`getattr` string, the `cryptography` key class) turns this file red; `_sweep_source` names the
+spellings it cannot see.
 
 WHAT IS NOT CHANGED, on purpose. `verify_ed25519` keeps the SPEC section 4a profile: a bundle's own
 key is in-band, its trust comes from a policy pin, and switching that profile is a versioned change.
@@ -507,8 +509,56 @@ class RustParity(unittest.TestCase):
             path = Path(d) / "pack.json"
             path.write_text(json.dumps(env), encoding="utf-8")
             out = self._run("verify-trust-pack-threshold", str(path))
-        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
-        self.assertIn("root_threshold_met=false signers=0", out.stdout)
+        # Refused as malformed before any signature is counted, as Python's validator refuses the pack.
+        self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertIn("keys['l1'].publicKey is a low-order", out.stdout)
+
+    def test_a_weak_key_in_another_role_gets_the_same_verdict_on_both_sides(self):
+        """Gate lens 2 (L2-PK-01): real root signatures and a weak `decisionMakers` key. Python's
+        validator refused the pack while the Rust slice, reading only the root role, said OK."""
+        import tempfile
+        from proofbundle.trust_pack import (INTOTO_STATEMENT_PAYLOAD_TYPE, _rfc8785_bytes,
+                                            verify_trust_pack)
+        r1, r2 = generate_signer(), generate_signer()
+        pred = {"schemaVersion": "0.1.0", "trustPackId": "tp", "version": 1,
+                "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+                "roles": {"root": {"keyIds": ["r1", "r2"], "threshold": 2},
+                          "decisionMakers": {"keyIds": ["dm1"], "threshold": 1}},
+                "keys": {"r1": {"publicKey": _b64(_raw(r1))}, "r2": {"publicKey": _b64(_raw(r2))},
+                         "dm1": {"publicKey": _b64(b"\x00" * 32)}},
+                "nonClaims": ["does not assert the key holders are honest"]}
+        stmt = {"_type": "https://in-toto.io/Statement/v1",
+                "subject": [{"name": "trust-pack:tp:v1", "digest": {"sha256": "a" * 64}}],
+                "predicateType": "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1",
+                "predicate": pred}
+        body = _rfc8785_bytes(stmt)
+        msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
+        env = {"payload": _b64(body), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
+               "signatures": [{"keyid": "r1", "sig": _b64(r1.sign(msg))},
+                              {"keyid": "r2", "sig": _b64(r2.sign(msg))}]}
+        py = verify_trust_pack(env)
+        self.assertIs(py["ok"], False)
+        self.assertTrue(any("keys['dm1']" in e and "low-order" in e for e in py["errors"]), py["errors"])
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "pack.json"
+            path.write_text(json.dumps(env), encoding="utf-8")
+            out = self._run("verify-trust-pack-threshold", str(path))
+        self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertIn("keys['dm1'].publicKey is a low-order", out.stdout)
+        # positive control: the same pack with a real decisionMakers key is accepted by both
+        dm = generate_signer()
+        pred["keys"]["dm1"] = {"publicKey": _b64(_raw(dm))}
+        body = _rfc8785_bytes(stmt)
+        msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
+        env = {"payload": _b64(body), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
+               "signatures": [{"keyid": "r1", "sig": _b64(r1.sign(msg))},
+                              {"keyid": "r2", "sig": _b64(r2.sign(msg))}]}
+        self.assertIs(verify_trust_pack(env)["root_threshold_met"], True)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "pack.json"
+            path.write_text(json.dumps(env), encoding="utf-8")
+            out = self._run("verify-trust-pack-threshold", str(path))
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
 # The two keys that stay on the bare SPEC section 4a profile, with their reason. Nothing else may.
@@ -521,6 +571,44 @@ IN_BAND = {
 }
 
 
+_BARE = "verify_ed25519"
+_KEY_CLASS = "Ed25519PublicKey"
+
+
+def _sweep_source(rel: str, text: str) -> list:
+    """Every way a module in the package reaches the bare Ed25519 profile, as (rel, line, spelling).
+
+    Lens 3 of the gate on this change planted four spellings of a bypass in a new module and the
+    first version of this sweep, which matched only the names `verify_ed25519` and
+    `from_public_bytes`, missed two of them: an import alias (`import verify_ed25519 as v; v(...)`)
+    and `getattr(signature, "verify_ed25519")`. It now follows the module's own imports of the bare
+    primitive under any alias, counts the name as a string (the `getattr` form), and counts every
+    reference to the `cryptography` key class, since constructing an Ed25519 public key outside
+    `signature.py` is a second path to the same arithmetic. What it cannot see, said here so it is not
+    read into it: a name built at run time ("verify_" + "ed25519"), `importlib`, `exec`."""
+    tree = ast.parse(text)
+    names = {_BARE}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == _BARE:
+                    names.add(alias.asname or alias.name)
+    found = []
+    for node in ast.walk(tree):
+        spelling = None
+        if isinstance(node, ast.ImportFrom) and any(a.name in (_BARE, _KEY_CLASS) for a in node.names):
+            spelling = "import of " + ", ".join(a.name for a in node.names if a.name in (_BARE, _KEY_CLASS))
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in names | {_KEY_CLASS}:
+            spelling = f"name {node.id}"
+        elif isinstance(node, ast.Attribute) and node.attr in (_BARE, _KEY_CLASS):
+            spelling = f"attribute {node.attr}"
+        elif isinstance(node, ast.Constant) and node.value in (_BARE, _KEY_CLASS):
+            spelling = f"string {node.value!r}"
+        if spelling:
+            found.append((rel, node.lineno, spelling))
+    return found
+
+
 class TheSweep(unittest.TestCase):
     """Generator, not fixture: every Ed25519 verification in the package is classified."""
 
@@ -528,34 +616,38 @@ class TheSweep(unittest.TestCase):
         found = []
         for path in sorted(SRC.rglob("*.py")):
             rel = path.relative_to(SRC).as_posix()
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                name = None
-                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                    name = node.id
-                elif isinstance(node, ast.Attribute):
-                    name = node.attr
-                if name in ("verify_ed25519", "from_public_bytes") and rel != "signature.py":
-                    found.append((rel, node.lineno, name))
+            if rel != "signature.py":
+                found += _sweep_source(rel, path.read_text(encoding="utf-8"))
         return found
 
     def test_no_verification_bypasses_the_rule_outside_the_named_in_band_keys(self):
-        stray = []
-        for rel, line, name in self._uses():
-            if name == "from_public_bytes":
-                src = (SRC / rel).read_text(encoding="utf-8").splitlines()[line - 1]
-                if "MLDSA" in src or "pub_cls" in src:
-                    continue          # ML-DSA keys, not Ed25519
-                stray.append(f"{rel}:{line} constructs an Ed25519 key outside signature.py")
-            elif rel not in IN_BAND:
-                stray.append(f"{rel}:{line} uses bare verify_ed25519")
+        stray = [f"{rel}:{line} {spelling}" for rel, line, spelling in self._uses()
+                 if rel not in IN_BAND or _KEY_CLASS in spelling]
         self.assertEqual(stray, [], "a trusted key reaches the bare SPEC 4a profile; route it through "
                                     "verify_ed25519_pinned or name it in IN_BAND with its reason")
 
     def test_the_sweep_sees_the_named_in_band_uses(self):
         """Counter-direction: a sweep that finds nothing proves nothing."""
-        seen = {rel for rel, _l, name in self._uses() if name == "verify_ed25519"}
+        seen = {rel for rel, _l, spelling in self._uses() if _BARE in spelling}
         self.assertEqual(seen, set(IN_BAND))
+
+    def test_the_sweep_catches_every_spelling_lens_3_planted(self):
+        planted = {
+            "a bare call": "from .signature import verify_ed25519\nverify_ed25519(k, s, m)\n",
+            "an import alias": "from .signature import verify_ed25519 as v\nv(k, s, m)\n",
+            "getattr on the module": "from . import signature\ngetattr(signature, 'verify_ed25519')(k, s, m)\n",
+            "the cryptography class": ("from cryptography.hazmat.primitives.asymmetric.ed25519 import "
+                                       "Ed25519PublicKey\nEd25519PublicKey.from_public_bytes(k).verify(s, m)\n"),
+            "the class under an alias": ("from cryptography.hazmat.primitives.asymmetric.ed25519 import "
+                                         "Ed25519PublicKey as K\nK.from_public_bytes(k)\n"),
+            "the class through its module": ("from cryptography.hazmat.primitives.asymmetric import ed25519\n"
+                                             "ed25519.Ed25519PublicKey.from_public_bytes(k)\n"),
+        }
+        for label, text in planted.items():
+            with self.subTest(spelling=label):
+                self.assertNotEqual(_sweep_source("planted.py", text), [], label)
+        clean = "from .signature import verify_ed25519_pinned\nverify_ed25519_pinned(k, s, m)\n"
+        self.assertEqual(_sweep_source("clean.py", clean), [])
 
 
 if __name__ == "__main__":

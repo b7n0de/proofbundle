@@ -407,6 +407,15 @@
       ],
       "notes": "Ed25519 (RFC 8032) primitive used inside both verify-dsse and verify-bundle; exercised by both."
     },
+    "proofbundle.signature.verify_ed25519_pinned": {
+      "status": "PARTIAL",
+      "rust_subcommands": [
+        "verify-dsse",
+        "verify-trust-pack-threshold"
+      ],
+      "crosscheck_refs": [],
+      "notes": "Ed25519 verify for a key the caller relies on: refuses a non-canonical or low-order key (SPEC section 4b, deep gate Z195) before any signature arithmetic. The Rust verifier applies the same byte rule (schwaeche_eines_vertrauensankers) on its verify-dsse, verify-relation attached-target, verify-bundle SD-JWT issuer and verify-trust-pack-threshold paths. Agreement over the weak-key corpus is measured by tests/test_trust_anchor_keys_refused_on_every_surface.py::RustParity, not by crosscheck.py. PARTIAL because no subcommand exposes the primitive on its own."
+    },
     "proofbundle.statuslist.verify_status_snapshot": {
       "status": "PENDING",
       "rust_subcommands": [],

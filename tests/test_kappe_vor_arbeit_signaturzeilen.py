@@ -77,22 +77,25 @@ class _Fixture:
 
 
 class _Zaehler:
-    """Zählt die Ed25519-Verifikationen im Modul checkpoint."""
+    """Zählt die Ed25519-Verifikationen im Modul checkpoint.
+
+    Seit Z195 (Vertrauensanker-Regel) ruft checkpoint `verify_ed25519_pinned`, nicht mehr das nackte
+    Primitiv; gezählt wird der Name, den das Modul wirklich aufruft."""
 
     def __init__(self):
         self.n = 0
 
     def __enter__(self):
-        self._orig = checkpoint.verify_ed25519
+        self._orig = checkpoint.verify_ed25519_pinned
 
         def zaehl(*a, **k):
             self.n += 1
             return self._orig(*a, **k)
-        checkpoint.verify_ed25519 = zaehl
+        checkpoint.verify_ed25519_pinned = zaehl
         return self
 
     def __exit__(self, *_):
-        checkpoint.verify_ed25519 = self._orig
+        checkpoint.verify_ed25519_pinned = self._orig
 
 
 class DieKappeGreiftVorDerErstenVerifikation(unittest.TestCase):

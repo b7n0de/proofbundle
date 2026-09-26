@@ -23,8 +23,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   key, the SD-JWT issuer key, trust-pack keys and caller-supplied previous root keys, the RATS Verifier
   key, and the AGT adapter's authorizer key, which now goes through the house primitive and whose
   "distinct from the signer" check compares key bytes instead of hex spellings. The independent Rust
-  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths. The bundle's
-  own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses the rule.
+  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths, and like the
+  Python validator it refuses a trust pack with a weak key in any role, not only in the root role. The
+  bundle's own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses
+  the rule in any spelling it models: a call, an import alias, a `getattr` string or the `cryptography`
+  key class. Distinct keys are still not distinct parties: one secret can sign under the mixed-order
+  variants of its key, which SPEC §4b now says.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

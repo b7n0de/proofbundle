@@ -991,6 +991,34 @@ fn verify_trust_pack_threshold(
             BUDGET_WITNESSES,
         ));
     }
+    // Deep gate NORMAL on the Z195 fix, lens 2 (L2-PK-01): Python's `validate_trust_pack_predicate`
+    // refuses a pack whose `keys` carries a weak Ed25519 key in ANY role, because a pack is the root of
+    // trust and every role's key is an anchor. This slice read only the root role, so a pack with real
+    // root signatures and a low-order `decisionMakers` key was `ok=False` in Python and `OK` here.
+    // Same bytes, opposite verdicts. The same rule over every key, in Python's words.
+    for (kid, kv) in keys {
+        let alg = kv.get("alg").and_then(|v| v.as_str()).unwrap_or("ed25519");
+        let label = match alg {
+            "ed25519" => "Ed25519",
+            "hybrid-ed25519-mldsa65" => "Ed25519 (hybrid classical leg)",
+            _ => continue,
+        };
+        let Some(pub_b64) = kv.get("publicKey").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Ok(roh) = b64_strict(pub_b64) else {
+            continue;
+        };
+        let Ok(arr): Result<[u8; 32], _> = roh.as_slice().try_into() else {
+            continue;
+        };
+        if let Some(schwaeche) = schwaeche_eines_vertrauensankers(&arr) {
+            return Err(format!(
+                "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} a fixed signature \
+                 verifies under it for every message with no private key (fail-closed)"
+            ));
+        }
+    }
     let revoked: HashSet<String> = predicate
         .get("revoked")
         .and_then(|v| v.as_array())
@@ -1054,12 +1082,11 @@ fn verify_trust_pack_threshold(
         if valid_root.contains(&pk_arr) {
             continue; // same key material already counted under a different keyId (aliasing defense)
         }
-        // A root key is a trust anchor: a weak one never counts toward the threshold, as in Python
-        // `trust_pack._verify_signature_for_alg` (Z195, L1-Z195-01). With it, distinct bytes are
-        // distinct points, so the aliasing defense above counts points.
-        if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
-            continue;
-        }
+        // No weak-key check here: the scan over every key above already refused the pack, and a
+        // second check in this loop would be code no case can reach (Rust has no caller-supplied
+        // previous root, which is what keeps the loop check alive on the Python side). Because every
+        // key that gets here passed the rule, distinct bytes are distinct points, and the aliasing
+        // defense above counts points.
         let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
             continue;
         };
@@ -3229,13 +3256,26 @@ mod tests {
         let env = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
             "payload": std.encode(body),
             "signatures": [{"keyid": "l1", "sig": sig}, {"keyid": "l2", "sig": sig}]});
-        let (met, signers, threshold, _) =
-            verify_trust_pack_threshold(&env).expect("well-formed envelope");
-        assert!(
-            !met,
-            "two encodings of the identity met a threshold of {threshold}"
-        );
-        assert_eq!(signers, 0);
+        // The pack is refused before any signature is counted, as Python's validator refuses it.
+        let e = verify_trust_pack_threshold(&env)
+            .expect_err("two encodings of the identity were counted toward a threshold");
+        assert!(e.contains("keys['l1']") && e.contains("low-order"), "{e}");
+    }
+
+    #[test]
+    fn a_weak_key_in_any_role_refuses_the_pack() {
+        // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement = serde_json::json!({"predicate": {
+            "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
+                     "dm1": {"publicKey": std.encode([0u8; 32])}},
+            "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
+                      "decisionMakers": {"keyIds": ["dm1"], "threshold": 1}}}});
+        let body = serde_json::to_vec(&statement).expect("json");
+        let env = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(body), "signatures": [{"keyid": "r1", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&env).expect_err("a pack with a weak key was judged");
+        assert!(e.contains("keys['dm1']") && e.contains("low-order"), "{e}");
     }
 
     #[test]

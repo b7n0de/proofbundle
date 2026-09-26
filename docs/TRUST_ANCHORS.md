@@ -24,11 +24,14 @@ where *your* trust decision actually lives.** The signature binds who claimed wh
 right keys is what makes "who" mean someone you trust.
 
 **A pinned key is never a low-order or non-canonical Ed25519 key** (SPEC §4b). Under such a key one
-fixed signature verifies for every message and no one holds a private key for it, so every anchor in
-the table except the bundle issuer key refuses it before any signature is checked: a vkey carrying it is
-malformed, and any other surface simply verifies nothing under it. A key that passes has one encoding,
-which is what makes "deduped by key material" for witnesses and trust-pack roots a count of distinct
-points.
+fixed signature verifies for every message and no one holds a private key for it. So every anchor in
+the table except the bundle issuer key refuses it before any signature is checked, and so do trust-pack
+keys, renewal time-authority keys, the classical leg of a hybrid signature and an AGT authorizer key: a
+vkey carrying it is malformed, and any other surface simply verifies nothing under it. A key that passes
+has one encoding, which is what makes "deduped by key material" for witnesses and trust-pack roots a
+count of distinct points. Distinct points are not distinct parties: one secret can also sign under the
+mixed-order variants of its key, so which keys belong to independent parties stays a question for your
+roster.
 
 ## Making the pinning machine-readable — a trust policy (v0.1)
 
