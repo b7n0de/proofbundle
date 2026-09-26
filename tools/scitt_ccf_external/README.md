@@ -463,8 +463,9 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
     python3 consistency_probe.py measure --run RUN --leaves RUN/leaves.json \
         --tdev-merkle-clone PATH --vector-out ../../tests/fixtures/scitt_ccf/local_ledger_consistency.json
     python3 consistency_probe.py exhaustive --max-n 257 --tdev-merkle-clone PATH    # needs go
-    python3 differential_corpus.py --service-cert CERT --ledger-commit SHA --image-id ID \
+    python3 differential_corpus.py run --service-cert CERT --ledger-commit SHA --image-id ID \
         --build-inputs FILE                          # a ledger running and opened, as above
+    python3 differential_corpus.py derive --check    # offline: the summaries are derived from the bytes
 
 `fetch_external.py` exits 1 on a digest mismatch and 2 when a source is unreachable; the other
 two exit 2 when the fetched files are missing.
@@ -487,7 +488,7 @@ two exit 2 when the fetched files are missing.
 | `consistency_result.json` | the recorded runs of 2026-09-25 (run 2 and the exhaustive check) |
 | `SECTION4_WGLC.md` | section 4 read rule by rule, the measurements, and the gaps as questions |
 | `differential_corpus.py` | a control and one-variable mutations in six classes, registered on a local ledger; the chain per accepted vector, refusals in an admissibility matrix |
-| `differential_corpus/` | the recorded run of 2026-09-26: `README.md`, `summary.json`, `admissibility.json`, one record per vector in `vectors/` |
+| `differential_corpus/` | the recorded run of 2026-09-26 as raw hex text: `vectors/<id>/` holds request, receipt, returned statement and `record.json`; `summary.json` and `admissibility.json` are derived by `differential_corpus.py derive` |
 | `.gitignore` | keeps `fetched/` out of the repository |
 
 ---

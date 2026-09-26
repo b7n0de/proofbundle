@@ -36,17 +36,13 @@
    "cryptography": "50.0.1"
   }
  },
- "service_keyset_b64": "gaUBAgJYQDM0NzRmNWJjOTcxMzg5NDFhMTkyOTQ4MjEzZGEyYTFjNmMyZmIxYWYzMzk0YzAxYzM2NjZlMzk4NzM1OTkzZDYgAiFYMGThe7KGLybBo6Ktv8axuPlorDzqiJhgfJEofGr7OYOmZ7/ZO5nJfEXqOWweU64wXyJYMKVm23AUg70XYvue90mQtgn8nZ6SyjhZ4hDfYslxtWYfmQidBqVNPV4QhLeN1FW3vg==",
- "service_keyset_sha256": "dc691c467662826e34be101bdeda55b38fcb6c67989275a6994e48ece84fbf0d",
- "image_build_inputs": {
-  "ccf_version": "7.0.17",
-  "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
-  "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
-  "tdnf_snapshottime": "1790165199"
+ "service_keyset": {
+  "file": "scitt-keys.hex",
+  "sha256": "dc691c467662826e34be101bdeda55b38fcb6c67989275a6994e48ece84fbf0d"
  },
  "signer": {
   "did": "did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBdYI2w::subject:CN:proofbundle-scitt-probe",
-  "spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQI90JDgE1l5C6juh0dOxqY67YyY0q6ZkxfJe3vgBbAwZqJzcvv+NsYhJvbru30DuKof1BiE9usGxpO+j2WkNYQ==",
+  "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004408f74243804d65e42ea3ba1d1d3b1a98ebb632634aba664c5f25edef8016c0c19a89cdcbeff8db18849bdbaeedf40ee2a87f506213dbac1b1a4efa3d9690d61",
   "alg": "ES256",
   "note": "made for this run, private key discarded"
  },

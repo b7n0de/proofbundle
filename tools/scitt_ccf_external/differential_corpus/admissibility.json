@@ -48,7 +48,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 2: indefinite length"
    },
-   "file": "vectors/b03-indefinite1.json"
+   "files": "vectors/b03-indefinite1/"
   },
   {
    "id": "b04-indefinite2",
@@ -62,7 +62,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 2: indefinite length"
    },
-   "file": "vectors/b04-indefinite2.json"
+   "files": "vectors/b04-indefinite2/"
   },
   {
    "id": "c04-indefinite1",
@@ -76,7 +76,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 1040: indefinite length"
    },
-   "file": "vectors/c04-indefinite1.json"
+   "files": "vectors/c04-indefinite1/"
   },
   {
    "id": "c05-indefinite2",
@@ -90,7 +90,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 1040: indefinite length"
    },
-   "file": "vectors/c05-indefinite2.json"
+   "files": "vectors/c05-indefinite2/"
   },
   {
    "id": "d04-indefinite1",
@@ -104,7 +104,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 1074: indefinite length"
    },
-   "file": "vectors/d04-indefinite1.json"
+   "files": "vectors/d04-indefinite1/"
   },
   {
    "id": "d05-indefinite2",
@@ -118,7 +118,7 @@
     "status": "malformed",
     "detail": "malformed: CBOR refused at offset 1074: indefinite length"
    },
-   "file": "vectors/d05-indefinite2.json"
+   "files": "vectors/d05-indefinite2/"
   }
  ]
 }

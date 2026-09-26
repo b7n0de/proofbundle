@@ -8,7 +8,7 @@ drops the submitted unprotected map before it hashes.
 
 ## PINS
 
-Every record in `vectors/` repeats these; `summary.json` holds them once more, with the image build inputs.
+Every `vectors/<id>/record.json` repeats these; `manifest.json` holds them once more, with the image build inputs.
 - service: https://github.com/microsoft/scitt-ccf-ledger
 - service commit: `00101f769d872711356e080fbb089ac48589c60a`
 - image id: `sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380`, built locally
@@ -43,7 +43,22 @@ Every record in `vectors/` repeats these; `summary.json` holds them once more, w
 The protected bstr of this control is 1034 bytes long, so its shortest length argument is two bytes
 wide, and class b has no 2-byte variant.
 
-## THE CHAIN, PER ACCEPTED VECTOR (`vectors/<id>.json`)
+## STORED FORM AND DERIVED VIEWS (owner answer C1 b)
+
+Only raw bytes, and what cannot be derived from them, are stored. Everything else is recomputed by
+the tool.
+- `vectors/<id>/request.hex`: the submitted bytes, as hex text, 64 characters a line
+- `vectors/<id>/receipt.hex`: the receipt the service served (accepted vectors)
+- `vectors/<id>/statement.hex`: the statement the service returned (accepted vectors)
+- `vectors/<id>/record.json`: class, base, mutation, the pins, the service's answer (HTTP status, txid, error) and the SHA-256 of every file
+- `scitt-keys.hex`: the service key set; `manifest.json`: the run, the signer's public key, the target
+- `summary.json`, `admissibility.json`: derived, and checked by `python3 ../differential_corpus.py derive --check` and by `tests/test_scitt_ccf_differential_corpus.py`
+- `python3 ../differential_corpus.py derive --vector <id>` prints the full chain below for one vector
+- Converted from the base64 JSON records of commit `56ac85678f83cce7c742fc093b596eb1a420db03`: every
+  byte string was held against its recorded SHA-256 before it was written as hex, and the derived
+  records equal the old ones in 35 of 35 vectors. No vector was registered again.
+
+## THE CHAIN, PER ACCEPTED VECTOR (`derive --vector <id>`)
 
 - `request.bytes_b64`, `request.sha256`: the submitted bytes
 - `request.decoded`: the COSE structure with the framing and byte span of every element
@@ -105,8 +120,9 @@ The error for c04 and c05 names a detached or empty payload. The payload in both
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- The records hold the raw bytes as base64 in JSON text, about 18 KB per vector and 660 KB in all.
-- Written by `../differential_corpus.py`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
+- Stored: 133 text files, 312103 bytes; the largest is `summary.json`, 18125 bytes. Before C1 b: 38 files, 627944 bytes.
+- No further mutation classes for now (owner answer C2 c).
+- Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
 ---
 

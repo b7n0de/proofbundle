@@ -30,10 +30,17 @@ PINS, in every record: the service commit, image id, CCF version, the configurat
 reports, the attestation format of the node (virtual), and the verifier: this repository's commit,
 package version and the library versions the run used.
 
+STORED FORM (owner answer C1 b). Only raw bytes and what cannot be derived are stored: per vector
+request.hex, receipt.hex and statement.hex (hex text, 64 characters a line) and record.json (the
+service's answer, the pins, the SHA-256 of every file); the key set as scitt-keys.hex; the run in
+manifest.json. The decoded structures, Sig_structures, data-hash candidates, reader verdicts,
+summary.json and admissibility.json are derived by ``derive``, which also checks the stored summaries.
+
 USAGE, against a ledger already running and opened with ``scitt governance local_development``:
 
-    python3 differential_corpus.py --service-cert CERT --ledger-commit SHA --image-id ID \\
+    python3 differential_corpus.py run --service-cert CERT --ledger-commit SHA --image-id ID \\
         --build-inputs FILE [--url https://127.0.0.1:8000] [--out DIR]
+    python3 differential_corpus.py derive [--vector ID] [--write] [--check]
 
 Talks to the given URL only, never through a proxy. Output: differential_corpus/ next to this file.
 """
@@ -427,61 +434,76 @@ def conclusions(records: list) -> dict:
     return out
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="A differential corpus on a local scitt-ccf-ledger.")
-    ap.add_argument("--url", default="https://127.0.0.1:8000")
-    ap.add_argument("--service-cert", required=True, type=Path)
-    ap.add_argument("--ledger-commit", required=True)
-    ap.add_argument("--image-id", required=True)
-    ap.add_argument("--build-inputs", type=Path)
-    ap.add_argument("--out", type=Path, default=OUT)
-    args = ap.parse_args(argv)
+# ------------------------------------------------------------------------------------------------
+# The stored form: raw bytes as hex text, everything else derived (owner answer C1 b)
+# ------------------------------------------------------------------------------------------------
+def write_hex(path: Path, data: bytes) -> None:
+    h = data.hex()
+    path.write_text("\n".join(h[k:k + 64] for k in range(0, len(h), 64)) + "\n", encoding="ascii")
 
-    from proofbundle.anchors import receipt_canonical_root
-    bundle = json.loads(P.BUNDLE.read_text(encoding="utf-8"))
-    root = receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
-    svc = P.Service(args.url, args.service_cert)
-    code, _h, keys_raw = svc.call("GET", "/.well-known/scitt-keys")
-    if code != 200:
-        print(f"NOT MEASURABLE: the service did not serve its keys ({code}).", file=sys.stderr)
-        return 2
-    keyset = R.cose_keyset(keys_raw)
+
+def read_hex(path: Path) -> bytes:
+    return bytes.fromhex("".join(path.read_text(encoding="ascii").split()))
+
+
+def write_raw(out: Path, manifest: dict, keys_raw: bytes, raws: list) -> None:
+    """``raws``: [(meta, request bytes, service answer)]. Only what cannot be derived is stored."""
+    shutil.rmtree(out / "vectors", ignore_errors=True)
+    for meta, request, rec in raws:
+        d = out / "vectors" / meta["id"]
+        d.mkdir(parents=True)
+        files = {"request.hex": request, "receipt.hex": rec.get("receipt"),
+                 "statement.hex": rec.get("transparent_statement")}
+        files = {k: v for k, v in files.items() if v is not None}
+        for name, data in files.items():
+            write_hex(d / name, data)
+        record_ = {**meta, "pins": manifest["pins"],
+                   "service": {"post_status": rec.get("post_status"), "accepted": bool(rec.get("accepted")),
+                               "txid": rec.get("txid"), "error": rec.get("error")},
+                   "files": {k: {"sha256": SHA(v), "length": len(v)} for k, v in files.items()}}
+        (d / "record.json").write_text(json.dumps(record_, indent=1) + "\n", encoding="utf-8")
+    write_hex(out / "scitt-keys.hex", keys_raw)
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+
+
+def derive(corpus: Path) -> tuple:
+    """(full records, summary, admissibility), recomputed from the stored raw bytes alone."""
     from proofbundle import scitt_ccf as S
-    pinned = pins(args, svc)
-    key, chain, did, spki = P.make_signer()
-    rp = {"scitt_ccf_services": {"127.0.0.1:8000": S.load_cose_keyset(keys_raw)}, "scitt_statement_keys": [spki]}
-    vecs = vectors(key, chain, did, root)
-
+    man = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    keys_raw = read_hex(corpus / "scitt-keys.hex")
+    if SHA(keys_raw) != man["service_keyset"]["sha256"]:
+        raise SystemExit("REFUSED: scitt-keys.hex is not the recorded key set")
+    keyset = R.cose_keyset(keys_raw)
+    rp = {"scitt_ccf_services": {"127.0.0.1:8000": S.load_cose_keyset(keys_raw)},
+          "scitt_statement_keys": [bytes.fromhex(man["signer"]["spki_hex"])]}
+    root = bytes.fromhex(man["target"]["receipt_canonical_root"])
     records, control_dh = [], None
-    for vec in vecs:
-        rec = svc.register(vec[4])
-        r = record(vec, rec, keyset, pinned, root, rp, control_dh)
-        if vec[0] == "control" and "response" in r:
+    for vid in man["vectors"]:
+        d = corpus / "vectors" / vid
+        meta = json.loads((d / "record.json").read_text(encoding="utf-8"))
+        raw = {}
+        for name, want in meta["files"].items():
+            raw[name] = read_hex(d / name)
+            if SHA(raw[name]) != want["sha256"]:
+                raise SystemExit(f"REFUSED: {vid}/{name} is not the recorded bytes")
+        svc = meta["service"]
+        rec = {"post_status": svc["post_status"], "accepted": svc["accepted"], "txid": svc["txid"],
+               "error": svc["error"], "receipt": raw.get("receipt.hex"),
+               "transparent_statement": raw.get("statement.hex")}
+        vec = (vid, meta["class"], meta["base"], meta["mutation"], raw["request.hex"])
+        r = record(vec, rec, keyset, meta["pins"], root, rp, control_dh)
+        if vid == "control" and "response" in r:
             control_dh = r["response"]["receipt_leaf_data_hash"]
         records.append(r)
-        print(f"  {vec[0]:32s} {r['service']['post_status']} accepted={r['service']['accepted']!s:5} "
-              f"{(r.get('response') or {}).get('txid', '')}")
-
-    out = args.out
-    if out.exists():
-        shutil.rmtree(out / "vectors", ignore_errors=True)
-    (out / "vectors").mkdir(parents=True, exist_ok=True)
-    for r in records:
-        (out / "vectors" / f"{r['id']}.json").write_text(json.dumps(r, indent=1) + "\n", encoding="utf-8")
     matrix = [{"id": r["id"], "class": r["class"], "base": r["base"], "mutation": r["mutation"],
                "submitted_sha256": r["request"]["sha256"], "post_status": r["service"]["post_status"],
                "service_error": r["service"].get("error"), "v1_reader_on_submitted_bytes": r["v1_reader_on_submitted_bytes"],
-               "file": f"vectors/{r['id']}.json"} for r in records if not r["service"]["accepted"]]
-    (out / "admissibility.json").write_text(json.dumps({
-        "note": "Refusals of this service, as returned. A refusal is what this service did with the bytes; it is "
-                "not judged SCITT-invalid here.", "pins": pinned, "refused": matrix}, indent=1) + "\n", encoding="utf-8")
+               "files": f"vectors/{r['id']}/"} for r in records if not r["service"]["accepted"]]
+    admissibility = {"note": "Refusals of this service, as returned. A refusal is what this service did with the "
+                             "bytes; it is not judged SCITT-invalid here.", "pins": man["pins"], "refused": matrix}
     summary = {
-        "tool": "tools/scitt_ccf_external/differential_corpus.py", "measured_on": datetime.date.today().isoformat(),
-        "pins": pinned, "service_keyset_b64": B64(keys_raw), "service_keyset_sha256": SHA(keys_raw),
-        "image_build_inputs": (json.loads(Path(args.build_inputs).read_text(encoding="utf-8"))
-                               if args.build_inputs else None),
-        "signer": {"did": did, "spki_b64": B64(spki), "alg": "ES256", "note": "made for this run, private key discarded"},
-        "target": {"bundle": str(P.BUNDLE.relative_to(REPO)), "receipt_canonical_root": root.hex()},
+        "tool": "tools/scitt_ccf_external/differential_corpus.py", "measured_on": man["measured_on"],
+        "pins": man["pins"], "service_keyset": man["service_keyset"], "signer": man["signer"], "target": man["target"],
         "vectors": [{"id": r["id"], "class": r["class"], "base": r["base"], "accepted": r["service"]["accepted"],
                      "txid": (r.get("response") or {}).get("txid"),
                      "data_hash": (r.get("response") or {}).get("receipt_leaf_data_hash"),
@@ -492,7 +514,78 @@ def main(argv=None) -> int:
                          "v1_reader_on_returned_transparent_statement") or {}).get("status")} for r in records],
         "what_the_data_hash_commits_to": conclusions(records),
     }
-    (out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8")
+    return records, summary, admissibility
+
+
+def _dump(v) -> str:
+    return json.dumps(v, indent=1) + "\n"
+
+
+def run(args) -> int:
+    from proofbundle.anchors import receipt_canonical_root
+    bundle = json.loads(P.BUNDLE.read_text(encoding="utf-8"))
+    root = receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
+    svc = P.Service(args.url, args.service_cert)
+    code, _h, keys_raw = svc.call("GET", "/.well-known/scitt-keys")
+    if code != 200:
+        print(f"NOT MEASURABLE: the service did not serve its keys ({code}).", file=sys.stderr)
+        return 2
+    pinned = pins(args, svc)
+    key, chain, did, spki = P.make_signer()
+    raws = []
+    for vid, cls, base, what, stmt in vectors(key, chain, did, root):
+        rec = svc.register(stmt)
+        raws.append(({"id": vid, "class": cls, "base": base, "mutation": what}, stmt, rec))
+        print(f"  {vid:32s} {rec.get('post_status')} accepted={bool(rec.get('accepted'))!s:5} {rec.get('txid') or ''}")
+    manifest = {
+        "tool": "tools/scitt_ccf_external/differential_corpus.py", "measured_on": datetime.date.today().isoformat(),
+        "pins": pinned,
+        "image_build_inputs": (json.loads(Path(args.build_inputs).read_text(encoding="utf-8"))
+                               if args.build_inputs else None),
+        "service_keyset": {"file": "scitt-keys.hex", "sha256": SHA(keys_raw)},
+        "signer": {"did": did, "spki_hex": spki.hex(), "alg": "ES256", "note": "made for this run, private key discarded"},
+        "target": {"bundle": str(P.BUNDLE.relative_to(REPO)), "receipt_canonical_root": root.hex()},
+        "vectors": [m["id"] for m, _s, _r in raws],
+    }
+    write_raw(args.out, manifest, keys_raw, raws)
+    _records, summary, admissibility = derive(args.out)
+    (args.out / "summary.json").write_text(_dump(summary), encoding="utf-8")
+    (args.out / "admissibility.json").write_text(_dump(admissibility), encoding="utf-8")
+    print(json.dumps(summary["what_the_data_hash_commits_to"], indent=1))
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="A differential corpus on a local scitt-ccf-ledger.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run", help="register the vectors on a running ledger and store the raw bytes")
+    r.add_argument("--url", default="https://127.0.0.1:8000")
+    r.add_argument("--service-cert", required=True, type=Path)
+    r.add_argument("--ledger-commit", required=True)
+    r.add_argument("--image-id", required=True)
+    r.add_argument("--build-inputs", type=Path)
+    r.add_argument("--out", type=Path, default=OUT)
+    d = sub.add_parser("derive", help="recompute the decoded structures and summaries from the raw bytes")
+    d.add_argument("--corpus", type=Path, default=OUT)
+    d.add_argument("--vector", help="print the full derived record of one vector")
+    d.add_argument("--write", action="store_true", help="rewrite summary.json and admissibility.json")
+    d.add_argument("--check", action="store_true", help="exit 1 unless both equal their derivation")
+    args = ap.parse_args(argv)
+    if args.cmd == "run":
+        return run(args)
+    records, summary, admissibility = derive(args.corpus)
+    if args.vector:
+        print(_dump(next(x for x in records if x["id"] == args.vector)), end="")
+        return 0
+    if args.write:
+        (args.corpus / "summary.json").write_text(_dump(summary), encoding="utf-8")
+        (args.corpus / "admissibility.json").write_text(_dump(admissibility), encoding="utf-8")
+    if args.check:
+        same = all((args.corpus / name).read_text(encoding="utf-8") == _dump(v)
+                   for name, v in (("summary.json", summary), ("admissibility.json", admissibility)))
+        print("derived equals stored" if same else "DIFFERS: summary.json or admissibility.json is not derived "
+              "from the raw bytes as stored")
+        return 0 if same else 1
     print(json.dumps(summary["what_the_data_hash_commits_to"], indent=1))
     return 0
 
