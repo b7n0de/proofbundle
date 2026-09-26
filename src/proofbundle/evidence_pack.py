@@ -30,7 +30,8 @@ from __future__ import annotations
 import base64
 from typing import Optional
 
-from .anchors_ots import _classify, calendar_operators, calendar_uris, verify_opentimestamps
+from .anchors_ots import (OtsProofTooLarge, _calendar_uris_of, _classify, _deserialize_detached,
+                          calendar_operators, verify_opentimestamps)
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -55,13 +56,8 @@ def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     so verifying existence-in-Bitcoin no longer needs a calendar. A pending-only or malformed proof is
     False (fail-closed; never over-claim a pending proof as self-contained)."""
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
-    except ImportError:
-        return False
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
-    except Exception:
+        dtf = _deserialize_detached(proof)
+    except Exception:   # no [anchors] extra, malformed, or over the cap (anchors_ots._MAX_OTS_PROOF_BYTES): not self-contained
         return False
     has_bitcoin, _heights, _has_pending = _classify(dtf.timestamp)
     return has_bitcoin
@@ -93,15 +89,24 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
       ``provenCalendars`` is WHERE the field comes from (proof bytes vs a CLI flag); both are unverified.
 
     ``bundled_headers`` (a ``height -> block merkle-root hex`` map) is copied into the pack as EVIDENCE only
-    (``frozen`` block, WP-A1: never trusted by the verifier). The pack never contains a secret."""
-    proven = calendar_uris(proof)                       # embedded in the proof bytes, but UNVERIFIED
+    (``frozen`` block, WP-A1: never trusted by the verifier). The pack never contains a secret.
+
+    The proof is deserialized ONCE for both figures below (the same class as 229A-01 in
+    ``describe_proof``; here the two deserializations ran one after the other, doubling the work, not the
+    peak)."""
+    try:
+        timestamp = _deserialize_detached(proof).timestamp
+    except Exception:   # no [anchors] extra, malformed, or over the cap: no calendars, not self-contained
+        timestamp = None
+    # embedded in the proof bytes, but UNVERIFIED
+    proven = _calendar_uris_of(timestamp) if timestamp is not None else []
     proven_operators = calendar_operators(proven)
     pack: dict = {
         "type": "opentimestamps-evidence-pack",
         "packVersion": "v0.2",
         "canonicalRoot": base64.b64encode(canonical_root).decode(),
         "proof": base64.b64encode(proof).decode(),
-        "selfContained": ots_upgraded_proof_is_self_contained(proof),
+        "selfContained": _classify(timestamp)[0] if timestamp is not None else False,
         "provenCalendars": proven,
         "provenCalendarOperators": proven_operators,
         # WP-B1: operator count = distinct hostname-operators the proof EMBEDS in its retained
@@ -170,7 +175,7 @@ def describe_proof(proof: bytes) -> dict:
     """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
     upgrade report. Returns ``{state, selfContained, bitcoinHeights, provenCalendars,
     provenCalendarOperators, operatorRedundancy}`` where ``state`` is one of ``pending`` | ``upgraded`` |
-    ``empty`` | ``malformed`` | ``no_lib``. Every calendar figure here is read from the proof's own retained
+    ``empty`` | ``malformed`` | ``over_budget`` | ``no_lib``. Every calendar figure here is read from the proof's own retained
     attestations — embedded IN the proof bytes but UNVERIFIED (a ``PendingAttestation`` URI is
     unauthenticated and offline-constructible), so ``operatorRedundancy`` is a transparency hint, NOT
     redundancy evidence. Read-only and fail-closed: it reports state, it never trusts the proof
@@ -178,16 +183,15 @@ def describe_proof(proof: bytes) -> dict:
     base = {"state": "malformed", "selfContained": False, "bitcoinHeights": [],
             "provenCalendars": [], "provenCalendarOperators": [], "operatorRedundancy": 0}
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+        dtf = _deserialize_detached(proof)
     except ImportError:
         return {**base, "state": "no_lib"}
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except OtsProofTooLarge:
+        return {**base, "state": "over_budget"}
     except Exception:
         return base
     has_bitcoin, heights, has_pending = _classify(dtf.timestamp)
-    cals = calendar_uris(proof)
+    cals = _calendar_uris_of(dtf.timestamp)     # the same deserialization, not a second one (229A-01)
     ops = calendar_operators(cals)
     state = "upgraded" if has_bitcoin else ("pending" if has_pending else "empty")
     return {"state": state, "selfContained": has_bitcoin, "bitcoinHeights": sorted(heights),

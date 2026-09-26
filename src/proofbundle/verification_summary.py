@@ -16,7 +16,7 @@ import hashlib
 import re
 from typing import Any
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -221,8 +221,12 @@ def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bo
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
         body = dsse.load_payload(envelope)
+        # The ONE Statement oracle (budget, strict parse, object, `_type` = in-toto Statement v1; deep
+        # gate Z195, L3-Z195-01 class, mirror of decision.py).
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
         DEFAULT_BUDGET.check("input_bytes", len(body))
-        statement = loads_strict(body.decode("utf-8"))
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
         r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")

@@ -869,7 +869,9 @@ class RustParity(unittest.TestCase):
     def test_the_trust_pack_threshold_agrees(self):
         import tempfile
         from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
-        stmt = {"predicate": {"keys": {"l1": {"publicKey": _b64(I1)}, "l2": {"publicKey": _b64(I2)}},
+        # A Statement v1, so the refusal below is the key's and not the missing `_type`'s.
+        stmt = {"_type": "https://in-toto.io/Statement/v1",
+                "predicate": {"keys": {"l1": {"publicKey": _b64(I1)}, "l2": {"publicKey": _b64(I2)}},
                               "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}}
         env = {"payload": _b64(json.dumps(stmt).encode()), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
                "signatures": [{"keyid": "l1", "sig": _b64(UNIV)}, {"keyid": "l2", "sig": _b64(UNIV)}]}
@@ -897,7 +899,8 @@ class RustParity(unittest.TestCase):
                                       "decisionMakers": {"keyIds": ["dm1"], "threshold": 1}}}
                     py = [e for e in validate_trust_pack_predicate(pred)
                           if e.startswith("keys['dm1'].publicKey is a")]
-                    env = {"payload": _b64(json.dumps({"predicate": pred}).encode()),
+                    env = {"payload": _b64(json.dumps({"_type": "https://in-toto.io/Statement/v1",
+                                                       "predicate": pred}).encode()),
                            "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
                            "signatures": [{"keyid": "r1", "sig": _b64(UNIV)}]}
                     path.write_text(json.dumps(env), encoding="utf-8")

@@ -10,6 +10,69 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An OTS proof is capped before it is deserialized, on every reader** (`anchors_ots`,
+  `evidence_pack`, `anchors_rootcommit`, `anchor upgrade`). The structural budget bounds the base64
+  string of a proof, not what the OpenTimestamps deserializer builds from it: every fork creates a
+  timestamp holding its own copy of the message. Measured by the deep gate against main 5b53ab3e
+  (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
+  confirmed 3 of 3) and again for this change, tracemalloc around the call alone, each figure three
+  times in a fresh process: a 732 067-byte proof inside every budget peaked at 134.4 MiB in
+  `verify_evidence_pack`. All five places that deserialize a proof now go through one helper that
+  refuses a proof over 65 536 bytes first; the same proof is refused as `over_budget` at 3.3 MiB,
+  before any deserialization. The length is taken of every bytes-like object in bytes, and anything
+  that is not bytes-like is refused before the library reads it (a `memoryview` of any length went
+  to the library uncapped in an earlier form of this change). The largest proof this repository carries has 1510 bytes. A proof just
+  under the cap, built to amplify as much as the format allows (empty calendar URIs, two-byte fork
+  labels), peaks at 18.2 MiB in one deserialization. `describe_proof` deserialized every proof twice
+  with both copies alive, on main as well, and peaked at 36.5 MiB on that proof; it now deserializes
+  once, as every reader does (18.2 MiB). `describe_proof` gains the state `over_budget`. Adding that
+  status showed that three callers decided "bound" by the absence of the refusals they had listed;
+  they now read membership in the statuses that say the binding held (`anchors_ots.ots_binding_held`,
+  deny by default). So `anchor upgrade` refuses an over-cap proof with exit 2 and names the cap,
+  instead of reporting it as not upgraded yet and advising `ots upgrade`, and a rootcommit anchor whose
+  proof is over the cap is not bound.
+
+- **A path the sdist promised and does not carry fails the shipped suite instead of skipping it**
+  (`tests/conftest.py`). From an extracted sdist, a test module that names an absent root-relative
+  path was skipped as repo-context without asking whether the distribution was supposed to carry the
+  path. Measured by the deep gate against main 5b53ab3e (finding L6-Z195-01, confirmed 3 of 3) with
+  one appended line, `exclude examples/trust_policy_strict.json`, while `graft examples` still stood:
+  `tests/test_trust_policy.py` went from 47 passed to 47 skipped and the shipped suite stayed rc 0. A
+  path that a positive line of MANIFEST.in promises, that setuptools adds by itself (the template,
+  `pyproject.toml`, the README, the license files), or that setuptools' build_py ships from the
+  package configuration in `pyproject.toml` (the modules of every package its discovery finds, the
+  declared package data), now makes the module run and fail when it is absent; a negative line does
+  not withdraw the promise, because that is exactly the accident being caught. The template is read as
+  setuptools reads it, including continuation lines, inline comments, `\#`, and the difference between
+  the glob behind `include` and the pattern behind `global-include`; vectors from a real `build_sdist`
+  with setuptools 69.5.1 are the oracle (`tests/fixtures/manifest_semantics/`, 15 cases, three of them
+  varying the package discovery; a directory without `__init__.py` is a package only where that
+  discovery allows namespace packages, and a candidate for it holds the reader to setuptools in both
+  cases). Measured end to end from sdists built at 66809c50, before build_py was
+  read: the planted exclude gave 2 failed, 45 passed, rc 1, and an unplanted sdist ran as before.
+
+- **A signed statement says it is an in-toto Statement v1, and every verifier that reports
+  `structure_ok` reads it** (`_statement_payload.load_statement_strict`). Decision, outcome and
+  relation-statement verify reported `structure_ok=true`, and `decision verify --strict` under a
+  signer-pinning policy `safeForAutomation=true`, for a signed statement whose `_type` was absent,
+  JSON null or `Statement/v0.1`; measured on main 10f3466b (deep gate finding L3-Z195-01). Each of
+  these verifiers wrote `_type` when it emitted and none read it back. The one Statement oracle
+  now refuses any `_type` other than exactly `https://in-toto.io/Statement/v1`, and decision,
+  outcome, verification-summary, run-ledger and trust-pack verify parse through it, as
+  relation-statement verify and the `--with-related` resolver already did. The Rust verifier
+  refuses the same bytes on `verify-relation`, `verify-relation-statement` and for attached
+  targets, with the same exit class and lineage, and on `verify-trust-pack-threshold`, which met
+  its threshold with exit 0 for a pack whose `_type` was null, absent or `Statement/v0.1` while
+  Python refused it (measured on both verifiers). That subcommand also built its signature check
+  under whatever `payloadType` the envelope named, so a pack signed under another type met its
+  threshold where Python refuses a payloadType confusion; it now pins the in-toto type and reads the
+  envelope in Python's order (payload, input size, signature list and cap, type, Statement), and a
+  wrong `_type` or payloadType string is written as Python's `repr()` writes it. A sweep fails when a module that reports
+  `structure_ok` for an in-toto Statement parses without the oracle, and a second one when a Rust
+  function parses a DSSE payload without asking it before the predicate is read. `intoto --verify` and
+  `svr --verify` are unchanged: what their `ok` covers is listed in their contract, and `_type`
+  is not on that list.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust
