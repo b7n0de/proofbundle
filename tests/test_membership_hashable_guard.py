@@ -24,7 +24,8 @@ be updated by exactly the person who forgot.
 HONEST LIMIT: this scans `src/proofbundle/**`, module-level container constants, and single-operator
 comparisons. A container built at runtime, imported from another module, or a chained comparison is
 NOT covered — that is stated here rather than left for someone to discover, and `is_member` is safe
-to use everywhere regardless.
+to use everywhere regardless. A LOOKUP hashes its key too (`CONST.get(x)`, `CONST[x]`); those sites
+are listed one by one with the reason each is safe, in `_LOOKUPS_CLASSIFIED` below.
 """
 from __future__ import annotations
 
@@ -240,6 +241,80 @@ def _ueberzaehlige_stellen(quelltexte: dict[str, str] | None = None) -> list[str
             funde.append(f"{schluessel[0]}  in {schluessel[1]}()  {schluessel[2]}  "
                          f"{ueberzaehlig} von {len(zeilen)} nicht getragen, Zeilen {sorted(zeilen)}")
     return funde
+
+
+def _module_dicts(tree: ast.Module) -> set:
+    """Module-level names bound to a dict: a lookup on them hashes its key."""
+    return {name for name, art in _hashing_containers(tree).items() if art == "dict"}
+
+
+def constant_lookups(quelle: str, name: str = "<quelle>") -> list[tuple[int, str, str]]:
+    """(line, dict, key) for every `CONST.get(x, ...)` and `CONST[x]` with a module-level dict CONST and a
+    key that is not a literal. Such a lookup hashes `x` and raises TypeError for an unhashable one."""
+    tree = ast.parse(quelle, filename=name)
+    dicts = _module_dicts(tree)
+    found: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in dicts and node.args):
+            key, const = node.args[0], node.func.value.id
+        elif (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+              and node.value.id in dicts and isinstance(node.ctx, ast.Load)):
+            key, const = node.slice, node.value.id
+        else:
+            continue
+        if not isinstance(key, ast.Constant):
+            found.append((node.lineno, const, ast.unparse(key)))
+    return found
+
+
+#: Every lookup on a module-level dict with a key that is not a literal, and why it cannot raise.
+#: Keyed by (file, enclosing definition, dict, key), not by line (the lesson of the baseline below).
+#: WHERE THIS COMES FROM: the ECMA-reading generator of the 228bc fix sent a list as a trust pack key's
+#: `alg`, and `_KEY_ALG_LABEL.get(alg)` raised TypeError out of `verify_trust_pack` before any signature
+#: was counted. The membership scanner above sees `in` and `not in`, not a lookup. Measured on 9151e4ca
+#: (2026-09-26): 14 sites, none open. A new site turns this red until it is classified here; a site that
+#: is gone must leave the list.
+_LOOKUPS_CLASSIFIED = {
+    ("proofbundle/__init__.py", "__getattr__", "_LAZY", "name"):
+        "own value: the attribute protocol passes a str",
+    ("proofbundle/agent_review.py", "evaluate_time_policy", "_POLICY_ACHSE", "art"):
+        "guarded: isinstance(art, str) and is_member(art, _POLICY_ACHSE) return before it",
+    ("proofbundle/anchors.py", "verify_anchor", "_VERIFIERS", "atype"):
+        "guarded: isinstance(atype, str) and is_member(atype, _VERIFIERS) return before it",
+    ("proofbundle/hashalg.py", "resolve_hash_alg", "HASH_REGISTRY", "alg_id"):
+        "guarded: a non-str alg_id raises MissingHashAlgId before it",
+    ("proofbundle/intoto.py", "to_test_result_statement", "_RESULT_ENUM", "verdikt"):
+        "own value: require_bool_verdict returns a bool or raises",
+    ("proofbundle/kbjwt.py", "verify_key_binding", "_HASH_ALG", "sd_alg"):
+        "guarded: is_member(sd_alg, _HASH_ALG) returns before it",
+    ("proofbundle/policy_profiles.py", "canonical_profile_name", "PROFILE_ALIASES", "short"):
+        "guarded: is_member(short, PROFILE_ALIASES) in the same branch",
+    ("proofbundle/policy_profiles.py", "profile_path", "PROFILE_ALIASES", "short"):
+        "guarded: is_member(short, PROFILE_ALIASES) in the same branch",
+    ("proofbundle/policy_profiles.py", "profile_path", "PROFILE_NAMES", "canonical"):
+        "guarded: canonical is a member of PROFILE_NAMES or a value of PROFILE_ALIASES, else it raised",
+    ("proofbundle/sdjwt.py", "_digest", "_HASH_ALG", "alg"):
+        "guarded by the one caller: verify_sd_jwt returns on not is_member(sd_alg, _HASH_ALG) first",
+    ("proofbundle/sdjwt.py", "verify_sd_jwt", "_ISSUER_SIG_VERIFIERS", "alg"):
+        "guarded: isinstance(alg, str) in the same expression",
+    ("proofbundle/sdjwt_issue.py", "present_with_key_binding", "_HASH_BY_SD_ALG", "sd_alg"):
+        "guarded: is_member(sd_alg, _HASH_BY_SD_ALG) raises ValueError before it",
+    ("proofbundle/statuslist.py", "verify_status_snapshot", "STATUS_LABELS", "status"):
+        "own value: an int read from the bit array",
+    ("proofbundle/trust_pack.py", "validate_trust_pack_predicate", "_KEY_ALG_LABEL", "alg"):
+        "guarded: `alg in _KEY_ALGS` against a tuple, which compares and hashes nothing",
+}
+
+
+def _constant_lookups_in_tree() -> set:
+    seen = set()
+    for d in sorted(SRC.rglob("*.py")):
+        quelle = d.read_text(encoding="utf-8")
+        wo = _umschliessende_definition(quelle)
+        for zeile, const, key in constant_lookups(quelle, str(d)):
+            seen.add((str(d.relative_to(SRC.parent)), wo.get(zeile, "<modulebene>"), const, key))
+    return seen
 
 
 class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
@@ -488,6 +563,38 @@ class TestTheScannerActuallyCatches(unittest.TestCase):
                 return p.get("status") not in _ALLOWED
         ''')
         self.assertEqual(len(unguarded_membership_sites(als_set)), 1)
+
+
+class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
+    """The third form of the class: a lookup hashes its key as a membership test does."""
+
+    def test_the_tree_holds_exactly_the_classified_lookups(self):
+        seen = _constant_lookups_in_tree()
+        self.assertEqual(sorted(seen - set(_LOOKUPS_CLASSIFIED)), [],
+                         "a new lookup on a module-level dict with a foreign key: route the key through "
+                         "is_member first, or classify it in _LOOKUPS_CLASSIFIED with the reason")
+        self.assertEqual(sorted(set(_LOOKUPS_CLASSIFIED) - seen), [],
+                         "a classified lookup is gone: remove it from _LOOKUPS_CLASSIFIED")
+
+    def test_every_classification_says_why(self):
+        for key, reason in _LOOKUPS_CLASSIFIED.items():
+            with self.subTest(site=key):
+                self.assertRegex(reason, r"^(guarded|guarded by the one caller|own value): \S")
+
+    def test_a_planted_lookup_is_found_and_a_literal_key_is_not(self):
+        quelle = textwrap.dedent('''
+            _M = {"a": 1}
+            _S = {"a"}
+            def f(p):
+                return _M.get(p.get("k")), _M[p["k"]], _M["a"], _M.get("a"), p.get("x")
+        ''')
+        self.assertEqual([(c, k) for _l, c, k in constant_lookups(quelle)],
+                         [("_M", "p.get('k')"), ("_M", "p['k']")])
+
+    def test_the_trust_pack_shape_raised_before_it_was_guarded(self):
+        """The measured consequence, as the lookup reads it: an unhashable key raises."""
+        with self.assertRaises(TypeError):
+            {"mldsa65": "ML-DSA-65"}.get(["mldsa65"])
 
 
 class TestTheGuardItself(unittest.TestCase):
