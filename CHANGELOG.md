@@ -45,6 +45,32 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `.py` files fails to parse, and no tracked path is a symlink or a gitlink, so no verdict on this
   repository changes.
 
+- **The mutant guard reads a file as Python reads it, and judges what Python imports**
+  (`scripts/mutant_signature_guard.py`). Measured in throwaway repositories, each of these was
+  reported clean with exit 0 in both modes: a file declaring `# -*- coding: latin-1 -*-` with one
+  byte 0xfc and a `return True` opening `verify_signature` (read as UTF-8, the byte became a
+  surrogate, the parser refused the text, and the refusal counted as nothing to judge; before this
+  change set the same file ended the guard with a traceback); a file declaring `# coding: utf-7`,
+  where `+AGkAZg- True:` is `if True:` to Python; an `if` whose condition sits on a backslash
+  continuation line, because class A was a pattern over physical lines; a committed
+  `__pycache__/x.cpython-310.pyc` and a sourceless `evil.pyc`, both of which Python imports; and
+  `--base` with a sha the clone does not have, which printed "scan skipped honestly" and then
+  "clean". The guard now parses a file from its bytes, so its BOM and its PEP 263 coding cookie
+  decide the text as they do for Python, and it takes git's lines to Python's by decoding one git
+  line at a time; a file Python itself cannot decode or parse (a NUL byte, a coding Python does not
+  know or a byte it does not decode, a syntax error) stops the run with exit 2 and the reason. Class A
+  is read on the syntax tree: an `if` or `elif` whose condition begins with True or False, or a
+  `while` whose condition begins with False, however its lines are broken, and no longer a line
+  inside a string. A new class E is compiled code under `src/proofbundle` that the change adds or
+  modifies: a `.pyc`, `.pyo`, `.so` or `.pyd` file, or anything in a `__pycache__` directory; a
+  `.pyw` file is judged as source. A base that is given but is no commit in the clone, or shares no
+  history with HEAD, exits 2; the documented skip stays for a root commit with no base given. The
+  self-test plants the cookie, continuation and bytecode cases. All 72 tracked `.py` files under
+  `src/proofbundle` decode as UTF-8 and parse, none carries a class A, B or C signature when read
+  whole, and no compiled file is tracked there, so no verdict on this repository changes. Named
+  limit: a CI push event after a force push names a `before` sha the clone does not have, and that
+  run now stops with exit 2 where it reported clean.
+
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,
   `scripts/verify_pre_tag_receipt.py`, `scripts/neue_zeilen_sind_englisch.py`). The mutant guard's

@@ -9,7 +9,8 @@ range) for the three narrow signature classes a left-over mutant takes, and bloc
 Signature classes (deliberately narrow and explainable: a safety net, not a linter):
 
   A  a trivial-truth branch added at a check site:      `if False:` / `if True:` /
-     `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`)
+     `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`),
+     judged on the syntax tree: the statement Python sees, however its lines are broken
   B  a commented-out verification line: a comment whose content reads like a code statement
      calling a verify/validate/check/compare_digest function (prose comments do not match)
   C  `return True` as the first statement of a function whose name says verify/validate/check
@@ -19,15 +20,22 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
      reported clean with exit 0, measured 2026-09-26, and so were a symlinked `src` and a gitlink
      under the package). Not diff-scoped on purpose: an existing link would hide every later change
      to its target. No allow marker: a link carries no comment.
+  E  compiled code added or changed under src/proofbundle: a `.pyc`, `.pyo`, `.so` or `.pyd` file,
+     or anything in a `__pycache__` directory. Python imports it and the guard cannot read it as
+     source (a committed `__pycache__/x.cpython-310.pyc` and a sourceless `evil.pyc` were reported
+     clean with exit 0, measured 2026-09-26). No allow marker: compiled code carries no comment.
 
-Scope: added lines under src/proofbundle/**/*.py (the verification library, every path there is
-security-relevant). Legitimate exceptions are possible but must be VISIBLE in the diff: put a
-`# mutant-guard: allow` comment on the flagged line or the line directly above it.
+Scope: added lines under src/proofbundle/**/*.py and *.pyw (the verification library, every path
+there is security-relevant), read as Python reads the file: from its bytes, with its BOM and its
+PEP 263 coding cookie. A changed file there that Python itself cannot decode or parse is not judged;
+the run stops fail-closed with the reason. Legitimate exceptions are possible but must be VISIBLE in
+the diff: put a `# mutant-guard: allow` comment on the flagged line or the line directly above it.
 
 Modes:
   --staged        scan the staged diff (pre-commit hook; content read from the index)
   --base <sha>    scan <merge-base(sha, HEAD)>..HEAD (CI; all-zero / missing sha falls back
-                  to HEAD~1, and to an empty scan on a root commit)
+                  to HEAD~1, and to an empty scan on a root commit; a sha this clone does not
+                  have, or one that shares no history with HEAD, stops fail-closed)
   --self-test     prove in a throwaway git repo that every class is caught and that the
                   negative controls stay quiet (the gate-meta-test; CI runs this first)
 
@@ -38,10 +46,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import codecs
+import io
 import re
 import subprocess
 import sys
 import tempfile
+import tokenize
 from pathlib import Path
 
 
@@ -58,12 +69,37 @@ def _repo_root() -> Path:
 
 #: `.` crosses a newline here: git writes a name with a newline quoted, the header decoder gives the
 #: real name back, and without DOTALL `.*` stopped at it, so a mutant in such a file passed with
-#: exit 0 (a review lens, measured 2026-09-26). The name ends where the value ends.
-_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.py\Z", re.DOTALL)
+#: exit 0 (a review lens, measured 2026-09-26). The name ends where the value ends. `.pyw` is source
+#: Python imports on Windows, so it is judged as source too.
+_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.pyw?\Z", re.DOTALL)
 _ALLOW_MARKER = "mutant-guard: allow"
 
-# Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).
-_TRIVIAL_TRUTH = re.compile(r"^\s*(?:(?:el)?if\s+(?:False|True)\b|while\s+False\b)")
+
+def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
+    """Class A on the syntax tree: (first line, last line) of the header of every trivial-truth branch.
+
+    Such a branch is an `if` or `elif` whose condition begins with the constant True or False, or a
+    `while` whose condition begins with False: a bool constant that starts where the condition
+    starts, which is what the former line pattern `if\\s+(?:False|True)\\b` read (`if True and data:`,
+    `if False == x:`). Read per physical line, a branch written over a backslash continuation (`if \\`
+    and `True:` on the next line) was reported clean with exit 0 (a review lens, measured 2026-09-26);
+    the tree holds the statement Python sees. A name such as `Falsey_thing` is no constant, as before.
+    """
+    headers = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If):
+            truths: tuple[bool, ...] = (True, False)
+        elif isinstance(node, ast.While):
+            truths = (False,)
+        else:
+            continue
+        test = node.test
+        start = (test.lineno, test.col_offset)
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, bool) and n.value in truths
+               and (n.lineno, n.col_offset) == start for n in ast.walk(test)):
+            headers.append((node.lineno, test.end_lineno or test.lineno))
+    return sorted(headers)
+
 
 # Class B — commented-out verification CODE, two-stage: a cheap prefilter (a comment whose
 # content starts like a statement calling a verify/validate/check/compare_digest function),
@@ -91,6 +127,15 @@ def _commented_content_parses(text: str) -> bool:
 _VERIFYISH_NAME = re.compile(r"(?:verify|validate|check)", re.IGNORECASE)
 
 
+def _git_bytes(*args: str, cwd: Path) -> bytes:
+    """git's output as it wrote it, as bytes; a failing call stops fail-closed."""
+    proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"mutant_signature_guard: git {' '.join(args[:2])} failed (fail closed): "
+                         f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return proc.stdout
+
+
 def _git(*args: str, cwd: Path) -> str:
     """git's output as it wrote it: bytes decoded, with no newline translation.
 
@@ -98,11 +143,7 @@ def _git(*args: str, cwd: Path) -> str:
     `x = 1<CR>if False:` came back as two, the second without its `+`, and it was never judged
     (measured 2026-09-26: exit 0 over a staged `if False:` that Python reads as its own statement).
     """
-    proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True)
-    if proc.returncode != 0:
-        raise SystemExit(f"mutant_signature_guard: git {' '.join(args[:2])} failed (fail closed): "
-                         f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
-    return proc.stdout.decode("utf-8", "surrogateescape")
+    return _git_bytes(*args, cwd=cwd).decode("utf-8", "surrogateescape")
 
 
 #: The diff's grammar, pinned against configuration. With `diff.mnemonicPrefix` the new side is
@@ -221,24 +262,73 @@ def _python_lines_of(content: str) -> tuple[list[str], list[range]]:
     return lines, spans
 
 
-def _allowlisted(file_lines: list[str], lineno: int) -> bool:
-    for candidate in (lineno, lineno - 1):
+def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[range]]:
+    """The file as Python reads it: the tree Python builds from its bytes, its lines as Python
+    numbers them, and for each line git numbers, the Python lines in it.
+
+    From the BYTES, with the BOM and the PEP 263 coding cookie Python honours. Read as UTF-8, a file
+    declaring `# -*- coding: latin-1 -*-` with one byte 0xfc in a string carried a surrogate there,
+    the parser refused the text, and a `return True` opening `verify_signature` in that file was
+    reported clean with exit 0; in a file declaring `# coding: utf-7`, `+AGkAZg- True:` is `if True:`
+    to Python and was reported clean as well (review lenses, measured 2026-09-26). A file Python
+    itself cannot decode or parse (a NUL byte, a wrong cookie, a syntax error) is not judged, since
+    the guard cannot say what Python would run: the run stops fail-closed with the reason.
+
+    Each git line is decoded in turn, so a line end that exists only in the decoded text (a lone CR,
+    or `+AAo-` under UTF-7) starts a new Python line inside its git line. Two checks hold the reading
+    to Python's: the lines decoded one by one join to the text of the whole file, and that text
+    parses to the same tree, positions included, as the bytes did.
+    """
+    def stop(reason: str) -> SystemExit:
+        return SystemExit(f"mutant_signature_guard: {path}: Python cannot read this file as source, "
+                          f"so the guard cannot judge it (fail closed): {reason}")
+    try:
+        tree = ast.parse(raw)
+        encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+        whole = raw.decode(encoding)
+    except (SyntaxError, ValueError, LookupError, RecursionError, MemoryError) as exc:
+        raise stop(f"{type(exc).__name__}: {exc}") from None
+    decoder = codecs.getincrementaldecoder(encoding)()
+    git_lines = raw.split(b"\n")
+    lines: list[str] = []
+    spans: list[range] = []
+    parts: list[str] = []
+    for i, git_line in enumerate(git_lines):
+        last = i == len(git_lines) - 1
+        try:
+            text = decoder.decode(git_line if last else git_line + b"\n", final=last)
+        except UnicodeDecodeError as exc:
+            raise stop(f"its line {i + 1} does not decode on its own: {exc}") from None
+        parts.append(text)
+        if not last:
+            if not text.endswith("\n"):
+                raise stop(f"its line {i + 1} does not decode on its own where git ends it")
+            text = text[:-1]
+        pieces = re.split(r"\r\n|\r(?!\Z)|\n", text)
+        spans.append(range(len(lines) + 1, len(lines) + 1 + len(pieces)))
+        lines.extend(pieces)
+    try:
+        same = "".join(parts) == whole and (ast.dump(ast.parse(whole), include_attributes=True)
+                                            == ast.dump(tree, include_attributes=True))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        same = False
+    if not same:
+        raise stop(f"the text decoded here as {encoding} is not the text Python parsed")
+    return tree, lines, spans
+
+
+def _allowlisted(file_lines: list[str], lineno: int, last: int | None = None) -> bool:
+    """The marker on the flagged line, on a further line of the same header, or directly above."""
+    for candidate in range(lineno - 1, (last or lineno) + 1):
         if 1 <= candidate <= len(file_lines) and _ALLOW_MARKER in file_lines[candidate - 1]:
             return True
     return False
 
 
-def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
+def _class_c_findings(tree: ast.Module, added: set[int]) -> list[tuple[int, str]]:
     """`return True` as first non-docstring statement of a verify-ish function, if the def or
     the return line is part of the change (pre-existing code is out of scope for a diff guard)."""
     findings: list[tuple[int, str]] = []
-    try:
-        tree = ast.parse(content)
-    except (SyntaxError, ValueError):
-        # unparseable staged state: the test/lint gates own that failure. A NUL byte raises
-        # ValueError, not SyntaxError; uncaught, it ended the run with a traceback, and the class A
-        # finding on the same file was never printed (a review lens, measured 2026-09-26).
-        return []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -258,10 +348,14 @@ def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
     return findings
 
 
-def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
+def _file_bytes(path: str, *, staged: bool, cwd: Path) -> bytes:
     """The new side of the diff: the index for --staged, HEAD for --base (the range ends at HEAD, so
     the file on disk is not what the diff describes once the working tree differs)."""
-    return _git("show", f":{path}" if staged else f"HEAD:{path}", cwd=cwd)
+    return _git_bytes("show", f":{path}" if staged else f"HEAD:{path}", cwd=cwd)
+
+
+def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
+    return _file_bytes(path, staged=staged, cwd=cwd).decode("utf-8", "surrogateescape")
 
 
 #: Tree entries that bring content under src/proofbundle without being a regular file, by git mode.
@@ -301,32 +395,40 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
         raise SystemExit(f"mutant_signature_guard: the diff does not parse as git writes it "
                          f"(fail closed): {exc}") from exc
     findings: list[str] = []
+    links = _links_on_security_paths(staged=staged, cwd=cwd)
     for path, added in per_file.items():
-        if not _SECURITY_PATH.match(path):
+        # A link's text is no source; the link is class D, below.
+        if not _SECURITY_PATH.match(path) or any(path == link for link, _, _ in links):
             continue
-        content = _file_content(path, staged=staged, cwd=cwd)
-        git_lines = content.split("\n")
-        file_lines, spans = _python_lines_of(content)
-        added_nums: set[int] = set()
+        raw = _file_bytes(path, staged=staged, cwd=cwd)
+        git_lines = raw.decode("utf-8", "surrogateescape").split("\n")
         for git_no, text in added:
             # The diff and the file are two readings of one state; if they disagree, neither is judged.
             if not 1 <= git_no <= len(git_lines) or git_lines[git_no - 1] != text:
                 raise SystemExit(f"mutant_signature_guard: {path}:{git_no}: the diff and the file "
                                  f"disagree about this line (fail closed)")
+        tree, file_lines, spans = _read_as_python(path, raw)
+        added_nums: set[int] = set()
+        for git_no, _ in added:
             added_nums.update(spans[git_no - 1])
+        in_order: list[tuple[int, str]] = []
+        for first, last in _trivial_truth_headers(tree):
+            if added_nums.isdisjoint(range(first, last + 1)) or _allowlisted(file_lines, first, last):
+                continue
+            header = " ".join(file_lines[n - 1].strip() for n in range(first, last + 1))
+            in_order.append((first, f"{path}:{first}: trivial-truth branch (`if/elif False|True` / "
+                                    f"`while False`) at a check\n    {header}"))
         for lineno in sorted(added_nums):
             text = file_lines[lineno - 1]
-            reason = None
-            if _TRIVIAL_TRUTH.match(text):
-                reason = "trivial-truth branch (`if/elif False|True` / `while False`) at a check"
-            elif _COMMENTED_VERIFY.match(text) and _commented_content_parses(text):
-                reason = "commented-out verification call"
-            if reason and not _allowlisted(file_lines, lineno):
-                findings.append(f"{path}:{lineno}: {reason}\n    {text.strip()}")
-        for lineno, reason in _class_c_findings(content, added_nums):
+            if _COMMENTED_VERIFY.match(text) and _commented_content_parses(text) \
+                    and not _allowlisted(file_lines, lineno):
+                in_order.append((lineno, f"{path}:{lineno}: commented-out verification call\n"
+                                         f"    {text.strip()}"))
+        findings.extend(finding for _, finding in sorted(in_order))
+        for lineno, reason in _class_c_findings(tree, added_nums):
             if not _allowlisted(file_lines, lineno):
                 findings.append(f"{path}:{lineno}: {reason}")
-    for path, mode, obj in _links_on_security_paths(staged=staged, cwd=cwd):
+    for path, mode, obj in links:
         if mode == "120000":
             target = _file_content(path, staged=staged, cwd=cwd).strip()
             findings.append(f"{path}: {_NOT_A_FILE[mode]} on a security path (to {target}) — the guard "
@@ -339,32 +441,69 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
     return findings
 
 
+#: Class E: what Python imports from under src/proofbundle without it being source. Bytecode is
+#: loaded from `__pycache__` in place of the source it claims to come from, or beside it as a
+#: sourceless module; `.so` and `.pyd` are extension modules, native code.
+_COMPILED_SUFFIXES = (".pyc", ".pyo", ".so", ".pyd")
+
+
+def _compiled_findings(names: str) -> list[str]:
+    """Class E over a `--name-only -z` listing of the paths the change adds or modifies."""
+    return [f"{name}: compiled code on a security path — Python imports it, and the guard cannot "
+            f"read it as source; compiled code {_NO_MARKER}, so commit the source instead"
+            for name in sorted(n for n in names.split("\0") if n)
+            if name.endswith(_COMPILED_SUFFIXES) or "__pycache__" in name.split("/")]
+
+
+def _is_commit(rev: str, cwd: Path) -> bool:
+    return subprocess.run(["git", "-C", str(cwd), "rev-parse", "--verify", "--quiet",
+                           f"{rev}^{{commit}}"], capture_output=True).returncode == 0
+
+
 def _resolve_base(base: str, cwd: Path) -> str | None:
-    """Turn the CI-provided base sha into a usable merge base; honest fallbacks, never a crash."""
+    """The merge base of the CI-provided base and HEAD, or None for the one documented honest skip.
+
+    No base given (empty or all-zero, as on a first push or a merge queue entry) means HEAD's parent,
+    and a root commit has none: there is nothing to diff, and the run says so. A base that IS given
+    but is no commit in this clone, or shares no history with HEAD, stops fail-closed: such a base
+    printed "scan skipped honestly" and then "clean" with exit 0 over a range nobody read (a review
+    lens, measured 2026-09-26). A shallow clone lacks the base; fetch it.
+    """
     if not base or set(base) == {"0"}:
+        if not _is_commit("HEAD", cwd):
+            raise SystemExit("mutant_signature_guard: HEAD is no commit, so there is no range to "
+                             "scan (fail closed)")
+        if not _is_commit("HEAD~1", cwd):
+            return None
         base = "HEAD~1"
-    probe = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--verify", f"{base}^{{commit}}"],
-                           capture_output=True, text=True)
-    if probe.returncode != 0:
-        return None
+    elif not _is_commit(base, cwd):
+        raise SystemExit(f"mutant_signature_guard: the base {base!r} is no commit in this clone, so "
+                         "the range cannot be scanned (fail closed); a shallow clone lacks it, fetch it")
     mb = subprocess.run(["git", "-C", str(cwd), "merge-base", base, "HEAD"],
                         capture_output=True, text=True)
-    return mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else None
+    if mb.returncode != 0 or not mb.stdout.strip():
+        raise SystemExit(f"mutant_signature_guard: the base {base!r} shares no history with HEAD, so "
+                         "the range cannot be scanned (fail closed)")
+    return mb.stdout.strip()
 
 
 def run_staged(cwd: Path) -> list[str]:
     diff = _git("diff", "--cached", "-U0", *DIFF_GRAMMAR, "--", "src/proofbundle", cwd=cwd)
-    return scan(diff, staged=True, cwd=cwd)
+    names = _git("diff", "--cached", "--name-only", "-z", "--no-renames", "--diff-filter=d",
+                 "--", "src/proofbundle", cwd=cwd)
+    return scan(diff, staged=True, cwd=cwd) + _compiled_findings(names)
 
 
 def run_base(base: str, cwd: Path) -> list[str]:
     resolved = _resolve_base(base, cwd)
     if resolved is None:
-        print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
-              "nothing to diff, scan skipped honestly")
+        print("mutant_signature_guard: HEAD is a root commit and no base was given — nothing to "
+              "diff, scan skipped honestly")
         return []
     diff = _git("diff", "-U0", *DIFF_GRAMMAR, resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
-    return scan(diff, staged=False, cwd=cwd)
+    names = _git("diff", "--name-only", "-z", "--no-renames", "--diff-filter=d", resolved, "HEAD",
+                 "--", "src/proofbundle", cwd=cwd)
+    return scan(diff, staged=False, cwd=cwd) + _compiled_findings(names)
 
 
 # --- self-test (gate-meta-test: prove each class is caught, and the negatives stay quiet) -----
@@ -381,7 +520,7 @@ def helper(x):
     return x
 '''
 
-_CASES: list[tuple[str, str, bool]] = [
+_CASES: list[tuple[str, str | bytes, bool]] = [
     # (label, replacement content for src/proofbundle/guarded.py, expect_finding)
     ("A: if False at a check",
      _BENIGN.replace('if not isinstance(data, dict):', 'if False:'), True),
@@ -415,6 +554,13 @@ _CASES: list[tuple[str, str, bool]] = [
      _BENIGN.replace('    if not isinstance(data, dict):', '    x = 1\r    if False:'), True),
     ("A: behind a BOM on the first line, which Python skips",
      "\ufeffif False:\n    pass\n", True),
+    # The statement Python sees, and the file as Python decodes it (2026-09-26).
+    ("A: over a backslash continuation",
+     _BENIGN.replace('    if not isinstance(data, dict):', '    if \\\n       True:'), True),
+    ("C: in a file whose coding cookie says latin-1",
+     b"# -*- coding: latin-1 -*-\ns = '\xfc'\ndef verify_thing(data):\n    return True\n", True),
+    ("A: in a file whose coding cookie says utf-7",
+     "# coding: utf-7\n+AGkAZg- True:\n    pass\n", True),
 ]
 
 
@@ -434,7 +580,7 @@ def self_test() -> int:
         _git("add", "-A", cwd=repo)
         _git("commit", "-q", "-m", "base", cwd=repo)
         for label, content, expect in _CASES:
-            target.write_text(content, encoding="utf-8")
+            target.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
             _git("add", "-A", cwd=repo)
             found = bool(run_staged(repo))
             ok = found == expect
@@ -489,6 +635,15 @@ def self_test() -> int:
         _git("add", "-A", cwd=repo)
         caught = any("symlink on a security path" in f for f in run_staged(repo))
         print(f"  {'ok  ' if caught else 'FAIL'} [D: a symlink under src/proofbundle to a file outside] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
+        # compiled code on a security path, which Python imports and no scan reads (2026-09-26)
+        cache = target.parent / "__pycache__"
+        cache.mkdir()
+        (cache / "guarded.cpython-310.pyc").write_bytes(b"\x6f\x0d\x0d\x0a" + bytes(12))
+        _git("add", "-f", "--", "src/proofbundle/__pycache__/guarded.cpython-310.pyc", cwd=repo)
+        caught = any("compiled code on a security path" in f for f in run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [E: bytecode in __pycache__ under src/proofbundle] "
               f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
         failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")

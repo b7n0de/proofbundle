@@ -226,13 +226,120 @@ class TestStagedMode(_RepoFixture):
 
     def test_a_null_byte_in_the_file_is_a_verdict_not_a_crash(self):
         """ast.parse raises ValueError for a NUL byte, not SyntaxError: the guard ended with a
-        traceback and never printed the class A finding on the same file."""
+        traceback. Python itself refuses to import such a file, so the guard cannot say what Python
+        would run: the verdict is the fail-closed stop, exit 2 with the reason."""
         self.target.write_bytes(b"if False:\n    pass\n# ok = verify(x)\x00\n")
         _git(self.repo, "add", "-A")
         r = _guard(self.repo, "--staged")
         self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py: Python cannot read this file as source", r.stderr)
+        self.assertIn("(fail closed)", r.stderr)
+
+    # The file is read as Python reads it, from its bytes (2026-09-26). Each case below was reported
+    # clean with exit 0 at 1ecc2aca, measured in a throwaway repository.
+
+    LATIN_1 = b"# -*- coding: latin-1 -*-\ns = '\xfc'\ndef verify_signature(data):\n    return True\n"
+    UTF_7 = b"# coding: utf-7\n+AGkAZg- True:\n    pass\n"
+
+    def test_a_latin_1_cookie_is_honoured(self):
+        """Read as UTF-8, the byte 0xfc became a surrogate, the parser refused the text, and the
+        `return True` was never seen."""
+        self.target.write_bytes(self.LATIN_1)
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("trivial-truth branch", r.stdout)
+        self.assertIn("src/proofbundle/guarded.py:4: `return True` opens verification function "
+                      "`verify_signature`", r.stdout)
+
+    def test_a_utf_7_cookie_is_honoured(self):
+        """`+AGkAZg- True:` is `if True:` to Python."""
+        self.target.write_bytes(self.UTF_7)
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:2: trivial-truth branch", r.stdout)
+        self.assertIn("    if True:", r.stdout)
+
+    def test_a_line_end_that_exists_only_in_the_decoded_text_starts_a_python_line(self):
+        """`+AAo-` is a newline under UTF-7: one git line, two Python lines, as with a lone CR."""
+        self.target.write_bytes(b"# coding: utf-7\nx = 1+AAo-if False:\n    pass\n")
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:3: trivial-truth branch", r.stdout)
+
+    def test_a_branch_over_a_backslash_continuation_is_one_branch(self):
+        """Judged per physical line, `if \\` and `True:` matched nothing; the tree holds one `if`."""
+        self._stage(BENIGN.replace("    if not isinstance(data, dict):", "    if \\\n       True:"))
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:3: trivial-truth branch", r.stdout)
+
+    def test_a_changed_continuation_line_alone_is_enough(self):
+        """Only the `True:` line is new; the `if \\` above it was committed before."""
+        self._stage("def f(x):\n    if \\\n       x:\n        return 1\n")
+        _git(self.repo, "commit", "-q", "-m", "a branch over two lines")
+        self._stage("def f(x):\n    if \\\n       True:\n        return 1\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:2: trivial-truth branch", r.stdout)
+
+    def test_control_a_marker_on_the_continued_header_suppresses(self):
+        self._stage("def f(x):\n    if \\\n       True:  # mutant-guard: allow (reviewed)\n"
+                    "        return 1\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_control_a_trivial_truth_inside_a_string_is_no_branch(self):
+        """The line pattern read `if False:` inside a docstring as a branch; the tree does not."""
+        self._stage('def f():\n    """Example:\n    if False:\n        pass\n    """\n')
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_file_python_cannot_read_stops_fail_closed(self):
+        """A file Python cannot decode or parse is not judged, and never reported clean."""
+        cases = {"no cookie, a byte that is not UTF-8": b"s = '\xfc'\n",
+                 "a cookie Python does not know": b"# coding: no-such-codec\nx = 1\n",
+                 "a syntax error": b"def broken(:\n    pass\n"}
+        for label, content in cases.items():
+            with self.subTest(label):
+                self.target.write_bytes(content)
+                _git(self.repo, "add", "-A")
+                r = _guard(self.repo, "--staged")
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("Python cannot read this file as source", r.stderr)
+                self.assertNotIn("clean", r.stdout)
+
+    def test_compiled_code_on_a_security_path_is_a_finding(self):
+        """Python imports bytecode and extension modules; no scan reads them as source."""
+        for rel in ("src/proofbundle/__pycache__/guarded.cpython-310.pyc", "src/proofbundle/evil.pyc",
+                    "src/proofbundle/evil.pyo", "src/proofbundle/evil.cpython-310-x86_64-linux-gnu.so",
+                    "src/proofbundle/evil.pyd", "src/proofbundle/__pycache__/notes.txt"):
+            with self.subTest(rel=rel):
+                p = self.repo / rel
+                p.parent.mkdir(exist_ok=True)
+                p.write_bytes(b"\x6f\x0d\x0d\x0a" + bytes(12) + b"code")
+                _git(self.repo, "add", "-f", "--", rel)
+                r = _guard(self.repo, "--staged")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn(f"{rel}: compiled code on a security path", r.stdout)
+                self.assertNotIn("If this is intentional", r.stdout)
+                _git(self.repo, "rm", "-q", "--cached", "--", rel)
+                p.unlink()
+
+    def test_a_pyw_file_is_judged_as_source(self):
+        """Python imports `.pyw` as source on Windows."""
+        self._stage("if False:\n    pass\n", path=self.target.with_suffix(".pyw"))
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.pyw:1: trivial-truth branch", r.stdout)
+
+    def test_control_a_data_file_under_the_package_is_no_finding(self):
+        self._stage('{"k": 1}\n', path=self.repo / "src" / "proofbundle" / "data.json")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_a_symlinked_src_is_a_finding(self):
         self._link_src_to_a_mutant()
@@ -340,6 +447,49 @@ class TestBaseMode(_RepoFixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("scan skipped honestly", r.stdout)
 
+    def test_a_base_this_clone_does_not_have_stops_fail_closed(self):
+        """It printed "scan skipped honestly" and then "clean", exit 0 (measured 2026-09-26)."""
+        self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
+                               encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "mutant slips in")
+        r = _guard(self.repo, "--base", "1234567890abcdef1234567890abcdef12345678")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("is no commit in this clone", r.stderr)
+        self.assertNotIn("clean", r.stdout)
+
+    def test_a_base_that_shares_no_history_stops_fail_closed(self):
+        branch = _git(self.repo, "symbolic-ref", "--short", "HEAD").stdout.strip()
+        _git(self.repo, "checkout", "-q", "--orphan", "other")
+        _git(self.repo, "commit", "-q", "-m", "unrelated root")
+        other = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(_git(self.repo, "checkout", "-q", branch).returncode, 0)
+        self.target.write_text(BENIGN + "x = 1\n", encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "a second commit")
+        r = _guard(self.repo, "--base", other)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("shares no history with HEAD", r.stderr)
+
+    def test_committed_cookie_continuation_and_bytecode_cases_are_blocked(self):
+        """The staged cases, committed and read from HEAD in the range form."""
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        pkg = self.repo / "src" / "proofbundle"
+        (pkg / "latin.py").write_bytes(TestStagedMode.LATIN_1)
+        (pkg / "seven.py").write_bytes(TestStagedMode.UTF_7)
+        (pkg / "cont.py").write_text("def f(x):\n    if \\\n       True:\n        return 1\n",
+                                     encoding="utf-8")
+        (pkg / "evil.pyc").write_bytes(b"\x6f\x0d\x0d\x0a" + bytes(12))
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "add", "-f", "--", "src/proofbundle/evil.pyc")
+        _git(self.repo, "commit", "-q", "-m", "four ways past a line-based reading")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for expected in ("src/proofbundle/latin.py:4: `return True`", "src/proofbundle/seven.py:2: "
+                         "trivial-truth", "src/proofbundle/cont.py:2: trivial-truth",
+                         "src/proofbundle/evil.pyc: compiled code on a security path"):
+            self.assertIn(expected, r.stdout)
+
 
 class TestAStopIsNotAFinding(_RepoFixture):
     """Exit 2 for a fail-closed stop, as the docstring says; `SystemExit(<text>)` exits 1, the code
@@ -414,6 +564,14 @@ class TestTheDiffIsReadInGitsGrammar(unittest.TestCase):
         lines, spans = self.guard._python_lines_of("a\r\nb\rc\nd\u2028e\n")
         self.assertEqual(lines, ["a\r", "b", "c", "d\u2028e", ""])
         self.assertEqual([list(s) for s in spans], [[1], [2, 3], [4], [5]])
+
+    def test_the_bytes_are_decoded_by_their_cookie_one_git_line_at_a_time(self):
+        tree, lines, spans = self.guard._read_as_python("p.py", b"# coding: utf-7\nx = 1+AAo-y = 2\r\n")
+        self.assertEqual(lines, ["# coding: utf-7", "x = 1", "y = 2\r", ""])
+        self.assertEqual([list(s) for s in spans], [[1], [2, 3], [4]])
+        self.assertEqual([n.lineno for n in tree.body], [2, 3])
+        _, lines, _ = self.guard._read_as_python("p.py", b"\xef\xbb\xbfx = '\xc3\xbc'\n")
+        self.assertEqual(lines, ["x = '\u00fc'", ""])
 
 
 class TestSelfTest(unittest.TestCase):
