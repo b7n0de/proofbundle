@@ -409,11 +409,14 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
     @staticmethod
     def _readers(sources) -> set:
         """Every function that refers to `_deserialize_detached`: by that name, by an import alias of it,
-        or as an attribute of that name. Gate run 4 on bb33a87d, 229-4-02: the first form counted a CALL
-        written with the helper's own name, and `from .anchors_ots import _deserialize_detached as _dd`
-        read a proof through the helper uncounted. A reference also counts `functools.partial` and a
-        lambda around it. A module-level reference counts as a reader named None and turns the set red.
-        Not seen: a name assembled at run time and looked up with `getattr`, the limit this class states."""
+        as an attribute of that name, or as a string that is exactly that name. Gate run 4 on bb33a87d,
+        229-4-02: the first form counted a CALL written with the helper's own name, and
+        `from .anchors_ots import _deserialize_detached as _dd` read a proof through the helper uncounted.
+        Gate run 5 on 3a8413f8, 229-5-01: `getattr(anchors_ots, "_deserialize_detached")` was a reader
+        this sweep did not count, although the name is a literal and not assembled. A reference also
+        counts `functools.partial` and a lambda around it. A module-level reference counts as a reader
+        named None and turns the set red. Not seen: a name assembled at run time and looked up with
+        `getattr`, the limit this class states."""
         import ast
         found = set()
         for _mod, text in sources:
@@ -427,7 +430,8 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
                 for child in ast.iter_child_nodes(node):
                     inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
                     if (isinstance(child, ast.Name) and child.id in names) or (
-                            isinstance(child, ast.Attribute) and child.attr == "_deserialize_detached"):
+                            isinstance(child, ast.Attribute) and child.attr == "_deserialize_detached") or (
+                            isinstance(child, ast.Constant) and child.value == "_deserialize_detached"):
                         found.add(fn)
                     stack.append((child, inner))
         return found
@@ -472,8 +476,9 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
         self.assertEqual(self._readers(self._tree()), set(_READERS))
 
     def test_the_reader_sweep_sees_an_alias_an_attribute_and_a_partial(self):
-        """Positive control, with the sweep itself: the reader of 229-4-02 and its two neighbours, planted into
-        evidence_pack, are counted; the tree alone gives the five."""
+        """Positive control, with the sweep itself: the reader of 229-4-02, its two neighbours and the
+        literal `getattr` of 229-5-01, planted into evidence_pack, are counted; the tree alone gives the
+        five."""
         planted = ('\n\ndef _alias_reader(proof):\n'
                    '    from .anchors_ots import _deserialize_detached as _dd\n    return _dd(proof)\n'
                    '\n\ndef _attribute_reader(proof):\n'
@@ -481,10 +486,13 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
                    '\n\ndef _partial_reader():\n'
                    '    import functools\n'
                    '    from .anchors_ots import _deserialize_detached\n'
-                   '    return functools.partial(_deserialize_detached)\n')
+                   '    return functools.partial(_deserialize_detached)\n'
+                   '\n\ndef _getattr_reader(proof):\n'
+                   '    from . import anchors_ots as a\n'
+                   '    return getattr(a, "_deserialize_detached")(proof)\n')
         tree = [(m, t + planted if m == "proofbundle.evidence_pack" else t) for m, t in self._tree()]
         self.assertEqual(self._readers(tree) - set(_READERS),
-                         {"_alias_reader", "_attribute_reader", "_partial_reader"})
+                         {"_alias_reader", "_attribute_reader", "_partial_reader", "_getattr_reader"})
 
     def test_the_sweeps_read_a_second_package_under_src(self):
         """Gate run 4 on bb33a87d, 229-4-01: a package beside proofbundle under src/ ships with the
@@ -531,7 +539,10 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
                 self.assertTrue(found and all("evidence_pack._raw_proof_timestamp" in f for f in found), found)
                 self.assertTrue(any(want in f for f in found), found)
 
-    def test_every_deserialization_site_is_the_helper(self):
+    @staticmethod
+    def _deserialization_sites(sources) -> list:
+        """(module, where, kind) for every reference to a deserialization context, every string naming
+        DetachedTimestampFile and every `.deserialize`, over (module, source) pairs."""
         import ast
         sites = []
 
@@ -546,18 +557,30 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
                 text = child.value if isinstance(child, ast.Constant) and isinstance(child.value, str) else ""
                 is_context = (isinstance(named, str) and "DeserializationContext" in named) \
                     or "DeserializationContext" in text or text == "DetachedTimestampFile"
-                # any `.deserialize` at all: under src/proofbundle only the OTS helper has one
-                is_call = isinstance(child, ast.Attribute) and child.attr == "deserialize"
+                # any `.deserialize` at all, as an attribute or as the string a `getattr` takes (the form of
+                # 229-5-01, one sweep over): under src/ only the OTS helper has one
+                is_call = (isinstance(child, ast.Attribute) and child.attr == "deserialize") or text == "deserialize"
                 if is_context or is_call:
                     sites.append((path, inner, "deserialize" if is_call else "context"))
                 visit(child, path, inner)
 
-        for path in sorted((REPO / "src").rglob("*.py")):
-            rel = path.relative_to(REPO / "src").with_suffix("").as_posix().replace("/", ".")
-            visit(ast.parse(path.read_text()), rel, rel)
+        for mod, text in sources:
+            visit(ast.parse(text), mod, mod)
+        return sites
+
+    def test_every_deserialization_site_is_the_helper(self):
+        sites = self._deserialization_sites(self._tree())
         self.assertEqual({(p, w) for p, w, _ in sites},
                          {("proofbundle.anchors_ots", "proofbundle.anchors_ots._deserialize_detached")}, sites)
         self.assertEqual(sum(1 for *_, kind in sites if kind == "deserialize"), 1, sites)
+
+    def test_the_deserialization_sweep_sees_the_method_by_its_name(self):
+        """Positive control, with the sweep itself: `.deserialize` reached through `getattr` with a literal
+        name, planted into evidence_pack, is a site."""
+        planted = '\n\ndef _raw(dtf, ctx):\n    return getattr(dtf, "deserialize")(ctx)\n'
+        tree = [(m, t + planted if m == "proofbundle.evidence_pack" else t) for m, t in self._tree()]
+        self.assertIn(("proofbundle.evidence_pack", "proofbundle.evidence_pack._raw", "deserialize"),
+                      self._deserialization_sites(tree))
 
 
 class TheCapFitsWhatThisRepositoryCarries(unittest.TestCase):
