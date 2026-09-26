@@ -399,6 +399,12 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         assert "MUTATION_RESULT" in rumpf and "summe" in rumpf, "Rumpf nicht erkannt"
         return rumpf
 
+    @classmethod
+    def _k(cls) -> int:
+        """The shard count the summary block expects, read from the block itself (Z230 moved it
+        from 10 to 28; a count typed here as well would be a second truth about the same number)."""
+        return int(re.search(r"(?m)^K=([0-9]+)$", cls._shell_block()).group(1))
+
     def _fahre(self, shards: dict[int, str], ergebnis: str = "success"):
         """Den Block in einem Wegwerfordner fahren. shards: Nummer -> Dateiinhalt (fehlt = keine Datei).
 
@@ -416,12 +422,19 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
                                   capture_output=True, text=True, timeout=120,
                                   env={"MUTATION_RESULT": ergebnis, "PATH": "/usr/bin:/bin"})
 
-    @staticmethod
-    def _gut(n: int = 10, gesamt: int = 100):
-        """Zehn Shards, round-robin partitioniert — Groessen UND Mitgliedschaften."""
-        return {i: (f"shard={i} operators={gesamt // n} total={gesamt} "
+    @classmethod
+    def _gut(cls, n: int | None = None, gesamt: int = 100):
+        """K shards, partitioned round-robin: sizes AND memberships. Each shard reports as many
+        operators as it holds, so a count K that does not divide the total still adds up."""
+        n = cls._k() if n is None else n
+        return {i: (f"shard={i} operators={len(range(i - 1, gesamt, n))} total={gesamt} "
                     f"indizes={','.join(str(x) for x in range(i - 1, gesamt, n))}\n")
                 for i in range(1, n + 1)}
+
+    @classmethod
+    def _indizes(cls, n: int | None = None, gesamt: int = 100) -> dict[int, list[str]]:
+        n = cls._k() if n is None else n
+        return {i: [str(x) for x in range(i - 1, gesamt, n)] for i in range(1, n + 1)}
 
     def test_ein_ROTER_shard_laesst_den_sammel_job_scheitern(self):
         """DER RIEGEL, DEN KEIN FALL BAND (Riegel-Sweep auf Owner-Auftrag, 2026-09-07, P0).
@@ -482,7 +495,7 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         self.assertIn("::error::", gesamtausgabe, (
             f"Der Job scheitert OHNE Fehlermeldung — er ist abgestuerzt, statt zu urteilen. "
             f"stdout={r.stdout!r} stderr={r.stderr!r}"))
-        self.assertIn("shard 10:", r.stdout, (
+        self.assertIn(f"shard {self._k()}:", r.stdout, (
             "Die Schleife hat die Shards nach dem luecken haften nicht mehr gelesen — der Block "
             "brach mitten in der Auswertung ab, statt sie zu Ende zu fuehren."))
 
@@ -497,7 +510,8 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
     def test_eine_luecke_in_der_partition_wird_benannt(self):
         """Die eigentliche Aufgabe des Riegels: Summe != Gesamtzahl."""
         shards = self._gut()
-        shards[7] = "shard=7 operators=3 total=100\n"     # sieben Operatoren fehlen
+        n7 = len(self._indizes()[7])
+        shards[7] = f"shard=7 operators={n7 - 1} total=100\n"     # one operator is missing
         r = self._fahre(shards)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Luecke", r.stdout + r.stderr)
@@ -523,12 +537,17 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         # Recht durch. Gebraucht wird eine ECHTE Ueberlappung, die eine Luecke ausgleicht: Shard 3
         # nimmt fuenf Indizes von Shard 7 DAZU, waehrend Shard 7 sie BEHAELT (Ueberlappung), und
         # dafuer fallen Shard 7s andere fuenf ganz weg (Luecke). Summe bleibt 100.
-        s7 = [str(x) for x in range(6, 100, 10)]
+        # Generic in K since Z230: shard 3 takes half of shard 7's indices as well, shard 7 keeps
+        # that half and drops the other (an overlap of m and a gap of m, the sum unchanged).
+        idx = self._indizes()
+        s7 = idx[7]
+        m = len(s7) // 2
+        self.assertEqual(len(s7), 2 * m, "the construction needs an even shard 7")
         shards = self._gut()
-        idx3 = [str(x) for x in range(2, 100, 10)] + s7[:5]     # 15, davon 5 doppelt
-        idx7 = s7[:5]                                            # 5, dieselben fuenf
-        shards[3] = f"shard=3 operators=15 total=100 indizes={','.join(idx3)}\n"
-        shards[7] = f"shard=7 operators=5 total=100 indizes={','.join(idx7)}\n"
+        idx3 = idx[3] + s7[:m]
+        idx7 = s7[:m]
+        shards[3] = f"shard=3 operators={len(idx3)} total=100 indizes={','.join(idx3)}\n"
+        shards[7] = f"shard=7 operators={len(idx7)} total=100 indizes={','.join(idx7)}\n"
         r = self._fahre(shards)
         self.assertNotEqual(r.returncode, 0, (
             "Eine Ueberlappung, die sich mit einer Luecke aufhebt, kommt durch. Die Summe ist 100 "
@@ -539,7 +558,7 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         """Die Mitgliedschaft ist die Grundlage der Rechnung. Fehlt sie, ist die Aussage
         'lueckenlos und ueberschneidungsfrei' nur behauptet — und das muss auffallen."""
         shards = self._gut()
-        shards[6] = "shard=6 operators=10 total=100\n"      # kein indizes=
+        shards[6] = f"shard=6 operators={len(self._indizes()[6])} total=100\n"      # kein indizes=
         r = self._fahre(shards)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("keine Mitgliedschaft", r.stdout + r.stderr)
@@ -547,8 +566,8 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
     def test_eine_LUECKE_ohne_ausgleichende_ueberlappung_wird_weiterhin_gefangen(self):
         """Die Kontrolle in die andere Richtung: der alte Summenriegel muss weiter greifen."""
         shards = self._gut()
-        idx9 = [str(x) for x in range(8, 100, 10)][:7]
-        shards[9] = f"shard=9 operators=7 total=100 indizes={','.join(idx9)}\n"
+        idx9 = self._indizes()[9][:-1]
+        shards[9] = f"shard=9 operators={len(idx9)} total=100 indizes={','.join(idx9)}\n"
         r = self._fahre(shards)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Luecke", r.stdout + r.stderr)
@@ -561,11 +580,31 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         """
         g, _ = mc.lade_gewichte()
         shards = {}
-        for i in range(1, 11):
-            idx = mc._indizes_des_laufs((i, 10), g)
+        k = self._k()
+        for i in range(1, k + 1):
+            idx = mc._indizes_des_laufs((i, k), g)
             shards[i] = (f"shard={i} operators={len(idx)} total={len(mc.MUTATIONS)} "
                          f"indizes={','.join(str(x) for x in idx)}\n")
         r = self._fahre(shards)
         self.assertEqual(r.returncode, 0, (
             f"Die echte Partition dieses Repos faellt am eigenen Riegel:\n{r.stdout}\n{r.stderr}"))
         self.assertIn("Vereinigung vollstaendig und paarweise disjunkt", r.stdout)
+
+
+class TheShardCountStandsOnceInTheWorkflow(unittest.TestCase):
+    """The matrix, the `--shard i/K` argument and the summary's `K=` name one number (Z230 moved it
+    from 10 to 28). If they drift, shards run a partition the summary does not count, or the summary
+    waits for shards that never run."""
+
+    def test_matrix_argument_and_summary_agree(self):
+        text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        liste = re.search(r"(?ms)^\s*shard: \[([0-9,\s]+)\]", text)
+        self.assertIsNotNone(liste, "the mutation matrix is not found")
+        matrix = [int(x) for x in re.findall(r"[0-9]+", liste.group(1))]
+        argument = re.findall(r"--shard \$\{\{ matrix\.shard \}\}/([0-9]+)", text)
+        summe = re.findall(r"(?m)^\s*K=([0-9]+)\s*$", text)
+        self.assertEqual(len(argument), 1, argument)
+        self.assertEqual(len(summe), 1, summe)
+        k = int(argument[0])
+        self.assertEqual(matrix, list(range(1, k + 1)), "the matrix does not list shards 1..K")
+        self.assertEqual(int(summe[0]), k, "the summary counts another K than the shards run")
