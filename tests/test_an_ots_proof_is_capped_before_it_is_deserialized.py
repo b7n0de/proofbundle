@@ -11,11 +11,12 @@ around the call alone, each figure three times in a fresh process; the gate's ow
 WHAT IS PINNED. All five readers (`verify_opentimestamps`, `calendar_uris`,
 `ots_upgraded_proof_is_self_contained`, `describe_proof`, `build_evidence_pack`) and the pack verifier
 refuse a proof over the cap with their own verdict, and the library's deserializer is not called for it;
-the five are derived from the source, so a sixth that calls the helper is counted or turns this red. A proof of exactly the
-cap's length still reaches the library, so the cap cannot be read as refusing more than it says, and
-every OTS proof this repository carries fits under it with room to spare. Every reader deserializes a
-proof once, and only through the one helper. The binding is read by membership in the statuses that
-say it held, so a refusal added later cannot read as bound (`anchor upgrade`, the rootcommit anchors).
+the five are derived from the source, so a sixth that refers to the helper is counted or turns this red.
+A proof of exactly the cap's length still reaches the library, so the cap cannot be read as refusing
+more than it says, and every OTS proof this repository carries fits under it with room to spare. Every
+reader deserializes a proof once, and only through the one helper. The binding is read by membership
+in the statuses that say it held, so a refusal added later cannot read as bound (`anchor upgrade`,
+the rootcommit anchors).
 """
 from __future__ import annotations
 
@@ -34,8 +35,8 @@ except ImportError:
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _ROOT = hashlib.sha256(b"canonical").digest()
 _MAGIC = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
-#: The functions under src/proofbundle that call `_deserialize_detached`; derived from the source by
-#: `test_every_caller_of_the_helper_is_a_counted_reader`, so the counts below cannot miss one.
+#: The functions under src/ that refer to `_deserialize_detached`; derived from the source by
+#: `test_every_caller_of_the_helper_is_a_counted_reader`, which states what it cannot see.
 _READERS = frozenset({"verify_opentimestamps", "calendar_uris", "ots_upgraded_proof_is_self_contained",
                       "describe_proof", "build_evidence_pack"})
 
@@ -281,7 +282,7 @@ class TheBindingIsReadByMembership(unittest.TestCase):
             return False
 
         found = []
-        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
+        for path in sorted((REPO / "src").rglob("*.py")):
             rel = path.relative_to(REPO).as_posix()
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, (ast.Name, ast.Attribute)) and rel != "src/proofbundle/anchors_ots.py" \
@@ -378,8 +379,10 @@ class TheBindingIsReadByMembership(unittest.TestCase):
 class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
     """Gate on the cap, lens B, 229B-03: "one way to deserialize" was written down, not held; a new reader
     calling the library directly left every case green. Every reference to a deserialization context (as a
-    name or as a string), every string naming DetachedTimestampFile, and every `.deserialize` under
-    src/proofbundle sits in `_deserialize_detached`, and the library is imported only where it is read.
+    name or as a string), every string naming DetachedTimestampFile, and every `.deserialize` under src/
+    sits in `_deserialize_detached`, and the library is imported only where it is read. The sweeps read
+    `src`, not `src/proofbundle`: pyproject.toml ships every package it finds there (gate run 4 on
+    bb33a87d, 229-4-01, read an over-cap proof from a second package under src/ that no sweep read).
 
     STATED LIMIT (gate run 3, 229-3-01). These are sweeps over the source text. A name assembled at run time
     and looked up with `getattr` on a module that is already imported leaves no literal for them to see;
@@ -387,7 +390,7 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
     catches it, for a reader outside that list nothing here does. The import routes such a reader needs
     are closed below, which is why a new reader has to come in through a named import."""
 
-    # The two places under src/proofbundle that import by a name only known at run time, each taking the
+    # The two places under src/ that import by a name only known at run time, each taking the
     # name from a literal table: the lazy attributes of the package, and the keccak backends. A third
     # site is a new route to any library, this one included, and is added here with its reason or not at all.
     _DYNAMIC_IMPORT_SITES = {("proofbundle", "proofbundle.__getattr__"),
@@ -397,11 +400,37 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
     _IMPORT_OUTSIDE = {("proofbundle.cli", "proofbundle.cli._detect_features", "opentimestamps")}
 
     @staticmethod
-    def _tree():
-        """(module name, source text) for every file under src/proofbundle."""
-        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
-            mod = path.relative_to(REPO / "src").with_suffix("").as_posix().replace("/", ".")
+    def _tree(src=REPO / "src"):
+        """(module name, source text) for every file under `src`, which is what the distribution ships."""
+        for path in sorted(src.rglob("*.py")):
+            mod = path.relative_to(src).with_suffix("").as_posix().replace("/", ".")
             yield mod.removesuffix(".__init__"), path.read_text()
+
+    @staticmethod
+    def _readers(sources) -> set:
+        """Every function that refers to `_deserialize_detached`: by that name, by an import alias of it,
+        or as an attribute of that name. Gate run 4 on bb33a87d, 229-4-02: the first form counted a CALL
+        written with the helper's own name, and `from .anchors_ots import _deserialize_detached as _dd`
+        read a proof through the helper uncounted. A reference also counts `functools.partial` and a
+        lambda around it. A module-level reference counts as a reader named None and turns the set red.
+        Not seen: a name assembled at run time and looked up with `getattr`, the limit this class states."""
+        import ast
+        found = set()
+        for _mod, text in sources:
+            tree = ast.parse(text)
+            names = {"_deserialize_detached"} | {
+                a.asname for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                for a in node.names if a.name == "_deserialize_detached" and a.asname}
+            stack = [(tree, None)]
+            while stack:
+                node, fn = stack.pop()
+                for child in ast.iter_child_nodes(node):
+                    inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
+                    if (isinstance(child, ast.Name) and child.id in names) or (
+                            isinstance(child, ast.Attribute) and child.attr == "_deserialize_detached"):
+                        found.add(fn)
+                    stack.append((child, inner))
+        return found
 
     @classmethod
     def _import_findings(cls, sources) -> list:
@@ -438,19 +467,45 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
 
     def test_every_caller_of_the_helper_is_a_counted_reader(self):
         """Gate run 3, 229-3-01: the call counts above hold for the readers they name. A new function that
-        reads a proof through the helper is one more reader; this derives the set so it cannot be left out."""
-        import ast
-        callers = set()
-        for _mod, text in self._tree():
-            stack = [(ast.parse(text), None)]
-            while stack:
-                node, fn = stack.pop()
-                for child in ast.iter_child_nodes(node):
-                    inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
-                    if isinstance(child, ast.Call) and ast.unparse(child.func) == "_deserialize_detached":
-                        callers.add(fn)
-                    stack.append((child, inner))
-        self.assertEqual(callers, set(_READERS))
+        reads a proof through the helper is one more reader, derived here (`_readers` says what it cannot
+        see)."""
+        self.assertEqual(self._readers(self._tree()), set(_READERS))
+
+    def test_the_reader_sweep_sees_an_alias_an_attribute_and_a_partial(self):
+        """Positive control, with the sweep itself: the reader of 229-4-02 and its two neighbours, planted into
+        evidence_pack, are counted; the tree alone gives the five."""
+        planted = ('\n\ndef _alias_reader(proof):\n'
+                   '    from .anchors_ots import _deserialize_detached as _dd\n    return _dd(proof)\n'
+                   '\n\ndef _attribute_reader(proof):\n'
+                   '    from . import anchors_ots\n    return anchors_ots._deserialize_detached(proof)\n'
+                   '\n\ndef _partial_reader():\n'
+                   '    import functools\n'
+                   '    from .anchors_ots import _deserialize_detached\n'
+                   '    return functools.partial(_deserialize_detached)\n')
+        tree = [(m, t + planted if m == "proofbundle.evidence_pack" else t) for m, t in self._tree()]
+        self.assertEqual(self._readers(tree) - set(_READERS),
+                         {"_alias_reader", "_attribute_reader", "_partial_reader"})
+
+    def test_the_sweeps_read_a_second_package_under_src(self):
+        """Gate run 4 on bb33a87d, 229-4-01: a package beside proofbundle under src/ ships with the
+        distribution and was read by no sweep here. Built in a temporary tree, it is seen by the import
+        sweep and by the reader sweep; tests/test_src_ships_one_package.py holds that there is none today."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            src = pathlib.Path(d) / "src"
+            (src / "proofbundle").mkdir(parents=True)
+            (src / "proofbundle" / "__init__.py").write_text("")
+            (src / "_probe").mkdir()
+            (src / "_probe" / "leak.py").write_text(
+                "def read(proof):\n"
+                "    from opentimestamps.core.timestamp import DetachedTimestampFile\n"
+                "    from proofbundle.anchors_ots import _deserialize_detached\n"
+                "    return DetachedTimestampFile, _deserialize_detached(proof)\n")
+            sources = list(self._tree(src))
+        self.assertIn("_probe.leak", dict(sources))
+        self.assertTrue(any(f.startswith("_probe.leak.read imports opentimestamps")
+                            for f in self._import_findings(sources)), self._import_findings(sources))
+        self.assertEqual(self._readers(sources), {"read"})
 
     def test_the_library_is_imported_in_one_place(self):
         """Gate run 3, 229-3-01: `importlib.import_module("open" + "timestamps.core.ser" + "ialize")` in a new
@@ -497,7 +552,7 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
                     sites.append((path, inner, "deserialize" if is_call else "context"))
                 visit(child, path, inner)
 
-        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
+        for path in sorted((REPO / "src").rglob("*.py")):
             rel = path.relative_to(REPO / "src").with_suffix("").as_posix().replace("/", ".")
             visit(ast.parse(path.read_text()), rel, rel)
         self.assertEqual({(p, w) for p, w, _ in sites},
