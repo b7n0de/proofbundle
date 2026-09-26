@@ -199,6 +199,30 @@ class TestStagedMode(_RepoFixture):
         self.assertIn("put the file itself there", r.stdout)
         self.assertNotIn("If this is intentional", r.stdout)
 
+    def _link_src_to_a_mutant(self):
+        """`src` becomes a symlink to a copy whose guarded.py carries the mutant: no path under
+        src/proofbundle is tracked any more, and Python imports the package through the link."""
+        _git(self.repo, "rm", "-r", "-q", "--cached", "src")
+        (self.repo / "src").rename(self.repo / "real_src")
+        (self.repo / "real_src" / "proofbundle" / "guarded.py").write_text(
+            BENIGN.replace("if not isinstance(data, dict):", "if False:"), encoding="utf-8")
+        (self.repo / "src").symlink_to("real_src")
+        _git(self.repo, "add", "-A")
+
+    def test_a_symlinked_src_is_a_finding(self):
+        self._link_src_to_a_mutant()
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src: a symlink on a security path", r.stdout)
+
+    def test_a_gitlink_under_the_package_is_a_finding(self):
+        head = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        _git(self.repo, "update-index", "--add", "--cacheinfo", f"160000,{head},src/proofbundle/sub")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/sub: a gitlink (a submodule) on a security path", r.stdout)
+        self.assertNotIn("If this is intentional", r.stdout)
+
     def test_a_verify_name_given_to_a_function_whose_return_true_stays_is_caught(self):
         """Class C when only the `def` line is new: the `return True` below it is not an added line."""
         _git(self.repo, "rm", "-q", "--cached", "--", "src/proofbundle/guarded.py")
@@ -264,6 +288,14 @@ class TestBaseMode(_RepoFixture):
         r = _guard(self.repo, "--base", base)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/linked.py: a symlink on a security path", r.stdout)
+
+    def test_a_symlinked_src_in_the_range_is_a_finding(self):
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        TestStagedMode._link_src_to_a_mutant(self)
+        _git(self.repo, "commit", "-q", "-m", "src becomes a link")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src: a symlink on a security path", r.stdout)
 
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),

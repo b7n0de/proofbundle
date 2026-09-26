@@ -13,11 +13,12 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
   B  a commented-out verification line: a comment whose content reads like a code statement
      calling a verify/validate/check/compare_digest function (prose comments do not match)
   C  `return True` as the first statement of a function whose name says verify/validate/check
-  D  a symlink anywhere under src/proofbundle in the judged state: the diff shows the link's text,
-     Python runs its target, which the scan does not reach (a mutant planted in a file outside the
-     security path and linked in was reported clean with exit 0, measured 2026-09-26). Not diff-
-     scoped on purpose: an existing link would hide every later change to its target. No allow
-     marker: a link carries no comment.
+  D  a symlink or a gitlink under src/proofbundle, or `src` or `src/proofbundle` itself as one, in
+     the judged state: the diff shows a link's text or a commit id, Python runs what it points at,
+     which the scan does not reach (a mutant planted outside the security path and linked in was
+     reported clean with exit 0, measured 2026-09-26, and so were a symlinked `src` and a gitlink
+     under the package). Not diff-scoped on purpose: an existing link would hide every later change
+     to its target. No allow marker: a link carries no comment.
 
 Scope: added lines under src/proofbundle/**/*.py (the verification library, every path there is
 security-relevant). Legitimate exceptions are possible but must be VISIBLE in the diff: put a
@@ -256,17 +257,32 @@ def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
     return _git("show", f":{path}" if staged else f"HEAD:{path}", cwd=cwd)
 
 
-_SYMLINK_FINDING = "a symlink on a security path"
+#: Tree entries that bring content under src/proofbundle without being a regular file, by git mode.
+_NOT_A_FILE = {"120000": "a symlink", "160000": "a gitlink (a submodule)"}
+_NO_MARKER = "carries no allow marker"
 
 
-def _symlinks_on_security_paths(*, staged: bool, cwd: Path) -> list[str]:
-    """Every symlink under src/proofbundle in the judged state: the index for --staged, HEAD for --base."""
+def _links_on_security_paths(*, staged: bool, cwd: Path) -> list[tuple[str, str, str]]:
+    """(path, mode, object) of every entry that is no regular file under src/proofbundle, or on the
+    way to it (`src`, `src/proofbundle`), in the judged state: the index for --staged, HEAD for --base.
+
+    The listing starts at `src`, not at src/proofbundle: with `src` a symlink there is no path under
+    src/proofbundle at all, and a gitlink was never a symlink. Both passed with exit 0 while Python
+    imported the planted code (a review lens, measured 2026-09-26)."""
     if staged:
-        listing = _git("ls-files", "-s", "-z", "--", "src/proofbundle", cwd=cwd)   # mode object stage\tpath
+        listing = _git("ls-files", "-s", "-z", "--", "src", cwd=cwd)   # mode object stage\tpath
     else:
-        listing = _git("ls-tree", "-r", "-z", "HEAD", "--", "src/proofbundle", cwd=cwd)  # mode type object\tpath
-    return sorted(entry.split("\t", 1)[1] for entry in listing.split("\0")
-                  if entry.startswith("120000 ") and "\t" in entry)
+        listing = _git("ls-tree", "-r", "-z", "HEAD", "--", "src", cwd=cwd)  # mode type object\tpath
+    found = []
+    for entry in listing.split("\0"):
+        if "\t" not in entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        fields = meta.split(" ")
+        on_the_way = path in ("src", "src/proofbundle") or path.startswith("src/proofbundle/")
+        if fields[0] in _NOT_A_FILE and on_the_way:
+            found.append((path, fields[0], fields[1] if staged else fields[2]))
+    return sorted(found)
 
 
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
@@ -303,11 +319,16 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
         for lineno, reason in _class_c_findings(content, added_nums):
             if not _allowlisted(file_lines, lineno):
                 findings.append(f"{path}:{lineno}: {reason}")
-    for link in _symlinks_on_security_paths(staged=staged, cwd=cwd):
-        target = _file_content(link, staged=staged, cwd=cwd).strip()
-        findings.append(f"{link}: {_SYMLINK_FINDING} (to {target}) — the guard reads the link, "
-                        "Python runs its target, which this scan does not reach; a link carries no "
-                        "allow marker, so put the file itself there")
+    for path, mode, obj in _links_on_security_paths(staged=staged, cwd=cwd):
+        if mode == "120000":
+            target = _file_content(path, staged=staged, cwd=cwd).strip()
+            findings.append(f"{path}: {_NOT_A_FILE[mode]} on a security path (to {target}) — the guard "
+                            "reads the link, Python runs its target, which this scan does not reach; a "
+                            f"link {_NO_MARKER}, so put the file itself there")
+        else:
+            findings.append(f"{path}: {_NOT_A_FILE[mode]} on a security path (commit {obj[:12]}) — the "
+                            "diff shows a commit id, Python runs the files under it, which this scan "
+                            f"does not reach; a gitlink {_NO_MARKER}, so put the files themselves there")
     return findings
 
 
@@ -482,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
         print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
         for f in findings:
             print(f"  {f}")
-        if any(_SYMLINK_FINDING not in f for f in findings):
+        if any(_NO_MARKER not in f for f in findings):
             print("If this is intentional and legitimate, add a visible `# mutant-guard: allow` "
                   "comment on (or directly above) the flagged line so review sees the exception.")
         return 1
