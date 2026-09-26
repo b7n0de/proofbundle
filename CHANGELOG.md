@@ -70,10 +70,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   since the owner decision keeps the German lines that exist; it judges a line of a changed file
   that is prose now and whose text was not prose before the change, compared by text, so that a kept
   German line stays unjudged where the change moves it. A changed file without a prose map makes the
-  run NOT MEASURABLE, also when it adds only comments. All 534 tracked `.py` files read as Python
-  reads them. Measured at 2ef28d69, the new pass adds one line over `origin/main...HEAD` and three
+  run NOT MEASURABLE, also when it adds only comments. Measured at 83cf5104: all 535 tracked `.py`
+  files read as Python reads them, and the new pass adds one line over `origin/main...HEAD` and four
   over `v6.1.0...HEAD`, a table rule and empty lines (an empty line git aligns from code into a
-  docstring is prose now), and both verdicts stay green.
+  docstring is prose now); both verdicts stay green.
 
   The language gate follows CommonMark's HTML blocks. A fence-shaped line inside `<details>`, `<!--`
   or `<pre>` is HTML, and the gate took it for a fence opener: the German paragraph after the block
