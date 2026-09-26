@@ -279,9 +279,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   what the module prints stays off the document even when it writes to file descriptor 1
   directly, which the earlier redirection named as a limit. A root is read as the bytes the module
   returned, hex-encoded by the tool; a value that is not bytes is exit 2. The document the tool
-  prints over this checkout is byte-identical to the one before. Named limit: the child is given
-  the record's path, so a module that reads its process's arguments can write a well-formed record
-  of its own there.
+  prints over this checkout is byte-identical to the one before. Named limit: the module shares the
+  child process with the code that measures it and can change that code and what it writes. Two
+  lines on import that rebind the tool's `reading_b` to `reading_a` read no argument and write no
+  record, and turned the shipped module's two roots into ONE_ROOT with exit 0 (a review lens, run 10,
+  measured at 50f3ef33); a module that reads its process's arguments finds the record's path and can
+  write a well-formed record of its own there. The child keeps what the module does to its process
+  (an exit, a signal, its output, any exception) out of the tool's; it does not make the readings
+  independent of the module, and no change inside the child can.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

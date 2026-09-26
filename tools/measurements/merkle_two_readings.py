@@ -46,9 +46,15 @@ What the module prints goes to this tool's stderr, whenever it prints it and whe
 `print` or straight to file descriptor 1, because the child's stdout is this tool's stderr; so
 `--json` stays one JSON document. A `KeyboardInterrupt` in this tool's own process comes from the
 user and ends the run as Python ends it; one the module raises ends the child and is exit 2.
-Named limit: the child is given the channel's path, so a module that reads its process's arguments
-can write a record of its own there; a record that is not well-formed is refused, a well-formed one
-is not told apart.
+Named limit: the module runs in the same process as the code that measures it, and can change that
+code and what it writes. Two lines on import, `import __main__` and
+`__main__.reading_b = __main__.reading_a`, read no argument and write no record, and turned the
+shipped module's two roots into ONE_ROOT with exit 0 (a review lens, run 10, measured 2026-09-26 at
+50f3ef33); a module that reads its process's arguments finds the channel's path and can write a
+record of its own there. A record that is not well-formed is refused; a well-formed one is not told
+apart. The child keeps what the module does to its own process out of this one (an exit, a signal,
+what it prints, an exception of any kind); it does not make the readings independent of the module,
+and no change inside the child can, since the module can replace whatever the child runs.
 """
 from __future__ import annotations
 

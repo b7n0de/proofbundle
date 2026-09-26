@@ -149,6 +149,18 @@ def test_output_after_the_document_or_on_file_descriptor_1_goes_to_stderr():
         assert "LATE LINE" in r.stderr and "LATE LINE" not in r.stdout, (label, r.stdout, r.stderr)
 
 
+def test_named_limit_the_module_can_change_the_code_that_measures_it():
+    """The module shares the child process with the measuring code (the docstring's named limit): two
+    lines on import that rebind reading B to reading A read no argument, write no record, and turn the
+    shipped module's two roots into ONE_ROOT with exit 0 (a review lens, run 10, measured 2026-09-26).
+    Pinned so that a change here is seen, in either direction."""
+    shipped = (ROOT / "src" / "proofbundle" / "merkle.py").read_text(encoding="utf-8")
+    r = _run_with(shipped, "--json")
+    assert r.returncode == 1 and json.loads(r.stdout)["verdict"] == "TWO_ROOTS", r.stdout + r.stderr
+    r = _run_with(shipped + "\nimport __main__\n__main__.reading_b = __main__.reading_a\n", "--json")
+    assert r.returncode == 0 and json.loads(r.stdout)["verdict"] == "ONE_ROOT", r.stdout + r.stderr
+
+
 def test_a_child_that_ends_without_a_clean_record_is_a_stop_exit_2():
     """`os._exit(0)` in a call exited 0, "the readings agree", with no output."""
     cases = (("os._exit(0) in a call", _raising_in_the_call("import os\n", "os._exit(0)"), "left no record"),
