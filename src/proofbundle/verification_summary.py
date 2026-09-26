@@ -223,6 +223,9 @@ def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bo
         body = dsse.load_payload(envelope)
         # The ONE Statement oracle (budget, strict parse, object, `_type` = in-toto Statement v1; deep
         # gate Z195, L3-Z195-01 class, mirror of decision.py).
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False

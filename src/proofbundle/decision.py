@@ -571,6 +571,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # but only when the rfc8785 extra is installed. Deep gate Z195 (L3-Z195-01): through the ONE
         # Statement oracle, which also refuses a `_type` that is not in-toto Statement v1 — before, a
         # receipt with `_type` absent, null or v0.1 reached structure_ok=true and safeForAutomation=true.
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a

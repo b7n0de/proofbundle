@@ -600,6 +600,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # Finding 15b: the input_bytes budget runs before any JSON parsing work, inside the ONE Statement
         # oracle, which since deep gate Z195 (L3-Z195-01) also refuses a `_type` that is not in-toto
         # Statement v1 (mirror of decision.py).
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input -> STABLE
