@@ -10,6 +10,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
+  `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
+  with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust
+  reader read the unknown mode as no rule and verified with exit 0 and no reason. It checked the
+  policy's hull and read the section it evaluates without judging it. It now judges that section the
+  way `policy.load_policy` does, with Python's wording and exit 2: relation names, `relation_signer`
+  mode and keys (including the trust-anchor key rule), the two booleans and
+  `require_relation_target`. A policy malformed outside `relations` is still evaluated by Rust while
+  Python refuses it; the parity registry names that gap and a test measures it.
+
 - **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
   (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
   verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
