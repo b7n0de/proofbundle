@@ -23,6 +23,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `input_bytes` before decoding. The status list's `lst` had the same shape. A token still has no
   single wire form: another zlib level or other JSON whitespace verifies as before.
 
+- **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
+  `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
+  with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust
+  reader read the unknown mode as no rule and verified with exit 0 and no reason. It checked the
+  policy's hull and read the section it evaluates without judging it. It now judges that section the
+  way `policy.load_policy` does, with Python's wording and exit 2: relation names, `relation_signer`
+  mode and keys (including the trust-anchor key rule), the two booleans and
+  `require_relation_target`. It checks the hull of every section first, in Python's order, and
+  writes key names and values as Python prints them, so the reason is the same character for
+  character: over a generated corpus of 337 policies, 321 are refused by both with the same words.
+  The values of sections outside `relations` are still not read by Rust while Python refuses a bad
+  one; the parity registry names that gap and a test measures it.
+
 - **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
   (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
   verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
