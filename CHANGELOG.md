@@ -14,6 +14,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The decision validator refuses what the published decision schema refuses, null included**
+  (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
+  required fields schemaVersion and decidedAt, and in strict mode privacy, notChecked and
+  decisionChangeConditions: the required-field loop checks presence, and every value check skipped
+  None, so `decision verify --strict` under a signer-pinning policy reported
+  `safeForAutomation=true` for such a receipt (deep gate finding L3-Z195-03). Beyond null, 311
+  type-confused predicates that `schemas/decision-receipt-v0.1.schema.json` refuses passed the
+  validator in strict mode (L3-Z195-05); both measured on main 10f3466b. The value checks now read
+  presence, and a type table beside the existing key closure gives every nested schema path its
+  type; the same generator now measures 0. A test derives the typed paths from the schema and fails
+  when one has no check, and a generator replaces every leaf of a fully populated predicate with
+  eleven type-confused values. Where the validator already asked for more than the schema (empty
+  identifiers, an `actionOutcome` without `status`, the strict-mode requirements), nothing changed:
+  the same 39 cases over the three golden examples, before and after. One divergence is left and
+  named: a bare string entry in `notChecked`, which the vendored third-party receipt in
+  `conformance/decision/crossimpl/` uses; whether the schema or that receipt gives way is open.
 - The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
 
 ## [6.3.0] - 2026-10-14
