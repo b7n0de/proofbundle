@@ -5,7 +5,7 @@ Section 4 (consistency proofs) was read rule by rule, implemented as a fail-clos
 pair up to 257 leaves, and cross-checked with a third-party RFC 9162 implementation. The section is
 implementable, and its RFC 9162 equivalence claim holds on every pair measured. Seven places are not
 enough for an independent implementation. The two that change a verdict are the anchor rule, which
-4.2 does not enforce although it can, and the multiple-proof rule, which 4.2 does not check.
+4.2 does not check, and the multiple-proof rule, which 4.2 does not check either.
 
 ## SOURCE READ
 
@@ -67,8 +67,10 @@ Exhaustive, random leaves, every pair 0 < m < n <= 257 (`consistency_result.json
 - the digests equal the RFC 9162 proof, anchor first when m is not a power of two: 32896 of 32896
 - the 4.2 fold reaches both roots: 32896 of 32896
 - first path element a right sibling: 32896 of 32896
-- proofs with an anchor below the M1 anchor on the same edge: 31871
-- of those, accepted by the 4.2 fold: 31871
+- proofs with an anchor below the M1 anchor on the same edge: 31871, over 16384 distinct (m, n)
+  pairs, every pair with an even m; the counts here are proofs, not pairs
+- of those, the 4.2 `compute_roots` fold reaches both expected roots: 31871; this is the fold alone,
+  not a receipt and not a signature check
 - of those, first path element a left sibling: 31871
 
 Third-party oracle, every pair with n <= 64:
@@ -78,7 +80,7 @@ Third-party oracle, every pair with n <= 64:
 - pairs: 2016
 - oracle proof equals ours: 2016
 - canonical -05 digests accepted by the oracle's verifier: 2016
-- deeper-anchor proofs rejected by the oracle's verifier: 1824 of 1824 ("wrong proof size")
+- deeper-anchor proofs rejected by the oracle's verifier: 1824 of 1824, over 992 distinct pairs ("wrong proof size")
 
 Real ledger:
 - service: https://github.com/microsoft/scitt-ccf-ledger at `00101f769d872711356e080fbb089ac48589c60a`
@@ -94,9 +96,12 @@ Real ledger:
 - no service emits a consistency receipt, so the receipt measured is the service's own COSE_Sign1 over
   the newer root, taken from the newer inclusion receipt, with a proof computed from the ledger's
   leaves in its unprotected header
-- oracle on the real proofs 19 to 24, 22 to 24, 19 to 22: accepted, 3 of 3
+- oracle on the canonical proofs 19 to 24, 22 to 24 and 19 to 22, computed from the ledger's leaves:
+  accepted, 3 of 3
 
-Variants on the run 2 states, proofbundle against a literal transcription of the 4.2 pseudo-code:
+Variants on constructed receipts over the run 2 states (the service's own COSE_Sign1 over the newer
+root, proofs computed from the ledger's leaves, no receipt the service emitted), proofbundle against
+a literal transcription of the 4.2 pseudo-code, its signature check included:
 
 | variant | proofbundle | 4.2 as written |
 |---|---|---|
@@ -126,26 +131,31 @@ run 1, because 13 is odd and no deeper anchor exists.
 
 ## WHERE THE TEXT IS NOT ENOUGH
 
-G1. The anchor rule is not enforced by 4.2, and it can be.
+G1. Is the anchor rule M1 a rule for verifiers, or for generation only?
+- Sentence, 4: M1 above.
 - Sentence, 4.2: "It also confirms that the anchor is a node of that state, but not that it is the anchor required in {{ccf-consistency-proofs}}, which cannot be checked without knowing `m`."
-- Measured: 31871 of 31871 proofs with a deeper anchor pass the 4.2 algorithm and violate M1.
-- Measured: every one of them starts with a left sibling; all 32896 canonical proofs start with a right sibling.
-- Measured: on the real ledger, the deeper-anchor proof 22 to 24 passes 4.2 as written; the third-party RFC 9162 verifier rejects it.
+- Measured, fold only: 31871 proofs with an anchor below the M1 anchor, over 16384 distinct (m, n) pairs with 0 < m < n <= 257; for each, the 4.2 `compute_roots` fold reaches both expected roots, `R_m` and `R_n`. The counts are proofs, not pairs, and none of them is a receipt or a signature check.
+- Measured, fold only: every one of those 31871 proofs starts with a left sibling; all 32896 canonical proofs start with a right sibling.
+- Measured, full acceptance, one case only: the constructed 22-to-24 receipt with a deeper anchor (the service's own COSE_Sign1 over `R_24`, the proof computed from the ledger's leaves) passes 4.2 as written, signature check included. The third-party RFC 9162 verifier rejects the same proof. No other deeper-anchor receipt was built.
 - Why the first tag decides: the M1 anchor is the largest complete subtree ending at T[m-1], so its sibling in the newer tree lies to its right; a smaller node on the same edge first meets its left sibling inside that subtree. This is the argument; the counts above are the measurement.
-- Question: should 4.2 add `assert(not proof.path[0].left)` and drop "cannot be checked without knowing m"? Or should M1 be relaxed, in which case the RFC 9162 sentence of section 4 no longer describes every valid proof?
+- Question: should a verifier reject a proof whose first path element is a left sibling, and should 4.2 then say so and drop "cannot be checked without knowing m"? Or is the anchor MUST for generation only, so that a verifier accepts a deeper anchor, and the RFC 9162 sentence of section 4 then describes what a producer emits, not every proof a verifier accepts?
 
 G2. The multiple-proof rule M5 is not checked by 4.2.
 - Sentence, 4.1: "When the array contains more than one consistency proof, every proof MUST compute to the same newer root."
-- Sentence, 4.2: the loop keeps only proofs whose older root equals `older_root`; the others are never computed against anything.
-- Measured: the real 19-to-24 proof next to a corrupted proof passes 4.2 as written, and violates M5.
-- Question: should 4.2 compute every proof and require one newer root before the signature check? Or may a verifier ignore proofs it cannot relate to its own older root, in which case M5 binds producers only?
+- Sentence, 4.2: the loop runs `compute_roots` on every proof but keeps the newer root only of proofs whose older root equals `older_root`; the newer roots of the others are dropped.
+- Measured, one case: a constructed receipt over the measured 19-to-24 states (the service's own COSE_Sign1 over `R_24`, the 19-to-24 proof computed from the ledger's leaves, not a proof the service emitted), with a corrupted second proof beside it (one anchor bit flipped), passes 4.2 as written, signature check included, and violates M5.
+- The missing step: compare the newer roots that `compute_roots` returns for all proofs, including proofs whose older root does not equal `older_root`, and fail unless they are all equal. 4.2 compares none of them with each other.
+- Question: should 4.2 add that step before the signature check? Or may a verifier ignore proofs it cannot relate to its own older root, in which case M5 binds producers only?
 
-G3. The text does not say which service the older root must come from.
-- Sentence, 4.1: "the verifier already holds it, typically as the root recomputed from an inclusion receipt".
+G3. The text does not say which trust rule authorizes the signer of a consistency receipt.
+- Sentence, 4.1: "The older root `R_m` is not carried by the receipt: the verifier already holds it, typically as the root recomputed from an inclusion receipt ({{ccf-inclusion-receipt-verification}}), and checks that the proof recomputes it."
+- Sentence, 4.2: "The comparison with `older_root` binds the receipt to a state the verifier already trusts".
 - Sentence, 7.3: R2 above.
-- Measured: nothing in the receipt ties it to the service of that inclusion receipt; proofbundle requires the same issuer (`consistency_issuer_mismatch`), which is its own rule, not the draft's.
-- Related, 7.2: a successor network has "a distinct identity".
-- Question: must a consistency receipt come from the service identity whose receipt gave the older root? And what does a verifier do across a successor network?
+- Read: the older root is bound. 4.2 binds the receipt to a previously verified root, and 7.3 requires that root's prior verification.
+- Sentence, 7.2: "An operator has the ability to start successor networks with a distinct identity."
+- Open: which trust rule authorizes the key that signs the consistency receipt. 4.2 calls `verify_cose` and does not name the key it verifies with: the key behind the older root's receipt, any key the verifier trusts for the service, or also a successor network with a distinct identity under 7.2.
+- Measured: proofbundle refuses an older root verified from another service's receipt (`consistency_issuer_mismatch`). That same-issuer rule is proofbundle's own policy, not a requirement of -05.
+- Question: which keys may sign a consistency receipt for an older root the verifier already holds, and does a successor network with a distinct identity under 7.2 qualify?
 
 G4. `0 < m < n` is stated, and 4.2 does not check it.
 - Sentence, 4: "where `0 < m < n`".
@@ -167,7 +177,7 @@ G6. There is nothing to test an implementation against.
 G7. A receipt carrying both proof types is checked by neither algorithm as a whole.
 - Sentence, 5: "All proofs in a receipt recompute the same root (the newer root, for consistency proofs), which is the detached payload." This is not written as a MUST.
 - Read: 3.2 ignores -2 and 4.2 ignores -1, so an inclusion proof to another root beside a valid consistency proof passes 4.2.
-- Measured: proofbundle refuses that receipt (`consistency_newer_roots_differ`, synthetic); with the real inclusion proof beside the real consistency proof, both accept.
+- Measured: proofbundle refuses that receipt (`consistency_newer_roots_differ`, synthetic); with the service's inclusion proof beside the consistency proof computed from the ledger's leaves, in one constructed receipt, both accept.
 - Question: is that sentence normative, and which algorithm checks it?
 
 ## WHAT THE READER DOES, AS BUILT
@@ -184,7 +194,8 @@ G7. A receipt carrying both proof types is checked by neither algorithm as a who
 - Any consistency receipt produced by a service: none exists in the code measured.
 - A production CCF service.
 - Trees larger than 257 leaves (exhaustive), or larger than 64 against the oracle.
-- The argument in G1, beyond the pairs counted: it is reasoned, not proved.
+- The argument in G1, beyond the proofs counted: it is reasoned, not proved.
+- Full receipt acceptance of a deeper anchor, beyond the one constructed 22-to-24 receipt.
 
 ---
 

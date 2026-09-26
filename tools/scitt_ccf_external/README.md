@@ -413,14 +413,18 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
   `proof.VerifyConsistency` with CCF's hashing, driven by `rfc9162_oracle.go`, built offline from a
   clone at that commit.
 - Exhaustive, every pair up to 257 leaves: 32896 canonical proofs equal RFC 9162 and start with a
-  right sibling; 31871 proofs with a deeper anchor pass the 4.2 algorithm and start with a left one.
-- Oracle, every pair up to 64 leaves: 2016 of 2016 equal, 1824 of 1824 deeper-anchor proofs rejected.
+  right sibling; 31871 proofs with a deeper anchor, over 16384 distinct pairs, fold to both expected
+  roots with the 4.2 algorithm and start with a left one. That is the fold alone, not a receipt and
+  not a signature check; full acceptance is measured on the one constructed 22-to-24 receipt.
+- Oracle, every pair up to 64 leaves: 2016 of 2016 equal, 1824 of 1824 deeper-anchor proofs, over
+  992 distinct pairs, rejected.
 - The verifier is `proofbundle.scitt_ccf.verify_consistency_receipt`, with its own status set; the
   run-2 states are committed as `tests/fixtures/scitt_ccf/local_ledger_consistency.json`.
 - `consistency_issuer_mismatch` is proofbundle's own rule, not a requirement of -05: the older root
-  must come from a receipt of the same issuer. -05 says nothing about which service the older root
-  comes from (`SECTION4_WGLC.md`, G3); the rule stays until the working group answers (owner answer
-  S1 a).
+  must come from a receipt of the same issuer. -05 binds the receipt to an older root the verifier
+  has already verified (4.2, 7.3) and does not say which trust rule authorizes the receipt's signer,
+  including a successor network with a distinct identity under 7.2 (`SECTION4_WGLC.md`, G3); the
+  rule stays proofbundle's own policy until the working group answers (owner answer S1 a).
 
 ## NOT MEASURED, NOT MEASURABLE
 
