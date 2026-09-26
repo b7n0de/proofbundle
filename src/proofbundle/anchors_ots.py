@@ -20,9 +20,10 @@ from typing import Optional
 
 from ._membership import is_member   # an unhashable status is not bound, and does not raise
 
-#: The largest serialized OTS proof this package deserializes (deep gate Z195, finding
-#: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). The structural budget bounds the base64 STRING of
-#: a proof (string_len), not the work the OpenTimestamps deserializer does on it: every fork creates a
+#: The largest serialized OTS proof this package deserializes, in bytes (deep gate Z195, finding
+#: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). Why a second bound: the package's structural
+#: budget (`budget.VerificationBudget`, a separate check) bounds the base64 STRING of a proof
+#: (string_len), not the work the OpenTimestamps deserializer does on it: every fork creates a
 #: Timestamp holding its own copy of the message, so one append op of about 4 KB followed by forks of
 #: about 26 bytes each multiplied the proof. Measured by the gate: a 732 KB proof inside every budget
 #: peaked at about 137 MiB in `verify_evidence_pack` and at about 300 MB RSS in `anchor verify-pack`.
