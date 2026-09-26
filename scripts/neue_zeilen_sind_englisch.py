@@ -17,7 +17,11 @@ alone as a statement (a docstring is one), because code identifiers are not pros
 variable name is a naming question rather than a language one; a string handed to a call or a name
 is output or data, a separate question. In `.md` it is every line outside a fenced code block, because a Markdown file is
 prose and the fence is where its commands and identifiers live. A file at a new path is read whole,
-whether git would call it a copy or a move: the diff grammar pins `--no-renames`.
+whether git would call it a copy or a move: the diff grammar pins `--no-renames`. A `.py` file is read
+as Python reads it, with its BOM and its coding cookie, by the mutant guard's reader. And a line the
+change did not add is judged too when the change turned it into prose: a line of a changed file that
+is prose now and whose text was not prose before the change (`_neu_als_prosa`). A German line the
+decision keeps, prose before and after, is not.
 
 `.md` JOINED ON 2026-09-19, by owner decision, as the fourth item of the 6.1.0 release step. Until
 then the tool read `*.py` alone and said so nowhere: a cut that rewrote two `.md` scope files got
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import functools
 import io
 import os
@@ -212,13 +217,7 @@ def _diff_leser():
     return modul
 
 
-def _python_zeilen(leser, text: str) -> list[str]:
-    """A file's lines as Python and CommonMark end them (CRLF, CR, LF), without a last empty one."""
-    zeilen, _ = leser._python_lines_of(text)
-    return zeilen[:-1] if zeilen and zeilen[-1] == "" else zeilen
-
-
-def _stand_leser(aus_head: bool):
+def _stand_leser(aus_head: bool, ref: str = "HEAD"):
     """The judged state's files, each read once per run: the blob at HEAD, or the file on disk.
 
     THE HEAD FORM READ THE DISK (a review lens on this change, measured 2026-09-26). The added lines
@@ -227,13 +226,16 @@ def _stand_leser(aus_head: bool):
     over a tree that differs from HEAD judged HEAD's lines against another file. CI checks out HEAD,
     so there the two agree; the form is named HEAD, and it now reads HEAD. A blob is read once per
     file, not once per added line.
+
+    `ref` names another commit to read blobs from: the old side of the diff, for `_neue_zeilen`. The
+    reader carries `ablage`, where `_lesart` keeps what it built from these bytes, once per file.
     """
     gelesen: dict[str, bytes | None] = {}
 
     def lies(datei: str) -> bytes | None:
         if datei not in gelesen:
             if aus_head:
-                r = subprocess.run(["git", "-C", str(REPO), "cat-file", "blob", f"HEAD:{datei}"],
+                r = subprocess.run(["git", "-C", str(REPO), "cat-file", "blob", f"{ref}:{datei}"],
                                    capture_output=True)
                 gelesen[datei] = r.stdout if r.returncode == 0 else None
             else:
@@ -242,7 +244,101 @@ def _stand_leser(aus_head: bool):
                 except OSError:
                     gelesen[datei] = None
         return gelesen[datei]
+    lies.ablage = {}
     return lies
+
+
+def _als_python(datei: str, inhalt: bytes):
+    """A `.py` file as Python reads it: (tree, lines, for each git line the lines in it), or None when
+    Python cannot decode or parse it.
+
+    READ BY THE MUTANT GUARD'S READER, `_read_as_python`: from the bytes, with the BOM and the PEP 263
+    coding cookie, one rule in one place. This gate decoded a `.py` file as UTF-8, so under
+    `# coding: utf-7` the line `y = 1 +ACMAIA-Diese+ACA-Zeile...`, a German comment to Python, was
+    judged as the bytes it is written in: green in the HEAD form and in both working-tree forms (a
+    review lens, run 10, measured 2026-09-26 at 50f3ef33). The guard had been fixed for the same class
+    in 3c3c368e, and this gate, which takes its diff reader from the guard, had not been swept.
+    """
+    try:
+        return _diff_leser()._read_as_python(datei, inhalt)
+    except SystemExit:                    # the reader's fail-closed stop: Python cannot read the file
+        return None
+    except (OSError, ImportError, AttributeError, SyntaxError):   # the reader is not loadable
+        return None
+
+
+def _lesart(datei: str, lies) -> tuple[list[str], list[range], set[int] | None] | None:
+    """A file as this gate reads it: its lines, for each git line the lines in it, and its prose map,
+    the lines that are prose (None when there is none). None when the reader has no such file.
+
+    A `.py` file Python can read is read as Python reads it (`_als_python`); one it cannot read keeps
+    its lines as UTF-8, so that a comment line is still judged, and has no prose map. A `.md` file is
+    UTF-8 as CommonMark reads it. Built once per file and reader (`lies.ablage`, where it exists).
+    """
+    ablage = getattr(lies, "ablage", None)
+    if ablage is not None and datei in ablage:
+        return ablage[datei]
+    inhalt = lies(datei)
+    gelesen = None if inhalt is None or not datei.endswith(".py") else _als_python(datei, inhalt)
+    if inhalt is None:
+        ergebnis = None
+    elif gelesen is not None:
+        baum, zeilen, spannen = gelesen
+        ergebnis = (zeilen, spannen, _py_karte(baum, zeilen))
+    else:
+        try:
+            zeilen, spannen = _diff_leser()._python_lines_of(inhalt.decode("utf-8", "surrogateescape"))
+        except (OSError, ImportError, AttributeError, SyntaxError):
+            return None
+        ohne_letzte = zeilen[:-1] if zeilen and zeilen[-1] == "" else zeilen
+        ergebnis = (zeilen, spannen, _md_karte(ohne_letzte) if datei.endswith(".md") else None)
+    if ablage is not None:
+        ablage[datei] = ergebnis
+    return ergebnis
+
+
+def _alter_stand(basis: str, arbeitsbaum: bool) -> str | None:
+    """The commit the diff's old side is: the merge base of `basis` and HEAD for `<basis>...HEAD`, and
+    `basis` itself for the working-tree form, which diffs against it. None when git cannot name it."""
+    if arbeitsbaum:
+        rc, aus = _git("rev-parse", "--verify", "--quiet", f"{basis}^{{commit}}")
+    else:
+        rc, aus = _git("merge-base", basis, "HEAD")
+    aus = aus.strip()
+    return aus if rc == 0 and aus else None
+
+
+def _neu_als_prosa(neu: tuple, alt: tuple | None, schon: set[int]) -> list[tuple[int, str]]:
+    """The lines of a changed file that are prose now and whose text was not prose before the change:
+    NEW MATERIAL, although the change added no such line.
+
+    A CHANGE CAN GIVE THE LINES IT LEAVES ALONE A NEW MEANING. This gate judged added lines only, and
+    each of these added no German line and was green (a sweep of the class a review lens found in the
+    mutant guard, run 10, measured 2026-09-26 at 50f3ef33): a change of only the coding cookie, which
+    decodes every line after it anew; removing the two lines that open and close a string, which turns
+    the German text in it into comments; removing a Markdown fence opener, which turns the code after it
+    into prose.
+
+    The comparison is by text, as a multiset, and not by line number: a German line the decision keeps,
+    prose before the change and after it, is matched by its own text and stays unjudged, wherever the
+    change moved it. Before the change, the prose lines count; for a file that had no prose map then,
+    every line counts, so no line of it reads as new that stood there before. Lines already added are
+    judged anyway and are left out (`schon`).
+    """
+    zeilen, _, karte = neu
+    if karte is None or alt is None:
+        return []
+    alte_zeilen, _, alte_karte = alt
+    vorher = collections.Counter(alte_zeilen[n - 1] for n in (alte_karte if alte_karte is not None
+                                                              else range(1, len(alte_zeilen) + 1)))
+    aus = []
+    for nr in sorted(karte - schon):
+        text = zeilen[nr - 1]
+        if vorher[text] > 0:
+            vorher[text] -= 1
+        else:
+            aus.append((nr, text))
+    return aus
 
 
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
@@ -276,16 +372,33 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
     # FROM GIT'S NUMBERING TO PYTHON'S. git numbers lines at LF; the prose maps below number them
     # as Python and CommonMark do, where a lone CR ends a line too. Each added git line is cut at
     # its inner CRs, and the pieces take their numbers from the same file the prose maps read.
+    # A `.py` file Python reads is judged in the lines Python decodes: the added git line says WHICH
+    # lines, the file says what they read (`_lesart`), so a line end or a comment that exists only in
+    # the decoded text is judged as Python sees it.
     lies = lies or _stand_leser(aus_head=not arbeitsbaum)
     je_datei: dict[str, list[tuple[int, str]]] = {}
     for datei, zeilen in je_git.items():
-        inhalt = lies(datei)
-        spannen = ([] if inhalt is None
-                   else leser._python_lines_of(inhalt.decode("utf-8", "surrogateescape"))[1])
+        je_datei.setdefault(datei, [])       # a file whose change only removes lines is changed too
+        gelesen = _lesart(datei, lies)
+        spannen = [] if gelesen is None else gelesen[1]
+        decodiert = datei.endswith(".py") and gelesen is not None and gelesen[2] is not None
         for nr, text in zeilen:
+            if decodiert and nr <= len(spannen):
+                je_datei[datei].extend((n, gelesen[0][n - 1]) for n in spannen[nr - 1])
+                continue
             erste = spannen[nr - 1].start if nr <= len(spannen) else nr
-            je_datei.setdefault(datei, []).extend(
+            je_datei[datei].extend(
                 (erste + i, stueck) for i, stueck in enumerate(leser._python_lines_of(text)[0]))
+    # WHAT THE CHANGE TURNED INTO PROSE, read against the old side of the diff (`_neu_als_prosa`).
+    alt = _alter_stand(basis, arbeitsbaum)
+    if alt is None:
+        return {}, f"NOT MEASURABLE: the old side of the diff against {basis!r} names no commit"
+    alt_lies = _stand_leser(aus_head=True, ref=alt)
+    for datei in je_git:
+        jetzt = _lesart(datei, lies)
+        if jetzt is not None:
+            schon = {nr for nr, _ in je_datei[datei]}
+            je_datei[datei] = sorted(je_datei[datei] + _neu_als_prosa(jetzt, _lesart(datei, alt_lies), schon))
     if arbeitsbaum:
         # UNTRACKED FILES ARE NEW MATERIAL TOO. `git diff` never lists a file git does not know,
         # so a brand-new .py with German prose read as clean in the working-tree form (un, round 1,
@@ -298,13 +411,16 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False, lies=None) -> tuple[
         rc2, neu = _git_namen("ls-files", "--others", "--exclude-standard", "-z", "--", *_ENDUNGEN)
         if rc2 != 0:
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
+        # Read as the tracked files are read (`_lesart`): a `.py` file as Python reads it, and one
+        # Python cannot read keeps its UTF-8 lines and has no prose map, so the run is NOT MEASURABLE
+        # for it; a refusal of the whole run was the answer to any byte that is not UTF-8 before.
         for rel in neu:
-            try:
-                text = (REPO / rel).read_bytes().decode("utf-8")
-            except (OSError, UnicodeDecodeError):
+            gelesen = _lesart(rel, lies)
+            if gelesen is None:
                 return {}, f"NOT MEASURABLE: untracked file {rel!r} is not readable"
+            zeilen = gelesen[0][:-1] if gelesen[0] and gelesen[0][-1] == "" else gelesen[0]
             je_datei.setdefault(rel, [])
-            je_datei[rel].extend(enumerate(_python_zeilen(leser, text), start=1))
+            je_datei[rel].extend(enumerate(zeilen, start=1))
     return je_datei, "measured"
 
 
@@ -323,14 +439,17 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     report stays green either way.
 
     The tokenizer already answers exactly this question, so the shape of the fix is to stop
-    re-deriving it. Returns None when the file cannot be read, does not tokenize or does not
-    parse, and the run then says NOT MEASURABLE for the file (`_ist_prosa`).
+    re-deriving it. Returns None when the file cannot be read, when Python cannot decode or parse it,
+    or when it does not tokenize, and the run then says NOT MEASURABLE for the file (`_ist_prosa`).
     """
-    inhalt = (lies or _stand_leser(aus_head=False))(datei)
-    if inhalt is None:
-        return None
-    # Decoded as `read_text` decoded the file before: universal newlines, undecodable bytes replaced.
-    quelle = io.TextIOWrapper(io.BytesIO(inhalt), encoding="utf-8", errors="replace").read()
+    gelesen = _lesart(datei, lies or _stand_leser(aus_head=False))
+    return None if gelesen is None else gelesen[2]
+
+
+def _py_karte(baum: ast.AST, zeilen: list[str]) -> set[int] | None:
+    """The prose map of a `.py` file Python read (`_als_python`): tokens and tree of its decoded text.
+    The lines are joined at LF, so the tokenizer numbers them as Python numbered them."""
+    quelle = "\n".join(z.removesuffix("\r") for z in zeilen)
     aus: set[int] = set()
     try:
         for tok in tokenize.generate_tokens(io.StringIO(quelle).readline):
@@ -355,11 +474,7 @@ def _prosazeilen(datei: str, lies=None) -> set[int] | None:
     # sentences through in green in every form of this gate (review lenses, measured 2026-09-26): an
     # f-string where a docstring stands, a bare string as a later statement, a bytes literal, a
     # string after `from __future__`, and two literals joined by `+`. A string handed to a call or
-    # a name is not such a string and stays out.
-    try:
-        baum = ast.parse(quelle)
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        return None
+    # a name is not such a string and stays out. The tree is the one Python built from the bytes.
     for knoten in ast.walk(baum):
         if isinstance(knoten, ast.Expr) and _nur_text(knoten.value):
             aus.update(range(knoten.lineno, (knoten.end_lineno or knoten.lineno) + 1))
@@ -407,16 +522,17 @@ def _md_prosazeilen(datei: str, lies=None) -> set[int] | None:
     Returns None when the file cannot be read or its quotation pairs do not balance, and the run
     then says NOT MEASURABLE for the file (`_ist_prosa`).
     """
-    inhalt = (lies or _stand_leser(aus_head=False))(datei)
-    if inhalt is None:
-        return None
-    # Lines as CommonMark ends them (CRLF, CR, LF). `splitlines()` also ends one at U+2028, a form
-    # feed and five more characters, and every line after such a character was numbered one higher
-    # than the diff numbers it.
-    try:
-        zeilen = _python_zeilen(_diff_leser(), inhalt.decode("utf-8", "replace"))
-    except (ImportError, AttributeError, SyntaxError):
-        return None
+    gelesen = _lesart(datei, lies or _stand_leser(aus_head=False))
+    return None if gelesen is None else gelesen[2]
+
+
+def _md_karte(zeilen: list[str]) -> set[int] | None:
+    """The prose map of a Markdown file's lines (`_md_prosazeilen`); None for unbalanced quotation pairs.
+
+    The lines are the ones CommonMark ends (CRLF, CR, LF), as `_lesart` cuts them. `splitlines()` also
+    ends one at U+2028, a form feed and five more characters, and every line after such a character
+    was numbered one higher than the diff numbers it.
+    """
     # The quotation brackets first, because an unbalanced pair is a measurement failure and must
     # not be reported as a clean file.
     auf = [i for i, z in enumerate(zeilen, start=1) if z.strip() == _ZITAT_AUF]
@@ -451,19 +567,17 @@ def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool | None:
     fragment would call a string literal a comment. The file in the judged state does say: the
     blob at HEAD, or the working tree in that form (`lies`; without it, the disk).
 
-    None when the file gives no prose map (a .py file that does not tokenize or parse, a .md file
+    None when the file gives no prose map (a .py file Python cannot decode or parse, a .md file
     with an unbalanced quotation pair): the line cannot be judged, and `pruefe` says NOT MEASURABLE.
     Read as False, a German docstring after a syntax error elsewhere in its file, and every line of
     a .md file after an unclosed quotation opener, passed as green in both forms (a review lens,
     measured 2026-09-26). A comment line needs no map and is judged as before.
     """
-    if datei.endswith(".md"):
-        zeilen = _md_prosazeilen(datei, lies)
-        return None if zeilen is None else nr in zeilen
-    if _KOMMENTAR.search(text):
+    if not datei.endswith(".md") and _KOMMENTAR.search(text):
         return True
-    zeilen = _prosazeilen(datei, lies)
-    return None if zeilen is None else nr in zeilen
+    gelesen = _lesart(datei, lies or _stand_leser(aus_head=False))
+    karte = None if gelesen is None else gelesen[2]
+    return None if karte is None else nr in karte
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
@@ -482,6 +596,11 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
                 "wortlisten_baum": str(WERKZEUG_WURZEL), "rc": 2}
     befunde, ohne_karte = [], set()
     for datei, zeilen in sorted(je_datei.items()):
+        # A changed file without a prose map cannot say which of its lines the change turned into
+        # prose (`_neu_als_prosa`), whatever lines it adds, so the run is NOT MEASURABLE for it.
+        gelesen = _lesart(datei, lies)
+        if gelesen is None or gelesen[2] is None:
+            ohne_karte.add(datei)
         for nr, text in zeilen:
             prosa = _ist_prosa(datei, nr, text, lies)
             if prosa is None:
@@ -499,8 +618,8 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
         # file is a statement about the whole range, not a line to be weighed against the others.
         return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": befunde,
                 "ohne_prosakarte": sorted(ohne_karte),
-                "grund": ("no prose map for " + ", ".join(sorted(ohne_karte)) + ": a .py file that does "
-                          "not tokenize or parse, or a .md file with an unbalanced quotation pair; its "
+                "grund": ("no prose map for " + ", ".join(sorted(ohne_karte)) + ": a .py file Python "
+                          "cannot decode or parse, or a .md file with an unbalanced quotation pair; its "
                           "added lines were not judged"),
                 "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,

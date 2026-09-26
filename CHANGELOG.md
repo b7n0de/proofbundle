@@ -55,6 +55,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   now; the other `int()` and `isdigit()` calls in the five tools read text a `[0-9]` pattern matched,
   or bytes, whose `isdigit()` is ASCII only.
 
+  The language gate reads a `.py` file as Python reads it, and judges what a change turns into prose.
+  It decoded a `.py` file as UTF-8, so under `# coding: utf-7` the line
+  `y = 1 +ACMAIA-Diese+ACA-Zeile...`, a German comment to Python, was judged as its bytes: green in
+  the HEAD form and in both working-tree forms. It is the class the guard's entry above fixed for the
+  guard, not swept to the gate that takes its diff reader from the guard. The gate now reads a `.py`
+  file through the guard's reader, one rule in one place; a file Python cannot decode or parse has no
+  prose map and the run is NOT MEASURABLE, where one with a byte that is not UTF-8 was decoded with
+  replacement characters and judged before. Like the guard, the gate judged added lines only: a change
+  of only the coding cookie, removing the two lines around a string, which turns the German text in it
+  into comments, and removing a Markdown fence opener, which turns the code after it into prose, each
+  added no German line and was green. It cannot judge a changed file whole, since the owner decision
+  keeps the German lines that exist; it judges a line of a changed file that is prose now and whose
+  text was not prose before the change, compared by text, so that a kept German line stays unjudged
+  where the change moves it. A changed file without a prose map makes the run NOT MEASURABLE, also
+  when it adds only comments. All 532 tracked `.py` files read as Python reads them; over
+  `origin/main...HEAD` the new pass adds no line and over `v6.1.0...HEAD` two (a table rule and an
+  empty line).
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in
