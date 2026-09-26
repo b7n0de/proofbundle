@@ -1,0 +1,100 @@
+{
+  "kind": "pr",
+  "head": "Head of this branch: the commit that adds this body's source under `pr_bodies/`, on top of `ab50384`, which carries every change and every measurement below; merge base with main `d9cc8790`. 20 commits before this one, 167 files, 17048 lines added and 5 removed, measured with `git diff --shortstat` against the merge base. A draft for CI measurement only: CI starts only on a pull request or on main, and the branch had 0 workflow runs and 0 check runs on `ab50384c`. Not for merge, not ready for review.",
+  "came_from": "Owner orders for the 6.4.0 SCITT anchor, in work packages: the first package (fetch and recompute real CCF receipts offline, ADR 0009), AP2 to AP4 (a `scitt-ccf/v1` reader behind the optional `[scitt]` extra, the statement signature, receipt verification under `rp_trust`), the owner answers Q1 to Q8, N1 to N7, S1 and S2, then a measurement of section 4 of draft-ietf-scitt-receipts-ccf-profile-05 for its focused working group last call, and a differential corpus of one-variable mutations registered on a local scitt-ccf-ledger. Every package was measured locally, never in CI, because CI does not run on a branch without a pull request. This draft exists so that CI measures the branch once, at its head.",
+  "change": "A new optional module, `proofbundle.scitt_ccf`, reads a SCITT Transparent Statement with CCF receipts under the narrow profile of ADR 0009. It needs the `[scitt]` extra (`cbor2==6.1.4`); without it every entry point refuses with `no_lib` and nothing falls back. A structural pre-scan of its own (`proofbundle._cbor_prescan`) runs before cbor2 sees any byte: definite lengths, shortest heads, no floats, unique map keys, tag 18 only at the top and tag 1 only around an integer CWT time claim.\n\nThree public verifiers, none of them registered as an anchor type and none reachable from any verify path: `verify_statement_signature`, `verify_transparent_statement` and `verify_consistency_receipt`. The statement key is selected by the protected `x5chain` and never trusted from it; a statement without one is outside the profile. Consistency receipts have their own closed status set, and two forms the section 4.2 pseudo-code accepts are refused because sections 4 and 4.1 say MUST: a corrupted second proof, and an anchor below the one section 4 requires.\n\n`tools/scitt_ccf_external/` holds the measuring tools and their recorded runs: the fetch of third-party bytes at pinned commits, the recomputation, the local-ledger probes, the comparison with microsoft/scitt-verifier, the section 4 measurement with its findings for the working group in `SECTION4_WGLC.md`, and the differential corpus as raw hex text with views derived by the tool.",
+  "fix": "The reader is an optional module and not a change to an existing verify path, so every bundle and every existing verdict is untouched until AP5 registers the anchor type. Outside `src/`, `tests/` and `tools/scitt_ccf_external/`, the branch changes four files on purpose: `pyproject.toml` (the `[scitt]` extra, the same pin in `dev`, and the mypy file count 72 to 74), `scripts/rust_parity_registry.json` (three `PENDING` entries, owner answer N5 a), `scripts/type_confusion_gate.py` (benign `older_root` and `older_issuer` fixtures, so the gate evaluates the new surface instead of stopping at `NEEDS_FIXTURE`), and `docs/adr/0009-scitt-anchor-cose-profile.md`.",
+  "measured": [
+    {
+      "what": "full suite with the [scitt] extra",
+      "value": "2 failed, 5495 passed, 179 skipped",
+      "source": "pytest tests/ in a detached worktree, CPython 3.11.15",
+      "commit": "ab50384"
+    },
+    {
+      "what": "full suite without the extra",
+      "value": "2 failed, 5324 passed, 350 skipped",
+      "source": "pytest tests/ in a second detached worktree",
+      "commit": "ab50384"
+    },
+    {
+      "what": "the two failures",
+      "value": "test_sammelabbruch_vor_dem_import.py, two cases: fail as uid 0, pass as uid 65534, same at base d9cc879 and main 8c7eeca",
+      "source": "setpriv --reuid=65534",
+      "commit": "a0126ae"
+    },
+    {
+      "what": "skips with the extra",
+      "value": "164 for other reasons, 15 timing skips of test_budget_kostenkurve.py, 0 scitt",
+      "source": "pytest -rs",
+      "commit": "ab50384"
+    },
+    {
+      "what": "tests needing pb_verify_rs, skipped in the fresh worktree",
+      "value": "9 passed in the main checkout",
+      "source": "three test files",
+      "commit": "ab50384"
+    },
+    {
+      "what": "ruff",
+      "value": "clean",
+      "source": "ruff 0.16.9, whole tree",
+      "commit": "ab50384"
+    },
+    {
+      "what": "mypy",
+      "value": "no issues in 74 source files, 2.3.0 and 2.3.1",
+      "source": "mypy src",
+      "commit": "ab50384"
+    },
+    {
+      "what": "type-confusion gate",
+      "value": "73 of 73 surfaces, complete, 0 raw exceptions",
+      "source": "scripts/type_confusion_gate.py --strict",
+      "commit": "ab50384"
+    },
+    {
+      "what": "Rust parity registry",
+      "value": "integrity ok, three new entries PENDING",
+      "source": "scripts/rust_parity_gate.py --strict",
+      "commit": "ab50384"
+    },
+    {
+      "what": "comparison with microsoft/scitt-verifier at bd6fb8ba, offline",
+      "value": "58 agree, 0 differ, 9 not comparable",
+      "source": "tools/scitt_ccf_external/rust_crosscheck.json",
+      "commit": "ab50384"
+    },
+    {
+      "what": "section 4, every pair 0 < m < n <= 257",
+      "value": "32896 canonical proofs equal RFC 9162; 31871 deeper-anchor proofs pass the 4.2 algorithm, all start with a left sibling",
+      "source": "tools/scitt_ccf_external/consistency_result.json",
+      "commit": "817f801"
+    },
+    {
+      "what": "transparency-dev/merkle at fbbcd741 as RFC 9162 oracle, n <= 64",
+      "value": "2016 of 2016 proofs equal, 1824 of 1824 deeper-anchor proofs rejected",
+      "source": "tools/scitt_ccf_external/consistency_result.json",
+      "commit": "817f801"
+    },
+    {
+      "what": "differential corpus on scitt-ccf-ledger 00101f76, CCF 7.0.17, virtual",
+      "value": "35 vectors, 29 accepted, 6 refused; data-hash changed only with the signature bytes",
+      "source": "tools/scitt_ccf_external/differential_corpus/summary.json",
+      "commit": "ab50384"
+    },
+    {
+      "what": "corpus stored form",
+      "value": "312103 bytes in 133 text files, largest 18125; derived summaries equal the stored ones",
+      "source": "differential_corpus.py derive --check",
+      "commit": "ab50384"
+    },
+    {
+      "what": "CI on this branch before this pull request",
+      "value": "0 workflow runs, 0 check runs",
+      "source": "GitHub API, stated by the owner",
+      "commit": "ab50384"
+    }
+  ],
+  "not_changed": "No verify path, no verdict and no exit code of an existing surface: the three new verifiers are reachable only by calling them. `tools/pb_verify_rs`, `.github/`, `CHANGELOG.md` and the version number are untouched, and Rust parity for the new surfaces stays `PENDING` until AP5.\n\nKnown limits. Every service measured ran locally in virtual mode, with no TEE, on one node; no production service was measured, and no service measured emits a consistency receipt, so the section 4 receipt is the service's own signature over the newer root with a proof computed from the ledger's leaves. The last-call mail, the datatracker page, the rendered draft and the published RFC 9360 text were not reachable from the agent's environment; the working group sources at pinned commits were read instead. The two full-suite failures are measured as a root-only effect of that environment and are inherited from main. The full suite on the tree merged with the current main was not run. `git merge-tree` against main `10f3466b` reports no conflict.\n\nAGENTS.md line 21 says no network in the agent phase; the measurement orders needed git clones of third-party repositories and a local ledger build, so that line is not met for these sessions, and the change that stores the corpus as hex used no network. The corpus is 312103 bytes of text; whether that is large under the same line is left to the maintainer. The commits are unsigned under the maintainer's author identity (owner answer N6 a). The findings for the working group in `SECTION4_WGLC.md` are measurements and questions, not a position of the project."
+}
