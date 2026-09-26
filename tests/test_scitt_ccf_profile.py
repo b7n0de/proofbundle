@@ -156,6 +156,7 @@ class Rcpt:
     leaf_rule: str = "-05"
     second_proof_root_differs: bool = False
     n_proofs: int = 1
+    proofs_override: object = None     # the inclusion proofs as given, junk included
     tagged: bool = True
 
     def build(self) -> bytes:
@@ -171,7 +172,7 @@ class Rcpt:
             h = hashlib.sha256(sib + h if left else h + sib).digest()
         root = h
         proof = enc({1: [itx, self.evidence, self.data_hash], 2: path})
-        proofs = [proof] * self.n_proofs
+        proofs = [proof] * self.n_proofs if self.proofs_override is None else self.proofs_override
         if self.second_proof_root_differs:
             path2 = [[True, hashlib.sha256(b"other").digest()]]
             proofs = [proof, enc({1: [itx, self.evidence, self.data_hash], 2: path2})]
@@ -692,6 +693,32 @@ def test_receipt_verification_path_changes():
     flag = good.replace(b"\x82\xf4\x58\x20", b"\x82\xf5\x58\x20", 1)
     assert flag != good
     assert verify(transparent(st, [flag])).receipts[0].status == "signature_invalid"
+
+
+def test_readable_means_the_receipt_proofs_parsed_under_the_05_cddl():
+    """Codex, PR 278: an early profile branch must not skip the shape of the proofs after it."""
+    st = Stmt()
+    control = verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()]))
+    assert (control.status, control.readable, control.receipts[0].readable) == ("confirmed", True, True)
+    other_alg = verify(transparent(st, [Rcpt(data_hash=dh_of(st), alg=-8).build()]))
+    assert (other_alg.receipts[0].status, other_alg.receipts[0].readable) == ("outside_profile", True)
+    junk = verify(transparent(st, [Rcpt(data_hash=dh_of(st), alg=-8, proofs_override=[b"junk"]).build()]))
+    assert (junk.receipts[0].status, junk.receipts[0].readable, junk.readable) == ("malformed", False, False)
+    not_ccf = verify(transparent(st, [Rcpt(data_hash=dh_of(st), vds=1).build()]))
+    assert (not_ccf.receipts[0].status, not_ccf.receipts[0].readable) == ("outside_profile", False)
+    none = verify(transparent(st, [Rcpt(data_hash=dh_of(st), proofs_override=[]).build()]))
+    assert (none.receipts[0].status, none.receipts[0].readable) == ("outside_profile", False)
+
+
+def test_missing_trust_is_never_reported_as_an_unbound_receipt():
+    """Codex, PR 278: receipt_not_bound says the receipt signature is valid; without a key it is not known."""
+    st = Stmt()
+    other = Rcpt(data_hash=hashlib.sha256(b"another statement").digest()).build()
+    with_key = verify(transparent(st, [other]))
+    assert (with_key.receipts[0].status, with_key.receipts[0].signature_valid) == ("receipt_not_bound", True)
+    no_key = verify(transparent(st, [other]), rp={"scitt_statement_keys": [spki(STMT_KEY)]})
+    r = no_key.receipts[0]
+    assert (r.status, r.signature_valid, r.bound, no_key.status) == ("needs_rp_trust", None, False, "needs_rp_trust")
 
 
 def test_receipt_verification_trust_is_missing_not_failed():

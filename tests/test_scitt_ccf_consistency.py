@@ -292,6 +292,20 @@ def test_profile_of_the_protected_header(prot, status):
     assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == status
 
 
+def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
+    """Codex, PR 278, the sibling of the inclusion case: proofs are parsed before the profile."""
+    assert (c := check(receipt())).status == "confirmed" and c.readable
+    alg8 = {1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}
+    good = check(receipt(signed=sign_over(TREE.root(24), prot=alg8)))
+    assert (good.status, good.readable) == ("outside_profile", True)
+    junk = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=alg8)))
+    assert (junk.status, junk.readable) == ("malformed", False)
+    vds1 = {1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER}}
+    not_ccf = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=vds1)))
+    assert (not_ccf.status, not_ccf.readable) == ("outside_profile", False)
+    assert check(receipt(vdp={})).readable is False                 # nothing parsed
+
+
 def test_profile_untagged_and_crit_unprotected():
     assert check(receipt(tagged=False)).status == "outside_profile"
     assert check(receipt(unprot_extra={2: [1]})).status == "outside_profile"

@@ -663,6 +663,12 @@ def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) ->
     return None
 
 
+def _is_ccf(rc: CoseSign1) -> bool:
+    """vds says CCF_LEDGER_SHA256, so the -05 CDDL applies to the proofs of this receipt."""
+    vds = rc.protected.get(_VDS)
+    return vds == _CCF_LEDGER_SHA256 and not isinstance(vds, bool)
+
+
 def _receipt_crit(rc: CoseSign1) -> Optional[str]:
     if _CRIT in rc.unprotected:
         return "crit in the unprotected header"
@@ -732,16 +738,36 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         return ReceiptCheck(index, exc.status, detail=str(exc))
     ph = rc.protected
     kid, iss, iat, txid, vdp = _receipt_head(rc)
-    base: dict[str, Any] = dict(index=index, readable=True, issuer=iss, kid=kid, receipt_iat=iat,
+    # readable means: parses under the -05 CDDL, proofs included (ADR 0009, Decision 10). So it is
+    # False until the inclusion proofs have parsed, and a proof that does not parse is malformed,
+    # whatever else the receipt is: malformed precedes outside_profile in STATUS_ORDER.
+    base: dict[str, Any] = dict(index=index, readable=False, issuer=iss, kid=kid, receipt_iat=iat,
                                 ccf_txid=txid, consistency_proofs_present=_CONSISTENCY in vdp)
 
     def out(status: str, **kw) -> ReceiptCheck:
         merged = {**base, **kw}
         if status == "malformed":
-            merged["readable"] = False     # readable means: parses under the -05 CDDL, proofs included
+            merged["readable"] = False
         return ReceiptCheck(status=status, **merged)
 
     alg = ph.get(_ALG)
+    proofs = vdp.get(_INCLUSION)
+    parsed: list = []
+    if _is_ccf(rc):
+        # THE PROOFS BEFORE THE PROFILE (Codex, PR 278): an early profile branch must not skip the
+        # shape of what follows it, or an unsupported algorithm makes junk proofs look readable.
+        raw_vdp = rc.unprotected.get(_VDP)
+        if raw_vdp is not None and not isinstance(raw_vdp, dict):
+            return out("malformed", detail="vdp (396) is not a map")
+        if proofs is not None and not isinstance(proofs, list):
+            return out("malformed", detail="the inclusion proofs are not an array")
+        if isinstance(proofs, list) and len(proofs) > MAX_INCLUSION_PROOFS:
+            return out("malformed", detail=f"more than {MAX_INCLUSION_PROOFS} inclusion proofs")
+        try:
+            parsed = [_inclusion_root(p) for p in proofs or []]
+        except _ProofRefused as exc:
+            return out("malformed", detail=str(exc))
+        base.update(readable=bool(parsed))
     why = _receipt_outside(rc, kid, iss)
     if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
@@ -749,20 +775,11 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         why = _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)
-    proofs = vdp.get(_INCLUSION)
-    if not isinstance(proofs, list) or not proofs:
+    if not parsed:
         return out("outside_profile", detail="no inclusion proof under 396 / -1")
-    if len(proofs) > MAX_INCLUSION_PROOFS:
-        return out("malformed", detail=f"more than {MAX_INCLUSION_PROOFS} inclusion proofs")
 
-    roots, hashes_ = [], []
-    for p in proofs:
-        try:
-            h, dh = _inclusion_root(p)
-        except _ProofRefused as exc:
-            return out("malformed", detail=str(exc))
-        roots.append(h)
-        hashes_.append(dh)
+    roots = [h for h, _dh in parsed]
+    hashes_ = [dh for _h, dh in parsed]
     root = roots[0]
     base.update(merkle_root=root, data_hashes=tuple(hashes_))
     if any(r != root for r in roots):
@@ -773,10 +790,12 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
     keys, _ignored = _normalize_keys(trusted)
     candidates = [(spki, k) for spki, k in keys if (k if k is not None else _derived_kid(spki)) == kid]
     if not candidates:
-        status = "receipt_not_bound" if not bound else "needs_rp_trust"
-        return out(status, bound=bound,
-                   detail="no relying-party key for this issuer and kid" if bound else
-                   "the leaf's data-hash is not this statement's (and no trusted key for its kid)")
+        # NOT receipt_not_bound, which says the receipt signature is valid (ADR 0009, Decision 9):
+        # without a key nothing is authenticated, so an unverifiable receipt must not claim the
+        # cross-binding verdict (Codex, PR 278). The unbound leaf stays reported as a fact.
+        return out("needs_rp_trust", bound=bound,
+                   detail="no relying-party key for this issuer and kid" + (
+                       "" if bound else "; the leaf's data-hash is not this statement's, unauthenticated"))
     tbs = _sig_structure(rc.protected_raw, root)
     good = [spki for spki, _k in candidates if _verify(alg, spki, tbs, rc.signature)]
     if not good:
@@ -918,7 +937,9 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
         return ConsistencyCheck(status=exc.status, detail=str(exc))
     kid, iss, iat, txid, _vdp = _receipt_head(rc)
     raw_vdp = rc.unprotected.get(_VDP)
-    base: dict[str, Any] = dict(readable=True, issuer=iss, kid=kid, receipt_iat=iat, ccf_txid=txid,
+    # readable: the consistency proofs parsed under the -05 CDDL; False until they have (the same
+    # rule as for inclusion receipts, ADR 0009 Decision 10).
+    base: dict[str, Any] = dict(readable=False, issuer=iss, kid=kid, receipt_iat=iat, ccf_txid=txid,
                                 inclusion_proofs_present=isinstance(raw_vdp, dict) and _INCLUSION in raw_vdp)
 
     def out(status: str, **kw) -> ConsistencyCheck:
@@ -927,29 +948,34 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
             merged["readable"] = False
         return ConsistencyCheck(status=status, **merged)
 
+    computed: list = []
+    inclusion_roots: list = []
+    if _is_ccf(rc) and raw_vdp is not None:
+        # THE PROOFS BEFORE THE PROFILE (Codex, PR 278), as in _receipt: a shape defect is
+        # malformed whatever the profile says, and malformed precedes outside_profile.
+        if not isinstance(raw_vdp, dict):
+            return out("malformed", detail="vdp (396) is not a map")
+        unknown = [k for k in raw_vdp if k not in (_INCLUSION, _CONSISTENCY)]
+        if unknown:
+            return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
+        proofs = raw_vdp.get(_CONSISTENCY)
+        inclusion = raw_vdp.get(_INCLUSION)
+        for name, arr in (("consistency", proofs), ("inclusion", inclusion)):
+            if arr is not None and not isinstance(arr, list):
+                return out("malformed", detail=f"the {name} proofs are not an array")
+            if arr is not None and len(arr) > MAX_CONSISTENCY_PROOFS:
+                return out("malformed", detail=f"more than {MAX_CONSISTENCY_PROOFS} {name} proofs")
+        try:
+            computed = [_consistency_roots(p) for p in proofs or []]
+            inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]
+        except _ProofRefused as exc:
+            return out("malformed", detail=str(exc))
+        base.update(proofs=len(computed), readable=bool(computed))
     why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)
     if raw_vdp is None:
         return out("consistency_proof_missing", detail="no vdp (396) in the unprotected header")
-    if not isinstance(raw_vdp, dict):
-        return out("malformed", detail="vdp (396) is not a map")
-    unknown = [k for k in raw_vdp if k not in (_INCLUSION, _CONSISTENCY)]
-    if unknown:
-        return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
-    proofs = raw_vdp.get(_CONSISTENCY)
-    inclusion = raw_vdp.get(_INCLUSION)
-    for name, arr in (("consistency", proofs), ("inclusion", inclusion)):
-        if arr is not None and not isinstance(arr, list):
-            return out("malformed", detail=f"the {name} proofs are not an array")
-        if arr is not None and len(arr) > MAX_CONSISTENCY_PROOFS:
-            return out("malformed", detail=f"more than {MAX_CONSISTENCY_PROOFS} {name} proofs")
-    try:
-        computed = [_consistency_roots(p) for p in proofs or []]
-        inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]
-    except _ProofRefused as exc:
-        return out("malformed", detail=str(exc))
-    base.update(proofs=len(computed))
     if not computed:
         return out("consistency_proof_missing", detail="no consistency proof under 396 / -2 (4.1)")
     if rc.payload is not None:
