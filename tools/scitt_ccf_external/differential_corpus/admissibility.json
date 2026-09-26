@@ -1,0 +1,124 @@
+{
+ "note": "Refusals of this service, as returned. A refusal is what this service did with the bytes; it is not judged SCITT-invalid here.",
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "9142fa4b7e167b03ebfd231e7de6df388b421672",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1"
+  }
+ },
+ "refused": [
+  {
+   "id": "b03-indefinite1",
+   "class": "b",
+   "base": "control",
+   "mutation": "the protected byte string with indefinite length, one chunk",
+   "submitted_sha256": "ac7c19e73c8cbb1403c64169e0a6669e2c57524f8d696d2960bff0c00bfcd9cf",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: indefinite length"
+   },
+   "files": "vectors/b03-indefinite1/"
+  },
+  {
+   "id": "b04-indefinite2",
+   "class": "b",
+   "base": "control",
+   "mutation": "the protected byte string with indefinite length, two chunks",
+   "submitted_sha256": "75ba13380268b103d30387c1b2c8452b802edcf887ea1d62c0b83e8d4e1d8814",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: indefinite length"
+   },
+   "files": "vectors/b04-indefinite2/"
+  },
+  {
+   "id": "c04-indefinite1",
+   "class": "c",
+   "base": "control",
+   "mutation": "the payload byte string with indefinite length, one chunk",
+   "submitted_sha256": "958a003a07a77c7b98d9d4c31025810ba1d66da4fa1d39bf154f87659bba0955",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: indefinite length"
+   },
+   "files": "vectors/c04-indefinite1/"
+  },
+  {
+   "id": "c05-indefinite2",
+   "class": "c",
+   "base": "control",
+   "mutation": "the payload byte string with indefinite length, two chunks",
+   "submitted_sha256": "3ea4e4db2b0c388bd415376e568f3f0974a38749086685979b46114db88d0b23",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: indefinite length"
+   },
+   "files": "vectors/c05-indefinite2/"
+  },
+  {
+   "id": "d04-indefinite1",
+   "class": "d",
+   "base": "control",
+   "mutation": "the signature byte string with indefinite length, one chunk",
+   "submitted_sha256": "5c44085497e23be23fa5036a7b7070c7cb9c69b800caa6d25a6bf1a8f50a2aa2",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: indefinite length"
+   },
+   "files": "vectors/d04-indefinite1/"
+  },
+  {
+   "id": "d05-indefinite2",
+   "class": "d",
+   "base": "control",
+   "mutation": "the signature byte string with indefinite length, two chunks",
+   "submitted_sha256": "83638cda530eabcc05095e657bd0b0310c911fd9275790bfafd51391b4e2b670",
+   "post_status": 400,
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}",
+   "v1_reader_on_submitted_bytes": {
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: indefinite length"
+   },
+   "files": "vectors/d05-indefinite2/"
+  }
+ ]
+}

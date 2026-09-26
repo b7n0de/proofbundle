@@ -78,6 +78,21 @@ pq = ["cryptography>=48"]
 # verify and the v2-sig BINDING check need only [anchors]; without this extra the v2-sig signature outcomes
 # honestly skip (sig_ok None / status no_sig_lib), never a silent pass. `pip install proofbundle[rootcommit]`.
 rootcommit = ["ecdsa>=0.18"]
+# EXPERIMENTAL: the scitt-ccf/v1 reader (proofbundle.scitt_ccf, ADR 0009) for SCITT Transparent
+# Statements with CCF receipts. The package's own pre-scan (proofbundle._cbor_prescan) decides first;
+# cbor2 is the second reader and must read the same values. Without this extra every scitt-ccf entry
+# point refuses with status `no_lib`; nothing falls back to a weaker reader. It is not an anchor type
+# yet: no verify path reaches it.
+#
+# PINNED TO THE MEASURED VERSION, as the `inspect` extra is (owner decision Q1 b, 2026-09-25).
+# cbor2 6.1.4 was measured on 2026-09-25, CPython 3.11.15, in
+# tools/scitt_ccf_external/reader_crosscheck.json: `allow_duplicate_keys=False` and
+# `allow_indefinite=False` reject, and the data-hash recomputed from its values equals the receipt's
+# on 4 of 4 real statements. 6.1.0 is the first release with `allow_duplicate_keys`, 6.0.0 the first
+# with `allow_indefinite`; 5.9.0 has neither and is refused at run time. A bump needs the same
+# measurement again. `dev` carries the same pin so the reader's tests run in CI; `test` does not, so
+# the sdist run of `[test]` shows the suite without the extra.
+scitt = ["cbor2==6.1.4"]
 # EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
 # z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
 # reach). Without it the model still runs a complete bounded-enumeration proof — the extra only adds the
@@ -154,7 +169,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (72 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (74 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -165,9 +180,11 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   became 71 (`src/proofbundle/adapters/agt_receipt.py`), and mypy **2.3.0** was re-run over the 71
 #   and exits 0. On 2026-09-24 it became 72 (`src/proofbundle/_verdict.py`, the single verdict-type
 #   establisher that replaced two private copies), and mypy **2.3.0** was re-run over the 72 and
-#   exits 0. The other seven versions were NOT re-run for either new file; that is the same boundary
-#   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
-#   than absorbed into the sentence above.
+#   exits 0. On 2026-09-25 it became 74 (`src/proofbundle/_cbor_prescan.py` and
+#   `src/proofbundle/scitt_ccf.py`, the scitt-ccf/v1 reader of ADR 0009), and mypy **2.3.0** was
+#   re-run over the 74 and exits 0. The other seven versions were NOT re-run for any new file;
+#   that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and
+#   it is stated here rather than absorbed into the sentence above.
 #
 #   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
 #   `--local-partial-types` and `--strict-bytes` (PEP 688: `bytearray`/`memoryview` no longer
@@ -183,7 +200,8 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266',
+       "cbor2==6.1.4"]
 
 [project.urls]
 Homepage = "https://b7n0de.com"

@@ -1,0 +1,27 @@
+{
+ "cbor2": "6.1.4",
+ "nodes": 23,
+ "control_reader_computes_root_for_a_real_leaf": true,
+ "A": {
+  "accepts": 0,
+  "refusals": {
+   "a path has 1 to 64 elements": 1
+  },
+  "computed_other_root": 22
+ },
+ "B": {
+  "accepts": 0,
+  "refusals": {
+   "leaf components violate the -05 CDDL sizes": 22,
+   "a path has 1 to 64 elements": 1
+  },
+  "computed_other_root": 0
+ },
+ "B32": {
+  "accepts": 0,
+  "refusals": {
+   "a path has 1 to 64 elements": 1
+  },
+  "computed_other_root": 22
+ }
+}

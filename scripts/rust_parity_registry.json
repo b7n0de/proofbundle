@@ -371,6 +371,18 @@
       "crosscheck_refs": [],
       "notes": "DSSE-signed Run Ledger: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
     },
+    "proofbundle.scitt_ccf.verify_statement_signature": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Python-only; tools/pb_verify_rs has no COSE reader. PENDING. An independent Rust reader was run offline on the same bytes (microsoft/scitt-verifier at bd6fb8ba, tools/scitt_ccf_external/rust_crosscheck.json), but that is a foreign tool, not this repository's verifier, so it does not change this status."
+    },
+    "proofbundle.scitt_ccf.verify_transparent_statement": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "scitt-ccf/v1 (ADR 0009): a Transparent Statement with CCF receipts, value 1 against the canonical root, value 3 recomputed from the statement bytes, value 4 from each inclusion proof, receipt signatures under rp_trust. Not an anchor type yet and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING. Compared offline against microsoft/scitt-verifier at bd6fb8ba on the same bytes: 58 values agree, 0 differ (tools/scitt_ccf_external/rust_crosscheck.json)."
+    },
     "proofbundle.sdjwt.verify_sd_jwt": {
       "status": "PENDING",
       "rust_subcommands": [],
@@ -470,6 +482,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "Fail-closed shape validation of the verifier block (P19, 6.1.0): closed field set, sha256 digests, selfDeclared assurance, testResult requires vectorSet. Python-only in 6.1.0; a Rust second reader is owed before the block is anything but selfDeclared. PENDING."
+    },
+    "proofbundle.scitt_ccf.verify_consistency_receipt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "draft-ietf-scitt-receipts-ccf-profile-05 section 4: a CCF consistency receipt against an older root the caller already verified; its own closed status set (CONSISTENCY_STATUS_ORDER). Not an anchor type and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING until AP5 (owner answer N5 a). The proofs were compared with a third-party RFC 9162 implementation (transparency-dev/merkle at fbbcd741, tools/scitt_ccf_external/consistency_result.json), which is not this repository's verifier and does not change this status."
     }
   }
 }

@@ -130,6 +130,10 @@ def _benign_fixtures() -> dict[str, object]:
         # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
         "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
+        # scitt_ccf.verify_consistency_receipt (draft-ietf-scitt-receipts-ccf-profile-05 section 4):
+        # the older root the caller already verified and that receipt's issuer. Context only; the
+        # fuzzed primary is the consistency receipt's bytes.
+        "older_root": _ZERO32, "older_issuer": "",
     }
 
 
