@@ -145,7 +145,9 @@ class TheOracleReadsPatternsAsTheSchemaMeansThem(unittest.TestCase):
                                                              .replace("２０２６", "2026")))
 
     def test_a_pattern_it_does_not_know_is_refused_not_guessed(self):
-        for pattern in ("^\\w+$", "^a$|^b$", "[0-9]+", "^(?i)x$"):
+        for pattern in ("^\\w+$", "^a$|^b$", "[0-9]+", "^(?i)x$",
+                        # in the vocabulary, and not compilable (228bc-2B-01/02)
+                        "^a{4294967295}$", "^a{3,1}$", "^[9-0]$", "^(a$", "^a)$"):
             with self.subTest(pattern=pattern), self.assertRaises(ValueError):
                 ecma_pattern(pattern)
 

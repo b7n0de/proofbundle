@@ -11,9 +11,12 @@ WHERE THIS COMES FROM. Deep gate Z195 against main 5b53ab3e, two findings of one
 
 Both measured again on main 10f3466b before this change: 311 with the gate's generator (the allow
 example, eleven values, strict mode), and the five nulls reaching safeForAutomation=true. The generator
-below, over a fully populated predicate in both modes, measures 472 strict and 522 lenient there. The
-first version of this text gave only the 311 next to this generator (gate on 3562dc71, lens B,
-228bcB-01: two numbers from two generators, and the text did not say which).
+below, over a fully populated predicate in both modes, measures 474 strict and 524 lenient there, of
+922 predicates main's schema refuses; 2 of them are a bare string in notChecked, which the schema of
+this change accepts as the legacy form (against it: 472 and 522 of 920). The first version of this text
+gave only the 311 next to this generator (gate on 3562dc71, lens B, 228bcB-01: two numbers from two
+generators, and the text did not say which); the second gave 472 and 522 without naming the schema
+(gate on 63ddaaab, lens C, 228bc-2C-02).
 
 WHAT IS PINNED. (1) Every schema path with a declared type is in `decision._NESTED_TYPES` or checked by
 its own code (DEDICATED, with the reason), so a field added to the schema without a check turns this file

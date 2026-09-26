@@ -35,14 +35,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `relation`, `relation_statement`, `subject_binding`). A `pattern` in `schemas/` is an ECMA-262
   regular expression, and three readings differed. A digest object with a second key passed,
   although `sha256Digest` is closed. `trust_pack` still anchored with `^..$`, so a signed trust pack
-  whose `expires` ended in a newline verified `ok=true`. And `\d` in nine modules matched every
-  Unicode digit: strict decision validation accepted a fullwidth `decidedAt`, and on one signed
-  relation statement whose edge `declaredAt` used such digits the Python verifier said ok (exit 0)
-  where the Rust verifier said FAIL (exit 2). The three shapes now have one definition, and the
-  validators read it. Measured with a generator that also bends strings and adds keys, over fully
-  populated predicates, against an oracle that reads `pattern` as ECMA-262 (python-jsonschema reads
-  it with Python's `re` and saw none of this): leaking paths on main 10f3466b were decision 64,
-  outcome 13, run_ledger 4, verification_summary 3, trust_pack 7. Two of the trust_pack paths
+  whose `expires` ended in a newline verified `ok=true`. And `\d` in the RFC3339 and 0.1.x
+  patterns of eight modules matched every Unicode digit: strict decision validation accepted a
+  fullwidth `decidedAt`, and on one signed relation statement whose edge `declaredAt` used such
+  digits the Python verifier said ok (exit 0) where the Rust verifier said FAIL (exit 2). The
+  three shapes now have one definition, and the validators read it. Measured with a generator
+  that also bends strings and adds keys, over fully populated predicates, against an oracle that
+  reads `pattern` as ECMA-262 (python-jsonschema reads it with Python's `re` and saw none of
+  this): leaking paths on main 10f3466b were decision 64, outcome 13, run_ledger 4,
+  verification_summary 3, trust_pack 7. Two of the trust_pack paths
   raised: a list as a key's `alg` made `verify_trust_pack` raise `TypeError` before any signature
   was counted, and it is a verdict now. The same generator found `scheme` (`const: "ed25519"`)
   never read, and outcome's `traceContext.traceparent`, `validity.audience` and `validity.nonce`
