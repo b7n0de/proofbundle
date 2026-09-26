@@ -30,7 +30,8 @@ from __future__ import annotations
 import base64
 from typing import Optional
 
-from .anchors_ots import _classify, calendar_operators, calendar_uris, verify_opentimestamps
+from .anchors_ots import (OtsProofTooLarge, _classify, _deserialize_detached, calendar_operators,
+                          calendar_uris, verify_opentimestamps)
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -55,13 +56,8 @@ def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     so verifying existence-in-Bitcoin no longer needs a calendar. A pending-only or malformed proof is
     False (fail-closed; never over-claim a pending proof as self-contained)."""
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
-    except ImportError:
-        return False
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
-    except Exception:
+        dtf = _deserialize_detached(proof)
+    except Exception:   # no [anchors] extra, malformed, or over the cap (anchors_ots._MAX_OTS_PROOF_BYTES): not self-contained
         return False
     has_bitcoin, _heights, _has_pending = _classify(dtf.timestamp)
     return has_bitcoin
@@ -170,7 +166,7 @@ def describe_proof(proof: bytes) -> dict:
     """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
     upgrade report. Returns ``{state, selfContained, bitcoinHeights, provenCalendars,
     provenCalendarOperators, operatorRedundancy}`` where ``state`` is one of ``pending`` | ``upgraded`` |
-    ``empty`` | ``malformed`` | ``no_lib``. Every calendar figure here is read from the proof's own retained
+    ``empty`` | ``malformed`` | ``over_budget`` | ``no_lib``. Every calendar figure here is read from the proof's own retained
     attestations — embedded IN the proof bytes but UNVERIFIED (a ``PendingAttestation`` URI is
     unauthenticated and offline-constructible), so ``operatorRedundancy`` is a transparency hint, NOT
     redundancy evidence. Read-only and fail-closed: it reports state, it never trusts the proof
@@ -178,12 +174,11 @@ def describe_proof(proof: bytes) -> dict:
     base = {"state": "malformed", "selfContained": False, "bitcoinHeights": [],
             "provenCalendars": [], "provenCalendarOperators": [], "operatorRedundancy": 0}
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+        dtf = _deserialize_detached(proof)
     except ImportError:
         return {**base, "state": "no_lib"}
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except OtsProofTooLarge:
+        return {**base, "state": "over_budget"}
     except Exception:
         return base
     has_bitcoin, heights, has_pending = _classify(dtf.timestamp)

@@ -18,6 +18,34 @@ from __future__ import annotations
 
 from typing import Optional
 
+#: The largest serialized OTS proof this package deserializes (deep gate Z195, finding
+#: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). The structural budget bounds the base64 STRING of
+#: a proof (string_len), not the work the OpenTimestamps deserializer does on it: every fork creates a
+#: Timestamp holding its own copy of the message, so one append op of about 4 KB followed by forks of
+#: about 26 bytes each multiplied the proof. Measured by the gate: a 732 KB proof inside every budget
+#: peaked at about 137 MiB in `verify_evidence_pack` and at about 300 MB RSS in `anchor verify-pack`.
+#: Sized from the proofs this repository carries, measured 2026-09-26: the largest is 1510 bytes (a
+#: confirmed anchor in the conformance corpus), the upgraded `hello-world` example is 688. The cap
+#: leaves more than forty times that, and bounds the fork count, and with it the copies, by the proof
+#: length. Checked before any deserialization, in the one helper every reader here uses.
+_MAX_OTS_PROOF_BYTES = 65_536
+
+
+class OtsProofTooLarge(ValueError):
+    """A proof over `_MAX_OTS_PROOF_BYTES`: refused before the deserializer does any work."""
+
+
+def _deserialize_detached(proof):
+    """The one way this package deserializes a detached OTS proof: the length cap first, then the
+    library. Raises `OtsProofTooLarge` over the cap, `ImportError` without the `[anchors]` extra, and
+    whatever the library raises for a malformed proof; each caller maps these to its own verdict."""
+    from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
+    from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+    if isinstance(proof, (bytes, bytearray)) and len(proof) > _MAX_OTS_PROOF_BYTES:
+        raise OtsProofTooLarge(f"OTS proof is {len(proof)} bytes, over the {_MAX_OTS_PROOF_BYTES}-byte "
+                               "cap (checked before deserializing, fail-closed)")
+    return DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+
 
 def _classify(timestamp):
     """Return (has_bitcoin, bitcoin_heights, has_pending) over all attestations in the proof."""
@@ -75,13 +103,12 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     reported as EVIDENCE (``frozenEvidence``) but is never trusted. Without RP trust material an upgraded
     proof is honestly ``needs_rp_trust`` (ok=False), so ``--require-anchor`` is unmet → exit 3."""
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+        dtf = _deserialize_detached(proof)
     except ImportError:
         return {"ok": False, "warn": False, "status": "no_lib",
                 "detail": "opentimestamps anchor needs proofbundle[anchors] (opentimestamps)"}
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except OtsProofTooLarge as exc:
+        return {"ok": False, "warn": False, "status": "over_budget", "detail": str(exc)}
     except Exception as exc:   # any malformed proof → FAIL (fail-closed)
         return {"ok": False, "warn": False, "status": "malformed",
                 "detail": f"OTS proof did not deserialize: {exc}"}
@@ -276,13 +303,11 @@ def calendar_uris(proof: bytes) -> list[str]:
     dependency is already discharged, which is precisely the calendar-independence being surfaced."""
     try:
         from opentimestamps.core.notary import PendingAttestation  # noqa: PLC0415
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
     except ImportError:
         return []
     try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
-    except Exception:   # malformed → no calendars, never raise (fail-closed transparency)
+        dtf = _deserialize_detached(proof)
+    except Exception:   # malformed or over the cap → no calendars, never raise (fail-closed transparency)
         return []
     uris: set[str] = set()
     for _msg, att in dtf.timestamp.all_attestations():

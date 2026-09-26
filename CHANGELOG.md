@@ -10,6 +10,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An OTS proof is capped before it is deserialized, on every reader** (`anchors_ots`,
+  `evidence_pack`). The structural budget bounds the base64 string of a proof, not what the
+  OpenTimestamps deserializer builds from it: every fork creates a timestamp holding its own copy of the
+  message. Measured by the deep gate against main 5b53ab3e (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
+  confirmed 3 of 3) and again for this change in a fresh process: a 732 067-byte proof inside every
+  budget peaked at 137.1 MiB in `verify_evidence_pack`. All four places that deserialize a proof now go
+  through one helper that refuses a proof over 65 536 bytes first; the same proof is refused as
+  `over_budget` at 3.9 MiB, the pack itself. The largest proof this repository carries has 1510 bytes,
+  and a proof just under the cap peaks at about 14 MiB. `describe_proof` gains the state `over_budget`.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
