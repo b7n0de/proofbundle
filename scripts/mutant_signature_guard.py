@@ -83,7 +83,7 @@ def _commented_content_parses(text: str) -> bool:
         content += "\n    pass"  # a commented-out `if verify(x):` header needs a body to parse
     try:
         ast.parse(content)
-    except SyntaxError:
+    except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
         return False
     return True
 
@@ -234,8 +234,11 @@ def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
     try:
         tree = ast.parse(content)
-    except SyntaxError:
-        return []  # unparseable staged state: the test/lint gates own that failure
+    except (SyntaxError, ValueError):
+        # unparseable staged state: the test/lint gates own that failure. A NUL byte raises
+        # ValueError, not SyntaxError; uncaught, it ended the run with a traceback, and the class A
+        # finding on the same file was never printed (a review lens, measured 2026-09-26).
+        return []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue

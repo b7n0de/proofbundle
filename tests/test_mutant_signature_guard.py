@@ -224,6 +224,16 @@ class TestStagedMode(_RepoFixture):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/" + chr(92) + "udcff.py:1", r.stdout)
 
+    def test_a_null_byte_in_the_file_is_a_verdict_not_a_crash(self):
+        """ast.parse raises ValueError for a NUL byte, not SyntaxError: the guard ended with a
+        traceback and never printed the class A finding on the same file."""
+        self.target.write_bytes(b"if False:\n    pass\n# ok = verify(x)\x00\n")
+        _git(self.repo, "add", "-A")
+        r = _guard(self.repo, "--staged")
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("trivial-truth branch", r.stdout)
+
     def test_a_symlinked_src_is_a_finding(self):
         self._link_src_to_a_mutant()
         r = _guard(self.repo, "--staged")
