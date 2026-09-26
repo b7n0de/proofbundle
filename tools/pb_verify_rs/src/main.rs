@@ -981,21 +981,27 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
 fn verify_trust_pack_threshold(
     envelope: &serde_json::Value,
 ) -> Result<(bool, u64, u64, u64), String> {
-    let payload_type = envelope
-        .get("payloadType")
-        .and_then(|v| v.as_str())
-        .ok_or("envelope has no string payloadType")?;
+    // Python's order (`trust_pack.verify_trust_pack`): payload, input_bytes, signatures non-empty list,
+    // cap, the payloadType pin, then the Statement. The payloadType used to be read first, without a
+    // pin, and the PAE built under whatever type the envelope named: a pack signed under
+    // `application/vnd.other+json` met its threshold here with exit 0 while Python refused it as a
+    // payloadType confusion (measured on both verifiers, with the Codex finding on PR 282).
     let payload_b64 = envelope
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
     let body = b64_dsse(payload_b64)?;
-    let msg = dsse_pae(payload_type, &body);
+    if body.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            body.len(),
+            BUDGET_INPUT_BYTES,
+        ));
+    }
 
-    // S106: the signature list is judged BEFORE the statement, in Python's order
-    // (`trust_pack.verify_trust_pack`: payload, input_bytes, signatures non-empty list, cap, then the
-    // statement). An empty list used to reach the threshold loop and come out as "threshold not met",
-    // where Python reports the envelope malformed.
+    // S106: the signature list is judged BEFORE the statement, in Python's order. An empty list used
+    // to reach the threshold loop and come out as "threshold not met", where Python reports the
+    // envelope malformed.
     let sigs = envelope
         .get("signatures")
         .and_then(|v| v.as_array())
@@ -1011,6 +1017,20 @@ fn verify_trust_pack_threshold(
             BUDGET_SIGNATURES,
         ));
     }
+    // The pin, in Python's words; a value that is no string is shown as JSON (Python shows its repr).
+    let payload_type = envelope.get("payloadType");
+    if payload_type.and_then(|v| v.as_str()) != Some(INTOTO_STATEMENT_PAYLOAD_TYPE) {
+        let gezeigt = match payload_type {
+            Some(serde_json::Value::String(s)) => format!("'{s}'"),
+            Some(v) => v.to_string(),
+            None => "None".to_string(),
+        };
+        return Err(format!(
+            "envelope.payloadType is {gezeigt}, expected '{INTOTO_STATEMENT_PAYLOAD_TYPE}' \
+             (payloadType-confusion, fail-closed)"
+        ));
+    }
+    let msg = dsse_pae(INTOTO_STATEMENT_PAYLOAD_TYPE, &body);
 
     let statement = strict_parse(&body)?;
     // A pack is a Statement: the same oracle as the relation paths, at the place Python's
@@ -3165,6 +3185,34 @@ mod tests {
         let e = verify_trust_pack_threshold(&ohne_praedikat)
             .expect_err("a statement without a predicate passed");
         assert!(e.contains("predicate"), "{e}");
+    }
+
+    #[test]
+    fn a_pack_under_another_payload_type_is_refused_in_pythons_order() {
+        // Measured with the Codex finding on PR 282: signed under `application/vnd.other+json`, the pack
+        // met its threshold here and Python refused it as a payloadType confusion.
+        let mut env = trust_pack_mit_root_keyids(1);
+        env["payloadType"] = serde_json::json!("application/vnd.other+json");
+        assert_eq!(
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged"),
+            "envelope.payloadType is 'application/vnd.other+json', expected \
+             'application/vnd.in-toto+json' (payloadType-confusion, fail-closed)"
+        );
+        // Python's order: the list and its cap before the pin, the pin before the Statement.
+        let mut leer = env.clone();
+        leer["signatures"] = serde_json::json!([]);
+        assert_eq!(
+            verify_trust_pack_threshold(&leer).expect_err("an empty list was judged"),
+            LEERE_SIGNATURLISTE
+        );
+        env["payload"] = serde_json::json!("e30=");
+        let e =
+            verify_trust_pack_threshold(&env).expect_err("a pack under another type was judged");
+        assert!(e.contains("payloadType-confusion"), "{e}");
+        let mut ohne = trust_pack_mit_root_keyids(1);
+        ohne.as_object_mut().expect("object").remove("payloadType");
+        let e = verify_trust_pack_threshold(&ohne).expect_err("a pack without a type was judged");
+        assert!(e.starts_with("envelope.payloadType is None"), "{e}");
     }
 
     #[test]

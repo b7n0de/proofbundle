@@ -22,7 +22,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   refuses the same bytes on `verify-relation`, `verify-relation-statement` and for attached
   targets, with the same exit class and lineage, and on `verify-trust-pack-threshold`, which met
   its threshold with exit 0 for a pack whose `_type` was null, absent or `Statement/v0.1` while
-  Python refused it (measured on both verifiers). A sweep fails when a module that reports
+  Python refused it (measured on both verifiers). That subcommand also built its signature check
+  under whatever `payloadType` the envelope named, so a pack signed under another type met its
+  threshold where Python refuses a payloadType confusion; it now pins the in-toto type and reads the
+  envelope in Python's order (payload, input size, signature list and cap, type, Statement). A sweep fails when a module that reports
   `structure_ok` for an in-toto Statement parses without the oracle, and a second one when a Rust
   function parses a DSSE payload without asking it before the predicate is read. `intoto --verify` and
   `svr --verify` are unchanged: what their `ok` covers is listed in their contract, and `_type`

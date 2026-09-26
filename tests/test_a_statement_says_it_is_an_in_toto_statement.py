@@ -386,6 +386,28 @@ class RustParity(unittest.TestCase):
                     self.assertEqual((py["structure_ok"], rs.returncode), (False, 2), rs.stdout)
                     self.assertIn("not an in-toto Statement v1: _type is", rs.stdout)
 
+    def test_a_trust_pack_under_another_payload_type(self):
+        """The neighbour in the same function: signed under another payloadType, the Rust slice met its
+        threshold with exit 0 and Python refused the pack. Same verdict now, and the same words."""
+        from proofbundle.trust_pack import verify_trust_pack
+        env, sk = _trust_pack()
+        body = base64.b64decode(env["payload"])
+        for pt, want_ok in ((PT, True), ("application/vnd.other+json", False)):
+            pack = {"payload": env["payload"], "payloadType": pt,
+                    "signatures": [{"keyid": "r", "sig": base64.b64encode(sk.sign(dsse.pae(pt, body))).decode()}]}
+            py = verify_trust_pack(pack)
+            with tempfile.TemporaryDirectory() as d:
+                path = pathlib.Path(d) / "tp.json"
+                path.write_text(json.dumps(pack), encoding="utf-8")
+                rs = subprocess.run([str(self.rust), "verify-trust-pack-threshold", str(path)],
+                                    capture_output=True, text=True, timeout=120)
+            with self.subTest(payload_type=pt):
+                self.assertIs(py["ok"], want_ok, py["errors"])
+                if want_ok:
+                    self.assertEqual(rs.returncode, 0, rs.stdout)
+                else:
+                    self.assertEqual((rs.returncode, rs.stdout.strip()), (2, "MALFORMED: " + py["errors"][0]))
+
 
 # Modules that report structure_ok for an in-toto Statement without the oracle, with the reason.
 READS_TYPE_ITSELF = {
