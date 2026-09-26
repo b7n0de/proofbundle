@@ -34,9 +34,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   ended the mutant guard, and the same depth in a `.py` file ended the language gate, each with a
   traceback and exit 1, the code of a finding. The guard now stops with exit 2 and the reason, and
   the gate says NOT MEASURABLE for such a file; a RecursionError is caught beside each MemoryError,
-  and the version gate's reading of PyPI's JSON catches one too. Two walks over a parsed tree were
-  recursive: the gate's test for a string of literals joined by `+` ran out of stack on 3000 of them,
-  and the guard's comparison of a file parsed twice (`ast.dump`) stopped it with "not the text Python
+  and the version gate's reading of PyPI's JSON catches one too, as the resolver's and the receipt
+  verifier's reading of a receipt does since 08077af8. Two walks over a parsed tree were recursive:
+  the gate's test for a string of literals joined by `+` ran out of stack on 3000 of them, and the
+  guard's comparison of a file parsed twice (`ast.dump`) stopped it with "not the text Python
   parsed" on files Python compiles, 2000 nested unary minus or 1000 terms joined by `+`. Both walk
   without recursion now. The version gate reads an external answer up to 16 MiB; the two it asks for
   measured 94753 and 117471 bytes.
@@ -55,34 +56,34 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   now; the other `int()` and `isdigit()` calls in the five tools read text a `[0-9]` pattern matched,
   or bytes, whose `isdigit()` is ASCII only.
 
-  The language gate reads a `.py` file as Python reads it, and judges what a change turns into prose.
-  It decoded a `.py` file as UTF-8, so under `# coding: utf-7` the line
-  `y = 1 +ACMAIA-Diese+ACA-Zeile...`, a German comment to Python, was judged as its bytes: green in
-  the HEAD form and in both working-tree forms. It is the class the guard's entry above fixed for the
-  guard, not swept to the gate that takes its diff reader from the guard. The gate now reads a `.py`
-  file through the guard's reader, one rule in one place; a file Python cannot decode or parse has no
-  prose map and the run is NOT MEASURABLE, where one with a byte that is not UTF-8 was decoded with
-  replacement characters and judged before. Like the guard, the gate judged added lines only: a change
-  of only the coding cookie, removing the two lines around a string, which turns the German text in it
-  into comments, and removing a Markdown fence opener, which turns the code after it into prose, each
-  added no German line and was green. It cannot judge a changed file whole, since the owner decision
-  keeps the German lines that exist; it judges a line of a changed file that is prose now and whose
-  text was not prose before the change, compared by text, so that a kept German line stays unjudged
-  where the change moves it. A changed file without a prose map makes the run NOT MEASURABLE, also
-  when it adds only comments. All 532 tracked `.py` files read as Python reads them; over
-  `origin/main...HEAD` the new pass adds no line and over `v6.1.0...HEAD` two (a table rule and an
-  empty line).
+  The language gate reads a `.py` file as Python reads it, and judges what a change turns into
+  prose. It decoded a `.py` file as UTF-8, so under `# coding: utf-7` the line `y = 1
+  +ACMAIA-Diese+ACA-Zeile...`, a German comment to Python, was judged as its bytes: green in the
+  HEAD form and in both working-tree forms. It is the class 3c3c368e fixed in the guard (its entry
+  below), not swept to the gate that takes its diff reader from the guard. The gate now reads a
+  `.py` file through the guard's reader, one rule in one place; a file Python cannot decode or parse
+  has no prose map and the run is NOT MEASURABLE, where one with a byte that is not UTF-8 was
+  decoded with replacement characters and judged before. Like the guard, the gate judged added lines
+  only: a change of only the coding cookie, removing the two lines around a string, which turns the
+  German text in it into comments, and removing a Markdown fence opener, which turns the code after
+  it into prose, each added no German line and was green. It cannot judge a changed file whole,
+  since the owner decision keeps the German lines that exist; it judges a line of a changed file
+  that is prose now and whose text was not prose before the change, compared by text, so that a kept
+  German line stays unjudged where the change moves it. A changed file without a prose map makes the
+  run NOT MEASURABLE, also when it adds only comments. All 532 tracked `.py` files read as Python
+  reads them; over `origin/main...HEAD` the new pass adds no line and over `v6.1.0...HEAD` two (a
+  table rule and an empty line).
 
   The language gate follows CommonMark's HTML blocks. A fence-shaped line inside `<details>`, `<!--`
   or `<pre>` is HTML, and the gate took it for a fence opener: the German paragraph after the block
-  was judged as code, green with exit 0. The fence reader now follows the start and end conditions of
-  the seven kinds of HTML block as far as they decide whether a later line is a fence, including the
-  rule that the seventh kind cannot interrupt a paragraph; where it cannot be sure a paragraph is
-  open, it opens the block, which can only make it read more lines as prose. A quoted line moves the
-  fence and HTML state too, as CommonMark reads it, and is only not judged. All 345 tracked `.md`
-  files agree with markdown-it-py after the change, as before it; 24 of them hold an HTML block.
-  markdown-it-py stays a test oracle, and where it and the spec differ (a lowercase `<!doctype`,
-  `<pre/>`) the gate follows the spec.
+  was judged as code, green with exit 0. The fence reader of e5f52c0c now follows the start and end
+  conditions of the seven kinds of HTML block as far as they decide whether a later line is a fence,
+  including the rule that the seventh kind cannot interrupt a paragraph; where it cannot be sure a
+  paragraph is open, it opens the block, which can only make it read more lines as prose. A quoted
+  line moves the fence and HTML state too, as CommonMark reads it, and is only not judged. All 345
+  tracked `.md` files agree with markdown-it-py after the change, as before it; 24 of them hold an
+  HTML block. markdown-it-py stays a test oracle, and where it and the spec differ (a lowercase
+  `<!doctype`, `<pre/>`) the gate follows the spec.
 
   Every release tool prints a name on one line. The version gate's entry below quotes a path with a
   line break in it (7056ebf6); the other four printed such a name raw, so a file name could write a
