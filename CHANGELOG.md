@@ -60,9 +60,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `BundleFormatError` (exit 2 on `svr` and `intoto`) when the claim's issuer key is one the rule
   refuses, read by the same issuer parser `--expect-issuer` uses, while verifying a receipt keeps the
   bundle's own key on the §4a profile, as §4b says. Contract
-  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 23 cases and 111 subtests: on
-  126ed1dc 12 cases fail (8 outright, 4 through 68 subtests), and the 11 controls and
-  preconditions pass on both trees.
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 35 cases and 177 subtests: on
+  126ed1dc 22 cases fail, 12 of them outright (one of those also with 13 failing subtests) and 10
+  only through 112 subtests, 125 failing subtests in all, and the 13 controls and preconditions
+  pass on both trees. A case counts once, as outright when its own assertion fails, whatever its
+  subtests do.
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
