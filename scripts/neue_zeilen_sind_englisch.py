@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import ast
 import io
+import os
 import re
 import subprocess
 import tokenize
@@ -147,6 +148,33 @@ def _git(*args: str) -> tuple[int, str]:
     return r.returncode, r.stdout
 
 
+def _git_namen(*args: str) -> tuple[int, list[str]]:
+    """The paths a git command lists with -z, each as git names it: bytes split on NUL and decoded
+    the way Python decodes a file name, so a name that is not UTF-8 is a name and not a crash."""
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True)
+    return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
+
+
+def _git_path_decoder():
+    """The decoder for a path in a diff header, taken from `scripts/mutant_signature_guard.py` in the
+    tool's own tree and loaded by path, like the word list: one decoder for one grammar, not a copy.
+
+    git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
+    character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
+    of such a file went to the file before it in the diff, or nowhere when it came first. Measured
+    2026-09-26 in throwaway repositories with one German line in `docs/prüfung.md`: after
+    `docs/a.md` it was reported as `docs/a.md:1`; before `docs/z.md` the verdict was green over one
+    added line."""
+    import importlib.util as ilu  # noqa: PLC0415
+    pfad = WERKZEUG_WURZEL / "scripts" / "mutant_signature_guard.py"
+    spec = ilu.spec_from_file_location("_neue_zeilen_git_path", pfad)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"no loader for {pfad}")
+    modul = ilu.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul._git_path
+
+
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         dict[str, list[tuple[int, str]]], str]:
     """Added lines per file. Returns ({} , reason) when the range cannot be read.
@@ -167,11 +195,15 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     rc, aus = _git("diff", "--unified=0", bereich, "--", *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
+    try:
+        _git_path = _git_path_decoder()
+    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
+        return {}, f"NOT MEASURABLE: the diff-header decoder is not loadable ({type(fehler).__name__})"
     je_datei: dict[str, list[tuple[int, str]]] = {}
     datei, nr = None, 0
     for zeile in aus.splitlines():
-        if zeile.startswith("+++ b/"):
-            datei = zeile[6:]
+        if zeile.startswith(("+++ b/", '+++ "b/')):
+            datei = _git_path(zeile[4:])[2:]
             je_datei.setdefault(datei, [])
         elif zeile.startswith("@@"):
             m = re.search(r"\+(\d+)", zeile)
@@ -186,13 +218,12 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         # measures committed heads and is not affected; this form is for the person fixing the
         # findings, and it must not flatter the file they just created. Every line of an
         # untracked file is an added line.
-        rc2, neu = _git("ls-files", "--others", "--exclude-standard", "--", *_ENDUNGEN)
+        # With -z: a quoted name opens no file, and the run said NOT MEASURABLE about a file it
+        # could have read (2026-09-26, measured).
+        rc2, neu = _git_namen("ls-files", "--others", "--exclude-standard", "-z", "--", *_ENDUNGEN)
         if rc2 != 0:
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
-        for rel in neu.splitlines():
-            rel = rel.strip()
-            if not rel:
-                continue
+        for rel in neu:
             try:
                 text = (REPO / rel).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):

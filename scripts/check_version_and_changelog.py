@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import urllib.error
@@ -598,9 +599,23 @@ def check(repo: Path) -> list[str]:
 
 def _tracked_files(repo: Path) -> list[str]:
     """Tracked files only. An untracked scratch file is not a claim this repo makes — reading one as
-    a repo statement is the same defect this gate reports about numbers."""
-    rc, out = _git(repo, "ls-files")
-    return out.splitlines() if rc == 0 else []
+    a repo statement is the same defect this gate reports about numbers.
+
+    READ WITH -z (2026-09-26, measured in a throwaway repository). Without it git quotes a path
+    that holds a byte outside ASCII (`"docs/pr\\303\\274fung.md"`), that name opens no file, and
+    the file was skipped as unreadable: a current-release claim in `docs/plain.md` was reported,
+    the same claim in `docs/prüfung.md` was not. With -z git writes every path as it is.
+
+    AND AS BYTES, decoded the way Python decodes a file name. Through `_git`, which decodes as text,
+    a name that is not UTF-8 raised in the decoder, `_git` turned that into an empty answer, and the
+    sweep read no file at all; the quoted form had kept that from happening, because it is ASCII."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, timeout=15)
+    except Exception:  # noqa: BLE001
+        return []
+    if r.returncode != 0:
+        return []
+    return [os.fsdecode(pfad) for pfad in r.stdout.split(b"\0") if pfad]
 
 
 #: Line-continuation markers of the shells an install instruction is written for: POSIX shells
