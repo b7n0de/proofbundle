@@ -385,6 +385,14 @@ MUTATIONS = [
      "    return verify_ed25519(public_key, signature, message)",
      "    return verify_ed25519(public_key, signature, message)",
      "signature: trust-anchor rule dropped from verify_ed25519_pinned (low-order keys verify again)", True),
+    # DER GRUND AUS DER EINEN TABELLE (Lauf 2, Iteration 3, R2I3B-01): jede Flaeche liest
+    # `TRUST_ANCHOR_REFUSAL`, also haetten alle Flaechen-Faelle einen falschen Text mitgetragen. Getoetet
+    # von TheRule.test_the_table_says_what_the_measurement_shows (Text gegen die Messung, ohne
+    # Binaerdatei) und von test_the_rust_mirror_carries_the_same_texts_without_the_binary.
+    ("src/proofbundle/signature.py",
+     '    "low-order": "a signature made with no private key verifies under a point of small order",',
+     '    "low-order": "a key of small order is refused",',
+     "signature: the low-order refusal reason no longer says what was measured (TRUST_ANCHOR_REFUSAL)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
     # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
     # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's

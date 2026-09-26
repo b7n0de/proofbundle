@@ -226,11 +226,38 @@ class TheRule(unittest.TestCase):
                     forgeable.add(off)
         self.assertEqual(forgeable, {0, 1})
 
+    def test_the_partition_the_comment_states_adds_up(self):
+        """signature.TRUST_ANCHOR_REFUSAL's comment splits the nineteen spellings into two of small
+        order, ten of large order and seven that are no point. Gate run 2, iteration 3 (R2I3A-01): the
+        first version said twelve of large order, the count of ALL points among them, and 2 + 12 + 7 is
+        21. The split is measured here with a decoder of its own, checked first on real keys."""
+        d = (-121665 * pow(121666, P - 2, P)) % P
+
+        def is_point(y: int) -> bool:
+            u, v = (y * y - 1) % P, (d * y * y + 1) % P
+            x2 = u * pow(v, P - 2, P) % P
+            if x2 == 0:
+                return True
+            x = pow(x2, (P + 3) // 8, P)
+            if (x * x - x2) % P:
+                x = x * pow(2, (P - 1) // 4, P) % P
+            return (x * x - x2) % P == 0
+
+        for _ in range(32):   # positive control: a decoder that says "no point" to everything fails here
+            y = int.from_bytes(_raw(Ed25519PrivateKey.generate()), "little") & ((1 << 255) - 1)
+            self.assertTrue(is_point(y))
+        points = {off for off in range(19) if is_point(off)}
+        self.assertEqual(len(points), 12)
+        self.assertTrue({0, 1} <= points)    # the two of small order are points too
+        self.assertEqual((2, len(points) - 2, 19 - len(points)), (2, 10, 7))
+        self.assertIn(_NO_SMALL_ORDER, [(P + off).to_bytes(32, "little") for off in points - {0, 1}])
+
     def test_every_refusal_carries_the_one_reason_text(self):
-        """One table, every surface: the policy loader, the C2SP vkey parsers and the trust-pack
-        validator say the reason `TRUST_ANCHOR_REFUSAL` gives for the key's weakness, and no surface
-        names the forgery for a spelling of large order."""
-        from proofbundle.policy import PolicyError, load_policy
+        """One table, every surface: the policy loader, the policy's evaluation layer, the C2SP vkey
+        parsers and the trust-pack validator say the reason `TRUST_ANCHOR_REFUSAL` gives for the key's
+        weakness, and no surface names the forgery for a spelling of large order. The evaluation layer
+        wrote its own sentence until gate run 2, iteration 3 (R2I3B-02)."""
+        from proofbundle.policy import PolicyError, evaluate_decision_policy, load_policy
         from proofbundle.signature import TRUST_ANCHOR_REFUSAL
         from proofbundle.trust_pack import validate_trust_pack_predicate
         for key, reason in WEAK:
@@ -240,6 +267,12 @@ class TheRule(unittest.TestCase):
                     load_policy({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x",
                                  "allowed_issuers": [{"public_key_b64": _b64(key)}]})
                 self.assertIn(text, str(ctx.exception))
+                pe = evaluate_decision_policy(
+                    {"predicate": {}}, {},
+                    {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": _b64(key)}]}},
+                    signer_public_key_b64=_b64(key))
+                self.assertIs(pe["signer_trusted"], False)
+                self.assertTrue(any(text in e for e in pe["errors"]), pe["errors"])
                 with self.assertRaises(BundleFormatError) as ctx:
                     cp._refuse_weak_ed25519_vkey(key, "vkey")
                 self.assertIn(text, str(ctx.exception))
@@ -250,6 +283,37 @@ class TheRule(unittest.TestCase):
                 self.assertEqual(mine, [f"keys['k'].publicKey is a {reason} Ed25519 key — {text} "
                                         "(fail-closed)"], errs)
         self.assertNotIn("no private key", TRUST_ANCHOR_REFUSAL["non-canonical"])
+
+    def test_the_table_says_what_the_measurement_shows(self):
+        """The case above holds every surface to the table and would hold them to a wrong table just
+        as well (gate run 2, iteration 3, R2I3B-01: the only independent check of the text itself was
+        the Rust parity case, which skips without the binary). Here the text is held to the
+        measurement: the low-order reason names the forgery, and every low-order entry admits one; the
+        non-canonical reason does not, and names exactly the two spellings that do."""
+        from proofbundle.signature import TRUST_ANCHOR_REFUSAL
+        self.assertIn("a signature made with no private key verifies", TRUST_ANCHOR_REFUSAL["low-order"])
+        for key, reason in WEAK:
+            if reason == "low-order":
+                with self.subTest(key=key.hex()):
+                    self.assertIsNotNone(_forged(key, b"table-"), "the low-order text would overstate")
+        self.assertNotIn("no private key", TRUST_ANCHOR_REFUSAL["non-canonical"])
+        self.assertIn("one encoding", TRUST_ANCHOR_REFUSAL["non-canonical"])
+        self.assertIn("y = p and y = p + 1", TRUST_ANCHOR_REFUSAL["non-canonical"])
+        self.assertEqual(set(TRUST_ANCHOR_REFUSAL), {"low-order", "non-canonical", "malformed"})
+
+    def test_the_rust_mirror_carries_the_same_texts_without_the_binary(self):
+        """Word for word from the source, so a drift is caught where cargo is absent too (R2I3B-01),
+        and the Rust default arm, which no call reaches, is held to Python's `malformed` text instead of
+        being dead text nobody reads (R2I3B-03)."""
+        from proofbundle.signature import TRUST_ANCHOR_REFUSAL
+        src = (REPO / "tools" / "pb_verify_rs" / "src" / "main.rs").read_text(encoding="utf-8")
+        start = src.index("fn grund_der_schwaeche(")
+        body = src[start:src.index("\n}\n", start)]
+        literals = [re.sub(r"\\\n\s*", "", m) for m in re.findall(r'"((?:[^"\\]|\\.|\\\n)*)"', body)]
+        self.assertEqual(literals, ["low-order", TRUST_ANCHOR_REFUSAL["low-order"],
+                                    "non-canonical", TRUST_ANCHOR_REFUSAL["non-canonical"],
+                                    TRUST_ANCHOR_REFUSAL["malformed"]], literals)
+        self.assertIn("_ =>", body, "the default arm moved; this reading of the source needs looking at")
 
 
 class Checkpoints(unittest.TestCase):

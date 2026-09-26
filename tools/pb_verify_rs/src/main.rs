@@ -3246,8 +3246,10 @@ mod tests {
 
     #[test]
     fn a_weak_key_verifies_no_envelope_and_no_attached_target() {
-        // LIMIT, named: `universal()` is a live forgery only under the identity point, so for the other
-        // entries this case would stay green without the rule. What binds the rule for every entry is
+        // LIMIT, named and measured (gate run 2, iteration 3, R2I3B-05): without the rule, dalek accepts
+        // `universal()` under 5 of the 12 entries (the three spellings of the identity, and the x-sign-set
+        // spellings of the order-2 point and of one order-8 point), so for the other 7 this case would
+        // stay green without the rule. What binds the rule for every entry is
         // `every_weak_encoding_is_named_with_python_reason` here and, with a live forgery per key,
         // tests/test_trust_anchor_keys_refused_on_every_surface.py::RustParity on the Python side.
         let env = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",

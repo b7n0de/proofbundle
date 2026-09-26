@@ -90,6 +90,18 @@ def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
             f"{TRUST_ANCHOR_REFUSAL[weakness]}, so it cannot be a trusted identity")
 
 
+def _pinned_key_refusal(b64: str, ctx: str = "pinned key") -> "str | None":
+    """Why a pinned key must never grant trust, in the words ``load_policy`` uses, or None when it may.
+    Non-raising, for the EVALUATION layer. One source for the reason: the evaluation layer used to write
+    its own sentence here (gate run 2, iteration 3, R2I3B-02), and now it says what the loader says,
+    which reads ``signature.TRUST_ANCHOR_REFUSAL``."""
+    try:
+        _validate_pinned_ed25519_pubkey(b64, ctx)
+        return None
+    except PolicyError as exc:
+        return str(exc)
+
+
 def _pinned_key_forgeable(b64: str) -> bool:
     """True iff the pinned key is a low-order / non-canonical / malformed encoding that must never grant
     trust. Non-raising defense-in-depth for the EVALUATION layer (fix-review Finding 2): load_policy
@@ -97,11 +109,7 @@ def _pinned_key_forgeable(b64: str) -> bool:
     could hand them a policy dict that never went through load_policy — a matched pinned key that fails
     the trust-anchor rule must not yield signer_trusted=True there either. (The name predates the
     measurement that most non-canonical spellings admit no forgery; the rule refuses them all.)"""
-    try:
-        _validate_pinned_ed25519_pubkey(b64, "pinned key")
-        return False
-    except PolicyError:
-        return True
+    return _pinned_key_refusal(b64) is not None
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
@@ -659,12 +667,13 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         signer_trusted = match is not None
         if match is None:
             errors.append("signer key is not in trusted_decision_makers")
-        elif _pinned_key_forgeable(match.get("public_key_b64") or ""):
+        elif (grund := _pinned_key_refusal(match.get("public_key_b64") or "",
+                                           "trusted_decision_makers[]")) is not None:
             # defense-in-depth (fix-review Finding 2): even if this policy dict never went through
-            # load_policy, a matched low-order/non-canonical pinned key must not grant trust.
+            # load_policy, a matched low-order/non-canonical pinned key must not grant trust. The
+            # reason is the loader's, which reads the one table (R2I3B-02).
             signer_trusted = False
-            errors.append("trusted_decision_makers entry is a low-order or non-canonical key (it fails "
-                          "the trust-anchor rule, SPEC §4b) — refusing to trust it")
+            errors.append(f"{grund} — refusing to trust it")
         elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
             signer_trusted = False
             errors.append("decisionMaker.id does not match the trusted entry for this signer key")

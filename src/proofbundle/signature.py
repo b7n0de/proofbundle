@@ -47,9 +47,10 @@ _LOW_ORDER_ED25519_Y = _low_order_ed25519_y()
 #: refusal says what was measured and nothing more (gate run 2, iteration 2, R2I2A-01). The earlier
 #: messages gave the forgery as the reason for every refused key. Measured over the nineteen
 #: non-canonical spellings y = p .. p + 18: only y = p and y = p + 1 admit a signature made with no
-#: private key (they spell the points of order 4 and 1), twelve spell points of large order and seven
-#: are no point at all. So the non-canonical reason is the encoding, and the forgery is named only
-#: where it holds. ``pb_verify_rs`` carries the same texts (``grund_der_schwaeche``).
+#: private key (they spell the points of order 4 and 1), ten spell points of large order and seven
+#: are no point at all (2 + 10 + 7 = 19; gate run 2, iteration 3, R2I3A-01: an earlier sentence said
+#: twelve, the count of all points among them). So the non-canonical reason is the encoding, and the
+#: forgery is named only where it holds. ``pb_verify_rs`` carries the same texts (``grund_der_schwaeche``).
 TRUST_ANCHOR_REFUSAL = {
     "low-order": "a signature made with no private key verifies under a point of small order",
     "non-canonical": ("a trusted key has exactly one encoding (y < p), and y = p and y = p + 1 "
