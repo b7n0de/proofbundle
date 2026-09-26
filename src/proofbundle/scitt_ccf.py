@@ -27,7 +27,9 @@ TRUST comes only from ``rp_trust`` (ADR 0009, Decision 5):
   (owner decision Q3 b)
 
 A key is SubjectPublicKeyInfo DER bytes, or ``{"spki": bytes, "kid": bytes}``; ``load_cose_keyset``
-turns a COSE_KeySet as served by ``/.well-known/scitt-keys`` into that form. A kid only selects
+turns a COSE_KeySet as served by ``/.well-known/scitt-keys`` into that form. Only EC P-256, EC P-384
+and RSA keys are built, each by its own constructor; a key of any other type is refused while it is
+still bytes and counts as absent trust (owner decision A1). A kid only selects
 among the keys the relying party already trusts for that issuer; a kid, a key embedded in the
 evidence, an ``x5chain`` certificate or an algorithm label in a key set is never trust.
 
@@ -305,9 +307,104 @@ def _crit_ok(headers: dict, processed: tuple) -> Optional[str]:
     return None
 
 
-def _load_spki(spki: bytes):
-    from cryptography.hazmat.primitives.serialization import load_der_public_key  # noqa: PLC0415
-    return load_der_public_key(spki)
+#: SubjectPublicKeyInfo algorithm OIDs, as DER content bytes, of the key types v1 verifies: RFC 5480
+#: id-ecPublicKey with the named curves P-256 and P-384, and RFC 3279 rsaEncryption.
+_OID_EC = bytes.fromhex("2a8648ce3d0201")
+_OID_RSA = bytes.fromhex("2a864886f70d010101")
+_EC_CURVES = {bytes.fromhex("2a8648ce3d030107"): ("SECP256R1", 32),
+              bytes.fromhex("2b81040022"): ("SECP384R1", 48)}
+
+
+class _KeyRefused(Exception):
+    """A key v1 does not verify with, refused before any key object exists."""
+
+
+def _der(buf: bytes, pos: int, end: int) -> tuple:
+    """One DER element in ``buf[pos:end]`` -> (tag, start of content, end of content). Definite,
+    shortest-form lengths and low tag numbers only; anything else raises ``_KeyRefused``."""
+    if end - pos < 2 or buf[pos] & 0x1F == 0x1F:
+        raise _KeyRefused("not DER")
+    tag, first, pos = buf[pos], buf[pos + 1], pos + 2
+    if first & 0x80:
+        n = first & 0x7F
+        if not 1 <= n <= 4 or end - pos < n or buf[pos] == 0:
+            raise _KeyRefused("not DER")
+        length, pos = int.from_bytes(buf[pos:pos + n], "big"), pos + n
+        if length < 0x80:
+            raise _KeyRefused("not DER")
+    else:
+        length = first
+    if end - pos < length:
+        raise _KeyRefused("not DER")
+    return tag, pos, pos + length
+
+
+def _der_uint(buf: bytes, pos: int, end: int) -> tuple:
+    """A DER INTEGER that is positive and in shortest form -> (value, end of the element)."""
+    tag, s, e = _der(buf, pos, end)
+    if tag != 0x02 or e == s or buf[s] & 0x80 or (e - s > 1 and buf[s] == 0 and not buf[s + 1] & 0x80):
+        raise _KeyRefused("an RSA key whose modulus or exponent is not a positive DER INTEGER")
+    return int.from_bytes(buf[s:e], "big"), e
+
+
+def _key_from_spki(spki: bytes):
+    """SubjectPublicKeyInfo DER -> a key object built by the constructor of its own type: EC on P-256
+    or P-384 from its point, RSA from its modulus and exponent. Any other type, and any SPKI that is
+    not DER, raises ``_KeyRefused`` before a key object exists. A generic loader is never called: it
+    builds whatever type the bytes name, Ed25519 included, and the type is only known afterwards."""
+    from cryptography.hazmat.primitives.asymmetric import ec, rsa  # noqa: PLC0415
+    tag, s, e = _der(spki, 0, len(spki))
+    if tag != 0x30 or e != len(spki):
+        raise _KeyRefused("not a SubjectPublicKeyInfo")
+    tag, a, a_end = _der(spki, s, e)
+    if tag != 0x30:
+        raise _KeyRefused("not a SubjectPublicKeyInfo")
+    tag, o, o_end = _der(spki, a, a_end)
+    tag_bits, b, b_end = _der(spki, a_end, e)
+    if tag != 0x06 or tag_bits != 0x03 or b_end != e or b_end == b or spki[b] != 0:
+        raise _KeyRefused("not a SubjectPublicKeyInfo")
+    oid, params, bits = spki[o:o_end], spki[o_end:a_end], spki[b + 1:b_end]
+    if oid == _OID_EC:
+        tag, c, c_end = _der(params, 0, len(params)) if params else (None, 0, 0)
+        curve = _EC_CURVES.get(params[c:c_end]) if tag == 0x06 and c_end == len(params) else None
+        if curve is None:
+            raise _KeyRefused("an EC key on a curve other than P-256 and P-384")
+        name, n = curve
+        if not ((len(bits) == 1 + 2 * n and bits[0] == 4) or (len(bits) == 1 + n and bits[0] in (2, 3))):
+            raise _KeyRefused(f"an EC point that is not a {name} point")
+        try:
+            return ec.EllipticCurvePublicKey.from_encoded_point(getattr(ec, name)(), bits)
+        except ValueError:
+            raise _KeyRefused(f"an EC point that is not on {name}") from None
+    if oid == _OID_RSA:
+        if params != b"\x05\x00":
+            raise _KeyRefused("an RSA key whose parameters are not NULL (RFC 3279)")
+        tag, r, r_end = _der(bits, 0, len(bits))
+        if tag != 0x30 or r_end != len(bits):
+            raise _KeyRefused("an RSA key that is not an RSAPublicKey")
+        modulus, r = _der_uint(bits, r, r_end)
+        exponent, r = _der_uint(bits, r, r_end)
+        if r != r_end:
+            raise _KeyRefused("an RSA key that is not an RSAPublicKey")
+        try:
+            return rsa.RSAPublicNumbers(exponent, modulus).public_key()
+        except ValueError:
+            raise _KeyRefused("an RSA key with an invalid modulus or exponent") from None
+    raise _KeyRefused(f"key type {_oid_text(oid)}, which v1 does not verify: only EC P-256, EC P-384 and RSA")
+
+
+def _oid_text(content: bytes) -> str:
+    arcs: list = []
+    value = 0
+    for byte in content:
+        value = (value << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            arcs.append(value)
+            value = 0
+    if not arcs:
+        return "without an OID"
+    first = min(arcs[0] // 40, 2)
+    return ".".join(str(a) for a in [first, arcs[0] - 40 * first, *arcs[1:]])
 
 
 def _normalize_keys(entries) -> tuple[list, list]:
@@ -331,9 +428,9 @@ def _normalize_keys(entries) -> tuple[list, list]:
             ignored.append(f"key {i}: neither SPKI DER bytes nor {{'spki', 'kid'}}")
             continue
         try:
-            _load_spki(spki)
-        except Exception as exc:  # noqa: BLE001 - an unreadable RP key is absent trust
-            ignored.append(f"key {i}: not a readable SubjectPublicKeyInfo ({type(exc).__name__})")
+            _key_from_spki(spki)
+        except _KeyRefused as exc:      # a key v1 does not verify with is absent trust
+            ignored.append(f"key {i}: {exc}")
             continue
         usable.append((spki, kid))
     if len(entries) > MAX_TRUSTED_KEYS:
@@ -354,7 +451,10 @@ def _verify(alg: Any, spki: bytes, tbs: bytes, signature: bytes) -> bool:
     if isinstance(alg, bool) or not isinstance(alg, int) or not is_member(alg, _ALGS):
         return False
     kind, curve, hname, n = _ALGS[alg]
-    key = _load_spki(spki)
+    try:
+        key = _key_from_spki(spki)
+    except _KeyRefused:
+        return False
     h = getattr(hashes, hname)()
     try:
         if kind == "ec":
@@ -590,12 +690,36 @@ def _statement_key_selector(st: CoseSign1) -> tuple:
     except Exception as exc:  # noqa: BLE001 - unreadable evidence is malformed, never a crash
         raise ScittFormatError("malformed", "the x5chain end-entity certificate is not DER X.509 "
                                             f"({type(exc).__name__})") from None
+    # The key is read from the certificate's own SubjectPublicKeyInfo and built by its type, never
+    # by Certificate.public_key(), which builds whatever type the certificate names.
     try:
-        key = cert.public_key()
-    except Exception as exc:  # noqa: BLE001 - e.g. UnsupportedAlgorithm, not a ValueError
-        return ("x5chain", None, "the x5chain end-entity key cannot be loaded "
-                                 f"({type(exc).__name__}), so no relying-party key can match")
+        key = _key_from_spki(_tbs_spki(cert.tbs_certificate_bytes))
+    except _KeyRefused as exc:
+        return ("x5chain", None, f"the x5chain end-entity key cannot be loaded ({exc}), "
+                                 "so no relying-party key can match")
     return ("x5chain", _canonical_spki(key), "statement key selected by the protected x5chain")
+
+
+def _tbs_spki(tbs: bytes) -> bytes:
+    """The subjectPublicKeyInfo element of a DER TBSCertificate (RFC 5280, section 4.1): after the
+    optional version, serialNumber, signature, issuer, validity and subject."""
+    tag, s, e = _der(tbs, 0, len(tbs))
+    if tag != 0x30:
+        raise _KeyRefused("a certificate without a SubjectPublicKeyInfo")
+    pos = s
+    for want in (None, 0x02, 0x30, 0x30, 0x30, 0x30):
+        tag, _c, end = _der(tbs, pos, e)
+        if want is None:
+            if tag == 0xA0:
+                pos = end
+            continue
+        if tag != want:
+            raise _KeyRefused("a certificate without a SubjectPublicKeyInfo")
+        pos = end
+    tag, _c, end = _der(tbs, pos, e)
+    if tag != 0x30:
+        raise _KeyRefused("a certificate without a SubjectPublicKeyInfo")
+    return tbs[pos:end]
 
 
 def _canonical_spki(key) -> bytes:
@@ -617,7 +741,7 @@ def _statement_signature(st: CoseSign1, statement_keys, selector: tuple) -> tupl
     if mode == "x5chain":
         # compared as keys, not as encodings: both sides re-encoded from the loaded key
         candidates = [spki for spki, _kid in keys
-                      if leaf_spki is not None and _canonical_spki(_load_spki(spki)) == leaf_spki]
+                      if leaf_spki is not None and _canonical_spki(_key_from_spki(spki)) == leaf_spki]
         if not candidates:
             return ("needs_rp_trust", None, ignored,
                     f"{note}; no relying-party statement key is the x5chain end-entity key")
