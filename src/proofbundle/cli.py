@@ -379,6 +379,33 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refuse_weak_issuer_pins(pins) -> None:
+    """Raise ValueError when an ``--expect-issuer`` pin names a key the trust-anchor rule refuses.
+
+    SPEC section 4b lets the bundle's own key keep the section 4a profile because "trust in it comes
+    from a pin that already carries this rule". ``--expect-issuer`` is that pin on this command, and
+    it did not carry the rule: it was compared as a string with a key the bundle check had accepted
+    under section 4a. Measured on 126ed1dc: a PASS receipt signed by nobody under the identity point
+    (signature R = identity, S = 0) and ``--expect-issuer ed25519:<that point>`` gave exit 0 and
+    "=> OK". The pin is judged when it is SUPPLIED, before the receipt is read, and a refused pin is
+    malformed input (exit 2), as a weak pin in a trust policy is.
+
+    A pin that does not decode to a 32-byte key names no key and matches nothing, as before; a
+    rotation list may carry one (``tests/test_cli_eval.py``)."""
+    from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness  # noqa: PLC0415
+    for pin in pins:
+        if not isinstance(pin, str) or not pin.startswith("ed25519:"):
+            continue
+        try:
+            raw = decode_b64(pin[len("ed25519:"):])
+        except (ValueError, TypeError):
+            continue
+        weakness = ed25519_trust_anchor_weakness(raw) if len(raw) == 32 else None
+        if weakness is not None:
+            raise ValueError(f"--expect-issuer {pin} is a {weakness} Ed25519 key — refused as a "
+                             f"trusted key: {TRUST_ANCHOR_REFUSAL[weakness]} (fail-closed)")
+
+
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
@@ -386,6 +413,8 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         eval_evidence_class, sd_jwt_hidden_count,
     )
     try:
+        # The pin first: a key is refused when it is supplied, not when a receipt happens to match it.
+        _refuse_weak_issuer_pins(getattr(args, "expect_issuer", None) or [])
         # Resolve the path to a dict ONCE and pass that object to every reader — a second per-function re-read of
         # the same path would reopen a TOCTOU window (CWE-367) between the reads. Release-review fix 2026-07-02.
         bundle = load_bundle(args.receipt)
@@ -2744,7 +2773,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="pin the accepted issuer (the receipt's signing key, e.g. 'ed25519:…'); "
                                 "repeatable for key rotation. Without it the receipt is verified against "
                                 "its own embedded key (self-attested scope) — a re-signed forgery would "
-                                "pass; with it, an issuer mismatch fails with exit 1")
+                                "pass; with it, an issuer mismatch fails with exit 1. A pin naming a "
+                                "low-order or non-canonical Ed25519 key is refused (exit 2, SPEC 4b)")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(

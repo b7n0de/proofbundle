@@ -22,8 +22,10 @@ landed on one driver while its siblings kept the old shape".
 WHAT IS PINNED HERE. The rule itself (`signature.ed25519_trust_anchor_weakness`), then each surface
 with a real forgery made by nobody next to a positive control made by a real key, so a refusal
 cannot come from a fixture that fails for any reason at all. The last class is the sweep: every
-Ed25519 verification in the package goes through the rule, except the two in-band keys named with
-their reason. A new verification in any spelling the sweep models (a call, an import alias, a
+Ed25519 verification in the package goes through the rule, except the bundle's own in-band key,
+named with its reason (the AGT receipt's signer key was the second exception until 6.2.0, see
+tests/test_a_small_order_key_is_refused_at_every_carrier.py). A new verification in any spelling
+the sweep models (a call, an import alias, a
 `getattr` string, the `cryptography` key class) turns this file red; `_sweep_source` names the
 spellings it cannot see. The same sweep runs over the Rust verifier's key constructions.
 
@@ -725,14 +727,19 @@ class AgtAdapter(unittest.TestCase):
         self.assertIs(verify_agt_receipt(r, trusted_authorizer_keys=[r["authorizer_public_key"]]).ok, True)
 
     def test_a_weak_authorizer_key_authorizes_nothing(self):
+        """Since 6.2.0 a weak key on the relying party's list refuses the list before the receipt is
+        read, so the receipt's own authorizer key is measured without the list, where the rule on the
+        authorization signature is the only thing that stands between it and an authorization."""
         from proofbundle.adapters.agt_receipt import verify_agt_receipt
         r = self._vector()
         r["authorizer_public_key"] = I1.hex()
         r["authorization_signature"] = UNIV.hex()
-        e = verify_agt_receipt(r, trusted_authorizer_keys=[I1.hex()])
+        e = verify_agt_receipt(r)
         self.assertIs(e.ok, False)
         sig = [c for c in e.checks if c.name == "external-authorization-signature"]
         self.assertEqual([c.ok for c in sig], [False])
+        listed = verify_agt_receipt(r, trusted_authorizer_keys=[I1.hex()])
+        self.assertEqual([(c.name, c.ok) for c in listed.checks], [("trusted-authorizer-keys", False)])
 
     def test_the_signer_in_capitals_is_not_a_second_party(self):
         from proofbundle.adapters.agt_receipt import (canonical_authorization_payload,
@@ -973,13 +980,12 @@ class ThePinnedReleaseKeys(unittest.TestCase):
         self.assertGreater(seen, 0, "no pinned key read; this case would measure nothing")
 
 
-# The two keys that stay on the bare SPEC section 4a profile, with their reason. Nothing else may.
+# The one key that stays on the bare SPEC section 4a profile, with its reason. Nothing else may.
+# The AGT receipt's signer key stood here until 6.2.0 "like a bundle's key"; it is not one, because
+# nothing pins it, and it goes through the rule now (owner decision D3, SPEC section 4b unchanged).
 IN_BAND = {
     "bundle.py": "the bundle's own signature.public_key_b64 arrives in the bundle; SPEC section 4a pins "
                  "its verification profile, and trust in it comes from a policy pin, which has the rule",
-    "adapters/agt_receipt.py": "the AGT receipt's signer_public_key arrives in the receipt, like a "
-                               "bundle's key; the authorizer key, the one a relying party trusts, "
-                               "goes through verify_ed25519_pinned",
 }
 
 
@@ -1010,9 +1016,10 @@ def _sweep_source(rel: str, text: str) -> list:
     (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
     of this sentence listed `importlib` as unseen outright). Its walk here is the package,
     src/proofbundle; tests/test_release_tooling_refuses_weak_pinned_keys.py walks scripts/ and tools/
-    with it. Inside the two IN_BAND
-    files it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
-    `anker=True` in the AGT adapter left it green); AgtAdapter holds that behaviourally."""
+    with it. Inside an IN_BAND
+    file it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
+    `anker=True` in the AGT adapter, then IN_BAND, left it green). The adapter left IN_BAND in 6.2.0
+    and no longer imports the bare primitive, so the sweep sees any return of it."""
     tree = ast.parse(text)
     names = set(_WATCHED)
     for node in ast.walk(tree):

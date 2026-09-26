@@ -209,10 +209,12 @@ IN_BAND_TOOLING = {
     "scripts/pre_tag_receipt.py": "`assemble_receipt` checks the externally made signature against the "
                                   "public key handed in with it, before writing the receipt; the relying "
                                   "check is `pre_tag_receipt_lib.verify_receipt` against the anchor",
-    "scripts/gen_findings_register.py": "`assemble` checks the handed-in pair before writing, and the "
-                                        "self-check of a finished register reads the key from the "
-                                        "register itself; the relying check is findings_register "
-                                        "against the anchor",
+    # Until 6.2.0 this entry also covered the self-check of a finished carrier, `_signatur_lage`,
+    # which is the one exit behind `pruefe_v2` and the generated views and relies on nothing else;
+    # it goes through the rule now (tests/test_a_small_order_key_is_refused_at_every_carrier.py).
+    "scripts/gen_findings_register.py": "`assemble` checks the handed-in pair before writing the v1 "
+                                        "register; the relying check is findings_register against "
+                                        "the anchor, which refuses a weak key",
     "tools/scitt_ccf_datahash_vector/nachrechnen.py": "recomputes a third party's published test vector "
                                                       "under the test key printed in that vector; it "
                                                       "trusts nothing",

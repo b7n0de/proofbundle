@@ -123,16 +123,16 @@ def test_ANTI_ein_SIGNIERTER_traeger_geht_durch():
     An anti-case that is green with probability 22 per cent does not measure whether a SIGNED
     carrier passes. It needs a real signature, and that costs three lines.
 
-    WHAT IS DELIBERATELY NOT FIXED HERE, because it is a decision and not an oversight. A first
-    attempt added a catch case demanding that the zero dummy NEVER verify. It fails, on this tree
-    and on `main`, because `_signatur_lage` delegates to `cryptography` and this profile ACCEPTS
-    small-order components, which SPEC section 4a states explicitly and pins byte-exact against
-    the "Taming the Many EdDSAs" vectors. A test asserting the opposite would fix a property the
-    verifier does not have and, by its own promise, is not meant to have. Refusing a small-order
-    key at the carrier's signature block is a CODE change to `_signatur_lage`; it belongs in its
-    own branch with its own catch proof, not in a documentation cut. Carried as
-    SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01, target 6.2.0, so the finding does not vanish with
-    this comment.
+    WHAT WAS DELIBERATELY NOT FIXED HERE, and is fixed since. A first attempt added a catch case
+    demanding that the zero dummy NEVER verify. It failed then, because `_signatur_lage` delegated
+    to the SPEC section 4a profile, which accepts small-order components. Refusing such a key at
+    the carrier's signature block was a CODE change with its own catch proof, carried as
+    SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01, target 6.2.0. It landed in 6.2.0: `_signatur_lage`
+    asks the trust-anchor rule of SPEC section 4b before the signature, the zero key and the
+    identity point come back `KEY_REFUSED`, and
+    tests/test_a_small_order_key_is_refused_at_every_carrier.py holds that. This anti-case keeps
+    the real signature either way: a zero dummy is now refused on every body, so it could not
+    measure whether a signed carrier passes at all.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat

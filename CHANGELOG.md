@@ -10,6 +10,43 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A small-order key is refused at every carrier: the AGT signer, the register view and the
+  `show-eval` issuer pin** (SPEC §4b, unchanged; register entry
+  `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, release scope line R-B2). The trust-anchor rule of the
+  entry "A key a verifier relies on …" below reached about twenty places and left three where a key
+  is relied on without it. Measured on 126ed1dc with the identity point `0100..00` as key and the
+  signature R = identity, S = 0, which the §4a profile accepts for every message:
+  `adapters/agt_receipt.py` checked the receipt's `signer_public_key` under §4a and returned
+  `ok=True`, exit 0, for a receipt nobody signed. AGT's authorization binds `receipt_payload_hash`
+  and not the signer key, so the same swap under an externally authorized receipt kept the
+  authorization and still exited 0. `_signatur_lage` in `scripts/gen_findings_register.py` answered
+  `VERIFIZIERT`, and both generated views printed "Signed and verified against the canonical body,
+  ed25519." (32 zero bytes as key and 64 as signature: `VERIFIZIERT` for 7 of 16 bodies of the
+  line-610 carrier). `show-eval --expect-issuer ed25519:<identity>` exited 0 with `=> OK` for a
+  PASS receipt nobody signed: the pin was compared as a string with a key the bundle check had
+  accepted under §4a, so the pin §4b says carries the rule did not.
+
+  Each site now refuses such a key before any signature arithmetic and names the reason from
+  `signature.TRUST_ANCHOR_REFUSAL`. The AGT signer goes through `verify_ed25519_pinned`, which adds
+  the key check and asks for no pin list, so trust in the signer still comes through the authorizer
+  as before; the adapter left the `IN_BAND` list of the trust-anchor test and no longer imports the
+  bare primitive. A key is refused where it is authorised, not only when a receipt uses it: a weak
+  key on the relying party's `trusted_authorizer_keys` refuses the list before the receipt is read
+  (new check `trusted-authorizer-keys`, exit 2), and a weak `--expect-issuer` pin is refused when it
+  is supplied (exit 2, the code a weak trust-policy pin gets). An entry or pin that decodes to no
+  32-byte key still matches nothing, as before. The register exit has a new state `KEY_REFUSED`,
+  which `pruefe_v2` counts as an error and the views print as unauthenticated. SPEC §4b needed no
+  change: it already covers every key that is not the bundle's own.
+
+  The sweep went over every Ed25519 verification under `src/`, `scripts/` and `tools/`. The bundle's
+  own key stays the one in-band key of the package. Under `scripts/` the three producer self-checks
+  (`assemble` in `gen_findings_register.py`, `sign_readiness_artifact.py`, `pre_tag_receipt.py`)
+  keep the §4a check of the pair handed to them, because the verifiers that read what they write
+  refuse a weak key; the third-party vector tools under `tools/` trust nothing. Contract
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 17 cases and 72 subtests: on
+  126ed1dc 9 cases fail, 68 of their subtests with them, and the 8 controls and preconditions pass
+  on both trees.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

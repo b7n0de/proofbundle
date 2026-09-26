@@ -53,7 +53,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from .._membership import is_member
 from ..errors import VerificationResult
-from ..signature import verify_ed25519, verify_ed25519_pinned
+from ..signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 
 __all__ = [
     "AGT_AUTHORIZATION_TYPE",
@@ -160,26 +160,66 @@ def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
     return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes, *,
-                     anker: bool = False) -> bool:
+def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> bool:
     """One Ed25519 check. Returns False on any failure; never raises for bad input.
 
     A verifier that raises on a malformed key cannot finish a verdict over a list of receipts, and
     an unfinished verdict reads like a clean one.
 
-    THROUGH THE HOUSE PRIMITIVE, not a second path to `cryptography` (deep gate Z195). The receipt's
-    own signer key arrives in the receipt, so it gets the plain check, as a bundle's key does. The
-    authorizer key is the second party a relying party trusts, so `anker=True` applies the
-    trust-anchor rule: under a low-order key a signature made with no private key is valid, and an
-    "external authorization" would need no external party at all.
+    THROUGH THE HOUSE PRIMITIVE, not a second path to `cryptography` (deep gate Z195), and for EVERY
+    key through the trust-anchor rule (SPEC section 4b). Until 6.2.0 the receipt's own signer key got
+    the plain SPEC section 4a check, "as a bundle's key does", and only the authorizer key the rule.
+    The comparison did not hold: a bundle's key is trusted through a relying party's pin, which
+    carries the rule, while nothing pins an AGT signer key. Measured on 126ed1dc: signer key
+    0100..00 (the identity point) with the signature R = identity, S = 0 gave `signature` True and
+    `ok` True, a receipt nobody signed. And AGT's authorization binds `receipt_payload_hash`, not
+    `signer_public_key`, so the same swap under an authorized receipt kept the authorization valid.
+    SPEC section 4b names every key that is not the bundle's own; this one is not.
     """
     try:
         schluessel = bytes.fromhex(pubkey_hex)
         signatur = bytes.fromhex(signatur_hex)
     except (ValueError, TypeError):
         return False
-    pruefe = verify_ed25519_pinned if anker else verify_ed25519
-    return pruefe(schluessel, signatur, nutzlast)
+    return verify_ed25519_pinned(schluessel, signatur, nutzlast)
+
+
+def _schwaeche(pubkey_hex) -> "str | None":
+    """Why a hex-spelled key cannot stand as a trusted Ed25519 key (`low-order`, `non-canonical`),
+    or None. Text that decodes to no 32-byte key is None here: it names no key, verifies nothing and
+    matches nothing, and the signature check or the list comparison says so on its own."""
+    try:
+        roh = bytes.fromhex(pubkey_hex)
+    except (ValueError, TypeError):
+        return None
+    grund = ed25519_trust_anchor_weakness(roh)
+    return grund if grund in ("low-order", "non-canonical") else None
+
+
+def _abgewiesen(feld: str, grund: str) -> str:
+    """The one sentence every refusal of a key in this module carries, with the shared reason text."""
+    return (f"{feld} is a {grund} Ed25519 key, refused as a trusted key before any signature "
+            f"arithmetic: {TRUST_ANCHOR_REFUSAL[grund]}")
+
+
+def _abgewiesene_liste(schluessel) -> "str | None":
+    """The refusal of a relying party's `trusted_authorizer_keys`, or None when every entry can stand.
+
+    AT THE LIST, when a key is AUTHORISED, not only when a receipt happens to name it. A weak key on
+    that list authorised nothing before either, because the authorization signature goes through the
+    rule; but the list stood as accepted, and the defect showed only on the one receipt that used it.
+    The trust policy refuses a weak pin when it is LOADED (`policy._validate_pinned_ed25519_pubkey`),
+    and this list is the same kind of object. An entry that decodes to no 32-byte key is left alone,
+    as before: it names no key and matches nothing. A container this function cannot walk is left to
+    the comparison further down, unchanged."""
+    if not isinstance(schluessel, (list, tuple, set, frozenset)):
+        return None
+    gruende = []
+    for i, eintrag in enumerate(schluessel):
+        grund = _schwaeche(eintrag)
+        if grund is not None:
+            gruende.append(_abgewiesen(f"trusted_authorizer_keys[{i}] ({str(eintrag)[:16]}…)", grund))
+    return "; ".join(gruende) or None
 
 
 def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
@@ -225,8 +265,19 @@ def verify_agt_receipt(
     this is the OFFLINE reading: the proposal states that offline verification evaluates expiration
     at the signed receipt timestamp while a live adapter evaluates it at execution time. Passing a
     wall-clock value here gives the live reading; the verdict names which one was used.
+
+    EVERY KEY GOES THROUGH THE TRUST-ANCHOR RULE (SPEC section 4b): the signer key, the authorizer
+    key and each key on `trusted_authorizer_keys`. A low-order or non-canonical key is refused before
+    any signature arithmetic, and the check says which key and why. A weak key on the relying
+    party's list refuses the list before the receipt is read (`trusted-authorizer-keys`, exit 2, the
+    malformed-input code, as a weak pin in a trust policy is).
     """
     ergebnis = VerificationResult()
+    if trusted_authorizer_keys is not None:
+        liste = _abgewiesene_liste(trusted_authorizer_keys)
+        if liste is not None:
+            ergebnis.add("trusted-authorizer-keys", False, liste)
+            return ergebnis
     # NEVER-RAISE AT THE VERIFY SURFACE, and the house gate was right to insist. The first version
     # let `canonical_payload` raise through here so that unreadable input could be told apart from
     # a failed check. The type-confusion gate refused it: a verifier that crashes on a broken
@@ -257,9 +308,13 @@ def verify_agt_receipt(
     if not isinstance(signatur, str) or not isinstance(pubkey, str) or not signatur or not pubkey:
         ergebnis.add("signature", False, "receipt carries no signature or no signer public key")
         return ergebnis
-    ergebnis.add(
-        "signature", _ed25519_gueltig(pubkey, signatur, nutzlast),
-        f"Ed25519 over the {AGT_CANONICAL_FORM} payload, {len(nutzlast)} bytes")
+    schwaeche = _schwaeche(pubkey)
+    if schwaeche is not None:
+        ergebnis.add("signature", False, _abgewiesen("signer_public_key", schwaeche))
+    else:
+        ergebnis.add(
+            "signature", _ed25519_gueltig(pubkey, signatur, nutzlast),
+            f"Ed25519 over the {AGT_CANONICAL_FORM} payload, {len(nutzlast)} bytes")
 
     # The receipt may carry its own payload_hash. If it does and it disagrees, say so: a receipt
     # whose self-reported hash does not match its own bytes is telling two stories.
@@ -308,9 +363,14 @@ def verify_agt_receipt(
         return ergebnis
 
     a_nutzlast = canonical_authorization_payload(receipt)
-    ergebnis.add("external-authorization-signature",
-                 _ed25519_gueltig(a_key, a_sig, a_nutzlast, anker=True),
-                 f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
+    a_schwaeche = _schwaeche(a_key)
+    if a_schwaeche is not None:
+        ergebnis.add("external-authorization-signature", False,
+                     _abgewiesen("authorizer_public_key", a_schwaeche))
+    else:
+        ergebnis.add("external-authorization-signature",
+                     _ed25519_gueltig(a_key, a_sig, a_nutzlast),
+                     f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
 
     frist = receipt.get("authorization_expires_at")
     zeitpunkt = receipt.get("timestamp") if now is None else now
@@ -394,18 +454,20 @@ def _blanker_name(name: str) -> str:
 def exit_code(ergebnis: VerificationResult) -> int:
     """Map a verdict onto the house exit-code contract.
 
-    0 verified · 1 cryptographic or structural failure · 3 crypto sound but a relying-party
-    requirement unmet. 2 (malformed) is raised as :class:`AGTReceiptError` before this is reached,
-    for the same reason the house contract returns it earlier: unreadable input is not a failed
-    verification, it is a failed reading.
+    0 verified · 1 cryptographic or structural failure · 2 malformed input · 3 crypto sound but a
+    relying-party requirement unmet. Malformed input is the named check `readable` or
+    `chain-readable` (unreadable input is not a failed verification, it is a failed reading) or
+    `trusted-authorizer-keys` (the relying party's own list names a key the trust-anchor rule
+    refuses, the way a weak pin makes a trust policy malformed).
     """
     if ergebnis.ok:
         return 0
     # UNREADABLE FIRST, because it dominates: if the bytes could not be read, nothing else was
     # examined, and reporting a signature failure over input that was never parsed would name the
-    # wrong cause.
+    # wrong cause. A refused list is the same kind of answer: nothing was judged against it.
     for c in ergebnis.checks:
-        if not c.ok and _blanker_name(c.name) in ("readable", "chain-readable"):
+        if not c.ok and _blanker_name(c.name) in ("readable", "chain-readable",
+                                                  "trusted-authorizer-keys"):
             return 2
     # STRUCTURAL FAILURES ARE EXIT 1, and Codex was right to separate them. Exit 3 states "crypto
     # sound but a relying-party requirement unmet", so a receipt that is structurally broken on its
