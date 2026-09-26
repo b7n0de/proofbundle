@@ -31,7 +31,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
   `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
   which hash values, not keys. Each such read is listed with the reason it hashes nothing from
-  outside: 38 reads under 35 entries (this entry said "35 of them" before; that counted entries,
+  outside: 40 reads under 37 entries (this entry said "35 of them" before; that counted entries,
   not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
   in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
   listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
@@ -46,12 +46,48 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
   gone has to leave the list or lower its count. The reasons are read by a person, not proven by
-  the guard. Not seen: a container reached as a module attribute (`x.NAME`), through a string
-  (`globals()`) or built at run time, which includes a module-level set built by an operator
-  (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)`: twelve such names in the tree; counted
-  as containers they would add twelve reads to the report, nine membership tests and three other
-  reads, and each of the twelve tests or subtracts the keys of a value checked to be a dict), and a
-  value after it leaves the container (`for v in CONST.values()`).
+  the guard. A container derived from constant containers is a container too, and that rule came with a live
+  defect. `agent_review.validate_time_claim` tested a time claim's rung with
+  `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
+  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1953` now). A set difference is a set and
+  `in` hashed the value, so an `assurance` of `[]`, `{}` or `["runnerObserved"]` raised `TypeError`
+  out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
+  `validate_agent_review_v03_predicate`, and `verify_agent_review_v02` and `verify_agent_review_v03`
+  answered a correctly signed receipt with `ok=False, reason_code=internal_error`, "a defect in the
+  verifier". The test reads through `is_member` now, as the check above it already did: a hashable
+  value gets the answer it got before, an unhashable one gets the error a wrong assurance always got
+  (`timeClaim.assurance must be one of ...`), and both verifiers fail such a receipt on its structure
+  with the signature verified. The guard had cleared the site twice: the membership scanner saw only
+  a name on the right of `in`, and the other-uses reader cleared a set operation between two
+  constants without looking at what used its result. Now a set operation (`|`, `&`, `-`, `^`)
+  between two constants, a `set()`, `frozenset()`, `dict()` or `dict.fromkeys()` copy of one, a set
+  or dict comprehension over one, and a local name bound to such an expression (also by unpacking,
+  by `:=`, as a branch of a conditional, or in an enclosing function) are containers for all three
+  readers: `x in <derived>` is a membership test, `<derived>.get(x)` and `<derived>[x]` are lookups,
+  and the derived expression is itself a read whose use is checked, so returned, handed to a function
+  or put in a tuple it is reported. At module level a name is a container when it is bound by
+  unpacking a tuple (`_S, _M = {"a"}, {"a": 1}`, which the review found unseen), to a second name for
+  a container, or to a set operation over containers (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) |
+  set(_OPTIONAL)`, stated here before as not seen). The copies that hash the values of a dict are
+  other uses as `set(_M.values())` is: `set([x for x in _M.values()])`, `set(list(_M.values()))` and
+  `dict.fromkeys(...)` over either, three spellings the review wrote past the guard. Measured on the
+  tree after the fix: eleven membership tests stood in a derived container or a module-level set
+  operation, and every one reads through `is_member` now: the live one, and ten whose value is a key
+  of a value checked to be a dict, so none of them could raise (`agent_review.py:374` and `:469`,
+  `outcome.py:107`, `run_ledger.py:62` and `:137`, `trust_pack.py:124`, `verification_summary.py:59`
+  and `:111`, `verifier_block.py:292` and `:312`). Two new reads are classified:
+  `set(predicate) - _ALLOWED_TOP` in `decision.validate_decision_predicate` (the keys of a value
+  checked to be a dict) and `dict(PROFILE_ALIASES)` returned by `policy_profiles.profile_aliases`
+  (string literals of the package). `agent_review.py:495`, `k not in _DECLARATION_FIELDS | zusatz`, is
+  no derived container, because `zusatz` is a parameter; it stays an other use, and its reason now
+  says that the union is tested only with a key of a value checked to be a dict. The lookups stay 19
+  sites under 19 entries. Not seen: a container built at run time from a value that is not constant
+  (`x in set(allowed)`: two membership tests in the tree, `adapters/agt_receipt.py:312` and
+  `relation.py:752`, each behind `isinstance(x, str)`), a literal on its own (`x in {"a"}`,
+  `{"a": 1}[k]`: no membership test and six lookups in the tree, each behind `is_member` or
+  `isinstance` or keyed by a literal the package chose), a container reached as a module attribute
+  (`x.NAME`), through a string (`globals()`) or bound in a class body, and a value after it leaves
+  the container (`for v in CONST.values()`).
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the

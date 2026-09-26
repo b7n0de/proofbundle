@@ -104,7 +104,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     # additionalProperties:false — any unknown top-level key is fail-closed.
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
 
     for req in _REQUIRED_ALWAYS:

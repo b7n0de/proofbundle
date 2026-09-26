@@ -56,7 +56,7 @@ def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -108,7 +108,7 @@ def _validate_level(lvl: Any) -> list[str]:
     if not isinstance(lvl, dict):
         return ["must be an object"]
     for k in lvl:
-        if k not in _LEVEL_ALLOWED:
+        if not is_member(k, _LEVEL_ALLOWED):
             errs.append(f"unknown field {k!r}")
     for req in _LEVEL_REQUIRED:
         if req not in lvl:

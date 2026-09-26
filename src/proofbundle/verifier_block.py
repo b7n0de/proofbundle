@@ -289,7 +289,7 @@ def validate_verifier_block(block: Any) -> list[str]:
     if not isinstance(block, dict):
         return [f"verifier block must be an object, got {type(block).__name__}"]
     for k in block:
-        if k not in _BLOCK_ALLOWED:
+        if not is_member(k, _BLOCK_ALLOWED):
             errs.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _BLOCK_REQUIRED:
         if req not in block:
@@ -309,7 +309,7 @@ def validate_verifier_block(block: Any) -> list[str]:
             errs.append("build must be an object")
         else:
             for k in b:
-                if k not in _BUILD_ALLOWED:
+                if not is_member(k, _BUILD_ALLOWED):
                     errs.append(f"build: unknown field {k!r}")
             for req in _BUILD_REQUIRED:
                 if req not in b:

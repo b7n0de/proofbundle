@@ -30,6 +30,7 @@ from typing import Any, TypeGuard
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
+from ._membership import is_member
 from ._wire_b64 import decode_b64
 # RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy. This module
 # still anchored with `^..$` after a9269f65 swept the others, so an `expires` ending in a newline verified.
@@ -120,7 +121,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:

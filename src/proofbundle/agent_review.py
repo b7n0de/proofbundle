@@ -371,7 +371,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -466,7 +466,7 @@ def _validate_subject(sc: Any) -> list[str]:
     required, allowed = ((_PR_REQUIRED, _PR_ALLOWED) if kind == "githubPullRequest"
                          else (_ISSUE_REQUIRED, _ISSUE_ALLOWED))
     for k in sc:
-        if k not in allowed:
+        if not is_member(k, allowed):
             errs.append(f"unknown field {k!r} for kind {kind!r}")
     for req in required:
         if req not in sc:
@@ -1945,7 +1945,12 @@ def validate_time_claim(tc: object) -> list[str]:
     # DIE TRAGENDE REGEL: eine DEKLARIERTE Zeit kann nicht mehr als selbst deklariert sein. Wer
     # eine hoehere Sprosse behauptet, meint eine Beobachtung — und die gehoert in `observations`,
     # mit Beobachter-Identitaet und Beleg.
-    if tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS):
+    #
+    # THROUGH is_member, AS THE CHECK ABOVE. A set difference of two constants is still a set, and
+    # `x in` a set hashes x: `assurance: []` raised TypeError here after the check above had already
+    # recorded the typed error, and `verify_agent_review_v02` answered `internal_error` on a signed
+    # receipt (review of fc863e2e). For a hashable value the answer is the same.
+    if is_member(tc.get("assurance"), _TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS):
         errs.append(f"timeClaim.assurance {tc.get('assurance')!r} claims more than a declaration "
                     "can carry — a time above selfDeclared belongs in observations, with a named "
                     "observer and its own evidence")

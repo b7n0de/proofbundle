@@ -59,7 +59,7 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -134,7 +134,7 @@ def _validate_run_shape(run: Any) -> list[str]:
     if not isinstance(run, dict):
         return ["must be an object"]
     for k in run:
-        if k not in _RUN_ALLOWED:
+        if not is_member(k, _RUN_ALLOWED):
             errs.append(f"unknown field {k!r}")
     for req in _RUN_REQUIRED:
         if req not in run:
