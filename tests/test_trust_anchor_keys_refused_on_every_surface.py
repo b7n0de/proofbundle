@@ -937,9 +937,9 @@ class RustParity(unittest.TestCase):
 
 class ThePinnedReleaseKeys(unittest.TestCase):
     """Gate iteration 3, lens A (A3-01..04): the release tooling under scripts/ checks its signatures
-    under these pinned keys with the SPEC section 4a profile, which is a change of its own. Until then
-    the CHANGELOG says the keys pinned today pass the rule, and this holds it: a weak key landing in
-    either file turns this red before any receipt is signed under it."""
+    under these pinned keys. It refuses a weak one since tests/test_release_tooling_refuses_weak_pinned_keys.py;
+    this data case stays as the earlier warning: a weak key landing in either file turns it red before
+    any receipt is signed under it."""
 
     def test_every_pinned_key_passes_the_rule(self):
         seen = 0
@@ -990,8 +990,9 @@ def _sweep_source(rel: str, text: str) -> list:
     "ed25519"), whether it goes to `getattr` or to a module `importlib` returned, and code run from a
     string by `exec` or `eval`. A module from `importlib` read with the literal name
     (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
-    of this sentence listed `importlib` as unseen outright). Its walk is the package, src/proofbundle;
-    the release tooling under scripts/ is outside it and is a change of its own. Inside the two IN_BAND
+    of this sentence listed `importlib` as unseen outright). Its walk here is the package,
+    src/proofbundle; tests/test_release_tooling_refuses_weak_pinned_keys.py walks scripts/ and tools/
+    with it. Inside the two IN_BAND
     files it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
     `anker=True` in the AGT adapter left it green); AgtAdapter holds that behaviourally."""
     tree = ast.parse(text)

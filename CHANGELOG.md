@@ -34,9 +34,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
   are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
   SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
-  Not yet covered: the release tooling under `scripts/` (the pre-tag receipt, readiness artifacts, the
-  findings register and the status page) still checks signatures under its pinned keys with the §4a
-  profile; the keys pinned today pass the rule, and that tooling gets its own change.
+  The release tooling under `scripts/` is covered by the entry below.
+
+- **The release tooling refuses a weak key it pins, like the package does** (SPEC §4b). The pre-tag
+  receipt (`pre_tag_receipt_lib.verify_receipt`, which the release workflow and the reader's
+  `verify_pre_tag_receipt.py` run), the readiness artefacts of the audit matrix
+  (`audit_candidate_matrix._artifact_signature_ok`), the findings register
+  (`findings_register._signature_ok`) and the status page's receipt check
+  (`render_site_data._check_receipt`) checked their signatures under a pinned key with the §4a profile.
+  Measured on each: with the identity point in the trust anchor, a record nobody signed was admitted
+  (`ok=True`, `verified`, `signature valid`, `passed`). Each now refuses such a key before any signature
+  arithmetic and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. The keys pinned today pass the
+  rule, so this closes a path, not a live attack. The package's sweep now also walks `scripts/` and
+  `tools/`; the five places there that check a key arriving with the thing it signs (producer
+  self-checks that take the key with the signature or read it from the record itself, and the
+  recomputation of a third party's published test vector under its printed test key) are named with
+  their reason.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

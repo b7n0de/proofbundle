@@ -406,7 +406,11 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
         lib = _u.module_from_spec(s)
         s.loader.exec_module(lib)
         from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
-        from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+        from proofbundle.signature import (  # noqa: PLC0415
+            TRUST_ANCHOR_REFUSAL,
+            ed25519_trust_anchor_weakness,
+            verify_ed25519_pinned,
+        )
     except Exception as exc:  # noqa: BLE001 - a checker that will not load is NOT MEASURABLE
         return {"state": "not_checkable",
                 "not_checkable_cause": "checker_unavailable", "severity": "alarming",
@@ -454,8 +458,18 @@ def _check_receipt(d: dict, *, expected_version: str | None = None) -> dict:
         # wrong: ALL FOUR genuine release receipts reported that their ed25519 signature does not
         # hold, and that would have gone onto a public page as an accusation. The correct order is in
         # pre_tag_receipt_lib.verify_receipt.
-        ok = verify_ed25519(decode_b64(pub), decode_b64(d.get("signature")),
-                            lib.canonical_bytes(d))
+        roh = decode_b64(pub)
+        # THE PINNED KEY GETS THE TRUST-ANCHOR RULE (SPEC 4b; gate iteration 3 on the rule, lens A,
+        # A3-04, measured): with the bare profile a receipt nobody signed read `passed` on the public
+        # page once a low-order key stood in the anchor. Named before any signature arithmetic; it is
+        # a statement about the ANCHOR's key, so the verdict is `failed`, as for an untrusted key.
+        weakness = ed25519_trust_anchor_weakness(roh)
+        if weakness is not None:
+            return {"state": "failed", "failure_kind": "weak_trusted_key",
+                    "reason": (f"the signing key is a {weakness} Ed25519 key, refused as a trusted key: "
+                               f"{TRUST_ANCHOR_REFUSAL[weakness]}"),
+                    "tree_binding": "not_checkable_without_checkout_at_tag"}
+        ok = verify_ed25519_pinned(roh, decode_b64(d.get("signature")), lib.canonical_bytes(d))
     except Exception as exc:  # noqa: BLE001
         return {"state": "not_checkable",
                 "not_checkable_cause": "signature_not_evaluable", "severity": "alarming",

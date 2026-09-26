@@ -791,7 +791,8 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     """``(zustand, grund)`` fuer die Attestierung EINES Artefakts.
 
     REIHENFOLGE MIT ABSICHT: erst alles, was OHNE Anker entscheidbar ist (Algorithmus, base64,
-    Kanonisierung, die Mathematik der Signatur), dann die Zugehoerigkeit zum Anker. Sonst waere eine
+    Kanonisierung, die Vertrauensanker-Regel fuer den Schluessel, die Mathematik der Signatur), dann
+    die Zugehoerigkeit zum Anker. Sonst waere eine
     kaputt gerechnete Signatur in einem Baum ohne Anker nur „nicht messbar" statt widerlegt.
 
     ``repo`` ist optional NUR aus Rueckwaertskompatibilitaet zur Signatur; jeder produktive Aufrufer
@@ -832,7 +833,11 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     try:
         from proofbundle import canonical                # noqa: PLC0415
         from proofbundle.canonical import CanonicalizerUnavailable as _KanonisiererFehlt  # noqa: PLC0415
-        from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+        from proofbundle.signature import (  # noqa: PLC0415
+            TRUST_ANCHOR_REFUSAL,
+            ed25519_trust_anchor_weakness,
+            verify_ed25519_pinned,
+        )
         _kanonisierer = canonical.canonicalize_statement
     except Exception as exc:                             # noqa: BLE001 — HIER ist es wirklich die Umgebung
         return ART_UNMEASURABLE_HERE, (f"the canonicalizer/verifier is not available in this "
@@ -868,8 +873,19 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
         return ART_UNTRUSTED, (f"the artifact cannot be canonicalized ({type(exc).__name__}: {exc}) "
                                "— this is a property of the document, not of this environment, so it "
                                "is not verified rather than not measurable")
+    # DER SCHLUESSEL BEKOMMT DIE VERTRAUENSANKER-REGEL (SPEC 4b; Tiefen-Gate Iteration 3 auf die Regel,
+    # Linse A, A3-02, ausgefuehrt gemessen): mit dem nackten Profil verifizierte ein von niemandem
+    # signiertes Artefakt unter einem Schluessel niedriger Ordnung, der im Anker stand. Die Frage ist
+    # ohne Anker entscheidbar und steht deshalb VOR der Signaturmathematik, mit ihrem eigenen Grund —
+    # sonst hiesse er "signature does not verify", und das waere nicht der Grund. NACH der
+    # Kanonisierung, damit ein fehlender Kanonisierer weiter UMGEBUNG bleibt (LAUF11-L5 haelt das mit
+    # einem Null-Schluessel fest, der selbst niedriger Ordnung ist).
+    schwaeche = ed25519_trust_anchor_weakness(pub)
+    if schwaeche is not None:
+        return ART_UNTRUSTED, (f"the signing key is a {schwaeche} Ed25519 key, refused as a trusted "
+                               f"key: {TRUST_ANCHOR_REFUSAL[schwaeche]}")
     try:
-        gueltig = verify_ed25519(pub, raw_sig, msg)
+        gueltig = verify_ed25519_pinned(pub, raw_sig, msg)
     except Exception as exc:                             # noqa: BLE001
         return ART_UNTRUSTED, f"signature check errored (fail-closed): {type(exc).__name__}: {exc}"
     if not gueltig:
