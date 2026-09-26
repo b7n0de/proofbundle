@@ -23,6 +23,13 @@ prove internal consistency; out-of-band anchors (log, witness, status keys, the 
 where *your* trust decision actually lives.** The signature binds who claimed what; pinning the
 right keys is what makes "who" mean someone you trust.
 
+**A pinned key is never a low-order or non-canonical Ed25519 key** (SPEC §4b). Under such a key one
+fixed signature verifies for every message and no one holds a private key for it, so every anchor in
+the table except the bundle issuer key refuses it before any signature is checked: a vkey carrying it is
+malformed, and any other surface simply verifies nothing under it. A key that passes has one encoding,
+which is what makes "deduped by key material" for witnesses and trust-pack roots a count of distinct
+points.
+
 ## Making the pinning machine-readable — a trust policy (v0.1)
 
 The table above is the trust surface; a **trust policy** is where a relying party writes that pinning

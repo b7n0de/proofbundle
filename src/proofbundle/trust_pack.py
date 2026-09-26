@@ -30,6 +30,7 @@ from typing import Any, TypeGuard
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
+from .signature import ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
@@ -183,6 +184,16 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
                         errors.append(f"keys[{kid!r}].publicKey must be a {want_len}-byte {label} key (got {len(raw)})")
+                    elif want_len == _KEY_RAW_LEN["ed25519"]:
+                        # A pack IS the root of trust, so its Ed25519 keys get the trust-anchor rule the
+                        # policy loader applies to a pinned key (deep gate Z195, L1-Z195-01): a low-order
+                        # or non-canonical key lets a fixed signature count toward a threshold with no
+                        # secret, and a second encoding of one point would count twice.
+                        weakness = ed25519_trust_anchor_weakness(raw)
+                        if weakness is not None:
+                            errors.append(
+                                f"keys[{kid!r}].publicKey is a {weakness} {label} key — a fixed signature "
+                                "verifies under it for every message with no private key (fail-closed)")
                 except Exception:  # noqa: BLE001
                     errors.append(f"keys[{kid!r}].publicKey is not valid base64")
                 if is_hybrid:
@@ -375,7 +386,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     forged in isolation: it lives inside the signed predicate, so relabeling it invalidates every signature
     over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header)."""
     from .pqsig import PQUnavailable, verify_hybrid, verify_mldsa  # noqa: PLC0415
-    from .signature import verify_ed25519  # noqa: PLC0415
+    from .signature import verify_ed25519_pinned  # noqa: PLC0415
     sig_b64 = entry.get("sig")
     # Bug-hunt follow-up (3.6.2): verify_mldsa / verify_hybrid raise PQUnavailable when the running
     # `cryptography` has no FIPS-204 (ML-DSA) build. That escaped this bool-returning helper (and its two
@@ -415,7 +426,10 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
         sig = decode_b64(sig_b64)
     except Exception:  # noqa: BLE001
         return False
-    return verify_ed25519(pub, sig, msg)
+    # root and old-root keys are trust anchors: a low-order key would count toward a threshold with a
+    # fixed signature and no secret (deep gate Z195, L1-Z195-01; pqsig.verify_hybrid carries the same
+    # rule for the hybrid's classical leg).
+    return verify_ed25519_pinned(pub, sig, msg)
 
 
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,

@@ -10,6 +10,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
+  (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
+  verifier keeps the SPEC §4a profile, under which the fixed signature R = identity, S = 0 verifies for
+  every message under a low-order key. The trust policy refused such keys; nothing else did. Measured by
+  the deep gate against main 5b53ab3e (findings L1-Z195-01 to 03): two witness vkeys carrying the
+  identity point, once with the x-sign bit set, met a 2-of-2 witness quorum on a checkpoint neither
+  witness saw; `decision verify --pub <identity>` printed `CRYPTO: OK` and exited 0 for a receipt nobody
+  signed; a trust pack met its root threshold and a rotation vouch with the same forgery. The rule now
+  runs at the C2SP log and witness vkey parsers, `dsse.verify_envelope` (every DSSE verify path), the
+  status-list issuer key, the hybrid's classical leg, the renewal time-authority key, the KB-JWT holder
+  key, the SD-JWT issuer key, trust-pack keys and caller-supplied previous root keys, the RATS Verifier
+  key, and the AGT adapter's authorizer key, which now goes through the house primitive and whose
+  "distinct from the signer" check compares key bytes instead of hex spellings. The independent Rust
+  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths. The bundle's
+  own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses the rule.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

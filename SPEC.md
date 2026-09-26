@@ -106,6 +106,30 @@ repository's CI red (a deliberate, documented decision), never a silent drift.
 No wire or behavior change is made by documenting this; switching profiles would
 be a breaking, versioned change.
 
+### 4b. Trust-anchor keys (normative for this implementation)
+
+The §4a profile is right for checking a signature and wrong for a key a verifier
+RELIES on: under a low-order key the fixed signature R = identity, S = 0
+verifies for every message, and no private key exists for it. Therefore every
+Ed25519 key that is not the bundle's own `signature.public_key_b64` MUST be
+canonical (y < p) and MUST NOT be one of the 8-torsion points (y ∈ {0, 1, p−1}
+or either order-8 value, under both x-sign bits); a verifier refuses such a key
+before any signature arithmetic. This covers the keys a relying party supplies
+(trust-policy pins, a DSSE verification key such as `--pub`, C2SP log and witness
+vkeys of §7c/§7d, a status-list issuer key, a time-authority key, a RATS Verifier
+key, trust-pack root keys and a caller-supplied previous root) and the keys that
+authenticate on another party's behalf (the SD-JWT issuer key of §6, the KB-JWT
+holder key). A refused vkey is a malformed input; any other refused key simply
+verifies nothing. The bundle's own key keeps the §4a profile: it is in-band, and
+trust in it comes from a pin that already carries this rule.
+
+A key that passes has exactly one encoding, so counting DISTINCT key material
+(§7d witness quorums, trust-pack thresholds) counts distinct points. A
+mixed-order key is not refused: signing under it still needs the secret of its
+prime-order part. The rule is `signature.ed25519_trust_anchor_weakness`, and the
+independent Rust verifier applies the same rule on its DSSE, attached-target,
+SD-JWT and trust-pack paths.
+
 ### 5. `merkle`
 
 | field | required | type | meaning |

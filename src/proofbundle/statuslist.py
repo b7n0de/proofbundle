@@ -30,7 +30,7 @@ from typing import Optional
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
 from .errors import BundleFormatError, ProofBundleError
-from .signature import verify_ed25519
+from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 
 __all__ = ["STATUS_LABELS", "verify_status_snapshot", "status_claim", "issue_status_list_token"]
@@ -164,7 +164,9 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         return result
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     try:
-        sig_ok = verify_ed25519(issuer_pubkey, sig, signing_input)
+        # the status issuer key is the relying party's trust anchor: a low-order or non-canonical key
+        # verifies a fixed signature for every list, so it is refused before any arithmetic (Z195).
+        sig_ok = verify_ed25519_pinned(issuer_pubkey, sig, signing_input)
     except ValueError:
         sig_ok = False
     if not sig_ok:

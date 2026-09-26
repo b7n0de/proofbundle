@@ -449,6 +449,50 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
+/// Mirror of Python `signature.ed25519_trust_anchor_weakness`: why a 32-byte key cannot stand as a
+/// TRUSTED Ed25519 identity, or `None` when it can. The same rule in the same order, on the bytes, so
+/// both verifiers refuse the same keys: "non-canonical" when y >= p, "low-order" when y is one of the
+/// five y-values of the 8-torsion subgroup (either sign). Under such a key a fixed signature (R =
+/// identity, S = 0) verifies for every message and nobody holds a private key (deep gate Z195,
+/// L1-Z195-01..03). A key that passes has exactly one encoding, so counting distinct key bytes counts
+/// distinct points. The in-band key of a bundle keeps the SPEC section 4a profile and does not come here.
+fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static str> {
+    // The x-sign bit is not part of y.
+    let mut y = *schluessel;
+    y[31] &= 0x7f;
+    // p = 2^255 - 19, little-endian: ed ff .. ff 7f. With bit 255 cleared, y >= p iff bytes 1..=30
+    // are 0xff, byte 31 is 0x7f and byte 0 is at least 0xed.
+    if y[31] == 0x7f && y[1..31].iter().all(|b| *b == 0xff) && y[0] >= 0xed {
+        return Some("non-canonical");
+    }
+    // The torsion y-values: 0 (order 4), 1 (identity), p - 1 (order 2) and the two order-8 values,
+    // computed from the same encodings Python's `_low_order_ed25519_y` reads.
+    let null = [0u8; 32];
+    let mut eins = [0u8; 32];
+    eins[0] = 1;
+    let mut p_minus_1 = [0xffu8; 32];
+    p_minus_1[0] = 0xec;
+    p_minus_1[31] = 0x7f;
+    let ordnung_8 = [
+        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    ];
+    if y == null || y == eins || y == p_minus_1 {
+        return Some("low-order");
+    }
+    for h in ordnung_8 {
+        let mut t: [u8; 32] = hex::decode(h)
+            .expect("fixed hex")
+            .try_into()
+            .expect("32 bytes");
+        t[31] &= 0x7f;
+        if y == t {
+            return Some("low-order");
+        }
+    }
+    None
+}
+
 // S106: Python's wording for the two empty-container cases, so a reason reads the same on both sides.
 const LEERE_SIGNATURLISTE: &str = "DSSE envelope.signatures must be a non-empty list";
 const LEERER_PAYLOADTYPE: &str = "DSSE envelope.payloadType must be a non-empty string";
@@ -471,15 +515,24 @@ fn verify_dsse(
         .as_slice()
         .try_into()
         .map_err(|_| "public key is not 32 bytes".to_string())?;
+    // The key is the caller's trust anchor (a DSSE envelope carries none): a weak key verifies
+    // nothing, as in Python `dsse.verify_envelope`, which answers False for it (Z195, L1-Z195-03).
+    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+        return Ok(false);
+    }
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
     Ok(signatur_passt(&vk, &msg, sigs))
 }
 
-/// The key as Python's `signature.verify_ed25519` accepts it: 32 bytes that decode to a point.
-/// Anything else is `None`, and a signature checked under it does not verify -- in Python that is
-/// `False`, never an error (PR 272, Codex round one: the attached-target seam turned it into one).
+/// The key as Python's `dsse.verify_envelope` accepts it: 32 bytes that decode to a point and pass
+/// the trust-anchor rule (`signature.verify_ed25519_pinned`, Z195). Anything else is `None`, and a
+/// signature checked under it does not verify -- in Python that is `False`, never an error (PR 272,
+/// Codex round one: the attached-target seam turned it into one).
 fn ed25519_schluessel(bytes: &[u8]) -> Option<VerifyingKey> {
     let arr: [u8; 32] = bytes.try_into().ok()?;
+    if schwaeche_eines_vertrauensankers(&arr).is_some() {
+        return None;
+    }
     VerifyingKey::from_bytes(&arr).ok()
 }
 
@@ -699,6 +752,11 @@ fn verify_sdjwt_issuer(
         .as_slice()
         .try_into()
         .map_err(|_| "issuer key not 32 bytes")?;
+    // Python `sdjwt._ISSUER_SIG_VERIFIERS["EdDSA"]` is `verify_ed25519_pinned` (Z195): a weak issuer
+    // key authenticates no disclosure, and the part is rejected, not malformed.
+    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+        return Ok(false);
+    }
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad issuer key: {e}"))?;
     let signing_input = format!("{hdr_b64}.{pl_b64}");
     let sig_bytes = b64url_nopad(sig_b64)?;
@@ -995,6 +1053,12 @@ fn verify_trust_pack_threshold(
         };
         if valid_root.contains(&pk_arr) {
             continue; // same key material already counted under a different keyId (aliasing defense)
+        }
+        // A root key is a trust anchor: a weak one never counts toward the threshold, as in Python
+        // `trust_pack._verify_signature_for_alg` (Z195, L1-Z195-01). With it, distinct bytes are
+        // distinct points, so the aliasing defense above counts points.
+        if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+            continue;
         }
         let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
             continue;
@@ -3039,6 +3103,154 @@ mod tests {
         let umschlag = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
                                           "signatures": [{"sig": "AA=="}]});
         assert!(verify_dsse(&umschlag, "AA==", None).is_err());
+    }
+
+    // Deep gate Z195 (L1-Z195-01..03): the same trust-anchor rule as Python
+    // `signature.ed25519_trust_anchor_weakness`, over the same corpus as
+    // tests/test_trust_anchor_keys_refused_on_every_surface.py.
+    const P_LE: [u8; 32] = [
+        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ];
+
+    fn plus(mut a: [u8; 32], n: u8) -> [u8; 32] {
+        let mut carry = n as u16;
+        for b in a.iter_mut() {
+            let s = *b as u16 + carry;
+            *b = (s & 0xff) as u8;
+            carry = s >> 8;
+        }
+        a
+    }
+
+    fn identitaet() -> [u8; 32] {
+        let mut i = [0u8; 32];
+        i[0] = 1;
+        i
+    }
+
+    fn universal() -> [u8; 64] {
+        let mut s = [0u8; 64];
+        s[0] = 1; // R = identity, S = 0
+        s
+    }
+
+    fn weak_corpus() -> Vec<([u8; 32], &'static str)> {
+        let hx = |h: &str| -> [u8; 32] { hex::decode(h).expect("hex").try_into().expect("32") };
+        let mut i2 = identitaet();
+        i2[31] = 0x80;
+        let mut p_minus_1 = P_LE;
+        p_minus_1[0] = 0xec;
+        vec![
+            (identitaet(), "low-order"),
+            (i2, "low-order"),
+            (plus(P_LE, 1), "non-canonical"),
+            (P_LE, "non-canonical"),
+            ([0u8; 32], "low-order"),
+            (p_minus_1, "low-order"),
+            (
+                hx("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                "low-order",
+            ),
+            (
+                hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+                "low-order",
+            ),
+            (
+                hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+                "low-order",
+            ),
+            (
+                hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+                "low-order",
+            ),
+            (
+                hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+                "low-order",
+            ),
+            (plus(P_LE, 18), "non-canonical"),
+        ]
+    }
+
+    #[test]
+    fn precondition_the_forgery_is_live_against_dalek() {
+        // Without this, every refusal below could come from a forgery that never verified.
+        let vk = VerifyingKey::from_bytes(&identitaet()).expect("the identity decodes");
+        for msg in [&b"x"[..], &b"another message"[..], &b""[..]] {
+            assert!(vk.verify(msg, &Signature::from_bytes(&universal())).is_ok());
+        }
+    }
+
+    #[test]
+    fn every_weak_encoding_is_named_with_python_reason() {
+        for (key, reason) in weak_corpus() {
+            assert_eq!(
+                schwaeche_eines_vertrauensankers(&key),
+                Some(reason),
+                "{}",
+                hex::encode(key)
+            );
+        }
+        let gut: [u8; 32] = base64::engine::general_purpose::STANDARD
+            .decode(gueltiger_pubkey_b64())
+            .expect("b64")
+            .try_into()
+            .expect("32");
+        assert_eq!(schwaeche_eines_vertrauensankers(&gut), None);
+    }
+
+    #[test]
+    fn a_weak_key_verifies_no_envelope_and_no_attached_target() {
+        let env = serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=",
+            "signatures": [{"sig": base64::engine::general_purpose::STANDARD.encode(universal())}]});
+        for (key, _) in weak_corpus() {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(key);
+            assert_eq!(
+                verify_dsse(&env, &b64, None),
+                Ok(false),
+                "{}",
+                hex::encode(key)
+            );
+            assert!(ed25519_schluessel(&key).is_none(), "{}", hex::encode(key));
+        }
+    }
+
+    #[test]
+    fn forged_root_signatures_under_weak_keys_meet_no_threshold() {
+        let mut i2 = identitaet();
+        i2[31] = 0x80;
+        let std = base64::engine::general_purpose::STANDARD;
+        let statement = serde_json::json!({"predicate": {
+            "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
+            "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
+        let body = serde_json::to_vec(&statement).expect("json");
+        let sig = std.encode(universal());
+        let env = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(body),
+            "signatures": [{"keyid": "l1", "sig": sig}, {"keyid": "l2", "sig": sig}]});
+        let (met, signers, threshold, _) =
+            verify_trust_pack_threshold(&env).expect("well-formed envelope");
+        assert!(
+            !met,
+            "two encodings of the identity met a threshold of {threshold}"
+        );
+        assert_eq!(signers, 0);
+    }
+
+    #[test]
+    fn a_weak_sd_jwt_issuer_key_authenticates_nothing() {
+        let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let std = base64::engine::general_purpose::STANDARD;
+        let kopf = url.encode(br#"{"alg":"EdDSA"}"#);
+        let inhalt = url.encode(br#"{"x":1}"#);
+        let compact = format!("{kopf}.{inhalt}.{}~", url.encode(universal()));
+        let sd = serde_json::json!({"compact": compact,
+                                    "issuer_public_key_b64": std.encode(identitaet())});
+        assert_eq!(
+            verify_sdjwt_issuer(&sd, &serde_json::Value::Null, ""),
+            Ok(false)
+        );
     }
 
     #[test]
