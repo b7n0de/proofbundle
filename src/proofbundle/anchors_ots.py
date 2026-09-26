@@ -58,8 +58,14 @@ def ots_binding_held(result) -> bool:
 
     The binding only, never a confirmation (`null_op` and `block_mismatch` are bound and not confirmed),
     and only for a verdict of `verify_opentimestamps` itself. A verifier that forwards these statuses
-    verbatim, as `anchors_markovian` does behind its own envelope checks, is not read through this."""
-    return isinstance(result, dict) and is_member(result.get("status"), _BINDING_HELD)
+    verbatim, as `anchors_markovian` does behind its own envelope checks, is not read through this.
+
+    The status is read with `dict.get`, not with the object's own `get`: a dict subclass that overrides
+    `get` can neither raise out of here nor name a status its contents do not hold (gate run 3, 229-3-02).
+    STATED LIMIT, the line `_membership.is_member` draws: a key or a status whose own `__eq__` or
+    `__hash__` raises anything but TypeError still raises here. Only a caller can build such an object;
+    parsed JSON cannot, and `verify_opentimestamps` returns literal dicts with string keys."""
+    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)
 
 
 def _deserialize_detached(proof):

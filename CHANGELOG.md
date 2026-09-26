@@ -17,7 +17,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
   confirmed 3 of 3) and again for this change, tracemalloc around the call alone, each figure three
   times in a fresh process: a 732 067-byte proof inside every budget peaked at 134.4 MiB in
-  `verify_evidence_pack`. All four places that deserialize a proof now go through one helper that
+  `verify_evidence_pack`. All five places that deserialize a proof now go through one helper that
   refuses a proof over 65 536 bytes first; the same proof is refused as `over_budget` at 3.3 MiB,
   before any deserialization. The largest proof this repository carries has 1510 bytes. A proof just
   under the cap, built to amplify as much as the format allows (empty calendar URIs, two-byte fork

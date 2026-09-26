@@ -328,10 +328,13 @@ _OUT_OF_SCOPE = frozenset({
     "pack_key_binds_signer",
     # 2026-09-26, the OTS cap: `ots_binding_held` is a judgement of the same family. It reads a verdict
     # dict that `verify_opentimestamps` itself produced and answers one question about it (did the
-    # binding hold); it consumes no foreign bytes. It does not raise either: a non-dict, a missing
-    # status and an unhashable one are all "not bound" (`_membership.is_member`), and the OTS cap's
-    # own test pins those cases. Listed here, not in the name pattern, for the reason
-    # `binding_present` gives above.
+    # binding hold); it consumes no foreign bytes. On anything parsed JSON can be it does not raise:
+    # a non-dict, a missing status and an unhashable one are all "not bound" (`_membership.is_member`),
+    # and a dict subclass with its own `get` is read through `dict.get`. It does raise on a key or a
+    # status whose own `__eq__` or `__hash__` raises, the line is_member draws; the first version of
+    # this comment said it never raises, and gate run 3 (229-3-02) measured that as wider than the
+    # code. The OTS cap's own test pins both sides. Listed here, not in the name pattern, for the
+    # reason `binding_present` gives above.
     "ots_binding_held",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",

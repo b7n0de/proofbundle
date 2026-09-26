@@ -8,9 +8,10 @@ every budget, peak at 134.4 MiB in `verify_evidence_pack`; with the cap it is re
 before any deserialization (measured again for this change on 12eb4e0e and on this change, tracemalloc
 around the call alone, each figure three times in a fresh process; the gate's own window gave 137 MiB).
 
-WHAT IS PINNED. All four readers (`verify_opentimestamps`, `calendar_uris`,
-`ots_upgraded_proof_is_self_contained`, `describe_proof`) and the pack verifier refuse a proof over the
-cap with their own verdict, and the library's deserializer is not called for it. A proof of exactly the
+WHAT IS PINNED. All five readers (`verify_opentimestamps`, `calendar_uris`,
+`ots_upgraded_proof_is_self_contained`, `describe_proof`, `build_evidence_pack`) and the pack verifier
+refuse a proof over the cap with their own verdict, and the library's deserializer is not called for it;
+the five are derived from the source, so a sixth that calls the helper is counted or turns this red. A proof of exactly the
 cap's length still reaches the library, so the cap cannot be read as refusing more than it says, and
 every OTS proof this repository carries fits under it with room to spare. Every reader deserializes a
 proof once, and only through the one helper. The binding is read by membership in the statuses that
@@ -33,6 +34,10 @@ except ImportError:
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _ROOT = hashlib.sha256(b"canonical").digest()
 _MAGIC = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
+#: The functions under src/proofbundle that call `_deserialize_detached`; derived from the source by
+#: `test_every_caller_of_the_helper_is_a_counted_reader`, so the counts below cannot miss one.
+_READERS = frozenset({"verify_opentimestamps", "calendar_uris", "ots_upgraded_proof_is_self_contained",
+                      "describe_proof", "build_evidence_pack"})
 
 
 def _amplifying_proof(forks: int, *, bitcoin: bool = False) -> bytes:
@@ -91,10 +96,13 @@ class TheCap(unittest.TestCase):
         self.assertIs(build_evidence_pack(_ROOT, self.over_upgraded)["selfContained"], False)
 
     def test_the_deserializer_is_not_called_over_the_cap(self):
-        """For EVERY reader, not only the first. Gate run 2, lens B, 229-2B-01: `build_evidence_pack` reached
-        the library through `importlib` and `getattr`, around the helper and around the AST sweep, and every
-        case stayed green. Whatever the route, it ends in this one class method, so counting its calls
-        catches a reader that bypasses the cap however it is written."""
+        """For EVERY reader named here, not only the first. Gate run 2, lens B, 229-2B-01: `build_evidence_pack`
+        reached the library through `importlib` and `getattr`, around the helper and around the AST sweep, and
+        every case stayed green. Whatever the route, it ends in this one class method, so counting its calls
+        catches a bypass inside any of these six readers however it is written. It does NOT see a reader
+        that is not in this list (gate run 3, 229-3-01: a new function in evidence_pack, never called here,
+        reached the library over the cap and this case stayed green); a new reader is added here, and
+        `test_the_library_is_imported_in_one_place` below closes the import routes such a reader needs."""
         from opentimestamps.core.timestamp import DetachedTimestampFile
         from proofbundle.anchors_ots import calendar_uris, verify_opentimestamps
         from proofbundle.evidence_pack import (build_evidence_pack, describe_proof,
@@ -109,6 +117,7 @@ class TheCap(unittest.TestCase):
             "build_evidence_pack": lambda p: build_evidence_pack(_ROOT, p),
             "verify_evidence_pack": lambda p: verify_evidence_pack(over_pack),
         }
+        self.assertLessEqual(_READERS, set(readers))
         for name, read in readers.items():
             for proof in (self.over, self.over_upgraded):
                 with self.subTest(reader=name, length=len(proof)), mock.patch.object(
@@ -136,6 +145,7 @@ class TheCap(unittest.TestCase):
             "describe_proof": describe_proof,
             "build_evidence_pack": lambda p: build_evidence_pack(_ROOT, p),
         }
+        self.assertEqual(set(readers), _READERS)
         for name, read in readers.items():
             with self.subTest(reader=name), mock.patch.object(
                     DetachedTimestampFile, "deserialize", wraps=DetachedTimestampFile.deserialize) as seen:
@@ -298,6 +308,45 @@ class TheBindingIsReadByMembership(unittest.TestCase):
             with self.subTest(verdict=verdict):
                 self.assertIs(ots_binding_held(verdict), False)
 
+    def test_a_dict_subclass_does_not_name_its_own_status(self):
+        """Gate run 3, 229-3-02: `result.get` is the object's own method. A dict subclass whose `get` raised
+        broke the never-raise claim, and one whose `get` answers "pending" read an over-cap proof as bound.
+        The status is read with `dict.get`, so the contents decide."""
+        from proofbundle.anchors_ots import ots_binding_held
+
+        class Raising(dict):
+            def get(self, *args):
+                raise RuntimeError("get")
+
+        class Lying(dict):
+            def get(self, *args):
+                return "pending"
+
+        self.assertIs(ots_binding_held(Raising(status="over_budget")), False)
+        self.assertIs(ots_binding_held(Lying(status="over_budget")), False)
+        self.assertIs(ots_binding_held(Lying(status="pending")), True)    # the contents still count
+
+    def test_the_stated_limit_is_real_and_only_that(self):
+        """Counter-direction for the limit the docstring names: an object whose own `__hash__` or `__eq__`
+        raises something other than TypeError still raises, as it does in `_membership.is_member`. If this
+        case goes red the limit is gone and the docstring is stale; it must not be read as a promise."""
+        from proofbundle.anchors_ots import ots_binding_held
+
+        class HashRaises:
+            def __hash__(self):
+                raise RuntimeError("hash")
+
+        class EqRaises:
+            def __hash__(self):
+                return hash("status")
+
+            def __eq__(self, other):
+                raise RuntimeError("eq")
+
+        for label, verdict in (("status", {"status": HashRaises()}), ("key", {EqRaises(): 1})):
+            with self.subTest(hostile=label), self.assertRaises(RuntimeError):
+                ots_binding_held(verdict)
+
     @unittest.skipUnless(_HAS_OTS, "NOT MEASURABLE: needs proofbundle[anchors] (opentimestamps); did NOT run")
     def test_a_rootcommit_anchor_whose_proof_is_over_the_cap_is_not_bound(self):
         from opentimestamps.core.notary import PendingAttestation
@@ -330,8 +379,102 @@ class TheLibraryIsReachedThroughOneHelper(unittest.TestCase):
     """Gate on the cap, lens B, 229B-03: "one way to deserialize" was written down, not held; a new reader
     calling the library directly left every case green. Every reference to a deserialization context (as a
     name or as a string), every string naming DetachedTimestampFile, and every `.deserialize` under
-    src/proofbundle sits in `_deserialize_detached`. A route this cannot see still ends in the class method
-    that `test_the_deserializer_is_not_called_over_the_cap` counts for every reader."""
+    src/proofbundle sits in `_deserialize_detached`, and the library is imported only where it is read.
+
+    STATED LIMIT (gate run 3, 229-3-01). These are sweeps over the source text. A name assembled at run time
+    and looked up with `getattr` on a module that is already imported leaves no literal for them to see;
+    for the six readers `test_the_deserializer_is_not_called_over_the_cap` counts, the call count still
+    catches it, for a reader outside that list nothing here does. The import routes such a reader needs
+    are closed below, which is why a new reader has to come in through a named import."""
+
+    # The two places under src/proofbundle that import by a name only known at run time, each taking the
+    # name from a literal table: the lazy attributes of the package, and the keccak backends. A third
+    # site is a new route to any library, this one included, and is added here with its reason or not at all.
+    _DYNAMIC_IMPORT_SITES = {("proofbundle", "proofbundle.__getattr__"),
+                             ("proofbundle.anchors_rootcommit", "proofbundle.anchors_rootcommit._keccak256")}
+    # Imports of the library outside anchors_ots: the feature probe of `proofbundle --version`, which
+    # imports the top-level package to report whether the [anchors] extra is present and reads nothing.
+    _IMPORT_OUTSIDE = {("proofbundle.cli", "proofbundle.cli._detect_features", "opentimestamps")}
+
+    @staticmethod
+    def _tree():
+        """(module name, source text) for every file under src/proofbundle."""
+        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
+            mod = path.relative_to(REPO / "src").with_suffix("").as_posix().replace("/", ".")
+            yield mod.removesuffix(".__init__"), path.read_text()
+
+    @classmethod
+    def _import_findings(cls, sources) -> list:
+        """Every import route to the library outside the named places, over (module, source) pairs."""
+        import ast
+        found = []
+        for mod, text in sources:
+            stack = [(ast.parse(text), mod)]
+            while stack:
+                node, where = stack.pop()
+                for child in ast.iter_child_nodes(node):
+                    inner = f"{where}.{child.name}" if isinstance(
+                        child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else where
+                    stack.append((child, inner))
+                    if isinstance(child, (ast.Import, ast.ImportFrom)):
+                        names = ([child.module or ""] if isinstance(child, ast.ImportFrom)
+                                 else [a.name for a in child.names])
+                        for name in names:
+                            if name.split(".")[0] == "opentimestamps" and mod != "proofbundle.anchors_ots" \
+                                    and (mod, inner, name) not in cls._IMPORT_OUTSIDE:
+                                found.append(f"{inner} imports {name}")
+                    elif isinstance(child, ast.Call) and (ast.unparse(child.func).endswith("import_module")
+                                                          or ast.unparse(child.func).endswith("__import__")):
+                        arg = child.args[0] if child.args else None
+                        if not isinstance(arg, ast.Constant):
+                            if (mod, inner) not in cls._DYNAMIC_IMPORT_SITES:
+                                found.append(f"{inner} imports by a computed name: {ast.unparse(child)}")
+                        elif isinstance(arg.value, str) and arg.value.split(".")[0] == "opentimestamps":
+                            found.append(f"{inner} imports {arg.value} by name")
+                    elif isinstance(child, ast.Constant) and isinstance(child.value, str) \
+                            and child.value.startswith("opentimestamps.") and mod != "proofbundle.anchors_ots":
+                        found.append(f"{inner} names {child.value!r}")
+        return found
+
+    def test_every_caller_of_the_helper_is_a_counted_reader(self):
+        """Gate run 3, 229-3-01: the call counts above hold for the readers they name. A new function that
+        reads a proof through the helper is one more reader; this derives the set so it cannot be left out."""
+        import ast
+        callers = set()
+        for _mod, text in self._tree():
+            stack = [(ast.parse(text), None)]
+            while stack:
+                node, fn = stack.pop()
+                for child in ast.iter_child_nodes(node):
+                    inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
+                    if isinstance(child, ast.Call) and ast.unparse(child.func) == "_deserialize_detached":
+                        callers.add(fn)
+                    stack.append((child, inner))
+        self.assertEqual(callers, set(_READERS))
+
+    def test_the_library_is_imported_in_one_place(self):
+        """Gate run 3, 229-3-01: `importlib.import_module("open" + "timestamps.core.ser" + "ialize")` in a new
+        function reached the library with no literal any sweep here could see. Such a reader needs an import:
+        static ones of the library sit in anchors_ots (and the named feature probe), dynamic ones by a
+        computed name sit at the two named sites, and no string elsewhere names a module of the library."""
+        self.assertEqual(self._import_findings(self._tree()), [])
+
+    def test_the_import_sweep_sees_the_route_the_gate_used(self):
+        """Positive control, with the sweep itself: over the tree plus the reader planted in 229-3-01 every
+        finding is that reader, and the same reader written with a literal module name is seen as well (there
+        twice: the import by name and the string naming a module of the library)."""
+        planted = ('\n\ndef _raw_proof_timestamp(proof):\n    import importlib\n'
+                   '    ctx = importlib.import_module("open" + "timestamps.core.ser" + "ialize")\n'
+                   '    return ctx\n')
+        literal = planted.replace('"open" + "timestamps.core.ser" + "ialize"', '"opentimestamps.core.serialize"')
+        for label, extra, want in (
+                ("computed", planted, "imports by a computed name"),
+                ("literal", literal, "imports opentimestamps.core.serialize by name")):
+            tree = [(m, t + extra if m == "proofbundle.evidence_pack" else t) for m, t in self._tree()]
+            with self.subTest(route=label):
+                found = self._import_findings(tree)
+                self.assertTrue(found and all("evidence_pack._raw_proof_timestamp" in f for f in found), found)
+                self.assertTrue(any(want in f for f in found), found)
 
     def test_every_deserialization_site_is_the_helper(self):
         import ast
