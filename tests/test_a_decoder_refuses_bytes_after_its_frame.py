@@ -22,6 +22,7 @@ import time
 import unittest
 import zlib
 
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: a load built from a budget is capped
 from proofbundle import emit_bundle, generate_signer
 from proofbundle._inflate import InflateCapExceeded, inflate_whole_stream
 from proofbundle.errors import BundleFormatError
@@ -95,7 +96,10 @@ class TheToken(unittest.TestCase):
 
     def test_an_oversized_body_is_refused_before_it_is_decoded(self):
         from proofbundle.budget import DEFAULT_BUDGET
-        body = "A" * (DEFAULT_BUDGET.input_bytes + 1)
+        # Capped like every load this suite builds from a budget value (tests/_lastdeckel.py): a mutant
+        # that raises input_bytes must fail this case, not kill the run by allocating its new value.
+        body = "A" * (gedeckelt(DEFAULT_BUDGET.input_bytes,
+                                bytes_je_element=KOSTEN_JE_ELEMENT["input_bytes"]) + 1)
         t0 = time.perf_counter()
         with self.assertRaises(BundleFormatError) as ctx:
             verify_receipt_token(TOKEN_PREFIX + body)
