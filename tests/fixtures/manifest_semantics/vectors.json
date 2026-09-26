@@ -1,0 +1,173 @@
+{
+ "setuptools": "69.5.1",
+ "candidates": [
+  "MANIFEST.in",
+  "pyproject.toml",
+  "README.md",
+  "LICENSE",
+  "examples/a.json",
+  "examples/.hidden.json",
+  "examples/sub/b.json",
+  "docs/top.md",
+  "docs/adr/nested.md",
+  "docs/NAMED.md",
+  "receipts/agent_review/r1.receipt.json",
+  "receipts/agent_review/sub/r2.receipt.json",
+  "receipts/agent_review/d.txt",
+  "receipts/other/e.receipt.json",
+  "data/a.txt",
+  "data/b.txt",
+  "data/-.txt",
+  "data/d.txt",
+  "the/planet.txt",
+  "noise",
+  "weird#name.txt",
+  "ships"
+ ],
+ "cases": {
+  "continuation": {
+   "template": "recursive-include receipts/agent_review \\\n    *.receipt.json\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml",
+    "receipts/agent_review/r1.receipt.json",
+    "receipts/agent_review/sub/r2.receipt.json"
+   ]
+  },
+  "comment_inside_continuation": {
+   "template": "recursive-include receipts \\\n# a comment line\n    *.json\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml",
+    "receipts/agent_review/r1.receipt.json",
+    "receipts/agent_review/sub/r2.receipt.json",
+    "receipts/other/e.receipt.json"
+   ]
+  },
+  "inline_comments": {
+   "template": "graft examples   # ships the fixtures\ninclude docs/top.md  # comment noise\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "docs/top.md",
+    "examples/.hidden.json",
+    "examples/a.json",
+    "examples/sub/b.json",
+    "pyproject.toml"
+   ]
+  },
+  "escaped_hash": {
+   "template": "include weird\\#name.txt\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml",
+    "weird#name.txt"
+   ]
+  },
+  "star_stays_in_its_segment": {
+   "template": "include docs/*.md\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "docs/NAMED.md",
+    "docs/top.md",
+    "pyproject.toml"
+   ]
+  },
+  "hidden_files_are_not_ignored": {
+   "template": "include examples/*.json\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "examples/.hidden.json",
+    "examples/a.json",
+    "pyproject.toml"
+   ]
+  },
+  "recursive_include_any_depth": {
+   "template": "recursive-include receipts *.json\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml",
+    "receipts/agent_review/r1.receipt.json",
+    "receipts/agent_review/sub/r2.receipt.json",
+    "receipts/other/e.receipt.json"
+   ]
+  },
+  "graft_takes_everything_below": {
+   "template": "graft examples\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "examples/.hidden.json",
+    "examples/a.json",
+    "examples/sub/b.json",
+    "pyproject.toml"
+   ]
+  },
+  "character_class_in_include": {
+   "template": "include data/[a-c].txt\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "data/a.txt",
+    "data/b.txt",
+    "pyproject.toml"
+   ]
+  },
+  "character_class_in_global_include": {
+   "template": "global-include [a-c].txt\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "data/-.txt",
+    "data/a.txt",
+    "pyproject.toml"
+   ]
+  },
+  "negated_class_in_include": {
+   "template": "include data/[!a].txt\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "data/-.txt",
+    "data/b.txt",
+    "data/d.txt",
+    "pyproject.toml"
+   ]
+  },
+  "lines_setuptools_refuses": {
+   "template": "graft examples docs\nfoo bar\ninclude\nrecursive-include receipts\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml"
+   ]
+  },
+  "no_template_lines": {
+   "template": "# only a comment\n",
+   "shipped": [
+    "LICENSE",
+    "MANIFEST.in",
+    "README.md",
+    "pyproject.toml"
+   ]
+  }
+ }
+}

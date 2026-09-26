@@ -10,6 +10,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A path the sdist promised and does not carry fails the shipped suite instead of skipping it**
+  (`tests/conftest.py`). From an extracted sdist, a test module that names an absent root-relative path
+  was skipped as repo-context without asking whether the distribution was supposed to carry the path.
+  Measured by the deep gate against main 5b53ab3e (finding L6-Z195-01, confirmed 3 of 3) with one
+  appended line, `exclude examples/trust_policy_strict.json`, while `graft examples` still stood:
+  `tests/test_trust_policy.py` went from 47 passed to 47 skipped and the shipped suite stayed rc 0. A
+  path that a positive line of MANIFEST.in promises, or that setuptools adds by itself (the template,
+  `pyproject.toml`, the README, the license files), now makes the module run and fail when it is
+  absent; a negative line does not withdraw the promise, because that is exactly the accident being
+  caught. The template is read as setuptools reads it, including continuation lines, inline comments,
+  `\#`, and the difference between the glob behind `include` and the pattern behind `global-include`;
+  vectors from a real `build_sdist` with setuptools 69.5.1 are the oracle
+  (`tests/fixtures/manifest_semantics/`). Measured end to end from built sdists: the planted exclude now
+  gives 2 failed, 45 passed, rc 1, and an unplanted sdist runs as before.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither

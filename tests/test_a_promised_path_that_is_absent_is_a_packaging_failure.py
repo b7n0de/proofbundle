@@ -11,11 +11,16 @@ path from it as well. MANIFEST.in can: it states what the sdist promises.
 WHAT IS PINNED. The rule on throwaway trees, both directions: a pruned path still makes a module
 repo-context; a promised path that is absent does not, whichever of `graft`, `include` or
 `recursive-include` promised it, and it wins over a pruned path read by the same module. Without a
-MANIFEST.in the old rule stands, so the last case binds that the distribution carries its own.
+MANIFEST.in and without a PKG-INFO the old rule stands; a distribution (it carries PKG-INFO) promises its
+template and what setuptools adds by itself, so the case that binds "the sdist carries MANIFEST.in" can
+no longer be skipped by the rule it guards (gate lens 227-B, 227B-01). The lines are read as setuptools
+reads them, proven by vectors a real `build_sdist` produced (gate lens 227-A, 227A-01, 227A-03, 227A-04),
+and a negative line does not withdraw a promise, which is how an accidental `exclude` is caught.
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import shutil
 import tempfile
@@ -79,10 +84,70 @@ class APromisedAbsenceIsNotRepoContext(unittest.TestCase):
         (self.tmp / "MANIFEST.in").unlink()
         self.assertIs(cf.modul_ist_repo_kontext(self._module("examples/a.json"), wurzel=self.tmp), True)
 
+    def test_a_distribution_without_its_template_does_not_skip_the_guard(self):
+        """227B-01: measured from a real sdist with MANIFEST.in deleted, the module that binds its
+        presence was skipped as repo-context, because it names the missing file. setuptools puts the
+        template into every sdist, so a distribution promises it."""
+        (self.tmp / "MANIFEST.in").unlink()
+        (self.tmp / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: proofbundle\n", encoding="utf-8")
+        for rel in ("MANIFEST.in", "pyproject.toml", "README.md", "LICENSE"):
+            with self.subTest(path=rel):
+                self.assertIs(cf._manifest_verspricht(rel, self.tmp), True)
+                self.assertIs(cf.modul_ist_repo_kontext(self._module(rel), wurzel=self.tmp), False)
+        self.assertIs(cf._manifest_verspricht("examples/a.json", self.tmp), False)   # no template, no graft
+
+    def test_a_negative_line_does_not_withdraw_a_promise(self):
+        """By design, and the reason is the defect itself: `graft examples` then `exclude` of one file
+        is what L6-Z195-01 planted. A reader that let the exclude win would skip that file again."""
+        (self.tmp / "MANIFEST.in").write_text(
+            MANIFEST + "exclude examples/trust_policy_strict.json\nprune examples\n"
+                       "global-exclude *.json\nrecursive-exclude receipts *\n", encoding="utf-8")
+        for rel in ("examples/trust_policy_strict.json", "receipts/agent_review/r.receipt.json"):
+            with self.subTest(path=rel):
+                self.assertIs(cf._manifest_verspricht(rel, self.tmp), True)
+
+
+_VEKTOREN = REPO / "tests" / "fixtures" / "manifest_semantics" / "vectors.json"
+
+
+class TheManifestIsReadAsSetuptoolsReadsIt(unittest.TestCase):
+    """Gate lens 227-A built four templates the first reader read differently from setuptools: a
+    continued `recursive-include` promised nothing (227A-01, the defect again), `*` crossed `/`
+    (227A-03), inline comment words became patterns (227A-04). The oracle is setuptools itself:
+    `tests/fixtures/manifest_semantics/erzeuge_vektoren.py` built a real sdist for each template with
+    `setuptools.build_meta` and recorded which candidate files it carries; every candidate must be
+    promised exactly when the sdist carried it."""
+
+    def test_every_vector_setuptools_produced(self):
+        daten = json.loads(_VEKTOREN.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(daten["cases"]), 10, "too few vectors to hold anything")
+        self.assertGreaterEqual(int(daten["setuptools"].split(".")[0]), 68,
+                                "the vectors must come from a setuptools that can build this project")
+        for name, fall in daten["cases"].items():
+            with tempfile.TemporaryDirectory() as tmp:
+                wurzel = pathlib.Path(tmp)
+                (wurzel / "MANIFEST.in").write_text(fall["template"], encoding="utf-8")
+                for rel in daten["candidates"]:
+                    with self.subTest(case=name, path=rel):
+                        self.assertIs(cf._manifest_verspricht(rel, wurzel), rel in fall["shipped"],
+                                      f"setuptools {'shipped' if rel in fall['shipped'] else 'left out'} "
+                                      f"{rel!r} under {fall['template']!r}")
+
+    def test_the_vectors_measure_something(self):
+        """Counter-direction: each of the four findings is a case where the first reader and setuptools
+        disagree, so the vectors must contain such a disagreement for each, or they prove nothing."""
+        daten = json.loads(_VEKTOREN.read_text(encoding="utf-8"))
+        faelle = daten["cases"]
+        self.assertIn("receipts/agent_review/r1.receipt.json", faelle["continuation"]["shipped"])   # 227A-01
+        self.assertNotIn("docs/adr/nested.md", faelle["star_stays_in_its_segment"]["shipped"])      # 227A-03
+        self.assertNotIn("noise", faelle["inline_comments"]["shipped"])                             # 227A-04
+        self.assertIn("examples/.hidden.json", faelle["hidden_files_are_not_ignored"]["shipped"])
+
 
 class TheDistributionCarriesItsManifest(unittest.TestCase):
-    """Runs in the checkout and from the extracted sdist alike: without MANIFEST.in the rule above
-    has no basis and falls back to the old one, so the file must travel with the tests."""
+    """Runs in the checkout and from the extracted sdist alike. Without MANIFEST.in the rule above loses
+    the template's promises, so the file must travel with the tests. Since 227B-01 this case is no longer
+    skipped by that rule when the file is missing: a distribution promises its template."""
 
     def test_manifest_in_is_present(self):
         self.assertTrue((REPO / "MANIFEST.in").is_file(),
