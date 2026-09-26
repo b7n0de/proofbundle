@@ -309,6 +309,24 @@ def _re_function(func, names, functions):
     return None
 
 
+def _module_strings(tree) -> dict:
+    """Module-level names bound exactly once, each to a string literal: a pattern can reach `re` so."""
+    bound: dict = {}
+    seen: dict = {}
+    for node in tree.body:
+        target = value = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            target, value = node.target.id, node.value
+        if target is None:
+            continue
+        seen[target] = seen.get(target, 0) + 1
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            bound[target] = value.value
+    return {name: text for name, text in bound.items() if seen[name] == 1}
+
+
 def _whole_value_regex_readings(sources) -> list:
     """(module, source) pairs in; one (module, line, pattern, reading) per whole-value pattern read
     differently from ECMA-262, the named exceptions left out."""
@@ -316,15 +334,25 @@ def _whole_value_regex_readings(sources) -> list:
     for mod, text in sources:
         tree = ast.parse(text)
         names, functions = _re_names(tree)
+        strings = _module_strings(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             function = _re_function(node.func, names, functions)
-            if not (function and node.args
-                    and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+            if not function:
                 continue
-            pattern = node.args[0].value
-            flags = [ast.unparse(a) for a in list(node.args[1:]) + [k.value for k in node.keywords]]
+            # The pattern as the first argument, as `pattern=`, or through a module-level name bound
+            # once to a string (a review lens of another family planted `re.compile(pattern=...)`,
+            # which the first form of this sweep did not see).
+            arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
+            if isinstance(arg, ast.Name) and arg.id in strings:
+                pattern = strings[arg.id]
+            elif isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                pattern = arg.value
+            else:
+                continue
+            flags = [ast.unparse(a) for a in list(node.args[1:])
+                     + [k.value for k in node.keywords if k.arg != "pattern"]]
             if any("MULTILINE" in f or re.search(r"\.M\b", f) for f in flags):
                 continue                     # `^` and `$` are line anchors there, not whole-value ones
             anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
@@ -398,6 +426,14 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
                    'from re import *\nE = search(r"^[0-9]+$", "")\nF = compile(r"\\A[0-9]+\\Z")\n')
         found = _whole_value_regex_readings([("scripts.planted", planted)])
         self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 4, 7, 8, 10], found)
+
+    def test_the_sweep_sees_every_way_a_pattern_reaches_re(self):
+        """As `pattern=`, and through a module-level name bound once to a string; the clean pattern
+        behind the second name is not a finding."""
+        planted = ('import re\nA = re.compile(pattern=r"\\A\\d+\\Z")\nP = r"\\A\\d+\\Z"\nB = re.compile(P)\n'
+                   'Q = r"\\A[0-9]+\\Z"\nC = re.compile(Q)\nD = re.fullmatch(pattern=r"[0-9]+\\d", string="1")\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted(line for _mod, line, _p, _r in found), [2, 4, 7], found)
 
     def test_the_named_exceptions_are_still_there(self):
         """Counter-direction: an exception whose pattern is gone is stale and must be removed."""
