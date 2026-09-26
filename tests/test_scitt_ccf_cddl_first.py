@@ -179,6 +179,16 @@ def _cases():
         ("PR 279 R1 sibling: consistency receipt CWT issuer an int, unprotected",
          lambda: _cons(signed=_signed_without_cwt(), unprot_extra={15: {1: 5}}),
          "malformed", False, "CWT claim 1 in the unprotected"),
+        # PR 279 round two, thread 4111085953: recompute_data_hash reads through the same pass as the
+        # verifiers; siblings: an RFC 9995 type, and the x5chain certificate of the statement boundary
+        ("PR 279 R2 control: recompute_data_hash of the control statement", lambda: _dh(_ts()),
+         "digest", True, None),
+        ("PR 279 R2 recompute_data_hash of a statement with a text kid", lambda: _dh(_ts(st=_stmt(L4="kid"))),
+         "malformed", False, "label 4 in the protected"),
+        ("PR 279 R2 sibling: recompute_data_hash with 259 of []", lambda: _dh(_ts(st=_stmt(L259=[]))),
+         "malformed", False, "label 259 in the protected"),
+        ("PR 279 R2 sibling: recompute_data_hash with an x5chain that is not DER",
+         lambda: _dh(_ts(st=_stmt(L33=b"not a certificate"))), "malformed", False, "not DER X.509"),
         # every other rule of the pass, one case each
         ("statement alg a bool", lambda: _ts(st=_stmt(L1=True)), "malformed", False, "label 1 in the protected"),
         ("statement crit empty", lambda: _ts(st=_stmt(L2=[])), "malformed", False, "label 2 in the protected"),
@@ -288,11 +298,22 @@ def _built(case_id, build):
     return _BUILT[case_id]
 
 
+def _dh(built) -> tuple:
+    """The same bytes, run through recompute_data_hash instead of a verifier."""
+    return ("data-hash", built[1])
+
+
 def _outcome(built) -> tuple:
-    """What a case produces: status, readable, and the refusal or receipt statuses."""
+    """What a case produces: status, readable, and the refusal or receipt statuses. For
+    recompute_data_hash: "digest" and True when it returns one, the refusal's status and False."""
     S = _s()
     P, C = _p(), _c()
     kind = built[0]
+    if kind == "data-hash":
+        try:
+            return ("digest", True, S.recompute_data_hash(built[1]).hex(), None)
+        except S.ScittFormatError as exc:
+            return (exc.status, False, str(exc), None)
     if kind in ("transparent", "transparent-rp"):
         rp = built[2] if kind == "transparent-rp" else P.trust()
         r = S.verify_transparent_statement(built[1], canonical_root=P.ROOT, rp_trust=rp)
@@ -313,7 +334,7 @@ def _all_rules():
 # ------------------------------------------------------------------------------------------------
 # Regression
 # ------------------------------------------------------------------------------------------------
-N_CASES = 52
+N_CASES = 56
 
 
 def _holds(case) -> tuple:

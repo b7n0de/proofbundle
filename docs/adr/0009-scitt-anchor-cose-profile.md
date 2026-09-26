@@ -492,19 +492,23 @@ readable there only.
   `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 40
   rules in turn: some regression case must then fail, its status, readable value or refusal no
   longer the expected one, and a positive control shows that a rule no case holds would be named.
-- Statuses this moves, measured with the 52 regression cases against the reader at `257b984`: 23
+- Statuses this moves, measured with the 56 regression cases against the reader at `257b984`: 26
   cases change, all to `malformed` and not readable. 19 were `outside_profile`: the wrong type of
   258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT
   claims, issuer or vds, a receipt's issuer or iat in CWT claims carried unprotected (three cases,
   Codex on pull request 279), an empty crit on either side, an empty -1, and a `vdp` holding neither
   -1 nor -2. 4 were `confirmed`, because the reader never read the label: a statement kid as text, a
   statement's CWT claims as an array, a receipt content type as a byte string, a receipt iat as
-  text. In the consistency verifier an empty -2 moves from `consistency_proof_missing` to
-  `malformed`. No stored measurement of real bytes changes status (`recompute_result.json`,
-  `rust_crosscheck.json`, the differential corpus); `consistency_result.json` changes for its one
-  empty -2 variant.
+  text. 3 were a digest of `recompute_data_hash`, which read through the decoder alone (Codex on
+  pull request 279, round two): it now reads through the statement part of the pass, as
+  `verify_statement_signature` does. In the consistency verifier an empty -2 moves from
+  `consistency_proof_missing` to `malformed`. No stored measurement of real bytes changes status
+  (`recompute_result.json`, `rust_crosscheck.json`, the differential corpus);
+  `consistency_result.json` changes for its one empty -2 variant.
 - Not in the pass: the status logic itself (profile values, binding, trust, signatures), which the
   class tests hold; and the COSE_Sign1 decoder and the pre-scan, which ran first already.
+  `decode_cose_sign1` stays public as the structural decoder under the pass and checks no header
+  type; every verdict surface, `recompute_data_hash` included, runs the pass on its result.
 
 ## Test classes
 

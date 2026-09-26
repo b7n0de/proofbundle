@@ -229,6 +229,9 @@ def decode_cose_sign1(data: bytes, *, role: str = "statement") -> CoseSign1:
     ``role`` is ``statement`` or ``receipt``; it decides where tag 1 may stand (only around a CWT
     time claim of a statement's protected header). Raises ``ScittFormatError`` or
     ``ScittUnavailable``; the protected header is kept as the exact bytes served.
+
+    This is the structural decoder under the CDDL pass, not the reader's boundary: it does not
+    check header types. Every verdict surface of this module runs the pass on its result.
     """
     if role != "statement" and role != "receipt":
         raise ScittFormatError("malformed", "role must be 'statement' or 'receipt'")
@@ -278,8 +281,9 @@ def _data_hash(st: CoseSign1) -> bytes:
 def recompute_data_hash(data: bytes) -> bytes:
     """Value 3 of a Transparent Statement, recomputed from its bytes. Raises ``ScittFormatError``
     for bytes outside the profile's reader, including an untagged statement, whose data-hash rule
-    is not measured."""
-    st = decode_cose_sign1(data, role="statement")
+    is not measured. The reader is the one the verifiers use: the statement's CDDL pass runs first
+    (Codex, PR 279 round two), so a statement they refuse as malformed yields no digest here."""
+    st, _selector = _validate_statement(data)
     if not st.tagged:
         raise ScittFormatError("outside_profile", "untagged COSE_Sign1; the data-hash rule is "
                                                   "measured for tag 18 only")
