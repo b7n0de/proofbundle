@@ -10,6 +10,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A lookup on a constant dict with a key from outside is classified, as a membership test is**
+  (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
+  `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack
+  fix above was one such site, and the membership scanner sees only `in` and `not in`. The guard
+  now lists every lookup on a module-level dict whose key is not a literal, keyed by file,
+  enclosing definition, dict and key, each with the reason it cannot raise. Measured: 14 sites, 10
+  guarded by a membership or type check before them, 3 reading a value the package produced itself,
+  and the trust pack one, whose check runs against a tuple. None is open. A new site turns the
+  guard red until it is classified, and a classified site that is gone has to leave the list. The
+  reasons are read by a person, not proven by the guard.
+
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
   required fields schemaVersion and decidedAt, and in strict mode privacy, notChecked and
