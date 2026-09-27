@@ -321,7 +321,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   takes under 2 s now (2026-09-27; timings vary with load). The real workflows' text report is
   byte-identical to a7c9674d's, and the sweep on the tree reads no finding and the same eight unfolded
   sites under six keys. Seven new cases, four in the gate's contract and three in the sweep's, each fail
-  on a7c9674d.
+  on a7c9674d. The full suite then failed the two bounded-child cases with a peak of 427503616 bytes,
+  over their bound of 200 MB, while a run of their file alone passed: the child read `ru_maxrss`, which
+  Linux keeps across exec, and so reported the high-water mark of the pytest process that started it. It
+  reads its own (`VmHWM`) now, and an eighth case holds that from a parent of 256 MiB.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

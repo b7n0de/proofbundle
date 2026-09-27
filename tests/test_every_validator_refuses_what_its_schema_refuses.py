@@ -2372,7 +2372,8 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
 
 #: The child that runs the sweep over review 5's inputs: its own process, so that a peak of memory is
 #: measured and a run that does not end is ended. Its address space is capped, so an unbounded fold
-#: raises MemoryError instead of taking the host with it.
+#: raises MemoryError instead of taking the host with it. The peak it reports is its own
+#: (`TheSweepReadsTheFormsOfTheLensOnA7c9674d.test_the_bounded_child_measures_its_own_peak`).
 _BOUNDED_CHILD = r'''
 import importlib.util, json, pathlib, resource, sys, time
 try:
@@ -2394,8 +2395,15 @@ for name, source in inputs.items():
                      "gaps": sorted({g for calls in sites.values() for gaps in calls for g in gaps})}
     except BaseException as exc:
         out[name] = {"seconds": time.monotonic() - t0, "raised": type(exc).__name__}
-peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-out["_peak_bytes"] = peak if sys.platform == "darwin" else peak * 1024
+# The peak of THIS process: VmHWM, which exec starts afresh. Linux keeps ru_maxrss across exec, so it
+# reported the high-water mark of the pytest process that started the child (427503616 bytes in a full
+# suite, against a bound of 200 MB); ru_maxrss is read only where there is no /proc.
+try:
+    with open("/proc/self/status", encoding="ascii") as status:
+        out["_peak_bytes"] = next(int(z.split()[1]) * 1024 for z in status if z.startswith("VmHWM:"))
+except (OSError, StopIteration, ValueError):
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    out["_peak_bytes"] = peak if sys.platform == "darwin" else peak * 1024
 print(json.dumps(out))
 '''
 
@@ -2891,6 +2899,27 @@ class TheSweepReadsTheFormsOfTheLensOnA7c9674d(unittest.TestCase):
                 self.assertLess(result[name]["seconds"], 10)
                 self.assertEqual((result[name]["readings"], result[name]["gaps"]), (lesungen[name], []))
         self.assertLess(result["_peak_bytes"], 200 * 10**6)
+
+    def test_the_bounded_child_measures_its_own_peak(self):
+        """The full suite over this change failed the case above and `test_the_lens_inputs_stay_bounded`
+        with a peak of 427503616 bytes, over their bound of 200 MB, although both passed in a run of this
+        file alone. The child read `ru_maxrss`, which Linux keeps across exec, and so reported the
+        high-water mark of the pytest process that started it. It reads its own (`VmHWM`) now. Held from
+        a parent that touches 256 MiB first: the child, given one small input, reports under 100 MB."""
+        if not pathlib.Path("/proc/self/status").exists():
+            self.skipTest("NOT MEASURABLE here: no /proc, and the child falls back to ru_maxrss")
+        eltern = ("import subprocess, sys\nballast = bytearray(256 * 2**20)\n"
+                  "for i in range(0, len(ballast), 4096):\n    ballast[i] = 1\n"
+                  "r = subprocess.run([sys.executable, '-c', sys.argv[1], sys.argv[2]], input=sys.argv[3],\n"
+                  "                   capture_output=True, text=True, timeout=300)\n"
+                  "sys.stderr.write(r.stderr)\nprint(r.stdout)\n")
+        klein = {"one clean pattern": "import re\nA = re.compile(r'\\A[0-9]+\\Z')\n"}
+        run = subprocess.run([sys.executable, "-c", eltern, _BOUNDED_CHILD, __file__, json.dumps(klein)],
+                             capture_output=True, text=True, timeout=600)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        self.assertEqual((result["one clean pattern"]["readings"], result["one clean pattern"]["gaps"]), (0, []))
+        self.assertLess(result["_peak_bytes"], 100 * 10**6)
 
 
 class TheMeasuredConsequencesAreGone(unittest.TestCase):
