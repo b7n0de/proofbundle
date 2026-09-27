@@ -13,6 +13,13 @@ The lens run on PR 296 at 5138b4d2 found three more ways the whole step exited 0
 crates.io package in the sparse source spelling was never checked, an audit.toml key other than the
 ignore list hid advisories, and a yanked lookup that failed read as a clean report. Their cases run the
 gate against a stand-in for cargo that models what cargo-audit 0.22.2 was measured to do.
+
+The lens verdict on PR 296 at d30f236e found C3: the gate alone, called with --no-fetch against an
+advisory database with no advisories in it, printed OK and exited 0 on a lock holding
+curve25519-dalek 4.1.2, which the fetched database fails with RUSTSEC-2024-0344. The step fetches
+right before the gate, so the whole step did not reach that state; the gate did. Its cases give the
+stand-in and the real tool a database the test builds: a git work tree with a fetch marker, in the
+form cargo-audit 0.22.2 leaves one after a fetch.
 """
 from __future__ import annotations
 
@@ -24,8 +31,10 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 _SPEC = importlib.util.spec_from_file_location("_cargo_audit_gate", REPO / "scripts" / "cargo_audit_gate.py")
@@ -41,8 +50,15 @@ _SETTINGS = {"target_arch": [], "target_os": [], "severity": None, "ignore": [],
              "informational_warnings": ["unmaintained", "unsound", "notice"]}
 
 
+#: The `database` object of `cargo audit --json`, as 0.22.2 writes it under --no-fetch (measured against
+#: advisory-db e2111519: the count of the advisories it loaded, and null for the commit and the time,
+#: which rustsec 0.33.0 fills only on a fetch).
+_DATABASE = {"advisory-count": 1271, "last-commit": None, "last-updated": None}
+
+
 def _report(vulns=(), settings=None, **warnings) -> dict:
-    return {"vulnerabilities": {"found": bool(vulns), "count": len(vulns), "list": list(vulns)},
+    return {"database": dict(_DATABASE),
+            "vulnerabilities": {"found": bool(vulns), "count": len(vulns), "list": list(vulns)},
             "warnings": warnings, "settings": dict(_SETTINGS, **(settings or {}))}
 
 
@@ -118,7 +134,51 @@ class TheListedIds(unittest.TestCase):
         self.assertIn('ignore = ["RUSTSEC-2023-0071"]', text)
 
 
-@unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+_GIT = shutil.which("git")
+_NO_STAND_IN = sys.platform == "win32" or _GIT is None
+_WHY_NO_STAND_IN = ("the stand-in for cargo is a POSIX script, and the advisory database the gate reads is a git "
+                    "repository")
+_ADVISORY_DB_URL = "https://github.com/RustSec/advisory-db.git"
+
+
+def _git(db: Path, *args: str, when: float | None = None) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_AUTHOR_NAME="advisory database", GIT_AUTHOR_EMAIL="db@example.invalid",
+               GIT_COMMITTER_NAME="advisory database", GIT_COMMITTER_EMAIL="db@example.invalid")
+    if when is not None:
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = f"@{int(when)} +0000"
+    lauf = subprocess.run(["git", "-c", "commit.gpgsign=false", "-C", str(db), *args], capture_output=True,
+                          text=True, env=env, timeout=60, check=True)
+    return lauf.stdout.strip()
+
+
+def _database(home: Path, fetched_ago: float = 0.0, commit_ago: float = 0.0, marker: str | None = "head") -> Path:
+    """An advisory database in the form cargo-audit 0.22.2 leaves one after a fetch, under `home`.
+
+    Measured on ~/.cargo/advisory-db at e2111519 and read in rustsec 0.33.0 (src/repository/git/
+    repository.rs): a git work tree with the advisories under crates/ (left empty here), HEAD at the
+    remote HEAD it fetched, and .git/FETCH_HEAD, written on every clone and every fetch (a fetch that
+    brought no new commit rewrote it: mtime 16:21:50Z after the run at 16:21:48Z), its first line the
+    commit, two tabs and the URL. `fetched_ago` sets the marker's mtime into the past, `commit_ago` the committer
+    time of HEAD; `marker` "head" names HEAD, "behind" names HEAD and then a commit moves HEAD past it,
+    None writes no marker, and any other text is the marker's content, `{head}` standing for HEAD."""
+    db = home / "advisory-db"
+    (db / "crates").mkdir(parents=True)
+    jetzt = time.time()
+    _git(db, "init", "-q")
+    _git(db, "commit", "-q", "--allow-empty", "-m", "advisory database for a test", when=jetzt - commit_ago)
+    if marker is not None:
+        kopf = _git(db, "rev-parse", "HEAD")
+        datei = db / ".git" / "FETCH_HEAD"
+        text = f"{kopf}\t\t{_ADVISORY_DB_URL}\n{kopf}\t\tbranch 'main' of {_ADVISORY_DB_URL}\n"
+        datei.write_text(text if marker in ("head", "behind") else marker.format(head=kopf), encoding="utf-8")
+        os.utime(datei, (jetzt - fetched_ago, jetzt - fetched_ago))
+        if marker == "behind":
+            _git(db, "commit", "-q", "--allow-empty", "-m", "a commit after the fetch", when=jetzt - commit_ago)
+    return db
+
+
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
 class TheExitCodes(unittest.TestCase):
     """The gate's exit code against a stand-in for cargo that writes a chosen report and exit code."""
 
@@ -131,7 +191,7 @@ class TheExitCodes(unittest.TestCase):
             # writes for it to stderr (the gate requires the two to agree).
             cargo.write_text(textwrap.dedent(f"""\
                 #!{sys.executable}
-                import json, sys
+                import json, os, sys
                 ausgabe = {stdout!r}
                 if "--json" in sys.argv:
                     sys.stdout.write(ausgabe)
@@ -140,8 +200,13 @@ class TheExitCodes(unittest.TestCase):
                         bericht = json.loads(ausgabe)
                         v = len(bericht["vulnerabilities"]["list"])
                         w = sum(len(e) for e in bericht["warnings"].values())
+                        n = bericht["database"]["advisory-count"]
                     except Exception:
                         v = w = 0
+                        n = 1271
+                    db = (sys.argv[sys.argv.index("--db") + 1] if "--db" in sys.argv
+                          else os.path.join(os.environ["CARGO_HOME"], "advisory-db"))
+                    sys.stderr.write("      Loaded %d security advisories (from %s)\\n" % (n, db))
                     if v:
                         sys.stderr.write("error: %d vulnerabilit%s found!\\n" % (v, "y" if v == 1 else "ies"))
                     if w:
@@ -149,9 +214,11 @@ class TheExitCodes(unittest.TestCase):
                 sys.exit({rc})
                 """), encoding="utf-8")
             cargo.chmod(0o755)
+            _database(ort / "cargo-home")
+            env = dict(os.environ, CARGO_HOME=str(ort / "cargo-home"))
             lauf = subprocess.run([sys.executable, str(REPO / "scripts" / "cargo_audit_gate.py"),
                                    "--dir", str(ort), "--cargo", str(cargo)],
-                                  capture_output=True, text=True, timeout=60)
+                                  capture_output=True, text=True, timeout=60, env=env)
             return lauf.returncode, lauf.stdout
 
     def test_exit_codes(self) -> None:
@@ -173,11 +240,17 @@ class TheExitCodes(unittest.TestCase):
 #: an advisory matches a package only when the lock names it with the crates.io source in the
 #: spelling rustsec knows, the git index; `--json` writes nothing to stderr, even when the yanked
 #: lookup fails; the terminal run writes its progress, a failed lookup and a summary to stderr.
-#: The test chooses the rest through the JSON in GATE_STAND_IN.
+#: It loads no database: it reports `advisory_count` (1271 unless chosen) in the JSON, and a Loaded line
+#: with `loaded` advisories from `loaded_from` (by default the count, and the database cargo-audit
+#: reads: `--db`, else $CARGO_HOME/advisory-db, else $HOME/.cargo/advisory-db). With `argv_log` it
+#: appends its arguments to that file. The test chooses the rest through the JSON in GATE_STAND_IN.
 _STAND_IN = r"""
 import json, os, sys
 spec = json.loads(os.environ["GATE_STAND_IN"])
 args = sys.argv[1:]
+if spec.get("argv_log"):
+    with open(spec["argv_log"], "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(args) + "\n")
 with open(args[args.index("--file") + 1], encoding="utf-8") as fh:
     lock = fh.read()
 vulns = []
@@ -190,12 +263,20 @@ warnings = spec.get("warnings", {})
 settings = {"target_arch": [], "target_os": [], "severity": None, "ignore": [],
             "informational_warnings": ["unmaintained", "unsound", "notice"]}
 settings.update(spec.get("settings", {}))
+count = spec.get("advisory_count", 1271)
+if "--db" in args:
+    db = args[args.index("--db") + 1]
+else:
+    db = os.path.join(os.environ.get("CARGO_HOME") or os.path.join(os.environ["HOME"], ".cargo"), "advisory-db")
 if "--json" in args:
     sys.stderr.write("".join(z + "\n" for z in spec.get("json_stderr", [])))
-    sys.stdout.write(json.dumps({"vulnerabilities": {"found": bool(vulns), "count": len(vulns), "list": vulns},
+    sys.stdout.write(json.dumps({"database": {"advisory-count": count, "last-commit": None, "last-updated": None},
+                                 "lockfile": {"dependency-count": lock.count("[[package]]")},
+                                 "vulnerabilities": {"found": bool(vulns), "count": len(vulns), "list": vulns},
                                  "warnings": warnings, "settings": settings}))
 else:
-    zeilen = ["      Loaded 1271 security advisories (from /stand-in/advisory-db)"]
+    zeilen = ["      Loaded %d security advisories (from %s)" % (spec.get("loaded", count),
+                                                                 spec.get("loaded_from", db))]
     zeilen += spec.get("terminal_stderr", [])
     zeilen.append("    Scanning Cargo.lock for vulnerabilities (1 crate dependencies)")
     if vulns:
@@ -217,8 +298,15 @@ def _lock(*pakete) -> str:
     return text
 
 
-def _run_gate(lock: str, spec: dict, audit_toml: str | None = None, config_toml: str | None = None) -> tuple:
-    """(exit code, stdout) of the gate on `lock` against the stand-in; CARGO_HOME is an empty directory."""
+def _run_gate(lock: str, spec: dict, audit_toml: str | None = None, config_toml: str | None = None, *,
+              no_fetch: bool = False, cargo_home: bool = True, databases: tuple = ("cargo-home",),
+              database: dict | None = None) -> tuple:
+    """(exit code, stdout) of the gate on `lock` against the stand-in.
+
+    HOME is a directory of the test, so the machine's own ~/.cargo never takes part. CARGO_HOME is
+    <tmp>/cargo-home, or unset when `cargo_home` is false. `databases` names where a database is built
+    ("cargo-home" for <tmp>/cargo-home/advisory-db, "home" for <tmp>/home/.cargo/advisory-db), each with
+    the arguments `database` gives `_database`; a fresh one unless chosen."""
     with tempfile.TemporaryDirectory() as tmp:
         ort = Path(tmp) / "work"
         (ort / ".cargo").mkdir(parents=True)
@@ -230,10 +318,18 @@ def _run_gate(lock: str, spec: dict, audit_toml: str | None = None, config_toml:
         cargo = Path(tmp) / "cargo"
         cargo.write_text(f"#!{sys.executable}\n" + _STAND_IN, encoding="utf-8")
         cargo.chmod(0o755)
-        (Path(tmp) / "cargo-home").mkdir()
-        env = dict(os.environ, GATE_STAND_IN=json.dumps(spec), CARGO_HOME=str(Path(tmp) / "cargo-home"))
+        orte = {"cargo-home": Path(tmp) / "cargo-home", "home": Path(tmp) / "home" / ".cargo"}
+        for ort_ in orte.values():
+            ort_.mkdir(parents=True)
+        for name in databases:
+            _database(orte[name], **(database or {}))
+        env = dict(os.environ, GATE_STAND_IN=json.dumps(spec), HOME=str(Path(tmp) / "home"))
+        if cargo_home:
+            env["CARGO_HOME"] = str(orte["cargo-home"])
+        else:
+            env.pop("CARGO_HOME", None)
         lauf = subprocess.run([sys.executable, str(REPO / "scripts" / "cargo_audit_gate.py"),
-                               "--dir", str(ort), "--cargo", str(cargo)],
+                               "--dir", str(ort), "--cargo", str(cargo)] + (["--no-fetch"] if no_fetch else []),
                               capture_output=True, text=True, timeout=60, env=env)
         return lauf.returncode, lauf.stdout + lauf.stderr
 
@@ -242,7 +338,7 @@ _COMMITTED_TOML = (REPO / "tools" / "pb_verify_rs" / ".cargo" / "audit.toml").re
 _LISTED = {"settings": {"ignore": ["RUSTSEC-2023-0071"]}}
 
 
-@unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
 class F1EveryLockSourceIsAudited(unittest.TestCase):
     """PROPERTY (lens run on PR 296 at 5138b4d2, F1, P1): the gate never passes a lock whose packages
     the audit did not check. rustsec 0.33.0 matches an advisory to a crates.io package only in the
@@ -272,7 +368,7 @@ class F1EveryLockSourceIsAudited(unittest.TestCase):
                 self.assertIn(source, ausgabe)
 
 
-@unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
 class F2AuditTomlCarriesOnlyTheIgnoreList(unittest.TestCase):
     """PROPERTY (lens run on PR 296 at 5138b4d2, F2, P1): audit.toml can only list exceptions. Keys
     such as `[target] os`, `[database] url`, `path` or `stale` and `[yanked] enabled = false` hide
@@ -322,14 +418,14 @@ class TheAuditTomlReader(unittest.TestCase):
                 with self.assertRaises(g.GateError):
                     g.audit_toml_ignore(text)
 
-    @unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+    @unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
     def test_the_applied_list_must_be_the_files_list(self) -> None:
         # cargo-audit reports an ignore list the file does not state: some other configuration applied.
         rc, ausgabe = _run_gate(_lock(), {"settings": {"ignore": []}}, audit_toml=_COMMITTED_TOML)
         self.assertEqual(rc, 2, ausgabe)
 
 
-@unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
 class F3ALookupErrorIsNeverAPass(unittest.TestCase):
     """PROPERTY (lens run on PR 296 at 5138b4d2, F3, P1): a lookup cargo-audit could not make is an
     error of the audit, exit 2, never 0. With `protocol = "git"` in .cargo/config.toml the yanked
@@ -360,15 +456,171 @@ class F3ALookupErrorIsNeverAPass(unittest.TestCase):
         self.assertEqual(rc, 2, ausgabe)
 
 
+#: The bound on the age of the last fetch, stated here apart from the gate: one hour, twice the
+#: rust-parity job's timeout of 30 minutes, inside which the step fetches right before the gate.
+_FETCH_BOUND = 3600
+#: rustsec 0.33.0's own bound on the age of the database's last commit (STALE_AFTER, 90 days, in
+#: src/repository/git/commit.rs), which cargo-audit 0.22.2 applies on a fetch and skips under --no-fetch.
+_COMMIT_BOUND = 90 * 86400
+
+
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
+class C3TheGateVouchesOnlyForADatabaseItEstablished(unittest.TestCase):
+    """PROPERTY (lens verdict on PR 296 at d30f236e, C3, P1): the gate never reports OK on a database it has not
+    established as present, filled and fresh. Measured at d30f236e with cargo-audit 0.22.2: --no-fetch against
+    a database whose crates/ directory is empty wrote `Loaded 0 security advisories` and
+    `database.advisory-count` 0 and exited 0, and the gate printed OK and exited 0 on a lock holding
+    curve25519-dalek 4.1.2 (the fetched database fails it with RUSTSEC-2024-0344, exit 1). --no-fetch also skips
+    rustsec's own rule against a database whose last commit is older than 90 days, which a fetch applies. The
+    stand-in reports whatever database the case chooses; the gate has to establish the database itself."""
+
+    _CURVE = _lock(("curve25519-dalek", "4.1.2", _CRATES_IO_GIT))
+    _FULL = {"vulnerable": [["curve25519-dalek", "4.1.2", "RUSTSEC-2024-0344"]]}
+
+    def test_c3_control_a_fresh_filled_database_judges_the_verdict_lock(self) -> None:
+        for no_fetch in (True, False):
+            with self.subTest(no_fetch=no_fetch):
+                rc, ausgabe = _run_gate(self._CURVE, self._FULL, no_fetch=no_fetch)
+                self.assertEqual(rc, 1, ausgabe)
+                self.assertIn("RUSTSEC-2024-0344", ausgabe)
+                rc, ausgabe = _run_gate(_lock(), {}, no_fetch=no_fetch)
+                self.assertEqual(rc, 0, ausgabe)
+
+    def test_c3_an_empty_database_ends_the_gate_with_2(self) -> None:
+        for spec, namen in (({"advisory_count": 0}, ("advisory-count 0", "Loaded 0")),
+                            ({"advisory_count": 0, "loaded": 1271}, ("advisory-count 0",)),
+                            ({"loaded": 0}, ("Loaded 0",))):
+            for no_fetch in (True, False):
+                with self.subTest(spec=spec, no_fetch=no_fetch):
+                    rc, ausgabe = _run_gate(self._CURVE, spec, no_fetch=no_fetch)
+                    self.assertEqual(rc, 2, ausgabe)
+                    self.assertTrue(any(name in ausgabe for name in namen), ausgabe)
+
+    def test_c3_a_missing_database_ends_the_gate_with_2(self) -> None:
+        for no_fetch in (True, False):
+            with self.subTest(no_fetch=no_fetch):
+                rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=no_fetch, databases=())
+                self.assertEqual(rc, 2, ausgabe)
+                self.assertIn("does not exist", ausgabe)
+
+    def test_c3_a_database_fetched_longer_ago_than_the_bound_ends_the_gate_with_2(self) -> None:
+        for no_fetch in (True, False):
+            with self.subTest(no_fetch=no_fetch):
+                rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=no_fetch,
+                                        database={"fetched_ago": _FETCH_BOUND + 600})
+                self.assertEqual(rc, 2, ausgabe)
+                self.assertIn("last fetched", ausgabe)
+        rc, ausgabe = _run_gate(_lock(), {}, no_fetch=True, database={"fetched_ago": _FETCH_BOUND - 600})
+        self.assertEqual(rc, 0, ausgabe)
+
+    def test_c3_a_database_without_a_fetch_marker_ends_the_gate_with_2(self) -> None:
+        rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=True, database={"marker": None})
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("no fetch marker", ausgabe)
+
+    def test_c3_a_fetch_marker_not_in_the_form_cargo_audit_writes_ends_the_gate_with_2(self) -> None:
+        # rustsec 0.33.0 writes the remote HEAD commit, two tabs and the URL first; a marker that does not
+        # name a commit that way cannot say which commit was fetched.
+        for text in ("not a commit\n", "", "{head}\tnot-for-merge\tbranch 'main' of " + _ADVISORY_DB_URL + "\n"):
+            with self.subTest(marker=text):
+                rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=True, database={"marker": text})
+                self.assertEqual(rc, 2, ausgabe)
+                self.assertIn("does not begin with a commit", ausgabe)
+
+    def test_c3_a_head_other_than_the_fetched_commit_ends_the_gate_with_2(self) -> None:
+        rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=True, database={"marker": "behind"})
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("not the commit the last fetch", ausgabe)
+
+    def test_c3_a_last_commit_older_than_rustsecs_bound_ends_the_gate_with_2(self) -> None:
+        rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=True, database={"commit_ago": _COMMIT_BOUND + 86400})
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("90 days", ausgabe)
+        rc, ausgabe = _run_gate(_lock(), {}, no_fetch=True, database={"commit_ago": _COMMIT_BOUND - 86400})
+        self.assertEqual(rc, 0, ausgabe)
+
+    def test_c3_a_fetch_marker_in_the_future_ends_the_gate_with_2(self) -> None:
+        rc, ausgabe = _run_gate(self._CURVE, {}, no_fetch=True, database={"fetched_ago": -600})
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("in the future", ausgabe)
+
+    def test_c3_the_database_is_the_one_under_cargo_home_else_under_home(self) -> None:
+        # rustsec 0.33.0 reads $CARGO_HOME/advisory-db, and $HOME/.cargo/advisory-db when CARGO_HOME is unset.
+        faelle = ((True, ("home",), 2), (True, ("cargo-home",), 0), (False, ("cargo-home",), 2), (False, ("home",), 0))
+        for cargo_home, databases, erwartet in faelle:
+            with self.subTest(cargo_home=cargo_home, databases=databases):
+                rc, ausgabe = _run_gate(_lock(), {}, no_fetch=True, cargo_home=cargo_home, databases=databases)
+                self.assertEqual(rc, erwartet, ausgabe)
+
+    def test_c3_cargo_audit_reads_the_database_the_gate_established(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "argv"
+            rc, ausgabe = _run_gate(_lock(), {"argv_log": str(log)}, no_fetch=True)
+            self.assertEqual(rc, 0, ausgabe)
+            laeufe = [json.loads(z) for z in log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(laeufe), 2)
+        for args in laeufe:
+            self.assertIn("--db", args)
+            self.assertTrue(args[args.index("--db") + 1].endswith("/cargo-home/advisory-db"), args)
+        rc, ausgabe = _run_gate(_lock(), {"loaded_from": "/elsewhere/advisory-db"}, no_fetch=True)
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("loaded its advisories from", ausgabe)
+        # Both runs loaded advisories, but not the same number: they did not read the same database.
+        rc, ausgabe = _run_gate(_lock(), {"loaded": 1200}, no_fetch=True)
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertIn("did not read the same database", ausgabe)
+
+
+def _fetched_database_age() -> float | None:
+    """Seconds since cargo-audit last fetched this machine's advisory database (the mtime of its
+    .git/FETCH_HEAD), or None when it has none."""
+    marker = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "advisory-db" / ".git" / "FETCH_HEAD"
+    try:
+        return time.time() - marker.stat().st_mtime
+    except OSError:
+        return None
+
+
 def _cargo_audit_ready() -> bool:
-    if shutil.which("cargo") is None or not (Path.home() / ".cargo" / "advisory-db").is_dir():
+    alter = _fetched_database_age()
+    if shutil.which("cargo") is None or _GIT is None or alter is None or alter > _FETCH_BOUND:
         return False
     lauf = subprocess.run(["cargo", "audit", "--version"], capture_output=True, text=True)
     return lauf.returncode == 0 and "0.22.2" in lauf.stdout
 
 
-@unittest.skipUnless(_cargo_audit_ready(),
-                     "needs cargo-audit 0.22.2 and a fetched advisory database (the rust-parity job has both)")
+_WHY_NOT_READY = ("needs cargo-audit 0.22.2, git and an advisory database cargo-audit fetched within the hour (the "
+                  "rust-parity job fetches it right before its gate)")
+
+
+@unittest.skipUnless(_cargo_audit_ready(), _WHY_NOT_READY)
+class C3AgainstTheRealTool(unittest.TestCase):
+    """The verdict's case with cargo-audit 0.22.2 itself: curve25519-dalek 4.1.2 fails against the fetched
+    database (RUSTSEC-2024-0344) and, against a database with no advisories, ends the gate with 2."""
+
+    def _gate(self, cargo_home: Path | None) -> tuple:
+        with tempfile.TemporaryDirectory() as tmp:
+            ort = Path(tmp)
+            (ort / ".cargo").mkdir()
+            (ort / ".cargo" / "audit.toml").write_text(_COMMITTED_TOML, encoding="utf-8")
+            (ort / "Cargo.lock").write_text(_lock(("curve25519-dalek", "4.1.2", _CRATES_IO_GIT)), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"CARGO_HOME": str(cargo_home)} if cargo_home else {}):
+                return g._gate_quietly(ort, "cargo", True, False)
+
+    def test_c3_control_the_fetched_database_fails_the_verdict_lock(self) -> None:
+        rc, ausgabe = self._gate(None)
+        self.assertEqual(rc, 1, ausgabe)
+        self.assertIn("RUSTSEC-2024-0344", ausgabe)
+
+    def test_c3_the_verdict_lock_against_an_empty_database_ends_the_gate_with_2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _database(Path(tmp))
+            rc, ausgabe = self._gate(Path(tmp))
+        self.assertEqual(rc, 2, ausgabe)
+        self.assertTrue("advisory-count 0" in ausgabe or "Loaded 0" in ausgabe, ausgabe)
+
+
+@unittest.skipUnless(_cargo_audit_ready(), _WHY_NOT_READY)
 class TheSelfTestAgainstTheRealTool(unittest.TestCase):
     def test_both_directions(self) -> None:
         self.assertEqual(g.main(["--self-test", "--no-fetch"]), 0)
