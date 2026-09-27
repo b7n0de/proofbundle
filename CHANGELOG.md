@@ -520,6 +520,28 @@ before and after.
 
 ### Added
 
+- **eval-result v0.2, the revised in-toto/attestation#575 draft, under its own type**
+  (`https://b7n0de.com/attestation/eval-result/v0.2`; `intoto.EVAL_RESULT_V02_PREDICATE_TYPE`,
+  `export_eval_result_v02_dsse`, `to_eval_result_v02_statement`, `to_eval_result_v02_predicate`,
+  `receipt_evidence`, `classify_eval_result_v02_predicate`; `proofbundle intoto --predicate-version v0.2
+  --evaluator <URI> [--receipt-uri <URI>]`). The draft changed three things: `evaluator` in place of
+  `verifier`, required and without a default; each of model and dataset identified exactly once, by a
+  salted commitment (private) or a top-level ResourceDescriptor with `digest` (public); and `evidence[]`
+  with a mandatory `digest` in place of the `receipt` block. `verify_eval_result_dsse` adds the v0.2 shape
+  to the verdict for a statement that declares v0.2 (`predicate_shape_ok`, `predicate_shape_detail`);
+  unknown fields are ignored at every level. The examples under `examples/intoto/` are in the v0.2 shape,
+  with the receipt they reference (`eval-receipt.json`) and a public-model example that identifies the
+  model by descriptor. `docs/upstream/eval-result.md` is now the upstream file byte for byte; the
+  proofbundle notes it carried moved to `docs/upstream/README.md`.
+
+  **Migration.** v0.1 keeps its meaning (gate G2): statements of
+  `https://b7n0de.com/attestation/eval-result/v0.1` were emitted and signed by released versions, verify
+  exactly as before under the default call, and are not judged by the v0.2 shape (`predicate_shape_ok` is
+  `None`). Two envelopes written by the released 6.1.0 wheel are pinned in
+  `tests/fixtures/eval_result_v0_1/`. `proofbundle intoto` still writes v0.1 unless asked for v0.2;
+  `--verify` accepts both. Field mapping and the readings of the draft (A1 to A8):
+  `docs/IN_TOTO_PROFILE.md`.
+
 - **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
   (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT
   installed and without network access: Ed25519 over the canonical payload, the optional

@@ -9,6 +9,7 @@ predicate widens the attestation surface, so each states its **non-claims** as e
 
 | predicate | status | one line | doc |
 |---|---|---|---|
+| `eval-result/v0.2` | unreleased (planned for 6.3.0) | the revised in-toto/attestation#575 shape: `evaluator`, one identification each for model and dataset, `evidence[]` with a digest | [../IN_TOTO_PROFILE.md](../IN_TOTO_PROFILE.md) |
 | `eval-result/v0.1` | shipped | an eval number is authored and integral (never that it is *true*) | see SPEC.md |
 | `decision-receipt/v0.1` | shipped (2.1.0) | this gate made this verdict over this evidence (never that it was *correct*) | [decision-receipt.md](decision-receipt.md) |
 | `action-outcome/v0.1` | EXPERIMENTAL (3.2.0) | this executor did this, bound to a decision, with role separation + `execution_proven` | [action-outcome.md](action-outcome.md) |
