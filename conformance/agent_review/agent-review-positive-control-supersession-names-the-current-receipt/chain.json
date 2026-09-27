@@ -5,6 +5,7 @@
       "payloadType": "application/vnd.in-toto+json",
       "signatures": [
         {
+          "keyid": "SHA256:lbmsoA0yIEcEiVDRnMWuzm+nV+3ZEEpVIURqFoeSspg",
           "sig": "YigIGymu0qG7rltPZLCrPGY8egz/1jZ6P0jnL4afabEJpALAgQ4dPFLUh3lqRWwrbJ2n9n5jaJ1f+3PfCjm/Bg=="
         }
       ]
@@ -14,6 +15,7 @@
       "payloadType": "application/vnd.in-toto+json",
       "signatures": [
         {
+          "keyid": "SHA256:lbmsoA0yIEcEiVDRnMWuzm+nV+3ZEEpVIURqFoeSspg",
           "sig": "4w+gfp/rXpjfvlnExl4yQLdNDrMYn40fBTgHseYCzW+Gtd/v/JsZGJYWzMiMETPPlqSgqngfYGgA7p+BA9HfBQ=="
         }
       ]

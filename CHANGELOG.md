@@ -8,6 +8,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **Every DSSE envelope names its signing key** (`dsse.sign_envelope`, and through it every in-toto
+  export and every DSSE-signed statement of this package; the trust pack signs its own envelopes and
+  already names its keys). The in-toto envelope layer says a keyid SHOULD
+  be included for each signing key, and none was. Measured with the 6.1.0 export (Z225,
+  `claude/intoto-external` at 13d8faa): securesystemslib 1.5.1 raised `KeyError: 'keyid'` and GUAC
+  1.1.0 could not find the key. The default keyid is the signer's OpenSSH SHA256 fingerprint, the form
+  go-securesystemslib derives (`SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k` for the Z225 test
+  key, from its `dsse.SHA256KeyID`). `keyid=""` writes none. The keyid is not signed; no verdict and no
+  exit code of either verifier depends on it. The generated agent-review conformance vectors carry the
+  keyid now.
+
 ### Fixed
 
 - **An OTS proof is capped before it is deserialized, on every reader** (`anchors_ots`,
