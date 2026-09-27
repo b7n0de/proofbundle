@@ -83,6 +83,74 @@ _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 #: against which a pull request is checked — those are lines that are explicitly not being built.
 _ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
 
+#: A scope file is named by the release it scopes: `docs/release_scope/<major>.<minor>.<patch>.md`.
+_UMFANGSDATEI = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)\.md$")
+
+#: A source version that names a release which is out: three numbers, optionally a post-release.
+#: A pre-release or a local suffix says the release is not out yet, and which scope that leaves
+#: open is not guessed here.
+_FREIGEGEBEN = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.post[0-9]+)?$")
+
+
+def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, str]:
+    """The release a run WITHOUT `--version` judges, and how it was found: (version, origin).
+
+    THE DEFAULT WAS A TYPED NUMBER, "6.1.0", in this gate and in the landing card, and a typed
+    release number goes stale at the release it names. Measured on 2026-09-27 at 351fce0c, the head
+    of the 6.2.0 cut: the CI step calls this gate without `--version`, so it judged every pull
+    request against the scope of a release that was already out. A pull request from
+    `fix/the-commit-pattern-holds-at-the-verify-boundary`, the branch of line R-B1 of 6.2.0, came
+    back green and "outside the scope"; with `--version 6.2.0` the same call is RED and asks for
+    `[6.2.0 R-B1]`.
+
+    THE RULE: the OLDEST scope file whose version is above the source version, `[project] version`
+    in `pyproject.toml`. The source version is the release that is out, and the next scope file
+    above it is the release being built. When the next release raises the source version, the
+    answer moves with it, so there is no number here to keep in step.
+
+    WHY NOT GIT TAGS, though "the newest scope file without a tag" was the first candidate. The CI
+    job that calls this gate checks out at depth 1 and fetches no tag, so there every scope file
+    looks untagged. And with tags visible the rule still picks wrongly in both directions: the
+    NEWEST untagged scope file is the release after next (6.3.0 while 6.2.0 is being built), the
+    OLDEST untagged one is 3.7.1, a patch scope that never shipped.
+
+    Not measurable, with the reason in the second value: no TOML reader, an unreadable or
+    version-less pyproject.toml, a source version that is not a released one, or no scope file
+    above it.
+    """
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:            # Python 3.10
+        try:
+            import tomli as tomllib  # noqa: PLC0415
+        except ModuleNotFoundError:
+            return None, ("NOT MEASURABLE: no TOML reader here (tomllib from Python 3.11 on, tomli "
+                          "below), so the source version in pyproject.toml cannot be read")
+    try:
+        daten = tomllib.loads((wurzel / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, f"NOT MEASURABLE: pyproject.toml is not readable ({type(e).__name__}: {e})"
+    projekt = daten.get("project")
+    quelle = projekt.get("version") if isinstance(projekt, dict) else None
+    m = _FREIGEGEBEN.match(quelle) if isinstance(quelle, str) else None
+    if m is None:
+        return None, (f"NOT MEASURABLE: the source version {quelle!r} in pyproject.toml is not a "
+                      "released version (X.Y.Z, optionally .postN), so which scope comes next is "
+                      "not decided here")
+    draussen = tuple(int(x) for x in m.groups())
+    try:
+        namen = sorted(p.name for p in (wurzel / "docs" / "release_scope").iterdir() if p.is_file())
+    except OSError as e:
+        return None, f"NOT MEASURABLE: docs/release_scope is not readable ({type(e).__name__}: {e})"
+    darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
+                                  for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
+    if not darueber:
+        return None, (f"NOT MEASURABLE: no scope file above the source version {quelle} in "
+                      f"docs/release_scope ({namen}); the release being built has no scope file")
+    version = ".".join(str(x) for x in darueber[0])
+    return version, (f"derived: the oldest scope file above the source version {quelle} "
+                     "in pyproject.toml")
+
 
 def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], str]:
     """(Branch -> LIST of identifiers, riders, state). Only the In section counts.
@@ -415,18 +483,34 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--branch", required=True, help="der head-Zweig des Pull Requests")
     p.add_argument("--title", required=True, help="der Titel des Pull Requests")
-    p.add_argument("--version", default="6.1.0")
+    p.add_argument("--version", default=None,
+                   help="the release whose scope file judges the title; without it, the oldest "
+                        "scope file above the source version in pyproject.toml")
     p.add_argument("--scope", default=None, help="Pfad der Umfangsdatei (sonst aus --version)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    d = pruefe(branch=a.branch, title=a.title, version=a.version,
-               scope_pfad=pathlib.Path(a.scope) if a.scope else None)
+    if a.version is None:
+        version, herkunft = naechste_umfangsversion()
+    else:
+        version, herkunft = a.version, "argument --version"
+    if version is None:
+        # RED, like a missing scope file: without a release to judge against, whether this pull
+        # request carries a scope line is not measurable, and not knowing blocks.
+        d = _urteil(a.branch, a.title, None,
+                    [f"{herkunft}; without a release to judge against, whether this pull request "
+                     "carries a scope line is not measurable, and not knowing blocks"],
+                    None, {}, [], herkunft)
+    else:
+        d = pruefe(branch=a.branch, title=a.title, version=version,
+                   scope_pfad=pathlib.Path(a.scope) if a.scope else None)
+    d["version_herkunft"] = herkunft
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2))
     else:
         marke = "ausserhalb des Umfangs" if d["ausserhalb_des_umfangs"] else (
             d["kennung_des_zweigs"] or "—")
         print(f"release-scope-title: {d['urteil']} · {d['branch']} · {marke}")
+        print(f"  version: {d['version']} ({herkunft})")
         for g in d["gruende"]:
             print(f"  ! {g}")
         print(f"  geprueft: {d['geprueft_wird']}")

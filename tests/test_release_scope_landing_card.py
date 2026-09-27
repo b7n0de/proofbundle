@@ -60,7 +60,9 @@ def test_ein_titel_zaehlt_seine_zeile(monkeypatch):
     if not d["offen"]:
         return
     k = d["offen"][0]
-    e = _karte(monkeypatch, [{"number": 999, "title": f"[6.1.0 {k}] feat(x): y",
+    # The card's own release, not a typed one: the title named 6.1.0 here while the card's default
+    # was 6.1.0, and it stopped counting the day that default became the release being built.
+    e = _karte(monkeypatch, [{"number": 999, "title": f"[{d['version']} {k}] feat(x): y",
                               "mergedAt": "2026-09-16T00:00:00Z"}])
     assert e["gelandet"] == d["gelandet"] + 1, (d["gelandet"], e["gelandet"])
     assert e["aus_titeln"] == 1 and k not in e["offen"]
