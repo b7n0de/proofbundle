@@ -41,6 +41,7 @@ import itertools
 import json
 import operator
 import pathlib
+import random
 import re
 import string
 import subprocess
@@ -249,17 +250,21 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # lookaround is read as an anchor in the forms `(?=\Z)`, `(?=$)`, `(?=\n?\Z)` (the `$` of re), `(?!.)`
 # under DOTALL and a negative lookahead of a class of every character, and in any other form Python's own
 # parse of it shows to be one (`_umschau_einordnung`: a negative lookaround of parts that match every
-# character, `(?!.|\n)`, `(?![^\n]|\n)`, `(?!(?s:.))`; lens on a7c9674d). A lookaround that parse PROVES
-# to be no anchor is off the path: a positive one of parts that read the text after it, and a negative
-# one whose X takes a character and cannot begin (end) with some character, so the value runs on freely
-# past it (lens on 4813a37a: X missing one character on its own proved nothing when that character was a
-# final `\n`, `(?!.|\n(?s:.))` is `$`, or one the item before takes, `(?s)\A\d+(?!\D|\d.)` is `\A\d+\Z`).
-# One it cannot place, and an anchor in a lookaround or a conditional
+# character, `(?!.|\n)`, `(?![^\n]|\n)`, `(?!(?s:.))`; lens on a7c9674d). A lookaround is off the path,
+# no anchor, ONLY in a neighbourhood on the positive list of `_umschau_einordnung`, which Python's parse of
+# the whole pattern shows (`_nachbarschaften`): it never holds, always holds, reads only characters of the
+# match, or stands at the end (start) of its path, alone or in a run of negative ones, with neighbours
+# that neither read past it nor commit, and its own text proves the value runs on there. Its own text was
+# not enough (lens on 4813a37a: `(?!.|\n(?s:.))` is `$`; lens on 64c6a9fc: `\A\d++(?!\D)`,
+# `\A\d*(?!\d[\s\S])\d` and `\A\d+\b(?!\W)` each are `\A\d+\Z`, the neighbour made the anchor).
+# Any other lookaround, and an anchor in a lookaround or a conditional
 # group in another form, leave the branch undecided, a possible anchor at that side and never none: where
-# the branch's other anchor could complete it, the call is an unfolded site. Inline flags past the start,
-# a group that is not closed, and more than `_ANCHOR_WORK` steps for one call make it an unfolded site.
-# A module whose calls take more than `_MODULE_WORK` steps together, resolving, folding and reading, is an
-# unfolded site from that point on (lens on 4813a37a: each call had a bound and nothing bounded a module).
+# the branch's other anchor could complete it and the reading could change, the call is an unfolded site.
+# Inline flags past the start, a group that is not closed, and more than `_ANCHOR_WORK` steps for one call
+# make it an unfolded site. A module whose calls take more than `_MODULE_WORK` steps together, resolving,
+# folding and reading, is an unfolded site from that point on (lens on 4813a37a: each call had a bound and
+# nothing bounded a module); each step's own cost is bounded, so the budgets bound time (lens on 64c6a9fc:
+# the covering check of a lookaround and compiling a class were charged one step for unbounded work).
 #
 # A CALLEE is resolved through the bindings of the scope it is read in, the machinery of the fold
 # (`_Module.funktionen`): an import from `re`, an assignment (chained, annotated, a literal tuple, an
@@ -327,8 +332,16 @@ _REGEX_EXCEPTIONS = {
 #: a whole-value pattern the sweep would have to judge. Deny by default: a new unfolded call, or one
 #: more under a listed key, turns the sweep red until it is read and listed here. Measured 2026-09-26
 #: under src/, scripts/ and tools/: eight calls under six keys, each read in its source. The last two
-#: keys are MULTILINE calls, which the sweep left out of this list until review 5 on e176414c.
+#: keys are MULTILINE calls, which the sweep left out of this list until review 5 on e176414c. The first
+#: key came with the positive list of lookarounds (lens on 64c6a9fc, F9-1a), measured 2026-09-27.
 _UNFOLDED_PATTERN_SITES = {
+    ("scripts.check_version_and_changelog", "<module>", "compile", "BinOp"): (
+        1, "the requirement-line form of a pin in a spelling the gate does not compare (the second of "
+           "_ANFORDERUNGS_FORMEN, read with finditer): `^\\s*` starts it, and a negative lookahead for "
+           "the canonical version stands before the version group and reads past it, a neighbourhood "
+           "on no positive list; nothing after that group reads the end of the line, and "
+           "'proofbundle==1x', 'proofbundle==01.2.3 ' and '  proofbundle ~= 1.2 ' each match with "
+           "every one of 4856 tails tried (measured 2026-09-27), so it judges no whole value"),
     ("scripts.claims_hygiene_check", "<module>", "compile", "Name p"): (
         1, "a loop variable over _FORBIDDEN: 37 word patterns, none anchored at both ends (read by "
            "importing the module), so it judges no whole value"),
@@ -923,7 +936,16 @@ class _Module:
         """Where `klasse.attr` is bound: in the class body, else in its bases in turn, as far as each base
         is a class the sweep reads. ((key, bindings, label) per class that binds it, why a base was not
         followed). Lens on fb6eda0d: `L.j(...)` with `class L(K)` and `j = re.compile` in `K` passed the
-        sweep, since only the body of `L` was read. Read once per class and attribute (`_klassen_memo`)."""
+        sweep, since only the body of `L` was read. Read once per class and attribute (`_klassen_memo`).
+
+        ITS KEY IS ITS OWN, `("attribute", id(class), name)`: a key stands for one binding set, and the
+        attribute's bindings are the class body's alone, while `resolve` and `bindungen` read a name in
+        the class body as the body's bindings AND those around the class under `("class", id(class),
+        name)`. Lens on 64c6a9fc: sharing that key, the module-wide fold memo gave the call in
+        `P = r"\\A\\d+\\Z"`, `class K: A = re.compile(P); P = r"\\A[0-9]+\\Z"`, `B = re.compile(K.P)` the
+        attribute's value, and the call in the class body passed; the same key in the set of names one
+        callee has seen made `c = re.compile`, `class K: c = c`, `K.c(r"\\A\\d+\\Z")` no call of `re` at
+        all (on 4813a37a too)."""
         memo = self._klassen_memo.get((id(klasse), attr))
         if memo is None:
             memo = self._klassen_memo[(id(klasse), attr)] = tuple(map(tuple, self._klassen_attribut(klasse, attr)))
@@ -940,7 +962,7 @@ class _Module:
             self.arbeit.charge(1 + len(k.bases))
             eigene = self.class_entries.get(id(k), {}).get(attr)
             if eigene:
-                gefunden.append((("class", id(k), attr), eigene, f"{k.name}.{attr}"))
+                gefunden.append((("attribute", id(k), attr), eigene, f"{k.name}.{attr}"))
                 continue
             for base in k.bases:
                 if not isinstance(base, ast.Name):
@@ -1656,11 +1678,16 @@ def _stripped(text, verbose) -> str:
 def _as_read(pattern, flags) -> tuple:
     """(text, flags) as `re` reads a pattern before its first item: comments removed, the leading inline
     flags `(?aiLmsux)` applied, VERBOSE whitespace and comments removed. Review 5 on e176414c: `(?s)`,
-    `(?x)` and a VERBOSE pattern with a trailing comment were not read. A group is read by `_lesung`."""
+    `(?x)` and a VERBOSE pattern with a trailing comment were not read. A group is read by `_lesung`.
+    The leading flags are read from a position and the text is cut once: cutting it once per flag group
+    cost the length of the text per group, which the one charge of its length in `_menge` did not bound
+    (lens on 64c6a9fc: one call with 490,000 characters of `(?i)` took 4.38 s)."""
     text = _stripped(pattern, flags & re.X)
-    while (m := _GLOBAL_FLAGS.match(text)):
+    anfang = 0
+    while (m := _GLOBAL_FLAGS.match(text, anfang)):
         flags |= _flag_bits(m.group(1))
-        text = text[m.end():]
+        anfang = m.end()
+    text = text[anfang:]
     if flags & re.X:
         text = _stripped(text, True)
     return text, flags
@@ -1674,17 +1701,20 @@ class _Unentschieden(Exception):
 
 class _Budget:
     """The steps the anchor reader may still spend on the patterns of one call; each is charged to the
-    budget of its module too, when it has one."""
+    budget of its module too, when it has one. A charge past the call's own bound refuses the work
+    before it is done, so the module pays only for work that was done: one charge of a work too large for
+    any call (a class over the Basic Multilingual Plane two hundred times, `_preis`) is that call's gap,
+    not the end of its module."""
 
     def __init__(self, most=_ANCHOR_WORK, modul=None):
         self.left, self.modul = most, modul
 
     def charge(self, n=1):
-        if self.modul is not None:
-            self.modul.charge(n)
         self.left -= n
         if self.left < 0:
             raise _Unentschieden(f"more than {_ANCHOR_WORK} steps reading the anchors of one call")
+        if self.modul is not None:
+            self.modul.charge(n)
 
 
 class _Zuviel(Exception):
@@ -1837,13 +1867,13 @@ def _oeffner(text, i) -> tuple:
 class _Rahmen:
     """One group while a pattern is read: its kind, its flags, whether VERBOSE is read in it, and per
     alternative its readings, which anchors stand in it (1 a start anchor, 2 an end anchor), and where it
-    starts and ends."""
+    starts and ends; a lookaround also its place among the lookarounds of the pattern (`nummer`)."""
 
-    __slots__ = ("art", "flags", "verbose", "beginn", "fertig", "laufend", "anker")
+    __slots__ = ("art", "flags", "verbose", "beginn", "fertig", "laufend", "anker", "nummer")
 
-    def __init__(self, art, flags, verbose, beginn):
+    def __init__(self, art, flags, verbose, beginn, nummer=None):
         self.art, self.flags, self.verbose, self.beginn = art, flags, verbose, beginn
-        self.fertig, self.laufend, self.anker = [], _NICHTS, 0
+        self.fertig, self.laufend, self.anker, self.nummer = [], _NICHTS, 0, nummer
 
     def strich(self, i):
         self.fertig.append((self.laufend, self.anker, self.beginn, i))
@@ -1919,15 +1949,64 @@ def _teile(teil, flags):
                 stapel.append((av[1], fl))
 
 
-def _deckt_alles(teil, flags, hoechstes) -> bool:
+def _vereint(stuecke, budget) -> list:
+    """The intervals `stuecke` cover, sorted, disjoint and not touching. Charged before it sorts."""
+    budget.charge(len(stuecke) * max(1, len(stuecke).bit_length()))
+    aus = []
+    for lo, hi in sorted(stuecke):
+        if aus and lo <= aus[-1][1] + 1:
+            if hi > aus[-1][1]:
+                aus[-1] = (aus[-1][0], hi)
+        else:
+            aus.append((lo, hi))
+    return aus
+
+
+def _schnitt(a, b, budget) -> list:
+    """The intervals two lists of sorted disjoint intervals both cover, in one pass over both."""
+    budget.charge(len(a) + len(b))
+    aus, i, j = [], 0, 0
+    while i < len(a) and j < len(b):
+        lo, hi = max(a[i][0], b[j][0]), min(a[i][1], b[j][1])
+        if lo <= hi:
+            aus.append((lo, hi))
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return aus
+
+
+def _gedeckt(noetig, da, budget) -> bool:
+    """Does the union `da` (sorted, disjoint, not touching) cover every interval of `noetig` (sorted)?"""
+    budget.charge(len(noetig) + len(da))
+    j = 0
+    for lo, hi in noetig:
+        while j < len(da) and da[j][1] < lo:
+            j += 1
+        if j == len(da) or da[j][0] > lo or da[j][1] < hi:
+            return False
+    return True
+
+
+def _deckt_alles(teil, flags, hoechstes, budget) -> bool:
     """Does a part that depends only on the text after it match at every position a character follows,
     as a class of every character does? Read from its parts: one character wide, or repeated at least once,
     alternatives joined; `.` under DOTALL, a class of complementary categories (`\\d` and `\\D` under one
-    ASCII flag), ranges and literals that cover every code point, `.` or a negated class of a few
-    characters beside the characters it leaves out. A part it cannot read adds nothing, so the answer
-    can only err towards no, never towards yes."""
+    ASCII flag), ranges and literals that cover every code point, `.` or a negated class beside the
+    characters it leaves out. A part it cannot read adds nothing, so the answer can only err towards no,
+    never towards yes.
+
+    EVERY STEP IS CHARGED BEFORE IT IS DONE (lens on 64c6a9fc, F9-2a): the first form held the characters
+    a negated class leaves out as a set of code points, 4095 of them for every range of three pattern
+    characters, and compared each with every positive range, while one charge of `4 * len(innen)` stood
+    for all of it: 200 one-character literals beside such a class took 29.5 s to 33.8 s, 1000 took
+    176.5 s, and two such classes 239 MB. It holds intervals now, joins and cuts them in passes that are
+    charged by their length before they run, and so reads a range of any width, where the first form
+    left a range of 4096 code points or more out."""
     ausser, positiv, kategorien, stapel = None, [], set(), [(teil, flags)]
     while stapel:
+        budget.charge()
         sub, fl = stapel.pop()
         daten = getattr(sub, "data", sub)
         if len(daten) != 1:
@@ -1937,34 +2016,37 @@ def _deckt_alles(teil, flags, hoechstes) -> bool:
         if name == "ANY":
             if fl & re.S:
                 return True
-            ausser = {10} if ausser is None else ausser & {10}
+            ausser = [(10, 10)] if ausser is None else _schnitt(ausser, [(10, 10)], budget)
         elif name == "LITERAL":
             positiv.append((av, av))
         elif name == "NOT_LITERAL" and not fl & re.I:
-            ausser = {av} if ausser is None else ausser & {av}
+            ausser = [(av, av)] if ausser is None else _schnitt(ausser, [(av, av)], budget)
         elif name == "IN":
+            budget.charge(len(av))
             teile = [(getattr(o, "name", str(o)), a) for o, a in av]
             if any(n == "NEGATE" for n, _a in teile):
-                klein = set()
+                klein = []
                 for n, a in teile:
                     if n == "LITERAL":
-                        klein.add(a)
-                    elif n == "RANGE" and a[1] - a[0] < 4096:
-                        klein.update(range(a[0], a[1] + 1))
+                        klein.append((a, a))
+                    elif n == "RANGE":
+                        klein.append((a[0], a[1]))
                     elif n != "NEGATE":
                         klein = None
                         break
                 if klein is not None and not fl & re.I:
-                    ausser = klein if ausser is None else ausser & klein
+                    klein = _vereint(klein, budget)
+                    ausser = klein if ausser is None else _schnitt(ausser, klein, budget)
                 continue
             for n, a in teile:
                 if n == "LITERAL":
                     positiv.append((a, a))
                 elif n == "RANGE":
-                    positiv.append(a)
+                    positiv.append((a[0], a[1]))
                 elif n == "CATEGORY":
                     kategorien.add((getattr(a, "name", str(a)), fl & (re.A | re.L)))
         elif name == "BRANCH":
+            budget.charge(len(av[1]))
             stapel += [(p, fl) for p in av[1]]
         elif name == "SUBPATTERN":
             stapel.append((av[3], (fl | av[1]) & ~av[2]))
@@ -1972,16 +2054,13 @@ def _deckt_alles(teil, flags, hoechstes) -> bool:
             stapel.append((av[2], fl))
         elif name == "ATOMIC_GROUP":
             stapel.append((av, fl))
+    budget.charge(len(_KATEGORIEPAARE) * len(kategorien))
     if any((a, m) in kategorien and (b, m) in kategorien for a, b in _KATEGORIEPAARE for _k, m in kategorien):
         return True
+    da = _vereint(positiv, budget)
     if ausser is not None:
-        return all(any(lo <= c <= hi for lo, hi in positiv) for c in ausser)
-    frei = 0
-    for lo, hi in sorted(positiv):
-        if lo > frei:
-            return False
-        frei = max(frei, hi + 1)
-    return frei > hoechstes
+        return _gedeckt(ausser, da, budget)
+    return bool(da) and da[0][0] == 0 and da[0][1] >= hoechstes
 
 
 _KATEGORIE_TEXT = {"CATEGORY_DIGIT": r"\d", "CATEGORY_NOT_DIGIT": r"\D", "CATEGORY_SPACE": r"\s",
@@ -2017,12 +2096,43 @@ def _zeichen_text(name, av, is_bytes):
     return "[" + "".join(teile) + "]"
 
 
+def _preis(name, av, flags) -> int:
+    """What compiling one part one character wide costs, in steps, so that it is charged before `re`
+    compiles it: its parts, and for a class every code point of the Basic Multilingual Plane its ranges
+    cover, since the charset optimisation of `re` visits each of them (sre_compile._optimize_charset,
+    read in Python 3.10; three passes under IGNORECASE), and the table it builds for a class beyond
+    Latin-1. Lens on 64c6a9fc (F9-2a): a step budget bounds time only where each step's cost is bounded,
+    and a class of one charged step covered 65,536 of these visits."""
+    if name != "IN":
+        return 1
+    preis, gross = len(av), False
+    for o, a in av:
+        n = getattr(o, "name", str(o))
+        if n == "RANGE":
+            preis += max(0, min(a[1], 0xFFFF) - a[0] + 1) * (3 if flags & re.I else 1)
+            gross = gross or a[1] > 0xFF
+        elif n == "LITERAL":
+            gross = gross or a > 0xFF
+    return preis + (4096 if gross else 0)
+
+
+def _uebersetzungspreis(teil, flags, budget) -> int:
+    """`_preis` summed over every class of a parsed pattern, each part of it charged as it is read."""
+    preis = 0
+    for name, av, f in _teile(teil, flags):
+        budget.charge()
+        if name == "IN":
+            preis += _preis(name, av, f)
+    return preis
+
+
 def _randzeichen(teil, flags, von_hinten, is_bytes, budget):
     """The parts one character wide a match of a parsed pattern can begin with (`von_hinten`: end with),
     each compiled under the flags in force where it stands, or None where a part is not read (a
     reference, a condition). A zero-width part is passed over as if it held, and past a part that can
     match without a character the next part is read too, so the set is never too small: a character none
-    of them matches starts (ends) no match of the pattern."""
+    of them matches starts (ends) no match of the pattern. What compiling a part costs is charged before
+    it is compiled (`_preis`)."""
     atome = []
 
     def folge(sub, fl):
@@ -2032,6 +2142,7 @@ def _randzeichen(teil, flags, von_hinten, is_bytes, budget):
         for op, av in (reversed(daten) if von_hinten else daten):
             name = getattr(op, "name", str(op))
             if name in ("LITERAL", "NOT_LITERAL", "ANY", "IN"):
+                budget.charge(_preis(name, av, fl))
                 text = _zeichen_text(name, av, is_bytes)
                 if text is None:
                     return None
@@ -2067,33 +2178,73 @@ def _randzeichen(teil, flags, von_hinten, is_bytes, budget):
         return None
 
 
-def _umschau_einordnung(art, innen, flags, is_bytes, budget):
+#: What a lookaround's neighbourhood is, as the parse of the whole pattern shows it (`_nachbarschaften`):
+#: `am_rand`, it stands at the end (a lookahead) or the start (a lookbehind) of its path in the way the
+#: positive list of `_umschau_einordnung` names; `innen`, the characters the items of its path after it
+#: (before it) consume at least; `lauf_frei`, for a negative one, whether it stands in such a run of
+#: negative lookarounds of its direction and a probe character starts (ends) no match of any of them, a
+#: question asked only where no other reading decides, and answered once per run.
+_Nachbarschaft = collections.namedtuple("_Nachbarschaft", "am_rand innen lauf_frei")
+_WIEDERHOLUNG = frozenset({"MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"})
+_UMSCHAU = frozenset({"ASSERT", "ASSERT_NOT"})
+
+
+def _umschau_einordnung(art, innen, flags, is_bytes, budget, nachbarschaft=None):
     """How a lookaround without an anchor in it, and not in one of the forms `_umschau_anker` reads, reads:
     its readings when it is an anchor, "abseits" when it is surely none, None when that is not decided.
 
     Lens on a7c9674d (F7-2a): `\\A\\d+(?!.|\\n)`, `(?<!.|\\n)\\d+\\Z`, `\\A\\d+(?![^\\n]|\\n)`,
-    `\\A\\d+(?!(?s:.))`, `\\A\\d+(?![\\x00-\\U0010FFFF])` and `(?s)\\A\\d+(?!.{1})` each judge a whole value
-    with a Unicode `\\d`, and passed without a word: a lookaround whose spelling the reader did not know
-    counted as no anchor. It is read from Python's own parse of it now. A positive lookaround X made only
-    of parts that depend on the text after it (`_KONTEXTFREI`), of `\\b` and `\\B`, and of `^` and `$`
-    under MULTILINE is no anchor of the value: wherever it holds at an end, it holds before a `\\n` too
-    (or, for a lookbehind, after one). A negative lookaround of such parts only holds at the end (at the
-    start) exactly when X matches wherever a character follows (precedes); it is read as an anchor when
-    `_deckt_alles` shows that.
+    `\\A\\d+(?!(?s:.))` and `(?s)\\A\\d+(?!.{1})` each judge a whole value with a Unicode `\\d`, and passed
+    without a word: a lookaround whose spelling the reader did not know counted as no anchor. It is read
+    from Python's own parse of it. A negative lookaround of context-free parts (`_KONTEXTFREI`) holds at
+    the end (the start) exactly when X matches wherever a character follows (precedes); it is read as an
+    anchor when `_deckt_alles` shows that.
 
-    A negative lookaround is read as none only when that is PROVEN: X takes at least one character, and
-    a probe character c starts (ends) no match of X (`_randzeichen`). Then the lookaround holds before c
-    and whatever follows it (after c and whatever precedes it), so the value runs on past the match with
-    anything, whatever the item before the lookaround consumes. Lens on 4813a37a (F8-2a): the first
-    form read it as none when X missed one probe character on its own, and that premise fails twice.
-    The missed character may be a final `\\n`: `\\A\\d+(?!.|\\n(?s:.))`, `\\A[0-9]+(?![^\\n]|\\n[\\s\\S])` and
-    `\\A\\d+(?!.|\\n(?=[\\s\\S]))` each equal `^\\d+$`. And the item before may take the missed character
-    itself: `(?s)\\A\\d+(?!\\D|\\d.)` and `\\A\\d+(?![^0-9]|[0-9](?s:.))` each equal `\\A\\d+\\Z`. In both, a
-    match of X can begin with every character, so none proves that the value runs on, and the lookaround
-    is not decided now; the same holds for one that lets a longer bounded tail through, `(?![\\s\\S]{2})`,
-    and for a lookbehind that needs more room than one character (the first form read `lo > 1` as none).
-    Anything else, a reference or a condition inside, a text Python does not parse on its own, is not
-    decided."""
+    NO ANCHOR ONLY ON A POSITIVE LIST (lens on 64c6a9fc, F9-1a). Rounds on 4813a37a and 64c6a9fc read a
+    lookaround as none from its own text, and its neighbours made it an anchor: an item before it that
+    cannot give a character back (`\\A\\d++(?!\\D)`, `\\A(?>\\d+)(?!\\D)`, `\\A(?=(\\d+))\\1(?!\\D)`), a
+    neighbour that consumes the character it reads (`\\A\\d*(?!\\d[\\s\\S])\\d`), and `\\b` or MULTILINE `^`
+    or `$` at its position (`\\A\\d+\\b(?!\\W)`, `(?m)\\A\\d+$(?!\\n)`); each equals `\\A\\d+\\Z` and passed
+    without a reading and without a gap. Nine rounds of this sweep found a new neighbour each time a form
+    known to be dangerous was listed, so the list names what is harmless instead, and a lookaround in any
+    other neighbourhood leaves its branch undecided at its side: where the branch's other anchor could
+    complete it, the call is an unfolded site, never a pass. The entries, and why each is harmless
+    ("path": the items the branch matches around the lookaround, inside the lookaround that holds it if
+    there is one; its neighbourhood comes from Python's parse of the whole pattern, `_nachbarschaften`):
+
+    NEVER. A negative lookaround whose X is made of context-free parts and matches the empty text never
+    holds (each such part succeeds wherever it stands), so its branch matches nothing.
+
+    ALWAYS. A positive lookaround whose alternative is made of context-free parts and matches the empty
+    text always holds, so it asks nothing of the value.
+
+    INSIDE THE MATCH. A lookaround whose X (a positive one's alternative) is made of context-free parts
+    and at most h characters wide, where the items on its path after it (a lookahead) or before it (a
+    lookbehind) consume at least h characters in every match: it reads only characters of the match, so it
+    cannot tell where the value ends (begins), whatever stands around it.
+
+    AT THE END. A lookahead that stands last on its path (nothing after it there, and no repetition
+    repeats it), alone or as one of a run of negative lookaheads that ends the path, where the items of
+    the path before it (before the run) hold no lookahead, possessive repeat, atomic group, backreference
+    or condition at any depth, and no `\\b`, `\\B`, `$` or `\\Z` that can stand at its position. Take a
+    value v the branch accepts with the lookahead at k: the items before it match v[:k] as they did,
+    since none of them reads past k or commits to a longer run, and backtracking finds that match again.
+    A negative run: some probe character c starts no match of any of its X (`_randzeichen`), so v[:k], c
+    and anything after it is accepted too. A positive one whose alternative is made of context-free parts
+    without a possessive repeat or an atomic group, of `\\b`, `\\B`, and of `^` and `$` under MULTILINE,
+    which hold at the end exactly where they hold before a `\\n`: v, a `\\n` and anything after it is
+    accepted too. Either way the branch judges no whole value.
+
+    AT THE START. The mirror for a lookbehind that stands first on its path, alone or as one of a run of
+    negative lookbehinds that begins it, where no item after it (after the run) that can stand at its
+    position reads what lies before it: no lookbehind, `\\b`, `\\B`, `^` or `\\A` there, also not at the
+    start of a lookahead (the first item that consumes a character is read whole, at any depth). Then c
+    (a `\\n`), anything before it, and the value from k on are accepted.
+
+    The first reading, a lookaround none by its text alone (X missing one probe character, then a probe
+    character no match of X begins with), is the AT THE END and AT THE START entries without their
+    conditions on the neighbours. Anything else, a reference or a condition inside, a text Python does
+    not parse on its own or whole, is not decided."""
     budget.charge(4 * len(innen) + len(_PROBEN))
     fl = flags & (re.I | re.S | re.M | re.A | (re.L if is_bytes else re.U))
     quelle = innen.encode("latin-1") if is_bytes else innen
@@ -2102,37 +2253,264 @@ def _umschau_einordnung(art, innen, flags, is_bytes, budget):
             warnings.simplefilter("ignore")
             teil = _PARSER.parse(quelle, fl)
             lo, hi = teil.getwidth()
-            re.compile(quelle, fl)
     except Exception:  # noqa: BLE001 - a text the parser refuses on its own (an outer group named) is not decided
         return None
-    kontextfrei, grenzen, proben = True, True, set(_PROBEN)
+    budget.charge(_uebersetzungspreis(teil, fl, budget))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            re.compile(quelle, fl)
+    except Exception:  # noqa: BLE001 - a text that parses and does not compile on its own is not decided
+        return None
+    kontextfrei, bindend, grenzen = True, False, True
     for name, av, f in _teile(teil, fl):
+        budget.charge()
         if name in _KONTEXTFREI:
-            for n, a in ([(getattr(o, "name", str(o)), x) for o, x in av] if name == "IN" else [(name, av)]):
-                if n in ("LITERAL", "NOT_LITERAL"):
-                    proben.update((a - 1, a, a + 1))
-                elif n == "RANGE":
-                    proben.update((a[0] - 1, a[1] + 1))
+            bindend = bindend or name in ("ATOMIC_GROUP", "POSSESSIVE_REPEAT")
             continue
         kontextfrei, ziel = False, getattr(av, "name", "") if name == "AT" else ""
         grenzen = grenzen and (ziel in ("AT_BOUNDARY", "AT_NON_BOUNDARY")
                                or (ziel in ("AT_BEGINNING", "AT_END") and bool(f & re.M)))
+    nb = nachbarschaft
+    im_treffer = nb is not None and kontextfrei and hi < _PARSER.MAXREPEAT - 1 and nb.innen >= hi
     if art in ("=", "<="):
-        return "abseits" if grenzen else None
+        if kontextfrei and lo == 0:
+            return "abseits"        # ALWAYS
+        if im_treffer:
+            return "abseits"        # INSIDE THE MATCH
+        if nb is not None and nb.am_rand and grenzen and not bindend:
+            return "abseits"        # AT THE END, AT THE START
+        return None
     if kontextfrei and lo == 0:
-        return "abseits"            # a negative one that matches the empty text never holds: a dead branch
+        return "abseits"            # NEVER: a dead branch
     hoechstes = 0xFF if is_bytes else 0x10FFFF
-    if kontextfrei and (art == "!" or hi == 1) and _deckt_alles(teil, fl, hoechstes):
+    if kontextfrei and (art == "!" or hi == 1) and _deckt_alles(teil, fl, hoechstes, budget):
         return _ENDE_Z if art == "!" else _START
-    rand = _randzeichen(teil, fl, art == "<!", is_bytes, budget) if lo >= 1 else None
-    if rand is not None:
-        proben = sorted(p for p in proben if 0 <= p <= hoechstes)[:256]
-        budget.charge(len(rand) * len(proben))
-        for c in proben:
-            zeichen = bytes([c]) if is_bytes else chr(c)
-            if not any(m.match(zeichen) for m in rand):
-                return "abseits"    # no match of X starts (ends) with c: the value runs on past c freely
+    if im_treffer:
+        return "abseits"            # INSIDE THE MATCH
+    if nb is not None and nb.lauf_frei():
+        return "abseits"            # AT THE END, AT THE START
     return None
+
+
+def _merkmale(item, budget, gemerkt) -> frozenset:
+    """What the parts of one parsed item, at any depth, do beyond reading their own characters: "voraus"
+    a lookahead, "zurueck" a lookbehind, "bindet" a possessive repeat or an atomic group, "bezug" a
+    backreference or a condition, "grenze" `\\b` or `\\B`, "anfang" `^` or `\\A`, "ende" `$` or `\\Z`.
+    Once per item and neighbourhood pass (`gemerkt`), each part charged as it is read."""
+    if id(item) in gemerkt:
+        return gemerkt[id(item)]
+    aus, stapel = set(), [item]
+    while stapel:
+        budget.charge()
+        op, av = stapel.pop()
+        name = getattr(op, "name", str(op))
+        if name in _UMSCHAU:
+            aus.add("voraus" if av[0] >= 0 else "zurueck")
+        elif name in ("ATOMIC_GROUP", "POSSESSIVE_REPEAT"):
+            aus.add("bindet")
+        elif name in ("GROUPREF", "GROUPREF_EXISTS"):
+            aus.add("bezug")
+        elif name == "AT":
+            ziel = getattr(av, "name", str(av))
+            aus.add("grenze" if ziel in ("AT_BOUNDARY", "AT_NON_BOUNDARY") else
+                    "anfang" if ziel in ("AT_BEGINNING", "AT_BEGINNING_STRING") else "ende")
+        for sub, _f in _kinder(name, av, 0):
+            stapel.extend(getattr(sub, "data", sub))
+    gemerkt[id(item)] = frozenset(aus)
+    return gemerkt[id(item)]
+
+
+def _kinder(name, av, fl) -> list:
+    """(sub-pattern, flags in force) of the parts one parsed item holds, in the order they stand."""
+    if name == "BRANCH":
+        return [(p, fl) for p in av[1]]
+    if name == "SUBPATTERN":
+        an = av[1]                                    # `(?a:...)` replaces the type of the flags around it
+        return [(av[3], ((fl & ~(re.A | re.L | re.U) if an & (re.A | re.L | re.U) else fl) | an) & ~av[2])]
+    if name in _WIEDERHOLUNG:
+        return [(av[2], fl)]
+    if name == "ATOMIC_GROUP":
+        return [(av, fl)]
+    if name in _UMSCHAU:
+        return [(av[1], fl)]
+    if name == "GROUPREF_EXISTS":
+        return [(av[1], fl)] + ([(av[2], fl)] if av[2] is not None else [])
+    return []
+
+
+def _nachbarschaften(text, is_bytes, flags, budget):
+    """The neighbourhood of every lookaround of a pattern, in the order its `(` stands in the text, as
+    Python's parse of the whole pattern shows it (`_Nachbarschaft`); None when Python does not parse the
+    pattern whole. Python's parser keeps each lookaround where it stands and in the order of the text (it
+    moves only equal items out of a branch, and two lookarounds are never equal items: each holds its own
+    sub-pattern object); `_lesung` checks the count. Every step is charged: the parse by the length of
+    the text, each item walked, each width and each probe."""
+    budget.charge(4 * len(text))
+    fl = flags & (re.I | re.S | re.M | re.A | re.X | (re.L if is_bytes else re.U))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wurzel = _PARSER.parse(text.encode("latin-1") if is_bytes else text, fl)
+            wurzel.getwidth()
+    except Exception:  # noqa: BLE001 - a text Python does not parse whole: no neighbourhood is known
+        return None
+    try:
+        return _nachbarn_lesen(wurzel, wurzel.state.flags & (re.I | re.S | re.M | re.A | (
+            re.L if is_bytes else re.U)), is_bytes, budget)
+    except RecursionError:
+        return None
+
+
+def _nachbarn_lesen(wurzel, fl, is_bytes, budget) -> list:
+    """`_nachbarschaften` on a parsed pattern: the lookarounds in the order of the text, with the chain of
+    (items, index, flags) from the pattern down to each, then each read against its path."""
+    orte, stapel = [], [[getattr(wurzel, "data", wurzel), 0, fl, ()]]
+    while stapel:
+        oben = stapel[-1]
+        daten, i, f, kette = oben
+        if i >= len(daten):
+            stapel.pop()
+            continue
+        oben[1] = i + 1
+        budget.charge(1 + len(kette))
+        op, av = daten[i]
+        name = getattr(op, "name", str(op))
+        ort = kette + ((daten, i, f),)
+        if name in _UMSCHAU:
+            orte.append(ort)
+        for sub, f2 in reversed(_kinder(name, av, f)):
+            stapel.append([getattr(sub, "data", sub), 0, f2, ort])
+    merkmale, breiten, laeufe = {}, {}, {}
+    state = wurzel.state
+
+    def breite(daten, von, bis) -> int:
+        """The characters `daten[von:bis]` consume at least, from sums kept once per sequence."""
+        if id(daten) not in breiten:
+            summe = [0]
+            for item in daten:
+                budget.charge(1 + (len(item[1][1]) if getattr(item[0], "name", "") == "BRANCH" else 0))
+                summe.append(summe[-1] + _PARSER.SubPattern(state, [item]).getwidth()[0])
+            breiten[id(daten)] = summe
+        summe = breiten[id(daten)]
+        return summe[bis] - summe[von]
+
+    aus = []
+    for ort in orte:
+        pfad = ort
+        for j in range(len(ort) - 2, -1, -1):
+            d, k, _f = ort[j]
+            if getattr(d[k][0], "name", "") in _UMSCHAU:
+                pfad = ort[j + 1:]
+                break
+        daten, i, f = pfad[-1]
+        op, av = daten[i]
+        voraus, negativ = av[0] >= 0, getattr(op, "name", "") == "ASSERT_NOT"
+        innen = sum(breite(d, k + 1, len(d)) if voraus else breite(d, 0, k) for d, k, _f in pfad)
+        a, b = i, i + 1                                # the run it stands in: negative ones of its direction
+        if negativ:
+            while a > 0 and _gleiche_umschau(daten[a - 1], voraus):
+                a -= 1
+            while b < len(daten) and _gleiche_umschau(daten[b], voraus):
+                b += 1
+        schluessel = (id(daten), a, b)
+        if schluessel not in laeufe:
+            am_rand = _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite)
+            laeufe[schluessel] = (am_rand, _einmal(lambda lauf=daten[a:b], f=f, voraus=voraus: _lauf_frei(
+                lauf, f, not voraus, is_bytes, budget)) if am_rand and negativ else lambda: False)
+        am_rand, frei = laeufe[schluessel]
+        aus.append(_Nachbarschaft(am_rand, innen, frei))
+    return aus
+
+
+def _einmal(frage):
+    """`frage`, asked at most once: its answer is kept."""
+    antwort = []
+
+    def einmal():
+        if not antwort:
+            antwort.append(frage())
+        return antwort[0]
+    return einmal
+
+
+def _gleiche_umschau(item, voraus) -> bool:
+    op, av = item
+    return getattr(op, "name", "") == "ASSERT_NOT" and (av[0] >= 0) == voraus
+
+
+def _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite) -> bool:
+    """Whether the lookarounds `daten[a:b]` of the innermost level of `pfad` stand as AT THE END (a
+    lookahead) or AT THE START (a lookbehind) asks (`_umschau_einordnung`): at that edge of the path, no
+    repetition around them, and the items on the other side of them free of what the entry names."""
+    for tiefe, (d, k, _f) in enumerate(pfad):
+        innerste = tiefe == len(pfad) - 1
+        if voraus and (b if innerste else k + 1) != len(d):
+            return False
+        if not voraus and (a if innerste else k) != 0:
+            return False
+        if not innerste:
+            name, av = getattr(d[k][0], "name", ""), d[k][1]
+            if name in _WIEDERHOLUNG and av[1] > 1:
+                return False
+    ebenen = [(d, (a if tiefe == len(pfad) - 1 else k) if voraus else (b if tiefe == len(pfad) - 1 else k + 1))
+              for tiefe, (d, k, _f) in enumerate(pfad)]
+    if voraus:
+        # the items before it: none reads past it or commits, at any depth; none at its position reads it
+        for d, k in ebenen:
+            for item in d[:k]:
+                if _merkmale(item, budget, merkmale) & {"voraus", "bindet", "bezug"}:
+                    return False
+        for d, k in reversed(ebenen):
+            for j in range(k - 1, -1, -1):
+                if _merkmale(d[j], budget, merkmale) & {"grenze", "ende"}:
+                    return False
+                if breite(d, j, j + 1) >= 1:
+                    return True
+        return True
+    # a lookbehind: the items after it that can stand at its position read nothing before it
+    for d, k in reversed(ebenen):
+        for j in range(k, len(d)):
+            if _merkmale(d[j], budget, merkmale) & {"zurueck", "grenze", "anfang"}:
+                return False
+            if breite(d, j, j + 1) >= 1:
+                return True
+    return True
+
+
+def _lauf_frei(lauf, fl, von_hinten, is_bytes, budget) -> bool:
+    """Whether some probe character starts (`von_hinten`: ends) no match of the X of any negative
+    lookaround in `lauf`: each X takes a character, is read by `_randzeichen`, and the probes are those of
+    `_PROBEN` and the characters beside the literals and ranges of every X. An X nested deeper than the
+    interpreter measures its width is not read, and the run is not free."""
+    fl = fl & (re.I | re.S | re.M | re.A | (re.L if is_bytes else re.U))
+    proben, raender = set(_PROBEN), []
+    for _op, av in lauf:
+        teil = av[1]
+        try:
+            breit = teil.getwidth()[0]
+        except RecursionError:
+            return False
+        if breit < 1:
+            return False
+        rand = _randzeichen(teil, fl, von_hinten, is_bytes, budget)
+        if rand is None:
+            return False
+        raender.append(rand)
+        for name, a, _f in _teile(teil, fl):
+            budget.charge()
+            for n, x in ([(getattr(o, "name", str(o)), y) for o, y in a] if name == "IN" else [(name, a)]):
+                if n in ("LITERAL", "NOT_LITERAL"):
+                    proben.update((x - 1, x, x + 1))
+                elif n == "RANGE":
+                    proben.update((x[0] - 1, x[1] + 1))
+    proben = sorted(p for p in proben if 0 <= p <= (0xFF if is_bytes else 0x10FFFF))[:256]
+    budget.charge(sum(map(len, raender)) * len(proben))
+    for c in proben:
+        zeichen = bytes([c]) if is_bytes else chr(c)
+        if not any(m.match(zeichen) for rand in raender for m in rand):
+            return True             # no match of any X starts (ends) with c
+    return False
 
 
 def _verborgene_anker(menge) -> int:
@@ -2141,10 +2519,11 @@ def _verborgene_anker(menge) -> int:
     return functools.reduce(operator.or_, ((1 if s else 0) | (2 if e else 0) | x for s, e, _u, x in menge), 0)
 
 
-def _umschau_lesung(rahmen, menge, anker, innen, is_bytes, budget) -> frozenset:
+def _umschau_lesung(rahmen, menge, anker, innen, is_bytes, budget, nachbarschaft=None) -> frozenset:
     """The readings of one lookaround alternative: its anchor when it is one, not decided when an anchor
-    stands in it in another form, and otherwise as `_umschau_einordnung` reads it; what that does not
-    decide stays undecided as a possible anchor at its side, never off the path. One holding an anchor is
+    stands in it in another form, and otherwise as `_umschau_einordnung` reads it in its neighbourhood
+    (`_nachbarschaften`); what that does not decide stays undecided as a possible anchor at its side, never
+    off the path. One holding an anchor is
     undecided at the anchor's side AND at its own: `\\A\\d+(?![\\s\\S]|\\A)` and `(?<![\\s\\S]|(?:$)\\S)\\d+\\Z`
     each match what `\\A\\d+\\Z` matches, and passed on 4813a37a, read as undecided at the side of the
     `\\A` or `$` they hold and as nothing at the side where they stand."""
@@ -2157,7 +2536,7 @@ def _umschau_lesung(rahmen, menge, anker, innen, is_bytes, budget) -> frozenset:
     verborgen = anker | _verborgene_anker(menge)
     if verborgen:
         return frozenset({(False, 0, unicode, verborgen | (1 if rahmen.art in ("<=", "<!") else 2))})
-    einordnung = _umschau_einordnung(rahmen.art, innen, rahmen.flags, is_bytes, budget)
+    einordnung = _umschau_einordnung(rahmen.art, innen, rahmen.flags, is_bytes, budget, nachbarschaft)
     if einordnung == "abseits":
         return _abseits(menge)
     if einordnung is not None:
@@ -2165,21 +2544,26 @@ def _umschau_lesung(rahmen, menge, anker, innen, is_bytes, budget) -> frozenset:
     return frozenset({(False, 0, unicode, 1 if rahmen.art in ("<=", "<!") else 2)})
 
 
-def _schliessen(rahmen, i, text, is_bytes, budget) -> frozenset:
+def _schliessen(rahmen, i, text, is_bytes, budget, nachbar=lambda _nummer: None) -> frozenset:
     """The readings of the group closed at `i`. A positive lookaround is read per alternative (one of
     `(?=\\s|$)` ends the value like `$`); a negative one and a conditional group as a whole. A condition
-    holding an anchor, a lookaround read as one included, is not decided."""
+    holding an anchor, a lookaround read as one included, is not decided. A lookaround's text is charged
+    by its length before it is cut out and read (nested lookarounds cut the same text once per level)."""
     alternativen = rahmen.alternativen(i)
     koerper = frozenset().union(*(m for m, _a, _b, _e in alternativen))
     budget.charge(len(koerper) + len(alternativen))
     if rahmen.art == "gruppe":
         return koerper
     anker = functools.reduce(operator.or_, (a for _m, a, _b, _e in alternativen), 0)
+    if rahmen.art in ("=", "<=", "!", "<!"):
+        budget.charge(i - alternativen[0][2])
+        nachbarschaft = nachbar(rahmen.nummer)
     if rahmen.art in ("=", "<="):
-        return frozenset().union(*(_umschau_lesung(rahmen, m, a, text[b:e], is_bytes, budget)
+        return frozenset().union(*(_umschau_lesung(rahmen, m, a, text[b:e], is_bytes, budget, nachbarschaft)
                                    for m, a, b, e in alternativen))
     if rahmen.art in ("!", "<!"):
-        return _umschau_lesung(rahmen, koerper, anker, text[alternativen[0][2]:i], is_bytes, budget)
+        return _umschau_lesung(rahmen, koerper, anker, text[alternativen[0][2]:i], is_bytes, budget,
+                               nachbarschaft)
     verborgen = anker | _verborgene_anker(koerper)
     return frozenset({(False, 0, any(u for _s, _e, u, _x in koerper), verborgen)}) if verborgen else _abseits(koerper)
 
@@ -2200,10 +2584,23 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
     conditional group are off the path; a lookaround that is an anchor is read as one (`(?=\\n?\\Z)`
     like `$`, `(?!.)` under DOTALL like `\\Z`), and one holding an anchor in another form leaves its
     branch undecided. `^` and `$` under MULTILINE are line anchors, never the value's. A Unicode class
-    counts under the flags of the group it stands in, so `(?a:\\d)` reads ASCII."""
+    counts under the flags of the group it stands in, so `(?a:\\d)` reads ASCII.
+
+    A lookaround is read in its neighbourhood, which Python's parse of the whole pattern shows
+    (`_nachbarschaften`, once per pattern and only where it holds a lookaround): the n-th lookaround the
+    text opens is the n-th of that parse. Where the two do not count the same lookarounds, the pattern
+    is not decided."""
     budget.charge(len(text))
     stapel = [_Rahmen("gruppe", flags, False, 0)]
     i, n = 0, len(text)
+    nachbarn, umschauen = [], 0
+
+    def nachbar(nummer):
+        if not nachbarn:
+            nachbarn.append(_nachbarschaften(text, is_bytes, flags, budget))
+        liste = nachbarn[0]
+        return liste[nummer] if liste is not None and nummer is not None and nummer < len(liste) else None
+
     while i < n:
         budget.charge()
         rahmen = stapel[-1]
@@ -2235,7 +2632,9 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
         elif c == "(":
             art, an, aus, j = _oeffner(text, i)
             innen = (rahmen.flags | _flag_bits(an)) & ~_flag_bits(aus)
-            stapel.append(_Rahmen(art, innen, (rahmen.verbose or "x" in an) and "x" not in aus, j))
+            nummer = umschauen if art in ("=", "!", "<=", "<!") else None
+            umschauen += nummer is not None
+            stapel.append(_Rahmen(art, innen, (rahmen.verbose or "x" in an) and "x" not in aus, j, nummer))
             i = j
         elif c == ")":
             if len(stapel) == 1:
@@ -2243,7 +2642,8 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
             gruppe = stapel.pop()
             for _m, anker, _b, _e in gruppe.alternativen(i):
                 stapel[-1].anker |= anker
-            i = _anhaengen(stapel[-1], _schliessen(gruppe, i, text, is_bytes, budget), text, i + 1, budget)
+            i = _anhaengen(stapel[-1], _schliessen(gruppe, i, text, is_bytes, budget, nachbar), text, i + 1,
+                           budget)
         elif c == "|":
             rahmen.strich(i)
             i += 1
@@ -2254,6 +2654,8 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
             i = _anhaengen(rahmen, _NICHTS, text, i + 1, budget)
     if len(stapel) != 1:
         raise _Unentschieden("a group that is not closed")
+    if nachbarn and nachbarn[0] is not None and len(nachbarn[0]) != umschauen:
+        raise _Unentschieden("lookarounds Python's parse does not hold as the text opens them")
     return frozenset().union(*(m for m, _a, _b, _e in stapel[0].alternativen(n)))
 
 
@@ -2271,13 +2673,21 @@ def _aus_menge(menge, mode) -> list:
     `fullmatch` judges the whole value in every branch. `$` lets a trailing newline through only where
     the match may end before it, not under fullmatch; a bytes pattern's `\\d` is ASCII in Python too.
     Under MULTILINE `^` and `$` are line anchors, and `\\A`, `\\Z`, `match` and `fullmatch` still judge
-    the whole value (review 5 on e176414c). Raises _Unentschieden where a branch is not decided."""
+    the whole value (review 5 on e176414c). Raises _Unentschieden where a branch is not decided.
+
+    An anchor that is not placed decides a branch only where the other anchor could complete it and it
+    could change the reading: an undecided start where the branch is not anchored at the start already,
+    an undecided end where it does not end in `\\Z` already (a lookaround only narrows what a branch
+    matches, so behind `\\A` and `\\Z` the reading stands, and `\\A\\d+\\Z(?!x)` still reads its `\\d`).
+    Since a lookaround outside the positive list of `_umschau_einordnung` is undecided, this keeps the
+    readings of such branches as they were."""
     if mode == "fullmatch":
         passend = [(2, u) for _s, _e, u, _x in menge]
     else:
         for s, e, _u, x in menge:
-            # an anchor that is not placed decides only a branch the other anchor could complete
-            if x and (s or mode == "match" or x & 1) and (e or x & 2):
+            anfang = s or mode == "match"
+            offen = (x & 1 and not anfang) or (x & 2 and e != 2)
+            if offen and (anfang or x & 1) and (e or x & 2):
                 raise _Unentschieden("an anchor in a lookaround or a conditional group in a form the sweep "
                                      "does not place")
         passend = [(e, u) for s, e, u, _x in menge if e and (mode == "match" or s)]
@@ -3188,6 +3598,274 @@ class TheSweepReadsTheFormsOfTheLensOn4813a37a(unittest.TestCase):
         self.assertIn(f"more than {_MODULE_WORK} steps reading one module; its calls from there on were not read",
                       result["one call past the anchor budget, 200 times"]["gaps"])
         self.assertLess(result["_peak_bytes"], 300 * 10**6)
+
+
+#: The whole-value patterns a lens on 64c6a9fc planted past the sweep (F9-1a), each with the pattern it
+#: equals and how it is matched: an item before the lookaround that cannot give a character back, a
+#: neighbour that consumes the character it reads, and `\b` or MULTILINE `^` or `$` at its position. Each
+#: passed 64c6a9fc's sweep without a reading and without a gap, on 3.10 and 3.12 (the possessive and
+#: atomic forms compile from Python 3.11 on, and the sweep reads their text on 3.10 too). The last one is
+#: whole-value in its `\d+` branch only.
+_LINSE_64C6A9FC = (
+    (r"\A\d++(?!\D)", r"\A\d+\Z", "search"), (r"\A(?>\d+)(?!\D)", r"\A\d+\Z", "search"),
+    (r"\A(?=(\d+))\1(?!\D)", r"\A\d+\Z", "search"), (r"\A\d+\b(?!\W)", r"\A\d+\Z", "search"),
+    (r"(?<!\W)\b\d+\Z", r"\A\d+\Z", "search"), (r"\d++(?!\D)", r"\A\d+\Z", "match"),
+    (r"\A\d*+(?!\D)", r"\A\d*\Z", "search"), (r"\A[0-9]++(?![^0-9\n]|\n[\s\S])", r"^[0-9]+$", "search"),
+    (r"\A(?=([0-9]+))\1(?![^0-9\n]|\n[\s\S])", r"^[0-9]+$", "search"),
+    (r"\A[0-9]+\b(?![^\w\n]|\n[\s\S])", r"^[0-9]+$", "search"), (r"\d(?<![\s\S]\d)\d*\Z", r"\A\d+\Z", "search"),
+    (r"[0-9](?<![\s\S][0-9])[0-9]*$", r"^[0-9]+$", "search"),
+    (r"\A(?=(?P<v>\d+))(?P=v)(?!\D)", r"\A\d+\Z", "search"), (r"\A\d{1,9}+(?!\D)", r"\A\d{1,9}\Z", "search"),
+    (r"\A(?>\d+|x)(?!\D)", r"\A(?:\d+\Z|x(?!\D))", "search"), (r"\A\d*(?!\d[\s\S])\d", r"\A\d+\Z", "search"),
+    (r"\A[0-9]*(?![0-9](?:[^\n]|\n[\s\S]))[0-9]", r"^[0-9]+$", "search"),
+    (r"\d*(?!\d[\s\S])\d", r"\A\d+\Z", "match"), (r"(?m)\A\d+$(?!\n)", r"\A\d+\Z", "search"),
+    (r"(?m)^(?<!\n)\d+\Z", r"\A\d+\Z", "search"), (r"(?m)^(?<!\n)\d+$(?!\n)", r"\A\d+\Z", "search"),
+)
+
+
+def _gepflanzt(pattern, mode) -> str:
+    return (f"import re\nA = re.match({pattern!r}, s)\n" if mode == "match"
+            else f"import re\nA = re.compile({pattern!r})\n")
+
+
+def _stumm(pattern, mode) -> bool:
+    """Does the sweep read a planted pattern neither as a finding nor as an unfolded site?"""
+    quelle = [("scripts.planted", _gepflanzt(pattern, mode))]
+    return not _whole_value_regex_readings(quelle) and not _unfolded_pattern_sites(quelle)
+
+
+#: What the oracle below compares on: every text of up to four characters over a short alphabet, then
+#: every text of one and two characters over the probe characters of the sweep and their neighbours,
+#: before and after a few values. The second stage keeps a pattern from counting as whole-value only
+#: because the first alphabet lacks the character that shows it runs on (a lens on 4813a37a found three
+#: such artefacts over an alphabet without `b`).
+def _orakeltexte() -> tuple:
+    kurz = ["\n", "a", "b", "_", "1", "9", chr(0x663), " ", "-"]
+    erste = ["".join(t) for k in range(5) for t in itertools.product(kurz, repeat=k)]
+    breit = sorted({chr(c) for c in _PROBEN} | set("ab`_-/: x\t\x0b") | {chr(0x663), chr(0xFF15)})
+    werte = ["", "1", "12", chr(0x661) + chr(0x662), "\n", "x"]
+    zweite = sorted({w + t for w in werte for t in breit + [a + b for a in breit for b in breit[::3]]}
+                    | {t + w for w in werte for t in breit + [a + b for a in breit[::3] for b in breit]})
+    return erste, zweite
+
+
+def _gleich(muster, mode, referenz, texte) -> bool:
+    """Does a compiled pattern, matched this way, accept exactly the texts `referenz` (searched) accepts?"""
+    lies = muster.match if mode == "match" else muster.search
+    return all(bool(lies(t)) == bool(referenz.search(t)) for stufe in texte for t in stufe)
+
+
+#: The neighbourhoods the context fuzz puts a lookaround in (L), with how the pattern is matched: alone at
+#: an end, behind a capture of a lookahead, `\b`, `\B`, MULTILINE `$` and `^`, a neighbour that consumes
+#: what it reads, groups, an optional group, a run of two, a repetition, a lookaround beside it, and from
+#: Python 3.11 on possessive and atomic items.
+_FUZZ_FORMEN = (
+    (lambda L: r"\A\d+" + L, "search"), (lambda L: L + r"\d+\Z", "search"),
+    (lambda L: r"\A(?=(\d+))\1" + L, "search"), (lambda L: r"\A\d+\b" + L, "search"),
+    (lambda L: r"\A\d+\B" + L, "search"), (lambda L: L + r"\b\d+\Z", "search"),
+    (lambda L: r"\A\d*" + L + r"\d", "search"), (lambda L: r"\d" + L + r"\d*\Z", "search"),
+    (lambda L: r"(?m)\A\d+$" + L, "search"), (lambda L: r"(?m)^" + L + r"\d+\Z", "search"),
+    (lambda L: r"\A(?:\d+" + L + ")", "search"), (lambda L: r"\A\d+(?:" + L + ")?", "search"),
+    (lambda L: r"\A\d+" + L + "(?:x)?", "search"), (lambda L: r"\d+" + L, "match"),
+    (lambda L: r"\A\d+" + L + L, "search"), (lambda L: r"\A(?:\d" + L + ")+", "search"),
+    (lambda L: r"\A\d+(?=\d*)" + L, "search"), (lambda L: r"(?<![a-z])" + L + r"\d+\Z", "search"),
+) + ((
+    (lambda L: r"\A\d++" + L, "search"), (lambda L: r"\A(?>\d+)" + L, "search"),
+    (lambda L: r"\A\d*+" + L + r"\d", "search"), (lambda L: L + r"(?>\d+)\Z", "search"),
+) if sys.version_info >= (3, 11) else ())
+_FUZZ_TEILE = (".", r"\n", r"[^\n]", r"[\s\S]", r"\d", r"\D", r"\w", r"\W", r"\s", r"\S", "a", "[^a]", "[0-9]",
+               "[^0-9]", "(?s:.)")
+
+
+def _umschau_fuzz(seed, draws) -> tuple:
+    """(patterns tried, patterns equal to a whole-value reference, those the sweep is silent on): a
+    lookaround X drawn from `_FUZZ_TEILE` by alternation, sequence and group, put in a neighbourhood of
+    `_FUZZ_FORMEN`; a pattern that accepts what `\\A\\d+\\Z`, `^\\d+$` or `\\A\\d*\\Z` accepts on every text of
+    `_orakeltexte` is whole-value, and the sweep must read it or name it an unfolded site."""
+    rnd, texte = random.Random(seed), _orakeltexte()
+    referenzen = [re.compile(r) for r in (r"\A\d+\Z", r"^\d+$", r"\A\d*\Z")]
+
+    def teil(tiefe=0):
+        r = rnd.random()
+        if tiefe > 2 or r < 0.4:
+            return rnd.choice(_FUZZ_TEILE)
+        if r < 0.7:
+            return teil(tiefe + 1) + "|" + teil(tiefe + 1)
+        return "(?:" + teil(tiefe + 1) + ")" + teil(tiefe + 1)
+
+    versucht, gleich, stumm = set(), [], []
+    for _ in range(draws):
+        form, mode = rnd.choice(_FUZZ_FORMEN)
+        muster = form(rnd.choice(("(?!{})", "(?={})", "(?<!{})", "(?<={})")).format(teil()))
+        if muster in versucht:
+            continue
+        versucht.add(muster)
+        try:
+            kompiliert = re.compile(muster)
+        except re.error:
+            continue
+        if not any(_gleich(kompiliert, mode, r, texte) for r in referenzen):
+            continue
+        gleich.append(muster)
+        if _stumm(muster, mode):
+            stumm.append(muster)
+    return versucht, gleich, stumm
+
+
+def _stumme_der_linse() -> list:
+    """The patterns of `_LINSE_64C6A9FC` the sweep is silent on."""
+    return [p for p, _ref, mode in _LINSE_64C6A9FC if _stumm(p, mode)]
+
+
+def _deckt_alles_eingabe(literale, klassen=1) -> str:
+    """The pattern of the lens's F9-2a inputs on 64c6a9fc (mk_perf9, mk_perf9b): `\\A\\d+(?!X)` with X a class of
+    every code point, `klassen` negated classes of 269 ranges of 4095 code points each (from U+1000 up,
+    past the surrogates), and `literale` one-character literals; it matches what `\\A\\d+\\Z` matches."""
+    b = chr(92)
+    teile = [b + "A" + b + "d+(?![" + b + "x00-" + b + "U0010ffff]"]
+    for k in range(klassen):
+        teile.append("|[^" + "".join(chr(lo + k) + "-" + chr(lo + k + 0xFFE) for lo in list(range(0x1000, 0xD000, 0x1000))
+                                     + list(range(0xE000, 0x10F000, 0x1000))) + "]")
+    teile += ["|" + chr(0x4E00 + i) for i in range(literale)]
+    return "".join(teile) + ")"
+
+
+class TheSweepReadsTheFormsOfTheLensOn64c6a9fc(unittest.TestCase):
+    """A lens on 64c6a9fc (F9-1a, F9-2a, and a memo collision beside them) planted lookarounds whose
+    neighbours make them anchors, measured a covering check the budgets did not charge, and found a class
+    attribute and a class-body name sharing one key. None was live in the tree. Run against 64c6a9fc's
+    sweep (a hybrid, counted by case), the four cases of the findings fail, the meta-check fails for want
+    of the function it patches, the case of a lookaround behind both anchors fails since 64c6a9fc read
+    the `$` it now names a gap, and the case of the tree's forms passes on both."""
+
+    _lines = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._lines)
+    _sites = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._sites)
+
+    def test_every_pattern_the_lens_found_silent_is_read_or_unfolded(self):
+        """F9-1a. Each pattern equals its whole-value reference on every text of `_orakeltexte` (where this
+        Python compiles it) and was silent; it is an unfolded site now, since its lookaround stands in a
+        neighbourhood on no positive list. Controls: `\\A\\d+(?!\\D)` differs from `\\A\\d+\\Z` and is proven
+        none (AT THE END), `\\A\\d++\\Z` reads its `\\d`."""
+        texte = _orakeltexte()
+        for pattern, referenz, mode in _LINSE_64C6A9FC:
+            with self.subTest(pattern=pattern):
+                try:
+                    kompiliert = re.compile(pattern)
+                except re.error:
+                    self.assertLess(sys.version_info, (3, 11), "compiles from Python 3.11 on")
+                else:
+                    self.assertTrue(_gleich(kompiliert, mode, re.compile(referenz), texte), "whole value")
+                self.assertFalse(_stumm(pattern, mode), "read or unfolded, never silent")
+        self.assertFalse(_gleich(re.compile(r"\A\d+(?!\D)"), "search", re.compile(r"\A\d+\Z"), texte))
+        self.assertTrue(_stumm(r"\A\d+(?!\D)", "search"))
+        self.assertEqual(self._lines('import re\nA = re.compile(r"\\A\\d++\\Z")\n'), [2])
+
+    def test_a_context_fuzz_finds_no_silent_whole_value_pattern(self):
+        """F9-1a as a class: 6000 draws of `_umschau_fuzz` (seed 21). On 64c6a9fc's sweep the same draws
+        left 34 whole-value patterns silent on 3.10.12 and 30 on 3.12.14 (measured 2026-09-27), none now;
+        seeds 1 to 8 with 20000 draws each found none on either (about 600 whole-value patterns each)."""
+        versucht, gleich, stumm = _umschau_fuzz(21, 6000)
+        self.assertGreater(len(versucht), 4000)
+        self.assertGreater(len(gleich), 150, "the fuzz reached whole-value patterns")
+        self.assertEqual(stumm, [])
+
+    def test_the_tests_catch_the_text_only_rule(self):
+        """Gate meta-check: with the neighbourhood condition taken out (`_steht_am_rand` true everywhere, so
+        a lookaround is none as soon as its own text proves it, the rule of 4813a37a and 64c6a9fc), the two
+        cases above find what they were built for."""
+        with unittest.mock.patch.object(sys.modules[__name__], "_steht_am_rand", lambda *_a: True):
+            stumme = _stumme_der_linse()
+            _versucht, _gleich_, stumm = _umschau_fuzz(21, 1500)
+        self.assertIn(r"\A\d+\b(?!\W)", stumme)
+        self.assertIn(r"\A(?=(\d+))\1(?!\D)", stumme)
+        self.assertIn(r"\A\d*(?!\d[\s\S])\d", stumme)
+        self.assertTrue(stumm)
+        self.assertEqual(_stumme_der_linse(), [])
+
+    def test_a_class_attribute_and_a_class_body_name_do_not_share_a_key(self):
+        """The memo collision of 64c6a9fc: `resolve` read `P` in the class body as `("class", id(K), "P")`
+        with the body's bindings and those around the class, and `klassen_attribut` read `K.P` under the
+        same key with the body's alone, so the module-wide fold memo gave the call on line 4 the value of
+        line 6's attribute and it passed. The same key in the names one callee has seen made `K.c` below
+        no call of `re` (silent on 4813a37a too). Python binds `\\A\\d+\\Z` on line 4 and `re.compile` to
+        `K.c`; both are read now."""
+        einheitlich, sauber = 'r"\\A\\d+\\Z"', 'r"\\A[0-9]+\\Z"'
+        faelle = (f"import re\nP = {einheitlich}\nclass K:\n    A = re.compile(P)\n    P = {sauber}\nB = re.compile(K.P)\n",
+                  f"import re\nc = re.compile\nclass K:\n    c = c\nA = K.c({einheitlich})\n")
+        for quelle, zeile in zip(faelle, (4, 5)):
+            with self.subTest(line=zeile):
+                namen = {"__name__": "planted"}
+                exec(compile(quelle, "planted", "exec"), namen)       # what Python binds
+                self.assertIn(r"\A\d+\Z", [getattr(namen.get("A") or namen["K"].A, "pattern", "")])
+                self.assertEqual(self._lines(quelle), [zeile])
+                self.assertEqual(self._sites(quelle), [])
+
+    def test_the_cost_of_the_covering_check_and_of_compiling_a_class_is_charged(self):
+        """F9-2a in the bounded child. On 64c6a9fc `_deckt_alles` held the characters a negated class leaves
+        out one by one and was charged once for all of it: 200 one-character literals beside such a class
+        took 29.5 s to 33.8 s, 1000 took 176.5 s, the 200 written five times in one module 161.6 s (the
+        lens's runs, load 30 to 44), and two such classes 239 MB. Beside it, compiling a class for the
+        lookaround reader was charged one step whatever it covered: twenty calls, each with a class of 200
+        ranges over the Basic Multilingual Plane, took 37.4 s there (measured 2026-09-27, load near 38).
+        Each step is charged before it is done now: the four take under 10 s, the first three keep their
+        reading, the fourth is an unfolded site, and the two classes stay under 100 MB (after the fix,
+        2026-09-27, load near 40: under 0.2 s each, a peak under 40 MB; on 64c6a9fc, 3.10.12, load
+        near 38: 35.7 s for the 200 literals, 238,952,448 bytes for the two classes)."""
+        def klasse(i):
+            return "[" + "".join(chr(0x100 + 200 * i + j) + "-" + chr(0xD7FF) for j in range(200)) + "]"
+        eingaben = {
+            "200 literals": "import re\nA = re.compile(r\"" + _deckt_alles_eingabe(200) + "\")\n",
+            "1000 literals": "import re\nA = re.compile(r\"" + _deckt_alles_eingabe(1000) + "\")\n",
+            "200 literals, five calls": ("import re\nP = r\"" + _deckt_alles_eingabe(200) + "\"\n"
+                                         + "A = re.compile(P)\n" * 5),
+            "twenty classes over the BMP": "import re\n" + "".join(
+                f"A{i} = re.compile(r\"\\A\\d+(?!{klasse(i)}x)\")\n" for i in range(20)),
+        }
+        run = subprocess.run([sys.executable, "-c", _BOUNDED_CHILD, __file__], input=json.dumps(eingaben),
+                             capture_output=True, text=True, timeout=900)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        for name, lesungen in (("200 literals", 1), ("1000 literals", 1), ("200 literals, five calls", 5),
+                               ("twenty classes over the BMP", 0)):
+            with self.subTest(input=name):
+                self.assertNotIn("raised", result[name])
+                self.assertLess(result[name]["seconds"], 10)
+                self.assertEqual(result[name]["readings"], lesungen)
+        self.assertEqual(result["twenty classes over the BMP"]["gaps"],
+                         [f"more than {_ANCHOR_WORK} steps reading the anchors of one call"])
+        zwei = {"two negated classes": "import re\nA = re.compile(r\"" + _deckt_alles_eingabe(0, 2) + "\")\n"}
+        run = subprocess.run([sys.executable, "-c", _BOUNDED_CHILD, __file__], input=json.dumps(zwei),
+                             capture_output=True, text=True, timeout=900)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        self.assertEqual((result["two negated classes"]["readings"], result["two negated classes"]["gaps"]), (1, []))
+        self.assertLess(result["_peak_bytes"], 100 * 10**6)
+
+    def test_a_lookaround_behind_both_anchors_keeps_the_reading(self):
+        """An undecided lookaround decides a branch only where it could change the reading: behind `\\A`
+        and `\\Z` a lookaround only narrows what the branch matches, so `\\A\\d+\\Z(?!x)` and `\\A(?<!x)\\d+\\Z`
+        read their `\\d` as they did on 64c6a9fc. A lookahead behind `$` could turn it into `\\Z`, and one
+        whose neighbourhood is on no positive list is an unfolded site there (conservative: `^\\d+$(?!x)`
+        read `$` on 64c6a9fc, which is right, and is a gap now)."""
+        planted = ('import re\nA = re.compile(r"\\A\\d+\\Z(?!x)")\nB = re.compile(r"\\A(?<!x)\\d+\\Z")\n'
+                   'C = re.compile(r"^[0-9]+$(?!x)")\n')
+        self.assertEqual(self._lines(planted), [2, 3])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 1)])
+
+    def test_the_tree_lookarounds_keep_their_readings(self):
+        """What the positive list does to the tree (measured 2026-09-27): 19 lookaround texts in 51 places
+        (per pattern, flags value and alternative) read as none 45 times on 64c6a9fc and 29 times now (15 AT
+        THE END, 7 INSIDE THE MATCH, 7 AT THE START); of the 16 that are undecided now, one makes a call an
+        unfolded site (`_UNFOLDED_PATTERN_SITES`, the requirement-line pin the gate cannot compare), and the
+        others stand in branches no other anchor completes. Pinned here by forms of the tree: the version
+        pin with its lookbehind first and its two lookaheads last reads nothing and is no site, the same
+        behind `^\\s*` too, and the GitHub expression's `!(?!=)` in a `match`."""
+        planted = ('import re\nA = re.compile(r"(?<![\\w.-])proofbundle\\s*==\\s*v?([0-9]+\\.[0-9]+)(?![0-9A-Za-z])'
+                   '(?![.!+_-]+[0-9A-Za-z])", re.I)\n'
+                   'B = re.compile(r"^\\s*(?<![\\w.-])proofbundle\\s*==\\s*v?([0-9]+\\.[0-9]+)(?![0-9A-Za-z])'
+                   '(?![.!+_-]+[0-9A-Za-z])", re.I)\n'
+                   'C = re.compile(r"\\s*(\\(|\\)|&&|\\|\\||!(?!=))").match(s)\n')
+        self.assertEqual(self._lines(planted), [])
+        self.assertEqual(self._sites(planted), [])
 
 
 class TheMeasuredConsequencesAreGone(unittest.TestCase):

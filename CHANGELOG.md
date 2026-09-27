@@ -333,11 +333,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   what `^\d+$` matches. And the item before the lookahead may take the missed character itself:
   `(?s)\A\d+(?!\D|\d.)` and `\A\d+(?![^0-9]|[0-9](?s:.))` each match what `\A\d+\Z` matches. Such a
   whole-value pattern with a Unicode `\d` passed without a reading and without a gap. The reader now
-  reads a lookaround as none only where that is proven: X takes a character, and some character begins
-  (for a lookbehind: ends) no match of X, so the value runs on past the lookaround with anything,
-  whatever the item before it takes. Anything else leaves the branch undecided, and the call is an
-  unfolded site; a lookahead that lets a bounded tail through, `(?![\s\S]{2})`, and a lookbehind wider
-  than one character are undecided too, where the first form read them as none. Beside it, a
+  reads a lookaround as none only where X takes a character, and some character begins (for a
+  lookbehind: ends) no match of X, so the value runs on past the lookaround with anything where its
+  neighbours let it; they need not (the fifth lens, below). Anything else leaves the branch undecided,
+  and the call is an unfolded site; a lookahead that lets a bounded tail through, `(?![\s\S]{2})`, and a
+  lookbehind wider than one character are undecided too, where the first form read them as none. Beside it, a
   lookaround holding an anchor in a form the reader does not place was undecided only at that anchor's
   side: `\A\d+(?![\s\S]|\A)` and `(?<![\s\S]|(?:$)\S)\d+\Z` each match what `\A\d+\Z` matches and passed;
   such a lookaround is undecided at its own side too now. With the seeds of the lens's runs, its
@@ -363,6 +363,42 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   matrix, two existing cases failed on Python 3.11, at 4813a37a too: 3.11 bounds the depth of the
   syntax tree it builds where 3.10 and 3.12 do not, so `ast.parse` raised RecursionError for a chain
   of 3000 `+` and the sweep let it out. Such a source is an unfolded site now.
+
+  A fifth lens, on 64c6a9fc, found that proof drawn from the lookaround's own text while its neighbours
+  decide. An item before it that cannot give a character back (`\A\d++(?!\D)`, `\A(?>\d+)(?!\D)`,
+  `\A(?=(\d+))\1(?!\D)`), a neighbour that consumes the character it reads (`\A\d*(?!\d[\s\S])\d`), and
+  `\b` or MULTILINE `^` or `$` at its position (`\A\d+\b(?!\W)`, `(?m)\A\d+$(?!\n)`) each make a pattern
+  that matches what `\A\d+\Z` matches, and each passed without a reading and without a gap, at 4813a37a
+  too. So the rule is turned around: a lookaround is no anchor only in a neighbourhood on a positive list,
+  read from Python's parse of the whole pattern, each entry with the reason it is harmless (it never
+  holds; it always holds; it reads only characters of the match; or it stands at the end, the start, of
+  its path, alone or in a run of negative ones, where nothing beside it reads past it or commits and its
+  own text proves that the value runs on). Every other lookaround leaves its branch undecided, and the
+  call is an unfolded site where the other anchor could complete the branch and the reading could change;
+  behind `\A` and `\Z` a lookaround only narrows the branch, and the reading stands. Behind `$` it could
+  make the end `\Z`, so `^[0-9]+$(?!x)`, which read `$` rightly, is an unfolded site now. Of the tree's 19
+  lookaround texts in 51 places, 45 read as none before and 29 now; one call becomes an unfolded site,
+  the requirement-line pin the version gate cannot compare, listed with its reason (it matches with any
+  of 4856 tails tried), and the tree still reads no finding. A context fuzz of 6000 draws over 22
+  neighbourhoods leaves 34 whole-value patterns silent on 64c6a9fc under Python 3.10 (30 under 3.12) and
+  none now; eight more seeds of 20000 draws each, none.
+  The same lens measured work no budget charged: the covering check of a negative lookaround held the
+  characters a negated class leaves out one by one, so 200 literals beside such a class took about 30 s,
+  1000 took 176.5 s, and two classes 239 MB; it holds intervals now, charged before each pass, and the
+  inputs take under 0.2 s and 40 MB with their readings. Its sibling: compiling a class for the reader
+  was charged one step whatever the class covered, and twenty calls with classes over the Basic
+  Multilingual Plane took 37.4 s; `re` visits every code point of such a range, and that is charged
+  before it compiles now, so each such call is an unfolded site at once. The leading inline flags were
+  cut from the text once per flag group; they are read from a position now (490,000 characters of
+  `(?i)` in one call: 2.9 s before, 1.7 s now, linear; timings at a load average near 40). A class
+  attribute and a name in the class body shared one key, `("class", id, name)`, with different
+  bindings: the module-wide fold memo of 64c6a9fc gave the call in the class body of
+  `P = r"\A\d+\Z"`, `class K: A = re.compile(P); P = r"\A[0-9]+\Z"`, `B = re.compile(K.P)` the
+  attribute's value, and the same key in the names a callee has seen made `c = re.compile`,
+  `class K: c = c`, `K.c(r"\A\d+\Z")` no call of `re` at all (on 4813a37a too). The attribute has its own
+  key now, and both are read. Of seven new cases, four fail on 64c6a9fc for these findings, one for want
+  of the function its meta-check patches, one because it pins the gap named above, and one passes on
+  both.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
