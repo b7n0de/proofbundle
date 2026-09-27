@@ -123,5 +123,114 @@ class TheInspectHappyPathSetsTheThreshold(unittest.TestCase):
                 self.assertEqual(wert, gemessen[variable])
 
 
+#: The three variables whose defaults `_measured_defaults` knows. A word boundary on both sides, so the
+#: SVR property string `PROOFBUNDLE_THRESHOLD_MET`, which a plain grep also finds, is not the variable.
+_THE_VARIABLES = re.compile(r"\bPROOFBUNDLE_(?:THRESHOLD|COMPARATOR|METRIC)\b")
+
+#: Documents that describe how the code behaves now: the contract applies to them.
+CURRENT = {
+    "INTEGRATIONS.md": "the integration guide; tells a user how to configure emission",
+    "docs/INSPECT_HAPPY_PATH.md": "the walkthrough; a reader follows it command by command",
+    "COMPATIBILITY.md": "the compatibility policy; its worked example names the 5.0.0 threshold change",
+}
+#: Documents that record a past state and are not rewritten when the code moves on. Each names why.
+HISTORIC = {
+    "CHANGELOG.md": "release history; the 5.0.0 entry quotes the removed default \"0\" as the old behaviour",
+    "docs/release_scope/5.0.0.md": "the scope record of the 5.0.0 release; names the old default it removed",
+    "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER6.md": "a frozen pre-registration of a past audit run",
+    "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER7.md": "a frozen pre-registration of a past audit run",
+    "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER8.md": "a frozen pre-registration of a past audit run",
+}
+_SKIP_PARTS = {".git", "node_modules", "target", ".venv", "venv", "__pycache__", ".tox", "build", "dist"}
+
+
+def _documents_naming_the_variables() -> dict:
+    """{relative posix path: text} for every Markdown file under the repository that names one of them."""
+    gefunden = {}
+    for pfad in sorted(REPO.rglob("*.md")):
+        rel = pfad.relative_to(REPO)
+        if any(teil in _SKIP_PARTS for teil in rel.parts):
+            continue
+        try:
+            text = pfad.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if _THE_VARIABLES.search(text):
+            gefunden[rel.as_posix()] = text
+    return gefunden
+
+
+def _lists_the_threshold_as_optional(zeile: str) -> bool:
+    """A line that names the threshold and calls it optional, without saying it is required."""
+    return bool(re.search(r"\bPROOFBUNDLE_THRESHOLD\b", zeile) and re.search(r"\boptional\b", zeile, re.I)
+                and not re.search(r"\brequire", zeile, re.I))
+
+
+class EveryDocumentThatNamesTheVariables(unittest.TestCase):
+    """Owner addendum of 2026-09-28: the contract covers every document that names the variables, not
+    only INTEGRATIONS.md. A document is either current, and then states only the code's defaults and
+    never lists the threshold as optional, or historic, with the reason it is not rewritten. A new
+    document that is neither fails here until it is classified."""
+
+    def test_the_reader_tells_the_variable_from_the_svr_property(self) -> None:
+        self.assertTrue(_THE_VARIABLES.search("export PROOFBUNDLE_THRESHOLD=0.8"))
+        self.assertFalse(_THE_VARIABLES.search("sets `PROOFBUNDLE_THRESHOLD_MET` in the SVR"))
+
+    def test_every_document_that_names_them_is_classified(self) -> None:
+        gefunden = set(_documents_naming_the_variables())
+        self.assertTrue(gefunden)
+        offen = sorted(gefunden - set(CURRENT) - set(HISTORIC))
+        self.assertEqual(offen, [], "a document names PROOFBUNDLE_THRESHOLD/COMPARATOR/METRIC and is neither "
+                                    "current nor historic; classify it with a reason")
+        self.assertFalse(set(CURRENT) & set(HISTORIC))
+
+    def test_no_classified_document_has_stopped_naming_them(self) -> None:
+        gefunden = _documents_naming_the_variables()
+        for rel in sorted(set(CURRENT) | set(HISTORIC)):
+            if not (REPO / rel).exists():
+                continue          # a distribution without the repository's docs
+            with self.subTest(document=rel):
+                self.assertIn(rel, gefunden, "classified but no longer names the variables; drop the entry")
+
+    def test_every_current_document_states_only_the_codes_defaults(self) -> None:
+        gemessen = _measured_defaults()
+        gefunden = _documents_naming_the_variables()
+        for rel in sorted(CURRENT):
+            if rel not in gefunden:
+                continue
+            for variable, wert in _stated_defaults(gefunden[rel]):
+                with self.subTest(document=rel, variable=variable, stated=wert):
+                    self.assertIn(variable, gemessen)
+                    self.assertIsNotNone(gemessen[variable], f"{rel} states the default {wert!r} for {variable}, "
+                                                             "and the code has none")
+                    self.assertEqual(wert, gemessen[variable])
+
+    def test_the_optional_reader_tells_a_listing_from_the_requirement(self) -> None:
+        # Controls for the rule below: the walkthrough's line at 0ace3039 listed the threshold as
+        # optional; COMPATIBILITY.md's worked example says it was optional and is now required.
+        alt = "    # optional: PROOFBUNDLE_OUT=<file-or-dir>, PROOFBUNDLE_METRIC, PROOFBUNDLE_THRESHOLD"
+        richtig = ("now **require** `PROOFBUNDLE_THRESHOLD` instead of silently defaulting it to `0` - an "
+                   "optional obligation made required.")
+        self.assertTrue(_lists_the_threshold_as_optional(alt))
+        self.assertFalse(_lists_the_threshold_as_optional(richtig))
+
+    def test_no_current_document_lists_the_threshold_as_optional(self) -> None:
+        gefunden = _documents_naming_the_variables()
+        for rel in sorted(CURRENT):
+            if rel not in gefunden:
+                continue
+            for zeile in gefunden[rel].splitlines():
+                if _lists_the_threshold_as_optional(zeile):
+                    with self.subTest(document=rel, line=zeile.strip()[:60]):
+                        self.fail(f"{rel} lists the threshold as optional: {zeile.strip()!r}")
+
+    def test_step_2_of_the_happy_path_sets_the_threshold_in_its_own_example(self) -> None:
+        text = (REPO / "docs" / "INSPECT_HAPPY_PATH.md").read_text(encoding="utf-8")
+        schritt = re.search(r"^## 2\..*?(?=^## 3\.)", text, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(schritt, "the happy path has no step 2 before step 3")
+        self.assertRegex(schritt.group(0), r"export PROOFBUNDLE_THRESHOLD=[0-9]",
+                         "step 2 runs the eval with the receipt hook and must set the threshold itself")
+
+
 if __name__ == "__main__":
     unittest.main()
