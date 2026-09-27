@@ -991,7 +991,8 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # first call keeps its message, which names field and type; the verdict used below is read from
     # the claim as the rule read it back. The first call reads the plain copy of the claim since
     # round 8; on the caller's object it asked the object's own `get("passed")`. The two flags are
-    # read as their plain copies too, so their truth is the stored value's.
+    # read as their plain copies too, so their truth is the stored value's, and a flag that is no
+    # JSON value (a NumPy boolean) is refused.
     claim = _eigen(claim, "svr_properties")
     prereg_verified = _eigen(prereg_verified, "svr_properties", "prereg_verified")
     anchor_verified = _eigen(anchor_verified, "svr_properties", "anchor_verified")

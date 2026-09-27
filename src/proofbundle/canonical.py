@@ -186,8 +186,20 @@ def _type_name(typ: type) -> str:
     ``type(x).__name__`` looks the attribute up on the type's metaclass first, and a metaclass that
     defines ``__name__`` as a property runs its own code there (measured on Python 3.10.12). The
     getter of ``type`` itself returns the name the type holds, and ``str.__str__`` makes that a plain
-    ``str`` even when a caller assigned a ``str`` subclass to ``__name__``."""
-    return str.__str__(_TYPNAME.__get__(typ))
+    ``str`` even when a caller assigned a ``str`` subclass to ``__name__``.
+
+    A type that carries the name of a built-in type and is not that type is named as such: a NumPy
+    boolean's name is ``bool``, and a refusal read "a value of type bool is not a JSON value"."""
+    name = str.__str__(_TYPNAME.__get__(typ))
+    eingebaut = _EINGEBAUT.get(name)
+    if eingebaut is not None and eingebaut is not typ:
+        return f"{name} (not the built-in {name})"
+    return name
+
+
+#: The built-in types by name, for `_type_name`.
+_EINGEBAUT = {t.__name__: t for t in (bool, int, float, str, list, tuple, dict, bytes, bytearray,
+                                      set, frozenset, type(None), object)}
 
 
 class _Abweisung(Exception):

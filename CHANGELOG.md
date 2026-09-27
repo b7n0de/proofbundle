@@ -334,8 +334,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   exceptions in 4320 runs. What a caller sees differently, each measured at c8205c18: a subclass of
   `str`, `int` or `float` is written as the value it stores, so the round-2 case of an int holding
   500 whose `__int__` returns -1 is signed as 500, where the read-back refused it; the emitter
-  refuses a claim given as a `UserDict` or a `MappingProxyType`, which `dict()` read through their
-  own methods (a list of pairs is read as before); `issue_sd_jwt` refuses an opening that is no JSON
+  refuses a claim given as a `UserDict`, a `MappingProxyType`, or an iterator, a generator or a dict
+  view of pairs, which `dict()` read through their own methods (a list or a tuple of pairs is read
+  as before); `issue_sd_jwt` refuses an opening that is no JSON
   value (bytes, bytearray, memoryview, a set, a frozenset, a range, a deque, an array, a dict view,
   a `UserDict`, a `UserList`, a `MappingProxyType`, a generator), which `list()` accepted, and a
   `vct` or `root_b64` that is None, a number or a list, which was signed; the statement builders
@@ -345,8 +346,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   default algorithm such a key is the exporter's BundleFormatError, not rfc8785's
   CanonicalizationError; `statement_content_root` and the shape guard refuse a `Mapping` that is not
   a dict with ProofBundleError, one step before the budget refused it; a plain opening that is not
-  iterable is a ValueError (a raw TypeError before), and a `release-gate` `subject_sha256` that is
-  not a string a BundleFormatError (a raw AttributeError before). Plain input is unchanged: over
+  iterable is a ValueError (a raw TypeError before); a `release-gate` `subject_sha256` that is not a
+  string is a BundleFormatError (a raw AttributeError before); and `svr_properties` and
+  `export_svr_dsse` refuse a `prereg_verified` or `anchor_verified` flag that is no JSON value, such
+  as a NumPy boolean, which they read by its truth. A refused type that carries the name of a
+  built-in type is named as not the built-in one (a NumPy boolean was "a value of type bool").
+  Plain input is unchanged: over
   20000 generated plain values, 3542 of them holding a tuple, in 480000 runs through
   `canonicalize`, `_jcs_bytes`, `canonicalize_statement` with and without the shape guard,
   `statement_content_root`, a signed `status`, `ci95`, `exact_score` and an opening of
@@ -364,9 +369,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   a `bytes` subclass can implement in Python from 3.12 on; `svr_properties`'s `result`,
   `export_svr_dsse`'s `bundle` (the verify path) and the signer are objects by design; and a
   finalizer or trace hook of the caller can run at any allocation, which no reader excludes. The
-  contract file has 96 cases, 5462 subtests. Against the source of c8205c18 its 17 new
-  catch-proof cases and the changed round-2 case are red, and its 75 other earlier cases and 3 new
-  controls pass (pytest: 241 failed).
+  contract file has 100 cases, 5467 subtests. Against the source of c8205c18 its 20 new
+  catch-proof cases and the changed round-2 case are red, and its 75 other earlier cases and 4 new
+  controls pass (pytest: 247 failed). Three of those cases and one control pin the changes named
+  above that the first description of this round left out.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

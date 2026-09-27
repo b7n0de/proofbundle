@@ -647,8 +647,9 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     normalizations; nothing after reads the caller's object (round 8). ``dict()`` of the caller's
     object read a dict subclass through its own ``keys()`` and ``__getitem__`` and any other mapping
     or iterable through its own methods. ``dict()`` now runs on the copy, so a claim given as a list
-    of ``[key, value]`` pairs is read as before, and a mapping that is not a JSON object (a
-    ``UserDict``, a ``MappingProxyType``) is refused as not a JSON value. A shape ``dict()`` cannot
+    or a tuple of ``[key, value]`` pairs is read as before, and a mapping that is not a JSON object
+    (a ``UserDict``, a ``MappingProxyType``) and an iterator, a generator or a dict view of pairs
+    are refused as not JSON values. A shape ``dict()`` cannot
     read is ``EvalClaimError`` now, where it was a raw TypeError or ValueError.
     """
     claim = _plain_for_jcs(claim, EvalClaimError)

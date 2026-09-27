@@ -2311,5 +2311,46 @@ class TestPlainArgumentsKeepTheirBytes(_Basis):
                 self.assertEqual(_offenlegungen(compact)["model_id_opening"], erwartet)
 
 
+class _NurWahr:
+    """No JSON value, only truthy, like a NumPy boolean."""
+
+    def __bool__(self):
+        return True
+
+
+class TestTheChangesRoundEightNamesInReview(_Basis):
+    """Behavior changes of round 8 that its first description left out, found when it was read.
+    Each was accepted at c8205c18, or named ambiguously there."""
+
+    def test_a_flag_that_is_no_json_value_is_refused(self):
+        env = emit_eval_receipt(self.basis, self.signer)
+        wege = (("svr_properties",
+                 lambda f: intoto.svr_properties(_Ergebnis(), self.basis, prereg_verified=f)),
+                ("export_svr_dsse", lambda f: intoto.export_svr_dsse(env, self.signer, anchor_verified=f)))
+        for name, aufruf in wege:
+            with self.subTest(weg=name):
+                with self.assertRaises(BundleFormatError):
+                    aufruf(_NurWahr())
+
+    def test_a_claim_given_as_an_iterator_of_pairs_is_refused(self):
+        paare = list(self.basis.items())
+        for name, claim in (("iterator", iter(paare)), ("generator", (p for p in paare)),
+                            ("dict view", self.basis.items())):
+            with self.subTest(form=name):
+                with self.assertRaises(EvalClaimError):
+                    emit_eval_receipt(claim, self.signer)
+
+    def test_a_type_named_like_a_built_in_is_named_as_not_the_built_in(self):
+        """At c8205c18 the refusal read "unsupported value type bool" for a type named `bool`."""
+        fremd = type("bool", (), {})()
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(dict(self.basis, provenance={"k": fremd}), self.signer)
+        self.assertIn("bool (not the built-in bool)", str(ctx.exception))
+
+    def test_control_a_tuple_of_pairs_is_read_as_before(self):
+        paare = tuple(tuple(p) for p in self.basis.items())
+        self.assertEqual(emit_eval_receipt(paare, self.signer), emit_eval_receipt(self.basis, self.signer))
+
+
 if __name__ == "__main__":
     unittest.main()
