@@ -9,22 +9,6 @@
     {
       "file": "proofbundle/agent_review.py",
       "qualname": "render_disclosure_block",
-      "expr": "i.get('assurance')",
-      "last_seen_line": 1103,
-      "exposure": "NICHT GEMESSEN",
-      "exposure_measured": false
-    },
-    {
-      "file": "proofbundle/agent_review.py",
-      "qualname": "render_disclosure_line",
-      "expr": "i.get('assurance')",
-      "last_seen_line": 1143,
-      "exposure": "NICHT GEMESSEN",
-      "exposure_measured": false
-    },
-    {
-      "file": "proofbundle/agent_review.py",
-      "qualname": "render_disclosure_block",
       "expr": "str(a.get('assertedBy'))",
       "last_seen_line": 1109,
       "exposure": "NICHT GEMESSEN. Note: str(...) makes the value hashable, so this one may be safe by construction — to be judged, not assumed.",

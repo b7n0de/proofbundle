@@ -1323,13 +1323,14 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
 
         Der Schluessel ist (Datei, Definition, Ausdruck) — waere die Anzahl nicht dabei, deckte ein
         getragener Eintrag beliebig viele weitere Vorkommen derselben Form in DERSELBEN Definition.
-        ``render_disclosure_block`` traegt genau EIN ``i.get('assurance')``; ein zweites dort ist neu.
-        (Until c3bd89a4 this planted into ``derive_limitation_codes``; that site is closed now and
-        left the baseline.)
+        ``render_disclosure_block`` carries exactly ONE ``str(a.get('assertedBy'))``; a second one
+        there is new. (Until c3bd89a4 this planted into ``derive_limitation_codes``, and until the
+        renderer fix on this branch into ``i.get('assurance')`` of the renderer; both sites are closed
+        now and left the baseline.)
         """
         quelle = ("def render_disclosure_block(xs):\n"
-                  "    a = {i.get('assurance') for i in xs}\n"
-                  "    b = {i.get('assurance') for i in xs}\n"
+                  "    a = {str(a.get('assertedBy')) for a in xs}\n"
+                  "    b = {str(a.get('assertedBy')) for a in xs}\n"
                   "    return a, b\n")
         funde = _ueberzaehlige_stellen({"proofbundle/agent_review.py": quelle})
         self.assertEqual(len(funde), 1, funde)

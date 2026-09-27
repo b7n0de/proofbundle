@@ -122,10 +122,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `sd_jwt_hidden_count`, stays and reads through `as_dict` now. Of the other 94, 20 sit in the four
   JSON adapters named below and can raise; 74 sit behind a type check or a typed `except`, read a
   value the package built, or read caller arguments on a producer path. Two carried entries of
-  `conformance/unguarded_hashing_constructions_baseline.json` are closed and leave it (seven to
-  five). Contract
-  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 39 tests, all 39 red on
-  c3bd89a4.
+  `conformance/unguarded_hashing_constructions_baseline.json` are closed and leave it, and the
+  two renderer rung sets below close two more (seven to three). Contract
+  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 42 tests, all 42 red on
+  c3bd89a4. The two renderers read entries as the verifiers do: an entry that is no object, or an
+  `assurance` or `disposition` that is no string, names nothing. The validator in front refuses
+  such a predicate, so no public call raised; with it taken away, `{"assurance": []}` raised
+  `TypeError` and an entry `5` raised `AttributeError` (the three newest tests, red at f6d7cd7f).
 
   **The guard follows every chain that hashes the values of a constant dict, and a binding only
   when a reader reads its name.** The same lens executed seventeen forms past the guard, each

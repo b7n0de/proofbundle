@@ -1230,15 +1230,23 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     runs = as_list(dec.get("reviewRuns"))
     fnd = as_list(dec.get("findings"))
     by_disp: dict[str, int] = {}
+    # Entries are read as the verifiers read them, not as the validator promises them: an entry that
+    # is no object, or a rung or disposition that is no string, names nothing here (lens run 7 on the
+    # branch: `assurance: []` in an entry reached the set below unfiltered; the validator in front
+    # refuses it, so no public call raised, and the renderer must not be what depends on that).
     for f in fnd:
-        by_disp[f.get("disposition", "open")] = by_disp.get(f.get("disposition", "open"), 0) + 1
-    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + runs}
+        d = f.get("disposition", "open") if isinstance(f, dict) else None
+        if isinstance(d, str):
+            by_disp[d] = by_disp.get(d, 0) + 1
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + runs
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = "selfDeclared"
     for rung in ("selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"):
         if rung in rungs:
             weakest = rung
             break
-    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in as_list(dec.get("authoring"))})) or "not stated"
+    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in as_list(dec.get("authoring"))
+                                  if isinstance(a, dict)})) or "not stated"
     findings_txt = (", ".join(f"{n} {d}" for d, n in sorted(by_disp.items())) or "none recorded")
     total = dec.get("findingsTotal")
     listed_txt = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
@@ -1272,7 +1280,8 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
-    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))}
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
                                 "independentlyWitnessed") if r in rungs), "selfDeclared")
     fnd, total = as_list(dec.get("findings")), dec.get("findingsTotal")

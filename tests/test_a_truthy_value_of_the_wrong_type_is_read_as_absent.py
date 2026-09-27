@@ -159,6 +159,28 @@ def test_the_renderers_hold_without_the_validator_in_front(feld, monkeypatch):
         assert "selfDeclared" in block and "selfDeclared" in line, wert
 
 
+#: Entries of the right list with the wrong inside: no object, and a rung or disposition that cannot
+#: be hashed or is no string.
+ODD_ENTRIES = [5, "x", [1], {"assurance": []}, {"assurance": {"a": 1}, "assertedBy": "x"},
+               {"assurance": 5}, {"disposition": []}, {"disposition": {"a": 1}}]
+
+
+@pytest.mark.parametrize("feld", ["authoring", "reviewRuns", "findings"])
+def test_the_renderers_hold_entries_of_the_wrong_type_without_the_validator(feld, monkeypatch):
+    """Lens run 7 on this branch (qwen, 234g): the renderers' rung sets hashed `assurance` from every
+    entry unfiltered, where `derive_limitation_codes` reads strings only. The public call raises
+    `AgentReviewError` from the validator in front either way; with the validator taken away, an
+    entry `{"assurance": []}` raised `TypeError` and an entry `5` raised `AttributeError` at
+    f6d7cd7f. The renderer's own read is what is measured here, and a wrong entry names nothing."""
+    monkeypatch.setattr(AR, "require_valid_agent_review_predicate_any", lambda *_a, **_k: None)
+    for eintrag in ODD_ENTRIES:
+        p = _v02()
+        p["declaration"][feld] = p["declaration"].get(feld, []) + [copy.deepcopy(eintrag)]
+        block = AR.render_disclosure_block(p)
+        line = AR.render_disclosure_line(p, receipt_digest="0" * 64, receipt_url="u")
+        assert "selfDeclared" in block and "selfDeclared" in line, eintrag
+
+
 @pytest.mark.parametrize("version", sorted(VERSIONS))
 @pytest.mark.parametrize("feld", ["authoring", "reviewRuns"])
 def test_the_verifiers_never_answer_internal_error(version, feld):
