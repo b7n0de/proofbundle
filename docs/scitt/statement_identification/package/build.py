@@ -2,8 +2,8 @@
 """How the files of this package were made. Needs cbor2 and cryptography.
 
 Running this again makes two new Ed25519 key pairs and therefore new signatures and new digests;
-the committed files are one run of it. The private keys exist only in memory while it runs and
-are never written: the package carries the two public keys and nothing else.
+the committed files are one run of it. It generates the keys in memory and writes the two public
+keys only.
 
 Usage: python3 build.py   (writes into the directory this file is in)
 """
@@ -34,7 +34,7 @@ def when(iso: str) -> int:
 
 
 def to_be_signed(protected: bytes, payload: bytes) -> bytes:
-    """RFC 9052 section 4.4: the Sig_structure of a COSE_Sign1, external_aad empty."""
+    """RFC 9052 sections 4.4 and 9: the Sig_structure of a COSE_Sign1, external_aad empty."""
     return cbor2.dumps(["Signature1", protected, b"", payload])
 
 
@@ -88,13 +88,14 @@ def main() -> None:
             "public_key": f"{signer}.pub.pem", "iss": claims[ISS], "sub": claims[SUB],
             "sha256_to_be_signed": hashlib.sha256(to_be_signed(item[0], item[2])).hexdigest(),
             "sha256_cose_sign1": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw)}
-    why = ("ToBeSigned is what the issuer signed. It stays the same when a transparency service adds a receipt "
-           "to the unprotected header, when the tag 18 is dropped, or when the outer array is re-encoded, so "
-           "the same statement has the same digest in every transparency service and outside all of them. A "
-           "digest of the whole COSE_Sign1 bytes changes in each of those cases.")
-    covered = ("the Sig_structure [\"Signature1\", protected, h'', payload] of the referenced COSE_Sign1, "
-               "encoded as RFC 9052 section 4.4 requires (definite lengths, preferred serialization); "
-               "external_aad is the empty byte string")
+    why = ("ToBeSigned excludes the signature, the unprotected header and the outer wrapper, so changes "
+           "confined to those parts preserve it; it does not normalize the bytes inside the protected header "
+           "or the payload. It names this class of signed inputs, not a particular signature instance. "
+           "Matching it does not establish signature validity, payload truth, issuer trust or registration. "
+           "A digest of the whole COSE_Sign1 bytes changes with any of those excluded parts.")
+    covered = ("the Sig_structure [\"Signature1\", body_protected, external_aad, payload] of the referenced "
+               "COSE_Sign1, encoded as RFC 9052 sections 4.4 and 9 specify; the protected value is the original "
+               "byte-string contents; external_aad is the empty byte string and the payload is embedded")
     references = [{"from": src, "location": f"protected header, label {REF}, entry 0", "to": "01-original.cose.hex",
                    "digest_algorithm": "SHA-256 (COSE algorithm -16)", "covers": "ToBeSigned",
                    "covered_bytes": covered, "why_these_bytes": why, "digest": reference[2].hex()}
