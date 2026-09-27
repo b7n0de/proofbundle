@@ -10,6 +10,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
+  A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
+  the checkout a measurement was taken in; it now says "a second local checkout", and so does the
+  test beside it. The guard reads every text file under `src/proofbundle` and refuses a path under
+  `/home/<name>/` or `/Users/<name>/`; it is red on the tree before this change, at that one line.
+  Files outside the package (audit records, the risk register) are not in its reach.
+
 - **A lookup or write on a constant container with a key from outside is classified**
   (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
   `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack

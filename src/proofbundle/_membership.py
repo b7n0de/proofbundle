@@ -88,7 +88,7 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     signed SVR path was never exposed: ``export_svr_dsse`` decodes first, and A-15 typed ``passed`` at
     that boundary on 2026-09-19, so a string verdict is refused there and on every CLI path. The draft
     that described a signed SVR carrying PROOFBUNDLE_THRESHOLD_MET for ``"false"`` had measured
-    ``/home/konrad/proofbundle``, a checkout 47 commits behind main and 9 ahead of it, where A-15 is
+    a second local checkout, 47 commits behind main and 9 ahead of it, where A-15 is
     absent. The exposure is the DIRECT library caller, exactly as the register scoped it.
 
     WHY A SHARED PREDICATE AND NOT SIX ``isinstance`` LINES. The register entry that scheduled the work

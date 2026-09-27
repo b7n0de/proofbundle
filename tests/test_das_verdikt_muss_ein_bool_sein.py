@@ -23,7 +23,7 @@ exposure to the DIRECT library caller and argues that every path through `decode
 Measured on `d8c9c61`, that is exactly true: the A-15 boundary check refuses `'false'`, `'0'` and `1`,
 and `export_svr_dsse`, which decodes first, refuses them with it. An earlier draft of this file
 asserted the opposite and described a signed SVR carrying PROOFBUNDLE_THRESHOLD_MET for a string
-verdict. That measurement was taken in `/home/konrad/proofbundle`, a checkout 47 commits behind main
+verdict. That measurement was taken in a second local checkout, 47 commits behind main
 and 9 ahead of it, where A-15 is absent. The number was real and it was about another tree.
 
 WHAT THE REGISTER UNDERSTATES is narrower than that draft claimed, and it is still worth writing down:
