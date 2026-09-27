@@ -95,6 +95,17 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. The openings
     are not judged: no verifier in this package reads them; a relying party checks a presented pair
     against the commitment with ``evalclaim.verify_commitment``.
+
+    Each argument that is checked is read ONCE, into a plain value, and that value is judged and
+    signed. Measured at 6893586f: ``ci95`` was judged on one iteration of the caller's object and
+    signed from a second, so a list subclass whose first iteration gave ["0.1", "0.2"] got
+    ["inf", "nan"] signed, floats got [NaN, Infinity] signed, and one whose ``__len__`` said 2 got
+    three values signed; a ``holder_public_key`` whose ``__len__`` said 32 got 64 bytes signed into
+    ``cnf``; a ``status`` whose ``__contains__`` claimed a ``status_list`` got signed without one.
+
+    A disclosed ``exact_score`` must earn the always-open verdict: the claim's comparator and
+    threshold map it to the claim's ``passed``. Measured at 6893586f: ``exact_score`` "0.10" was
+    signed beside passed=true for ``>=`` 0.80.
     """
     claim = require_eval_claim(claim, wo="issue_sd_jwt")
     # THE ISSUER VALUE IS NOT JUDGED HERE, on purpose. The claim rule requires the field and leaves
@@ -103,7 +114,17 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     # goes. A relying party learns the mismatch where it verifies: `verify_bundle` reports
     # `sd-jwt-issuer-identity` and `sd-jwt-bundle-binding` as failed (measured at 835df85b with the
     # SD-JWT issued over another key's fingerprint).
-    from .evalclaim import _decimal_violation, _field_violation  # noqa: PLC0415 - evalclaim imports the bundle core
+    from .evalclaim import (  # noqa: PLC0415 - evalclaim imports the bundle core
+        _decimal_violation, _field_violation, _passed_by,
+    )
+    # One read each, then only the plain value: `list()` of the caller's object is the one
+    # iteration, and `str.__str__` gives a string's characters as a plain `str`, which the rule, the
+    # verdict comparison and the disclosure all read. A value of another type stays as it is and is
+    # refused.
+    if isinstance(ci95, (list, tuple)):
+        ci95 = [str.__str__(x) if isinstance(x, str) else x for x in list(ci95)]
+    if isinstance(exact_score, str):
+        exact_score = str.__str__(exact_score)
     for grund in (None if ci95 is None else _field_violation({"ci95": ci95}),
                   None if exact_score is None else _decimal_violation("exact_score", exact_score)):
         if grund is not None:
@@ -145,16 +166,36 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         "issuer": claim["issuer"], "receipt": {"root_b64": root_b64},
         "vct": vct,
     }
+    if exact_score is not None:
+        # THE DISCLOSURE MUST NOT CONTRADICT THE VERDICT BESIDE IT, the rule `intoto` holds for a
+        # test-result `result` against the `passed` annotation. The score has passed the decimal
+        # check above, and the comparator and threshold are the claim's, judged by the claim rule.
+        ergibt = _passed_by(exact_score, claim["comparator"], claim["threshold"])
+        if ergibt is not always_open["passed"]:
+            raise BundleFormatError(
+                f"issue_sd_jwt: exact_score {exact_score!r} with comparator "
+                f"{claim['comparator']!r} and threshold {claim['threshold']!r} gives "
+                f"passed={ergibt}, and the claim says passed={always_open['passed']}; a disclosure "
+                "that contradicts the always-open verdict is not signed")
     if status is not None:
+        # A plain copy, read once: the check below and the signature read the same dict.
+        status = dict(status) if isinstance(status, dict) else status
         if not isinstance(status, dict) or "status_list" not in status:
             raise ValueError("status must be a dict with a status_list member "
                              "(use proofbundle.statuslist.status_claim)")
         always_open["status"] = status
     if holder_public_key is not None:
-        if len(holder_public_key) != 32:
+        # The key's BYTES, read once through the buffer protocol, are what is measured and what is
+        # encoded; `len()` of the caller's object was a second reading. Not a bytes-like object is
+        # this function's documented refusal, not the TypeError the encoder would raise.
+        try:
+            schluessel = memoryview(holder_public_key).tobytes()
+        except TypeError:
+            schluessel = b""
+        if len(schluessel) != 32:
             raise ValueError("holder_public_key must be a raw 32-byte Ed25519 public key")
         always_open["cnf"] = {"jwk": {"kty": "OKP", "crv": "Ed25519",
-                                      "x": _b64url(holder_public_key)}}
+                                      "x": _b64url(schluessel)}}
     disclosures: list[str] = []
     sd_digests: list[str] = []
 
@@ -166,7 +207,7 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     if exact_score is not None:
         _add("exact_score", exact_score)
     if ci95 is not None:
-        _add("ci95", list(ci95))
+        _add("ci95", ci95)            # the plain list judged above, not a second read
     if model_id_opening is not None:
         _add("model_id_opening", list(model_id_opening))
     if dataset_id_opening is not None:

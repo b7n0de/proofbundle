@@ -201,6 +201,33 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   it now uses a whole claim and a samples block the rule accepts, and asserts that the old block is
   refused.
 
+  **A checked value is read once, the statement subject is judged, and two more generic fields agree
+  with the signed verdict** (third review lens, at 6893586f). Measured there: `issue_sd_jwt` judged
+  `ci95` on one iteration of the caller's object and signed a second one. A list subclass got
+  `["inf", "nan"]` or `[NaN, Infinity]` signed after `["0.1", "0.2"]` was judged, and one whose
+  `__len__` said 2 got three values signed. Two more arguments had the same gap: a
+  `holder_public_key` whose `__len__` said 32 got 64 bytes signed, and a `status` whose
+  `__contains__` lied was signed without a `status_list`. Each is now read once, and that value is
+  judged and signed. A test-result or eval-result statement whose `subject` carried
+  `proofbundleModelCommitV1: "x"` verified ok=True, and `proofbundle intoto --verify` printed PASS.
+  A subject entry whose digest carries a proofbundle commitment key is now judged like such a
+  configuration entry, and a subject of the wrong shape is a reason. A subject without those keys,
+  or no subject, still makes no claim, and all 1932 statements the package produced over 12 export
+  paths still verify. A `str` subclass key whose `encode` raised or returned an int made the
+  emitter, the eight producers and `svr_properties` raise a raw exception (10 of 10), because
+  rfc8785 sorts keys through that method. A key that encoded to other bytes got a payload signed
+  with its keys out of canonical order, and in `harness` such keys escaped both in-toto exporters.
+  Both RFC 8785 serializers now read a plain copy, with every key and string a plain `str`; the
+  exception handling was not widened. A test-result `result` of PASSED verified ok=True with the
+  suite listed under `failedTests`, and with `passedTests` naming another suite. Where a commitment
+  entry annotates `passed`, the case lists must now derive that verdict, as the verifier block
+  requires of its own statements, and list the suite where the verdict puts it. `issue_sd_jwt`
+  signed `exact_score` "0.10" beside passed=true for `>=` 0.80; a disclosed score must now earn the
+  claim's `passed`. The contract file has 59 cases, 4775 subtests. Against the source of 6893586f
+  its 15 new catch-proof cases are red, and its 39 earlier cases and 5 new controls pass (pytest: 54
+  failed). Two cases in `tests/test_kbjwt.py` disclosed a score that contradicts their passing claim
+  and now disclose one that earns it.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

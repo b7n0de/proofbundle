@@ -76,6 +76,48 @@ def _require_statement_shape(obj: Any) -> None:
             "ADR 0002 §2 full-Statement scope)")
 
 
+def _plain_for_jcs(value: Any, key_error: type) -> Any:
+    """A copy of ``value`` in which every string and every object key is a plain ``str``.
+
+    THE CLASS: a canonical serializer that reads a value through a method the caller's object can
+    override. rfc8785 sorts object keys by ``key.encode("utf-16be")``, and a ``str`` subclass can
+    override ``encode``. Measured at 6893586f with such a key in a claim's ``provenance``: an
+    ``encode`` that raised LookupError or returned an int escaped ``emit_eval_receipt``, the eight
+    producers and ``svr_properties`` as a raw exception, and one that returned other bytes for one
+    key made the emitter sign a payload whose keys were not in canonical order. The same key in the
+    ``harness`` argument of the two in-toto exporters did the same through
+    ``canonicalize_statement``.
+
+    Every other reader on the way reads the characters: the claim rule's regular expressions, the
+    JSON encoders and the verify path's parser. ``str.__str__`` returns those characters as a plain
+    ``str``, so the serializer reads what they read. That is why the copy is the fix and a wider
+    ``except`` around the serializer is not: an except would turn the override into a refusal, and
+    it would also swallow a real defect of the serializer.
+
+    Containers are read once, the way rfc8785 reads them (``dict(value)``, ``list(value)``).
+    Numbers, booleans, None and every other type pass unchanged, so the serializer judges them as
+    before. A key that is not a string raises ``key_error``, the refusal rfc8785 gives such a key;
+    it gave it only when the key had no ``encode`` method, and raised a raw TypeError when it had
+    one. Two keys whose characters are equal raise ``key_error`` too, because JSON has one key for
+    both.
+    """
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, dict):
+        kopie: dict = {}
+        for schluessel, eintrag in dict(value).items():
+            if not isinstance(schluessel, str):
+                raise key_error("object keys must be strings")
+            schluessel = str.__str__(schluessel)
+            if schluessel in kopie:
+                raise key_error(f"object key {schluessel!r} appears twice")
+            kopie[schluessel] = _plain_for_jcs(eintrag, key_error)
+        return kopie
+    if isinstance(value, (list, tuple)):
+        return [_plain_for_jcs(eintrag, key_error) for eintrag in list(value)]
+    return value
+
+
 def canonicalize_statement(statement: Any, *, require_statement_shape: bool = False) -> bytes:
     """RFC-8785 (JCS) canonical bytes of a JSON in-toto Statement (or predicate) OBJECT.
 
@@ -107,7 +149,10 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
         raise CanonicalizerUnavailable(
             "computing a Statement content root needs the RFC 8785 (JCS) canonicalizer — "
             "install proofbundle[eval]") from exc
-    return rfc8785.dumps(statement)
+    # A plain copy, so a key is sorted by its characters and not by its own `encode` (see
+    # `_plain_for_jcs`). A plain statement, which is every parsed one, gives the same bytes as
+    # before.
+    return rfc8785.dumps(_plain_for_jcs(statement, rfc8785.CanonicalizationError))
 
 
 def statement_content_root(statement: Union[Mapping, list, bytes, bytearray], *,

@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe, render_safe
+from .canonical import _plain_for_jcs
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
@@ -183,6 +184,12 @@ def _jcs_bytes(claim) -> bytes:
     `canonicalize` is this plus the profile. The exporters in `intoto` and `sdjwt_issue` read a claim
     back through this function: they export what `decode_eval_claim` accepts, and the verify path
     does not hold a claim to the emit profile.
+
+    The serializer gets a plain copy (`canonical._plain_for_jcs`): every key and every string a
+    plain `str`. Measured at 6893586f: a `str` subclass key in `provenance` whose `encode` raised
+    LookupError or returned an int escaped the emitter and every producer as a raw exception,
+    because rfc8785 sorts keys through that method and this function maps only named exception
+    types. The copy removes the method from the reading instead of widening the except.
     """
     try:
         import rfc8785  # noqa: PLC0415 — lazy: only the emit path pulls the JCS dependency
@@ -191,7 +198,7 @@ def _jcs_bytes(claim) -> bytes:
             "emitting eval receipts needs an RFC 8785 canonicalizer — install with: "
             "pip install \"proofbundle[eval]\"") from e
     try:
-        return rfc8785.dumps(claim)
+        return rfc8785.dumps(_plain_for_jcs(claim, rfc8785.CanonicalizationError))
     except (rfc8785.FloatDomainError, rfc8785.IntegerDomainError, rfc8785.CanonicalizationError) as e:
         raise EvalClaimError(f"canonicalization failed: {e}") from e
     except RecursionError as e:
@@ -275,9 +282,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
             raise EvalClaimError(f"{name} must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), got {val!r}")
     if not isinstance(n, int) or isinstance(n, bool) or n < 0 or n > _MAX_SAFE_INT:
         raise EvalClaimError(f"n must be a non-negative integer <= 2**53-1, got {n!r}")
-    from decimal import Decimal  # noqa: PLC0415
-    s, t = Decimal(score), Decimal(threshold)
-    passed = {">=": s >= t, ">": s > t, "<=": s <= t, "<": s < t}[comparator]
+    passed = _passed_by(score, comparator, threshold)
     m_salt = model_salt if model_salt is not None else os.urandom(16)
     d_salt = dataset_salt if dataset_salt is not None else os.urandom(16)
     claim = {
@@ -400,6 +405,21 @@ def _claim_violation(claim: dict) -> Optional[str]:
     if extra:
         return f"claim has unknown fields: {render_keys_safe(extra)}"
     return _field_violation(claim)
+
+
+def _passed_by(score: str, comparator: str, threshold: str) -> bool:
+    """The verdict a decimal ``score`` earns against ``comparator`` and ``threshold``.
+
+    ONE MAPPING for the three places that recompute ``passed`` from a score: ``build_eval_claim``
+    (which computes the verdict it signs), ``eval_evidence_class`` (which checks a signed score
+    against the signed verdict) and ``sdjwt_issue.issue_sd_jwt`` (which refuses a disclosed
+    ``exact_score`` that contradicts the always-open ``passed``). Each had its own copy of the table
+    until the third one was needed. The caller has checked both numbers as plain decimal strings and
+    the comparator as one of ``_COMPARATORS``.
+    """
+    from decimal import Decimal  # noqa: PLC0415
+    s, t = Decimal(score), Decimal(threshold)
+    return {">=": s >= t, ">": s > t, "<=": s <= t, "<": s < t}[comparator]
 
 
 def _decimal_violation(name: str, value) -> Optional[str]:
@@ -779,11 +799,10 @@ def eval_evidence_class(claim: dict) -> dict:
     score = claim.get("score")
     if (isinstance(score, str) and _DECIMAL_RE.match(score) and is_member(comparator, _COMPARATORS)
             and isinstance(threshold, str) and _DECIMAL_RE.match(threshold) and isinstance(passed, bool)):
-        assert isinstance(comparator, str)  # narrowed by is_member above; assures mypy for the dict index below
-        from decimal import Decimal, InvalidOperation  # noqa: PLC0415
+        assert isinstance(comparator, str)  # narrowed by is_member above; assures mypy for the call
+        from decimal import InvalidOperation  # noqa: PLC0415
         try:
-            recomputed = {">=": Decimal(score) >= Decimal(threshold), ">": Decimal(score) > Decimal(threshold),
-                          "<=": Decimal(score) <= Decimal(threshold), "<": Decimal(score) < Decimal(threshold)}[comparator]
+            recomputed: Optional[bool] = _passed_by(score, comparator, threshold)
         except InvalidOperation:
             recomputed = None
         if recomputed is passed:

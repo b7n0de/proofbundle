@@ -24,9 +24,14 @@ The agreement property uses `decode_eval_claim` as the reference, because agreei
 is the property.
 
 WHICH CASES ARE CATCH PROOFS. The classes above the "round 3" marker were written against 62e8bbab,
-the ones below it against 835df85b, where a second review lens found the shape class and five siblings.
-Run against its reference commit, every case whose name does not start with `test_control` fails; the
-controls pass there and here. The counts are in the commit messages.
+the ones between the "round 3" and the "round 4" marker against 835df85b, where a second review lens
+found the shape class and five siblings, and the ones below the "round 4" marker against 6893586f,
+where a third lens found a withheld value judged on one read and signed from another, the statement
+`subject` never walked, a key serialized through its own `encode`, and two generic fields that
+contradict the signed verdict. Run against its reference commit, every case whose name does not start
+with `test_control` fails; the controls pass there and here. One round-3 control changed in round 4
+(`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in the
+commit messages.
 """
 import base64
 import json
@@ -137,6 +142,17 @@ class _Basis(unittest.TestCase):
 
     def _hand_signed(self, claim):
         return emit_bundle(json.dumps(claim, sort_keys=True, separators=(",", ":")).encode(), self.signer)
+
+    def _claim_mit(self, **werte):
+        """A claim built like `basis`, with some values replaced (score="0.50" gives passed=False)."""
+        kw = dict(suite="safety-refusal", suite_version="v1", metric="refusal_rate",
+                  comparator=">=", threshold="0.80", score="0.92", n=500,
+                  model_id="acme/model-x", dataset_id="acme/dataset-y",
+                  issuer=issuer_fingerprint(self.signer), timestamp="2026-09-19T12:00:00Z",
+                  model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        kw.update(werte)
+        claim, _ = build_eval_claim(**kw)
+        return dict(claim)
 
     def _alle_weisen_ab(self, claim, feld=None):
         """Every producer raises BundleFormatError, and the reason names `feld` right after the site."""
@@ -596,8 +612,8 @@ class TestResultAndPassedAgree(_Basis):
     """Item 5: `result` is what a generic in-toto verifier reads; `passed` is the signed verdict beside
     it. When both are present they must agree. At 835df85b a contradiction verified ok=True."""
 
-    def _test_result(self, result, passed):
-        stmt = intoto.to_test_result_statement(self.basis, subject_digest={"sha256": "0" * 64})
+    def _test_result(self, result, passed, claim=None):
+        stmt = intoto.to_test_result_statement(claim or self.basis, subject_digest={"sha256": "0" * 64})
         stmt["predicate"]["result"] = result
         stmt["predicate"]["configuration"][0]["annotations"]["passed"] = passed
         env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), self.signer,
@@ -612,9 +628,12 @@ class TestResultAndPassedAgree(_Basis):
                 self.assertIn("predicate result", res["content_root_detail"])
 
     def test_control_agreement_verifies(self):
-        for result, passed in (("PASSED", True), ("FAILED", False)):
+        """Round 4: the FAILED case is built from a failing claim. The case lists take part in the
+        agreement now, and the passing claim lists its suite under `passedTests`."""
+        for result, passed, claim in (("PASSED", True, None),
+                                      ("FAILED", False, self._claim_mit(score="0.50"))):
             with self.subTest(result=result, passed=passed):
-                self.assertTrue(self._test_result(result, passed)["ok"])
+                self.assertTrue(self._test_result(result, passed, claim)["ok"])
 
 
 class TestSvrPropertiesHoldsTheRule(_Basis):
@@ -706,6 +725,419 @@ class TestTheEmitProfileIsJudgedOnTheBytes(_Basis):
     def test_control_a_composed_string_is_signed(self):
         claim = dict(self.basis, suite=unicodedata.normalize("NFC", "café"))
         self.assertIsInstance(decode_eval_claim(emit_eval_receipt(claim, self.signer)), dict)
+
+
+# ---- round 4: lens run 3 at 6893586f ------------------------------------------------------------------
+
+def _offenlegungen(compact: str) -> dict:
+    """name -> value of every disclosure of a compact SD-JWT."""
+    werte = {}
+    for teil in compact.rstrip("~").split("~")[1:]:
+        _salz, name, wert = json.loads(base64.urlsafe_b64decode(teil + "=" * (-len(teil) % 4)))
+        werte[name] = wert
+    return werte
+
+
+class _ZweiDurchlaeufe(list):
+    """The first iteration yields `geprueft`, every later one `signiert`."""
+
+    def __init__(self, geprueft, signiert):
+        super().__init__(geprueft)
+        self._folge = [list(geprueft), list(signiert)]
+
+    def __iter__(self):
+        return iter(self._folge.pop(0) if len(self._folge) > 1 else self._folge[0])
+
+
+class _ListeLaengeLuegt(list):
+    def __len__(self):
+        return 2
+
+
+class _TupelLaengeLuegt(tuple):
+    def __len__(self):
+        return 2
+
+
+class _BytesLaengeLuegt(bytes):
+    def __len__(self):
+        return 32
+
+
+class _EnthaeltLuegt(dict):
+    def __contains__(self, schluessel):
+        return True
+
+
+class TestTheWithheldValueSignedIsTheValueJudged(_Basis):
+    """Item 1: `issue_sd_jwt` judged an argument through one read and signed it from another. Measured
+    at 6893586f: `ci95` judged on one iteration and signed from a second (["0.1", "0.2"] judged,
+    ["inf", "nan"] or the floats NaN and Infinity signed), a `ci95` whose `__len__` said 2 signed with
+    three values, a `holder_public_key` whose `__len__` said 32 signed as 64 bytes, and a `status`
+    whose `__contains__` claimed a `status_list` signed without one."""
+
+    def test_ci95_is_read_once_and_the_judged_list_is_signed(self):
+        for name, signiert in (("strings", ["inf", "nan"]), ("floats", [float("nan"), float("inf")])):
+            with self.subTest(zweiter_durchlauf=name):
+                compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                                       ci95=_ZweiDurchlaeufe(["0.1", "0.2"], signiert))
+                self.assertEqual(_offenlegungen(compact)["ci95"], ["0.1", "0.2"])
+
+    def test_a_ci95_whose_length_lies_is_refused(self):
+        for name, ci95 in (("list", _ListeLaengeLuegt(["0.1", "0.2", "0.3"])),
+                           ("tuple", _TupelLaengeLuegt(("0.1", "0.2", "0.3")))):
+            with self.subTest(fall=name):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, ci95=ci95)
+                self.assertIn("ci95", str(ctx.exception))
+
+    def test_the_holder_key_is_judged_by_its_bytes(self):
+        for name, schluessel in (("bytes subclass, __len__ says 32, holds 64", _BytesLaengeLuegt(bytes(64))),
+                                 ("a str of 32 characters", "a" * 32),
+                                 ("an int", 32)):
+            with self.subTest(fall=name):
+                with self.assertRaises(ValueError) as ctx:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, holder_public_key=schluessel)
+                self.assertIn("32-byte", str(ctx.exception))
+
+    def test_a_status_whose_membership_lies_is_refused(self):
+        with self.assertRaises(ValueError) as ctx:
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=_EnthaeltLuegt({"x": 1}))
+        self.assertIn("status_list", str(ctx.exception))
+
+    def test_control_plain_arguments_are_issued_as_before(self):
+        roh = generate_signer().public_key().public_bytes_raw()
+        status = {"status_list": {"idx": 7, "uri": "https://example.org/status/1"}}
+        for name, schluessel in (("bytes", roh), ("bytearray", bytearray(roh)), ("memoryview", memoryview(roh))):
+            with self.subTest(schluessel=name):
+                compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, ci95=("0.90", "0.94"),
+                                       holder_public_key=schluessel, status=status)
+                offen = _immer_offen(compact)
+                self.assertEqual(offen["cnf"]["jwk"]["x"],
+                                 base64.urlsafe_b64encode(roh).rstrip(b"=").decode("ascii"))
+                self.assertEqual(offen["status"], status)
+                self.assertEqual(_offenlegungen(compact)["ci95"], ["0.90", "0.94"])
+
+
+class TestADisclosedScoreEarnsTheVerdict(_Basis):
+    """Item 4, second half: a disclosed `exact_score` that the claim's comparator and threshold do not
+    map to the claim's `passed` contradicts the always-open verdict. Measured at 6893586f: "0.10" was
+    signed beside passed=true for >= 0.80."""
+
+    def _faelle(self):
+        besteht = self.basis                                            # >= 0.80, passed True
+        scheitert = self._claim_mit(score="0.50")                       # >= 0.80, passed False
+        kleiner = self._claim_mit(comparator="<", threshold="0.10", score="0.05")   # passed True
+        self.assertIs(scheitert["passed"], False)
+        self.assertIs(kleiner["passed"], True)
+        return besteht, scheitert, kleiner
+
+    def test_a_score_that_contradicts_passed_is_refused(self):
+        besteht, scheitert, kleiner = self._faelle()
+        for name, claim, wert in (("passing >= 0.80, 0.10", besteht, "0.10"),
+                                  ("passing >= 0.80, 0.79", besteht, "0.79"),
+                                  ("failing >= 0.80, 0.92", scheitert, "0.92"),
+                                  ("failing >= 0.80, the threshold", scheitert, "0.80"),
+                                  ("passing < 0.10, 0.10", kleiner, "0.10")):
+            with self.subTest(fall=name):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    issue_sd_jwt(claim, self.signer, root_b64=ROOT_B64, exact_score=wert)
+                self.assertIn("exact_score", str(ctx.exception))
+                self.assertIn("passed", str(ctx.exception))
+
+    def test_control_a_score_that_earns_passed_is_issued(self):
+        besteht, scheitert, kleiner = self._faelle()
+        for name, claim, wert in (("passing >= 0.80, 0.92", besteht, "0.92"),
+                                  ("passing >= 0.80, the threshold", besteht, "0.80"),
+                                  ("passing >= 0.80, 0.800", besteht, "0.800"),
+                                  ("failing >= 0.80, 0.50", scheitert, "0.50"),
+                                  ("passing < 0.10, 0.05", kleiner, "0.05")):
+            with self.subTest(fall=name):
+                compact = issue_sd_jwt(claim, self.signer, root_b64=ROOT_B64, exact_score=wert)
+                self.assertEqual(_offenlegungen(compact)["exact_score"], wert)
+
+
+class TestTheCaseListsAgreeWithTheVerdict(_Basis):
+    """Item 4, first half: `passedTests`, `warnedTests` and `failedTests` are generic fields a generic
+    in-toto verifier reads, like `result`. `verifier_block.validate_test_result_statement` derives the
+    result from them for its own statements; the eval test-result export now holds the same rule where
+    a commitment entry annotates `passed`, and lists the annotated suite where its verdict puts it.
+    Measured at 6893586f: `result` PASSED with the suite under `failedTests`, and `passedTests` naming
+    another suite, each verified ok=True."""
+
+    def _test_result(self, veraendere, claim=None):
+        stmt = intoto.to_test_result_statement(claim or self.basis, subject_digest={"sha256": "0" * 64})
+        veraendere(stmt["predicate"])
+        env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), self.signer,
+                                 payload_type=intoto.TEST_RESULT_PAYLOAD_TYPE)
+        return intoto.verify_intoto_dsse(env, self.pub)
+
+    def test_a_case_list_that_contradicts_passed_is_refused(self):
+        suite = self.basis["suite"]
+        scheitert = self._claim_mit(score="0.50")
+
+        def ohne_result(p):
+            p.pop("result")
+            p["failedTests"] = p.pop("passedTests")
+        faelle = (
+            ("suite under failedTests, result PASSED", None,
+             lambda p: p.update(failedTests=p.pop("passedTests")), "case lists"),
+            ("passedTests names another suite", None,
+             lambda p: p.update(passedTests=["another-suite"]), "passedTests"),
+            ("the suite under passedTests and failedTests", None,
+             lambda p: p.update(failedTests=[suite]), "case lists"),
+            ("the suite under warnedTests as well", None,
+             lambda p: p.update(warnedTests=[suite]), "case lists"),
+            ("the suite listed twice", None,
+             lambda p: p.update(passedTests=[suite, suite]), "case lists"),
+            ("passedTests a string", None, lambda p: p.update(passedTests=suite), "passedTests"),
+            ("every list empty", None, lambda p: p.update(passedTests=[], failedTests=[]), "case lists"),
+            ("no result, the suite under failedTests", None, ohne_result, "case lists"),
+            ("failing claim, the suite under passedTests", scheitert,
+             lambda p: p.update(passedTests=p.pop("failedTests")), "case lists"),
+        )
+        for name, claim, veraendere, text in faelle:
+            with self.subTest(fall=name):
+                res = self._test_result(veraendere, claim)
+                self.assertIs(res["ok"], False, res["content_root_detail"])
+                self.assertTrue(res["content_root_ok"], "the binding holds; the rule is what refuses")
+                self.assertIs(res["predicate_claim_ok"], False)
+                self.assertIn(f"predicate {text}", res["content_root_detail"])
+
+    def test_control_lists_that_agree_verify(self):
+        """The export's own lists for a passing and a failing claim, a further passing case beside the
+        suite (the lists derive the verdict, and the verdict says nothing about other cases), and a
+        generic test result with case lists and no commitment of ours, which is not judged."""
+        suite = self.basis["suite"]
+
+        def generisch(p):
+            p["configuration"] = [{"name": "m", "digest": {"x": "y"}}]
+            p["failedTests"] = ["t1"]
+        for name, claim, veraendere in (
+                ("passing, as exported", None, lambda p: None),
+                ("failing, as exported", self._claim_mit(score="0.50"), lambda p: None),
+                ("passing, a further passed case", None,
+                 lambda p: p.update(passedTests=[suite, "another-suite"])),
+                ("generic, no commitment of ours", None, generisch)):
+            with self.subTest(fall=name):
+                res = self._test_result(veraendere, claim)
+                self.assertTrue(res["ok"], res["content_root_detail"])
+
+
+class TestTheSubjectIsJudgedByTheOwnershipRule(_Basis):
+    """Item 2: the ownership rule "a descriptor is ours when its digest carries the proofbundle
+    commitment key" held in the test-result `configuration` only. Measured at 6893586f: a validly signed
+    test-result or eval-result statement whose `subject` was
+    [{"name": "model-id-commitment", "digest": {"proofbundleModelCommitV1": "x"}}] verified ok=True with
+    predicate_claim_ok True, and `proofbundle intoto --verify` printed PASS. The subject is now walked
+    with the same descriptor rule wherever the statement is of the verifier's own type."""
+
+    ARTEN = ("eval-result", "test-result")
+
+    def _statement(self, art):
+        if art == "eval-result":
+            return intoto.to_eval_result_statement(
+                self.basis, subject=intoto.resolve_subject("receipt", self.basis, root_b64=ROOT_B64),
+                root_b64=ROOT_B64)
+        return intoto.to_test_result_statement(self.basis, subject_digest={"sha256": "0" * 64})
+
+    def _signiert(self, art, stmt):
+        typ = intoto.INTOTO_STATEMENT_PAYLOAD_TYPE if art == "eval-result" else intoto.TEST_RESULT_PAYLOAD_TYPE
+        return dsse.sign_envelope(canonical.canonicalize_statement(stmt), self.signer, payload_type=typ)
+
+    def _verifiziert(self, art, veraendere):
+        stmt = self._statement(art)
+        veraendere(stmt)
+        env = self._signiert(art, stmt)
+        if art == "eval-result":
+            return intoto.verify_eval_result_dsse(env, self.pub)
+        return intoto.verify_intoto_dsse(env, self.pub)
+
+    def _abgewiesen(self, res, text):
+        self.assertIs(res["ok"], False, res["content_root_detail"])
+        self.assertTrue(res["content_root_ok"], "the binding holds; the rule is what refuses")
+        self.assertIs(res["predicate_claim_ok"], False)
+        self.assertIn(text, res["content_root_detail"])
+
+    def test_subject_verify_agrees_with_the_oracle_on_each_commitment(self):
+        for art in self.ARTEN:
+            for schluessel, feld in ((intoto.MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
+                                     (intoto.DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
+                for hexwert in ("x", "not-a-commitment", "A" * 64, "b" * 64):
+                    with self.subTest(art=art, schluessel=schluessel, wert=hexwert):
+                        res = self._verifiziert(art, lambda st, k=schluessel, h=hexwert: st.update(
+                            subject=[{"name": "commitment", "digest": {k: h}}]))
+                        if orakel_commitment("sha256:" + hexwert):
+                            self.assertTrue(res["ok"], res["content_root_detail"])
+                            self.assertIs(res["predicate_claim_ok"], True)
+                        else:
+                            self._abgewiesen(res, f"subject[0]: {feld}")
+
+    def test_a_second_subject_entry_is_judged(self):
+        for art in self.ARTEN:
+            with self.subTest(art=art):
+                res = self._verifiziert(art, lambda st: st["subject"].append(
+                    {"name": "model-id-commitment", "digest": {intoto.MODEL_COMMIT_DIGEST_KEY: "x"}}))
+                self._abgewiesen(res, "subject[1]: model_id_commit")
+
+    def test_a_misshapen_subject_is_a_reason(self):
+        eintrag = {"name": "model-id-commitment", "digest": {intoto.MODEL_COMMIT_DIGEST_KEY: "x"}}
+        for art in self.ARTEN:
+            for name, subjekt, text in (
+                    ("subject an object", {"0": eintrag}, "subject: must be an array"),
+                    ("an entry that is not an object", ["model-id-commitment"], "subject[0]: must be an object"),
+                    ("a digest as a list of pairs",
+                     [{"name": "m", "digest": [[intoto.MODEL_COMMIT_DIGEST_KEY, "x"]]}],
+                     "subject[0].digest: must be an object")):
+                with self.subTest(art=art, fall=name):
+                    self._abgewiesen(self._verifiziert(art, lambda st, s=subjekt: st.update(subject=s)), text)
+
+    def test_the_annotations_of_a_subject_entry_of_ours_are_judged(self):
+        ours = {"name": "model-id-commitment", "digest": {intoto.MODEL_COMMIT_DIGEST_KEY: "b" * 64}}
+        for art in self.ARTEN:
+            with self.subTest(art=art, fall="threshold inf"):
+                res = self._verifiziert(art, lambda st: st.update(
+                    subject=[dict(ours, annotations={"threshold": "inf"})]))
+                self._abgewiesen(res, "subject[0]: threshold")
+        with self.subTest(art="test-result", fall="passed false beside result PASSED"):
+            res = self._verifiziert("test-result", lambda st: st.update(
+                subject=[dict(ours, annotations={"passed": False})]))
+            self._abgewiesen(res, "predicate result")
+
+    def test_the_shipped_cli_fails_a_placeholder_subject(self):
+        stmt = self._statement("eval-result")
+        stmt["subject"] = [{"name": "model-id-commitment", "digest": {intoto.MODEL_COMMIT_DIGEST_KEY: "x"}}]
+        env = self._signiert("eval-result", stmt)
+        with tempfile.TemporaryDirectory() as d:
+            pfad = os.path.join(d, "att.json")
+            Path(pfad).write_text(json.dumps(env), encoding="utf-8")
+            r = subprocess.run(
+                [sys.executable, "-B", "-m", "proofbundle.cli", "intoto", pfad, "--verify",
+                 "--pub", base64.b64encode(self.pub).decode("ascii")],
+                capture_output=True, text=True, cwd=REPO,
+                env={"PYTHONPATH": str(PAKET_SRC), "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("=> FAILED", r.stdout)
+        self.assertNotIn("[PASS]", r.stdout)
+
+    def test_control_a_subject_that_is_not_ours_makes_no_claim(self):
+        """The subjects the package writes, a generic digest, an entry without a digest, and an absent
+        subject verify, and so does every statement the two exporters produce for a passing and a
+        failing claim, over the three subject profiles and both content-root algorithms."""
+        for art in self.ARTEN:
+            for name, veraendere in (
+                    ("as written", lambda st: None),
+                    ("generic digest", lambda st: st.update(subject=[{"name": "m", "digest": {"x": "y"}}])),
+                    ("entry without digest", lambda st: st.update(subject=[{"name": "m", "uri": "https://x"}])),
+                    ("no subject", lambda st: st.pop("subject"))):
+                with self.subTest(art=art, fall=name):
+                    res = self._verifiziert(art, veraendere)
+                    self.assertTrue(res["ok"], res["content_root_detail"])
+        for claim in (self.basis, self._claim_mit(score="0.50")):
+            for alg in (intoto.CONTENT_ROOT_ALG, intoto.LEGACY_CONTENT_ROOT_ALG):
+                for profil in intoto.SUBJECT_PROFILES:
+                    extra = {} if profil == "receipt" else {"subject_name": "m", "subject_sha256": "ab" * 32}
+                    with self.subTest(passed=claim["passed"], alg=alg, export="eval-result", profil=profil):
+                        env = intoto.export_eval_result_dsse(claim, self.signer, subject_profile=profil,
+                                                             root_b64=ROOT_B64, content_root_alg=alg, **extra)
+                        res = intoto.verify_eval_result_dsse(env, self.pub)
+                        self.assertTrue(res["ok"], res["content_root_detail"])
+                with self.subTest(passed=claim["passed"], alg=alg, export="test-result"):
+                    env = intoto.export_intoto_dsse(claim, self.signer, root_b64=ROOT_B64, content_root_alg=alg)
+                    res = intoto.verify_intoto_dsse(env, self.pub)
+                    self.assertTrue(res["ok"], res["content_root_detail"])
+
+
+class _KodiertMitFehler(str):
+    def encode(self, *args, **kwargs):
+        raise LookupError("no such encoding")
+
+
+class _KodiertAlsZahl(str):
+    def encode(self, *args, **kwargs):
+        return 0
+
+
+class _KodiertAnders(str):
+    """Encodes "aaa" as b"\\xff", so rfc8785 sorted it after "bbb"."""
+
+    def encode(self, *args, **kwargs):
+        return b"\xff" if str.__eq__(self, "aaa") else str.encode(self, *args, **kwargs)
+
+
+class _KeinStrMitEncode:
+    """A key that is not a string but has an `encode` method."""
+
+    def encode(self, *args, **kwargs):
+        return b"k"
+
+
+class _AndererHash(str):
+    """Equal to "a" as a string, but hashed apart, so a dict holds it beside a plain "a"."""
+
+    def __hash__(self):
+        return 12345
+
+
+class TestAKeyIsSerializedByItsCharacters(_Basis):
+    """Item 3: rfc8785 sorts object keys through the key's own `encode("utf-16be")`. Measured at
+    6893586f: a `str` subclass key in `provenance` whose `encode` raised LookupError or returned an int
+    escaped the emitter, the eight producers and `svr_properties` as a raw exception; one that encoded a
+    key differently got a payload signed whose keys were not in canonical order; a non-string key with an
+    `encode` method raised a raw TypeError; and the same keys in the `harness` argument escaped the two
+    exporters, or were signed in an order their own verifier refuses. The canonicalizers now serialize a
+    plain copy (keys and strings as plain `str`); the except around rfc8785 is not widened."""
+
+    def _alle_produzieren(self, claim):
+        from proofbundle.errors import VerificationResult  # noqa: PLC0415
+        ergebnis = VerificationResult()
+        ergebnis.add("ed25519-signature", True, "")
+        ergebnis.add("merkle-inclusion", True, "")
+        erzeuger = dict(_produzenten(), svr_properties=lambda c, s: intoto.svr_properties(ergebnis, c))
+        for name, erzeuge in erzeuger.items():
+            with self.subTest(produzent=name):
+                self.assertIsNotNone(erzeuge(claim, self.signer))
+
+    def test_a_key_whose_encode_fails_is_serialized_by_its_characters(self):
+        for name, schluessel in (("raises LookupError", _KodiertMitFehler("a")),
+                                 ("returns an int", _KodiertAlsZahl("a"))):
+            with self.subTest(encode=name):
+                claim = dict(self.basis, provenance={schluessel: 1, "b": 2})
+                gelesen = decode_eval_claim(emit_eval_receipt(claim, self.signer))
+                self.assertEqual(gelesen["provenance"], {"a": 1, "b": 2})
+                self._alle_produzieren(claim)
+
+    def test_the_emitted_payload_is_canonical_whatever_a_key_encodes_to(self):
+        import rfc8785  # noqa: PLC0415
+        claim = dict(self.basis, provenance={_KodiertAnders("aaa"): 1, "bbb": 2})
+        payload = base64.b64decode(emit_eval_receipt(claim, self.signer)["payload_b64"])
+        self.assertEqual(rfc8785.dumps(json.loads(payload)), payload)
+
+    def test_a_key_that_is_not_a_string_is_a_typed_refusal(self):
+        claim = dict(self.basis, provenance={_KeinStrMitEncode(): 1})
+        with self.assertRaises(EvalClaimError):
+            emit_eval_receipt(claim, self.signer)
+        self._alle_weisen_ab(claim)
+
+    def test_a_harness_key_is_serialized_by_its_characters(self):
+        paare = (("export_eval_result_dsse", intoto.export_eval_result_dsse, intoto.verify_eval_result_dsse),
+                 ("export_intoto_dsse", intoto.export_intoto_dsse, intoto.verify_intoto_dsse))
+        for name, harness in (("encode raises LookupError", {_KodiertMitFehler("a"): 1}),
+                              ("encode sorts it elsewhere", {_KodiertAnders("aaa"): 1, "bbb": 2})):
+            for export, exportiere, pruefe in paare:
+                with self.subTest(harness=name, export=export):
+                    env = exportiere(self.basis, self.signer, root_b64=ROOT_B64, harness=harness)
+                    res = pruefe(env, self.pub)
+                    self.assertTrue(res["ok"], res["content_root_detail"])
+
+    def test_control_two_keys_equal_as_strings_are_refused(self):
+        """JSON has one key for both. rfc8785 wrote both, and the read-back refused the duplicate; the
+        plain copy refuses it before that. Typed in both, so this is a control."""
+        claim = dict(self.basis, provenance={_AndererHash("a"): 1, "a": 2})
+        self.assertEqual(len(claim["provenance"]), 2)
+        with self.assertRaises(EvalClaimError):
+            emit_eval_receipt(claim, self.signer)
+        self._alle_weisen_ab(claim)
 
 
 if __name__ == "__main__":

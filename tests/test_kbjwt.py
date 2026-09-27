@@ -121,7 +121,9 @@ class TestKbRoundtrip(unittest.TestCase):
         issuer = generate_signer()
         claim = dict(CLAIM)
         claim["issuer"] = "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")
-        compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.5")
+        # A score that earns the claim's passed=True for >= 0.80: `issue_sd_jwt` refuses a disclosed
+        # score that contradicts the always-open verdict (it signed "0.5" here until 6893586f).
+        compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.85")
         res = verify_key_binding(compact)
         self.assertFalse(res["present"])
         self.assertIs(res["ok"], False)
@@ -148,7 +150,8 @@ class TestKbAdversarial(unittest.TestCase):
 
     def test_red_disclosure_swapped(self):
         presented, _, _ = _issue_presented(exact_score="0.92")
-        other, _, _ = _issue_presented(exact_score="0.11")
+        # Two different disclosures, both earning passed=True (a contradicting "0.11" is refused now).
+        other, _, _ = _issue_presented(exact_score="0.95")
         sd_a, kb_a = split_key_binding(presented)
         sd_b, _ = split_key_binding(other)
         # graft A's KB-JWT onto B's disclosures

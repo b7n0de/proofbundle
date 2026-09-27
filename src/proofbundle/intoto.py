@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from typing import Any, Optional
 
 from ._verdict import require_bool_verdict, require_eval_claim
@@ -433,76 +434,169 @@ def _eval_result_claim_fields(predicate: dict) -> list:
     return teile
 
 
-def _test_result_claim_fields(predicate: dict) -> list:
-    """(label, claim fields or a reason) for each configuration entry that carries a proofbundle
-    commitment, and for every container on the way to one that has the wrong shape.
+def _descriptor_claim_fields(bezeichnung: str, eintrag: Any) -> tuple[list, list]:
+    """(teile, urteile) for one resource descriptor, wherever it stands in a statement of the
+    verifier's own type: an entry of a test-result `configuration`, or an entry of the `subject` of
+    either statement.
 
-    The inverse of `to_test_result_statement`. A descriptor is ours when its digest carries
-    `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule judges its commitment
-    and its annotations. A descriptor that is an object with an object digest carrying neither key is
-    a generic test result and is not judged (test A1 of tests/test_intoto_content_root_migration.py
-    verifies one with digest {"x": "y"}); an ABSENT `configuration` or `digest` makes no claim.
+    THE OWNERSHIP RULE, one function for every place a descriptor stands. A descriptor is ours when
+    its digest carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule
+    then judges its commitment (`_commit_field`) and its annotations, and an annotated boolean
+    `passed` is returned in `urteile`, with the annotated `suite`, for the verdict agreement of the
+    test-result predicate. A descriptor that is an object with an object digest carrying neither key
+    is a generic one and is not judged (test A1 of tests/test_intoto_content_root_migration.py
+    verifies one with digest {"x": "y"}); one without a digest makes no claim. A present descriptor
+    that is not an object, a present digest that is not an object, and annotations of ours that are
+    not an object are reasons, the rule `_eval_result_claim_fields` states for containers.
 
-    A PRESENT container of the wrong shape is a reason of its own, the rule
+    Until this function the rule stood in the configuration walk alone. Measured at 6893586f: a
+    validly signed test-result or eval-result statement whose `subject` was
+    [{"name": "model-id-commitment", "digest": {"proofbundleModelCommitV1": "x"}}] verified ok=True
+    with predicate_claim_ok True, and `proofbundle intoto --verify` printed PASS.
+    """
+    if not isinstance(eintrag, dict):
+        return [(bezeichnung, f"must be an object, got {type(eintrag).__name__}")], []
+    if "digest" not in eintrag:
+        return [], []
+    digest = eintrag["digest"]
+    if not isinstance(digest, dict):
+        return [(f"{bezeichnung}.digest", f"must be an object, got {type(digest).__name__}")], []
+    felder = {}
+    for schluessel, feld in ((MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
+                             (DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
+        if schluessel in digest:
+            felder[feld] = _commit_field(digest[schluessel])
+    if not felder:
+        return [], []
+    urteile: list = []
+    if "annotations" in eintrag:
+        notizen = eintrag["annotations"]
+        if not isinstance(notizen, dict):
+            return [(f"{bezeichnung}.annotations",
+                     f"must be an object, got {type(notizen).__name__}")], []
+        for q, k in (("suite", "suite"), ("metric", "metric"), ("comparator", "comparator"),
+                     ("threshold", "threshold"), ("passed", "passed"), ("evaluatedAt", "timestamp"),
+                     ("provenance", "provenance")):
+            if q in notizen:
+                felder[k] = notizen[q]
+        if isinstance(notizen.get("passed"), bool):
+            suite = notizen.get("suite")
+            urteile.append((notizen["passed"], suite if isinstance(suite, str) else None))
+    return [(bezeichnung, felder)], urteile
+
+
+def _descriptor_list_claim_fields(bezeichnung: str, liste: Any) -> tuple[list, list]:
+    """`_descriptor_claim_fields` over a PRESENT list of descriptors; a list of the wrong shape is a
+    reason of its own."""
+    if not isinstance(liste, list):
+        return [(bezeichnung, f"must be an array of resource descriptors, got "
+                              f"{type(liste).__name__}")], []
+    teile: list = []
+    urteile: list = []
+    for i, eintrag in enumerate(liste):
+        t, u = _descriptor_claim_fields(f"{bezeichnung}[{i}]", eintrag)
+        teile.extend(t)
+        urteile.extend(u)
+    return teile, urteile
+
+
+def _subject_claim_fields(statement: dict) -> tuple[list, list]:
+    """The statement's `subject` under the ownership rule. An absent subject makes no claim."""
+    if "subject" not in statement:
+        return [], []
+    return _descriptor_list_claim_fields("subject", statement["subject"])
+
+
+def _eval_result_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """What `verify_eval_result_dsse` judges: the predicate's claim fields and the subject."""
+    return ([(f"predicate {b}", f) for b, f in _eval_result_claim_fields(predicate)]
+            + _subject_claim_fields(statement)[0])
+
+
+_CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
+
+
+def _verdict_agreement(predicate: dict, urteile: list) -> list:
+    """Reasons why the generic fields of a test-result predicate contradict a verdict of ours.
+
+    `urteile` holds (passed, suite or None) of every descriptor of ours that annotates a boolean
+    `passed`. Nothing is judged without one: a generic test result is not ours to judge.
+
+    `result`, when present, is PASSED exactly when `passed` is true, which is how
+    `to_test_result_statement` writes them. The case lists follow the rule
+    `verifier_block.validate_test_result_statement` holds for its own statements: each present list
+    is an array of strings; the lists derive the result (FAILED when any case failed, else WARNED
+    when any case warned, else PASSED), and a statement whose lists name no case is not a test
+    result; no case is listed twice. The derived result must be the verdict's. And the annotated
+    suite is listed where its verdict puts it, `passedTests` for true and `failedTests` for false,
+    because that is the list the export writes it into. A generic verifier reads `result` and the
+    lists; a statement where they contradict the signed verdict beside them is not one this export
+    produces. Measured at 6893586f: `result` PASSED with the suite listed under `failedTests`, and
+    `passedTests` naming another suite, each verified ok=True.
+    """
+    if not urteile:
+        return []
+    if "result" in predicate:
+        for urteil, _ in urteile:
+            erwartet = _RESULT_ENUM[urteil]
+            if predicate["result"] != erwartet:
+                return [("result", f"must be {erwartet!r} when passed is {urteil}, "
+                                   f"got {render_safe(predicate['result'])}")]
+    listen: dict = {}
+    for name in _CASE_LISTS:
+        if name in predicate:
+            liste = predicate[name]
+            if not (isinstance(liste, list) and all(isinstance(x, str) for x in liste)):
+                return [(name, f"must be an array of strings, got {render_safe(liste)}")]
+            listen[name] = liste
+    if not listen:
+        return []
+    bestanden = listen.get("passedTests", [])
+    gewarnt = listen.get("warnedTests", [])
+    gescheitert = listen.get("failedTests", [])
+    if not (bestanden or gewarnt or gescheitert):
+        return [("case lists", "name no case; a statement over zero cases is not a test result")]
+    abgeleitet = "FAILED" if gescheitert else ("WARNED" if gewarnt else "PASSED")
+    for urteil, suite in urteile:
+        if abgeleitet != _RESULT_ENUM[urteil]:
+            return [("case lists", f"derive {abgeleitet!r} ({len(gescheitert)} failed, "
+                                   f"{len(gewarnt)} warned, {len(bestanden)} passed), which "
+                                   f"contradicts passed {urteil}")]
+        wo = "passedTests" if urteil else "failedTests"
+        if suite is not None and suite not in listen.get(wo, []):
+            return [(wo, f"must list the suite {render_safe(suite)} whose verdict is passed "
+                         f"{urteil}, got {render_safe(listen.get(wo))}")]
+    doppelt = sorted(x for x, n in Counter(bestanden + gewarnt + gescheitert).items() if n > 1)
+    if doppelt:
+        return [("case lists", f"list a case more than once: {render_safe(doppelt)}")]
+    return []
+
+
+def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
+    """(label, claim fields or a reason) for what `verify_intoto_dsse` judges: every descriptor of
+    ours in the predicate's `configuration` and in the statement's `subject`
+    (`_descriptor_claim_fields`), every container on the way to one that has the wrong shape, and
+    the agreement of the generic fields with the signed verdict (`_verdict_agreement`).
+
+    The inverse of `to_test_result_statement`. An ABSENT `configuration` or `digest` makes no
+    claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
     entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
-
-    `result` and `passed`: when both are present they must agree, PASSED exactly when `passed` is
-    true, which is how `to_test_result_statement` writes them. A generic verifier reads `result`;
-    a statement whose `result` contradicts the signed verdict beside it is not one this export
-    produces.
     """
+    subjekt_teile, urteile = _subject_claim_fields(statement)
     teile: list = []
-    if "configuration" not in predicate:
-        return teile
-    configuration = predicate["configuration"]
-    if not isinstance(configuration, list):
-        return [("configuration", f"must be an array of resource descriptors, got "
-                                  f"{type(configuration).__name__}")]
-    urteile = []
-    for i, eintrag in enumerate(configuration):
-        if not isinstance(eintrag, dict):
-            teile.append((f"configuration[{i}]", f"must be an object, got {type(eintrag).__name__}"))
-            continue
-        if "digest" not in eintrag:
-            continue
-        digest = eintrag["digest"]
-        if not isinstance(digest, dict):
-            teile.append((f"configuration[{i}].digest", f"must be an object, got {type(digest).__name__}"))
-            continue
-        felder = {}
-        for schluessel, feld in ((MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
-                                 (DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
-            if schluessel in digest:
-                felder[feld] = _commit_field(digest[schluessel])
-        if felder and "annotations" in eintrag:
-            notizen = eintrag["annotations"]
-            if not isinstance(notizen, dict):
-                teile.append((f"configuration[{i}].annotations",
-                              f"must be an object, got {type(notizen).__name__}"))
-                continue
-            for q, k in (("suite", "suite"), ("metric", "metric"), ("comparator", "comparator"),
-                         ("threshold", "threshold"), ("passed", "passed"), ("evaluatedAt", "timestamp"),
-                         ("provenance", "provenance")):
-                if q in notizen:
-                    felder[k] = notizen[q]
-            if isinstance(notizen.get("passed"), bool):
-                urteile.append(notizen["passed"])
-        if felder:
-            teile.append((f"configuration[{i}]", felder))
-    if "result" in predicate:
-        for urteil in urteile:
-            erwartet = _RESULT_ENUM[urteil]
-            if predicate["result"] != erwartet:
-                teile.append(("result", f"must be {erwartet!r} when passed is {urteil}, "
-                                        f"got {render_safe(predicate['result'])}"))
-                break
-    return teile
+    if "configuration" in predicate:
+        teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
+                                                              predicate["configuration"])
+        urteile = konfig_urteile + urteile
+    teile.extend(_verdict_agreement(predicate, urteile))
+    return [(f"predicate {b}", f) for b, f in teile] + subjekt_teile
 
 
 def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
-    """Fold the claim rule over a verified statement's predicate into the verdict. Never raises.
+    """Fold the claim rule over a verified statement's predicate and subject into the verdict.
+    Never raises.
 
     ``predicate_claim_ok`` is True when the statement has this verifier's own predicate type and
     every claim field it carries passes `evalclaim._field_violation`, False when one does not or
@@ -515,6 +609,9 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
 
     Measured at 62e8bbab: a validly signed envelope whose commitments were `sha256:x`,
     `not-a-commitment` or 64 upper-case hex digits verified ok=True through both verifiers.
+
+    ``felder_von(statement, predicate)`` returns each part with its full label ("predicate
+    claims[0]", "subject[0]"), because the subject stands beside the predicate and not in it.
     """
     statement = res.get("statement")
     if not (isinstance(statement, dict) and statement.get("predicateType") == eigener_typ):
@@ -532,10 +629,10 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
         grund = f"predicate must be an object, got {type(predicate).__name__}"
         predicate = {}
     try:
-        for bezeichnung, felder in ([] if grund else felder_von(predicate)):
+        for bezeichnung, felder in ([] if grund else felder_von(statement, predicate)):
             fehler = felder if isinstance(felder, str) else _field_violation(felder)
             if fehler is not None:
-                grund = f"predicate {bezeichnung}: {fehler}"
+                grund = f"{bezeichnung}: {fehler}"
                 break
     except (ProofBundleError, ValueError, TypeError, RecursionError) as exc:
         grund = f"predicate claim fields could not be judged ({type(exc).__name__})"
@@ -558,8 +655,9 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
 
-    ``ok`` also requires that every eval-claim field a configuration entry carrying a proofbundle
-    commitment digest holds passes the claim rule (``predicate_claim_ok``, see
+    ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
+    proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
+    agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
     `_judge_claim_fields`). A generic test-result entry without such a digest is not judged."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
@@ -766,8 +864,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     eval-result). Pass `expected_predicate_type=None` to opt out.
 
     `ok` also requires that every eval-claim field the predicate carries (claims[], sampleSize,
-    commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule
-    (`predicate_claim_ok`, see `_judge_claim_fields`). An absent field is not judged."""
+    commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule, and so
+    does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
+    `_judge_claim_fields`). An absent field is not judged."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -782,11 +881,11 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
                                                          f"DSSE payload rejected (fail-closed): {exc}",
                                                          expected_predicate_type),
-                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_claim_fields)
+                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type),
-        EVAL_RESULT_PREDICATE_TYPE, _eval_result_claim_fields)
+        EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
