@@ -69,6 +69,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -368,13 +369,76 @@ def _git(db: Path, *args: str) -> str:
     return lauf.stdout
 
 
+def _hashes(db: Path, pfade: list) -> list:
+    """The git object ids of the files `pfade` (relative to `db`) as they stand, raw bytes, no filters: what
+    git would store for exactly the bytes rustsec reads."""
+    umgebung = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    eingabe = "".join(str(db / pfad) + "\n" for pfad in pfade)
+    try:
+        lauf = subprocess.run(["git", "--no-replace-objects", f"--git-dir={db / '.git'}", "hash-object",
+                               "--no-filters", "--stdin-paths"], input=eingabe, env=umgebung, capture_output=True,
+                              encoding="utf-8", errors="replace", timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GateError(f"git could not hash the worktree of the advisory database {db} ({exc})") from exc
+    if lauf.returncode != 0:
+        raise GateError(f"git could not hash the worktree of the advisory database {db}: {lauf.stderr.strip()[:300]}")
+    ids = lauf.stdout.split()
+    if len(ids) != len(pfade):
+        raise GateError(f"git hashed {len(ids)} of {len(pfade)} worktree files of the advisory database {db}")
+    return ids
+
+
+def worktree_problem(db: Path, kopf: str) -> str:
+    """'' when the worktree of `db` holds exactly the files of commit `kopf`, as regular files with its bytes,
+    and nothing else; otherwise what differs. rustsec loads the advisories from the worktree, so this is what
+    makes a statement about the commit a statement about what cargo-audit reads. Compared by content, not by
+    git's stat cache, which an edit can keep."""
+    baum = {}
+    for eintrag in _git(db, "ls-tree", "-r", "-z", "--full-tree", kopf).split("\0"):
+        if not eintrag:
+            continue
+        kopfteil, pfad = eintrag.split("\t", 1)
+        modus, art, objekt = kopfteil.split(" ")
+        if art != "blob" or modus not in ("100644", "100755"):
+            return f"commit {kopf[:12]} carries {pfad} as {art} {modus}; the gate vouches only for regular files"
+        baum[pfad] = objekt
+    vorhanden, keine_datei = set(), []
+    for wurzel, ordner, dateien in os.walk(db):
+        rel = Path(wurzel).relative_to(db)
+        if rel == Path("."):
+            ordner[:] = [o for o in ordner if o != ".git"]
+        for name in list(ordner):
+            if (Path(wurzel) / name).is_symlink():
+                ordner.remove(name)
+                keine_datei.append((rel / name).as_posix())
+        for name in dateien:
+            pfad = (rel / name).as_posix()
+            vorhanden.add(pfad)
+            if (Path(wurzel) / name).is_symlink() or not (Path(wurzel) / name).is_file():
+                keine_datei.append(pfad)
+    fremd = sorted(vorhanden - set(baum))
+    fehlend = sorted(set(baum) - vorhanden)
+    if fremd:
+        return f"the worktree holds {len(fremd)} file(s) that commit {kopf[:12]} does not, first {fremd[0]}"
+    if fehlend:
+        return f"the worktree lacks {len(fehlend)} file(s) of commit {kopf[:12]}, first {fehlend[0]}"
+    if keine_datei:
+        return f"the worktree holds {sorted(keine_datei)[0]} as a link or special file, not as the commit's file"
+    pfade = sorted(baum)
+    anders = [pfad for pfad, objekt in zip(pfade, _hashes(db, pfade)) if objekt != baum[pfad]]
+    if anders:
+        return f"{len(anders)} worktree file(s) differ from commit {kopf[:12]}, first {anders[0]}"
+    return ""
+
+
 def database_state(db: Path) -> str:
     """What the gate established about the advisory database `db`; a GateError when it cannot vouch for it.
 
     The database must exist; carry .git/FETCH_HEAD, which rustsec 0.33.0 writes on every clone and fetch
     (its first line the remote HEAD commit, two tabs and the URL), last written no longer ago than
     FETCH_AGE_BOUND and not ahead of this clock by more than _CLOCK_LEAD; have HEAD at the commit that
-    fetch brought, so the marker speaks of this content; and have that commit younger than
+    fetch brought, so the marker speaks of this content; have a worktree that is exactly that commit, since
+    rustsec reads the advisories from the worktree (`worktree_problem`); and have that commit younger than
     COMMIT_AGE_BOUND by its committer time, the time rustsec judges."""
     if not db.is_dir():
         raise GateError(f"the advisory database {db} does not exist (the gate reads $CARGO_HOME/advisory-db, "
@@ -404,6 +468,10 @@ def database_state(db: Path) -> str:
         raise GateError(f"HEAD of the advisory database {db} ({kopf or 'none'}) is not the commit the last fetch "
                         f"brought ({zeile.group(1)}): the database changed after that fetch, or the fetch did "
                         "not complete")
+    abweichung = worktree_problem(db, kopf)
+    if abweichung:
+        raise GateError(f"the worktree of the advisory database {db} is not the commit the last fetch brought: "
+                        f"{abweichung}; cargo-audit would read those bytes, not the fetched ones")
     kopfzeilen = _git(db, "cat-file", "commit", kopf).split("\n\n", 1)[0].split("\n")
     committer = [z for z in kopfzeilen if z.startswith("committer ")]
     teile = committer[0].rsplit(" ", 2) if len(committer) == 1 else []
@@ -631,7 +699,7 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
     faelle = [
         # (name, lock, audit.toml text or None, .cargo/config.toml text or None, yanked check,
         #  exit codes that hold, texts the output must name, database: None for the fetched one,
-        #  "empty", "stale" or "missing" for one the case builds, or leaves out, in its directory)
+        #  "empty", "stale", "edited" or "missing" for one the case builds, or leaves out, in its directory)
         ("a notice-class advisory fails the gate", _lock_with("personnummer", "0.1.0"), "", None, False,
          {1}, ["notice RUSTSEC-2020-0166"], None),
         ("the listed exception passes next to audit.toml", geliehen, "", None, False,
@@ -656,6 +724,8 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
          ["last fetched"], "stale"),
         ("C3: a missing database ends the gate with 2", curve, "", None, False, {2}, ["does not exist"],
          "missing"),
+        ("C3: the fetched database with RUSTSEC-2024-0344 deleted from its worktree ends the gate with 2", curve,
+         "", None, False, {2}, ["worktree"], "edited"),
     ]
     fehler = 0
     for name, inhalt, toml_zusatz, config, yanked, erlaubt, muss_nennen, datenbank in faelle:
@@ -665,7 +735,12 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
             db, holen_nicht = advisory_db_path(), no_fetch
             if datenbank is not None:
                 db, holen_nicht = ort / "advisory-db", True
-                if datenbank != "missing":
+                if datenbank == "edited":
+                    # The review's case: the fetched database, refs and fetch marker kept, one advisory gone
+                    # from the worktree cargo-audit reads.
+                    shutil.copytree(advisory_db_path(), db, symlinks=True)
+                    (db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md").unlink()
+                elif datenbank != "missing":
                     _database_without_advisories(ort, FETCH_AGE_BOUND + 600 if datenbank == "stale" else 0)
             (ort / "Cargo.lock").write_text(inhalt, encoding="utf-8")
             if toml_zusatz is not None:
