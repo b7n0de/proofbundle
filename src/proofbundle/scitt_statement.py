@@ -21,11 +21,18 @@ deterministic (RFC 8949 section 4.2.1): shortest heads, definite lengths, map ke
 order of their encodings. The same key, bundle and arguments give the same bytes.
 
 KEYS (owner decision B, 2026-09-27). EdDSA (-8) over Ed25519, the key of the receipt world, with a
-protected ``kid``. By default the kid is the hexadecimal SHA-256 of the key's SubjectPublicKeyInfo,
-ASCII, the self-binding measured on every CCF receipt (``scitt_ccf``). A kid only names a key; trust
-comes from the relying party. The ``scitt-ccf/v1`` reader verifies statement keys selected by a
-protected ``x5chain`` only (owner answer N7 b), so an EdDSA statement is outside that reader's
-profile by design.
+protected ``kid``, is the default. By default the kid is the hexadecimal SHA-256 of the key's
+SubjectPublicKeyInfo, ASCII, the self-binding measured on every CCF receipt (``scitt_ccf``). A kid
+only names a key; trust comes from the relying party. The ``scitt-ccf/v1`` reader verifies statement
+keys selected by a protected ``x5chain`` only (owner answer N7 b), so an EdDSA statement is outside
+that reader's profile by design.
+
+ES256 (-7) with a protected ``x5chain`` (label 33, RFC 9360: a byte string for one certificate, an
+array for more, the end-entity certificate first) exists only for statements that must pass that
+reader, register with scitt-ccf-ledger and cross-verify with microsoft/scitt-verifier. The P-256 key
+and the chain come from the user, and the end-entity certificate must carry the signing key. It is
+the one ECDSA signature proofbundle makes, and it carries the low ``s``
+(``signature.canonical_es256_signature``); no kid is written, the chain names the key.
 
 A statement says that the holder of the key signed this receipt root under this issuer and subject.
 It says nothing about whether any recorded number is true, and without a receipt from a Transparency
@@ -55,7 +62,7 @@ CONFIRMED = "confirmed"
 _ALG, _CRIT, _CTY, _KID, _CWT, _X5CHAIN = 1, 2, 3, 4, 15, 33
 _PAYLOAD_HASH_ALG, _PREIMAGE_CTY, _PAYLOAD_LOCATION, _RECEIPTS = 258, 259, 260, 394
 _CWT_ISS, _CWT_SUB = 1, 2
-_EDDSA, _SHA256 = -8, -16
+_EDDSA, _ES256, _SHA256 = -8, -7, -16
 #: crit labels the check processes, as in the scitt-ccf/v1 reader.
 _CRIT_PROCESSED = (_ALG, _PAYLOAD_HASH_ALG)
 #: RFC 8410 SubjectPublicKeyInfo of an Ed25519 key: this prefix, then the 32 key bytes.
@@ -138,47 +145,107 @@ def _spki(public_key) -> bytes:
 
 
 def sign_statement(bundle: dict, signer, *, issuer: str, subject: str, kid: Optional[bytes] = None,
-                   location: Optional[str] = None) -> bytes:
+                   location: Optional[str] = None, x5chain: Optional[list] = None) -> bytes:
     """A tagged COSE_Sign1 hash envelope over ``bundle``'s receipt root, signed by ``signer``.
 
-    ``signer`` is an Ed25519 private key (``emit.load_signer``); ``issuer`` and ``subject`` become the
-    CWT ``iss`` and ``sub``; ``kid`` defaults to the hexadecimal SHA-256 of the signer's
+    ``signer`` is an Ed25519 private key (``emit.load_signer``; EdDSA with a protected kid, the
+    default) or a P-256 private key together with ``x5chain``, the DER certificates from the end-entity
+    one up (ES256 with a protected x5chain). ``issuer`` and ``subject`` become the CWT ``iss`` and
+    ``sub``; ``kid`` (EdDSA only) defaults to the hexadecimal SHA-256 of the signer's
     SubjectPublicKeyInfo; ``location`` becomes label 260. The bundle must verify. The bytes are read
     back with the ``scitt-ccf/v1`` reader and the signature checked before they are returned. Raises
     ``ScittStatementError`` for anything it cannot write honestly, ``scitt_ccf.ScittUnavailable``
     without the ``[scitt]`` extra.
     """
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
 
     from . import scitt_ccf  # noqa: PLC0415
-    if not isinstance(signer, Ed25519PrivateKey):
-        raise ScittStatementError("the signer must be an Ed25519 private key (EdDSA, COSE alg -8)")
+    if isinstance(signer, Ed25519PrivateKey):
+        if x5chain is not None:
+            raise ScittStatementError("an EdDSA statement names its key by kid; x5chain belongs to the "
+                                      "ES256 path (owner decision B)")
+        alg = _EDDSA
+    elif isinstance(signer, ec.EllipticCurvePrivateKey):
+        if signer.curve.name != "secp256r1":
+            raise ScittStatementError("ES256 needs a P-256 key")
+        if kid is not None:
+            raise ScittStatementError("an ES256 statement names its key by the protected x5chain; no kid "
+                                      "is written")
+        alg = _ES256
+    else:
+        raise ScittStatementError("the signer must be an Ed25519 private key (EdDSA, COSE alg -8) or a "
+                                  "P-256 private key with an x5chain (ES256, COSE alg -7)")
     issuer = _text(issuer, "issuer")
     subject = _text(subject, "subject")
     if location is not None:
         location = _text(location, "location")
     spki = _spki(signer.public_key())
-    if kid is None:
-        kid = scitt_ccf._derived_kid(spki)
-    elif not isinstance(kid, (bytes, bytearray)) or not kid:
-        raise ScittStatementError("kid must be a non-empty byte string")
-    payload = _receipt_root(bundle)
-    protected: dict = {_ALG: _EDDSA, _KID: bytes(kid), _CWT: {_CWT_ISS: issuer, _CWT_SUB: subject},
+    protected: dict = {_ALG: alg, _CWT: {_CWT_ISS: issuer, _CWT_SUB: subject},
                        _PAYLOAD_HASH_ALG: _SHA256, _PREIMAGE_CTY: MEDIA_TYPE}
+    if alg == _EDDSA:
+        if kid is None:
+            kid = scitt_ccf._derived_kid(spki)
+        elif not isinstance(kid, (bytes, bytearray)) or not kid:
+            raise ScittStatementError("kid must be a non-empty byte string")
+        protected[_KID] = bytes(kid)
+    else:
+        chain = _x5chain(x5chain, spki)
+        protected[_X5CHAIN] = chain[0] if len(chain) == 1 else chain
     if location is not None:
         protected[_PAYLOAD_LOCATION] = location
+    payload = _receipt_root(bundle)
     protected_raw = _enc(protected)
-    signature = signer.sign(scitt_ccf._sig_structure(protected_raw, payload))
+    tbs = scitt_ccf._sig_structure(protected_raw, payload)
+    signature = signer.sign(tbs) if alg == _EDDSA else _es256(signer, tbs)
     data = (encode_head(6, 18) + encode_head(4, 4) + _enc(protected_raw) + _enc({}) + _enc(payload)
             + _enc(signature))
-    _read_back(data, protected, payload, signer.public_key())
+    _read_back(data, protected, payload, spki)
     return data
 
 
-def _read_back(data: bytes, protected: dict, payload: bytes, public_key) -> None:
-    """The reader must see what was meant, and the signature must verify over what it sees."""
-    from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
+def _x5chain(x5chain: Any, spki: bytes) -> list:
+    """The user's chain as DER certificates, the end-entity one carrying the signing key."""
+    from cryptography import x509  # noqa: PLC0415
 
+    from . import scitt_ccf  # noqa: PLC0415
+    if not isinstance(x5chain, (list, tuple)) or not x5chain:
+        raise ScittStatementError("an ES256 statement needs an x5chain: the DER certificates from the "
+                                  "end-entity one up")
+    chain = []
+    for i, cert in enumerate(x5chain):
+        if not isinstance(cert, (bytes, bytearray)):
+            raise ScittStatementError(f"x5chain entry {i} is not DER bytes")
+        try:
+            x509.load_der_x509_certificate(bytes(cert))
+        except ValueError:
+            raise ScittStatementError(f"x5chain entry {i} is not a DER X.509 certificate") from None
+        chain.append(bytes(cert))
+    try:
+        leaf = x509.load_der_x509_certificate(chain[0])
+        leaf_spki = scitt_ccf._canonical_spki(scitt_ccf._key_from_spki(scitt_ccf._tbs_spki(
+            leaf.tbs_certificate_bytes)))
+    except scitt_ccf._KeyRefused as exc:
+        raise ScittStatementError(f"the end-entity certificate's key cannot be read: {exc}") from None
+    if leaf_spki != spki:
+        raise ScittStatementError("the end-entity certificate does not carry the signing key")
+    return chain
+
+
+def _es256(signer, tbs: bytes) -> bytes:
+    """ES256 as COSE writes it, R || S (RFC 9053 section 2.1), with the low S: the one spelling of
+    every signature proofbundle makes (owner decision on finding D1)."""
+    from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec, utils  # noqa: PLC0415
+
+    from .signature import canonical_es256_signature  # noqa: PLC0415
+    r, s = utils.decode_dss_signature(signer.sign(tbs, ec.ECDSA(hashes.SHA256())))
+    return canonical_es256_signature(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+
+
+def _read_back(data: bytes, protected: dict, payload: bytes, spki: bytes) -> None:
+    """The reader must see what was meant, the header rules must hold, and the producer's own check
+    must confirm the statement under the signer's public key."""
     from . import scitt_ccf  # noqa: PLC0415
     st = scitt_ccf.decode_cose_sign1(data, role="statement")
     if not (st.tagged and st.unprotected == {} and st.payload == payload and st.protected == protected):
@@ -186,10 +253,10 @@ def _read_back(data: bytes, protected: dict, payload: bytes, public_key) -> None
     why = _header_rules(st)
     if why:
         raise ScittStatementError(f"the statement breaks its own header rules: {why}")
-    try:
-        public_key.verify(st.signature, scitt_ccf._sig_structure(st.protected_raw, st.payload))
-    except InvalidSignature:
-        raise ScittStatementError("the statement's signature does not verify over what was written") from None
+    key = {"spki": spki, "kid": protected[_KID]} if _KID in protected else spki
+    check = check_signed_statement(data, canonical_root=payload, statement_keys=[key])
+    if check.status != CONFIRMED:
+        raise ScittStatementError(f"the statement does not verify as written: {check.status} {check.detail}")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -286,6 +353,15 @@ def _check(data, canonical_root, statement_keys, rp_trust) -> StatementCheck:
         return verdict("unbound", detail="canonical_root must be 32 bytes (a SHA-256 root)")
     if st.payload != bytes(canonical_root):
         return verdict("unbound", detail="the statement's payload is not this receipt's root")
+    if seen["alg"] == _ES256:
+        # the scitt-ccf/v1 statement signature: the protected x5chain selects among the relying party's
+        # keys (owner answer N4 b), never trust on its own
+        try:
+            selector = scitt_ccf._statement_key_selector(st)
+        except scitt_ccf.ScittFormatError as exc:
+            return verdict(exc.status, detail=str(exc))
+        status, valid, ignored, detail = scitt_ccf._statement_signature(st, statement_keys, selector)
+        return verdict(status, valid, detail=detail, ignored=ignored)
     keys, ignored = _ed25519_keys(statement_keys)
     if not keys:
         return verdict("needs_rp_trust", detail="no relying-party Ed25519 statement key", ignored=ignored)
@@ -314,8 +390,8 @@ def _header_rules(st) -> Optional[str]:
             return _UNPROTECTED_WHY.get(label) if not isinstance(label, bool) and label in _UNPROTECTED_WHY \
                 else f"label {label!r} in the unprotected header: only receipts (394) stand there"
     alg = ph.get(_ALG)
-    if isinstance(alg, bool) or alg != _EDDSA:
-        return f"alg {alg!r}: the producer's statements are EdDSA (-8)"
+    if isinstance(alg, bool) or alg not in (_EDDSA, _ES256):
+        return f"alg {alg!r}: the producer's statements are EdDSA (-8) or ES256 (-7)"
     if _PAYLOAD_HASH_ALG not in ph:
         return "label 258 absent from the protected header: not an RFC 9995 hash envelope"
     hash_alg = ph[_PAYLOAD_HASH_ALG]
@@ -338,8 +414,10 @@ def _header_rules(st) -> Optional[str]:
         if not isinstance(value, str) or not value:
             return f"label 15 (CWT Claims) has no non-empty text {name} (RFC 9943 section 6)"
     kid = ph.get(_KID)
-    if not isinstance(kid, bytes) or not kid:
+    if alg == _EDDSA and (not isinstance(kid, bytes) or not kid):
         return "label 4 (kid) is not a non-empty byte string in the protected header"
+    if alg == _ES256 and _X5CHAIN not in ph:
+        return "no protected x5chain (label 33): an ES256 statement names its key by it (owner answer N7 b)"
     from .scitt_ccf import _crit_ok  # noqa: PLC0415
     why = _crit_ok(ph, _CRIT_PROCESSED)
     if why:

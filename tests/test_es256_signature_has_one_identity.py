@@ -13,8 +13,8 @@ and both verify. Two owner decisions of 2026-09-26, the second refining the firs
    computed over the form in which EVERY ES256 signature carries the low s, the issuer JWT's and a
    KB-JWT's, so twins have one identity. The cost is stated in the CHANGELOG: a receipt and its twin
    are two token strings with one identity;
-4. a low s is required only of signatures proofbundle makes itself (it makes no ES256 signature
-   today); eip191 refuses a high s (``tests/test_anchors_rootcommit.py``).
+4. a low s is required only of signatures proofbundle makes itself (its one ES256 signature is the
+   SCITT statement's ES256 path, 6.4.0); eip191 refuses a high s (``tests/test_anchors_rootcommit.py``).
 
 Each class says whether it was red on f536af50 and on 126ed1dc, measured by running this file
 against those trees. A case that was green there says so, because a case that cannot fall is a
@@ -601,8 +601,8 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
 class OwnSignaturesHaveOneSpelling(unittest.TestCase):
     """Owner decision, point 4: a low s is required of the signatures proofbundle makes itself.
-    proofbundle makes no ES256 signature (the inventory below keeps that true); the signatures it
-    makes on the D1 surfaces are EdDSA: the bundle's own ``signature.sig_b64`` (``emit_bundle``), the
+    proofbundle makes one ES256 signature, the SCITT statement's ES256 path (6.4.0, owner decision B;
+    the inventory below keeps it the only one); the signatures it makes on the D1 surfaces are EdDSA: the bundle's own ``signature.sig_b64`` (``emit_bundle``), the
     issuer JWT of ``issue_sd_jwt`` and the KB-JWT of ``present_with_key_binding``. A pb1 token carries
     no signature of its own. Each signature is checked by the rule for the alg it declares: ES256
     must carry s <= n / 2, EdDSA must carry S < L, which leaves it one spelling. An alg without a rule

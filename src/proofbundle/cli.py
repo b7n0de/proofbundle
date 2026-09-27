@@ -379,6 +379,30 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_es256_signer(key_path: str, chain_path: str) -> tuple:
+    """The user's P-256 private key (PEM) and certificate chain (PEM, end-entity first) for the ES256
+    path of `scitt sign` (owner decision B). The key's curve is checked here; the chain's fit to the
+    key by the producer."""
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    with _open_input(key_path, binary=True) as handle:
+        raw_key = _read_capped_bytes(handle)
+    try:
+        key = serialization.load_pem_private_key(raw_key, password=None)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"--ec-key {key_path!r}: not an unencrypted PEM private key") from exc
+    if not isinstance(key, ec.EllipticCurvePrivateKey) or key.curve.name != "secp256r1":
+        raise ValueError(f"--ec-key {key_path!r}: not a P-256 private key")
+    with _open_input(chain_path, binary=True) as handle:
+        raw_chain = _read_capped_bytes(handle)
+    try:
+        certs = x509.load_pem_x509_certificates(raw_chain)
+    except ValueError as exc:
+        raise ValueError(f"--x5chain {chain_path!r}: not PEM certificates") from exc
+    return key, [c.public_bytes(serialization.Encoding.DER) for c in certs]
+
+
 def _cmd_scitt_sign(args: argparse.Namespace) -> int:
     """`scitt sign` (EXPERIMENTAL, 6.4.0): a SCITT Signed Statement over a receipt that verifies.
 
@@ -387,6 +411,14 @@ def _cmd_scitt_sign(args: argparse.Namespace) -> int:
     from .scitt_ccf import ScittUnavailable  # noqa: PLC0415
     from .scitt_statement import ScittStatementError, sign_statement  # noqa: PLC0415
     # Checked before a --new-key file is written: a refused call leaves nothing behind.
+    if args.ec_key is not None and (args.key is not None or args.new_key is not None):
+        print("ERROR: use --key / --new-key (EdDSA) or --ec-key with --x5chain (ES256), not both",
+              file=sys.stderr)
+        return 2
+    if (args.ec_key is None) != (args.x5chain is None):
+        print("ERROR: --ec-key and --x5chain belong together (the P-256 key and its certificate chain)",
+              file=sys.stderr)
+        return 2
     for name in ("issuer", "subject", "kid", "location"):
         value = getattr(args, name, None)
         if value is not None and not value:
@@ -407,21 +439,31 @@ def _cmd_scitt_sign(args: argparse.Namespace) -> int:
     except UnicodeEncodeError:
         print("ERROR: --kid is not valid UTF-8 text", file=sys.stderr)
         return 2
-    signer = _resolve_signer(args)
-    if signer is None:
-        return 2
+    x5chain = None
+    if args.ec_key is not None:
+        try:
+            signer, x5chain = _load_es256_signer(args.ec_key, args.x5chain)
+        except (OSError, ValueError, ProofBundleError) as exc:
+            _err(exc)
+            return 2
+    else:
+        signer = _resolve_signer(args)
+        if signer is None:
+            return 2
     try:
         data = sign_statement(bundle, signer, issuer=args.issuer, subject=args.subject, kid=kid,
-                              location=args.location)
+                              location=args.location, x5chain=x5chain)
     except (ScittStatementError, ScittUnavailable) as exc:
         _err(exc)
         return 2
     from .scitt_ccf import decode_cose_sign1  # noqa: PLC0415
-    written_kid = decode_cose_sign1(data).protected[4]
+    written = decode_cose_sign1(data).protected
     with open(args.out, "wb") as handle:
         handle.write(data)
-    print(f"wrote SCITT signed statement {args.out} ({len(data)} bytes, EdDSA)")
-    print(f"kid {_safe_line(written_kid.decode('utf-8', 'replace'))}")
+    print(f"wrote SCITT signed statement {args.out} ({len(data)} bytes, "
+          f"{'ES256, protected x5chain' if x5chain is not None else 'EdDSA'})")
+    if 4 in written:
+        print(f"kid {_safe_line(written[4].decode('utf-8', 'replace'))}")
     if args.public_key_out:
         from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
         pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
@@ -3345,7 +3387,8 @@ def build_parser() -> argparse.ArgumentParser:
     sc_sign = scsub.add_parser(
         "sign",
         help="sign a COSE_Sign1 hash envelope (RFC 9995) over a receipt's anchor root, EdDSA with a "
-             "protected kid; the receipt must verify. Offline; registration is a separate step")
+             "protected kid by default, ES256 with a protected x5chain on request; the receipt must "
+             "verify. Offline; registration is a separate step")
     sc_sign.add_argument("receipt", help="path to the receipt bundle JSON")
     sc_sign.add_argument("--out", required=True, help="path to write the statement (binary COSE_Sign1)")
     sc_sign.add_argument("--issuer", required=True, help="CWT iss (RFC 9943 section 6)")
@@ -3356,6 +3399,13 @@ def build_parser() -> argparse.ArgumentParser:
     sc_sign.add_argument("--location", default=None, help="payload location, label 260 (only if given)")
     sc_sign.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     sc_sign.add_argument("--new-key", dest="new_key", help="generate a signing key and save it to this file")
+    sc_sign.add_argument("--ec-key", dest="ec_key", default=None,
+                         help="ES256 instead of EdDSA (owner decision B): the user's P-256 private key, PEM; "
+                              "only for statements that must pass the scitt-ccf/v1 reader, register with "
+                              "scitt-ccf-ledger or cross-verify with scitt-verifier. Needs --x5chain")
+    sc_sign.add_argument("--x5chain", default=None,
+                         help="with --ec-key: the certificate chain, PEM, the end-entity certificate (which "
+                              "must carry the key) first; written as the protected x5chain")
     sc_sign.add_argument("--public-key-out", dest="public_key_out", default=None,
                          help="also write the statement's public key (PEM SubjectPublicKeyInfo)")
     sc_sign.set_defaults(func=_cmd_scitt_sign)
