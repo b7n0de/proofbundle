@@ -18,9 +18,24 @@ fixed it; the commit message records both runs.
 4. A DEFAULT RELEASE NUMBER GOES STALE AT ITS RELEASE. The title gate and the landing card read
    6.1.0 when no version was given, the scope of a release that was already out.
 
+A review of caccdbad reported two more, both P1. Both were measured at caccdbad and at fc1596e5
+before they were fixed, and the cases of section 5 fail there and pass on the commit that fixed
+them.
+
+5. THE COMMIT READER KNEW ONE WRITTEN FORM. It read lower-case hex only and had no branch for any
+   other spelling: git resolves `0ACE3039`, and the reader returned no commit for it, so a commit
+   written in upper case that resolves to nothing left every check green. Git reads a hex object
+   name in any case, and so does the reader now; a word that looks like a commit and is no form it
+   checks is named, never read as no commit.
+6. A `path:line` REFERENCE WITHOUT BACKTICKS WAS NOT READ. The reference reader took its tokens
+   from backticked spans only, so a line number written in plain prose pointed wherever it pointed
+   and nothing checked it. Both are read in one grammar now, and a token that begins like a
+   reference and is none of its forms is refused with its name.
+
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
-their own cuts; and whether a reference names the RIGHT symbol, beyond that the symbol it names
-stands in the lines it points at.
+their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
+stands in the lines it points at; and fenced blocks, which quote tool output and artefact digests
+rather than cite.
 """
 from __future__ import annotations
 
@@ -127,8 +142,22 @@ def _cells(row: str) -> list[str]:
     return [c.strip() for c in row.strip().strip("|").split("|")]
 
 
-_HEX = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
+_WORD = re.compile(r"[0-9A-Za-z_]+")
+_HEX_WORD = re.compile(r"[0-9A-Fa-f]{7,40}")
+_HEX_RUN = re.compile(r"[0-9A-Fa-f]{7,}")
 _TAG = re.compile(r"`(v[0-9]+(?:\.[0-9]+)+)`")
+
+#: Words git would read as a hex object name that the scope files use as names, by their exact
+#: spelling, each with what it names. It is the one way past the commit reader, so a case below
+#: holds every entry to it: it stands in a scope file, and it resolves to no commit.
+NOT_A_COMMIT = {
+    "Ed25519": "the signature scheme, in the title of pull request 280 in the list of main",
+}
+
+
+class UnreadableCommitWord(AssertionError):
+    """A word that looks like a commit reference and is none of the forms the reader checks."""
+
 
 _NUMBER_WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve".split())}
@@ -145,9 +174,35 @@ def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _commit_words(unit: str) -> list[tuple[str, str]]:
+    """(as written, as git reads it) for every commit reference of a unit.
+
+    Git reads a hex object name in any case. So every word of 7 to 40 hex digits is a commit
+    reference, backticked or not, in upper, lower or mixed case, all digits or all letters, and it
+    is returned lower-cased, the form git prints. A word in `NOT_A_COMMIT` is skipped by its exact
+    spelling. A word that looks like a commit reference and is none of these is not passed over:
+    a run of 7 or more hex digits, holding a digit and a letter, that is not a whole word of 7 to
+    40 (glued to other characters, or longer than 40 digits) raises with the word named.
+    """
+    out = []
+    for word in _WORD.findall(unit):
+        if word in NOT_A_COMMIT:
+            continue
+        if _HEX_WORD.fullmatch(word):
+            out.append((word, word.lower()))
+            continue
+        for run in _HEX_RUN.findall(word):
+            if re.search(r"[0-9]", run) and re.search(r"[A-Fa-f]", run):
+                why = ("it is longer than a commit id" if run == word else
+                       f"its hex run {run!r} is glued to other characters")
+                raise UnreadableCommitWord(f"{word!r} looks like a commit reference and is none "
+                                           f"of the forms this reader checks: {why}")
+    return out
+
+
 def _cited_commits(unit: str) -> list[str]:
-    """Hex runs of 7 to 40 characters with a digit and a letter: what this file cites as commits."""
-    return [h for h in _HEX.findall(unit) if re.search(r"[a-f]", h) and re.search(r"[0-9]", h)]
+    """Every commit reference of a unit as git reads it, lower-cased; see `_commit_words`."""
+    return [h for _, h in _commit_words(unit)]
 
 
 # -- 1. every open frozen fix the decisions put into 6.2.0 is named, and the counts match ----------
@@ -251,7 +306,8 @@ def frozen_fix_findings(text: str) -> list[str]:
 
 def _on_main_list(text: str) -> list[tuple[int, str]]:
     return [(int(n), h) for n, h in
-            re.findall(r"(?m)^- #([0-9]+) `([0-9a-f]{7,40})` ", _section(text, "what is on main"))]
+            re.findall(r"(?m)^- #([0-9]+) `([0-9A-Fa-f]{7,40})` ",
+                       _section(text, "what is on main"))]
 
 
 def test_every_open_frozen_fix_the_decisions_name_is_in_the_cut_and_the_counts_match():
@@ -265,7 +321,7 @@ def test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts
     numbers = [n for n, _ in entries]
     for n in DECIDED_LANDED:
         assert n in numbers, f"#{n} landed on main with the decision's addition and is not listed"
-    head = re.search(r"at `([0-9a-f]{7,40})`: ([0-9]+) commits since `(v[0-9.]+)`, ([0-9]+) of "
+    head = re.search(r"at `([0-9A-Fa-f]{7,40})`: ([0-9]+) commits since `(v[0-9.]+)`, ([0-9]+) of "
                      r"them on the first-parent line\. All ([0-9]+) are pull requests: ([0-9]+) "
                      r"spelled `Merge pull request #N`, ([0-9]+) spelled `… \(#N\)`, and (\w+) "
                      r"squash", _flat(text))
@@ -323,7 +379,7 @@ def test_the_frozen_head_lies_on_its_branch():
     text = CUT.read_text(encoding="utf-8")
     measured = []
     for branch, head in DECIDED_HEADS.items():
-        assert head in text, f"{branch}: the cut does not carry the head {head}"
+        assert head in text.lower(), f"{branch}: the cut does not carry the head {head}"
         if _commit(head) is None:
             continue
         tip = _commit(f"refs/remotes/origin/{branch}")
@@ -375,15 +431,38 @@ def test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head():
     seen, problems = 0, []
     for path in SCOPE_FILES:
         for unit in _units(_outside(path.read_text(encoding="utf-8"), "frozen fix")):
-            for h in _cited_commits(unit):
+            for written, h in _commit_words(unit):
                 seen += 1
                 full = _commit(h)
                 if full is None:
-                    problems.append(f"{path.name}: {h} does not resolve to a commit")
+                    problems.append(f"{path.name}: {written} does not resolve to a commit")
                 elif not _is_ancestor(full, head):
-                    problems.append(f"{path.name}: {h} is not an ancestor of the head")
+                    problems.append(f"{path.name}: {written} is not an ancestor of the head")
     assert seen > 10, f"only {seen} cited commits read: the reader is not reading the files"
     assert not problems, "\n".join(problems)
+
+
+def test_every_commit_like_word_of_the_scope_files_is_read():
+    """Without git, and the frozen section included: every unit of both files goes through the
+    commit reader, which names a word it cannot classify instead of reading it as no commit."""
+    read = sum(len(_commit_words(unit)) for path in SCOPE_FILES
+               for unit in _units(path.read_text(encoding="utf-8")))
+    assert read > 10, f"only {read} commit references read: the reader is not reading the files"
+
+
+def test_a_word_the_reader_takes_for_a_name_stands_in_the_files_and_names_no_commit():
+    """`NOT_A_COMMIT` is the one way past the reader, so each entry is held to what it claims: it
+    stands in a scope file as spelled, it is skipped only in that spelling, and where this clone has
+    the history it resolves to no commit."""
+    texts = "\n".join(p.read_text(encoding="utf-8") for p in SCOPE_FILES)
+    for word, what in NOT_A_COMMIT.items():
+        assert re.search(rf"(?<![0-9A-Za-z_]){re.escape(word)}(?![0-9A-Za-z_])", texts), (
+            f"{word} ({what}) stands in no scope file, so its entry lets nothing past")
+        assert _cited_commits(f"an {word} key") == [], word
+        assert _cited_commits(f"an {word.upper()} key") == [word.lower()], word
+    if _git("rev-parse", "--is-shallow-repository").stdout.strip() == "false":
+        for word in NOT_A_COMMIT:
+            assert _commit(word) is None, f"{word} resolves to a commit here; it is not only a name"
 
 
 def test_no_cited_commit_needs_history_older_than_the_files_base():
@@ -409,7 +488,7 @@ def test_catch_proof_an_old_commit_is_found_and_a_named_tag_is_not():
     head = _commit("HEAD")
     older = _commit("v6.1.0^")
     assert older and not _is_ancestor(base, older), "the plant needs a commit older than v6.1.0"
-    # Full SHAs: a short prefix can happen to be all digits, and the reader rightly skips those.
+    # Full SHAs, so that no plant is a prefix git finds ambiguous.
     assert commits_needing_old_history(f"the harness arrived with {older}.\n", base, head)
     assert commits_needing_old_history(f"the release commit (`{base}`).\n", base, head)
     assert not commits_needing_old_history(f"the tag `v6.1.0` (`{base}`).\n", base, head)
@@ -421,6 +500,11 @@ def test_catch_proof_an_old_commit_is_found_and_a_named_tag_is_not():
 _PATH = r"[A-Za-z0-9_][A-Za-z0-9_./-]*"
 _REF = re.compile(rf"^(?P<path>{_PATH}\.[A-Za-z0-9]+):(?P<a>[0-9]+)(?:-(?P<b>[0-9]+))?$")
 _CONT = re.compile(r"^:(?P<a>[0-9]+)(?:-(?P<b>[0-9]+))?$")
+_FILE = re.compile(rf"^{_PATH}\.[A-Za-z0-9]+$")
+#: What begins a reference anywhere in a token: a path with an extension, or the token's start,
+#: then a colon and a digit. A token holding it that is no whole reference is refused by name.
+_REF_LIKE = re.compile(rf"(?:(?<![A-Za-z0-9_./-]){_PATH}\.[A-Za-z0-9]+|^):[0-9]")
+_OPEN, _CLOSE = "`([{<\"'*", "`)]}>\"',.;:!?*"
 
 
 def _is_path(token: str) -> bool:
@@ -428,25 +512,59 @@ def _is_path(token: str) -> bool:
             and ("/" in token or bool(_FILE_SUFFIX.search(token))))
 
 
-def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[str]]:
-    """(references, needles, trees) of one unit.
+def _plain_words(segment: str) -> list[str]:
+    return [w for w in (raw.lstrip(_OPEN).rstrip(_CLOSE) for raw in segment.split()) if w]
+
+
+def _tokens(unit: str) -> list[tuple[str, bool]]:
+    """(token, backticked) in the order the unit writes them.
+
+    Every backticked span is one token. Between the spans every whitespace-separated word is one,
+    with the punctuation around it taken off, so a reference written in plain prose is the same
+    reference as its backticked form and is not passed over for want of backticks.
+    """
+    out: list[tuple[str, bool]] = []
+    pos = 0
+    for m in re.finditer(r"`([^`]+)`", unit):
+        out += [(w, False) for w in _plain_words(unit[pos:m.start()])]
+        out.append((m.group(1), True))
+        pos = m.end()
+    return out + [(w, False) for w in _plain_words(unit[pos:])]
+
+
+def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[str], list[str]]:
+    """(references, needles, trees, refused) of one unit.
 
     A reference is `path:N` or `path:N-M`, and a bare `:N` continues the last path named before it,
-    as in "`src/proofbundle/intoto.py` (`:246`, `:424`)". A needle is every other backticked name in
-    the unit, split at " / ", that is neither a path nor a tree: what the unit says stands there.
-    The trees are the working tree and every tag or commit the unit names.
+    as in "`src/proofbundle/intoto.py` (`:246`, `:424`)". It is read in one grammar with or without
+    backticks, and a plain path with an extension counts as the last path named. A token that
+    begins like a reference and is none of these forms, or a `:N` with no path before it, is
+    refused with its name. A needle is every other backticked name in the unit, split at " / ",
+    that is neither a path nor a tree: what the unit says stands there. The trees are the working
+    tree and every tag or commit the unit names.
     """
-    refs, needles, trees = [], [], []
+    refs, needles, trees, refused = [], [], [], []
     last_path = None
-    for token in re.findall(r"`([^`]+)`", unit):
+    for token, ticked in _tokens(unit):
         m = _REF.match(token)
         if m:
             last_path = m["path"]
             refs.append((m["path"], int(m["a"]), int(m["b"] or m["a"])))
             continue
         m = _CONT.match(token)
-        if m and last_path:
-            refs.append((last_path, int(m["a"]), int(m["b"] or m["a"])))
+        if m:
+            if last_path:
+                refs.append((last_path, int(m["a"]), int(m["b"] or m["a"])))
+            else:
+                refused.append(f"{token!r} continues a path, and no path is named before it")
+            continue
+        if _REF_LIKE.search(token):
+            refused.append(f"{token!r} reads like a path:line reference and is none of the forms "
+                           f"this reader checks (`path:N`, `path:N-M`, `:N` after a path)")
+            continue
+        if not ticked:
+            if _FILE.match(token) and _is_path(token):
+                last_path = token
             continue
         if _TAG.fullmatch(f"`{token}`"):
             trees.append(token)
@@ -454,11 +572,11 @@ def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[
         if _is_path(token):
             last_path = token
             continue
-        if _cited_commits(token) == [token] or token in ("main", "HEAD"):
+        if _cited_commits(token) == [token.lower()] or token in ("main", "HEAD"):
             continue                          # a commit or a branch names a tree, not a symbol
         needles += [p.strip() for p in token.split(" / ") if len(p.strip()) >= 3]
     trees += _cited_commits(unit)
-    return refs, needles, trees
+    return refs, needles, trees, refused
 
 
 def _lines_at(tree: str | None, path: str) -> list[str] | None:
@@ -473,7 +591,8 @@ def reference_findings(text: str) -> tuple[list[str], list[str]]:
     """(findings, not measured here) for every path:line reference of one scope file."""
     findings, unmeasured = [], []
     for unit in _units(text):
-        refs, needles, trees = _references(unit)
+        refs, needles, trees, refused = _references(unit)
+        findings += refused
         if not refs:
             continue
         resolved = [None] + [c for t in trees if (c := _commit(t))]
@@ -532,7 +651,7 @@ def test_the_quoted_middle_column_is_still_the_previous_version_word_for_word():
     """THE CONSTRAINT THE FIX HAD TO KEEP. The file's rule is that the middle column quotes the
     previous version, so a stale line number there is corrected beside it, never inside it."""
     text = CUT.read_text(encoding="utf-8")
-    m = re.search(r"stands in the history of this file at `([0-9a-f]{7,40})`", text)
+    m = re.search(r"stands in the history of this file at `([0-9A-Fa-f]{7,40})`", text)
     assert m, "the file no longer names the commit of its previous version"
     old = _git("show", f"{m.group(1)}:docs/release_scope/6.2.0.md")
     if old.returncode != 0:
@@ -650,3 +769,112 @@ def test_in_this_tree_the_default_is_a_scope_the_changelog_does_not_record_as_re
         assert _commit(f"v{v}") is None, f"without a version the gate judges {v}, which is tagged"
     card = _card_without_version(REPO, monkeypatch)
     assert card.get("version") == v, (card, v)
+
+
+# -- 5. the review of caccdbad: a commit in any spelling git reads, a reference without backticks --
+#
+# These cases call only readers and checks that caccdbad already had, so they can be run against
+# its readers unchanged; there, every one of them fails. Each plant goes into a copy of the cut, as
+# a bullet appended to its last section: a unit of its own, outside every table.
+
+#: A digest no object of this repository starts with; the cases that plant it check that first.
+_NOWHERE = "0ace3040"
+
+
+def _planted(text: str, bullet: str) -> str:
+    return text.rstrip("\n") + f"\n- **Planted.** {bullet}\n"
+
+
+def test_every_hex_spelling_git_accepts_is_read_as_the_commit_it_names():
+    """Git resolves `0ACE3039` and `0AcE3039` to the commit `0ace3039` names. Measured at caccdbad
+    and at fc1596e5: the reader returned an empty list for both, so nothing after it saw a
+    commit."""
+    full = "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a"
+    spellings = {
+        "`0ace3039`": "0ace3039", "`0ACE3039`": "0ace3039", "0AcE3039": "0ace3039",
+        "(0ACE3039D19E)": "0ace3039d19e", f"`{full.upper()}`": full, full: full,
+        "`caccdbad`": "caccdbad", "1234567": "1234567",
+    }
+    for written, read in spellings.items():
+        assert _cited_commits(f"the head at {written}.") == [read], written
+
+
+def test_a_word_that_looks_like_a_commit_and_is_no_form_the_reader_checks_is_named():
+    """The refusing branch the reader lacked: hex digits glued to other characters, and a hex word
+    longer than a commit id, are named rather than read as no commit."""
+    for word in ("0ace3039z", "sha1_0ace3039", "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a0"):
+        with pytest.raises(AssertionError, match=re.escape(word)):
+            _cited_commits(f"the head at `{word}`.")
+
+
+def test_catch_proof_a_commit_in_any_spelling_is_checked_where_the_files_cite_it(tmp_path,
+                                                                                 monkeypatch):
+    """The check over the files, run on a copy of the cut with one plant each: an upper-case and a
+    mixed-case spelling of a commit that resolves to nothing must be named; a mixed-case spelling
+    of a commit that resolves must be read and hold. The history check must name an older commit
+    written in upper case."""
+    _full_history_or_skip()
+    assert _commit(_NOWHERE) is None, f"{_NOWHERE} resolves here, so the plant would prove nothing"
+    text = CUT.read_text(encoding="utf-8")
+    planted = tmp_path / CUT.name
+    monkeypatch.setitem(globals(), "SCOPE_FILES", (planted,))
+    for written in (f"`{_NOWHERE.upper()}`", "0AcE3040"):
+        assert written.strip("`").lower() == _NOWHERE
+        planted.write_text(_planted(text, f"The measured main stands at {written}."),
+                           encoding="utf-8")
+        with pytest.raises(AssertionError, match=written.strip("`")):
+            test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head()
+    bullet = "The measured main stands at 0AcE3039."
+    assert _cited_commits(bullet) == ["0ace3039"], bullet
+    planted.write_text(_planted(text, bullet), encoding="utf-8")
+    test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head()
+    base, older = _commit("v6.1.0"), _commit("v6.1.0^")
+    if base is None or older is None:
+        pytest.skip("NOT MEASURED: the tag v6.1.0 and its parent are not in this clone")
+    assert commits_needing_old_history(f"the harness arrived with {older.upper()}.\n", base,
+                                       _commit("HEAD"))
+
+
+def test_catch_proof_the_frozen_section_reads_a_digest_in_any_spelling():
+    """Without git. A digest in upper case beside a branch the decision records without one must
+    be found, and the recorded head of pull request 296 written in upper case is still that head.
+    At caccdbad the first passed unseen and the second was reported as a missing head."""
+    text = CUT.read_text(encoding="utf-8")
+    other = "0123456789ABCDEF0123456789ABCDEF01234567"
+    beside = frozen_fix_findings(text.replace("`fix/a70-clean-tree-before-binding`.",
+                                              f"`fix/a70-clean-tree-before-binding` at `{other}`."))
+    assert any(other.lower() in f for f in beside), beside
+    head = DECIDED_HEADS["claude/cargo-audit-rust-parity"]
+    assert head in text, "the head is not in the cut, so there is nothing to plant on"
+    upper = frozen_fix_findings(text.replace(head, head.upper()))
+    assert not upper, upper
+
+
+def test_catch_proof_a_path_line_reference_without_backticks_is_checked():
+    """Three plain forms, each pointing at lines of the register that hold none of what the bullet
+    names: `path:N-M` in prose, `:N-M` after a backticked path, and the path in backticks with the
+    line outside them. Measured at caccdbad and at fc1596e5: the reader read none of them. The
+    first form at the lines that do hold the name must be read and hold."""
+    text = CUT.read_text(encoding="utf-8")
+    name = "`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`"
+    for bullet in (f"{name} stands at RESTRISIKO_610.md:1-5.",
+                   f"{name} stands in `RESTRISIKO_610.md` (:1-5).",
+                   f"{name} stands at `RESTRISIKO_610.md`:1-5."):
+        findings, _ = reference_findings(_planted(text, bullet))
+        assert any(f.startswith("RESTRISIKO_610.md:1-5 ") for f in findings), (bullet, findings)
+    bullet = f"{name} stands at RESTRISIKO_610.md:116-141."
+    assert _references(bullet)[0] == [("RESTRISIKO_610.md", 116, 141)], bullet
+    findings, _ = reference_findings(_planted(text, bullet))
+    assert not any("116-141" in f for f in findings), findings
+
+
+def test_a_token_that_begins_like_a_reference_and_is_none_is_refused_by_name():
+    """A line and a column, an en dash for a range, and a continuation with no path before it, in
+    prose and in backticks. None is a form the reader checks, so each is refused with its name; at
+    caccdbad each was passed over, the backticked ones as names to look for."""
+    text = CUT.read_text(encoding="utf-8")
+    for token in ("RESTRISIKO_610.md:141:3", "RESTRISIKO_610.md:116\N{EN DASH}141", ":141"):
+        for written in (token, f"`{token}`"):
+            findings, _ = reference_findings(_planted(
+                text, f"`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01` stands at {written}."))
+            assert any(repr(token) in f for f in findings), (written, findings)
