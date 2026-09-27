@@ -257,25 +257,29 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   s now (0.31 to 0.43 s on 3.12), and a MiB of each form 4.0 to 4.7 s. A sweep of every other walk over
   a tree and every reading of a line or a file in the guard, each input doubled twice, found each
   linear. That sweep did not find the heaviest run measured since: a review lens, run 15 at becdf7d2,
-  built 1,046,465 bytes of comment lines whose indentation differs from their neighbours' at its end,
-  so that `textwrap.dedent` in `_dedented` compares each line's margin character by character, work the
+  built 1,046,465 bytes of comment lines whose indentation differs from their neighbours' at its end, so
+  that `textwrap.dedent` in `_dedented` compares each line's margin character by character, work the
   bound on the parsing does not count; the file is clean with exit 0 after 58.6 to 71.6 s on 3.10 and
-  3.12 in the lens's runs, and 55.2 to 69.6 s on 3.10, 3.12 and 3.13 at a load average of 24 to 28 here,
-  a margin of about 1.7 to the 120 s bound (open). A MiB of comment lines built so that every prefix of a
-  run parses into a tree and joins the next line spends the whole allowance on parsing and ends
-  fail-closed with exit 2 in 21 to 50 s at a load average of 23 to 38 on 24 cores. Built of `a;`, it
-  took 45 s here and 42 s at 0b9edc94; built of `a.f(); `, in lines of about 800 and 26,000 bytes, it
-  takes 25 and 37 s here and ran past 600 s there. Over the tree, and each of its files commented out
-  whole in four styles, the reader flags the same ranges as at 0b9edc94, on all five versions. Of the 7
-  new test cases, the 6 cost cases fail at 0b9edc94 past their 100 s timeout, on 3.10 and on 3.12, and
-  the seventh calls what 0b9edc94 does not have; all 7 pass now.
+  3.12 in the lens's runs. Here it took 55.2 to 69.6 s on 3.10, 3.12 and 3.13 at a load average of 24 to
+  28 on 24 cores; on 3.10 alone, 56.1 s at 16 to 19, 74.0 and 86.4 s at 19 to 29, and 89.8 to 113.1 s at
+  29 to 49 (112.6 and 113.7 s on 3.13), the guard's CPU time rising with the load from 55 to 86 s; the
+  same shape with a name spelled as `True` on each line took 129.0 and 133.9 s on 3.10 and 131.6 s on
+  3.13 at 30 to 58. The lens's file stayed under the 120 s bound in every run, at most 113.7 s; the
+  variant passed it, so on a machine loaded that far the bound does not hold (open). A MiB of comment
+  lines built so that every prefix of a run parses into a tree and joins the next line spends the whole
+  allowance on parsing and ends fail-closed with exit 2 in 21 to 50 s at a load average of 23 to 38 on
+  24 cores. Built of `a;`, it took 45 s here and 42 s at 0b9edc94; built of `a.f(); `, in lines of about
+  800 and 26,000 bytes, it takes 25 and 37 s here and ran past 600 s there. Over the tree, and each of
+  its files commented out whole in four styles, the reader flags the same ranges as at 0b9edc94, on all
+  five versions. Of the 7 new test cases, the 6 cost cases fail at 0b9edc94 past their 100 s timeout, on
+  3.10 and on 3.12, and the seventh calls what 0b9edc94 does not have; all 7 pass now.
 
   The guard reads a name spelled as a constant alike on 3.10 to 3.14, wherever their grammars agree. The
   package runs on 3.10 to 3.14, and CI tests on all five. A name whose NFKC form is `True`, `False` or
   `None`, written otherwise (`True` in fullwidth letters), is a name to 3.10, 3.11 and 3.12, which load
   the constant through it, and 3.13 and later refuse the whole source with a ValueError. Measured at
-  0b9edc94: `return` with `True` written so, opening `verify_thing`, was a finding with exit 1 on 3.10 to
-  3.12 and stopped the run with exit 2 on 3.13 and 3.14; a comment holding `if` such a `True` `and` a
+  0b9edc94: `return` with `True` written so, opening `verify_thing`, was a finding with exit 1 on 3.10
+  to 3.12 and stopped the run with exit 2 on 3.13 and 3.14; a comment holding `if` such a `True` `and` a
   check was a finding on 3.10 to 3.12 and clean with exit 0 on 3.13 and 3.14; and a file that binds such
   a name elsewhere was clean on 3.10 to 3.12 and stopped on 3.13 and 3.14. Six cases of the previous
   change and the test of the self-test failed on 3.13 and 3.14 for that reason. Where the running Python
@@ -286,40 +290,46 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   was not true. It kept a stand-in out of the words as written while the parser stores a name in its
   NFKC form, so a name that spells the stand-in in fullwidth letters came back from the tree as `True`:
   `return` such a name, opening a check, was a finding with exit 1 there and clean on 3.10 to 3.12. It
-  rewrote the word inside a bytes literal too, where the ASCII stand-in is legal and the spelling is not,
-  so a file that 3.10 to 3.12 refuse with exit 2 was clean with exit 0, and a comment holding such a
-  literal beside a check was a finding where 3.10 to 3.12 say clean. And it chose a stand-in per spelling
-  and began each walk over the candidate names at the start: 48000 spellings of 16 bytes in a docstring,
-  816,302 bytes staged, ran 572 s on 3.13 and 569 s on 3.14. The rewrite now changes only the places of
-  the refusal, the identifier tokens whose NFKC form is a constant, as `tokenize` finds them, which from
-  3.12 on is the parser's own tokenizer (measured on 3.13 and 3.14: each such name in code and in the
-  field of an f-string is a NAME token where the text holds it, and the text of a string, a bytes
-  literal, a comment and an f-string holds none), and never the inside of a literal or a comment. Each
-  becomes an ASCII name of the same length in UTF-8, one per constant and length, that is the NFKC form of
-  no word and no identifier of the text, so no identifier turns into a stand-in, before the rewrite or
-  after it; each walk goes on where the last one stopped, so the work is linear in the text. A source
-  that still refuses a name after the rewrite, or has no name left to rewrite one to, stops fail-closed.
-  The tree gets the NFKC form back in an identifier, and the source as written where the parser copies it
-  into a string (the `=` of an f-string field); a string literal is left as it is, so an escape that
-  spells a stand-in stays the string it spells, which becdf7d2 turned into the fullwidth `True`. On 3.10
-  to 3.12 that tree equals the one their own parser builds, positions included, in 20 forms (a name
-  loaded, stored, as a parameter, an attribute, a keyword, a definition, an import, in `global`, in
-  strings and f-strings); the three cases measured at 0b9edc94 give exit 1, 1 and 0 on all five versions,
-  and the self-test plants the comment form and the name that spells a stand-in. The lens's 903 probes,
-  run end to end in `--staged` on all five versions, now give the same exit code and findings on all five
-  for 802 of them (770 in the lens's run at becdf7d2), and each of the 4515 exit codes is the verdict the guard gives in
-  its own process. The 101 that differ are where the versions' grammars or Unicode tables differ, which
-  this change does not touch: a type parameter, a type alias, a t-string or U+A7F3 (a letter from Unicode
-  14 on) stops the run on a version that cannot parse the file, and class B parses a comment's code with
-  the running interpreter's grammar, so a comment holding a check inside an f-string that nests quotes or
-  holds a backslash in a field, a t-string, a type alias, a starred subscript or U+A7F3 is clean on an
-  older version and a finding on a newer one (open). The lens's 816,302-byte case takes 0.25 to 0.39 s on 3.13 and 3.14 now, in both
-  modes, and on the five versions doubling the spellings doubles the rewrite's time, a factor of 1.84 to
-  2.34 per doubling up to 48000 spellings, against 3.0 to 4.3 at becdf7d2. Of the 5 test cases of the
-  first form, the reading test and the planted refusal fail at 0b9edc94 on 3.10, 3.13 and 3.14, and the 2
-  comment cases and the control pass there on 3.10 and fail on 3.13 and 3.14. Of the 24 test cases of
-  the rewrite's second form, 23 fail at becdf7d2 on 3.13 and 3.14, where their control passes, and the 6
-  or 7 that call `_parse_as_before_313` directly fail there on 3.10 to 3.12 as well.
+  rewrote the word inside a bytes literal too, where the ASCII stand-in is legal and the spelling is
+  not, so a file that 3.10 to 3.12 refuse with exit 2 was clean with exit 0, and a comment holding such
+  a literal beside a check was a finding where 3.10 to 3.12 say clean. And it chose a stand-in per
+  spelling and began each walk over the candidate names at the start: 48000 spellings of 16 bytes in a
+  docstring, 816,302 bytes staged, ran 572 s on 3.13 and 569 s on 3.14. The rewrite now changes only the
+  places of the refusal, the identifier tokens whose NFKC form is a constant, as `tokenize` finds them,
+  which from 3.12 on is the parser's own tokenizer (measured on 3.13 and 3.14: each such name in code
+  and in the field of an f-string is a NAME token where the text holds it, and the text of a string, a
+  bytes literal, a comment and an f-string holds none), and never the inside of a literal or a comment.
+  Each becomes an ASCII name of the same length in UTF-8, one per constant and length, that is the NFKC
+  form of no word and no identifier of the text, so no identifier turns into a stand-in, before the
+  rewrite or after it; each walk goes on where the last one stopped, so the work is linear in the text.
+  A source that still refuses a name after the rewrite, or has no name left to rewrite one to, stops
+  fail-closed. The tree gets the NFKC form back in an identifier, and the source as written where the
+  parser copies it into a string (the `=` of an f-string field); a string literal is left as it is, so
+  an escape that spells a stand-in stays the string it spells, which becdf7d2 turned into the fullwidth
+  `True`. On 3.10 to 3.12 that tree equals the one their own parser builds, positions included, in 20
+  forms (a name loaded, stored, as a parameter, an attribute, a keyword, a definition, an import, in
+  `global`, in strings and f-strings); the three cases measured at 0b9edc94 give exit 1, 1 and 0 on all
+  five versions, and the self-test plants the comment form and the name that spells a stand-in. The
+  lens's 903 probes, run end to end in `--staged` on all five versions, now give the same exit code and
+  findings on all five for 802 of them (770 in the lens's run at becdf7d2), and each of the 4515 exit
+  codes is the verdict the guard gives in its own process. The 101 that differ are where the versions'
+  grammars or Unicode tables differ, which this change does not touch: a type parameter, a type alias, a
+  t-string or U+A7F3 (a letter from Unicode 14 on) stops the run on a version that cannot parse the
+  file, and class B parses a comment's code with the running interpreter's grammar, so a comment holding
+  a check inside an f-string that nests quotes or holds a backslash in a field, a t-string, a type
+  alias, a starred subscript or U+A7F3 is clean on an older version and a finding on a newer one. Named
+  limit: the guard's reading relies on CPython's `ast`, with the grammar and the Unicode tables of the
+  interpreter that runs it, for the code class B reads in a comment as for a changed file; the lens
+  measured the comment forms alike at 0b9edc94, and the U+A7F3 form on main as well, and this change
+  does not rebuild an older grammar in the guard. The lens's 816,302-byte case takes 0.25 to 0.39 s on
+  3.13 and 3.14 now, in both modes, at a load average of 32 on 24 cores, and 0.35 to 0.54 s at 55, and
+  on the five versions doubling the spellings doubles the rewrite's CPU time, a factor of 1.84 to 2.34
+  per doubling up to 48000 spellings at a load average of 27 to 33, and 1.75 to 2.43 at 51 to 55,
+  against 3.0 to 4.3 at becdf7d2. Of the 5 test cases of the first form, the reading test and the
+  planted refusal fail at 0b9edc94 on 3.10, 3.13 and 3.14, and the 2 comment cases and the control pass
+  there on 3.10 and fail on 3.13 and 3.14. Of the 24 test cases of the rewrite's second form, 23 fail at
+  becdf7d2 on 3.13 and 3.14, where their control passes, and the 6 or 7 that call `_parse_as_before_313`
+  directly fail there on 3.10 to 3.12 as well.
 
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read

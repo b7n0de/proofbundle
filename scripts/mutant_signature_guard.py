@@ -47,7 +47,12 @@ a sibling measured beside it, 2026-09-26). A changed file there that Python itse
 parse is not judged; the run stops fail-closed with the reason. One refusal differs between the
 versions the package runs on: 3.13 and later refuse a name spelled as `True`, `False` or `None`, which
 3.10 to 3.12 read, and the guard reads such a source as 3.10 to 3.12 do on every version (`_parse`),
-rewriting only those names. Where the versions' grammars differ, the running one decides.
+rewriting only those names. Named limit: the guard's reading relies on CPython's `ast`, with the grammar
+and the Unicode tables of the interpreter that runs it, for a changed file and for the code class B reads
+in a comment alike. Where the versions differ (a t-string, a type alias, an f-string that nests quotes, a
+letter Unicode added later), a file one of them cannot parse stops the run there, and a comment holding
+such a form is code, and may be a finding, only on the versions that parse it: an older one reports clean
+what a newer one flags (a review lens, run 15, measured 2026-09-27; the U+A7F3 form on main as well).
 Legitimate exceptions are possible but must be VISIBLE in the diff: put a `# mutant-guard: allow`
 comment on the flagged line or the line directly above it.
 
@@ -395,8 +400,10 @@ def _parse(source: str | bytes) -> ast.Module:
     exit 0 on 3.13 and 3.14; and a file that binds such a name elsewhere was clean on 3.10 to 3.12 and
     stopped the run on 3.13 and 3.14. Where the running Python refuses a source for that reason, it is read
     as 3.10 to 3.12 read it (`_parse_as_before_313`); every other refusal stays the caller's to judge. That
-    holds for a source the versions parse alike; where their grammars differ, the running one decides, here
-    as everywhere in the guard (an f-string that nests quotes, a t-string, a letter Unicode added later)."""
+    holds for a source the versions parse alike; where their grammars or Unicode tables differ, the running
+    one decides, here as everywhere in the guard, class B's reading of a comment's code included (an f-string
+    that nests quotes, a t-string, a letter Unicode added later): the named limit that the guard's reading
+    relies on CPython's `ast` (the module docstring)."""
     try:
         return ast.parse(source)
     except ValueError as exc:
