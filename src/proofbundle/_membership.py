@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 from typing import Any, Container, TypeGuard
 
-__all__ = ["is_member", "as_dict", "as_list", "is_bool"]
+__all__ = ["is_member", "is_int_member", "as_dict", "as_list", "is_bool"]
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -65,6 +65,41 @@ def is_member(value: Any, container: Container) -> bool:
         # `__hash__` exists but failed — a tuple whose elements are unhashable is the reachable
         # shape. See the module docstring: the isinstance check alone was measurably not enough.
         return False
+
+
+def is_int_member(value: Any, container: Container) -> TypeGuard[int]:
+    """``value in container`` for a container of integers, ``True`` only for a genuine ``int``.
+
+    THE DEFECT CLASS, as the violated assumption: *a value that equals an element is an element.* In a
+    container of integers it need not be. ``True == 1`` and ``1.0 == 1``, with equal hashes, so
+    ``bits not in (1, 2, 4, 8)`` classified a JSON ``true`` and ``2.0`` as known widths. A lens on
+    e5b39b81 measured the consequence in ``statuslist``: a signed Status List Token with
+    ``"bits": true`` verified ``ok=True`` as a 1-bit list, the emitter signed ``"bits": true``, and
+    ``"bits": 2.0`` passed the test and then raised a raw ``TypeError`` indexing the bit array.
+    ``is_member`` answers the hashing question only and says ``True`` there too, so a container of
+    integers needs this one.
+
+    The house rule, the test ``iat``, ``exp``, ``ttl`` and the status index already pass there:
+    ``isinstance(x, bool) or not isinstance(x, int)`` is no integer. A ``bool`` subclasses ``int``,
+    so ``isinstance(x, int)`` alone would accept ``True``; a ``float`` with an integral value is a
+    different JSON number form and is refused as well. The membership test runs only after that, on
+    an ``int``; a subclass of ``int`` whose own ``__hash__`` or ``__eq__`` raises ``TypeError``
+    answers ``False``, as in ``is_member``, and a value of any JSON type never raises here.
+
+    The guard in tests/test_membership_hashable_guard.py reports every membership test, lookup and
+    ``is_member`` call on a container that holds only numbers, unless it reads through here or is
+    listed there with its reason.
+
+    A ``TypeGuard``, as ``is_bool`` is: after ``if not is_int_member(x, C): refuse`` the value is an
+    ``int`` to the type checker, as it was after ``x not in C`` over a tuple of ints.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    try:
+        return value in container
+    except TypeError:
+        return False
+
 
 def is_bool(value: Any) -> TypeGuard[bool]:
     """True only for a genuine ``bool``. The verdict-bearing fields of a claim go through here.

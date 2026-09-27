@@ -269,3 +269,65 @@ class TestSelfIssuedSeparation(unittest.TestCase):
         self.assertTrue(res["ok"])
         self.assertFalse(res["self_issued"])            # distinct anchor → not self-issued
         self.assertEqual(res["status_label"], "INVALID")
+
+
+class TestBitsIsAnIntegerNotABoolOrAFloat(unittest.TestCase):
+    """A lens on e5b39b81 (M2, M3). `bits` is a JSON integer, one of 1, 2, 4, 8, and the function held
+    the house rule for `iat`, `exp` and `ttl` but not for `bits`: `bits not in (1, 2, 4, 8)` read `true`
+    as 1 and `2.0` as 2. A signed token with `"bits": true` verified ok as a 1-bit list, the emitter
+    signed `"bits": true`, and `1.0` to `8.0` passed the test and raised a raw TypeError at the bit
+    array, out of a function whose result is a dict for every token."""
+
+    def setUp(self):
+        self.signer = generate_signer()
+        self.pub = _raw(self.signer)
+
+    def _token(self, bits) -> str:
+        """A correctly signed token over the list 0b0101 whose `status_list.bits` is `bits`."""
+        import base64
+        import json
+        import zlib
+
+        def b64(data: bytes) -> str:
+            return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+        payload = {"sub": URI, "iat": IAT,
+                   "status_list": {"bits": bits, "lst": b64(zlib.compress(bytes([0b0101]), 9))}}
+        kopf = b64(json.dumps({"alg": "EdDSA", "typ": "statuslist+jwt"}).encode())
+        rumpf = b64(json.dumps(payload).encode())
+        return f"{kopf}.{rumpf}.{b64(self.signer.sign(f'{kopf}.{rumpf}'.encode('ascii')))}"
+
+    def _verify(self, bits) -> dict:
+        return verify_status_snapshot(self._token(bits), expected_uri=URI, index=0, issuer_pubkey=self.pub)
+
+    def test_a_boolean_is_no_bit_width(self):
+        for bits in (True, False):
+            with self.subTest(bits=bits):
+                res = self._verify(bits)
+                self.assertIs(res["ok"], False)
+                self.assertIsNone(res["status"])
+                self.assertIn("bits", res["detail"])
+
+    def test_a_float_width_is_a_refusal_not_a_crash(self):
+        for bits in (1.0, 2.0, 4.0, 8.0):
+            with self.subTest(bits=bits):
+                try:
+                    res = self._verify(bits)
+                except TypeError as exc:
+                    self.fail(f"raw TypeError out of verify_status_snapshot: {exc}")
+                self.assertIs(res["ok"], False)
+                self.assertIn("bits", res["detail"])
+
+    def test_the_emitter_signs_no_width_it_would_refuse(self):
+        for bits in (True, 1.0, 2.0, "1", None):
+            with self.subTest(bits=repr(bits)):
+                with self.assertRaises(BundleFormatError):
+                    issue_status_list_token([1, 0], uri=URI, signer=self.signer, iat=IAT, bits=bits)
+
+    def test_anti_parity_every_integer_width_still_verifies(self):
+        # 0b0101 read LSB first: index 0 is 1 at width 1, 1 at width 2 (0b01), 5 at width 4 and 8.
+        for bits, status in ((1, 1), (2, 1), (4, 5), (8, 5)):
+            with self.subTest(bits=bits):
+                res = self._verify(bits)
+                self.assertTrue(res["ok"], res["detail"])
+                self.assertEqual(res["status"], status)

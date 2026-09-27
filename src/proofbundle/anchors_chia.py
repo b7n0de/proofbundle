@@ -28,6 +28,8 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
+from ._membership import is_int_member
+
 ANCHOR_TYPE = "chia-datalayer/v1"
 
 # CLVM tree-hash / node-hash domain-separation prefixes (Chia DataLayer Merkle set).
@@ -92,8 +94,11 @@ def merkle_root_from_layers(node_hash: bytes, inclusion_layers: list) -> bytes:
         if not isinstance(layer, dict):
             raise ValueError(f"layer {i} must be an object")
         side = layer.get("other_hash_side")
-        if side not in (0, 1):
-            raise ValueError(f"layer {i} other_hash_side must be 0 (LEFT) or 1 (RIGHT)")
+        # The side is the integer 0 or 1. `side not in (0, 1)` read `true`, `false`, `1.0` and `0.0` as
+        # sides too (True == 1, 0.0 == 0), so one proof had several accepted spellings; a bool or a
+        # float is no integer (the house rule, and the class of statuslist `bits`, lens on e5b39b81).
+        if not is_int_member(side, (0, 1)):
+            raise ValueError(f"layer {i} other_hash_side must be the integer 0 (LEFT) or 1 (RIGHT)")
         other = _hexbytes(layer.get("other_hash"), f"layer {i} other_hash")
         declared = _hexbytes(layer.get("combined_hash"), f"layer {i} combined_hash")
         combined = _h(_NODE_PREFIX, other, cur) if side == 0 else _h(_NODE_PREFIX, cur, other)

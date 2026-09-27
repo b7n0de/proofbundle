@@ -352,3 +352,50 @@ class StrukturIstExitEinsUndNichtExitDrei(unittest.TestCase):
         r = lade("03_extern_autorisiert")
         e = verify_agt_receipt(r, trusted_authorizer_keys=["aa" * 32])
         self.assertEqual(exit_code(e), 3, "an untrusted authorizer IS a relying-party requirement")
+
+
+class DieListeDerVertrauendenParteiWirdGelesenNichtGehasht(unittest.TestCase):
+    """A lens on e5b39b81 (M1): `a_key in set(trusted_authorizer_keys)` hashed every entry of the
+    relying party's list, so `[]`, `{}` or `["a"]` in it raised a raw TypeError out of a surface that
+    promises a verdict. An entry is compared now, and a configuration that is no collection of keys is
+    a failed check that says so. The receipt was never the reach; the caller's configuration is."""
+
+    def _r(self):
+        return lade("03_extern_autorisiert")
+
+    def _vertrauen(self, e):
+        return [c for c in e.checks if c.name == "external-authorization-trusted"][0]
+
+    def test_an_unhashable_entry_beside_the_key_is_read_not_hashed(self):
+        r = self._r()
+        for eintrag in ([], {}, ["a"], {"k": []}):
+            with self.subTest(entry=eintrag):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=[eintrag, r["authorizer_public_key"]])
+                self.assertTrue(e.ok, [c.detail for c in e.checks if not c.ok])
+                self.assertIn("1 non-string entry ignored", self._vertrauen(e).detail)
+
+    def test_a_list_of_nothing_but_unhashable_entries_trusts_no_key(self):
+        e = verify_agt_receipt(self._r(), trusted_authorizer_keys=[[], {}])
+        self.assertIs(e.ok, False)
+        self.assertEqual(exit_code(e), 3)
+
+    def test_a_configuration_that_is_no_collection_of_keys_evaluates_nothing(self):
+        r = self._r()
+        for konfig in (5, r["authorizer_public_key"], b"x", object()):
+            with self.subTest(config=type(konfig).__name__):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=konfig)
+                self.assertIs(e.ok, False)
+                self.assertEqual(exit_code(e), 3, "the relying party's own list, not the receipt")
+                self.assertIn("NOT evaluated", self._vertrauen(e).detail)
+
+    def test_every_collection_of_keys_is_read_as_before(self):
+        """ANTI-PARITY: a list, a tuple, a set, a frozenset, a dict (by its keys) and a keys view of
+        the right key still trust it, and of a wrong key still do not."""
+        r = self._r()
+        k = r["authorizer_public_key"]
+        for konfig in ([k], (k,), {k}, frozenset({k}), {k: "name"}, {k: 1}.keys()):
+            with self.subTest(config=type(konfig).__name__):
+                e = verify_agt_receipt(r, trusted_authorizer_keys=konfig)
+                self.assertTrue(e.ok, [c.detail for c in e.checks if not c.ok])
+                self.assertEqual(exit_code(e), 0)
+        self.assertEqual(exit_code(verify_agt_receipt(r, trusted_authorizer_keys=("aa" * 32,))), 3)

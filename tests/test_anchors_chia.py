@@ -220,3 +220,29 @@ class TestChiaAnchorRegistration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestASideIsTheInteger0Or1(unittest.TestCase):
+    """`side not in (0, 1)` read `true`, `false`, `1.0` and `0.0` as sides (True == 1, 0.0 == 0), so a
+    DataLayer proof had several accepted spellings and one of them names a type the format does not use.
+    Found by the class sweep after a lens on e5b39b81 (statuslist `bits`, M2): the side reads through
+    `_membership.is_int_member` now."""
+
+    def setUp(self):
+        self.obj, self.root = _load()
+
+    def test_a_side_of_another_json_type_fails_closed(self):
+        for i, layer in enumerate(self.obj["inclusion_layers"][:2]):
+            seite = layer["other_hash_side"]
+            for wert in (bool(seite), float(seite)):
+                with self.subTest(layer=i, side=wert):
+                    bad = copy.deepcopy(self.obj)
+                    bad["inclusion_layers"][i]["other_hash_side"] = wert
+                    r = verify_chia_datalayer(_pbytes(bad), self.root)
+                    self.assertIs(r["ok"], False)
+                    self.assertIn("other_hash_side", r["detail"])
+
+    def test_anti_parity_the_integer_sides_still_verify(self):
+        self.assertEqual({layer["other_hash_side"] for layer in self.obj["inclusion_layers"][:2]}, {0, 1},
+                         "the two layers above must carry both sides, or the case tests one only")
+        self.assertTrue(verify_chia_datalayer(_pbytes(self.obj), self.root)["ok"])

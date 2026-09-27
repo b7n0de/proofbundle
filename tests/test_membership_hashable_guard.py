@@ -36,8 +36,10 @@ conditional are read as the values they pass on, through any nesting of the two 
 `k in (s := _A)` is `k in _A` and `k in (s := _A if c else _B)` a test in `_A` or `_B`. A binding counts
 as followed only when a reader reads the name it binds (`_scope_bindings`); a container bound
 anywhere else is reported where it is read. NOT covered: a container built at runtime from a value
-that is not constant (`x in set(allowed)`: two membership tests in the tree,
-`adapters/agt_receipt.py` and `relation.py`, each behind an `isinstance(x, str)`), a literal on its own
+that is not constant (`x in set(allowed)`: one membership test in the tree, `relation.py`, over a list
+filtered to strings; the second, in `adapters/agt_receipt.py`, hashed every entry of the relying party's
+list and raised for an unhashable one although `x` was a str, and reads the list without a set since the
+lens on e5b39b81), a literal on its own
 (`x in {"a"}`, `{"a": 1}[k]`: no membership test and six lookups in the tree, each behind an
 `is_member` or `isinstance` check or keyed by a literal the package chose), a container reached as a
 module attribute (`x.NAME`), through a string (`globals()`) or bound in a class body, a container a
@@ -56,6 +58,11 @@ reached without a call, a set operation with a literal that holds a name, a cons
 calls, a binding no reader follows) is listed the same way in `_OTHER_USES_CLASSIFIED`: the guard reads every
 use of the name, and of a derived expression, and reports what no known form covers, so a spelling
 nobody listed turns it red, and so does one more site under a listed key.
+
+A FOURTH FORM needs no hashing at all: a container of NUMBERS classifies `true` and `2.0` as known
+elements, because `True == 1` and `2.0 == 2`. `number_container_sites` reports every membership test,
+lookup and `is_member` call on one, unless it reads through `_membership.is_int_member` or is listed in
+`_NUMBER_SITES_CLASSIFIED` (the section before `_RUNTIME_ONLY_CONTAINERS` states what it reads).
 """
 from __future__ import annotations
 
@@ -1198,11 +1205,12 @@ _LOOKUPS_CLASSIFIED = {
 }
 
 
-def _in_the_tree(detektor, ersatz: dict[str, str] | None = None) -> dict[tuple, int]:
+def _in_the_tree(detektor, ersatz: dict[str, str] | None = None, ansicht=None) -> dict[tuple, int]:
     """(file, enclosing definition, container, key or use) -> NUMBER of sites the detector reports
     over src/proofbundle. `ersatz` maps a file (as `proofbundle/x.py`) to a planted text read in its
     place, so a test can plant a site into a copy of the real tree; a name that is not a file of the
-    tree is an error, not a file nobody reads."""
+    tree is an error, not a file nobody reads. `ansicht` builds the per-module view the detector reads,
+    `containers_by_module` unless named (`numbers_by_module` for the number containers)."""
     import collections  # noqa: PLC0415
     quellen = _package_sources()
     for datei, text in (ersatz or {}).items():
@@ -1210,7 +1218,7 @@ def _in_the_tree(detektor, ersatz: dict[str, str] | None = None) -> dict[tuple, 
         if modul not in quellen:
             raise KeyError(f"{datei} is no file of the tree; a plant there would be read by nobody")
         quellen[modul] = (text, quellen[modul][1])
-    je_modul = containers_by_module(quellen)
+    je_modul = (ansicht or containers_by_module)(quellen)
     gezaehlt: collections.Counter = collections.Counter()
     for d in sorted(SRC.rglob("*.py")):
         if "__pycache__" in d.parts:
@@ -2591,6 +2599,370 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
                   '    return set(vals)\n')
         self.assertTrue(self._raises(quelle, [[1]]))
         self.assertEqual(self._funde(quelle), [])
+
+
+# ── the fourth form: a container of numbers meets a value of another JSON type ───────────────────────
+#
+# THE CLASS, stated as the violated assumption: *a value that equals an element of a container of
+# numbers is a number of that kind.* It need not be. `True == 1`, `1.0 == 1` and `hash(True) ==
+# hash(1)`, so a membership test in a tuple, list, set or frozenset of numbers, a lookup in a dict keyed
+# by numbers, and `is_member` against either classify a JSON `true` or `2.0` as a known element.
+# Nothing hashes badly here, which is why the three readers above are silent: a tuple does not hash at
+# all. A lens on e5b39b81 measured it in `statuslist`: under `bits not in (1, 2, 4, 8)` a signed Status
+# List Token with `"bits": true` verified ok as a 1-bit list, `2.0` passed and then raised a raw
+# TypeError at the bit array, and the emitter signed `"bits": true`. The sweep that closed it found the
+# inline form of the same test in `anchors_chia.merkle_root_from_layers`, `side not in (0, 1)`, where
+# `true`, `false`, `1.0` and `0.0` were accepted as the sides of a DataLayer proof.
+#
+# THE RULE: such a test reads through `_membership.is_int_member`, which refuses a bool and every value
+# that is no int before it compares (the house rule `isinstance(x, bool) or not isinstance(x, int)`),
+# or it stands in `_NUMBER_SITES_CLASSIFIED` with the reason its value is an int the package made.
+#
+# A CONTAINER OF NUMBERS is a tuple, list or set display, or a dict display by its keys, whose elements
+# are all numbers written as literals (an int, a float, a complex or a bool, also with a sign); a
+# `set()`, `frozenset()`, `tuple()`, `list()`, `dict()` or `dict.fromkeys()` over one and its `.keys()`;
+# `range(...)`, whose `in` compares by `==` too (`True in range(2)`); a name bound to one at module
+# level (also imported from another module of the package, resolved as the hashing containers are) or
+# in the function that reads it or one around it; a set operation over two of them; and a walrus or a
+# conditional of which any value it passes on is one. NOT READ, and stated rather than left to be
+# found: a display with a name in it (`(_A, _B)` over two int constants; the tree has none in a test), a
+# comprehension, a container a function returns, a comparison with one number (`x == 1`, `0 <= x < 4`),
+# iteration (`any(x == b for b in C)`), and a container handed to a function. A name bound to a number
+# container in one scope counts in every function inside it, whatever else binds that name there; that
+# reads more, never less.
+
+def _number_literal(e: ast.AST) -> bool:
+    """A number written as a literal: an int, a float, a complex or a bool, also with a sign."""
+    if isinstance(e, ast.UnaryOp) and isinstance(e.op, (ast.USub, ast.UAdd)):
+        e = e.operand
+    return isinstance(e, ast.Constant) and isinstance(e.value, (int, float, complex))
+
+
+_NUMBER_COPIES = {"set", "frozenset", "tuple", "list", "dict"}
+
+
+def _number_value(e: ast.AST, bekannt: set[str]) -> bool:
+    """Is `e` a container of numbers, where `bekannt` holds the names that are one? A walrus or a
+    conditional is one when any value it passes on is one, because the test compares with that value
+    whenever it is passed."""
+    zweige = _passed_values(e)
+    if len(zweige) > 1:
+        return any(_number_value(z, bekannt) for z in zweige)
+    e = zweige[0]
+    if isinstance(e, (ast.Tuple, ast.List, ast.Set)):
+        return bool(e.elts) and all(_number_literal(x) for x in e.elts)
+    if isinstance(e, ast.Dict):
+        return bool(e.keys) and all(k is not None and _number_literal(k) for k in e.keys)
+    if isinstance(e, ast.Name):
+        return e.id in bekannt
+    if isinstance(e, ast.BinOp) and isinstance(e.op, _SET_OPERATORS):
+        return _number_value(e.left, bekannt) and _number_value(e.right, bekannt)
+    if isinstance(e, ast.Call) and not e.keywords:
+        f = e.func
+        if isinstance(f, ast.Attribute) and f.attr == "keys" and not e.args:
+            return _number_value(f.value, bekannt)
+        if isinstance(f, ast.Name) and f.id == "range" and e.args:
+            return True
+        if ((isinstance(f, ast.Name) and f.id in _NUMBER_COPIES and len(e.args) == 1)
+                or (_ist_fromkeys(f) and e.args)):
+            return _number_value(e.args[0], bekannt)
+    return False
+
+
+def _module_numbers(tree: ast.Module, importiert: frozenset[str] = frozenset()) -> set[str]:
+    """Module-level names bound to a container of numbers (`_scope_bindings` at module level: also by
+    unpacking, a walrus, a `for` over a display, inside a module-level block), to a fixpoint over names
+    and set operations. `importiert` names the ones the module imports."""
+    bindungen = [(name, wert) for name, wert, _gefolgt in _scope_bindings(tree, True)]
+    gefunden: set[str] = set()
+    neu = True
+    while neu:
+        neu = False
+        for name, wert in bindungen:
+            if name not in gefunden and _number_value(wert, gefunden | importiert):
+                gefunden.add(name)
+                neu = True
+    return gefunden
+
+
+def numbers_by_module(quellen: dict[str, str | tuple[str, bool]]) -> dict[str, dict[str, str]]:
+    """module -> {name: "numbers"} for every container of numbers a module of the package binds at
+    module level or imports by name (`from .x import NAME`, `*`, and chains of them), to a fixpoint,
+    as `containers_by_module` resolves the hashing containers."""
+    baeume: dict[str, tuple[ast.Module, bool]] = {}
+    for modul, wert in quellen.items():
+        text, ist_init = (wert, False) if isinstance(wert, str) else wert
+        baeume[modul] = (ast.parse(text), ist_init)
+    sicht = {modul: dict.fromkeys(sorted(_module_numbers(baum)), "numbers")
+             for modul, (baum, _i) in baeume.items()}
+    for _runde in range(len(baeume) + 1):
+        geaendert = False
+        for modul, (baum, ist_init) in baeume.items():
+            importiert = imported_containers(baum, modul, ist_init, sicht)
+            eigene = _module_numbers(baum, frozenset(importiert))
+            neu = {**importiert, **dict.fromkeys(sorted(eigene), "numbers")}
+            if neu != sicht[modul]:
+                sicht[modul], geaendert = neu, True
+        if not geaendert:
+            return sicht
+    raise RuntimeError("the imported number containers reach no fixpoint")
+
+
+class _Zahlensicht:
+    """The names that are containers of numbers at a node: the module's, and those bound to one in the
+    function around the node or in any function around that one."""
+
+    def __init__(self, tree: ast.Module, modulweit: set[str]):
+        self.modulweit = set(modulweit)
+        self.parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        self.lokal: dict[ast.AST, set[str]] = {}
+        # ast.walk goes breadth first, so a function is read before the ones nested in it
+        for fn in ast.walk(tree):
+            if not isinstance(fn, _SCOPES):
+                continue
+            aussen = self.sichtbar(fn)
+            paare = [(n, w) for n, w, _g in _scope_bindings(fn, False)]
+            eigene: set[str] = set()
+            neu = True
+            while neu:
+                neu = False
+                for n, w in paare:
+                    if n not in eigene and _number_value(w, aussen | eigene):
+                        eigene.add(n)
+                        neu = True
+            self.lokal[fn] = eigene
+
+    def sichtbar(self, knoten: ast.AST) -> set[str]:
+        namen = set(self.modulweit)
+        k = self.parents.get(knoten)
+        while k is not None:
+            namen |= self.lokal.get(k, set())
+            k = self.parents.get(k)
+        return namen
+
+
+#: Methods that compare their first argument with the elements (or keys) of the container they are
+#: called on, and the `operator` functions that do the same with their second.
+_NUMBER_METHODS = {"get", "setdefault", "pop", "index", "count", "__contains__", "__getitem__"}
+_NUMBER_OPERATOR = {"contains", "getitem", "indexOf", "countOf"}
+
+
+def number_container_sites(quelle: str, name: str = "<quelle>", modul: str | None = None,
+                           ist_init: bool = False,
+                           je_modul: dict[str, dict[str, str]] | None = None) -> list[tuple[int, str, str]]:
+    """(line, container, value) for every place a value meets the elements of a container of numbers
+    by equality: `x in C` and `x not in C` (also inside a chained comparison), `C.get(x)` and the other
+    `_NUMBER_METHODS`, `C[x]` read, written or deleted (a tuple indexed by `True` reads element 1),
+    `operator.contains(C, x)` and its siblings, and `is_member(x, C)`, which answers the hashing
+    question only. A literal value is left out, the package chose it; `is_int_member(x, C)` is the
+    guarded form and is no site. With `modul` the module-level containers come from `je_modul`
+    (`numbers_by_module`), else from this source alone."""
+    tree = ast.parse(quelle, filename=name)
+    modulweit = (set(je_modul.get(modul, {})) if modul is not None and je_modul is not None
+                 else _module_numbers(tree))
+    sicht = _Zahlensicht(tree, modulweit)
+    operator_names = {"operator"} | {a.asname for n in ast.walk(tree) if isinstance(n, ast.Import)
+                                     for a in n.names if a.name == "operator" and a.asname}
+    found: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        paare: list[tuple[ast.AST, ast.AST]] = []          # (container, value)
+        if isinstance(node, ast.Compare):
+            links = node.left
+            for op, rechts in zip(node.ops, node.comparators):
+                if isinstance(op, (ast.In, ast.NotIn)):
+                    paare.append((rechts, links))
+                links = rechts
+        elif isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr in _NUMBER_METHODS and node.args:
+                paare.append((f.value, node.args[0]))
+            if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in operator_names
+                    and f.attr in _NUMBER_OPERATOR and len(node.args) >= 2):
+                paare.append((node.args[0], node.args[1]))
+            if isinstance(f, ast.Name) and f.id == "is_member" and len(node.args) == 2:
+                paare.append((node.args[1], node.args[0]))
+        elif isinstance(node, ast.Subscript) and not isinstance(node.slice, ast.Slice):
+            paare.append((node.value, node.slice))
+        for behaelter, wert in paare:
+            if _number_literal(wert) or isinstance(wert, ast.Constant):
+                continue
+            if _number_value(behaelter, sicht.sichtbar(node)):
+                found.append((node.lineno, ast.unparse(behaelter), ast.unparse(wert)))
+    return found
+
+
+#: Every site `number_container_sites` reports in src/proofbundle, and why its value is an int of the
+#: package's own making. Keyed like `_LOOKUPS_CLASSIFIED`, with the number of sites per key. Measured on
+#: the tree of this change: 3 sites under 3 keys. Before it, 8 sites: the two `bits` tests of
+#: `statuslist`, `side not in (0, 1)` in `anchors_chia` and the two recovery-id tests of
+#: `anchors_rootcommit.eip191_recover_address` read through `is_int_member` now, and the three below
+#: stay. The same sweep over `scripts/` (which this test does not read) found three membership tests,
+#: each on a subprocess return code, an int the runtime produces: `audit_candidate_matrix.py`,
+#: `mutation_check.py` and `test_manifest_gate.py`.
+_NUMBER_SITES_CLASSIFIED = {
+    ("proofbundle/intoto.py", "to_test_result_statement", "_RESULT_ENUM", "verdikt"):
+        (1, "own value: require_bool_verdict returns a bool or raises, and the dict is keyed by True "
+         "and False"),
+    ("proofbundle/sdjwt.py", "verify_sd_jwt", "(2, 3)", "len(parsed)"):
+        (1, "own value: len() returns an int"),
+    ("proofbundle/statuslist.py", "verify_status_snapshot", "STATUS_LABELS", "status"):
+        (1, "own value: _status_at computes an int from the bytes of the bit array, with a width "
+         "is_int_member admitted"),
+}
+
+
+class TestANumberContainerComparesTheType(unittest.TestCase):
+    """The fourth form, `is_int_member`: a container of numbers classifies `true` and `2.0` as known
+    elements unless the value's type is tested first (the lens on e5b39b81, M2 and M3)."""
+
+    @staticmethod
+    def _reported_lines(quelle: str, funde) -> list[str]:
+        zeilen = quelle.splitlines()
+        return [zeilen[z - 1].strip() for z, _c, _was in sorted(funde)]
+
+    def test_the_tree_holds_exactly_the_classified_number_sites(self):
+        neu, weg = _drift(_in_the_tree(number_container_sites, ansicht=numbers_by_module),
+                          _NUMBER_SITES_CLASSIFIED)
+        self.assertEqual(neu, [],
+                         "a value meets a container of numbers by equality: read it through "
+                         "_membership.is_int_member, or classify it in _NUMBER_SITES_CLASSIFIED with the "
+                         "reason its value is an int the package made")
+        self.assertEqual(weg, [],
+                         "a classified number site is gone: remove it from _NUMBER_SITES_CLASSIFIED or "
+                         "lower its count")
+
+    def test_every_number_classification_says_why(self):
+        for key, (count, reason) in _NUMBER_SITES_CLASSIFIED.items():
+            with self.subTest(site=key):
+                self.assertIsInstance(count, int)
+                self.assertGreaterEqual(count, 1)
+                self.assertRegex(reason, r"^(guarded|own value): \S")
+
+    def test_the_statuslist_defect_is_found_where_it_stood(self):
+        """PLANT AND MUST CATCH in a copy of the real tree: `bits not in _ALLOWED_BITS` put back in
+        both functions of `statuslist`, and `side not in (0, 1)` in `anchors_chia`, are three new sites;
+        the files as they are report none."""
+        status = (SRC / "statuslist.py").read_text(encoding="utf-8")
+        jetzt, damals = "if not is_int_member(bits, _ALLOWED_BITS):", "if bits not in _ALLOWED_BITS:"
+        self.assertEqual(status.count(jetzt), 2, "the plant point moved: plant where bits is tested")
+        chia = (SRC / "anchors_chia.py").read_text(encoding="utf-8")
+        jetzt_c, damals_c = "if not is_int_member(side, (0, 1)):", "if side not in (0, 1):"
+        self.assertEqual(chia.count(jetzt_c), 1, "the plant point moved: plant where the side is tested")
+        gepflanzt = {"proofbundle/statuslist.py": status.replace(jetzt, damals),
+                     "proofbundle/anchors_chia.py": chia.replace(jetzt_c, damals_c)}
+        neu, weg = _drift(_in_the_tree(number_container_sites, gepflanzt, numbers_by_module),
+                          _NUMBER_SITES_CLASSIFIED)
+        self.assertEqual(neu, [
+            f"{('proofbundle/anchors_chia.py', 'merkle_root_from_layers', '(0, 1)', 'side')}: "
+            "1 in the tree, 0 classified",
+            f"{('proofbundle/statuslist.py', 'issue_status_list_token', '_ALLOWED_BITS', 'bits')}: "
+            "1 in the tree, 0 classified",
+            f"{('proofbundle/statuslist.py', 'verify_status_snapshot', '_ALLOWED_BITS', 'bits')}: "
+            "1 in the tree, 0 classified"])
+        self.assertEqual(weg, [])
+        # the runtime half: each is a membership the value of another JSON type passes
+        for wert in (True, 1.0, 2.0, 8.0):
+            with self.subTest(wert=wert):
+                self.assertIn(wert, (1, 2, 4, 8))
+        self.assertIn(False, (0, 1))
+
+    def test_every_form_of_a_number_container_is_found(self):
+        """Every container form and every access form of the rule above, on planted source; the guarded
+        form, a literal value, a container of strings and a display with a name in it are not."""
+        quelle = textwrap.dedent('''
+            import operator
+            import operator as op
+            _BITS = (1, 2, 4, 8)
+            _NEG = [-1, 0, +1]
+            _SET = {1, 2}
+            _FRO = frozenset({3, 4})
+            _MAP = {0: "a", 1: "b"}
+            _BOOL = {True: "P", False: "F"}
+            _FLT = (0.5, 1.0)
+            _ALIAS = _BITS
+            _UNION = _SET | _FRO
+            _KEYS = dict.fromkeys((1, 2))
+            _STR = ("1", "2")
+            _MIX = (1, "a")
+            A = 1
+            _NAMED = (A, 2)
+            def f(p, k, c):
+                lokal = (5, 6)
+                r = [p.get("a") in _BITS, k not in _NEG, k in _SET, k in _FRO, k in _MAP, _MAP.get(k),
+                     _BOOL[k], k in _FLT, k in _ALIAS, k in _UNION, k in _KEYS, k in lokal,
+                     k in (7, 8), k in {9}, k in range(3), k in (s := _BITS), k in (_BITS if c else _STR),
+                     _BITS.index(k), _BITS.count(k), _BITS[k], operator.contains(_SET, k),
+                     op.getitem(_MAP, k), is_member(k, _SET), k in _MAP.keys(), 0 < k in _BITS]
+                _MAP[k] = "c"
+                def inner(q):
+                    return q in lokal
+                known = [is_int_member(k, _BITS), 1 in _BITS, _MAP.get(0), k in _STR, k in _MIX,
+                         k in _NAMED, _BITS[0], _BITS[1:], -1 in _NEG]
+                return r, known, inner
+        ''')
+        self.assertEqual(sorted((c, v) for _z, c, v in number_container_sites(quelle)), sorted([
+            ("_BITS", "p.get('a')"), ("_NEG", "k"), ("_SET", "k"), ("_FRO", "k"), ("_MAP", "k"),
+            ("_MAP", "k"), ("_BOOL", "k"), ("_FLT", "k"), ("_ALIAS", "k"), ("_UNION", "k"),
+            ("_KEYS", "k"), ("lokal", "k"), ("(7, 8)", "k"), ("{9}", "k"), ("range(3)", "k"),
+            ("(s := _BITS)", "k"), ("_BITS if c else _STR", "k"), ("_BITS", "k"), ("_BITS", "k"),
+            ("_BITS", "k"), ("_SET", "k"), ("_MAP", "k"), ("_SET", "k"), ("_MAP.keys()", "k"),
+            ("_BITS", "k"), ("_MAP", "k"), ("lokal", "q")]))
+        # the runtime half: every one of these forms lets a value of another JSON type through
+        for label, zugriff in (("tuple", lambda k: k in (1, 2, 4, 8)), ("set", lambda k: k in {1, 2}),
+                               ("dict", lambda k: {0: "a", 1: "b"}.get(k) is not None),
+                               ("range", lambda k: k in range(3)),
+                               ("is_member", lambda k: self._is_member()(k, {1, 2}))):
+            for wert in (True, 1.0):
+                with self.subTest(form=label, wert=wert):
+                    self.assertTrue(zugriff(wert))
+
+    @staticmethod
+    def _is_member():
+        import sys  # noqa: PLC0415
+        if str(REPO / "src") not in sys.path:
+            sys.path.insert(0, str(REPO / "src"))
+        from proofbundle._membership import is_member  # noqa: PLC0415
+        return is_member
+
+    def test_an_imported_number_container_is_seen(self):
+        """A container of numbers defined in one module and tested in another, by name, through a chain
+        and through `*`, as the hashing containers are; a module-level container of strings is not."""
+        paket = {
+            "pkg.a": ('_BITS = (1, 2, 4, 8)\n_NAMES = ("x", "y")\n', False),
+            "pkg.b": ("from .a import _BITS\n", False),
+            "pkg.c": ("from .b import _BITS\ndef f(k):\n    return k in _BITS\n", False),
+            "pkg.d": ("from .a import *\ndef g(k):\n    return k not in _BITS, k in _NAMES\n", False),
+        }
+        je_modul = numbers_by_module(paket)
+        self.assertEqual(je_modul["pkg.a"], {"_BITS": "numbers"})
+        for modul in ("pkg.c", "pkg.d"):
+            with self.subTest(modul=modul):
+                self.assertEqual([(c, v) for _z, c, v in number_container_sites(
+                    paket[modul][0], modul, modul, False, je_modul)], [("_BITS", "k")])
+        # anti-parity: without the package view the importing file shows nothing
+        self.assertEqual(number_container_sites(paket["pkg.c"][0]), [])
+
+    def test_is_int_member_admits_an_int_and_nothing_that_only_equals_one(self):
+        import sys  # noqa: PLC0415
+        if str(REPO / "src") not in sys.path:
+            sys.path.insert(0, str(REPO / "src"))
+        from proofbundle._membership import is_int_member  # noqa: PLC0415
+        for wert in (1, 2, 4, 8):
+            with self.subTest(wert=wert):
+                self.assertTrue(is_int_member(wert, (1, 2, 4, 8)))
+                self.assertTrue(is_int_member(wert, {1, 2, 4, 8}))
+        for i, wert in enumerate((True, False, 1.0, 2.0, "1", b"\x01", None, [1], {"a": 1}, {1}, (1,), 3,
+                                  10**5000)):
+            with self.subTest(fall=i, typ=type(wert).__name__):
+                self.assertFalse(is_int_member(wert, (1, 2, 4, 8)))
+                self.assertFalse(is_int_member(wert, {0: "a", 1: "b", 2: "c", 4: "d", 8: "e"}))
+
+        class _KaputtesInt(int):
+            def __hash__(self):
+                raise TypeError("a hash that fails")
+
+        self.assertFalse(is_int_member(_KaputtesInt(1), {1, 2}))
+        self.assertTrue(is_int_member(_KaputtesInt(1), (1, 2)))   # a tuple compares, it does not hash
 
 
 #: Module-level hashing containers the static view does not read, found by importing every module of

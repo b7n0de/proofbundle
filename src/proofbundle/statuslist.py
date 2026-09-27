@@ -27,6 +27,7 @@ import json
 import zlib
 from typing import Optional
 
+from ._membership import is_int_member
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
 from .errors import BundleFormatError, ProofBundleError
@@ -191,8 +192,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = "status_list claim missing"
         return result
     bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
-        result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
+    # `bits` is a JSON integer, one of 1, 2, 4, 8 (the draft's form), and the house rule of `iat`,
+    # `exp` and `ttl` above holds: a bool or a float is no integer. `bits not in (1, 2, 4, 8)` read
+    # `true` as 1 and `2.0` as 2 (True == 1, 2.0 == 2): a signed token with `"bits": true` verified
+    # ok as a 1-bit list, and `2.0` raised a raw TypeError at `bit_array[...]` below (lens on e5b39b81).
+    if not is_int_member(bits, _ALLOWED_BITS):
+        result["detail"] = (f"status_list bits must be one of the integers {_ALLOWED_BITS}, "
+                            f"got {render_safe(bits)}")
         return result
     if not isinstance(sl.get("lst"), str):
         result["detail"] = "status_list lst missing"
@@ -247,8 +253,10 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list
     of small ints (< 2**bits); ``signer`` an Ed25519 private key; ``iat`` explicit POSIX seconds
     (the library never samples wall clocks for signatures). zlib level 9 per the spec's example."""
-    if bits not in _ALLOWED_BITS:
-        raise BundleFormatError(f"bits must be one of {_ALLOWED_BITS}")
+    # The emit side holds the verify side's rule: `bits=True` signed `"bits": true`, a token the
+    # draft's form refuses, and `bits=2.0` raised a raw TypeError at `bytearray(...)` below.
+    if not is_int_member(bits, _ALLOWED_BITS):
+        raise BundleFormatError(f"bits must be one of the integers {_ALLOWED_BITS}, got {render_safe(bits)}")
     if isinstance(iat, bool) or not isinstance(iat, int):
         raise BundleFormatError("iat must be a POSIX timestamp integer")
     per_byte = 8 // bits

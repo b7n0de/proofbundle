@@ -439,16 +439,22 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         return None
 
 
-def _names_a_foreign_bundle_format(bundle) -> bool:
-    """True only for a bundle whose top-level `schema` is a present, non-empty string other than ours.
+def _declares_a_foreign_format(doc, ours: str) -> bool:
+    """True only for a document whose `schema` is a present, non-empty string other than `ours`.
+
+    THE DECLARATION RULE of R2 (docs/RECEIPT_ENVELOPE_PROFILE.md, "A refusal needs a declaration"):
+    only a present, non-empty identifier that is not ours earns a refusal. An absent `schema`
+    declares no other format, and a present value that cannot be an identifier (null, a number, a
+    list, an empty string) declares nothing either. It holds for the envelope and for the claim
+    alike, and both read it here.
 
     Read without walking the document: one key, one type check, one comparison, so it adds no work
     that the structural budget in ``verify_bundle`` would otherwise have bounded.
     """
-    if not isinstance(bundle, dict) or "schema" not in bundle:
+    if not isinstance(doc, dict) or "schema" not in doc:
         return False
-    schema = bundle["schema"]
-    return isinstance(schema, str) and bool(schema) and schema != BUNDLE_SCHEMA
+    schema = doc["schema"]
+    return isinstance(schema, str) and bool(schema) and schema != ours
 
 
 def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tuple:
@@ -482,7 +488,9 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
     `invalid`, fail-closed, as `verify_bundle` rules them. An unknown `signature.alg` or
     `merkle.hash_alg` INSIDE a `proofbundle/v0.1` bundle also stays `invalid`: our own schema fixes
     both values, so a bundle that names ours and breaks it is judgeable. What renaming the envelope
-    identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`.
+    identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`. The claim's
+    own `schema` is read by the same rule (`_declares_a_foreign_format`): an authentic claim whose
+    `schema` is absent, null, empty, a number or a list is `invalid`, not refused.
 
     THE RESOURCE LIMITS COME BEFORE THE IDENTIFIER, in both transports (Codex on PR 268, measured).
     A path is read through ``load_bundle``, which applies the byte cap and the structural limits
@@ -499,7 +507,7 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
             bundle = load_bundle(bundle)
         elif isinstance(bundle, dict):
             enforce_structural_budget(bundle)
-        if _names_a_foreign_bundle_format(bundle):
+        if _declares_a_foreign_format(bundle, BUNDLE_SCHEMA):
             return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
         if not verify_bundle(bundle).ok:
             return (CLAIM_INVALID, None)
@@ -509,8 +517,16 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
         return (CLAIM_INVALID, None)
     if not isinstance(claim, dict):
         return (CLAIM_INVALID, None)
+    # THE CLAIM'S IDENTIFIER IS READ BY THE ENVELOPE'S RULE. `claim.get("schema") != EVAL_CLAIM_SCHEMA`
+    # refused every other value, so an authentic claim whose `schema` was absent, null, empty, a
+    # number or a list came back `refused_unknown_schema`, "I cannot judge this", although it
+    # declares no other format and is judgeable: it is no eval claim of ours, so it is `invalid`
+    # (a lens on e5b39b81, M4; the same case as L11 of an earlier run). A present foreign string is
+    # still refused, and our own identifier goes on to the full check below.
     if claim.get("schema") != EVAL_CLAIM_SCHEMA:
-        return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
+        if _declares_a_foreign_format(claim, EVAL_CLAIM_SCHEMA):
+            return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
+        return (CLAIM_INVALID, None)
     decoded = decode_eval_claim(bundle, expected_context=expected_context)
     if decoded is None:
         return (CLAIM_INVALID, None)

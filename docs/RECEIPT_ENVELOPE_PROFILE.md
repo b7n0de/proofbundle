@@ -118,7 +118,10 @@ into a refusal would pass the first vector and fail this one. Three carry the ru
 **A refusal needs a declaration.** Only a present, non-empty identifier that is not ours earns one.
 An absent identifier declares no other format, and neither does a present value that cannot be an
 identifier (a number, a list, an empty string); both stay `invalid`. The corpus carries the
-absent, the empty and a numeric identifier; the unit tests also pin a list and null. What renaming the envelope
+absent, the empty and a numeric identifier; the unit tests also pin a list and null. The claim's own
+`schema` is read by the same rule since 2026-09-27: before, any value other than ours was refused, so an
+authentic claim whose `schema` was absent, null, empty, a number or a list came back as a refusal; it is
+`invalid` now, and only a present foreign string is refused (unit tests, no corpus vector). What renaming the envelope
 identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`, and a consumer
 that treats a refusal as acceptance is wrong whatever the reason for it.
 

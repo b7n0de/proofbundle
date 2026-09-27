@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Collection
 from typing import Any, Dict, Optional, Sequence
 
 from .._membership import is_member
@@ -329,10 +330,24 @@ def verify_agt_receipt(
         ergebnis.add("external-authorization-trusted", False,
                      "no trusted authorizer keys supplied — the authorization was NOT evaluated "
                      "against a relying party's list, and this is not an acceptance")
+    elif (not isinstance(trusted_authorizer_keys, Collection)
+          or isinstance(trusted_authorizer_keys, (str, bytes, bytearray))):
+        # THE RELYING PARTY'S LIST IS READ, NOT HASHED. `a_key in set(trusted_authorizer_keys)` hashed
+        # every entry of the caller's list, and `[]`, `{}` or `["a"]` in it raised a raw TypeError out
+        # of this never-raise surface (lens on e5b39b81, M1); `set()` of a number or of an object that
+        # is no collection raised the same way, and a bare string was read as a set of characters. A
+        # configuration that is no collection of keys evaluates nothing, and the check says so.
+        ergebnis.add("external-authorization-trusted", False,
+                     f"trusted_authorizer_keys is {type(trusted_authorizer_keys).__name__}, expected a "
+                     "list of key strings — the authorization was NOT evaluated against it")
     else:
-        ergebnis.add("external-authorization-trusted", a_key in set(trusted_authorizer_keys),
-                     f"authorizer key {a_key[:16]}… against {len(trusted_authorizer_keys)} "
-                     f"trusted key(s)")
+        # An entry is compared, never hashed: one that is no string can equal no key, and is counted
+        # apart so the detail does not name it a trusted key.
+        schluessel = [k for k in trusted_authorizer_keys if isinstance(k, str)]
+        fremd = len(trusted_authorizer_keys) - len(schluessel)
+        ergebnis.add("external-authorization-trusted", any(k == a_key for k in schluessel),
+                     f"authorizer key {a_key[:16]}… against {len(schluessel)} trusted key(s)"
+                     + (f", {fremd} non-string entr{'y' if fremd == 1 else 'ies'} ignored" if fremd else ""))
     return ergebnis
 
 

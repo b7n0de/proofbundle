@@ -37,6 +37,7 @@ error at module load).
 from __future__ import annotations
 
 import hashlib
+from ._membership import is_int_member
 from .checkpoint import _split_signed_note
 from .errors import BundleFormatError
 from ._wire_b64 import decode_b64
@@ -236,8 +237,12 @@ def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
     # (sig_mismatch), which is fail-closed (never a false-accept); personal_sign never emits those, so this
     # is correct for rootcommit/v2-sig. Pinned explicitly for any future reuse of this helper.
     v = sig65[64]
-    rec_id = v - 27 if v in (27, 28) else v
-    if rec_id not in (0, 1):
+    # Through `is_int_member`: for bytes `v` is an int and the answer is the same; a `sig65` of
+    # another type from a direct caller (a list holding `True` or `27.0`) is refused here instead of
+    # reaching the recovery as a recovery id that only equals one (lens on e5b39b81, the class of
+    # statuslist `bits`).
+    rec_id = v - 27 if is_int_member(v, (27, 28)) else v
+    if not is_int_member(rec_id, (0, 1)):
         return None
     try:
         from ecdsa import SECP256k1, VerifyingKey  # noqa: PLC0415

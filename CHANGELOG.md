@@ -406,6 +406,64 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   new test takes those three ideas and none of its code, and `budget.render_safe` stays the one
   renderer.
 
+  **A lens on e5b39b81: a hashable value of another JSON type was classified as known, a refusal
+  needed no declaration in the claim, and the relying party's list was hashed.** In a container of
+  numbers `True == 1` and `2.0 == 2`, so a membership test that hashes nothing can still admit the
+  wrong type. `statuslist.verify_status_snapshot` read `bits not in (1, 2, 4, 8)`: a correctly signed
+  Status List Token with `"bits": true` verified `ok=True` as a 1-bit list, `1.0` to `8.0` passed and
+  then raised a raw `TypeError` at the bit array, and `issue_status_list_token(bits=True)` signed
+  `"bits": true` (the lens measured both on main 31816e08 too). The same function refuses a bool
+  for `iat`, `exp` and `ttl`. Both read through the new `_membership.is_int_member` now, which
+  refuses a bool and every value that is no int before it compares (`isinstance(x, bool) or not
+  isinstance(x, int)`, the house rule). The class sweep over `src/proofbundle` read every membership test, lookup and `is_member`
+  call on a container holding only numbers, including inline displays and `range()`: eight sites.
+  Three more were closed: `anchors_chia.merkle_root_from_layers` accepted `true`, `false`, `1.0` and
+  `0.0` as the `other_hash_side` of a DataLayer proof (measured: all four verified), and the two
+  recovery-id tests of `anchors_rootcommit.eip191_recover_address`, whose value is an int for bytes
+  and only equals one for a list a direct caller hands in (the answer there was `None` before and
+  is now). Three stay, each an int the package made: `STATUS_LABELS.get(status)` in `statuslist`,
+  `len(parsed) in (2, 3)` in `sdjwt`, and `_RESULT_ENUM[verdikt]` in `intoto`, keyed by `True` and
+  `False` and read with the bool `require_bool_verdict` returns. Over `scripts/` three membership
+  tests on subprocess return codes, not changed. The membership guard carries the class as a fourth
+  form, `number_container_sites`: a new site turns it red until it reads through `is_int_member` or
+  is listed in `_NUMBER_SITES_CLASSIFIED` with its reason (3 sites under 3 entries), and putting
+  `bits not in _ALLOWED_BITS` back into a copy of the tree is found. Not read by it: a display with a
+  name in it, a comprehension, a container a function returns, a comparison with one number
+  (`x == 1`, `0 <= x < 4`), iteration, and a container handed to a function; one such comparison on
+  parsed data was seen and left, `summary.get("version") != 3` in `adapters/samples.py`.
+
+  `evalclaim.classify_eval_claim` refused every claim whose `schema` was not ours, so an authentic
+  claim whose `schema` is absent, null, empty, a number or a list answered `refused_unknown_schema`,
+  "I cannot judge this", where it declares no other format (the lens measured it on main 31816e08
+  too). The claim reads the envelope's rule now, one function for both
+  (`_declares_a_foreign_format`): only a present, non-empty string that is not ours earns a refusal,
+  everything else is `invalid`, and
+  `docs/RECEIPT_ENVELOPE_PROFILE.md` says so under R2. The other fields the function decides on keep
+  their answers: a foreign envelope identifier is refused, one that declares nothing and an unknown
+  `signature.alg` or `merkle.hash_alg` under ours are `invalid`, and `decode_eval_claim` returns
+  `None` for all of them. `evalclaim.py` was left to another branch until now; this is the one change
+  in it. `adapters/agt_receipt.verify_agt_receipt` built `set(trusted_authorizer_keys)`, named above
+  as a membership test behind an `isinstance(x, str)`: the check held for the key, not for the list,
+  and `[]`, `{}` or `["a"]` in the relying party's list raised a raw `TypeError`. The list is read
+  now, entry by entry, and an entry that is no string matches no key and is counted apart; a
+  configuration that is no collection of keys (a number, a bare string, bytes, an object) fails the
+  check with exit 3 and says it evaluated nothing. The TypeError pin of `verify_agt_receipt` leaves
+  the render test's gap list (193 pairs in 116 functions now, 194 before). `relation.py:757`, the
+  other `x in set(allowed)`, builds its set from a list filtered to strings and cannot raise. The
+  render test failed instead of
+  skipping on a bare install: without `rfc3161-client` every planted call of
+  `create_rfc3161_anchor` raised `ModuleNotFoundError`, and without a keccak backend
+  `eip191_recover_address` raised `_NoSigLib`, a `RuntimeError` with no `ImportError` behind it. A
+  function whose seed stops at an absent optional dependency is skipped with the reason now, whether
+  the seed was recorded as returning or not (the `create_rfc3161_anchor` seed was recorded refusing,
+  for want of a network, and stops at the import first), `_NoSigLib` counts as one, and an
+  `ImportError` of a `proofbundle` module never does. Measured on CPython 3.10 with both modules
+  made absent: the file ends in 313 passed and 3 skipped. The third skip, `pqsig.verify_slhdsa`, is one on a full
+  install as well: it raises `PQUnavailable` from an `ImportError` before it reads an argument, so
+  its pass measured the import only.
+  `is_int_member` joins the render test's family, 319 public functions now, 310 with a parameter,
+  seeded by hand with a call the suite makes.
+
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
   required fields schemaVersion and decidedAt, and in strict mode privacy, notChecked and

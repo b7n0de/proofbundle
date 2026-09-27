@@ -320,3 +320,43 @@ class TestNeverRaiseUnterTiefe(unittest.TestCase):
         with self.assertRaises(EvalClaimError) as ctx:
             load_claim_text("[" * 20000 + "]" * 20000)
         self.assertNotIsInstance(ctx.exception, RecursionError)
+
+
+class TestTheClaimIdentifierNeedsADeclarationToo(unittest.TestCase):
+    """A lens on e5b39b81 (M4; L11 of an earlier run): the envelope's rule was not the claim's.
+    `claim.get("schema") != EVAL_CLAIM_SCHEMA` answered `refused_unknown_schema` for an authentic claim
+    whose `schema` was absent, null, empty, a number or a list, although none of them declares another
+    format. The claim reads the envelope's rule now: only a present, non-empty string that is not ours
+    earns a refusal; everything else is `invalid`, because the claim is judgeable and is no eval claim."""
+
+    def setUp(self):
+        self.s = generate_signer()
+        self.claim = decode_eval_claim(_good(self.s))
+        assert self.claim is not None
+
+    def _mit(self, **felder) -> dict:
+        return emit_bundle(canonicalize(dict(self.claim, **felder)), self.s)
+
+    def test_a_claim_identifier_that_declares_nothing_is_invalid(self):
+        ohne = dict(self.claim)
+        del ohne["schema"]
+        faelle = {"absent": emit_bundle(canonicalize(ohne), self.s), "null": self._mit(schema=None),
+                  "empty": self._mit(schema=""), "number": self._mit(schema=1),
+                  "list": self._mit(schema=[self.claim["schema"]]), "object": self._mit(schema={})}
+        for name, b in faelle.items():
+            with self.subTest(state=name):
+                self.assertEqual(classify_eval_claim(b), (CLAIM_INVALID, None))
+
+    def test_anti_parity_a_declared_identifier_is_read_as_before(self):
+        # a present foreign string is still refused, whatever it spells, and ours still verifies
+        for fremd in ("acme/other/v9", " ", "proofbundle/v0.1"):
+            with self.subTest(schema=fremd):
+                self.assertEqual(classify_eval_claim(self._mit(schema=fremd)),
+                                 (CLAIM_REFUSED_UNKNOWN_SCHEMA, None))
+        self.assertEqual(classify_eval_claim(self._mit())[0], CLAIM_VALID)
+
+    def test_the_released_decode_contract_is_unchanged(self):
+        # decode_eval_claim answers None for all of them, as it always did
+        for wert in (None, "", 1, "acme/other/v9"):
+            with self.subTest(schema=repr(wert)):
+                self.assertIsNone(decode_eval_claim(self._mit(schema=wert)))

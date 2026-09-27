@@ -425,8 +425,11 @@ def _emit_claim(tmp: Path):
     return [((claim, "sweep.receipt.json"), {})]
 
 
-#: Seeds built at run time: a file, a key object or a callable, which the recording cannot hold.
+#: Seeds built at run time: a file, a key object or a callable, which the recording cannot hold, and a
+#: function newer than the recording, with a call the suite makes to it (`is_int_member`, added with the
+#: lens on e5b39b81; tests/test_membership_hashable_guard.py calls it so).
 _HAND_SEEDS = {
+    "proofbundle._membership.is_int_member": lambda tmp: [((2, (1, 2, 4, 8)), {}), ((True, (1, 2, 4, 8)), {})],
     "proofbundle._integration.emit_claim_receipt": _emit_claim,
     "proofbundle._integration.emit_enabled": lambda tmp: [((False,), {})],
     "proofbundle._schema_shapes.is_sha256_digest": lambda tmp: [(({"sha256": "0" * 64},), {})],
@@ -677,8 +680,17 @@ def _sweep(qual: str, tmp: Path, values: dict | None = None, keys: dict | None =
 
 
 def _absent_dependency(exc: BaseException | None) -> bool:
+    """Did `exc` come from an optional dependency this environment lacks?
+
+    An ImportError of a module outside the package, anywhere in the chain, and the one refusal the
+    package raises for a missing backend without an ImportError behind it:
+    `anchors_rootcommit._NoSigLib`, which `_keccak256` raises after it tried every keccak backend
+    (its docstring: "raises _NoSigLib if none is available"). An ImportError of a `proofbundle`
+    module is a defect of the package, never an absent dependency, and is not read as one."""
     while exc is not None:
         if isinstance(exc, ImportError):
+            return (exc.name or "proofbundle").split(".")[0] != "proofbundle"
+        if type(exc).__name__ == "_NoSigLib" and type(exc).__module__ == "proofbundle.anchors_rootcommit":
             return True
         exc = exc.__cause__ or exc.__context__
     return False
@@ -835,9 +847,10 @@ _WRONG_TYPE_GAPS: dict = {
         "adapters/agt_receipt.py:canonical_authorization_payload AttributeError",
     },
     "adapters.agt_receipt.exit_code": {"adapters/agt_receipt.py:exit_code AttributeError"},
+    # The TypeError left with the lens on e5b39b81 (M1): `set(trusted_authorizer_keys)` hashed the
+    # relying party's list, and a planted number, object or deep list raised there.
     "adapters.agt_receipt.verify_agt_receipt": {
         "adapters/agt_receipt.py:verify_agt_receipt OverflowError",
-        "adapters/agt_receipt.py:verify_agt_receipt TypeError",
     },
     "adapters.agt_receipt.verify_agt_receipt_chain": {
         "adapters/agt_receipt.py:verify_agt_receipt_chain AttributeError",
@@ -1099,7 +1112,20 @@ def _assert_clean(rep: _Report) -> None:
 
 @pytest.mark.parametrize("qual", _SEEDED)
 def test_a_planted_value_leaves_the_function_typed(qual, _quiet_world):
-    _assert_clean(_sweep(qual, _quiet_world))
+    rep = _sweep(qual, _quiet_world)
+    # A BARE INSTALL DEGRADES TO A CLEAN SKIP (N18, tests/test_bare_install_degrades_to_clean_skips.py).
+    # A seed whose own call stops at an absent optional dependency never reaches the function's code,
+    # so its planted calls measure the import, not the function: without `rfc3161-client`,
+    # `create_rfc3161_anchor` answered every plant with ModuleNotFoundError, and without a keccak backend
+    # `eip191_recover_address` with `_NoSigLib`, and both cases failed (a lens on e5b39b81, M5). Any seed
+    # counts, not only one recorded as returning: the seed of `create_rfc3161_anchor` was recorded
+    # refusing (no network), and it stops at the import before it gets there. Where the dependency is
+    # present the seed's call gets past the import, and nothing is skipped.
+    fehlt = [exc for _must_return, exc in rep.baseline if _absent_dependency(exc)]
+    if fehlt:
+        pytest.skip(f"{qual}: not measured here, an optional dependency is absent "
+                    f"({type(fehlt[0]).__name__}: {_message(fehlt[0])!s:.160})")
+    _assert_clean(rep)
 
 
 def test_every_family_member_is_seeded():
