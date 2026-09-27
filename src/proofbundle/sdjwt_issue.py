@@ -183,6 +183,9 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         # are signed. Lens run 4 at c3ca546b: `dict(status)` kept a `str` subclass key whose `__hash__`
         # and `__eq__` claimed to be "status_list", so the membership test passed and the signed
         # status carried another key; a non-string key or two keys equal as characters are refused.
+        # The copy reads each container by its stored contents, and a circular or too deeply nested
+        # status is this ValueError too (lens run 5 at 5a21b199: a raw KeyError and a raw
+        # RecursionError; see `_plain_for_jcs`).
         if isinstance(status, dict):
             from .canonical import _plain_for_jcs  # noqa: PLC0415
             status = _plain_for_jcs(status, ValueError)
@@ -225,7 +228,17 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         payload["_sd_alg"] = SD_ALG
 
     header = {"alg": "EdDSA", "typ": SD_JWT_TYP}
-    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(json.dumps(payload).encode("utf-8"))
+    try:
+        nutzlast = json.dumps(payload)
+    except RecursionError as exc:
+        # The serializer's own depth, the one refusal the copy of `status` cannot give: the copy reads
+        # as deep as the interpreter recurses, and json.dumps starts a few frames further down. Measured
+        # on Python 3.10.12 with the copy's depth refusal in place: a status nested within two levels
+        # of that limit passed the copy and raised a raw RecursionError here. `status` is the member
+        # meant to hold nested values; the claim values are the read-back claim, which the verifier's
+        # reader bounds at 64 levels.
+        raise ValueError("the SD-JWT payload nests too deep to serialize") from exc
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(nutzlast.encode("utf-8"))
     signature = signer.sign(signing_input.encode("ascii"))
     jwt = signing_input + "." + _b64url(signature)
 

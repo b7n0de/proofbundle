@@ -28,10 +28,15 @@ the ones between the "round 3" and the "round 4" marker against 835df85b, where 
 found the shape class and five siblings, and the ones below the "round 4" marker against 6893586f,
 where a third lens found a withheld value judged on one read and signed from another, the statement
 `subject` never walked, a key serialized through its own `encode`, and two generic fields that
-contradict the signed verdict. Run against its reference commit, every case whose name does not start
-with `test_control` fails; the controls pass there and here. One round-3 control changed in round 4
-(`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in the
-commit messages.
+contradict the signed verdict. The ones below the "round 5" marker were written against c3ca546b,
+except its recursion-limit case (round 6, written against 5a21b199, where only its `canonicalize`
+half fails; its emit half guards main 1e95b197). The ones below the "round 7" marker were written
+against 93b3c6f5, where a fifth lens found a copy and a budget that read a caller's container through
+methods the caller can override while the serializer wrote something else, and a circular or deep
+container that escaped as a raw exception. Run against its reference commit, every case whose name
+does not start with `test_control` fails; the controls pass there and here. One round-3 control
+changed in round 4 (`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring).
+The counts are in the commit messages.
 """
 import base64
 import json
@@ -49,7 +54,7 @@ import test_eval_claim_commitment_pattern_holds as korpus_quelle  # the generato
 import proofbundle
 from proofbundle import canonical, dsse, intoto
 from proofbundle.emit import emit_bundle, generate_signer
-from proofbundle.errors import BundleFormatError
+from proofbundle.errors import BundleFormatError, ProofBundleError
 from proofbundle.evalclaim import (
     EvalClaimError,
     build_eval_claim,
@@ -1182,10 +1187,15 @@ class TestTheLastTwoReadsOfRoundFour(_Basis):
                 self.assertEqual(canonicalize({"provenance": wert}), rfc8785.dumps({"provenance": wert}))
 
     def test_a_claim_nested_past_the_recursion_limit_is_a_typed_refusal(self):
-        """Lens run 5 at 5a21b199 (both foreign lenses asked about depth; measured by the filer): the
-        profile walk that runs before the serializer raised a bare RecursionError out of
-        `canonicalize` and `emit_eval_receipt` from 995 nested lists (994 on main 1e95b197). It is
-        the typed refusal the serializer's own depth gives now."""
+        """Lens run 5 at 5a21b199 (both foreign lenses asked about depth): the profile walk that runs
+        before the serializer raised a bare RecursionError out of `canonicalize` for a provenance of
+        995 and of 5000 nested lists. It is the typed refusal the serializer's own depth gives now.
+
+        Corrected in round 7: the first wording said `emit_eval_receipt` raised it at 5a21b199 too.
+        Measured there, it already gave EvalClaimError at every depth from 980 to 1000, at 2000 and
+        at 5000, because `_claim_read_back` catches the RecursionError; it raised the bare one on
+        main 1e95b197 (995 and 5000). So the emit half of this case cannot fail at 5a21b199; it
+        guards main's behaviour."""
         from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
         for tiefe in (995, 5000):
             with self.subTest(tiefe=tiefe):
@@ -1202,6 +1212,351 @@ class TestTheLastTwoReadsOfRoundFour(_Basis):
         status = {"status_list": {"idx": 7, "uri": "https://example.org/status/1"}}
         self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
                                                    status=status))["status"], status)
+
+
+# ---- round 7: lens run 5 at 5a21b199 and 93b3c6f5 ------------------------------------------------------
+
+class _IterUndGetitem(dict):
+    """`__iter__` overridden (by the base method) and `__getitem__` raising. `dict()` of such an
+    object reads `keys()` and `__getitem__`, and raises; what it holds is an ordinary dict."""
+
+    def __iter__(self):
+        return dict.__iter__(self)
+
+    def __getitem__(self, schluessel):
+        raise KeyError(schluessel)
+
+
+class _ZeigtFremdes(dict):
+    """`__iter__`, `keys` and `__getitem__` show a `status_list` that the storage does not hold."""
+
+    def __iter__(self):
+        return iter(["status_list"])
+
+    def keys(self):
+        return ["status_list"]
+
+    def __getitem__(self, schluessel):
+        return {"idx": 99, "uri": "https://example.org/other"}
+
+
+class _ListeZeigtFremdes(list):
+    """Holds what it was built from; iterating it shows 99."""
+
+    def __iter__(self):
+        return iter([99])
+
+
+class _ZeigtNichts(dict):
+    """Holds what it was built from; `items`, `values`, `keys` and `__len__` show nothing."""
+
+    def items(self):
+        return iter(())
+
+    def values(self):
+        return iter(())
+
+    def keys(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+
+class _ListeZeigtNichts(list):
+    """Holds what it was built from; iterating it shows nothing and `__len__` says 0."""
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+
+class _UnechtesDict:
+    """Not a dict, but `__class__` says dict, so `isinstance(x, dict)` answers True."""
+
+    __class__ = dict  # type: ignore[assignment]
+
+    def keys(self):
+        return ["idx"]
+
+    def __getitem__(self, schluessel):
+        return 5
+
+
+class _UnechterStr:
+    __class__ = str  # type: ignore[assignment]
+
+
+class _UnechteZahl:
+    __class__ = int  # type: ignore[assignment]
+
+
+def _geschachtelt(tiefe: int, art: str = "list"):
+    wert: object = 1
+    for _ in range(tiefe):
+        wert = [wert] if art == "list" else {"a": wert}
+    return wert
+
+
+class TestAContainerIsReadByWhatItHolds(_Basis):
+    """Item 1. The plain copy (`canonical._plain_for_jcs`) read a container through methods the caller
+    can override: `dict(value)`, which calls `keys()` and `__getitem__` once `__iter__` is overridden,
+    and `list(value)`, which calls `__iter__`. Measured at 93b3c6f5 (lens run 5 at 5a21b199): a
+    `status` holding a dict subclass whose `__getitem__` raises escaped `issue_sd_jwt` as a raw
+    KeyError where c3ca546b signed what it holds, and the same object in a `provenance` made the
+    emitter and the producers raise KeyError (on main 1e95b197 too). The copy now reads what a
+    container holds, and so does the claim rule's own walk."""
+
+    def test_a_status_is_signed_as_its_stored_contents(self):
+        for name, status, erwartet in (
+                ("a dict whose __getitem__ raises", {"status_list": _IterUndGetitem({"idx": 7})},
+                 {"status_list": {"idx": 7}}),
+                ("a list whose __iter__ shows 99",
+                 {"status_list": {"idx": 7, "bits": _ListeZeigtFremdes([1, 0])}},
+                 {"status_list": {"idx": 7, "bits": [1, 0]}})):
+            with self.subTest(fall=name):
+                compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+                self.assertEqual(_immer_offen(compact)["status"], erwartet)
+
+    def test_a_status_list_that_only_the_methods_show_is_refused(self):
+        """At 93b3c6f5 the status below was signed with the `status_list` its methods show."""
+        status = _ZeigtFremdes({"x": 1})
+        self.assertEqual(list(status), ["status_list"])          # the premise: iterating shows one
+        with self.assertRaises(ValueError) as ctx:
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+        self.assertIn("status_list", str(ctx.exception))
+
+    def test_a_provenance_is_signed_as_its_stored_contents(self):
+        claim = dict(self.basis, provenance={"k": _IterUndGetitem({"idx": 7}),
+                                             "l": _ListeZeigtFremdes([1, 0])})
+        gelesen = decode_eval_claim(emit_eval_receipt(claim, self.signer))
+        self.assertEqual(gelesen["provenance"], {"k": {"idx": 7}, "l": [1, 0]})
+        for name, erzeuge in _produzenten().items():
+            with self.subTest(produzent=name):
+                self.assertIsNotNone(erzeuge(claim, self.signer))
+
+    def test_the_claim_rule_reads_what_is_serialized(self):
+        """At 93b3c6f5 and on main 1e95b197 the profile walk read `values()` and the claim rule read
+        `__iter__`: `canonicalize` wrote a float that its profile forbids, and `emit_eval_receipt`
+        signed an empty list where the list held 2**60."""
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        with self.assertRaises(EvalClaimError) as ctx:
+            canonicalize(dict(self.basis, provenance={"k": _ZeigtNichts({"f": 0.5})}))
+        self.assertIn("float", str(ctx.exception))
+        claim = dict(self.basis, provenance={"k": _ListeZeigtNichts([2 ** 60])})
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(claim, self.signer)
+        self.assertIn("provenance holds integer", str(ctx.exception))
+        self._alle_weisen_ab(claim, "provenance")
+
+    def test_a_value_whose_class_claims_a_json_type_is_refused(self):
+        """`isinstance` reads `__class__`, which an object sets itself. At 93b3c6f5 a status holding
+        such a dict was signed as {"idx": 5}, such a string raised a raw TypeError, and in a
+        provenance such a dict, string or int raised a raw AttributeError or TypeError out of the
+        emitter and every producer; in a statement, a raw TypeError out of the budget."""
+        for name, status in (("a dict", {"status_list": _UnechtesDict()}),
+                             ("a string value", {"status_list": {"v": _UnechterStr()}}),
+                             ("a string key", {"status_list": {}, _UnechterStr(): 1})):
+            with self.subTest(status=name):
+                with self.assertRaises(ValueError):
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+        for name, wert in (("a dict", _UnechtesDict()), ("a string", _UnechterStr()),
+                           ("an int", _UnechteZahl())):
+            claim = dict(self.basis, provenance={"k": wert})
+            with self.subTest(provenance=name):
+                with self.assertRaises(EvalClaimError):
+                    emit_eval_receipt(claim, self.signer)
+                self._alle_weisen_ab(claim)
+        with self.assertRaises(BundleFormatError):
+            canonical.canonicalize_statement({"_type": "t", "predicate": _UnechtesDict()})
+
+
+class TestACircularOrDeepContainerIsATypedRefusal(_Basis):
+    """Item 2. At 93b3c6f5 (lens run 5 at 5a21b199) a circular `status` raised RecursionError where
+    c3ca546b and main 1e95b197 gave json's ValueError, and a status nested past the recursion limit
+    raised RecursionError (on main too, from json.dumps). Both are the documented ValueError now,
+    and so is the band of depths in which the copy passed and json.dumps raised."""
+
+    def test_a_circular_status_is_refused(self):
+        zirkel: dict = {"status_list": {}}
+        zirkel["status_list"]["self"] = zirkel
+        liste: list = []
+        liste.append(liste)
+        for name, status in (("dict", zirkel), ("list", {"status_list": liste})):
+            with self.subTest(kreis=name):
+                with self.assertRaises(ValueError) as ctx:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+                self.assertIn("circular", str(ctx.exception))
+
+    def test_a_status_nested_past_the_limit_is_refused_at_every_depth(self):
+        """The depth at which a status stops signing depends on how deep the caller's stack is, so it
+        is searched here, from one helper frame, and the eight depths past it must each be the
+        ValueError. At 93b3c6f5 they were RecursionError."""
+        for art in ("list", "dict"):
+            def ergebnis(tiefe, art=art):
+                try:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                                 status={"status_list": _geschachtelt(tiefe, art)})
+                    return "signed"
+                except ValueError:
+                    return "ValueError"
+                except RecursionError:
+                    return "RecursionError"
+            unten, oben = 1, 3000                   # unten signs, oben does not
+            while oben - unten > 1:
+                mitte = (unten + oben) // 2
+                if ergebnis(mitte) == "signed":
+                    unten = mitte
+                else:
+                    oben = mitte
+            with self.subTest(art=art, tiefste_signierte=unten):
+                self.assertGreater(unten, 64)       # a deep status still signs; the case is not vacuous
+                for tiefe in list(range(unten + 1, unten + 9)) + [5000]:
+                    self.assertEqual(ergebnis(tiefe), "ValueError", tiefe)
+
+
+class TestTheBudgetJudgesWhatIsSerialized(_Basis):
+    """Item 3. `canonicalize_statement` applies the structural budget before the copy, and the budget
+    read a dict through `items()` and a list through `__iter__`. Measured at 93b3c6f5 and on main
+    1e95b197: a dict subclass whose `items`, `values` and `keys` show nothing hid 500 nested lists
+    from the depth bound of 64 (1036 bytes written) and 2000 raised a raw RecursionError; a list
+    subclass that iterates as empty hid them too and was written as []. The budget now reads what a
+    container holds. The shape guard of the same function asked `__contains__`."""
+
+    def test_depth_hidden_from_the_budget_is_refused(self):
+        for name, huelle in (("dict: items, values, keys show nothing", lambda w: _ZeigtNichts({"deep": w})),
+                             ("list: iterates as empty", lambda w: _ListeZeigtNichts([w]))):
+            for tiefe in (500, 2000):
+                with self.subTest(huelle=name, tiefe=tiefe):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        canonical.canonicalize_statement({"_type": "t", "predicate": huelle(_geschachtelt(tiefe))})
+                    self.assertIn("too deep", str(ctx.exception))
+
+    def test_the_shape_guard_reads_the_stored_keys(self):
+        stmt = _EnthaeltLuegt({"predicate": {"x": 1}})
+        self.assertIn("_type", stmt)                             # the premise: the lie works on `in`
+        with self.assertRaises(ProofBundleError) as ctx:
+            canonical.canonicalize_statement(stmt, require_statement_shape=True)
+        self.assertIn("_type", str(ctx.exception))
+
+    def test_control_budget_verdicts_on_plain_input_are_unchanged(self):
+        """Every axis of the budget on plain input, with a small budget so the case stays cheap: each
+        verdict has the class it had before (the same cases pass at 93b3c6f5)."""
+        from proofbundle._strict_json import enforce_structural_budget  # noqa: PLC0415
+        from proofbundle.budget import BudgetExceeded, VerificationBudget  # noqa: PLC0415
+        klein = VerificationBudget(json_nodes=10, json_depth=4, string_len=5, int_bits=8)
+        for name, wert, erwartet in (
+                ("depth 4", _geschachtelt(3), None),
+                ("depth 5", _geschachtelt(4), (BundleFormatError, "too deep")),
+                ("depth 5 through dicts", _geschachtelt(4, "dict"), (BundleFormatError, "too deep")),
+                ("10 nodes", list(range(10)), None),
+                ("11 nodes", list(range(11)), (BudgetExceeded, "json_nodes")),
+                ("11 nodes in a tuple", tuple(range(11)), (BudgetExceeded, "json_nodes")),
+                ("11 keys", {str(i): i for i in range(11)}, (BudgetExceeded, "json_nodes")),
+                ("a set", {1, 2}, None),
+                ("a 6-character string", "abcdef", (BudgetExceeded, "string_len")),
+                ("a 6-character key", {"abcdef": 1}, (BudgetExceeded, "string_len")),
+                ("6 bytes", b"abcdef", (BudgetExceeded, "string_len")),
+                ("a 9-bit integer", 2 ** 8, (BudgetExceeded, "int_bits")),
+                ("an 8-bit integer", 2 ** 8 - 1, None),
+                ("true, a float, null", [True, 1.5, None], None),
+                ("a lone surrogate", "\ud800", (BundleFormatError, "surrogate")),
+                ("an object", object(), (BundleFormatError, "not a JSON value"))):
+            with self.subTest(fall=name):
+                if erwartet is None:
+                    enforce_structural_budget(wert, budget=klein)
+                    continue
+                klasse, text = erwartet
+                with self.assertRaises(ProofBundleError) as ctx:
+                    enforce_structural_budget(wert, budget=klein)
+                self.assertIs(type(ctx.exception), klasse)
+                self.assertIn(text, str(ctx.exception))
+
+
+def _zufallswert(rng, tiefe: int, mit_floats: bool):
+    """A plain JSON value, the lens's generator in a bounded form: strings from a small alphabet of
+    awkward characters, integers in the safe range, floats at the edges of their formatting."""
+    zeichen = ["a", "B", "é", "é", "\U0001F600", "￿", "\u007f", " ", "\"", "\\",
+               "\x00", "\x1f", "퟿", "", "z"]
+    art = rng.randint(0, 9 if tiefe < 5 else 5)
+    if art == 0:
+        return rng.choice([True, False, None])
+    if art == 1:
+        return rng.randint(-2 ** 53 + 1, 2 ** 53 - 1)
+    if art == 2:
+        if mit_floats:
+            return rng.choice([0.0, -0.0, 1e21, 1e-7, 5e-324, 1.7976931348623157e308, 0.1, 123.456])
+        return rng.randint(-9, 9)
+    if art in (3, 4, 5):
+        return "".join(rng.choice(zeichen) for _ in range(rng.randint(0, 4)))
+    if art in (6, 7):
+        return [_zufallswert(rng, tiefe + 1, mit_floats) for _ in range(rng.randint(0, 3))]
+    return {"".join(rng.choice(zeichen) for _ in range(rng.randint(0, 4))):
+            _zufallswert(rng, tiefe + 1, mit_floats) for _ in range(rng.randint(0, 3))}
+
+
+class TestPlainInputIsWrittenAsBefore(_Basis):
+    """The controls of round 7. A plain value is copied as itself and written with the bytes the two
+    serializers write for it, through each of the three readers of the copy; the same cases pass at
+    93b3c6f5, so its output for them is unchanged. `TestTheSubjectIsJudgedByTheOwnershipRule
+    .test_control_a_subject_that_is_not_ours_makes_no_claim` holds the package's own export paths."""
+
+    def test_control_random_plain_values_give_the_serializers_bytes(self):
+        import random  # noqa: PLC0415
+
+        import rfc8785  # noqa: PLC0415
+        from proofbundle.evalclaim import _jcs_bytes  # noqa: PLC0415
+        rng = random.Random(20260927)
+        for nummer in range(300):
+            wert = {"provenance": _zufallswert(rng, 0, mit_floats=nummer % 2 == 0)}
+            with self.subTest(nummer=nummer):
+                erwartet = rfc8785.dumps(wert)
+                kopie = canonical._plain_for_jcs(wert, ValueError)
+                self.assertEqual(kopie, wert)
+                self.assertEqual(json.dumps(kopie), json.dumps(wert))
+                self.assertEqual(canonical.canonicalize_statement(wert), erwartet)
+                self.assertEqual(_jcs_bytes(wert), erwartet)
+                status = {"status_list": wert}
+                self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                                                           status=status))["status"], status)
+
+    def test_control_canonicalize_writes_to_within_two_levels_of_the_serializer(self):
+        """The limit the CHANGELOG states: called from the same place, `canonicalize` refuses by type
+        at most the two deepest levels that `rfc8785.dumps` writes. Measured on Python 3.10.12.
+
+        Every call goes through `ergebnis`, from `tiefste`, because the depth that is written moves
+        with the caller's own stack: the first form of this case checked the next level from one
+        frame higher and found it written."""
+        import rfc8785  # noqa: PLC0415
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+
+        def ergebnis(schreibe, tiefe, art):
+            try:
+                schreibe({"provenance": _geschachtelt(tiefe, art)})
+                return "written"
+            except EvalClaimError:
+                return "EvalClaimError"
+            except RecursionError:
+                return "RecursionError"
+
+        def tiefste(schreibe, art):
+            unten, oben = 0, 3000
+            while oben - unten > 1:
+                mitte = (unten + oben) // 2
+                if ergebnis(schreibe, mitte, art) == "written":
+                    unten = mitte
+                else:
+                    oben = mitte
+            return unten, ergebnis(schreibe, unten + 1, art)
+        for art in ("list", "dict"):
+            with self.subTest(art=art):
+                (serialisierer, _), (kanonisch, danach) = (tiefste(rfc8785.dumps, art),
+                                                          tiefste(canonicalize, art))
+                self.assertGreater(kanonisch, 64)
+                self.assertIn(serialisierer - kanonisch, (0, 1, 2))
+                self.assertEqual(danach, "EvalClaimError")
 
 
 if __name__ == "__main__":

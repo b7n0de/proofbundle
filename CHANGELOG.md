@@ -236,11 +236,58 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   walked lists through a list comprehension, a frame of its own per level on Python 3.10, so
   `evalclaim.canonicalize` refused lists nested 497 deep that `rfc8785.dumps` writes (measured: 496
   equal, 497 refused); it walks them with a loop now, and 497, 900 and 990 levels give the bytes
-  `rfc8785.dumps` gives. Three new cases are red at c3ca546b, and a control passes there. The
-  profile walk that runs before the serializer raised a bare `RecursionError` out of `canonicalize`
-  and `emit_eval_receipt` from 995 nested lists (994 on main 1e95b197); it is the typed refusal
-  the serializer's depth gives now. A limit stays, measured on Python 3.10.12: from 993 levels,
-  two below the depth `rfc8785.dumps` writes, `canonicalize` refuses by type.
+  `rfc8785.dumps` gives. Three new cases are red at c3ca546b, and a control passes there. At
+  5a21b199 the profile walk that runs before the serializer raised a bare `RecursionError` out of
+  `canonicalize` for a provenance of 995 and of 5000 nested lists. It is the typed refusal the
+  serializer's depth gives now. `emit_eval_receipt` already refused those depths by type at
+  5a21b199, at every depth measured from 980 to 1000, at 2000 and at 5000. On main 1e95b197 both
+  functions raised the bare error (995 and 5000). An earlier wording of this entry said both did so
+  at 5a21b199; that was wrong. A limit stays, measured on Python 3.10.12: called from the same
+  place, `canonicalize` refuses by type the last two levels that `rfc8785.dumps` writes. The
+  absolute depth moves with the caller's own stack depth, so it is not stated here.
+
+  A fifth lens at 5a21b199, and the tree at 93b3c6f5, showed one more class. A check, or the copy
+  that feeds it, read a caller's container through methods the caller can override, while the
+  serializer wrote something else. And a circular or deep container escaped as a raw exception.
+  The plain copy read a dict with `dict()`, which calls `keys()` and `__getitem__` once `__iter__`
+  is overridden, and a list through `__iter__`. Measured at 93b3c6f5: a `status` holding a dict
+  subclass whose `__getitem__` raises got a raw KeyError out of `issue_sd_jwt`, where main 1e95b197
+  signed what it holds. In `provenance` the same object gave a raw KeyError out of `canonicalize`
+  and `emit_eval_receipt`, on main too. A `status` whose `__iter__`, `keys` and `__getitem__` show
+  a `status_list` that it does not hold was signed with that `status_list`; main refused it. A list
+  whose iteration shows other values than it holds was signed as those values, on main too. A
+  circular `status` gave a raw RecursionError, where main gave json's ValueError. A `status` nested
+  past the recursion limit gave a raw RecursionError, on main too. An object whose `__class__`
+  claims to be a dict, string or integer was signed in `status`, or escaped as a raw
+  AttributeError or TypeError out of the emitter, every producer and `canonicalize_statement`. On
+  main the emitter, `canonicalize_statement` and `status` raised such errors too. The copy now
+  reads what a container holds, through the base type's own methods, and
+  judges each value by its real type. A circular or too deeply nested value is the caller's typed
+  refusal: ValueError for `status`, EvalClaimError or BundleFormatError for a claim.
+
+  Three checks had the same gap. `canonicalize_statement` applies its structural budget before the
+  copy, and the budget read a dict through `items()`. A dict subclass whose `items`, `values` and
+  `keys` show nothing hid 500 nested lists from the depth bound (1036 bytes were written), and 2000
+  raised a raw RecursionError, on main too. The budget now reads what a container holds, for every
+  caller; a parsed document holds only plain types, so no verdict on one changes. The shape guard
+  of the same function asked the dict's own `__contains__`, and a bare predicate passed it. The
+  claim rule's own walks read `values()` and `__iter__`: `canonicalize` wrote a float its profile
+  forbids when a dict subclass hid it, and `emit_eval_receipt` signed an empty list where the list
+  held 2**60, on main too. All three read stored contents now.
+
+  Plain input is written as before. Over 3000 random plain values, `canonicalize` and
+  `canonicalize_statement` give the bytes of `rfc8785.dumps` at 93b3c6f5 and now: none differ, and
+  the emit profile and the budget refuse the same 489 and 0. The deepest nesting each writes is
+  unchanged, and so is the
+  deepest `status` that signs. `json.dumps` in `issue_sd_jwt` starts deeper in the stack than the
+  copy, so a `status` within two levels of the limit passed the copy and raised a raw
+  RecursionError there; it is the ValueError now. Two limits stay, and both are deliberate. Called
+  from the same place, `canonicalize` refuses the last two levels `rfc8785.dumps` writes (above).
+  `canonicalize_statement` refuses a statement nested deeper than 64 levels, its structural budget,
+  which `rfc8785.dumps` writes: 63 nested lists inside one object are refused, on main too. That
+  bound is not changed. The contract file has 76 cases, 5153 subtests. Against the source of
+  93b3c6f5 its 9 new catch-proof cases are red, and its 64 earlier cases and 3 new controls pass
+  (pytest: 21 failed).
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

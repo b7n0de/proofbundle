@@ -68,7 +68,14 @@ def _require_statement_shape(obj: Any) -> None:
         raise ProofBundleError(
             "require_statement_shape: a full in-toto Statement (JSON object) is required, got "
             f"{type(obj).__name__}")
-    missing = [k for k in STATEMENT_REQUIRED_KEYS if k not in obj]
+    # A dict is asked about its STORED keys (`dict.__contains__`), the keys `_plain_for_jcs` copies and
+    # the serializer writes. `k in obj` asks the subclass's own `__contains__`: measured at 93b3c6f5
+    # and on main 1e95b197, a dict subclass whose `__contains__` always answered True passed this
+    # guard holding only a `predicate`, and a bare predicate was canonicalized.
+    if issubclass(type(obj), dict):
+        missing = [k for k in STATEMENT_REQUIRED_KEYS if not dict.__contains__(obj, k)]
+    else:
+        missing = [k for k in STATEMENT_REQUIRED_KEYS if k not in obj]
     if missing:
         raise ProofBundleError(
             f"require_statement_shape: object is missing in-toto Statement key(s) {missing} — this looks "
@@ -94,33 +101,87 @@ def _plain_for_jcs(value: Any, key_error: type) -> Any:
     ``except`` around the serializer is not: an except would turn the override into a refusal, and
     it would also swallow a real defect of the serializer.
 
-    Containers are read once, the way rfc8785 reads them (``dict(value)``, ``list(value)``).
+    Containers are read once, by their STORED contents: through the base type's own methods
+    (``dict.items``, ``list.__iter__``, ``tuple.__iter__``), never through a method a subclass can
+    override (``items``, ``keys``, ``values``, ``__iter__``, ``__getitem__``). The two serializers
+    do not share one reading of a subclass (measured on Python 3.10.12: ``json.dumps`` reads a dict
+    subclass through ``items()``, ``rfc8785.dumps`` through ``dict()``, which calls ``keys()`` and
+    ``__getitem__`` once ``__iter__`` is overridden, and both read a list subclass through
+    ``__iter__``), so the copy reads the one thing no subclass can redirect, and both serializers
+    then read the copy. Measured by lens run 5 at 5a21b199, where the copy read ``dict(value)``: a
+    ``status`` holding a dict subclass whose ``__iter__`` is overridden and whose ``__getitem__``
+    raises KeyError escaped ``issue_sd_jwt`` as a raw KeyError; c3ca546b signed its stored contents,
+    and so does the copy now.
+
+    The type that decides is the object's own (``type(value)``), not ``__class__``, which an object
+    can set to anything; a value whose ``__class__`` claims str, dict, list, tuple, int or float
+    and whose type is none of them raises ``key_error`` (at 5a21b199 such a dict in ``status`` was
+    read through its ``keys()`` and ``__getitem__`` and signed, and such a string raised a raw
+    TypeError).
+
+    A container that contains itself, or a value nested deeper than the interpreter recurses, raises
+    ``key_error`` too, never a RecursionError. Measured at 5a21b199: a circular ``status`` raised
+    RecursionError, where c3ca546b gave json's ``ValueError: Circular reference detected``.
+
     Numbers, booleans, None and every other type pass unchanged, so the serializer judges them as
     before. A key that is not a string raises ``key_error``, the refusal rfc8785 gives such a key;
     it gave it only when the key had no ``encode`` method, and raised a raw TypeError when it had
     one. Two keys whose characters are equal raise ``key_error`` too, because JSON has one key for
     both.
     """
-    if isinstance(value, str):
+    try:
+        return _plain_value(value, key_error, set())
+    except RecursionError as exc:
+        # Only this copy's own recursion can raise it here: every method called on the caller's
+        # objects below is a base type's method, which runs no code of the caller.
+        raise key_error("the value nests too deep to serialize") from exc
+
+
+def _plain_value(value: Any, key_error: type, offen: set) -> Any:
+    """One level of `_plain_for_jcs`. `offen` holds the ids of the containers being copied above
+    this one, so a container met again on its own path is a circle, and one met again beside
+    itself (the same list twice in one object) is copied twice, as a serializer writes it.
+
+    Each type is asked with its own `issubclass` call and not with a tuple of types: a tuple costs
+    one more level of recursion depth per call (measured on Python 3.10.12: from the same caller, a
+    copy of nested lists written with a tuple of types reached one level less), and the copy would
+    then refuse a level that rfc8785 writes from the same caller."""
+    typ = type(value)
+    if issubclass(typ, str):
         return str.__str__(value)
-    if isinstance(value, dict):
+    if issubclass(typ, dict):
+        if id(value) in offen:
+            raise key_error("the value contains itself (a circular reference)")
+        offen.add(id(value))
         kopie: dict = {}
-        for schluessel, eintrag in dict(value).items():
-            if not isinstance(schluessel, str):
+        for schluessel, eintrag in list(dict.items(value)):
+            if not issubclass(type(schluessel), str):
                 raise key_error("object keys must be strings")
             schluessel = str.__str__(schluessel)
             if schluessel in kopie:
                 raise key_error(f"object key {schluessel!r} appears twice")
-            kopie[schluessel] = _plain_for_jcs(eintrag, key_error)
+            kopie[schluessel] = _plain_value(eintrag, key_error, offen)
+        offen.discard(id(value))
         return kopie
-    if isinstance(value, (list, tuple)):
+    if issubclass(typ, list) or issubclass(typ, tuple):
+        if id(value) in offen:
+            raise key_error("the value contains itself (a circular reference)")
+        offen.add(id(value))
         # A loop, not a list comprehension: on Python 3.10 a comprehension is a function of its own and
         # cost a second frame per nesting level, so the copy refused lists nested half as deep as the
         # serializer reads (lens run 4 at c3ca546b: 497 levels here against 994 in rfc8785).
+        basis = list if issubclass(typ, list) else tuple
         liste: list = []
-        for eintrag in list(value):
-            liste.append(_plain_for_jcs(eintrag, key_error))
+        for eintrag in list(basis.__iter__(value)):
+            liste.append(_plain_value(eintrag, key_error, offen))
+        offen.discard(id(value))
         return liste
+    if issubclass(typ, int) or issubclass(typ, float):
+        return value
+    if isinstance(value, str) or isinstance(value, dict) or isinstance(value, list) \
+            or isinstance(value, tuple) or isinstance(value, int) or isinstance(value, float):
+        raise key_error(f"a value of type {typ.__name__} claims through __class__ to be a JSON "
+                        "type it is not")
     return value
 
 
@@ -147,6 +208,10 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     # object would otherwise get a raw RecursionError. The DSSE verify_* surfaces already re-parse via
     # loads_strict (json_depth-bounded) so they were safe; this closes the direct-primitive path. A legitimate
     # emit-side statement is shallow and well under the budget, so this never changes producer behaviour.
+    # The budget reads a container by its stored contents, which is what `_plain_for_jcs` copies below
+    # and the serializer writes. Measured at 93b3c6f5 and on main 1e95b197, when it read a dict through
+    # `items()`: a dict subclass whose `items`, `values` and `keys` show nothing hid 500 nested lists
+    # from the depth bound of 64 and got 1036 bytes written, and 2000 raised a raw RecursionError.
     from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
     enforce_structural_budget(statement)
     try:

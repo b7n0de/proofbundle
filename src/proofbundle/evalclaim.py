@@ -113,8 +113,13 @@ def _is_unsafe_int(value) -> bool:
     the emit profile asked, so `decode_eval_claim` accepted `provenance={"run_attempts": 2**53}`
     while `emit_eval_receipt` refused it, although EVAL_CLAIM.md section 4 names the range for the
     claim and not for one of its two readers.
+
+    The type asked is the object's own, not ``__class__``: an object whose ``__class__`` claims
+    int raised a raw TypeError from ``abs`` here (measured at 93b3c6f5; on main 1e95b197 from the
+    same test inside the profile walk).
     """
-    return isinstance(value, int) and not isinstance(value, bool) and abs(value) > _MAX_SAFE_INT
+    typ = type(value)
+    return issubclass(typ, int) and not issubclass(typ, bool) and abs(value) > _MAX_SAFE_INT
 
 
 def _first_unsafe_integer(value) -> Optional[int]:
@@ -123,6 +128,11 @@ def _first_unsafe_integer(value) -> Optional[int]:
     Iterative rather than recursive, and it visits each container once, so a deep or a cyclic
     Python object handed to the emitter cannot make the claim rule raise. On the verify path the
     strict parser has already bounded depth and size.
+
+    A container is read by its stored contents, as `canonical._plain_for_jcs` copies it for the
+    serializer, and its type is its own, not ``__class__``. Measured at 93b3c6f5: a list subclass
+    whose ``__iter__`` showed nothing hid 2**60 from this walk, and an object whose ``__class__``
+    claims dict raised a raw AttributeError here.
     """
     stapel: list = [value]
     gesehen: set = set()
@@ -130,11 +140,13 @@ def _first_unsafe_integer(value) -> Optional[int]:
         wert = stapel.pop()
         if _is_unsafe_int(wert):
             return wert
-        if isinstance(wert, (dict, list, tuple)):
+        typ = type(wert)
+        if issubclass(typ, dict) or issubclass(typ, list) or issubclass(typ, tuple):
             if id(wert) in gesehen:
                 continue
             gesehen.add(id(wert))
-            stapel.extend(wert.values() if isinstance(wert, dict) else wert)
+            stapel.extend(dict.values(wert) if issubclass(typ, dict)
+                          else list.__iter__(wert) if issubclass(typ, list) else tuple.__iter__(wert))
     return None
 
 
@@ -143,8 +155,9 @@ def _reject_non_jcs(value) -> None:
 
     A value nested deeper than the interpreter recurses is the typed refusal `_jcs_bytes` gives for
     the same depth, not a RecursionError. Measured at 5a21b199 and on main 1e95b197: `canonicalize`
-    raised a bare RecursionError for a provenance of nested lists from 995 levels (994 on main),
-    from the walk below, which runs before the serializer."""
+    raised a bare RecursionError for a provenance of 995 and of 5000 nested lists, from the walk
+    below, which runs before the serializer. `emit_eval_receipt` raised it on main only; at 5a21b199
+    `_claim_read_back` already turned it into this refusal."""
     try:
         _reject_non_jcs_walk(value)
     except RecursionError as e:
@@ -152,31 +165,42 @@ def _reject_non_jcs(value) -> None:
 
 
 def _reject_non_jcs_walk(value) -> None:
-    """Recursively reject values that RFC 8785 / this profile forbids in a claim."""
-    if isinstance(value, bool):
+    """Recursively reject values that RFC 8785 / this profile forbids in a claim.
+
+    It judges what the serializer writes: a container by its stored contents and a string by its
+    characters, the reading of `canonical._plain_for_jcs`, and every type by the object's own type,
+    not ``__class__``. Measured at 93b3c6f5 and on main 1e95b197 (where this walk is
+    `_reject_non_jcs`): `canonicalize` wrote a float held by a dict subclass whose ``values()``
+    showed nothing, although this profile forbids floats, and objects whose ``__class__`` claims
+    dict, str or int raised a raw AttributeError or TypeError.
+    Each type is asked with its own `issubclass` call, not a tuple of types, which would cost a level
+    of recursion depth (see `canonical._plain_value`)."""
+    typ = type(value)
+    if issubclass(typ, bool):
         return
-    if isinstance(value, float):
+    if issubclass(typ, float):
         raise EvalClaimError("float values are forbidden; use a decimal STRING (e.g. \"0.80\")")
-    if isinstance(value, int):
+    if issubclass(typ, int):
         if _is_unsafe_int(value):
             raise EvalClaimError(
                 f"integer {render_safe(value)} exceeds the IEEE-754 safe range (2**53-1)")
         return
-    if isinstance(value, str):
-        if unicodedata.normalize("NFC", value) != value:
+    if issubclass(typ, str):
+        zeichen = str.__str__(value)
+        if unicodedata.normalize("NFC", zeichen) != zeichen:
             raise EvalClaimError("string is not NFC-normalized")
         return
     if value is None:
         return
-    if isinstance(value, dict):
-        for v in value.values():
+    if issubclass(typ, dict):
+        for v in list(dict.values(value)):
             _reject_non_jcs_walk(v)
         return
-    if isinstance(value, (list, tuple)):
-        for v in value:
+    if issubclass(typ, list) or issubclass(typ, tuple):
+        for v in list(list.__iter__(value) if issubclass(typ, list) else tuple.__iter__(value)):
             _reject_non_jcs_walk(v)
         return
-    raise EvalClaimError(f"unsupported value type {type(value).__name__}")
+    raise EvalClaimError(f"unsupported value type {typ.__name__}")
 
 
 def canonicalize(claim: dict) -> bytes:

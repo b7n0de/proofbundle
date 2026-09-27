@@ -72,7 +72,17 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
     :class:`proofbundle.budget.BudgetExceeded`; over-depth raises :class:`BundleFormatError` with the SAME
     ``"JSON nesting is too deep"`` message + class as the ``RecursionError`` mapping, so a deep document is
     one stable malformed-input outcome on every interpreter. Both are ``ProofBundleError`` subclasses,
-    fail-closed."""
+    fail-closed.
+
+    THE WALK READS STORED CONTENTS. The type that decides a branch is the object's own
+    (``type(cur)``), not ``__class__``, which an object can set, and every length, item and integer
+    width is read through the base type's own method (``dict.items``, ``list.__iter__``,
+    ``str.__len__``, ``int.bit_length``, ...), never through one a subclass can override. A parsed
+    document holds only the exact types, so nothing changes for it; a caller's own object is bounded
+    by what it holds, which is what ``canonical._plain_for_jcs`` copies and a serializer writes.
+    Measured at 93b3c6f5 and on main 1e95b197 through ``canonicalize_statement``: a dict subclass
+    whose ``items``, ``values`` and ``keys`` returned nothing hid 500 nested lists from the depth
+    bound (1036 bytes were written) and 2000 of them raised a raw RecursionError."""
     from .budget import BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
     count = 0
     stack = [(obj, 1)]
@@ -80,6 +90,7 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
         cur, depth = stack.pop()
         if depth > json_depth:
             raise BundleFormatError("JSON nesting is too deep")
+        typ = type(cur)
         # THE MAGNITUDE DIMENSION AT THE CHOKEPOINT (deep gate 2026-09-05, L2-BDOS-RENDER-NEIGHBOURS-01 /
         # L3-600-01). ``loads_strict`` refuses a >4300-digit literal on the str/file path, so a parsed document
         # never carries an implausible integer — but a DIRECT-DICT caller can hand one over in ANY field
@@ -88,11 +99,12 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
         # ``int_bits`` ceiling used to bound only the three integer-taking ARGUMENTS and ``_require_int``; now
         # it bounds every integer in a parsed structure, exactly where ``json_nodes``/``string_len`` already
         # bound its other axes, so the direct-dict path rejects with the same class as the file path.
-        if int_bits is not None and isinstance(cur, int) and not isinstance(cur, bool):
-            if cur.bit_length() > int_bits:
-                raise BudgetExceeded("int_bits", cur.bit_length(), int_bits)
+        if int_bits is not None and issubclass(typ, int) and not issubclass(typ, bool):
+            bits = int.bit_length(cur)
+            if bits > int_bits:
+                raise BudgetExceeded("int_bits", bits, int_bits)
             continue
-        if isinstance(cur, (str, bytes, bytearray, memoryview)):
+        if issubclass(typ, (str, bytes, bytearray, memoryview)):
             # RT-BDOS-01 / RT09-STRINGLEN-INERT: cap a single oversized string VALUE. On the direct-dict
             # path input_bytes is inert (no bytes to measure), so without this a ~13 MB payload_b64 string
             # is processed uncapped (memory-amplification DoS) while the identical content on the str/file
@@ -105,17 +117,21 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             # Gemessen: 16/64/256/512 MB als bytes liefen 0,099/0,312/1,248/2,509 s bei RSS
             # +5/107/427/671 MB durch, waehrend derselbe Inhalt als str in 0,007/0,033/0,133/0,254 s
             # abgewiesen wurde. Die Achse ist dieselbe, also ist es dieselbe Schranke.
-            if len(cur) > string_len:
-                raise BudgetExceeded("string_len", len(cur), string_len)
-            if isinstance(cur, str) and _EINSAMES_SURROGAT.search(cur) is not None:
+            # The stored length; `memoryview` cannot be subclassed, so its `len` is its own.
+            laenge = (str.__len__(cur) if issubclass(typ, str) else bytes.__len__(cur)
+                      if issubclass(typ, bytes) else bytearray.__len__(cur)
+                      if issubclass(typ, bytearray) else len(cur))
+            if laenge > string_len:
+                raise BudgetExceeded("string_len", laenge, string_len)
+            if issubclass(typ, str) and _EINSAMES_SURROGAT.search(cur) is not None:
                 raise BundleFormatError(
                     "JSON string contains a lone surrogate code point (not I-JSON, RFC 7493 section 2.1; "
                     "not canonicalizable under RFC 8785) — rejected fail-closed so both verifiers agree")
-        elif isinstance(cur, dict):
-            count += len(cur)
+        elif issubclass(typ, dict):
+            count += dict.__len__(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            for key, value in cur.items():
+            for key, value in dict.items(cur):
                 # DER SCHLUESSEL LAEUFT DURCH DIESELBE SCHRANKE WIE DER WERT (deep gate Lauf 8,
                 # Fund L2-600-KEYS-01). Die zwei Zeilen, die hier vorher standen, zaehlten GENAU
                 # ZWEI Typen auf — `str` und `int` — und waren damit derselbe Fehler eine Ebene
@@ -135,7 +151,7 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
                 # Elemente beitraegt — genau wie ein Container-Wert.
                 stack.append((key, depth + 1))
                 stack.append((value, depth + 1))
-        elif isinstance(cur, (list, tuple)):
+        elif issubclass(typ, (list, tuple)):
             # TUPEL ZAEHLEN WIE LISTEN (Deep-Gate 6.0.0, Lauf 3, Nachbar-Fund beim Schliessen der
             # Render-Klasse). Ein JSON-Parser erzeugt nie ein Tupel, also war der Walk auf dem FILE-Pfad
             # vollstaendig — auf dem DIRECT-DICT-Pfad nicht: ein Aufrufer kann ein Tupel uebergeben, und es
@@ -143,20 +159,22 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             # Gemessen: `{"a": tuple(range(5_000_000))}` lief ungebremst durch, waehrend die identische Liste
             # mit 300.000 Elementen typisiert abgewiesen wurde — und ein Tupel, das einen implausiblen
             # Integer traegt, erreichte damit die Render-Stelle, die diese Runde gerade schliesst.
-            count += len(cur)
+            reihe = list if issubclass(typ, list) else tuple
+            count += reihe.__len__(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            for value in cur:
+            for value in reihe.__iter__(cur):
                 stack.append((value, depth + 1))
-        elif isinstance(cur, (set, frozenset)):
+        elif issubclass(typ, (set, frozenset)):
             # Dieselbe Achse wie Liste und Tupel: eine Elementzahl. Ein JSON-Parser erzeugt keine Menge,
             # ein Aufrufer auf dem Direkt-Dict-Weg kann eine uebergeben.
-            count += len(cur)
+            menge = set if issubclass(typ, set) else frozenset
+            count += menge.__len__(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            for value in cur:
+            for value in menge.__iter__(cur):
                 stack.append((value, depth + 1))
-        elif cur is None or isinstance(cur, (bool, int, float)):
+        elif cur is None or issubclass(typ, (bool, int, float)):
             # JSON-Skalare. Keine Laenge, keine Elementzahl, nichts zu begrenzen. `int` steht hier auch
             # fuer den Fall int_bits=None, in dem der Zweig ganz oben nicht greift.
             continue
