@@ -652,9 +652,15 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
     def test_no_other_ecdsa_signing_path_exists_in_src(self):
         """An inventory, GREEN on 126ed1dc as well. The only ECDSA machinery in the package is the
         ES256 verifier and the secp256k1 recovery in rootcommit. A new path that SIGNS with ECDSA must
-        emit the low s and join the property above; this case fails until someone looks."""
+        emit the low s and join the property above; this case fails until someone looks.
+
+        Looked at when main (#288) met the scitt-ccf/v1 branch: scitt_ccf.py names ECDSA only in
+        `key.verify(der, tbs, ec.ECDSA(h))` and SECP256R1 only in its curve tables, which build public
+        keys from a SubjectPublicKeyInfo or a COSE_KeySet. It verifies statements and receipts under
+        keys of others and signs nothing, so it joins the verifiers here."""
         allowed = {("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
-                   ("anchors_rootcommit.py", "SECP256k1")}
+                   ("anchors_rootcommit.py", "SECP256k1"),
+                   ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1")}
         watched = {"ECDSA", "SECP256R1", "SECP256K1", "SECP256k1", "SigningKey", "sign_digest",
                    "sign_deterministic", "sign_digest_deterministic"}
         found = set()
