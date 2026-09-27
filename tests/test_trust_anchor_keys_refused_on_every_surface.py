@@ -336,8 +336,29 @@ class TheRule(unittest.TestCase):
         self.assertIn("_ =>", body, "the default arm moved; this reading of the source needs looking at")
 
 
+def _foreign_vkey(name: str, key: bytes) -> str:
+    """A log vkey as a producer without the trust-anchor rule writes it: `cp.vkey` of a4e2fa5c and of
+    the tags v6.0.0 and v6.1.0, and any other tool. Since `cp.vkey` refuses a weak key itself, the
+    parser's refusal is measured on this spelling (a control below pins it to `cp.vkey`'s form)."""
+    kid = cp.key_id(name, key)
+    return f"{name}+{int.from_bytes(kid, 'big'):08x}+{_b64(bytes([0x01]) + key)}"
+
+
+def _foreign_cosign_vkey(name: str, key: bytes) -> str:
+    """A witness vkey as a producer without the trust-anchor rule writes it (see `_foreign_vkey`)."""
+    kid = cp.cosign_key_id(name, key)
+    return f"{name}+{int.from_bytes(kid, 'big'):08x}+{_b64(bytes([0x04]) + key)}"
+
+
 class Checkpoints(unittest.TestCase):
-    """L1-Z195-02: the witness quorum, the cosignature and the log key."""
+    """L1-Z195-02: the witness quorum, the cosignature and the log key. The verifiers are measured on
+    vkeys a foreign producer wrote, since `cp.vkey` and `cp.cosign_vkey` refuse a weak key before
+    they write one (tests/test_a_small_order_key_is_refused_at_every_carrier.py)."""
+
+    def test_precondition_the_foreign_spelling_is_the_producers_spelling(self):
+        real = _raw(generate_signer())
+        self.assertEqual(_foreign_vkey("log", real), cp.vkey("log", real))
+        self.assertEqual(_foreign_cosign_vkey("w", real), cp.cosign_vkey("w", real))
 
     ORIGIN = "example.com/log"
 
@@ -364,7 +385,7 @@ class Checkpoints(unittest.TestCase):
 
     def test_two_encodings_of_the_identity_no_longer_meet_a_quorum(self):
         forged = self._forged()
-        roster = [cp.cosign_vkey("w1", I1), cp.cosign_vkey("w2", I2)]
+        roster = [_foreign_cosign_vkey("w1", I1), _foreign_cosign_vkey("w2", I2)]
         with self.assertRaises(BundleFormatError) as ctx:
             cp.verify_witnessed_checkpoint(forged, self.log_vkey, roster, threshold=2)
         self.assertIn("low-order", str(ctx.exception))
@@ -372,21 +393,21 @@ class Checkpoints(unittest.TestCase):
     def test_a_single_weak_witness_is_refused_by_verify_cosignature(self):
         for name, key in (("w1", I1), ("w2", I2)):
             with self.subTest(witness=name), self.assertRaises(BundleFormatError):
-                cp.verify_cosignature(self._forged(), cp.cosign_vkey(name, key))
+                cp.verify_cosignature(self._forged(), _foreign_cosign_vkey(name, key))
 
     def test_a_weak_log_key_is_refused(self):
         forged = cp.sign_checkpoint(self.ORIGIN, 5, b"\x11" * 32, _Nobody(), "log")
         with self.assertRaises(BundleFormatError) as ctx:
-            cp.verify_checkpoint(forged, cp.vkey("log", I1))
+            cp.verify_checkpoint(forged, _foreign_vkey("log", I1))
         self.assertIn("low-order", str(ctx.exception))
 
     def test_every_weak_encoding_is_refused_as_a_witness_and_as_a_log_key(self):
         for key, _reason in WEAK:
             with self.subTest(key=key.hex()):
                 with self.assertRaises(BundleFormatError):
-                    cp._parse_witness_vkey(cp.cosign_vkey("w", key))
+                    cp._parse_witness_vkey(_foreign_cosign_vkey("w", key))
                 with self.assertRaises(BundleFormatError):
-                    cp._parse_vkey(cp.vkey("log", key))
+                    cp._parse_vkey(_foreign_vkey("log", key))
 
 
 _L = (1 << 252) + 27742317777372353535851937790883648493    # the prime order of the base point
@@ -701,14 +722,28 @@ class SdJwtAndKeyBinding(unittest.TestCase):
         forged = f"{h}.{p}.{_b64url(UNIV)}~{rest}"
         self.assertIs(verify_sd_jwt(forged, I1)["sig_ok"], False)
 
-    def test_a_weak_holder_key_proves_no_possession(self):
+    def test_a_weak_holder_key_is_not_bound_and_proves_no_possession(self):
+        """Turned around: this case bound the identity point as the holder key with `issue_sd_jwt` and
+        measured only that the Key Binding JWT then fails. The issuer refuses to bind such a key now
+        (every weak encoding: tests/test_a_small_order_key_is_refused_at_every_carrier.py), and the
+        verifier is measured on a `cnf.jwk` a foreign issuer wrote, which it still refuses."""
         from proofbundle.kbjwt import verify_key_binding
         from proofbundle.sdjwt_issue import present_with_key_binding
         holder = generate_signer()
-        compact, _ = self._issued(_raw(holder))
+        compact, issuer = self._issued(_raw(holder))
         good = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=1_780_000_000)
         self.assertIs(verify_key_binding(good)["ok"], True)
-        compact_w, _ = self._issued(I1)                        # the issuer bound a key nobody holds
+        with self.assertRaises(ValueError) as ctx:
+            self._issued(I1)                                   # the issuer would bind a key nobody holds
+        self.assertIn("refused as a trusted key", str(ctx.exception))
+        jwt, rest = compact.split("~", 1)                      # a foreign issuer binds it anyway
+        h, p, _s = jwt.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        payload["cnf"]["jwk"]["x"] = _b64url(I1)
+        signing_input = f"{h}.{_b64url(json.dumps(payload).encode('utf-8'))}"
+        compact_w = f"{signing_input}.{_b64url(issuer.sign(signing_input.encode('ascii')))}~{rest}"
+        from proofbundle.sdjwt import verify_sd_jwt
+        self.assertIs(verify_sd_jwt(compact_w, _raw(issuer))["sig_ok"], True, "precondition: a valid issuer JWT")
         forged = present_with_key_binding(compact_w, _Nobody(), aud="v", nonce="n", iat=1_780_000_000)
         r = verify_key_binding(forged)
         self.assertIs(r["ok"], False)

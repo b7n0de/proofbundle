@@ -798,7 +798,17 @@ class AgtAuthorizerList(unittest.TestCase):
         exit 3 for 03. A record's fields may be text or references, and its format names them in a
         syntax that a ctypes field name containing ':' makes ambiguous, so a record entry refuses the
         list whatever its fields hold. The key column itself, `table["key"]` or its list, is text and is
-        read as text: a weak key in it is refused by its position, and the real key authorises."""
+        read as text: a weak key in it is refused by its position, and the real key authorises.
+
+        THE TABLE NAMES ITS FIELD TYPES, because numpy's own inference cannot read this CSV on every
+        numpy the CI matrix installs. The identity point in hex is 64 digits and no letter, so numpy
+        tries it as an integer first; numpy 2.2.6 (Python 3.10) then falls back to text, while numpy
+        2.4.6 (3.11) and 2.5.3 (3.12 to 3.14) raise TypeError from inside `genfromtxt` (CI at a4e2fa5c,
+        3 failed subtests on 3.11, reproduced on all four). `dtype="U64,U8"` with `names=True` gives
+        the fields `key` `<U64` and `label` `<U8` on all three numpys, the record format
+        `T{64w:key:8w:label:}` and the key column `64w`, which is the table numpy 2.2.6 inferred (its
+        label was `<U4`). numpy's inference still reads the table whose first key has letters, on all
+        three, and that table stays here as it was."""
         import ctypes
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
         r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
@@ -825,17 +835,23 @@ class AgtAuthorizerList(unittest.TestCase):
         import warnings
         weak = I1.hex()
 
-        def table(*keys):
+        def table(*keys, dtype: Any = "U64,U8"):
             text = "key,label\n" + "".join(f"{k},row{i}\n" for i, k in enumerate(keys))
             with warnings.catch_warnings():            # numpy's own type inference warns about itself
                 warnings.simplefilter("ignore", DeprecationWarning)
-                return np.genfromtxt(io.StringIO(text), delimiter=",", names=True, dtype=None,
+                return np.genfromtxt(io.StringIO(text), delimiter=",", names=True, dtype=dtype,
                                      encoding="utf-8")
 
+        with self.subTest(precondition="the table is records with a text key column"):
+            self.assertEqual(str(table(weak, real).dtype), "[('key', '<U64'), ('label', '<U8')]")
+            self.assertEqual(memoryview(table(weak, real)).format, "T{64w:key:8w:label:}")
+            self.assertEqual(str(table(real, "aa" * 32, dtype=None).dtype["key"]), "<U64")
         with self.subTest(form="np.genfromtxt(names=True), a weak row and the real row"):
             self._assert_entry_refused(lambda: table(weak, real), 0, "records, pointers")
         with self.subTest(form="np.genfromtxt(names=True), the real row alone"):
             self._assert_entry_refused(lambda: table(real, "aa" * 32), 0, "records, pointers")
+        with self.subTest(form="np.genfromtxt(names=True, dtype=None), numpy's inference, the real row alone"):
+            self._assert_entry_refused(lambda: table(real, "aa" * 32, dtype=None), 0, "records, pointers")
         structured = lambda: np.array([(weak,), (real,)], dtype=[("k", "U64")])     # noqa: E731
         with self.subTest(form="numpy structured array"):
             self._assert_entry_refused(structured, 0, "records, pointers")
@@ -859,7 +875,8 @@ class AgtAuthorizerList(unittest.TestCase):
         """ctypes records that export the bare format `B`, each a factory of the record holding the hex
         text `h`. F1 of lens run 5 at c8c61651: ctypes cannot describe a Union, a Structure with
         `_pack_` (a big-endian one too) or an array of either, and exports `B`; read by that format, the
-        record was numbers (the array one byte string), and its bytes named no key."""
+        record was numbers (the array one byte string), and its bytes named no key. That holds on 3.10
+        and 3.11; from 3.12 on ctypes describes the packed Structures as records (see the case below)."""
         import ctypes
 
         def record(base, field, pack=None):
@@ -921,15 +938,29 @@ class AgtAuthorizerList(unittest.TestCase):
         so every such record, and an array of them at any depth, refuses the list as a record does. The
         raw key inside such a record is still judged by its bytes, as it was when the record passed for
         numbers. numpy did not hide a record this way where it was measured: each dtype with fields
-        exported `T{...}`, and two overlay dtypes stand here as controls."""
+        exported `T{...}`, and two overlay dtypes stand here as controls.
+
+        WHAT A RECORD EXPORTS DEPENDS ON THE INTERPRETER, and the case asserts the refusal for what the
+        running one exports. Measured on the five of the CI matrix: a Union and an array of Unions
+        export `B` on 3.10 to 3.14, while a Structure with `_pack_`, the big-endian one and the array of
+        packed Structures export `B` on 3.10 and 3.11 and describe themselves as a record from 3.12 on
+        (`T{(65)<u:f:}`, `T{(64)>I:f:}`; CI at a4e2fa5c, 4 failed preconditions each on 3.12, 3.13 and
+        3.14). So the precondition is that a record exports either the bare `B` or a record format, and
+        every Union form exports `B` on every interpreter, which keeps the path F1 names measured
+        everywhere; the refusal is demanded for every form whichever of the two it exports."""
         import ctypes
+        import re
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
         r3 = _agt("03_extern_autorisiert")
         real = r3["authorizer_public_key"]
         keys = [(k.hex(), k.hex()) for k, _reason in WEAK] + [("the real key", real)]
         for name, make_record in self._records_with_a_plain_format().items():
-            with self.subTest(form=name, precondition="the record exports the bare format B"):
-                self.assertEqual(memoryview(make_record(I1.hex())).format, "B")
+            exported = memoryview(make_record(I1.hex())).format
+            with self.subTest(form=name, precondition="the record exports B or a record format", format=exported):
+                if "Union" in name:
+                    self.assertEqual(exported, "B", "ctypes describes no Union on any interpreter measured")
+                else:
+                    self.assertTrue(exported == "B" or re.fullmatch(r"T\{.+\}", exported), exported)
             for label, h in keys:
                 for pos in (0, 1):
                     with self.subTest(form=name, key=label, position=pos):
@@ -1057,7 +1088,14 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         payload and of the authorization payload: TypeError for bytes, a set, an object or a dict with a
         tuple or with mixed keys, RecursionError for 5000 levels, ValueError for a list that holds itself,
         and UnicodeEncodeError for a lone surrogate, which `json.loads` produces from a receipt file.
-        Each is a `readable` failure now, exit 2, and a chain names the link it could not check."""
+        Each is a `readable` failure now, exit 2, and a chain names the link it could not check.
+
+        5000 LEVELS WERE UNREADABLE ONLY WHERE THE SERIALISER GAVE UP. On 3.12, 3.13 and 3.14
+        `json.dumps` writes 5000 levels, and the CI matrix at a4e2fa5c measured exit 1 there for all 11
+        fields (exit 2 on 3.10 and 3.11). The depth is the module's own rule now: a form nesting arrays
+        and objects more than 64 deep is refused, with one message, before anything is written. A field
+        whose innermost array sits at level 65 is refused as well (exit 1 at a4e2fa5c on all five), and
+        the message of both is the same on every interpreter."""
         from proofbundle.adapters.agt_receipt import (AGT_CANONICAL_FORM, exit_code, verify_agt_receipt,
                                                       verify_agt_receipt_chain)
         r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
@@ -1065,11 +1103,16 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         deep = [1]
         for _ in range(5000):
             deep = [deep]
+        past_the_ceiling: Any = "x"
+        for _ in range(64):                          # the field is level 2, its innermost array level 65
+            past_the_ceiling = [past_the_ceiling]
         circular = []
         circular.append(circular)
         values = {"bytes": b"x", "set": {1, 2}, "object": object(), "tuple-key dict": {(1,): 2},
-                  "mixed-key dict": {"a": 1, 1: 2}, "5000 levels": deep, "a list that holds itself": circular,
+                  "mixed-key dict": {"a": 1, 1: 2}, "5000 levels": deep,
+                  "an innermost array at level 65": past_the_ceiling, "a list that holds itself": circular,
                   "a lone surrogate": chr(0xD800), "a lone surrogate in a list": [chr(0xD800)]}
+        too_deep = ("5000 levels", "an innermost array at level 65")
         payload = ("agent_did", "args_hash", "cedar_policy_id", "receipt_id", "timestamp", "tool_name",
                    "parent_receipt_hash", "session_id")
         authorization = ("authorizer_id", "authorization_nonce", "authorization_expires_at")
@@ -1082,6 +1125,8 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                     readable = [c.detail for c in e.checks if c.name == "readable"]
                     self.assertEqual(len(readable), 1, [c.name for c in e.checks])
                     self.assertIn(f"cannot be written as {AGT_CANONICAL_FORM}", readable[0])
+                    if label in too_deep:
+                        self.assertIn("it nests arrays and objects more than 64 deep", readable[0])
                     self.assertEqual(exit_code(verify_agt_receipt_chain([r1, r2, r], trusted_authorizer_keys=[real])), 2)
                     if field in payload:
                         e = verify_agt_receipt_chain([r, r1])
@@ -1289,12 +1334,23 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         through `payload_hash`, one frame deeper and outside every `try`, so one N passed the first and
         failed the second. The window moves with the caller's stack and exists at every depth (the
         lens: N = 988 at no extra frame, 488 at 500). Each receipt is serialised once now, and every
-        hash is taken from those bytes. The sweep runs N across the serialiser's limit at five caller
-        depths and demands a verdict for every N, and both sides of the limit: exit 1 where the payload
-        is written (its hash and signature no longer match) and exit 2 where it cannot be."""
+        hash is taken from those bytes.
+
+        WHERE THE VERDICT TURNS FROM 1 TO 2 IS THE MODULE'S CEILING, NOT THE SERIALISER'S LIMIT. The
+        first form of this case demanded both verdicts across the serialiser's limit, and the CI matrix
+        at a4e2fa5c showed that limit is no property of the receipt: 3.12, 3.13 and 3.14 write every N of
+        that window, so the sweep saw exit 1 only (10 failed subtests on each). The sweep now runs N
+        across the ceiling of 64 levels and across the old window, at five caller depths, and demands the
+        same verdict for the same N at every depth: exit 1 up to N = 63 (the payload is written, its
+        hash and signature no longer match), exit 2 from N = 64 on (the innermost array at level 65),
+        with one message for every refused N. At a4e2fa5c N = 64 to the old window gave exit 1 on
+        every interpreter."""
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        from proofbundle.budget import DEFAULT_BUDGET
         r1 = _agt("01_allow")
         limit = sys.getrecursionlimit()
+        ceiling = 64                     # a literal: no load here is built from a budget value
+        self.assertEqual(DEFAULT_BUDGET.json_depth, ceiling, "precondition: the house ceiling of the rule")
 
         def depth():
             frame, n = sys._getframe(), 0
@@ -1311,22 +1367,104 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         def at_depth(extra, call):
             return call() if extra == 0 else at_depth(extra - 1, call)
 
+        def refusal(e):
+            return {c.detail for c in e.checks if c.name.endswith("readable") and not c.ok}
+
         here = depth()
         self.assertLess(here + 500 + 150, limit, "precondition: the deepest caller fits under the limit")
         for extra in (0, 10, 50, 200, 500):
             top = limit - here - extra
+            sweep = sorted(set(range(ceiling - 12, ceiling + 12)) | set(range(top - 100, top + 5)) | {5000})
             for label, verify in (("single", lambda r: verify_agt_receipt(r)),
                                   ("chain", lambda r: verify_agt_receipt_chain([r, r1]))):
                 with self.subTest(extra_frames=extra, call=label):
-                    exits, escaped = set(), []
-                    for n in range(top - 100, top + 5):
+                    exits, messages, escaped = {}, set(), []
+                    for n in sweep:
                         receipt = dict(r1, tool_name=nested(n), payload_hash="ab" * 32)
                         try:
-                            exits.add(exit_code(at_depth(extra, lambda: verify(receipt))))
+                            e = at_depth(extra, lambda: verify(receipt))
                         except Exception as escape:  # noqa: BLE001 — an escape is the finding
                             escaped.append((n, type(escape).__name__))
+                            continue
+                        exits[n] = exit_code(e)
+                        messages |= refusal(e)
                     self.assertEqual(escaped, [], f"the verifier raised at nesting {escaped[:3]}")
-                    self.assertEqual(exits, {1, 2}, "the sweep must cross the serialiser's limit")
+                    wrong = {n: x for n, x in exits.items() if x != (1 if n < ceiling else 2)}
+                    self.assertEqual(wrong, {}, "exit 1 up to N = 63 and exit 2 from N = 64, at every depth")
+                    self.assertEqual(messages, {"the receipt payload cannot be written as sortkeys-json-utf8: it "
+                                                "nests arrays and objects more than 64 deep, and this verifier "
+                                                "writes none deeper, on every interpreter"})
+
+    def test_a_depth_read_through_a_callers_methods_is_measured_in_what_was_written(self):
+        """The neighbour of the ceiling, found by the sweep of this fix. `json.dumps` reads a `list`
+        subclass through its `__iter__` and a `dict` subclass with stored items through its `items()`,
+        so what it writes can be deeper than anything stored. Measured at a4e2fa5c: such a value
+        holding 100 levels in its methods and nothing deeper in its storage was written, exit 1, on all
+        five interpreters, and 5000 levels gave exit 2 on 3.10 and 3.11 and exit 1 from 3.12 on. The
+        depth is measured in the form the serialiser wrote now, and each method still runs once."""
+        from proofbundle.adapters.agt_receipt import (canonical_authorization_payload, canonical_payload, exit_code,
+                                                      verify_agt_receipt, verify_agt_receipt_chain)
+        r1, r3 = _agt("01_allow"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+        calls = []
+
+        def nested(n):
+            v: Any = "x"
+            for _ in range(n):
+                v = [v]
+            return v
+
+        class Iterates(list):
+            def __iter__(self):
+                calls.append("__iter__")
+                return iter([self.inner])
+
+        class Items(dict):
+            def items(self):
+                calls.append("items")
+                return [("k", self.inner)]
+
+        def holding(kind, inner):
+            value = kind() if kind is Iterates else kind(stored=1)
+            value.inner = inner            # the form writes the field at level 2, `inner` at level 3
+            return value
+
+        for kind in (Iterates, Items):
+            # the innermost array of `nested(n)` sits at level n + 2: 62 is the last level written
+            for n, code in ((62, 1), (63, 2), (100, 2), (5000, 2)):
+                for field, receipt, keys in (("tool_name", dict(r1, payload_hash="ab" * 32), None),
+                                             ("authorizer_id", r3, [real])):
+                    with self.subTest(kind=kind.__name__, levels=n, field=field):
+                        calls.clear()
+                        e = verify_agt_receipt(dict(receipt, **{field: holding(kind, nested(n))}),
+                                               trusted_authorizer_keys=keys)
+                        self.assertEqual(exit_code(e), code, [(c.name, c.detail) for c in e.checks if not c.ok])
+                        self.assertEqual(len(calls), 1, "the caller's method ran more or less than once")
+                        if code == 2 and n <= 100:     # 5000 may meet the serialiser's own limit first
+                            self.assertIn("it nests arrays and objects more than 64 deep",
+                                          " ".join(c.detail for c in e.checks))
+                        chain = verify_agt_receipt_chain([dict(receipt, **{field: holding(kind, nested(n))}), r1])
+                        self.assertEqual(exit_code(chain), code)
+            with self.subTest(kind=kind.__name__, control="brackets, quotes and backslashes inside strings are no level"):
+                text = '\\"[{' * 100
+                e = verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=holding(kind, {text: [text, text]})))
+                self.assertEqual(exit_code(e), 1, [(c.name, c.detail) for c in e.checks if not c.ok])
+                self.assertEqual(exit_code(verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=text))), 1)
+        with self.subTest(control="a value shared many times over is walked once per container and level"):
+            shared: Any = "x"
+            for _ in range(60):                   # 2**60 paths, 61 containers, the deepest at level 61
+                shared = [shared, shared]
+            e = verify_agt_receipt(dict(r1, agent_did=b"x", tool_name=shared))   # bytes are refused first
+            self.assertEqual(exit_code(e), 2)
+            self.assertIn("raised TypeError", e.checks[0].detail)
+        with self.subTest(public="canonical_payload and canonical_authorization_payload at the ceiling"):
+            from proofbundle.adapters.agt_receipt import AGTReceiptError
+            self.assertIsInstance(canonical_payload(dict(r1, tool_name=nested(63))), bytes)
+            self.assertIsInstance(canonical_authorization_payload(dict(r3, authorizer_id=nested(63))), bytes)
+            with self.assertRaises(AGTReceiptError):
+                canonical_payload(dict(r1, tool_name=nested(64)))
+            with self.assertRaises(AGTReceiptError):
+                canonical_authorization_payload(dict(r3, authorizer_id=nested(64)))
 
     def test_the_payload_is_serialised_once_and_every_hash_is_taken_from_those_bytes(self):
         """The sibling of F2 the lens named: a value whose own `items()` raises on its second call
@@ -1859,6 +1997,164 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
             rc, _o, err = _cli("svr", str(self.real_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
             self.assertEqual(rc, 0, err)
             self.assertTrue(out.exists())
+
+
+# ── 6. where a producer AUTHORISES a key the caller hands it ───────────────────────────────────────
+#
+# A Codex review of pull request 293 at a4e2fa5c: `sdjwt_issue.issue_sd_jwt` checked the holder key
+# only for its length, wrote it into `cnf.jwk` and signed. The class: a place that writes a caller's
+# Ed25519 key into something a relying party will trust (a holder binding, a verifier key, a pinned
+# issuer, a trust pack) checks it with the rule its verifier uses, before it writes. Measured at
+# a4e2fa5c: `issue_sd_jwt`, `checkpoint.vkey` and `checkpoint.cosign_vkey` wrote all 13 weak
+# encodings; the policy template and the trust pack refused all 13 already. At the tags v6.0.0 and
+# v6.1.0 the verifiers did not refuse them either: an SD-JWT bound to the identity point and a Key
+# Binding JWT signed by nobody gave "key binding valid", and all 13 weak vkeys parsed.
+
+_SRC = REPO / "src" / "proofbundle"
+
+#: Every comparison of a `len(...)` with the literal 32 under src/, by file and function, with how many
+#: there are and why each is no carrier of the class. A place that checks a key by its length alone is
+#: one; a new comparison turns the case below red until it is read and named here.
+_LENGTH_32 = {
+    ("adapters/agt_receipt.py", "_schluesselbytes"): (1, "names a key; `_schwaeche` applies the rule to it"),
+    ("anchors_chia_add.py", "anchor_add"): (1, "a canonical root, no key"),
+    ("assurance.py", "classify_receiver_corroboration"): (1, "compares the key a caller's resolver "
+                                                          "returns with the pack's key; writes nothing"),
+    ("cap1.py", "_is_digest"): (1, "a digest, no key"),
+    ("checkpoint.py", "key_id"): (1, "a key ID, a hash input; `vkey` applies the rule before it writes"),
+    ("checkpoint.py", "cosign_key_id"): (1, "a key ID, a hash input; `cosign_vkey` applies the rule"),
+    ("checkpoint.py", "_mldsa_cosigned_message"): (1, "a root, no key"),
+    ("cli.py", "_build_rp_trust"): (1, "a root, no key"),
+    ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
+    ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
+    ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
+    ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
+    ("evalclaim.py", "decode_eval_claim"): (1, "a root, no key"),
+    ("kbjwt.py", "holder_key_from_cnf"): (1, "reads cnf.jwk; the KB-JWT is checked with verify_ed25519_pinned"),
+    ("outcome.py", "pack_key_binds_signer"): (2, "compares the pack's key with the key the receipt was "
+                                                 "verified under; writes nothing"),
+    ("outcome.py", "verify_outcome_receipt._expected_key"): (1, "reads the pack's key for that comparison"),
+    ("persample.py", "audit_challenge"): (1, "a root, no key"),
+    ("policy.py", "_validate_pinned_ed25519_pubkey"): (1, "followed by the rule"),
+    ("policy.py", "_validate_root_b64"): (1, "a root, no key"),
+    ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
+    ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
+    ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
+    ("signature.py", "verify_ed25519"): (1, "the SPEC 4a verify profile"),
+    ("tlogproof.py", "format_tlog_proof"): (1, "a hash, no key"),
+    ("tlogproof.py", "parse_tlog_proof"): (1, "a hash, no key"),
+}
+
+
+def _length_32_sites() -> "dict[tuple[str, str], int]":
+    """Each `len(...)` compared with the literal 32 under src/, counted per file and function."""
+    import ast
+    found: "dict[tuple[str, str], int]" = {}
+    for path in sorted(_SRC.rglob("*.py")):
+        rel = path.relative_to(_SRC).as_posix()
+
+        def walk(node, names):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    walk(child, names + [child.name])
+                    continue
+                if isinstance(child, ast.Compare):
+                    parts = [child.left, *child.comparators]
+                    if (any(isinstance(p, ast.Call) and isinstance(p.func, ast.Name) and p.func.id == "len"
+                            for p in parts)
+                            and any(isinstance(p, ast.Constant) and type(p.value) is int and p.value == 32
+                                    for p in parts)):
+                        where = (rel, ".".join(names) or "<module>")
+                        found[where] = found.get(where, 0) + 1
+                walk(child, names)
+
+        walk(ast.parse(path.read_text(encoding="utf-8")), [])
+    return found
+
+
+class ProducersRefuseAKeyNobodyHolds(unittest.TestCase):
+
+    @staticmethod
+    def _claim():
+        from proofbundle.evalclaim import issuer_fingerprint
+        issuer = Ed25519PrivateKey.generate()
+        claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "s",
+                 "issuer": issuer_fingerprint(issuer)}
+        return issuer, claim, _b64(b"\x11" * 32)
+
+    def test_issue_sd_jwt_binds_no_weak_holder_key(self):
+        from proofbundle.sdjwt_issue import issue_sd_jwt
+        issuer, claim, root = self._claim()
+        for key, reason in WEAK:
+            for form in (bytes(key), bytearray(key)):
+                with self.subTest(key=key.hex(), form=type(form).__name__):
+                    with self.assertRaises(ValueError) as ctx:
+                        issue_sd_jwt(claim, issuer, root_b64=root, holder_public_key=form)
+                    self.assertIn("holder_public_key", str(ctx.exception))
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], str(ctx.exception))
+
+    def test_positive_control_a_real_holder_key_is_bound_and_proves_possession(self):
+        from proofbundle.kbjwt import verify_key_binding
+        from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
+        issuer, claim, root = self._claim()
+        holder = Ed25519PrivateKey.generate()
+        compact = issue_sd_jwt(claim, issuer, root_b64=root, holder_public_key=_raw(holder))
+        kb = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=1_780_000_000)
+        self.assertIs(verify_key_binding(kb, expected_aud="v", expected_nonce="n")["ok"], True)
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(claim, issuer, root_b64=root, holder_public_key=b"\x01" * 31)
+
+    def test_no_vkey_is_written_for_a_weak_key(self):
+        from proofbundle import checkpoint as cp
+        from proofbundle.errors import BundleFormatError
+        for key, reason in WEAK:
+            for label, write in (("log vkey", cp.vkey), ("witness vkey", cp.cosign_vkey)):
+                with self.subTest(key=key.hex(), vkey=label):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        write("name", key)
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], str(ctx.exception))
+
+    def test_positive_control_a_real_key_gets_its_vkeys_and_they_verify(self):
+        from proofbundle import checkpoint as cp
+        log, witness = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+        note = cp.sign_checkpoint("example.com/log", 5, b"\x11" * 32, log, "log")
+        self.assertIs(cp.verify_checkpoint(note, cp.vkey("log", _raw(log)))["ok"], True)
+        note = cp.cosign_checkpoint(note, witness, "w", 1_700_000_000)
+        self.assertIs(cp.verify_cosignature(note, cp.cosign_vkey("w", _raw(witness)))["ok"], True)
+
+    def test_the_producers_that_refused_already_still_refuse(self):
+        """The rest of the sweep over the producers that write a caller's key: the policy template pins
+        issuer keys and the trust pack writes its root keys; both refused every weak key at a4e2fa5c."""
+        from proofbundle.policy import PolicyError
+        from proofbundle.policy_profiles import instantiate_template
+        from proofbundle.trust_pack import TrustPackError, sign_trust_pack
+        owner = Ed25519PrivateKey.generate()
+        for key, reason in WEAK:
+            with self.subTest(key=key.hex(), producer="policy_profiles.instantiate_template"):
+                with self.assertRaises(PolicyError) as ctx:
+                    instantiate_template("strict-eval-template-v1", issuer_keys=[_b64(key)], policy_id="org/x")
+                self.assertIn(TRUST_ANCHOR_REFUSAL[reason], str(ctx.exception))
+            with self.subTest(key=key.hex(), producer="trust_pack.sign_trust_pack"):
+                pred = {"schemaVersion": "0.1.0", "trustPackId": "tp", "version": 1,
+                        "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+                        "roles": {"root": {"keyIds": ["o", "w"], "threshold": 1}},
+                        "keys": {"o": {"publicKey": _b64(_raw(owner))}, "w": {"publicKey": _b64(key)}},
+                        "nonClaims": ["does not assert the key holders are honest"]}
+                with self.assertRaises(TrustPackError) as ctx:
+                    sign_trust_pack(pred, {"o": owner})
+                self.assertIn(TRUST_ANCHOR_REFUSAL[reason], str(ctx.exception))
+
+    def test_every_length_check_on_32_under_src_is_read_and_named(self):
+        """The search question of the finding: a place that checks a key by its length alone carries the
+        class. Every such comparison under src/ is listed in `_LENGTH_32` with the reason it is none,
+        and the scan and the list must agree in both directions. A length compared with a name
+        (`trust_pack`'s `want_len`, followed by the rule there) is not seen by this scan."""
+        found = _length_32_sites()
+        listed = {where: count for where, (count, _why) in _LENGTH_32.items()}
+        self.assertEqual({k: v for k, v in found.items() if listed.get(k) != v},
+                         {}, "a comparison with 32 that no one has read and named")
+        self.assertEqual({k: v for k, v in listed.items() if found.get(k) != v},
+                         {}, "a named comparison that is no longer there")
 
 
 if __name__ == "__main__":

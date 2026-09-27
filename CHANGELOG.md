@@ -219,6 +219,75 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   and 1542 subtests; at c8c61651 the 6 new cases fail, none outright and all 6 through 342
   subtests, and pytest reports those 6 as passed next to 342 failed subtests.
 
+  The CI test matrix at a4e2fa5c (the fifth run's fix merged with main) measured one verdict that
+  depended on the interpreter and two cases whose premise did. A receipt field nested 5000 levels was
+  unreadable, exit 2, on Python 3.10 and 3.11 and a failed signature, exit 1, on 3.12, 3.13 and 3.14,
+  for all 11 fields of both payloads: the depth was bounded only by where `json.dumps` raised
+  `RecursionError`, and that moves with the interpreter (measured at a shallow caller: 3.10 and 3.11
+  write 990 levels and not 1500, 3.12 and 3.13 write 5000 and not 20000, 3.14 writes 20000 and not
+  200000). The depth is the module's own rule now. A payload whose canonical form nests arrays and
+  objects more than 64 deep, the house ceiling `budget.json_depth`, is `readable` False, exit 2, with
+  one message on every interpreter; the plain containers are measured before anything is written,
+  without recursion, without running a method of the caller's and once per container and level (60
+  lists each held twice by the next, 2**60 paths, cost one visit per list), and what the serialiser
+  reads through a caller's own methods (the `items()` of a `dict` subclass, the `__iter__` of a
+  `list` subclass, each still read once) is measured in the form it wrote. `canonical_payload`,
+  `payload_hash` and `canonical_authorization_payload` raise `AGTReceiptError` for such a payload the
+  same way. This changes the verdict for a value nested past 64 levels that the interpreter could
+  still write, from exit 1 to exit 2, and a signature over such a form is no longer checked; an AGT
+  payload is one level deep. The sweep of the module found no other verdict that depends on the
+  recursion limit: the list reader, the field copy, the chain reading and every message walk no
+  nested value, and `_kurzwert` already names a nested value by its type. Of the functions this
+  branch changed outside the module, the issuer pin parser, the export refusal and the key checks of
+  the three `assemble` steps walk no nested value, and the register and the readiness artifact are
+  signed over `canonical.canonicalize_statement`, whose depth bound is explicit already. One
+  neighbour is named, not changed: `pre_tag_receipt.py --assemble` over a context file nested 5000
+  deep exits 1 without writing a receipt on 3.10, 3.11 and 3.13, from a `RecursionError` traceback
+  of `json.loads` on 3.10 and 3.11 and from its signature refusal on 3.13; the load is code this
+  branch did not change. The other two findings were premises of the contract, not of the source.
+  numpy 2.4.6 (3.11) and 2.5.3 (3.12 to 3.14) cannot infer the types of a CSV whose first key is
+  the identity point in hex, 64 digits and no letter, and raise `TypeError` inside
+  `np.genfromtxt(dtype=None)`, where numpy 2.2.6 (3.10) fell back to text; the table now names its
+  field types (`dtype="U64,U8"`), which gives on all three the `<U64` key column numpy 2.2.6
+  inferred (the label is `<U8` where it inferred `<U4`), and numpy's inference still reads the
+  table whose first key has letters. From 3.12 on ctypes describes a `Structure` with `_pack_` as a
+  record (`T{(65)<u:f:}`, `T{(64)>I:f:}`) instead of the bare `B`, so the precondition that each
+  form of the fifth run's case exports `B` failed there; a Union exports `B` on all five. The case
+  now demands that each form exports `B` or a record format, that every Union form exports `B`, and
+  the refusal for whichever it exports, and the source refused both kinds on every interpreter (10
+  forms, exit 2 each on all five). Against the source of a4e2fa5c the three cases of the depth rule
+  fail 41 subtests on 3.10 and 3.11 and 45 on 3.12 to 3.14, and the two premise cases pass.
+
+  A Codex review at a4e2fa5c found the same class where a key is AUTHORISED rather than verified:
+  `sdjwt_issue.issue_sd_jwt` checked `holder_public_key` only for its length, wrote it into
+  `cnf.jwk` and signed. A key a producer writes for a relying party to trust gets the rule its
+  verifier applies, before it is written. The sweep went over every producer under `src/` that
+  writes an Ed25519 key the caller hands it. Three wrote all 13 weak encodings of the contract at
+  a4e2fa5c (main 31816e08 has the same files): `issue_sd_jwt` (the holder binding),
+  `checkpoint.vkey` (a log verifier key) and `checkpoint.cosign_vkey` (a witness verifier key).
+  Each refuses them now with
+  the shared rule: `issue_sd_jwt` raises `ValueError`, its documented refusal for a bad holder key,
+  and the two vkey producers raise the `BundleFormatError` their parsers raise. Two refused already
+  and are pinned as controls: `policy_profiles.instantiate_template` (pinned issuer keys) and
+  `trust_pack.sign_trust_pack` (root keys). The rest write the key of the private key they sign
+  with (`emit_bundle`, `emit_eval_receipt`, `sign_checkpoint`, `cosign_checkpoint`, the statement
+  emitters, `dsse.sign_envelope`), which is never of small order for a real Ed25519 key, or write a
+  key ID. At the tags v6.0.0 and v6.1.0 `issue_sd_jwt` carries the same lines (98 to 102), and the
+  verifiers did not refuse either: an SD-JWT bound to the identity point and a Key Binding JWT
+  signed by nobody (R = identity, S = 0) gave "key binding valid", and all 13 weak log and witness
+  vkeys were written and parsed back; at a4e2fa5c the verifiers refused them. The case in
+  `tests/test_trust_anchor_keys_refused_on_every_surface.py` that bound the identity point as the
+  holder and measured only the verifier now demands the refusal at issuance and measures the
+  verifier on a `cnf.jwk` a foreign issuer wrote; its checkpoint cases measure the parsers on vkeys
+  written without the rule. The search question of the finding, a key checked by its length alone,
+  is a case: every comparison of a `len(...)` with 32 under `src/` (26 in 25 functions) is listed
+  with the reason it is no carrier, and a new one turns the contract red until it is named.
+  Contract: 66 cases and 1653 subtests with numpy installed, green on 3.10.12, 3.11.15, 3.12.14,
+  3.13.15 and 3.14.7, each with the numpy its CI job installs; against the source of a4e2fa5c 93
+  subtests fail on 3.10 and 3.11 and 97 on 3.12 to 3.14 (41 or 45 of the depth rule, 52 of the two
+  producer cases). The trust-anchor file has 53 cases and 159 subtests, green on all five; its
+  turned case fails outright against the source of a4e2fa5c.
+
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
   fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and

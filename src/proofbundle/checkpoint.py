@@ -186,8 +186,16 @@ def key_id(keyname: str, pubkey: bytes) -> bytes:
 
 
 def vkey(keyname: str, pubkey: bytes) -> str:
-    """C2SP verifier key encoding: name + '+' + hex8(keyID) + '+' + base64(0x01 ‖ pubkey)."""
+    """C2SP verifier key encoding: name + '+' + hex8(keyID) + '+' + base64(0x01 ‖ pubkey).
+
+    A VKEY IS A KEY A VERIFIER WILL TRUST, so it is written only for a key the trust-anchor rule
+    accepts, with the refusal every verifier of a vkey gives (`_refuse_weak_ed25519_vkey`). The
+    parser refused a low-order or non-canonical key since deep gate Z195, while this producer checked
+    only the length and wrote such a key into a vkey: an anchor the tool issued and its own verifier
+    refuses. Measured at a4e2fa5c and at the tags v6.0.0 and v6.1.0 for all 13 weak encodings of the
+    contract; at the two tags the parser did not refuse them either."""
     kid = key_id(keyname, pubkey)
+    _refuse_weak_ed25519_vkey(pubkey, "vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
     keymat = base64.b64encode(bytes([_ED25519_SIG_TYPE]) + pubkey).decode("ascii")
     return f"{keyname}+{kid_hex}+{keymat}"
@@ -579,8 +587,10 @@ def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
 
 
 def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
-    """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey)."""
+    """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey). Written only for a
+    key the trust-anchor rule accepts, with the refusal the witness-vkey parser gives (see `vkey`)."""
     kid = cosign_key_id(witness_name, pubkey)
+    _refuse_weak_ed25519_vkey(pubkey, "witness vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
     keymat = base64.b64encode(bytes([_COSIG_V1_SIG_TYPE]) + pubkey).decode("ascii")
     return f"{witness_name}+{kid_hex}+{keymat}"

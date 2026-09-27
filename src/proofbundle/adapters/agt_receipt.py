@@ -53,6 +53,7 @@ import struct
 from typing import Any, Dict, Iterable, Optional, Sequence, cast
 
 from .._membership import is_member
+from ..budget import DEFAULT_BUDGET
 from ..errors import VerificationResult
 from ..signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 
@@ -166,29 +167,109 @@ def _text(receipt: Dict[str, Any], feld: str) -> str:
     return text
 
 
+#: How deep the canonical form of a payload may nest arrays and objects, the payload object itself
+#: counted as the first level. The number is the house ceiling for one JSON document
+#: (`budget.json_depth`, the one `loads_strict` holds every parsed document to); an AGT payload is
+#: one level deep, its fields are text and numbers.
+_HOECHSTE_TIEFE: int = DEFAULT_BUDGET.json_depth
+
+#: One JSON string of the canonical form, its escapes included (`json.dumps` escapes every quote and
+#: backslash inside a string), and one bracket outside of strings.
+_JSON_TEXT = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"', re.DOTALL)
+_KLAMMER = re.compile(r"[\[\]{}]")
+
+
+def _tiefer_als_erlaubt(daten: Dict[str, Any]) -> bool:
+    """Whether the plain containers of `daten` nest deeper than `_HOECHSTE_TIEFE`. Walked without
+    recursion and without running a method of the caller's: only an exact `dict`, `list` or `tuple` is
+    entered, by the type's identity, and their stored items are exactly what `json.dumps` reads from
+    them. Anything else is left to the serialiser, and its depth is measured in what the serialiser
+    wrote (see `_kanonisch`). The walk ends at the first level past the ceiling, so a list that holds
+    itself ends here too, however often it does. A container met again at no greater level than
+    before is not entered again, so a value shared many times over (`[a, a]` nested sixty times) costs
+    one visit per container and level, not one per path: a field the serialiser refuses at once still
+    ends in a verdict at once."""
+    gesehen: "dict[int, int]" = {}
+    stapel: "list[tuple[Any, int]]" = [(daten, 1)]
+    while stapel:
+        wert, tiefe = stapel.pop()
+        if tiefe > _HOECHSTE_TIEFE:
+            return True
+        if gesehen.get(id(wert), 0) >= tiefe:
+            continue
+        gesehen[id(wert)] = tiefe
+        typ = type(wert)
+        if typ is dict:
+            kinder: Iterable[Any] = dict.values(wert)
+        elif typ is list or typ is tuple:
+            kinder = wert
+        else:
+            continue
+        for kind in kinder:
+            art = type(kind)
+            if art is dict or art is list or art is tuple:
+                stapel.append((kind, tiefe + 1))
+    return False
+
+
+def _tiefe_der_form(form: str) -> int:
+    """How deep the canonical form `form` nests arrays and objects: the brackets outside its strings,
+    counted. A property of the bytes, the same on every interpreter."""
+    tiefe = hoechste = 0
+    for klammer in _KLAMMER.findall(_JSON_TEXT.sub("", form)):
+        if klammer == "[" or klammer == "{":
+            tiefe += 1
+            hoechste = max(hoechste, tiefe)
+        else:
+            tiefe -= 1
+    return hoechste
+
+
 def _kanonisch(daten: Dict[str, Any], was: str) -> bytes:
     """`sort_keys` JSON with compact separators and raw UTF-8, the one form AGT signs both payloads in.
 
     WHAT IT CANNOT ENCODE IS UNREADABLE INPUT, raised as `AGTReceiptError` and never as the
     serialiser's own exception (lens run 3 at 481a1f26, the neighbour sweep; the same on main
-    20e91c8e). A signed field holding bytes, a set or an object raised TypeError, a value nested 5000
-    levels deep RecursionError, a list that contains itself ValueError, and a lone surrogate raised
-    UnicodeEncodeError at the UTF-8 step. The last one is plain JSON: `json.loads` turns the escaped
-    code point U+D800 in a receipt file into exactly such a string. Each of them left both verifiers
-    as a raw exception, while the verify surfaces promise a verdict for any receipt.
+    20e91c8e). A signed field holding bytes, a set or an object raised TypeError, a list that contains
+    itself ValueError, and a lone surrogate raised UnicodeEncodeError at the UTF-8 step. The last one
+    is plain JSON: `json.loads` turns the escaped code point U+D800 in a receipt file into exactly
+    such a string. Each of them left both verifiers as a raw exception, while the verify surfaces
+    promise a verdict for any receipt.
+
+    A PAYLOAD NESTED DEEPER THAN `_HOECHSTE_TIEFE` IS UNREADABLE ON EVERY INTERPRETER, by this rule
+    and not by where the interpreter's recursion limit sits. Until now a value nested too deep was
+    unreadable only because `json.dumps` raised RecursionError, and where it raises depends on the
+    interpreter: measured at a shallow caller, a list nested 990 deep is written and one nested 1500
+    deep raises on 3.10 and 3.11, while 3.12 and 3.13 write 5000 levels (not 20000) and 3.14 writes
+    20000 (not 200000). The CI matrix at a4e2fa5c measured the consequence: a receipt field nested
+    5000 levels was `readable` False, exit 2, on 3.10 and 3.11 and a failed signature, exit 1, on
+    3.12, 3.13 and 3.14, the same bytes with two verdicts. Now the plain containers are measured
+    before anything is written, and what the serialiser reads through a caller's own methods (the
+    `items()` of a `dict` subclass, the `__iter__` of a `list` subclass, each read once, by the
+    serialiser only) is measured in the form it wrote. Either way a form deeper than the ceiling is
+    refused with the one message below, and a payload within it is written at every caller depth the
+    verifiers leave room for.
     """
     try:
-        return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        if not _tiefer_als_erlaubt(daten):
+            form = json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            if _tiefe_der_form(form) <= _HOECHSTE_TIEFE:
+                return form.encode()
     except Exception as fehler:  # noqa: BLE001 — whatever the serialiser refuses has no signed form
         raise AGTReceiptError(f"the {was} cannot be written as {AGT_CANONICAL_FORM}: encoding it "
                               f"raised {_typname(fehler)}") from fehler
+    raise AGTReceiptError(f"the {was} cannot be written as {AGT_CANONICAL_FORM}: it nests arrays and "
+                          f"objects more than {_HOECHSTE_TIEFE} deep, and this verifier writes none "
+                          f"deeper, on every interpreter")
 
 
 def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes AGT signs. `sort_keys` JSON with compact separators and raw UTF-8.
 
     NOT RFC 8785, although AGT's docstring says so; see the module docstring for the measurement.
-    The signature fields are excluded because they cover this payload.
+    The signature fields are excluded because they cover this payload. A payload that cannot be
+    written, or whose form nests arrays and objects more than 64 deep, raises `AGTReceiptError` on
+    every interpreter (see `_kanonisch`).
     """
     if not issubclass(type(receipt), dict):    # by the type, so no `__class__` of the caller's runs
         raise AGTReceiptError(f"receipt is {_typname(receipt)}, expected an object")
@@ -320,7 +401,9 @@ def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None, str | None]":
     A RECORD IS A RECORD WHATEVER FORMAT IT EXPORTS (lens run 5 at c8c61651, F1). ctypes exports a
     record it cannot describe with the bare format `B` at no dimension: a `ctypes.Union`, a `Structure`
     with `_pack_` (a big-endian one too), and an array of either, which even exports `B` in one
-    dimension. Read by the format alone, the identity point as hex text in a `c_wchar * 65` field of
+    dimension. Which records it cannot describe depends on the interpreter: from 3.12 on it describes a
+    packed Structure as `T{...}`, while a Union exports `B` on 3.10 to 3.14 (measured); either way the
+    TYPE decides. Read by the format alone, the identity point as hex text in a `c_wchar * 65` field of
     such a record was "numbers" (the array: "one byte string"), its 256 bytes named no key, and
     `[real key, record]` gave exit 0 for every receipt and for the chain. So the kind is decided by the
     TYPE as well as by the format: a ctypes Structure, Union, pointer or function pointer is `verbund`
