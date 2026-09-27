@@ -251,8 +251,19 @@ jobs:
       # directory it runs in (measured with 0.22.2); each exception stands there with its reason and a
       # review date, never as a flag here. It is the last step, so a red audit does not skip the
       # crosscheck and the parity report above.
-      - name: Rust dependency audit (cargo audit, deny warnings)
-        run: cd tools/pb_verify_rs && cargo install --locked cargo-audit --version 0.22.2 && cargo audit --file Cargo.lock --deny warnings
+      # --deny warnings refuses unmaintained, unsound and yanked only: an informational "notice"
+      # advisory passes it with exit 0, and --deny notice and --deny all are refused by the tool (lens
+      # finding F1 on PR 296, measured with 0.22.2). scripts/cargo_audit_gate.py therefore judges
+      # `cargo audit --json` too, and fails on any vulnerability or warning of any kind whose advisory
+      # ID audit.toml does not list; its --self-test proves both directions on every run (a lock with a
+      # notice fails, the listed rsa exception passes and fails without audit.toml).
+      - name: Rust dependency audit (cargo audit, deny warnings, every unlisted warning)
+        run: |
+          cd tools/pb_verify_rs
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit --file Cargo.lock --deny warnings
+          python ../../scripts/cargo_audit_gate.py --dir . --no-fetch
+          python ../../scripts/cargo_audit_gate.py --dir . --no-fetch --self-test
 
   test:
     runs-on: ubuntu-latest
