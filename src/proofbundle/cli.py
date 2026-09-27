@@ -1707,7 +1707,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         return 2
     try:
         if version == "v0.2":
-            # ONE READ: the evidence digest names exactly the bytes the claim is decoded from.
+            # ONE READ: the evidence digest names exactly the bytes the claim is decoded from, the whole
+            # receipt file with its signature, never its internal Merkle root.
             with _open_input(args.receipt, binary=True) as handle:
                 raw = _read_capped_bytes(handle)
             bundle = loads_strict(raw.decode("utf-8"))
@@ -1730,7 +1731,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
                 claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
                 subject_name=args.subject_name, subject_sha256=args.subject_sha256,
                 root_b64=roots.get("stated_b64"), model=model,
-                evidence=[receipt_evidence(raw, root_b64=roots.get("stated_b64"), uri=args.receipt_uri)])
+                evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
         else:
             envelope = export_eval_result_dsse(
                 claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,

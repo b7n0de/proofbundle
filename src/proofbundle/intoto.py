@@ -12,6 +12,7 @@ exists (deferred, see the roadmap).
 """
 from __future__ import annotations
 
+import binascii
 import copy
 import hashlib
 import json
@@ -19,6 +20,7 @@ import re
 from typing import Any, Optional
 
 from ._verdict import require_bool_verdict
+from ._wire_b64 import decode_b64
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
@@ -631,6 +633,11 @@ _HEX_DIGEST_LENGTHS = (("md5", 32), ("sha1", 40), ("sha224", 56), ("sha256", 64)
 _V02_COMPARATORS = (">=", ">", "<=", "<")
 _V02_ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
 _RD_STRING_FIELDS = ("name", "uri", "mediaType", "downloadLocation", "content")
+# The algorithms whose digest over an inline `content` this verifier can recompute. A DigestSet may name
+# others; for those the content is not compared, and that is stated, not hidden.
+_CONTENT_DIGESTS = (("sha256", hashlib.sha256), ("sha384", hashlib.sha384), ("sha512", hashlib.sha512),
+                    ("sha224", hashlib.sha224), ("sha1", hashlib.sha1), ("sha3_256", hashlib.sha3_256),
+                    ("sha3_384", hashlib.sha3_384), ("sha3_512", hashlib.sha3_512))
 _MAX_SAFE_INT = 2 ** 53 - 1
 
 
@@ -688,6 +695,17 @@ def _descriptor_problem(value: Any, where: str) -> str:
             return f"{where}.{field} must be a string"
     if "annotations" in value and not isinstance(value["annotations"], dict):
         return f"{where}.annotations must be an object"
+    if "content" in value:
+        # The digest identifies the decoded bytes of `content` (draft, evidence field rules). `content` is
+        # bytes in the ResourceDescriptor, carried in JSON as standard base64 (the house's one strict
+        # decoder: canonical, padded); a digest that names other bytes contradicts its descriptor.
+        try:
+            decoded = decode_b64(value["content"])
+        except (binascii.Error, ValueError):
+            return f"{where}.content must be canonical standard base64 (the descriptor's bytes)"
+        for name, function in _CONTENT_DIGESTS:
+            if name in value["digest"] and function(decoded).hexdigest() != value["digest"][name]:
+                return f"{where}: digest {name!r} does not identify the decoded content"
     return ""
 
 
@@ -701,8 +719,8 @@ def _commitment_problem(value: Any, where: str) -> str:
     hexval = value.get("value")
     if not (isinstance(hexval, str) and _LOWER_HEX_RE.match(hexval)):
         return f"{where}.value must be a non-empty lowercase hex string"
-    if not isinstance(value.get("salted"), bool):
-        return f"{where}.salted must be a boolean"
+    if value.get("salted") is not True:
+        return f"{where}.salted must be true (each commitment entry MUST set it to true)"
     return ""
 
 
@@ -807,11 +825,15 @@ def classify_eval_result_v02_predicate(statement: Any) -> tuple[bool, str]:
     the content of a signed envelope, which is untrusted however valid the signature is.
 
     Refused: an absent or non-URI ``evaluator.id``; a model or dataset identified twice or not at all
-    (``commitments.<x>`` against a top-level ResourceDescriptor); a descriptor or an evidence entry without
-    a usable ``digest``; a required field that is absent or of the wrong type; a Statement whose ``_type``
-    is not Statement v1 or whose subject carries no digest. Ignored: every unknown field, at every level,
-    including the v0.1 ``receipt`` block, ``anchors`` and ``subjectDigestNote``. Not refused: an evidence
-    entry without ``mediaType``, ``uri`` or ``downloadLocation`` (the draft says SHOULD)."""
+    (``commitments.<x>`` against a predicate-level ResourceDescriptor, both locations inspected, subject
+    and evidence never counted); a present representation that fails its own rules (a commitment whose
+    ``salted`` is not ``true``, a descriptor without a usable ``digest``); an evidence entry without a
+    usable ``digest``, or whose ``content`` is not the bytes its digest names; a required field that is
+    absent or of the wrong type; a Statement whose ``_type`` is not Statement v1 or whose subject carries
+    no digest. Ignored: every unknown field, at every level, including the v0.1 ``receipt`` block,
+    ``anchors`` and ``subjectDigestNote``. Not refused: an evidence entry without ``mediaType``, ``uri`` or
+    ``downloadLocation`` (the draft says SHOULD), and an evaluator that is also the signer (the same party
+    MAY hold more than one role)."""
     if not isinstance(statement, dict):
         return False, f"statement must be a JSON object, got {type(statement).__name__}"
     out = []
@@ -829,12 +851,16 @@ def classify_eval_result_v02_predicate(statement: Any) -> tuple[bool, str]:
     return (not out), "; ".join(out)
 
 
-def receipt_evidence(receipt_bytes: bytes, *, root_b64: Optional[str] = None,
-                     uri: Optional[str] = None) -> dict:
+def receipt_evidence(receipt_bytes: bytes, *, uri: Optional[str] = None) -> dict:
     """The `evidence[]` entry for an eval receipt: a ResourceDescriptor whose digest is the SHA-256 of the
-    receipt file's exact bytes, so a generic consumer can fetch the file and compare. The Merkle root, which
-    v0.1 carried in its `receipt` block, travels as an annotation for a consumer that verifies the receipt
-    itself; the draft does not interpret it. `uri` is where the receipt can be fetched (the draft's SHOULD)."""
+    receipt file's exact bytes, so a generic consumer can fetch the file and compare.
+
+    WHICH BYTES. A proofbundle receipt is one JSON file that carries the signed payload, the signature and
+    the Merkle tree together, so the digest over the file covers the signature as the draft requires
+    for a signed receipt whose envelope is part of what is supplied. The Merkle root that v0.1 carried in
+    its `receipt` block is NOT written here, neither as the digest nor beside it: an internal root is not
+    a substitute for the digest of the artifact. A caller that cannot hash the receipt it refers to
+    writes no evidence entry for it. `uri` is where the receipt can be fetched (the draft's SHOULD)."""
     if not isinstance(receipt_bytes, (bytes, bytearray)):
         raise BundleFormatError(
             f"receipt_evidence needs the receipt file's bytes, got {type(receipt_bytes).__name__}")
@@ -847,8 +873,6 @@ def receipt_evidence(receipt_bytes: bytes, *, root_b64: Optional[str] = None,
         if not (isinstance(uri, str) and _URI_RE.match(uri)):
             raise BundleFormatError("receipt_evidence: uri must be a URI")
         descriptor["uri"] = uri
-    if root_b64:
-        descriptor["annotations"] = {"merkleRootB64": root_b64}
     return descriptor
 
 
@@ -862,7 +886,8 @@ def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_prof
     * ``model`` / ``dataset``: a ResourceDescriptor with a real ``digest`` for a PUBLIC identity. When given,
       it replaces the salted commitment for that identity; when not, the commitment is written. Each
       identity is therefore identified exactly once.
-    * ``evidence``: ResourceDescriptors, each with a ``digest`` (see ``receipt_evidence``).
+    * ``evidence``: ResourceDescriptors, each with a ``digest`` of the artifact it names (see
+      ``receipt_evidence``). None writes no evidence: nothing is derived from ``root_b64`` here.
 
     ``subjectDigestNote`` stays for the receipt profile: its subject digest is a binder that names no file,
     and the note says so. ``anchors`` is not written: the draft scoped it out, and an external anchor is
