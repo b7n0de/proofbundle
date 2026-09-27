@@ -52,9 +52,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   character (the identity point as a bare string: exit 0). Now any `Exception` raised while the
   caller's list is read refuses the list and names the exception type (exit 2); the single call
   and the chain read the list through one helper, once, and when that reading is a refusal every
-  receipt of the chain reports it and the list is not read again; an entry that exports a buffer is
-  judged as its bytes; and a str or byte string passed as the whole list is refused as a single
-  key (exit 2). The register exit has a new state `KEY_REFUSED`,
+  receipt of the chain reports it and the list is not read again; an entry that exports a buffer of
+  bytes or numbers is judged as its bytes; and a str or byte string passed as the whole list is
+  refused as a single key (exit 2). The register exit has a new state `KEY_REFUSED`,
   which `pruefe_v2` counts as an error and the views print as unauthenticated. SPEC §4b needed no
   change: it already covers every key that is not the bundle's own.
 
@@ -77,12 +77,47 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   are not the pattern either: `renewal._sign_ats_content` signs a time authority's own archive
   time-stamp content, a digest it computed, and `sdjwt_issue.present_with_key_binding` signs the
   holder's key-binding JWT over the presentation it holds; neither reads an eval receipt. Contract
-  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 40 cases and 263 subtests: on
-  126ed1dc 27 cases fail, 14 of them outright (one of those also with 13 failing subtests) and 13
-  only through 195 subtests, 208 failing subtests in all; on 053c7800 15 fail, 6 outright and 9
-  through 136 subtests; on 8cf49247 5 fail, 1 outright and 4 through 84 subtests; the 13 controls
-  and preconditions pass on every tree. A case counts once, as outright when its own assertion
-  fails, whatever its subtests do; a unittest result counter and `pytest -rA` give the same numbers.
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 48 cases and 702 subtests: on
+  126ed1dc 35 cases fail, 15 of them outright (one of those also with 13 failing subtests) and 20
+  only through 623 subtests, 636 failing subtests in all; on 053c7800 23 fail, 7 outright and 16
+  through 564 subtests; on 8cf49247 11 fail, 2 outright and 9 through 297 subtests; on 481a1f26 8
+  fail, 1 outright and 7 through 429 subtests, and these 8 are the cases of the third lens run
+  below; the 13 controls and preconditions pass on every tree. A case counts once, as outright when
+  its own assertion fails, whatever its subtests do; two unittest result counters and `pytest -rA`
+  give the same numbers.
+
+  A third lens run at 481a1f26 measured a regression against main and one more escape, and a sweep
+  of the neighbours found four classes that main has as well. Taking every value that exports a
+  buffer as one byte string refused `np.array([key])` and the same array with `dtype=object` as a
+  single key, exit 2 where main 20e91c8e gives exit 0: numpy exports them with the formats `64w` and
+  `O`. The list reader now goes by the format of the buffer. References (`O`, `P`, `Z`, `z`) and
+  text items of more than one character are a collection, walked as main walked it, and as an entry
+  they name no key; single bytes in one dimension, fixed-width byte strings and single characters
+  stay one key; numbers and records are walked too, after their bytes were judged as the one key
+  they spell; and a buffer of more than one dimension is refused whole, as 481a1f26 refused it (main
+  raised `TypeError` on it). Reading only a one-dimensional buffer of `B`, `b` or `c` as a byte
+  string and everything else as a collection lost the refusal in 3122 of 12672 weak-key cases,
+  `array('I')` entries and a weak key given as a numpy uint32 array among them, which is why numbers
+  are still judged by their bytes. The reader's `except` handler read the exception's type name
+  through its metaclass, so an exception whose metaclass `__name__` raises escaped from both
+  verifiers; every message of the module that names a caller's type now reads it through `type`
+  itself (the handler, its two sibling reads, the receipt and chain shape checks, a field of the
+  wrong type). Only an `Exception` refuses a list: every `BaseException` that is not an `Exception`
+  propagates, `GeneratorExit`, `asyncio.CancelledError` and a caller's own subclass as well as
+  `KeyboardInterrupt` and `SystemExit`. The sweep called both verify surfaces 16324 times with input
+  of the wrong shape (the receipt, the chain value, each chain element, `now`, every field of the
+  five vectors) and 3664 calls raised, the same 3664 on main: a field the serialiser cannot encode
+  (3168, `TypeError`, `ValueError`, `RecursionError`, and `UnicodeEncodeError` for a lone surrogate,
+  which `json.loads` produces from a receipt file), a `cedar_decision` that is not text (450,
+  `AGTReceiptError` raised outside its guard), an instant beyond the float range (24,
+  `OverflowError` from `float()`), and a chain element that is not an object (22 kinds,
+  `AttributeError`). None raises now: 3640 are exit 2, the 23 whose signed instant changed or whose
+  `now` lies after the expiry are exit 1, and `now=-10**400` is exit 0. Kept, measured on the final
+  tree: the 366-key regression set of the second run is byte-identical (sha256 `5374a6a4…`), the
+  1794-key form sweep equals 8cf49247 on its 156 numpy cases and 481a1f26 on the other 1638, the
+  12672-case weak-key sweep (the lens's 9504 and 3168 more with numpy text, numpy object and ctypes
+  `py_object` arrays) gives exit 2 in every case, and `KeyboardInterrupt` and `SystemExit` still
+  propagate.
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
