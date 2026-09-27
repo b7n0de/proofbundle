@@ -38,12 +38,16 @@ REPO = Path(__file__).resolve().parents[1]
 RUST = [REPO / "tools" / "pb_verify_rs" / "target" / build / "pb_verify_rs" for build in ("release", "debug")]
 
 #: The Z225 test key and the keyid go-securesystemslib derived for it (recorded, see the docstring).
-Z225_SEED = hashlib.sha256(b"proofbundle Z225 foreign-tool measurement test key, trusts nothing").digest()
+#: SHA-256 of the label below, written out, so the seed is visibly a throwaway literal
+#: (tests/test_sdist_ohne_signierwerkzeug.py); TheKeyidForm holds it to the label.
+Z225_KEY_LABEL = b"proofbundle Z225 foreign-tool measurement test key, trusts nothing"
+Z225_SEED = b"Y\xdd\xe0\x94NM\x84\x12\xf1D\xbc<n\x1c\x18\xa6yZ\xae@)\xe8\x84\xbb\x873u\xf9\xb7\x1fA2"
 Z225_KEYID_GO_SECURESYSTEMSLIB = "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k"
 
 
-def _signer(seed: bytes = Z225_SEED) -> Ed25519PrivateKey:
-    return Ed25519PrivateKey.from_private_bytes(seed)
+def _signer() -> Ed25519PrivateKey:
+    """The Z225 test key."""
+    return Ed25519PrivateKey.from_private_bytes(Z225_SEED)
 
 
 def _raw_pub(signer: Ed25519PrivateKey) -> bytes:
@@ -75,12 +79,15 @@ def _keyids(envelope: dict) -> list:
 
 
 class TheKeyidForm(unittest.TestCase):
+    def test_the_written_out_seed_is_the_z225_seed(self):
+        self.assertEqual(Z225_SEED, hashlib.sha256(Z225_KEY_LABEL).digest())
+
     def test_the_z225_key_gets_the_keyid_go_securesystemslib_derived(self):
         self.assertEqual(dsse.openssh_sha256_keyid(_raw_pub(_signer())), Z225_KEYID_GO_SECURESYSTEMSLIB)
 
     def test_the_form_equals_the_openssh_encoding_of_cryptography_for_other_keys(self):
-        for i in range(8):
-            signer = _signer(hashlib.sha256(b"keyid form %d" % i).digest())
+        for _ in range(8):
+            signer = Ed25519PrivateKey.generate()
             self.assertEqual(dsse.openssh_sha256_keyid(_raw_pub(signer)), _fingerprint_by_cryptography(signer))
 
     def test_a_key_that_is_not_32_bytes_is_refused(self):
