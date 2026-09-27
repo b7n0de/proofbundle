@@ -1652,7 +1652,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
     from .intoto import (  # noqa: PLC0415
-        EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
+        EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_PREDICATE_TYPES, export_eval_result_dsse,
+        export_eval_result_v02_dsse, receipt_evidence, verify_eval_result_dsse,
     )
     if args.verify:
         if args.pub is None:
@@ -1668,37 +1669,82 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = decode_b64(args.pub)
-            res = verify_eval_result_dsse(envelope, pub)
+            # BOTH eval-result versions, each under its own contract: the library judges the type the
+            # statement declares (v0.1 as released, v0.2 with its shape), and the type check happens here,
+            # against the two types, so a signed v0.2 envelope is not refused for being v0.2.
+            res = verify_eval_result_dsse(envelope, pub, expected_predicate_type=None)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
             return 2
         pt = res.get("predicate_type")
-        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {pt!r})"
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] eval-result attestation{note}")
-        print("=> OK" if res["ok"] else "=> FAILED")
-        return 0 if res["ok"] else 1
+        ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
+        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
+        print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("predicate_shape_ok") is False:
+            print(f"    {_safe_line(res['predicate_shape_detail'])}")
+        print("=> OK" if ok else "=> FAILED")
+        return 0 if ok else 1
 
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    # The version decides which flags mean something; a flag the chosen version does not read is refused,
+    # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
+    version, evaluator = args.predicate_version, args.evaluator
+    if version == "v0.1":
+        if evaluator is not None or args.receipt_uri is not None:
+            print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
+                  file=sys.stderr)
+            return 2
+    elif version == "v0.2":
+        if not isinstance(evaluator, str) or not evaluator:
+            print("ERROR: --predicate-version v0.2 requires --evaluator <URI> (the party that ran the "
+                  "evaluation; there is no default)", file=sys.stderr)
+            return 2
+    else:
+        print(f"ERROR: unknown --predicate-version {_safe_line(repr(version))}", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
     try:
-        bundle = load_bundle(args.receipt)
+        if version == "v0.2":
+            # ONE READ: the evidence digest names exactly the bytes the claim is decoded from.
+            with _open_input(args.receipt, binary=True) as handle:
+                raw = _read_capped_bytes(handle)
+            bundle = loads_strict(raw.decode("utf-8"))
+            if not isinstance(bundle, dict):
+                raise BundleFormatError(f"bundle must be a JSON object, got {type(bundle).__name__}")
+        else:
+            bundle = load_bundle(args.receipt)
         claim = decode_eval_claim(bundle)
         if claim is None:
             print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
             return 1
         roots = recompute_merkle_root_b64(bundle)
-        envelope = export_eval_result_dsse(
-            claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
-            subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
+        if version == "v0.2":
+            model = None
+            if args.subject_profile == "public-model":
+                # The public model is disclosed as the subject; the predicate identifies it once, by the
+                # same name and digest, instead of by a salted commitment.
+                model = {"name": args.subject_name, "digest": {"sha256": (args.subject_sha256 or "").lower()}}
+            envelope = export_eval_result_v02_dsse(
+                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                subject_name=args.subject_name, subject_sha256=args.subject_sha256,
+                root_b64=roots.get("stated_b64"), model=model,
+                evidence=[receipt_evidence(raw, root_b64=roots.get("stated_b64"), uri=args.receipt_uri)])
+        else:
+            envelope = export_eval_result_dsse(
+                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
-    print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+    if version == "v0.2":
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+    else:
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
     return 0
 
 
@@ -2830,8 +2876,16 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+                        help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
+                             "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
+    intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
+                                            "required, no default")
+    intoto.add_argument("--receipt-uri", help="v0.2: where the receipt can be fetched, written as the uri of "
+                                              "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
-                        help="verify an exported attestation instead of emitting one (needs --pub)")
+                        help="verify an exported attestation instead of emitting one (needs --pub); accepts "
+                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
