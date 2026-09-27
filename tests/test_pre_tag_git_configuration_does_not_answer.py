@@ -8,11 +8,14 @@ configured excludes file, the replacement switch in the configuration, `core.wor
 a directory replaced by a symbolic link, and environment names the list did not carry.
 
 Every case labelled RED failed against `4e67ba25` in the form it has here, for the reason its
-docstring names; a GUARD case was green there and fails against the half repair it names; a
-CONTROL case keeps a refusal from passing for a tool that refuses everything; an unlabelled case
-pins a property whose docstring says how it stood at `4e67ba25`. Each case drives the real script
-(producer, release gate or third-party verifier) as a process, against a throwaway repository,
-with a throwaway home, so no configuration of the machine that runs the suite answers for a case.
+docstring names (where that depends on the git version, the docstring names the versions); a
+GUARD case was green there and fails against the half repair it names; a CONTROL case keeps a
+refusal from passing for a tool that refuses everything; an unlabelled case pins a property whose
+docstring says how it stood at `4e67ba25`. Each case drives the real script (producer, release
+gate or third-party verifier) as a process, against a throwaway repository, with a throwaway home
+and no system configuration file, so no configuration of the machine that runs the suite answers
+for a case. A case whose attack does not exist on the git under test says so as a skip that names
+the version, after measuring why; it never passes on a git where it measured nothing.
 """
 from __future__ import annotations
 
@@ -22,8 +25,10 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -38,15 +43,40 @@ _KEY_ANCHOR = "audit_artifacts/pre_tag_trusted_pubkeys.txt"
 
 
 def _clean_env(home: pathlib.Path, **extra) -> dict:
-    """The parent's environment without git's namespace, with a throwaway home and no bytecode
-    written into the trees under test. A case that needs a name sets it; that is the measurement."""
+    """The parent's environment without git's namespace, with a throwaway home, no system
+    configuration file and no bytecode written into the trees under test. A case that needs a name
+    sets it; that is the measurement.
+
+    THE SYSTEM FILE IS PINNED EMPTY (2026-09-27): GitHub's runner image appends `[safe] directory =
+    *` to /etc/gitconfig, and the throwaway home does not reach that file. The chain reads no system
+    file; the preconditions this file's own git measures must not depend on one either."""
     e = {k: v for k, v in os.environ.items()
          if not k.startswith("GIT_")
          and k not in ("HOME", "XDG_CONFIG_HOME", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")}
     e.update({"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".xdg"),
-              "PYTHONDONTWRITEBYTECODE": "1"})
+              "GIT_CONFIG_SYSTEM": os.devnull, "PYTHONDONTWRITEBYTECODE": "1"})
     e.update(extra)
     return e
+
+
+def _git_version() -> tuple[int, int, int]:
+    """The version of the `git` on PATH, which the cases and the three tools all run."""
+    out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout
+    found = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    if not found:
+        raise AssertionError(f"git gave no version: {out!r}")
+    return tuple(int(x) for x in found.groups())
+
+
+#: The first git whose replacement switch the configuration cannot undo. Before it,
+#: `GIT_NO_REPLACE_OBJECTS` (and `--no-replace-objects`) and `core.useReplaceRefs` wrote one global
+#: and the configuration, read later, won: measured on 2.34.1, with the key set to true both
+#: switches read the replacement. git 2.42.0 made the switch final (RelNotes 2.42.0: "Introduce a
+#: mechanism to disable replace refs globally and per repository", merge 9c7d1b057f
+#: ds/disable-replace-refs): it disables replacement for the whole process, and the key can only
+#: turn it off (`replace_refs_enabled` in replace-object.c). Measured on 2.55.0: both switches read
+#: the raw object with the key set to true.
+_REPLACEMENT_SWITCH_FINAL_SINCE = (2, 42, 0)
 
 
 def _lib():
@@ -373,13 +403,20 @@ class AConfiguredExcludesFileHidesNothing(_Case):
 
 
 class TheReplacementSwitchIsPinnedOff(_Case):
+    """git reads a replacement instead of the object a revision names in two ways, and the chain
+    follows neither.
 
-    def test_RED_the_gate_does_not_verify_a_tampered_checkout_through_the_replaced_commit(self):
-        """Measured on `4e67ba25`: genuine commit G with a receipt over its digest; T is G with
-        `AUDITED = False`, and the checkout is at T. `git replace T G` alone was refused;
-        `core.useReplaceRefs=true` in `.git/config` on top made the gate answer `ok=true,
-        state=verified` with G's digest, because git reads the configuration after the
-        environment switch."""
+    BY DEFAULT, on every version: `core.useReplaceRefs` defaults to true, so a git that nobody
+    switched reads `refs/replace/*`. The GUARD cases measure this on every version.
+
+    THROUGH THE CONFIGURATION, UNDER THE SWITCH, before git 2.42.0 only: `core.useReplaceRefs=true`
+    in `.git/config` undid `GIT_NO_REPLACE_OBJECTS=1` (see `_REPLACEMENT_SWITCH_FINAL_SINCE`). The
+    RED cases measure this attack where it exists. Where it does not, they first measure that the
+    switch held against the key, then skip with the version named."""
+
+    def _replaced_candidate(self) -> tuple[pathlib.Path, pathlib.Path]:
+        """Genuine commit G with a receipt over its digest; T is G with `AUDITED = False`, the
+        checkout is at T, and `refs/replace/` maps T to G."""
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         key = Ed25519PrivateKey.generate()
         g = self.candidate(self.base / "g", _key_line(key))
@@ -397,18 +434,11 @@ class TheReplacementSwitchIsPinnedOff(_Case):
         tampered = self.git(g, "rev-parse", "HEAD").strip()
         self.assertFalse(self.gate(g, gate)["ok"], "precondition: T is refused")
         self.git(g, "replace", tampered, genuine)
-        self.git(g, "config", "core.useReplaceRefs", "true")
-        self.assertIn("AUDITED = True",
-                      self.git(g, "show", "HEAD:src/proofbundle/payload.py",
-                               env=_clean_env(self.home, GIT_NO_REPLACE_OBJECTS="1")),
-                      "precondition: the configuration switches replacement back on")
-        verdict = self.gate(g, gate)
-        self.assertFalse(verdict["ok"], f"the gate verified the replacement: {verdict}")
+        return g, gate
 
-    def test_RED_the_producer_binds_the_raw_head_not_the_replacement(self):
-        """Measured on `4e67ba25`: base with `a.txt=eins`, second with `a.txt=zwei`, `git replace
-        base second`, the checkout read through the replacement, and `core.useReplaceRefs=true`:
-        the emit returned 0 and bound the replacement's digest while HEAD names base."""
+    def _replaced_tree(self) -> pathlib.Path:
+        """base with `a.txt=eins`, second with `a.txt=zwei`, `refs/replace/` maps base to second,
+        and the checkout at base was read through the replacement."""
         r = self.repo("replaced", {"a.txt": "eins\n", "scripts/pre_tag_audit_gate.py": "# gate\n"})
         base = self.git(r, "rev-parse", "HEAD").strip()
         (r / "a.txt").write_text("zwei\n", encoding="utf-8")
@@ -417,8 +447,81 @@ class TheReplacementSwitchIsPinnedOff(_Case):
         self.git(r, "reset", "-q", "--hard", base)
         self.git(r, "replace", base, second)
         self.git(r, "reset", "-q", "--hard", base)
-        self.git(r, "config", "core.useReplaceRefs", "true")
         self.assertEqual((r / "a.txt").read_text(encoding="utf-8"), "zwei\n")
+        return r
+
+    def _skip_where_the_switch_is_final(self, repo: pathlib.Path, path: str, replaced: str,
+                                        raw: str) -> None:
+        """Return if `core.useReplaceRefs=true` (set by the caller) makes git read the replacement
+        of `HEAD:<path>` under `GIT_NO_REPLACE_OBJECTS=1`: the attack exists on this git. Otherwise
+        skip, naming the version, but only after measuring why: under the switch git read the raw
+        object while a git that nobody switched reads the replacement, and this git is one where
+        the switch is final."""
+        switched = self.git(repo, "show", f"HEAD:{path}",
+                            env=_clean_env(self.home, GIT_NO_REPLACE_OBJECTS="1"))
+        if switched == replaced:
+            return
+        self.assertEqual(switched, raw, "under the switch git read neither the replacement nor the "
+                                        "raw object: the fixture is not what this case needs")
+        self.assertEqual(self.git(repo, "show", f"HEAD:{path}"), replaced,
+                         "a git that nobody switched does not read the replacement either: the "
+                         "fixture is not what this case needs, and the switch decided nothing")
+        version = _git_version()
+        shown = ".".join(map(str, version))
+        self.assertGreaterEqual(
+            version, _REPLACEMENT_SWITCH_FINAL_SINCE,
+            f"on git {shown} the switch held against the key, which git does only from 2.42.0 on: "
+            "the fixture measures nothing here")
+        self.skipTest(
+            f"the attack does not exist on git {shown}: since git 2.42.0 (ds/disable-replace-refs, "
+            "merge 9c7d1b057f) GIT_NO_REPLACE_OBJECTS disables replacement for the whole process "
+            "and core.useReplaceRefs can only turn it off; measured here, under the switch with "
+            "the key set to true git read the raw object. The GUARD case of this class measures "
+            "the replacement git follows by default, on this git.")
+
+    def test_GUARD_the_gate_does_not_follow_a_replacement_git_follows_by_default(self):
+        """On every git version: with `refs/replace/` mapping T to G and no switch, a plain `git
+        show HEAD:...` reads G's payload. The gate must judge T. Green on `4e67ba25`, whose library
+        set `GIT_NO_REPLACE_OBJECTS=1`, which the default configuration does not undo; red against
+        a funnel without its three replacement pins. Both measured on scratch copies with git
+        2.34.1 and 2.55.0."""
+        g, gate = self._replaced_candidate()
+        self.assertEqual(self.git(g, "show", "HEAD:src/proofbundle/payload.py"), "AUDITED = True\n",
+                         "precondition: a git that nobody switched reads G through the replacement")
+        verdict = self.gate(g, gate)
+        self.assertFalse(verdict["ok"], f"the gate verified the replacement: {verdict}")
+
+    def test_RED_the_gate_does_not_verify_a_tampered_checkout_through_the_replaced_commit(self):
+        """Measured on `4e67ba25` with git 2.34.1: `git replace T G` alone was refused;
+        `core.useReplaceRefs=true` in `.git/config` on top made the gate answer `ok=true,
+        state=verified` with G's digest, because that git read the configuration after the
+        environment switch. The attack exists before git 2.42.0 only; from 2.42.0 on this case
+        skips, naming the version."""
+        g, gate = self._replaced_candidate()
+        self.git(g, "config", "core.useReplaceRefs", "true")
+        self._skip_where_the_switch_is_final(g, "src/proofbundle/payload.py",
+                                             replaced="AUDITED = True\n", raw="AUDITED = False\n")
+        verdict = self.gate(g, gate)
+        self.assertFalse(verdict["ok"], f"the gate verified the replacement: {verdict}")
+
+    def test_GUARD_the_producer_does_not_follow_a_replacement_git_follows_by_default(self):
+        """On every git version: HEAD names base, whose `a.txt` is `eins`; the checkout holds
+        `zwei`, and a git that nobody switched calls the tree clean, because it reads base through
+        the replacement. The producer must refuse. Green on `4e67ba25`, whose producer set
+        `GIT_NO_REPLACE_OBJECTS=1`; red against a funnel without its three replacement pins. Both
+        measured on scratch copies with git 2.34.1 and 2.55.0."""
+        r = self._replaced_tree()
+        self.assertEqual(self.status(r), "",
+                         "precondition: a git that nobody switched calls this tree clean")
+        self.refused(self.emit(r), "uncommitted path", "M a.txt")
+
+    def test_RED_the_producer_binds_the_raw_head_not_the_replacement(self):
+        """Measured on `4e67ba25` with git 2.34.1: the same tree with `core.useReplaceRefs=true`,
+        the emit returned 0 and bound the replacement's digest while HEAD names base. The attack
+        exists before git 2.42.0 only; from 2.42.0 on this case skips, naming the version."""
+        r = self._replaced_tree()
+        self.git(r, "config", "core.useReplaceRefs", "true")
+        self._skip_where_the_switch_is_final(r, "a.txt", replaced="zwei\n", raw="eins\n")
         self.assertEqual(self.status(r, GIT_NO_REPLACE_OBJECTS="1"), "",
                          "precondition: git itself calls this tree clean, even with the switch set")
         self.refused(self.emit(r), "uncommitted path", "M a.txt")
@@ -541,23 +644,37 @@ class AnUntrackedNameIsNotAPathspec(_Case):
 # ── the executable bit is the owner's ─────────────────────────────────────────────────────────
 
 
+#: The mode both cases below put on disk: the owner may read, the owner may NOT execute, and one
+#: other execute bit is set. That bit is the case itself: git records 100755 from the owner's bit
+#: alone, and the code under test once read any of the three (`& 0o111`), so only a file with an
+#: execute bit outside the owner's tells the two readings apart. The group's bit is the narrower
+#: of the two outside bits; no read or write bit beyond the owner's read is needed. Written with
+#: the flag names, because the number alone (0o410) does not say which bit carries the case.
+_OWNER_READ_GROUP_EXECUTE = stat.S_IRUSR | stat.S_IXGRP
+
+
 class TheExecutableBitIsTheOwners(_Case):
 
     def test_RED_a_lost_owner_bit_is_a_mode_change(self):
         """Measured on `4e67ba25`: `run.sh` committed 100755, 0655 on disk. git status ` M run.sh`,
-        and the emit returned 0 because `0o655 & 0o111` is not zero."""
+        and the emit returned 0 because `0o655 & 0o111` is not zero. The case now uses 0o410, which
+        keeps what 0o655 measured (no owner execute bit, a group execute bit) without the rest; red
+        on `4e67ba25` with it too, on git 2.34.1 and 2.55.0."""
         r = self.repo("exec", {"run.sh": "#!/bin/sh\necho ok\n",
-                               "scripts/pre_tag_audit_gate.py": "# gate\n"}, modes={"run.sh": 0o755})
-        os.chmod(r / "run.sh", 0o655)
+                               "scripts/pre_tag_audit_gate.py": "# gate\n"},
+                      modes={"run.sh": stat.S_IRUSR | stat.S_IXUSR})
+        os.chmod(r / "run.sh", _OWNER_READ_GROUP_EXECUTE)
         self.assertEqual(self.status(r), " M run.sh\n")
         self.refused(self.emit(r), "uncommitted path", "mode run.sh (100755 -> 100644)")
 
     def test_RED_a_group_or_other_bit_is_not_a_mode_change(self):
         """Measured on `4e67ba25`: a file committed 100644 with 0645 on disk; git status is empty
-        and the emit refused `mode plain.txt (100644 -> 100755)`."""
+        and the emit refused `mode plain.txt (100644 -> 100755)`. The case now uses 0o410, which
+        keeps what 0o645 measured (no owner execute bit, an execute bit outside the owner's); red
+        on `4e67ba25` with it too, on git 2.34.1 and 2.55.0."""
         r = self.repo("plain", {"plain.txt": "x\n", "scripts/pre_tag_audit_gate.py": "# gate\n"},
-                      modes={"plain.txt": 0o644})
-        os.chmod(r / "plain.txt", 0o645)
+                      modes={"plain.txt": stat.S_IRUSR})
+        os.chmod(r / "plain.txt", _OWNER_READ_GROUP_EXECUTE)
         self.assertEqual(self.status(r), "")
         self.emitted(self.emit(r))
 

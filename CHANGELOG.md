@@ -369,7 +369,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     tree an untracked `conftest.py` that rewrote failing outcomes to passed was bound.
   - `core.useReplaceRefs=true` in the configuration switched replacement back on under
     `GIT_NO_REPLACE_OBJECTS=1`. The release gate said `ok=true` for a tampered checkout, against
-    the replaced commit's digest.
+    the replaced commit's digest. This holds for git before 2.42.0 (measured with 2.34.1); from
+    2.42.0 on the switch is final and the key can only turn replacement off (measured with 2.55.0).
   - `core.worktree`, or a `--repo` naming a subdirectory, made `ls-tree` list relative to a prefix
     while `git show HEAD:<path>` stayed root-relative. Gate and verifier verified a tampered root,
     and with an attacker key in the root anchor the gate trusted it.

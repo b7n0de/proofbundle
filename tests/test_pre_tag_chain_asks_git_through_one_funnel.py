@@ -23,7 +23,9 @@ closed one instance and the next lens found the neighbour:
                    rest of git's repository-local names. Every answer must equal the baseline. For
                    the settings that ARE live, a plain `git` call in the same fixture shows that the
                    setting changes git's answer there, so equality means the funnel held, not that
-                   the fixture measured nothing.
+                   the fixture measured nothing. A setting whose attack does not exist on the git
+                   under test is reported as a skipped subtest that names the version and the
+                   reason, and only where the reason is measured; it is never counted as passed.
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -304,6 +307,10 @@ def load(name, rel):
 producer = load("_sweep_producer", "pre_tag_receipt.py")
 lib = load("_sweep_lib", "pre_tag_receipt_lib.py")
 verifier = load("_sweep_verifier", "verify_pre_tag_receipt.py")
+# THE PLAIN PROBE READS NO SYSTEM FILE OF THE MACHINE THAT RUNS THE SUITE (the chain reads none
+# either). Loading the producer above removed every GIT_ name from this process, the one the
+# fixture set included, so it is set again here; a row that wants a system file sets its own.
+os.environ["GIT_CONFIG_SYSTEM"] = os.devnull
 plan = json.loads(plan_file.read_text(encoding="utf-8"))
 def safe(f):
     try:
@@ -380,6 +387,15 @@ def _git(cwd, *args, env) -> str:
     return r.stdout.decode().strip()
 
 
+def _git_version() -> tuple[int, int, int]:
+    """The version of the `git` on PATH, which the driver's plain probe runs as well."""
+    out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout
+    found = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    if not found:
+        raise AssertionError(f"git gave no version: {out!r}")
+    return tuple(int(x) for x in found.groups())
+
+
 class TheFunnelGivesOneAnswer(unittest.TestCase):
     """The sweep. One child process computes every answer, so the cost is one interpreter."""
 
@@ -393,7 +409,28 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
             "environment: GIT_TRACE_SETUP=/dev/stdout", "environment: GIT_TRACE2_EVENT=/dev/stdout",
             "environment: GIT_LITERAL_PATHSPECS=1", "verifier: GIT_WORK_TREE on a clean clone",
             "GIT_DIR of a clean clone", "another owner (GIT_TEST_ASSUME_DIFFERENT_OWNER=1)",
-            "config core.checkStat = minimal")
+            "config core.checkStat = minimal", "other GIT_NO_REPLACE_OBJECTS removed")
+
+    #: Live settings whose ATTACK exists only before a git version: the first version without it,
+    #: the row that stands for the same property on every version (it must be live wherever this
+    #: one is not, or the fixture measured nothing), and why the attack is gone.
+    #:
+    #: The replacement key: on git before 2.42.0, `GIT_NO_REPLACE_OBJECTS` and `core.useReplaceRefs`
+    #: wrote one global and the configuration, read later, won (measured on 2.34.1: with the key set
+    #: to true, `GIT_NO_REPLACE_OBJECTS=1 git show` and `git --no-replace-objects show` both read
+    #: the replacement). git 2.42.0 made the switch final (RelNotes: "Introduce a mechanism to
+    #: disable replace refs globally and per repository", merge 9c7d1b057f ds/disable-replace-refs):
+    #: the switch disables replacement for the whole process, and the key can only turn it off
+    #: (`replace_refs_enabled` in replace-object.c). Measured on 2.55.0: under the switch, with the
+    #: key set to true, git reads the raw object. A replacement is still followed BY DEFAULT on
+    #: every version, which the row "other GIT_NO_REPLACE_OBJECTS removed" measures.
+    VERSION_BOUND = {
+        "replacement: core.useReplaceRefs=true in .git/config": (
+            (2, 42, 0), "other GIT_NO_REPLACE_OBJECTS removed",
+            "since git 2.42.0 (ds/disable-replace-refs, merge 9c7d1b057f) GIT_NO_REPLACE_OBJECTS "
+            "disables replacement for the whole process and core.useReplaceRefs can only turn it "
+            "off, so the key cannot switch replacement back on under the switch"),
+    }
 
     def setUp(self):
         for rel in (*_ENTRIES, _FUNNEL[0], "scripts/sign_readiness_artifact.py"):
@@ -407,10 +444,16 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
         b = self.base
         home0 = b / "home0"
         (home0 / ".xdg").mkdir(parents=True)
+        # NO SYSTEM FILE OF THIS MACHINE (2026-09-27, measured on CI run 36319775855): GitHub's
+        # runner image appends `[safe] directory = *` to /etc/gitconfig, so under
+        # `GIT_TEST_ASSUME_DIFFERENT_OWNER=1` a plain git there answered as usual and the owner row
+        # measured nothing. Reproduced with a git 2.55.0 whose system file carries those two lines;
+        # the same git without them refuses the repository. The chain reads no system file (its
+        # funnel sets GIT_CONFIG_NOSYSTEM), and the fixture and the probe must not read one either.
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("GIT_") and k not in ("HOME", "XDG_CONFIG_HOME")}
         env.update(HOME=str(home0), XDG_CONFIG_HOME=str(home0 / ".xdg"),
-                   PYTHONDONTWRITEBYTECODE="1")
+                   GIT_CONFIG_SYSTEM=os.devnull, PYTHONDONTWRITEBYTECODE="1")
         repo = b / "repo"
         repo.mkdir()
         files = {"a.txt": "eins\n", "café.txt": "quoted\n", ".gitignore": "*.log\n",
@@ -420,7 +463,9 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
         for rel, text in files.items():
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_text(text, encoding="utf-8")
-        os.chmod(repo / "run.sh", 0o755)
+        # Owner read and execute and nothing else: git records 100755 from the owner's execute bit
+        # and reads the file to hash it; no group or other bit is part of what is measured.
+        os.chmod(repo / "run.sh", 0o500)
         # an old mtime, recorded in the index at `add`: the same-size rewrite below restores it
         old = 1_577_836_800
         os.utime(repo / "src" / "x.py", (old, old))
@@ -461,7 +506,9 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
         marker = b / "fsmonitor-ran"
         hook = b / "fsmonitor-hook"
         hook.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n", encoding="utf-8")
-        os.chmod(hook, 0o755)
+        # Owner read and execute: git starts the hook by path (execute) and the shell reads the
+        # script (read). The row asserts that the hook really ran under a plain git.
+        os.chmod(hook, 0o500)
         homes = {}
         for name, text in (("excludes", "[core]\n\texcludesFile = logs/.gitignore\n"),
                            ("harmless", "[core]\n\tworktree = /nonexistent\n\tabbrev = 5\n"
@@ -561,7 +608,8 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
     def test_every_answer_equals_the_clean_baseline(self):
         """[RED] on `4e67ba25` for the excludes, replacement, work-tree and environment settings,
         and for the verifier's listing under `GIT_WORK_TREE`/`GIT_DIR`; every one of those gives
-        the baseline answer here."""
+        the baseline answer here. The replacement key was red there with git before 2.42.0 only
+        (see `VERSION_BOUND`); on a later git that row is a skipped subtest naming the version."""
         repo, levers, env = self._fixture()
         plan = self.base / "plan.json"
         plan.write_text(json.dumps(levers), encoding="utf-8")
@@ -575,6 +623,12 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
         self.assertIn("?? src/evil2.py", baseline["answers"]["tree"])
         self.assertNotIn("x.log", baseline["answers"]["tree"])
         self.assertIn("M src/x.py", baseline["answers"]["tree"])
+        # ... and it read the objects HEAD names, not their replacement: `refs/replace/` maps base
+        # to second, whose `a.txt` differs from the checkout. Without this line every row is
+        # compared with a baseline that may already follow the replacement, and a funnel without
+        # its replacement pins passed the whole sweep (measured 2026-09-27 on a scratch copy, on
+        # git 2.34.1 and 2.55.0).
+        self.assertNotIn("M a.txt", baseline["answers"]["tree"])
         self.assertEqual(baseline["answers"]["verifier_listing"],
                          [0, " M src/x.py\n?? src/evil2.py\n"])
         self.assertEqual(baseline["answers"]["anchor"], ["KEY"])
@@ -584,6 +638,19 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
             with self.subTest(setting=label):
                 self.assertEqual(got["answers"], baseline["answers"],
                                  f"{label} changed what the chain was told")
+                if label in self.VERSION_BOUND and got["plain"] == baseline["plain"]:
+                    first, witness, why = self.VERSION_BOUND[label]
+                    version = _git_version()
+                    shown = ".".join(map(str, version))
+                    self.assertGreaterEqual(
+                        version, first, f"{label} does not change a plain git's answer on git "
+                        f"{shown}, a version on which it should: this row measures nothing")
+                    self.assertNotEqual(
+                        results[witness]["plain"], baseline["plain"],
+                        f"{witness} does not change a plain git's answer either: the fixture "
+                        "measures nothing about this property")
+                    self.skipTest(f"the attack of this row does not exist on git {shown}: {why}. "
+                                  f"The property is measured on this git by the row {witness!r}.")
                 if label in self.LIVE:
                     self.assertNotEqual(got["plain"], baseline["plain"],
                                         f"{label} does not change a plain git's answer here, so "

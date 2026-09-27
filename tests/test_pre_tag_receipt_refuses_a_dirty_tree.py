@@ -78,9 +78,19 @@ def _kindumgebung(**zusatz) -> dict:
 def _git(cwd, *args) -> str:
     """Fixture git, in an environment this file controls: a sibling case that imports the tool
     flips `GIT_NO_REPLACE_OBJECTS` for the whole process, and a fixture that inherited it would
-    build a different state depending on which case ran before it."""
-    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True,
-                       env=_kindumgebung())
+    build a different state depending on which case ran before it.
+
+    NO AUTOMATIC MAINTENANCE (2026-09-27, measured). On git 2.55.0 the maintenance that `commit`
+    starts goes to the background and still holds `.git/objects/maintenance.lock` after `commit`
+    has returned: right after 120 of 200 commits the lock was there, and a copy of the repository
+    failed 20 times in 200 because the lock vanished during the copy. The `core.worktree` case
+    copies the fixture repository right after the commit of `setUp`, and failed exactly so once in
+    the 3.14 run. With `maintenance.auto=false`: 0 of 200; git 2.34.1 without it: 0 of 200. The
+    release notes of git 2.47.0 carry a change that fits ("Maintenance tasks other than "gc" now
+    properly go background when "git maintenance" runs them"); the version boundary itself was
+    not measured."""
+    r = subprocess.run(["git", "-c", "maintenance.auto=false", *args], cwd=str(cwd),
+                       capture_output=True, text=True, env=_kindumgebung())
     if r.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed in {cwd}: {r.stderr}")
     return r.stdout.strip()
