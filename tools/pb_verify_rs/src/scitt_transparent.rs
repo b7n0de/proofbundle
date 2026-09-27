@@ -23,8 +23,8 @@ use crate::scitt::{
 const RECEIPTS: i128 = 394;
 const VDS: i128 = 395;
 const VDP: i128 = 396;
-const INCLUSION: i128 = -1;
-const CONSISTENCY: i128 = -2;
+pub(crate) const INCLUSION: i128 = -1;
+pub(crate) const CONSISTENCY: i128 = -2;
 /// The value -05 asks IANA for (TBD_1), not yet assigned.
 const CCF_LEDGER_SHA256: i128 = 2;
 const SHA256_ALG: i128 = -16;
@@ -44,7 +44,7 @@ const RECEIPT_CRIT_PROCESSED: [i128; 4] = [ALG, KID, CWT, VDS];
 
 const UNBOUND: &str = "unbound";
 const ROOT_MISMATCH: &str = "root_mismatch";
-const SIGNATURE_INVALID: &str = "signature_invalid";
+pub(crate) const SIGNATURE_INVALID: &str = "signature_invalid";
 const RECEIPT_NOT_BOUND: &str = "receipt_not_bound";
 
 /// The order that decides an entry without a confirmed receipt (Python's STATUS_ORDER).
@@ -60,9 +60,9 @@ const STATUS_ORDER: [&str; 9] = [
     NEEDS_RP_TRUST,
 ];
 
-type Hash = [u8; 32];
+pub(crate) type Hash = [u8; 32];
 
-fn sha256(parts: &[&[u8]]) -> Hash {
+pub(crate) fn sha256(parts: &[&[u8]]) -> Hash {
     let mut h = Sha256::new();
     for p in parts {
         h.update(p);
@@ -75,9 +75,9 @@ fn sha256(parts: &[&[u8]]) -> Hash {
 // {"spki": hex, "kid": hex or null}. Anything else is ignored, and ignored trust is absent trust.
 // ---------------------------------------------------------------------------------------------------
 pub(crate) struct TrustKey {
-    spki: Vec<u8>,
+    pub(crate) spki: Vec<u8>,
     kid: Option<Vec<u8>>,
-    key: PubKey,
+    pub(crate) key: PubKey,
 }
 
 /// `_normalize_keys`: the first `MAX_TRUSTED_KEYS` entries v1 verifies with, and how many entries
@@ -123,7 +123,7 @@ fn normalize_keys(entries: Option<&Value>) -> (Vec<TrustKey>, usize) {
 }
 
 /// The self-binding measured on every -05 receipt: hex(SHA-256(SubjectPublicKeyInfo)), as ASCII.
-fn derived_kid(spki: &[u8]) -> Vec<u8> {
+pub(crate) fn derived_kid(spki: &[u8]) -> Vec<u8> {
     hex::encode(sha256(&[spki])).into_bytes()
 }
 
@@ -264,39 +264,47 @@ fn inclusion_root(raw: &Item) -> Result<(Hash, Hash), ()> {
     Ok((h, dh))
 }
 
-/// -05 section 4.2 compute_roots of one ccf-consistency-proof, after `_ANCHOR_RULES`: -> the newer
-/// root (the older one and the first tag are the consistency surface's, not read here).
-fn consistency_newer_root(raw: &Item) -> Result<Hash, ()> {
+/// -05 section 4.2 compute_roots of one ccf-consistency-proof, after `_ANCHOR_RULES`: -> (the older
+/// root, the newer root, whether the first path element is a left sibling). The anchor folded with
+/// the left siblings alone gives the older root, with all siblings the newer one.
+fn consistency_roots(raw: &Item) -> Result<(Hash, Hash, bool), ()> {
     let (anchor, path) = proof(raw)?;
-    let Some(mut newer) = bytes32(&anchor) else {
+    let Some(anchor) = bytes32(&anchor) else {
         return Err(());
     };
-    for (left, sib) in path {
-        newer = if left {
-            sha256(&[&sib, &newer])
+    let (mut older, mut newer) = (anchor, anchor);
+    for (left, sib) in &path {
+        if *left {
+            older = sha256(&[sib, &older]);
+            newer = sha256(&[sib, &newer]);
         } else {
-            sha256(&[&newer, &sib])
-        };
+            newer = sha256(&[&newer, sib]);
+        }
     }
-    Ok(newer)
+    Ok((older, newer, path[0].0))
 }
 
 /// A receipt the CDDL pass accepted, with what the status logic reads.
-struct ValidReceipt {
-    rc: Cose,
-    readable: bool,
-    kid: Option<Vec<u8>>,
-    iss: Option<String>,
-    iat: Option<i128>,
-    txid: Option<String>,
-    consistency_present: bool,
-    inclusion: Vec<(Hash, Hash)>,
-    consistency_newer: Vec<Hash>,
+pub(crate) struct ValidReceipt {
+    pub(crate) rc: Cose,
+    pub(crate) readable: bool,
+    pub(crate) kid: Option<Vec<u8>>,
+    pub(crate) iss: Option<String>,
+    pub(crate) iat: Option<i128>,
+    pub(crate) txid: Option<String>,
+    pub(crate) vdp_present: bool,
+    pub(crate) inclusion_present: bool,
+    pub(crate) consistency_present: bool,
+    /// (root, data-hash) of each proof under vdp -1.
+    pub(crate) inclusion: Vec<(Hash, Hash)>,
+    /// (older root, newer root, first tag is left) of each proof under vdp -2.
+    pub(crate) consistency: Vec<(Hash, Hash, bool)>,
 }
 
-/// `_validate_receipt` for a Transparent Statement (the family it verifies is -1). `Err` is
-/// `malformed`, for this receipt alone.
-fn validate_receipt(raw: &Item) -> Result<ValidReceipt, ()> {
+/// `_validate_receipt`: the CDDL pass over one receipt. `verifies` is the family the caller checks
+/// (-1 for a Transparent Statement, -2 for a consistency receipt): the receipt is readable when it
+/// is a CCF receipt and that family parsed. `Err` is `malformed`.
+pub(crate) fn validate_receipt(raw: &Item, verifies: i128) -> Result<ValidReceipt, ()> {
     let Item::Bytes(bytes) = raw else {
         return Err(());
     };
@@ -306,7 +314,7 @@ fn validate_receipt(raw: &Item) -> Result<ValidReceipt, ()> {
     }
     let ccf = is_ccf(&rc);
     let mut inclusion = Vec::new();
-    let mut consistency_newer = Vec::new();
+    let mut consistency = Vec::new();
     if ccf {
         if !ccf_rules_hold(&rc) {
             return Err(());
@@ -318,9 +326,9 @@ fn validate_receipt(raw: &Item) -> Result<ValidReceipt, ()> {
                 .collect::<Result<_, ()>>()?;
         }
         if let Some(Item::Array(proofs)) = family(&rc, CONSISTENCY) {
-            consistency_newer = proofs
+            consistency = proofs
                 .iter()
-                .map(consistency_newer_root)
+                .map(consistency_roots)
                 .collect::<Result<_, ()>>()?;
         }
     }
@@ -353,18 +361,25 @@ fn validate_receipt(raw: &Item) -> Result<ValidReceipt, ()> {
         Some((_, Item::Text(t))) => Some(t.clone()),
         _ => None,
     };
-    let consistency_present =
-        matches!(vdp_of(&rc), Some(Item::Map(vdp)) if get(vdp, CONSISTENCY).is_some());
+    let present = |key| matches!(vdp_of(&rc), Some(Item::Map(vdp)) if get(vdp, key).is_some());
+    let (inclusion_present, consistency_present) = (present(INCLUSION), present(CONSISTENCY));
+    let parsed = if verifies == INCLUSION {
+        !inclusion.is_empty()
+    } else {
+        !consistency.is_empty()
+    };
     Ok(ValidReceipt {
-        readable: ccf && !inclusion.is_empty(),
+        readable: ccf && parsed,
+        vdp_present: vdp_of(&rc).is_some(),
         rc,
         kid,
         iss,
         iat,
         txid,
+        inclusion_present,
         consistency_present,
         inclusion,
-        consistency_newer,
+        consistency,
     })
 }
 
@@ -400,8 +415,9 @@ fn crit_ok(ph: &[(Key, Item)], processed: &[i128]) -> bool {
     })
 }
 
-/// `_receipt_outside`, the attached payload and `_receipt_crit`: the -05 rules a receipt is held to.
-fn receipt_outside(v: &ValidReceipt) -> bool {
+/// `_receipt_outside` and `_receipt_crit`: the -05 rules every receipt shares, inclusion or
+/// consistency (3.1, 4.1).
+pub(crate) fn receipt_rules_outside(v: &ValidReceipt) -> bool {
     let rc = &v.rc;
     let alg_ok = matches!(get(&rc.protected, ALG), Some(Item::Int(a)) if RECEIPT_ALGS.contains(a));
     !rc.tagged
@@ -409,9 +425,32 @@ fn receipt_outside(v: &ValidReceipt) -> bool {
         || !is_ccf(rc)
         || v.kid.is_none()
         || v.iss.is_none()
-        || rc.payload.is_some()
         || get(&rc.unprotected, CRIT).is_some()
         || !crit_ok(&rc.protected, &RECEIPT_CRIT_PROCESSED)
+}
+
+/// The shared rules and, for an inclusion receipt, its attached payload.
+fn receipt_outside(v: &ValidReceipt) -> bool {
+    receipt_rules_outside(v) || v.rc.payload.is_some()
+}
+
+/// The relying party's service keys for the receipt's issuer whose kid, given or derived, is the
+/// receipt's: the keys its signature is tried with.
+pub(crate) fn candidates(services: Option<&Value>, v: &ValidReceipt) -> Vec<TrustKey> {
+    let trusted = match (services, &v.iss) {
+        (Some(Value::Object(s)), Some(iss)) => s.get(iss),
+        _ => None,
+    };
+    let (keys, _) = normalize_keys(trusted);
+    keys.into_iter()
+        .filter(|k| {
+            k.kid
+                .clone()
+                .unwrap_or_else(|| derived_kid(&k.spki))
+                .as_slice()
+                == v.kid.as_deref().unwrap_or_default()
+        })
+        .collect()
 }
 
 /// `_receipt_status`: the status of one receipt the CDDL pass accepted.
@@ -438,28 +477,15 @@ fn receipt_status(
     let root = v.inclusion[0].0;
     out.merkle_root = Some(root);
     out.data_hashes = v.inclusion.iter().map(|(_, dh)| *dh).collect();
-    if v.inclusion.iter().any(|(r, _)| *r != root) || v.consistency_newer.iter().any(|n| *n != root)
+    if v.inclusion.iter().any(|(r, _)| *r != root)
+        || v.consistency.iter().any(|(_, n, _)| *n != root)
     {
         out.status = ROOT_MISMATCH;
         return out;
     }
     let bound = out.data_hashes.iter().all(|dh| dh.as_slice() == data_hash);
     out.bound = Some(bound);
-    let trusted = match (services, &v.iss) {
-        (Some(Value::Object(s)), Some(iss)) => s.get(iss),
-        _ => None,
-    };
-    let (keys, _) = normalize_keys(trusted);
-    let candidates: Vec<&TrustKey> = keys
-        .iter()
-        .filter(|k| {
-            k.kid
-                .clone()
-                .unwrap_or_else(|| derived_kid(&k.spki))
-                .as_slice()
-                == v.kid.as_deref().unwrap_or_default()
-        })
-        .collect();
+    let candidates = candidates(services, v);
     if candidates.is_empty() {
         out.status = NEEDS_RP_TRUST;
         return out;
@@ -556,7 +582,12 @@ pub fn verify_transparent_statement(
     // THE CDDL PASS: label 394 in the unprotected header, then every receipt on its own.
     let passed: Option<Vec<Result<ValidReceipt, ()>>> = match get(&st.unprotected, RECEIPTS) {
         Some(Item::Array(receipts)) if !receipts.is_empty() && receipts.len() <= MAX_RECEIPTS => {
-            Some(receipts.iter().map(validate_receipt).collect())
+            Some(
+                receipts
+                    .iter()
+                    .map(|r| validate_receipt(r, INCLUSION))
+                    .collect(),
+            )
         }
         _ => None,
     };
@@ -646,7 +677,7 @@ fn statement_signature(
 // ---------------------------------------------------------------------------------------------------
 // The result as JSON, the fields and names of Python's `to_dict()` (bytes as hex)
 // ---------------------------------------------------------------------------------------------------
-fn hex_or_null<T: AsRef<[u8]>>(v: &Option<T>) -> Value {
+pub(crate) fn hex_or_null<T: AsRef<[u8]>>(v: &Option<T>) -> Value {
     v.as_ref()
         .map_or(Value::Null, |b| Value::String(hex::encode(b)))
 }

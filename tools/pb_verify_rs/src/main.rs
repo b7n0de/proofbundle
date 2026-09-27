@@ -20,6 +20,10 @@
 //!   verify-scitt-transparent-statement <statement.cbor> <canonical_root_hex> [<rp_trust.json>]
 //!                                              -> scitt-ccf/v1 Transparent Statement against a target's
 //!                                                 root (src/scitt_transparent.rs); prints the result as JSON
+//!   verify-scitt-consistency-receipt <receipt.cbor> <older_root_hex> <older_issuer> [<rp_trust.json>]
+//!                                              -> scitt-ccf/v1 CCF consistency receipt against an older
+//!                                                 root the caller holds (src/scitt_consistency.rs); prints
+//!                                                 the result as JSON
 //!   coverage-report                            -> JSON self-declaration of the subcommands above (single
 //!                                                  source of truth consumed by scripts/rust_parity_gate.py
 //!                                                  in the Python repo — never hand-duplicate this list)
@@ -29,6 +33,7 @@ use std::fmt;
 use std::process::exit;
 
 mod scitt;
+mod scitt_consistency;
 mod scitt_transparent;
 
 use base64::Engine;
@@ -1018,6 +1023,7 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
     "verify-relation-statement",
     "verify-scitt-statement-signature",
     "verify-scitt-transparent-statement",
+    "verify-scitt-consistency-receipt",
 ];
 
 // ---------------------------------------------------------------------------
@@ -3026,7 +3032,7 @@ fn main() {
         eprintln!(
             "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
 verify-trust-pack-threshold|verify-relation|verify-relation-statement|verify-scitt-statement-signature|\
-verify-scitt-transparent-statement|coverage-report> ..."
+verify-scitt-transparent-statement|verify-scitt-consistency-receipt|coverage-report> ..."
         );
         exit(2);
     }
@@ -3239,6 +3245,35 @@ verify-scitt-transparent-statement|coverage-report> ..."
                 Err(ReadRefusal::OverBudget(_)) => {
                     scitt_transparent::TransparentStatementCheck::malformed()
                 }
+                Err(ReadRefusal::Unreadable(m)) => fatal(&m),
+            };
+            println!("{}", check.to_json());
+            exit(check.exit_class());
+        }
+        "verify-scitt-consistency-receipt" => {
+            let usage = "verify-scitt-consistency-receipt needs a receipt file, an older root and \
+                         the issuer of the receipt that root came from";
+            let path = args.get(2).unwrap_or_else(|| fatal(usage));
+            let older_root = hex::decode(args.get(3).unwrap_or_else(|| fatal(usage)))
+                .unwrap_or_else(|e| fatal(&format!("the older root is not hex: {e}")));
+            let older_issuer = args.get(4).unwrap_or_else(|| fatal(usage));
+            // Relying-party trust as JSON: {"scitt_ccf_services": {"<issuer>": [...]}}, each key
+            // SubjectPublicKeyInfo DER as hex or {"spki", "kid"}.
+            let trust = match args.get(5) {
+                Some(p) => strict_parse(&read_file(p))
+                    .unwrap_or_else(|e| fatal(&format!("bad relying-party trust: {e}"))),
+                None => serde_json::Value::Null,
+            };
+            // As for the statements: bytes past the input budget are `malformed`, as the Python
+            // reader reads them, and only a file that cannot be read at all is `fatal`.
+            let check = match read_input(path) {
+                Ok(data) => scitt_consistency::verify_consistency_receipt(
+                    &data,
+                    &older_root,
+                    older_issuer,
+                    &trust,
+                ),
+                Err(ReadRefusal::OverBudget(_)) => scitt_consistency::ConsistencyCheck::malformed(),
                 Err(ReadRefusal::Unreadable(m)) => fatal(&m),
             };
             println!("{}", check.to_json());
