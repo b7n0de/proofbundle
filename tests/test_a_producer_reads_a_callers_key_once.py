@@ -78,6 +78,26 @@ from proofbundle.signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_wea
 from tests.test_trust_anchor_keys_refused_on_every_surface import WEAK, _raw  # noqa: E402
 
 
+def _not_shipped(rel: str) -> bool:
+    """True only for a repository file this tree lacks BY DESIGN.
+
+    MEASURED IN CI at 7feeb47a (published-artifact-gate / hermetic-cleanroom): the extracted sdist
+    does not carry `scripts/gen_findings_register.py`, `scripts/pre_tag_receipt.py` or
+    `scripts/render_site_data.py` (MANIFEST.in leaves them out on purpose), so two `assemble` cases
+    and the scan failed there on files that are absent by design. The answer comes from
+    `tests/conftest.py`, the one place that decides it: outside a git checkout a missing file is
+    N/A only when the distribution's own file list does not name it. A file the list names and the
+    tree lacks is a packaging error and stays loud, and in a checkout nothing is skipped. Without
+    conftest there is no basis, and the case stays loud as well."""
+    if (REPO / rel).exists():
+        return False
+    try:
+        from conftest import _verteilung_sollte_enthalten, running_in_repo_checkout  # noqa: PLC0415
+    except Exception:                                  # noqa: BLE001
+        return False
+    return not running_in_repo_checkout() and not _verteilung_sollte_enthalten(rel)
+
+
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
 
@@ -395,6 +415,39 @@ class ProducersOfKeyText(_Contract):
                     with self.subTest(producer=producer, form=name, direction=label):
                         self._holds(stored, self._result_of(call, decode))
 
+    def test_the_predicate_is_judged_in_the_form_that_is_signed(self):
+        """Reading the predicate once through its RFC 8785 form changes a verdict for a PLAIN predicate,
+        decided and pinned here. An integer field given as a float of integral value and an array given
+        as a tuple were refused at 75c3aa48 by the validator's type checks, and are signed now, because
+        the form that is signed does not carry the difference: the statement and the signed payload are
+        byte-identical to the ones for the integer or the list. A value the form keeps apart stays
+        refused (`1.5`, `True`)."""
+        from proofbundle.trust_pack import TrustPackError, build_trust_pack_statement, sign_trust_pack
+        owner = Ed25519PrivateKey.generate()
+        plain = self._pred(owner, {"publicKey": _b64(_raw(Ed25519PrivateKey.generate()))})
+
+        def with_role(**kw):
+            return dict(plain, roles={"root": dict(plain["roles"]["root"], **kw)})
+
+        stated = json.dumps(build_trust_pack_statement(plain), sort_keys=True)
+        payload = sign_trust_pack(plain, {"o": owner})["payload"]
+        same_form = {"version 1.0": dict(plain, version=1.0),
+                     "threshold 1.0": with_role(threshold=1.0),
+                     "keyIds as a tuple": with_role(keyIds=tuple(plain["roles"]["root"]["keyIds"])),
+                     "nonClaims as a tuple": dict(plain, nonClaims=tuple(plain["nonClaims"]))}
+        for name, pred in same_form.items():
+            with self.subTest(written_as_the_plain_predicate=name):
+                self.assertEqual(json.dumps(build_trust_pack_statement(pred), sort_keys=True), stated)
+                self.assertEqual(sign_trust_pack(pred, {"o": owner})["payload"], payload)
+        for name, pred in {"version 1.5": dict(plain, version=1.5),
+                           "version True": dict(plain, version=True),
+                           "threshold 1.5": with_role(threshold=1.5)}.items():
+            for producer in (lambda p: build_trust_pack_statement(p),
+                             lambda p: sign_trust_pack(p, {"o": owner})):
+                with self.subTest(refused=name):
+                    with self.assertRaises(TrustPackError):
+                        producer(pred)
+
 
 # ── 3. the three `assemble` steps under scripts/ ───────────────────────────────────────────────────
 
@@ -486,7 +539,11 @@ class TheAssembleSteps(_Contract):
 
     def _run(self, producer: str) -> list:
         path, fn, lib, where = _PRODUCERS[producer]
-        cases = [[form, weak.hex(), real_stored] for weak, _reason in WEAK for form in TEXT_FORMS
+        for rel in (path, f"scripts/{lib}.py"):
+            if _not_shipped(rel):
+                self.skipTest(f"not shipped: {rel} is not in this distribution, so its `assemble` "
+                              "step is N/A outside a git checkout")
+        cases =[[form, weak.hex(), real_stored] for weak, _reason in WEAK for form in TEXT_FORMS
                  for real_stored in (False, True)]
         env = dict(os.environ, PYTHONPATH=str(REPO / "src"), PYTHONDONTWRITEBYTECODE="1")
         r = subprocess.run([sys.executable, "-B", "-c", _DRIVER, str(REPO / path), fn,
@@ -680,7 +737,9 @@ class EveryCallOfTheRuleIsNamed(unittest.TestCase):
 
     def test_the_scan_and_the_list_agree_in_both_directions(self):
         found = _rule_sites()
-        listed = {where: n for where, (n, _why) in _RULE_SITES.items()}
+        # A named site in a file this distribution leaves out by design cannot be scanned here; every
+        # other named site must still be found (see `_not_shipped`).
+        listed = {where: n for where, (n, _why) in _RULE_SITES.items() if not _not_shipped(where[0])}
         self.assertEqual({k: v for k, v in found.items() if listed.get(k) != v}, {},
                          "a call of the rule that no one has read and named")
         self.assertEqual({k: v for k, v in listed.items() if found.get(k) != v}, {},

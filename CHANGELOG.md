@@ -329,8 +329,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   once: its RFC 8785 bytes are parsed back, and the validator, the subject digest and the signature
   use that parse, so a `dict` subclass whose `get` answers for a real key while it stores the
   identity point is refused too, and a predicate that cannot be written as RFC 8785 JSON raises
-  `TrustPackError`. The issuer parser of `--expect-issuer` and of the exports that refuse to vouch
-  (`evalclaim._issuer_key_weakness`) reads the issuer once, so a `str` subclass whose `startswith`
+  `TrustPackError`. That read changes one verdict for a plain predicate as well, decided and pinned
+  by the contract: an integer field given as a float of integral value (`version`, a role's
+  `threshold`) and an array given as a tuple (`keyIds`, `nonClaims`) were refused at 75c3aa48 by
+  the validator's type checks and are signed now, because the RFC 8785 form does not carry the
+  difference; the statement and the signed payload are byte-identical to the ones for the integer
+  or the list, and `1.5` or `True` stay refused. The issuer parser of `--expect-issuer` and of the
+  exports that refuse to vouch (`evalclaim._issuer_key_weakness`) reads the issuer once, so a `str`
+  subclass whose `startswith`
   and `__getitem__` answer for a real key no longer lets `export_eval_result_dsse` or
   `export_intoto_dsse` sign over a claim that holds the identity point. `checkpoint.key_id`,
   `cosign_key_id`, `cosign_key_id_mldsa` and `cosign_vkey_mldsa` read the key once as well, so a key
@@ -344,18 +350,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   refused a `bytearray` until now and accept it, as `issue_sd_jwt` did. One effect on the verifier
   side, through the shared decoder, measured on 3.10: `policy.load_policy` accepted a pin given as a
   `str` subclass whose `encode` answers for a real key while its text is the identity point, and
-  now refuses it. Contract `tests/test_a_producer_reads_a_callers_key_once.py`, 14 cases and 998
+  now refuses it. Contract `tests/test_a_producer_reads_a_callers_key_once.py`, 15 cases and 1008
   subtests, green on 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7; every producer of its sweep list
   gets each hostile form in both directions (the weak key stored and a real key answered, and the
   reverse), and a scan names every call of the rule's helpers under `src/` and `scripts/`. Against
-  the source of 75c3aa48 it fails 709 times on 3.10 and 3.11 and 801 times on 3.12 to 3.14 (1
-  outright, the readers that do not exist there; the 92 more are the `__buffer__` form), with every
+  the source of 75c3aa48 it fails 713 times on 3.10 and 3.11 and 805 times on 3.12 to 3.14 (1
+  outright, the readers that do not exist there; 4 are the plain trust-pack predicates above; the
+  92 more are the `__buffer__` form), with every
   producer of the list among them; of those, the `bytearray` cases of the vkeys and key IDs fail
   because a `bytearray` was refused there, not because it was read twice. Planted in a throwaway
   copy, each of six second readings turns it red: `issue_sd_jwt` writing `bytes(key)`, `vkey`
   concatenating the caller's key, `sign_trust_pack` validating and signing the caller's predicate,
   the issuer parser slicing the caller's `str`, `sign_readiness_artifact` writing `str(key)`, and the
-  decoder calling the caller's `encode` (26, 13, 13, 52, 13 and 1 failures).
+  decoder calling the caller's `encode` (26, 13, 17, 52, 13 and 1 failures).
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
