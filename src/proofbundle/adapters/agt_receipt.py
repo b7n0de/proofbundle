@@ -49,7 +49,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Dict, Iterable, Optional, Sequence
+import struct
+from typing import Any, Dict, Iterable, Optional, Sequence, cast
 
 from .._membership import is_member
 from ..errors import VerificationResult
@@ -213,11 +214,18 @@ def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
     if fehlend:
         raise AGTReceiptError(
             f"external authorization metadata is incomplete: {', '.join(sorted(fehlend))}")
+    return _autorisierungsnutzlast(receipt, payload_hash(receipt))
+
+
+def _autorisierungsnutzlast(receipt: Dict[str, Any], nutzlast_hash: str) -> bytes:
+    """The authorization payload over a receipt payload hash the caller already has. The verifiers
+    pass the hash of the ONE serialisation of the receipt payload they made (lens run 5 at c8c61651,
+    F2), so the receipt payload is never serialised a second time, one frame deeper, to bind it here."""
     daten = {
         "authorizer_id": receipt["authorizer_id"],
         "authorization_expires_at": receipt["authorization_expires_at"],
         "authorization_nonce": receipt["authorization_nonce"],
-        "receipt_payload_hash": payload_hash(receipt),
+        "receipt_payload_hash": nutzlast_hash,
         "type": AGT_AUTHORIZATION_TYPE,
     }
     return _kanonisch(daten, "authorization payload")
@@ -262,6 +270,33 @@ _WERTBYTES = frozenset(("x", "c", "b", "B", "?", "h", "H", "i", "I", "l", "L", "
 _NICHT_LESBAR = {"zeichen": "text", "texte": "text", "verweise": "references",
                  "verbund": "records, pointers or items of an unknown kind"}
 
+#: The ctypes kinds whose buffer format cannot be trusted to name them, decided by the TYPE of the
+#: value (lens run 5 at c8c61651, F1). ctypes is imported only to recognise its objects; no function of
+#: it is called. `issubclass(type(x), ...)` reads the type's own method resolution order and runs no
+#: code of the caller's. `_CTYPES_ZEIGER` is a pointer, which a walk would follow item after item.
+_CTYPES_VERBUND: "tuple[type, ...]" = ()
+_CTYPES_ZEIGER: "tuple[type, ...]" = ()
+try:
+    import ctypes as _ctypes
+    from _ctypes import CFuncPtr as _CFuncPtr
+except ImportError:  # pragma: no cover — an interpreter built without ctypes holds no ctypes object
+    pass
+else:
+    _CTYPES_VERBUND = (_ctypes.Structure, _ctypes.Union, _ctypes._Pointer, _CFuncPtr)
+    _CTYPES_ZEIGER = (_ctypes._Pointer,)
+
+
+def _groesse_stimmt(form: str, itemsize: int) -> bool:
+    """Whether a one-item buffer format describes an item of the size the buffer reports. False only
+    when the struct module sizes the format and gets another number: ctypes exports a record it cannot
+    describe (a Union, a Structure with `_pack_`, an array of either) with the bare format `B` and the
+    record's own item size, 256 bytes for a Union holding 64 wide characters. A code the struct module
+    does not size (`u`, `w`, `O`, `Z`, `z`, `g`, a byte-order prefix on `P`) is left to its code."""
+    try:
+        return struct.calcsize(form) == itemsize
+    except struct.error:
+        return True
+
 
 def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None, str | None]":
     """What a value is by the buffer it exports, its bytes where they are the value it holds, the
@@ -281,6 +316,23 @@ def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None, str | None]":
     `verbund`   a compound or unknown item (a record `T{...}`, a pointer `&...`, a function pointer
                 `X{}`, a code outside `_WERTBYTES`). Its bytes are judged as they are, as they were
                 before, but they are not known to be the value it holds.
+
+    A RECORD IS A RECORD WHATEVER FORMAT IT EXPORTS (lens run 5 at c8c61651, F1). ctypes exports a
+    record it cannot describe with the bare format `B` at no dimension: a `ctypes.Union`, a `Structure`
+    with `_pack_` (a big-endian one too), and an array of either, which even exports `B` in one
+    dimension. Read by the format alone, the identity point as hex text in a `c_wchar * 65` field of
+    such a record was "numbers" (the array: "one byte string"), its 256 bytes named no key, and
+    `[real key, record]` gave exit 0 for every receipt and for the chain. So the kind is decided by the
+    TYPE as well as by the format: a ctypes Structure, Union, pointer or function pointer is `verbund`
+    whatever it exports, and so is any buffer whose one-item format the struct module sizes to another
+    number than the item size the buffer reports, which catches an array of such records at any depth
+    without reading its element type (`_type_` is a class attribute, and a caller can define the class).
+    numpy did not hide a record this way where it was measured (numpy 2.2.6, eighteen dtypes with
+    fields, overlay dtypes included): each exports `T{...}`, and an unstructured void exports pad
+    bytes, which are its bytes.
+    A `P` buffer (`c_void_p`, `memoryview.cast('P')`) holds addresses as numbers, and its bytes are
+    handed on (F4 of the same run): walked, the identity point as four pointer-sized numbers named no
+    key, so a WHOLE such value is judged by its bytes first, as a buffer of numbers is.
 
     `ein`, `binaer` and `verbund` hand on their bytes, and the list reader judges a WHOLE value of the
     last kind by them, as it did before: a record of numbers can hold a key's bytes. For `zeichen`,
@@ -310,11 +362,12 @@ def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None, str | None]":
     with sicht:
         form = str.__str__(sicht.format)
         posten = _POSTEN.fullmatch(form)
-        if posten is None:
+        if (posten is None or issubclass(type(wert), _CTYPES_VERBUND)
+                or not _groesse_stimmt(form, sicht.itemsize)):
             return "verbund", sicht.tobytes(), sicht.ndim, form
         anzahl, code = posten.group(1), posten.group(2)
         if code in ("O", "P", "Z", "z"):
-            return "verweise", None, sicht.ndim, form
+            return "verweise", (sicht.tobytes() if code == "P" else None), sicht.ndim, form
         if code in ("u", "w"):
             return ("texte" if int(anzahl or "1") > 1 else "zeichen"), None, sicht.ndim, form
         if not is_member(code, _WERTBYTES):
@@ -404,6 +457,20 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     syntax a ctypes field name can make ambiguous. Every entry that exports a buffer is therefore
     either judged by its bytes, where they are the value it holds, or refuses the list; none passes as
     naming no key. A plain container (a nested list, a dict) exports no buffer and still names no key.
+    Which entry is a record is decided by its type as well as its format (see `_puffer`, lens run 5 at
+    c8c61651, F1: a ctypes Union or packed Structure exports the bare format `B`). The bytes of a
+    refused entry are STILL judged where it hands them on: a weak key's 32 bytes inside such a record
+    add the key refusal to the record refusal, as they refused the list when the record passed for
+    numbers, so no reason a key was refused for before is lost.
+
+    A POINTER IS NOT WALKED (lens run 5, found next to F3). A whole ctypes pointer (`POINTER(c_char)`
+    and the like) has no length, and walking it reads one item after another from the address it holds
+    and never stops: past the memory it points into, until the process faults. It is refused as a
+    pointer before anything is read. A whole ctypes ARRAY of `c_char_p` or `c_wchar_p` is walked, and
+    ctypes reads the text each pointer names: that is by design, the caller's own pointers are
+    followed, and the real key given as `(c_wchar_p * n)(...)` is authorised that way, as main
+    authorises it. Its length bounds the walk; a pointer in it that names no valid address is the
+    caller's fault and is not detected.
 
     ONE KEY IS NOT A LIST (lens run 2 at 8cf49247, K2-1-C). A str, or one byte string (bytes,
     bytearray, a memoryview or array of single bytes, see `_puffer`), is ONE spelling; walked, text
@@ -445,8 +512,12 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     or cancel the caller's work, they are not a list that failed to read.
     """
     gelesen: "list[str | bytes | None]" = []
-    unlesbar: "dict[int, str]" = {}
+    unlesbar: "dict[int, tuple[str, bytes | None]]" = {}
     try:
+        if issubclass(type(schluessel), _CTYPES_ZEIGER):
+            return None, (f"trusted_authorizer_keys is a {_typname(schluessel)} pointer, not a "
+                          f"collection of keys — a pointer has no length, and walking it would read "
+                          f"item after item past the memory it points into")
         art, roh, dimensionen, _ = (("ein", None, 1, None) if isinstance(schluessel, str)
                                     else _puffer(schluessel))
         if art in ("ein", "zeichen"):
@@ -456,7 +527,7 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
             return None, (f"trusted_authorizer_keys is a {_typname(schluessel)} of {dimensionen} "
                           f"dimensions, not a flat collection of keys — its entries are arrays, "
                           f"which name no key, so a key inside them would never be judged")
-        if art in ("binaer", "verbund") and roh is not None:
+        if art in ("binaer", "verbund", "verweise") and roh is not None:
             grund = _schwaeche(roh)
             if grund is not None:
                 return None, _abgewiesen(
@@ -477,7 +548,7 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
                     f"holds {_NICHT_LESBAR[art]} (format {str(form)[:40]!r}), not the bytes of a key: "
                     f"the value it holds cannot be read without running code of the caller's or "
                     f"following a pointer, so a key it carries would never be judged — pass each "
-                    f"key as a str")
+                    f"key as a str", roh)
                 gelesen.append(None)
             else:
                 gelesen.append(roh if art in ("ein", "binaer") else None)
@@ -490,7 +561,12 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     gruende = []
     for i, eintrag in enumerate(eintraege):
         if i in unlesbar:
-            gruende.append(unlesbar[i])
+            ablehnung, verbundbytes = unlesbar[i]
+            gruende.append(ablehnung)
+            grund = _schwaeche(verbundbytes)
+            if grund is not None and verbundbytes is not None:
+                gruende.append(_abgewiesen(f"trusted_authorizer_keys[{i}] ({_kurz(verbundbytes)}…), "
+                                           f"whose bytes spell one key,", grund))
             continue
         grund = _schwaeche(eintrag)
         if grund is not None:
@@ -507,6 +583,55 @@ def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
         return bytes.fromhex(a_hex) == bytes.fromhex(b_hex)
     except (ValueError, TypeError):
         return a_hex == b_hex
+
+
+def _feldkopie(receipt: Any) -> "Dict[str, Any] | None":
+    """The receipt's fields as a plain dict with plain `str` names, or None when it is no object.
+
+    READ THROUGH `dict`'S OWN STORAGE, NOT THROUGH THE RECEIPT'S METHODS (lens run 5 at c8c61651, F7).
+    A field lookup compares the name with every stored key of the same hash, and a key object whose
+    hash equals `hash("agent_did")` and whose `__eq__` raises made both verifiers raise RuntimeError
+    from a plain dict (on main 20e91c8e too); a dict subclass whose `get` raises escaped the same way (a
+    named limit until now). `dict.items` walks the stored pairs without calling a method of the
+    receipt or of a key: a key that is no text names no field and is left out, a `str` subclass key is
+    copied to the plain text it holds, and where both spell one name the plain `str` key wins, as a
+    lookup by that name found it. Every later read of a field reads this copy."""
+    if not issubclass(type(receipt), dict):
+        return None
+    kopie: "Dict[str, Any]" = {}
+    abgeleitet: "list[tuple[str, Any]]" = []
+    for name, wert in dict.items(receipt):
+        if type(name) is str:
+            kopie[name] = wert
+        elif issubclass(type(name), str):
+            abgeleitet.append((str.__str__(name), wert))
+    for name, wert in abgeleitet:
+        kopie.setdefault(name, wert)
+    return kopie
+
+
+def _gelesen(receipt: Any) -> "tuple[Dict[str, Any] | None, bytes | None, str]":
+    """A receipt read once: its fields (see `_feldkopie`), the canonical payload bytes, and the reason
+    when those bytes cannot be made (bytes None). Never raises an `Exception`.
+
+    THE ONE SERIALISATION OF A RECEIPT'S PAYLOAD IN THE VERIFIERS (lens run 5 at c8c61651, F2). The
+    single verifier serialised the payload up to three times: guarded for the signature, again through
+    `payload_hash` for the self-consistency check, outside every `try`, and a third time inside the
+    authorization payload; the chain a fourth time for the link. The second call ran one frame deeper
+    than the first, so a plain JSON receipt whose `tool_name` is a list nested just deep enough passed
+    the guarded call and raised RecursionError in the unguarded one, `AGTReceiptError` out of both
+    verifiers, at every stack depth of the caller (the window moves with it). A value whose own
+    `items()` raised on its second call escaped the same way. Now each receipt is serialised once,
+    here, and every hash of its payload, the self-consistency check, the authorization binding and the
+    chain link, is taken from these bytes. What cannot be serialised is one `readable` verdict."""
+    felder: "Dict[str, Any] | None" = None
+    try:
+        felder = _feldkopie(receipt)
+        return felder, canonical_payload(receipt if felder is None else felder), ""
+    except AGTReceiptError as fehler:
+        return felder, None, str(fehler)
+    except Exception as fehler:  # noqa: BLE001 — never-raise is the promise of the verify surfaces
+        return felder, None, f"the receipt cannot be read: reading it raised {_typname(fehler)}"
 
 
 def verify_agt_receipt(
@@ -553,28 +678,33 @@ def verify_agt_receipt(
     WHAT AN ENTRY CAN DO. Every entry that names a 32-byte key is JUDGED by the rule: hex text, and
     anything whose buffer holds bytes or numbers (bytes, bytearray, memoryview, array, a numpy array
     of numbers). An entry whose buffer holds text, references or records (a numpy text, object or
-    structured array, `array('u')`, a ctypes wide-character buffer, `c_char_p`, `c_wchar_p`) refuses
-    the list, exit 2, because the value it holds cannot be read without running the caller's code; a
-    nested list exports no buffer and names no key. Only hex TEXT can
+    structured array, `array('u')`, a ctypes wide-character buffer, `c_char_p`, `c_wchar_p`, a ctypes
+    Structure, Union or pointer, whatever format it exports) refuses the list, exit 2, because the
+    value it holds cannot be read without running the caller's code; a weak key's bytes inside such a
+    record are named as well. A nested list exports no buffer and names no key. Only hex TEXT can
     AUTHORISE: the authorizer key is compared with the entries as text, so a key given as raw bytes is
     refused when it is weak and otherwise matches nothing, not even the authorizer's own key (exit 3,
     a named limit in the CHANGELOG). Raw bytes are judged, and never trusted.
     """
     gelesen = None if trusted_authorizer_keys is None else _vertrauensliste(trusted_authorizer_keys)
     return _pruefe_mit_gelesener_liste(
-        receipt, gelesen, require_external_authorization=require_external_authorization, now=now)
+        receipt, gelesen, None, require_external_authorization=require_external_authorization, now=now)
 
 
 def _pruefe_mit_gelesener_liste(
     receipt: Dict[str, Any],
     gelesen: "tuple[tuple | None, str | None] | None",
+    vorgelesen: "tuple[Dict[str, Any] | None, bytes | None, str] | None",
     *,
     require_external_authorization: bool = False,
     now: Optional[float] = None,
 ) -> VerificationResult:
     """The body of :func:`verify_agt_receipt`, over a list `_vertrauensliste` has ALREADY read (None
     when the caller supplied none). Kept apart so the single call and the chain read the caller's list
-    through the same helper exactly once, and every receipt of a chain gets the same reading."""
+    through the same helper exactly once, and every receipt of a chain gets the same reading.
+    `vorgelesen` is the receipt as `_gelesen` read it, where the chain has read it already for its
+    links; None reads it here, after the list, so a refused list is still refused before the receipt
+    is read."""
     ergebnis = VerificationResult()
     vertraut: "tuple | None" = None
     if gelesen is not None:
@@ -591,12 +721,18 @@ def _pruefe_mit_gelesener_liste(
     # A DECISION THAT IS NOT TEXT IS UNREADABLE INPUT TOO, inside the same guard. `_text` raises
     # `AGTReceiptError` for it, and until lens run 3 at 481a1f26 it stood outside this `try`: a
     # `cedar_decision` of 5, None, a list or a dict escaped from both verifiers (on main 20e91c8e too).
+    # The payload is serialised ONCE, by `_gelesen`, which never raises; every field below is read
+    # from its plain copy, and every hash of the payload is taken from these bytes (lens run 5, F2).
+    felder, nutzlast, unlesbar = vorgelesen if vorgelesen is not None else _gelesen(receipt)
+    if felder is None or nutzlast is None:
+        ergebnis.add("readable", False, unlesbar)
+        return ergebnis
     try:
-        nutzlast = canonical_payload(receipt)
-        entscheidung = _text(receipt, "cedar_decision")
+        entscheidung = _text(felder, "cedar_decision")
     except AGTReceiptError as fehler:
         ergebnis.add("readable", False, str(fehler))
         return ergebnis
+    eigener_hash = hashlib.sha256(nutzlast).hexdigest()
 
     # THROUGH `is_member`, NOT THROUGH `in`. `cedar_decision` comes out of the receipt, so it is
     # attacker-controlled, and `_ENTSCHEIDUNGEN` hashes. An unhashable value would raise TypeError
@@ -615,8 +751,8 @@ def _pruefe_mit_gelesener_liste(
     # method of the caller's value, a `__class__` property asked by `isinstance`, a `str` subclass's
     # `__bool__` in a truth test or `__eq__` in a comparison, an int subclass's `__eq__` against the
     # assurance level, a float subclass's `__le__`, escaped from both verifiers before.
-    signatur = _als_text(receipt.get("signature"))
-    pubkey = _als_text(receipt.get("signer_public_key"))
+    signatur = _als_text(felder.get("signature"))
+    pubkey = _als_text(felder.get("signer_public_key"))
     if not signatur or not pubkey:
         ergebnis.add("signature", False, "receipt carries no signature or no signer public key")
         return ergebnis
@@ -630,14 +766,14 @@ def _pruefe_mit_gelesener_liste(
 
     # The receipt may carry its own payload_hash. If it does and it disagrees, say so: a receipt
     # whose self-reported hash does not match its own bytes is telling two stories.
-    selbst = _als_text(receipt.get("payload_hash"))
+    selbst = _als_text(felder.get("payload_hash"))
     if selbst:
-        ergebnis.add("payload-hash-self-consistent", selbst == payload_hash(receipt),
+        ergebnis.add("payload-hash-self-consistent", selbst == eigener_hash,
                      f"receipt states {selbst[:16]}…")
 
-    behauptet_extern = _als_text(receipt.get("assurance_level")) == _EXTERN_BEHAUPTET
+    behauptet_extern = _als_text(felder.get("assurance_level")) == _EXTERN_BEHAUPTET
     hat_autorisierung = behauptet_extern or any(
-        receipt.get(f) is not None for f in _AUTORISIERUNGSFELDER)
+        felder.get(f) is not None for f in _AUTORISIERUNGSFELDER)
     if require_external_authorization and not hat_autorisierung:
         ergebnis.add("external-authorization", False,
                      "required by the caller, but the receipt carries none")
@@ -648,7 +784,7 @@ def _pruefe_mit_gelesener_liste(
     # COMPLETENESS IS DEMANDED, not assumed. Once anything speaks of an authorization — a field, or
     # an assurance_level claiming one — every part must be there. Otherwise the subset an attacker
     # leaves standing decides the verdict.
-    fehlend = [f for f in _AUTORISIERUNGSFELDER if receipt.get(f) is None]
+    fehlend = [f for f in _AUTORISIERUNGSFELDER if felder.get(f) is None]
     if fehlend:
         grund = ("assurance_level claims an external authorization" if behauptet_extern
                  else "some authorization fields are present")
@@ -656,8 +792,8 @@ def _pruefe_mit_gelesener_liste(
                      f"{grund}, but these are missing: {', '.join(sorted(fehlend))} — a receipt "
                      f"whose authorization can be stripped field by field must not verify")
         return ergebnis
-    a_sig = _als_text(receipt.get("authorization_signature"))
-    a_key = _als_text(receipt.get("authorizer_public_key"))
+    a_sig = _als_text(felder.get("authorization_signature"))
+    a_key = _als_text(felder.get("authorizer_public_key"))
     if not a_sig or not a_key:
         ergebnis.add("external-authorization-complete", False,
                      "authorization signature or authorizer key is present but not a string")
@@ -676,10 +812,15 @@ def _pruefe_mit_gelesener_liste(
 
     # The authorization fields sit outside the receipt payload and go through the same serialiser, so
     # one of them it cannot encode is unreadable input as well, never an escape (lens run 3 at 481a1f26).
+    # The receipt payload hash it binds is the one of the single serialisation above (lens run 5, F2).
     try:
-        a_nutzlast = canonical_authorization_payload(receipt)
+        a_nutzlast = _autorisierungsnutzlast(felder, eigener_hash)
     except AGTReceiptError as fehler:
         ergebnis.add("readable", False, str(fehler))
+        return ergebnis
+    except Exception as fehler:  # noqa: BLE001 — never-raise is the promise of the verify surfaces
+        ergebnis.add("readable", False, f"the authorization payload cannot be read: reading it raised "
+                                        f"{_typname(fehler)}")
         return ergebnis
     a_schwaeche = _schwaeche(a_key)
     if a_schwaeche is not None:
@@ -690,8 +831,8 @@ def _pruefe_mit_gelesener_liste(
                      _ed25519_gueltig(a_key, a_sig, a_nutzlast),
                      f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
 
-    frist = _als_zeitpunkt(receipt.get("authorization_expires_at"))
-    zeitpunkt = _als_zeitpunkt(receipt.get("timestamp") if now is None else now)
+    frist = _als_zeitpunkt(felder.get("authorization_expires_at"))
+    zeitpunkt = _als_zeitpunkt(felder.get("timestamp") if now is None else now)
     quelle = "the receipt timestamp (offline reading)" if now is None else "the supplied instant"
     if frist is not None and zeitpunkt is not None:
         # COMPARED EXACTLY, NOT THROUGH `float()`. Python compares an int with a float by value and
@@ -748,7 +889,15 @@ def verify_agt_receipt_chain(
         ergebnis.add("chain-readable", False,
                      f"receipts is {_typname(receipts)}, expected a list or tuple")
         return ergebnis
-    if not receipts:
+    # THE SEQUENCE IS READ ONCE, THROUGH ITS OWN STORAGE (lens run 5 at c8c61651, with F7): a list or
+    # tuple subclass whose `__len__`, `__iter__` or `__getitem__` raises escaped from the chain (a named
+    # limit until now), and one whose methods answer differently each time gave the receipt checks and
+    # the link checks two different chains. `list.__iter__` and `tuple.__iter__` walk the stored items.
+    if issubclass(type(receipts), list):
+        glieder = tuple(list.__iter__(cast(list, receipts)))
+    else:
+        glieder = tuple(tuple.__iter__(cast(tuple, receipts)))
+    if not glieder:
         ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
         return ergebnis
 
@@ -763,35 +912,40 @@ def verify_agt_receipt_chain(
     liste = kwargs.pop("trusted_authorizer_keys", None)
     gelesen = None if liste is None else _vertrauensliste(liste)
 
-    for i, r in enumerate(receipts):
-        teil = _pruefe_mit_gelesener_liste(r, gelesen, **kwargs)
+    # EACH RECEIPT IS READ AND SERIALISED ONCE, and the link check takes the digest of the previous
+    # receipt from the same bytes its own signature was checked over (lens run 5 at c8c61651, F2): the
+    # link used to serialise the previous receipt a second time, and a receipt that reads differently
+    # the second time could be checked as one receipt and linked as another.
+    vorgelesen = [_gelesen(r) for r in glieder]
+    for i, r in enumerate(glieder):
+        teil = _pruefe_mit_gelesener_liste(r, gelesen, vorgelesen[i], **kwargs)
         for c in teil.checks:
             ergebnis.add(f"[{i}] {c.name}", c.ok, c.detail)
 
-    for i in range(1, len(receipts)):
+    for i in range(1, len(glieder)):
         # Same never-raise rule as above: an unreadable link is a named finding, not a crash that
         # abandons the remaining receipts. A chain verdict that stops halfway is not a verdict.
-        try:
-            erwartet = payload_hash(receipts[i - 1])
-        except AGTReceiptError as fehler:
+        _vorher_felder, vorher, unlesbar = vorgelesen[i - 1]
+        if vorher is None:
             ergebnis.add(f"[{i}] chain-link", False,
-                         f"the previous receipt is not readable, so no link can be checked: {fehler}")
+                         f"the previous receipt is not readable, so no link can be checked: {unlesbar}")
             continue
+        erwartet = hashlib.sha256(vorher).hexdigest()
         # A CHAIN ELEMENT THAT IS NOT AN OBJECT names no parent, and that is a verdict, never an
         # AttributeError from `.get` (lens run 3 at 481a1f26: `[r1, 5]`, `[r1, None]`, `[r1, "x"]` and
         # `[r1, [1]]` raised, and so does main 20e91c8e). Its own `[i] readable` check already refused
         # it (exit 2); this check says which position and which type broke the link.
-        glied = receipts[i]
-        if not issubclass(type(glied), dict):
+        felder = vorgelesen[i][0]
+        if felder is None:
             ergebnis.add(f"[{i}] chain-link", False,
-                         f"receipts[{i}] is {_typname(glied)}, not an object, so it names no "
+                         f"receipts[{i}] is {_typname(glieder[i])}, not an object, so it names no "
                          f"parent_receipt_hash and its link to receipts[{i - 1}] cannot be checked")
             continue
         # THE PLAIN TEXT, compared with the plain digest (lens run 4 at d461b41a, the sweep of K4-2):
         # `gefunden == erwartet` ran the `__eq__` of whatever the field held, and an int subclass
         # whose `__eq__` raises escaped from the chain; one whose `__eq__` answers True passed this
         # check for any parent. A value that is no text names no parent, and the link fails.
-        gefunden = glied.get("parent_receipt_hash")
+        gefunden = felder.get("parent_receipt_hash")
         ergebnis.add(f"[{i}] chain-link", _als_text(gefunden) == erwartet,
                      f"parent_receipt_hash={_kurzwert(gefunden)}… expected {erwartet[:16]}…")
     return ergebnis

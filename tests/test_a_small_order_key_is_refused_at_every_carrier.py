@@ -852,6 +852,175 @@ class AgtAuthorizerList(unittest.TestCase):
                 e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=column(table(real, "aa" * 32)))
                 self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
 
+    # ── lens run 5 at c8c61651: a record whose buffer format names no record ──
+
+    @staticmethod
+    def _records_with_a_plain_format():
+        """ctypes records that export the bare format `B`, each a factory of the record holding the hex
+        text `h`. F1 of lens run 5 at c8c61651: ctypes cannot describe a Union, a Structure with
+        `_pack_` (a big-endian one too) or an array of either, and exports `B`; read by that format, the
+        record was numbers (the array one byte string), and its bytes named no key."""
+        import ctypes
+
+        def record(base, field, pack=None):
+            namespace = {"_fields_": [("f", field)]}
+            if pack is not None:
+                namespace["_pack_"] = pack
+            return type("Record", (base,), namespace)
+
+        def holding(typ, value):
+            def make(h):
+                r = typ()
+                r.f = value(h)
+                return r
+            return make
+
+        wide = ctypes.c_wchar * 65
+        text = lambda h: h                                          # noqa: E731
+        ascii_ = lambda h: h.encode("ascii")                        # noqa: E731
+        union = record(ctypes.Union, wide)
+        packed = record(ctypes.Structure, wide, pack=1)
+
+        def code_points(h):
+            r = record(ctypes.BigEndianStructure, ctypes.c_uint32 * 64, pack=1)()
+            for i, ch in enumerate(h):
+                r.f[i] = ord(ch)
+            return r
+
+        def array_of(typ, n=1, depth=1):
+            def make(h):
+                a = (typ * n)()
+                for i in range(n):
+                    a[i].f = h
+                for _ in range(depth - 1):
+                    outer = (type(a) * 1)()
+                    outer[0] = a
+                    a = outer
+                return a
+            return make
+
+        return {
+            "Union, c_wchar * 65": holding(union, text),
+            "Structure _pack_ = 1, c_wchar * 65": holding(packed, text),
+            "Structure _pack_ = 8, c_wchar * 65": holding(record(ctypes.Structure, wide, pack=8), text),
+            "BigEndianStructure _pack_ = 1, code points": code_points,
+            "Union, c_wchar_p": holding(record(ctypes.Union, ctypes.c_wchar_p), text),
+            "Union, c_char_p": holding(record(ctypes.Union, ctypes.c_char_p), ascii_),
+            "Union, c_char * 65": holding(record(ctypes.Union, ctypes.c_char * 65), ascii_),
+            "(Union * 1)": array_of(union),
+            "((Union * 1) * 1)": array_of(union, depth=2),
+            "(packed Structure * 2)": array_of(packed, n=2),
+        }
+
+    def test_a_record_that_exports_a_plain_format_refuses_the_list(self):
+        """F1 of lens run 5 at c8c61651, on main 20e91c8e too. The identity point as hex text in a
+        `c_wchar * 65` field of a `ctypes.Union` or of a `Structure` with `_pack_`, next to the real key,
+        gave exit 0 for receipt 01, for receipt 03 and for the chain, and alone exit 3: ctypes exports
+        such a record with the bare format `B`, and the reader took the format for the item. The kind is
+        decided by the type as well now, and by whether the format sizes the item the buffer reports,
+        so every such record, and an array of them at any depth, refuses the list as a record does. The
+        raw key inside such a record is still judged by its bytes, as it was when the record passed for
+        numbers. numpy did not hide a record this way where it was measured: each dtype with fields
+        exported `T{...}`, and two overlay dtypes stand here as controls."""
+        import ctypes
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r3 = _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+        keys = [(k.hex(), k.hex()) for k, _reason in WEAK] + [("the real key", real)]
+        for name, make_record in self._records_with_a_plain_format().items():
+            with self.subTest(form=name, precondition="the record exports the bare format B"):
+                self.assertEqual(memoryview(make_record(I1.hex())).format, "B")
+            for label, h in keys:
+                for pos in (0, 1):
+                    with self.subTest(form=name, key=label, position=pos):
+                        def make(make_record=make_record, h=h, pos=pos):
+                            return [make_record(h), real] if pos == 0 else [real, make_record(h)]
+                        self._assert_entry_refused(make, pos, "records, pointers")
+            with self.subTest(form=name, list="the record alone"):
+                e = verify_agt_receipt(r3, trusted_authorizer_keys=[make_record(I1.hex())])
+                self.assertEqual((exit_code(e), [c.name for c in e.checks]), (2, ["trusted-authorizer-keys"]))
+
+        def raw_record(base, pack=None):
+            namespace = {"_fields_": [("k", ctypes.c_ubyte * 32)]}
+            if pack is not None:
+                namespace["_pack_"] = pack
+            return type("RawRecord", (base,), namespace)
+
+        for form, typ in (("Union", raw_record(ctypes.Union)),
+                          ("Structure _pack_ = 1", raw_record(ctypes.Structure, pack=1))):
+            for key, reason in WEAK:
+                with self.subTest(control=f"a weak key's raw bytes in a {form} are still judged", key=key.hex()):
+                    for keys_ in ([real, typ.from_buffer_copy(key)], [typ.from_buffer_copy(key), real]):
+                        e = verify_agt_receipt(r3, trusted_authorizer_keys=keys_)
+                        self.assertEqual(exit_code(e), 2)
+                        self.assertIn(TRUST_ANCHOR_REFUSAL[reason], e.checks[0].detail)
+                    e = verify_agt_receipt(r3, trusted_authorizer_keys=typ.from_buffer_copy(key))
+                    self.assertEqual(exit_code(e), 2)
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], e.checks[0].detail)
+        np = _numpy()
+        if np is None:
+            self._numpy_not_measured()
+            return
+        overlays = {"fields over u4": np.dtype((np.uint32, {"c": ("U1", 0)})),
+                    "fields over V256": np.dtype(("V256", {"t": ("U64", 0)}))}
+        for name, dtype in overlays.items():
+            with self.subTest(control=f"numpy {name} exports a record format and refuses the list"):
+                self._assert_entry_refused(lambda dtype=dtype: [real, np.zeros(1, dtype=dtype)], 1,
+                                           "records, pointers")
+
+    def test_a_pointer_passed_as_the_whole_list_is_refused_and_never_walked(self):
+        """Found next to F3 of lens run 5 at c8c61651. A ctypes pointer has no length, and walked it hands
+        out one item after another from the address it holds and never stops: past the memory it points
+        into, until the process faults. c8c61651 walked it; only a NULL pointer stopped, on the
+        `ValueError` of its first item. It is refused as a pointer now, before anything is read. Only
+        NULL pointers are used here, so that no run of this case reads memory it did not allocate."""
+        import ctypes
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class Record(ctypes.Union):
+            _fields_ = [("f", ctypes.c_ubyte * 32)]
+
+        for target in (ctypes.c_char, ctypes.c_ubyte, ctypes.c_wchar, Record):
+            with self.subTest(pointer=f"POINTER({target.__name__})"):
+                for call in (lambda: verify_agt_receipt(r1, trusted_authorizer_keys=ctypes.POINTER(target)()),
+                             lambda: verify_agt_receipt(r3, trusted_authorizer_keys=ctypes.POINTER(target)()),
+                             lambda: verify_agt_receipt_chain(
+                                 [r1, r2, r3], trusted_authorizer_keys=ctypes.POINTER(target)())):
+                    e = call()
+                    self.assertEqual(exit_code(e), 2)
+                    self.assertIn("pointer, not a collection of keys", e.checks[0].detail)
+                    self.assertNotIn("could not be read to the end", e.checks[0].detail)
+                self._assert_entry_refused(lambda target=target: [real, ctypes.POINTER(target)()], 1,
+                                           "records, pointers")
+
+    def test_a_buffer_of_pointer_sized_numbers_is_judged_by_its_bytes(self):
+        """F4 of lens run 5 at c8c61651. `memoryview(key).cast('P')` and `(c_void_p * 4)` over a weak
+        key's bytes, passed as the whole list, were walked as four addresses that name no key: exit 0
+        for receipt 01 and exit 3 for the others, 96 values over the 48 weak encodings of the lens's
+        oracle. A `P` item holds an address as a number, its bytes are the value it holds, and a whole
+        such value is judged by them first, as a buffer of numbers is. The real key given that way
+        is walked, as before, and names no key."""
+        import ctypes
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = bytes.fromhex(r3["authorizer_public_key"])
+        forms = {"memoryview cast to 'P'": lambda k: memoryview(k).cast("P"),
+                 "(c_void_p * 4)": lambda k: (ctypes.c_void_p * 4).from_buffer_copy(k)}
+        for name, make in forms.items():
+            for key, reason in WEAK:
+                with self.subTest(form=name, key=key.hex()):
+                    for receipt in (r1, r3):
+                        e = verify_agt_receipt(receipt, trusted_authorizer_keys=make(key))
+                        self.assertEqual((exit_code(e), [c.name for c in e.checks]), (2, ["trusted-authorizer-keys"]))
+                        self.assertIn("whose bytes spell one key", e.checks[0].detail)
+                        self.assertIn(TRUST_ANCHOR_REFUSAL[reason], e.checks[0].detail)
+                    self.assertEqual(exit_code(verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=make(key))), 2)
+            with self.subTest(form=name, key="the real key"):
+                self.assertEqual(exit_code(verify_agt_receipt(r3, trusted_authorizer_keys=make(real))), 3)
+                self.assertEqual(exit_code(verify_agt_receipt(r1, trusted_authorizer_keys=make(real))), 0)
+
 
 class AgtVerifySurfacesNeverRaise(unittest.TestCase):
     """The never-raise contract of `verify_agt_receipt` and `verify_agt_receipt_chain` over inputs of the
@@ -1110,6 +1279,170 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
             self.assertEqual(exit_code(e), 2)
             self.assertIn("receipts[1] is ClassRaises, not an object",
                           [c.detail for c in e.checks if c.name == "[1] chain-link"][0])
+
+    # ── lens run 5 at c8c61651: every serialisation of a receipt ends in a verdict ──
+
+    def test_a_nested_receipt_is_a_verdict_at_every_caller_depth(self):
+        """F2 of lens run 5 at c8c61651, on main 20e91c8e too. A plain JSON receipt whose `tool_name` is
+        a list nested N deep and whose `payload_hash` is a string made both verifiers raise
+        `AGTReceiptError … RecursionError`: the payload was serialised once inside the guard and again
+        through `payload_hash`, one frame deeper and outside every `try`, so one N passed the first and
+        failed the second. The window moves with the caller's stack and exists at every depth (the
+        lens: N = 988 at no extra frame, 488 at 500). Each receipt is serialised once now, and every
+        hash is taken from those bytes. The sweep runs N across the serialiser's limit at five caller
+        depths and demands a verdict for every N, and both sides of the limit: exit 1 where the payload
+        is written (its hash and signature no longer match) and exit 2 where it cannot be."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1 = _agt("01_allow")
+        limit = sys.getrecursionlimit()
+
+        def depth():
+            frame, n = sys._getframe(), 0
+            while frame is not None:
+                frame, n = frame.f_back, n + 1
+            return n
+
+        def nested(n):
+            v: Any = "x"
+            for _ in range(n):
+                v = [v]
+            return v
+
+        def at_depth(extra, call):
+            return call() if extra == 0 else at_depth(extra - 1, call)
+
+        here = depth()
+        self.assertLess(here + 500 + 150, limit, "precondition: the deepest caller fits under the limit")
+        for extra in (0, 10, 50, 200, 500):
+            top = limit - here - extra
+            for label, verify in (("single", lambda r: verify_agt_receipt(r)),
+                                  ("chain", lambda r: verify_agt_receipt_chain([r, r1]))):
+                with self.subTest(extra_frames=extra, call=label):
+                    exits, escaped = set(), []
+                    for n in range(top - 100, top + 5):
+                        receipt = dict(r1, tool_name=nested(n), payload_hash="ab" * 32)
+                        try:
+                            exits.add(exit_code(at_depth(extra, lambda: verify(receipt))))
+                        except Exception as escape:  # noqa: BLE001 — an escape is the finding
+                            escaped.append((n, type(escape).__name__))
+                    self.assertEqual(escaped, [], f"the verifier raised at nesting {escaped[:3]}")
+                    self.assertEqual(exits, {1, 2}, "the sweep must cross the serialiser's limit")
+
+    def test_the_payload_is_serialised_once_and_every_hash_is_taken_from_those_bytes(self):
+        """The sibling of F2 the lens named: a value whose own `items()` raises on its second call
+        escaped from both verifiers whenever the receipt carries a `payload_hash`, because the payload
+        was serialised a second time for the self-consistency check (and a third time inside the
+        authorization payload, a fourth for the chain link). Counted here: one serialisation per
+        receipt, for the single call, for the authorized receipt and for a chain."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r3 = _agt("01_allow"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class ReadOnce(dict):
+            calls = 0
+
+            def items(self):
+                type(self).calls += 1
+                if type(self).calls > 1:
+                    raise ValueError("the value was read a second time")
+                return super().items()
+
+        cases = {
+            "single, 01": lambda: verify_agt_receipt(dict(r1, tool_name=ReadOnce(a=1), payload_hash="ab" * 32)),
+            "single, 03 with its authorization": lambda: verify_agt_receipt(
+                dict(r3, tool_name=ReadOnce(a=1)), trusted_authorizer_keys=[real]),
+            "chain, the receipt first": lambda: verify_agt_receipt_chain(
+                [dict(r1, tool_name=ReadOnce(a=1)), _agt("02_deny")]),
+        }
+        self.assertIsInstance(r3.get("payload_hash"), str, "precondition: 03 carries its payload_hash")
+        for label, call in cases.items():
+            with self.subTest(case=label):
+                ReadOnce.calls = 0
+                try:
+                    e = call()
+                except Exception as escape:  # noqa: BLE001 — an escape is the finding
+                    self.fail(f"the verifier raised {type(escape).__name__}")
+                self.assertEqual(ReadOnce.calls, 1, "the payload was serialised more than once")
+                self.assertEqual(exit_code(e), 1, [(c.name, c.ok) for c in e.checks])
+
+    def test_the_receipt_and_the_chain_are_read_through_their_own_storage(self):
+        """F7 of lens run 5 at c8c61651, and the two limits the fourth run named. A field lookup
+        compares the name with every stored key of the same hash: one key object whose hash equals
+        `hash("agent_did")` and whose `__eq__` raises made both verifiers raise RuntimeError from a
+        plain dict, on main 20e91c8e too. A dict subclass whose `get` raises, and a list subclass
+        whose `__len__` raises as the chain, escaped the same way. The receipt is read through
+        `dict.items` and the chain through `list.__iter__` or `tuple.__iter__` now, which walk the
+        stored items and call no method of the caller's; a key that is no text names no field."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2 = _agt("01_allow"), _agt("02_deny")
+
+        class Collides:
+            armed = False
+
+            def __init__(self, name):
+                self.h = hash(name)
+
+            def __hash__(self):
+                return self.h
+
+            def __eq__(self, other):
+                if Collides.armed:
+                    raise RuntimeError("a key's __eq__ ran")
+                return False
+
+        def verdict(call):
+            try:
+                return call()
+            except Exception as escaped:  # noqa: BLE001 — an escape is the finding
+                raise AssertionError(f"the verifier raised {type(escaped).__name__}: {escaped}") from None
+
+        for name in ("agent_did", "cedar_decision", "timestamp", "signature", "payload_hash"):
+            with self.subTest(key=f"an object hashing like {name!r}"):
+                Collides.armed = False
+                receipt = {Collides(name): 1}
+                receipt.update(r1)
+                Collides.armed = True
+                try:
+                    self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt(receipt))), 0)
+                    self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt_chain([receipt, r2]))), 0)
+                finally:
+                    Collides.armed = False
+        with self.subTest(key="an object hashing like 'parent_receipt_hash', in the linked receipt"):
+            linked = {Collides("parent_receipt_hash"): 1}
+            linked.update(r2)
+            Collides.armed = True
+            try:
+                self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt_chain([r1, linked]))), 0)
+            finally:
+                Collides.armed = False
+
+        def boom(*_a, **_k):
+            raise RuntimeError("a method of the caller's container ran")
+
+        class MappingRaises(dict):
+            get = __getitem__ = __contains__ = items = keys = values = __iter__ = __len__ = boom
+
+        class ListRaises(list):
+            __len__ = __iter__ = __getitem__ = __bool__ = __reversed__ = boom
+
+        class TupleRaises(tuple):
+            __len__ = __iter__ = __getitem__ = __bool__ = boom
+
+        with self.subTest(container="a dict subclass whose methods raise"):
+            self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt(MappingRaises(r1)))), 0)
+            self.assertEqual(exit_code(verdict(
+                lambda: verify_agt_receipt_chain([MappingRaises(r1), MappingRaises(r2)]))), 0)
+        for label, chain in (("a list subclass whose methods raise", ListRaises([r1, r2])),
+                             ("a tuple subclass whose methods raise", TupleRaises((r1, r2)))):
+            with self.subTest(container=label):
+                self.assertEqual(exit_code(verdict(lambda chain=chain: verify_agt_receipt_chain(chain))), 0)
+        with self.subTest(control="a str subclass key names the field it spells"):
+
+            class Name(str):
+                pass
+
+            receipt = {Name(k) if k == "agent_did" else k: v for k, v in r1.items()}
+            self.assertEqual(exit_code(verify_agt_receipt(receipt)), 0)
 
 
 # ── 2. the findings register's carrier: `_signatur_lage` and the views ──────────────────────────

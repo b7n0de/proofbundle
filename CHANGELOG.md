@@ -171,12 +171,53 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   are read as the texts they are and spell no key. For 8 of those 140 lists (the real key inside
   `np.array(key)` or `c_wchar_p(key)` as an entry) the receipt without an authorization gets exit 2
   where d461b41a gave exit 0; main raised `TypeError` there for the authorized one. Not fixed, and
-  named: the receipt mapping and the chain sequence are still read through their own methods (a
-  `dict` subclass whose `get` raises escapes from both verifiers, on main too), and so is the truth
-  value of `require_external_authorization` (a numpy array of two booleans raises `ValueError`).
-  Contract: 53 cases and 1159 subtests; at d461b41a 6 cases fail, none outright and all 6 through
+  named: the truth value of `require_external_authorization` is read through the caller's value (a
+  numpy array of two booleans raises `ValueError`). The receipt mapping and the chain sequence were
+  read through their own methods here as well (a `dict` subclass whose `get` raises escaped from both
+  verifiers, on main too); the fifth lens run below closed that. Contract as it stood at c8c61651: 53
+  cases and 1159 subtests; at d461b41a 6 cases fail, none outright and all 6 through
   454 subtests, the five new cases and the one whose entry assertion changed, and pytest reports
   those 6 as passed next to 454 failed subtests.
+
+  A fifth lens run at c8c61651 measured two more classes, both on main 20e91c8e as well, and five
+  smaller findings. The list reader took the buffer format for the item, and ctypes exports a record
+  it cannot describe with the bare format `B`: a `ctypes.Union`, a `Structure` with `_pack_` (a
+  big-endian one too) and an array of either, which exports `B` in one dimension. The identity point
+  as hex text in a `c_wchar * 65` field of such a record, next to the real key, gave exit 0 for
+  receipt 01, for receipt 03 and for the chain, so the sentence above that the rule covers every
+  record entry did not hold at c8c61651. The kind is now decided by the type as well as by the
+  format: a ctypes Structure, Union, pointer or function pointer is a record whatever it exports, and
+  so is any buffer whose one-item format the struct module sizes to another number than the item
+  size the buffer reports, which covers an array of such records at any depth without reading its
+  element type. Every such entry refuses the list, and a weak key's raw bytes inside one are still
+  judged and named in the refusal. numpy cannot hide a record this way: with numpy 2.2.6, every dtype
+  with fields that was measured (the lens's eight and ten more, overlay dtypes included) exports
+  `T{...}`. Of the lens's 344-form classification table, two rows change class, the Union and the
+  packed Structure (numbers to record), and four `P` rows now hand on their bytes. Next to it, a
+  whole ctypes pointer (`POINTER(c_char)`) was walked item by item from its address with no end; it
+  is refused as a pointer now, before anything is read. The second class: a plain JSON receipt made
+  both verifiers raise. The payload was serialised inside the guard for the signature and again
+  through `payload_hash` for the self-consistency check, one frame deeper and outside every `try`, so
+  a `tool_name` nested 989 deep raised `AGTReceiptError … RecursionError` out of both verifiers, and
+  the window moves with the caller's stack (N = 988 at no extra frame, 488 at 500). Each receipt is
+  now serialised once, and the self-consistency check, the authorization binding and the chain link
+  take their hash from those bytes; a value whose `items()` raises on a second read no longer
+  escapes either. Of the smaller findings, two are fixed. A `P` buffer over a weak key's bytes passed
+  as the whole list (`memoryview(key).cast('P')`, `(c_void_p * 4)`) was walked as addresses that
+  name no key, 96 values at exit 0 or 3, and is judged by its bytes now. A key object whose hash
+  equals `hash("agent_did")` and whose `__eq__` raises made both verifiers raise from a plain dict.
+  The receipt is now read through `dict.items` into a plain copy and the chain through
+  `list.__iter__` or `tuple.__iter__`, which call no method of the caller's, and that also closes the
+  limit named above for a `dict` subclass whose `get` raises and a list subclass whose `__len__`
+  raises (of the lens's 2765 hostile calls, 3 escaped at c8c61651 and none now). The other three are
+  named limits below. Kept, measured on the final tree: the text sweep has 0 of 7920 values below
+  exit 2, the raw sweep the same 94 of 50208, the weak-key sweep gives exit 2 in all 12672 cases, the
+  real key as hex text in 35 container forms by 4 lists keeps all 288 accepts main gives, the
+  366-key regression set (sha256 `5374a6a4…`) and the 1794-key form sweep (sha256 `e534b806…`) are
+  byte-identical to c8c61651, the two counter-examples of the fourth run stay fixed, and every
+  `BaseException` that is not an `Exception` still propagates (36 of 36 sites). Contract: 59 cases
+  and 1542 subtests; at c8c61651 the 6 new cases fail, none outright and all 6 through 342
+  subtests, and pytest reports those 6 as passed next to 342 failed subtests.
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
@@ -184,7 +225,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   is no Ed25519 did:key. `trusted_authorizer_keys` is compared as text: the real authorizer key
   listed in capitals gives exit 3, and so does the real key given as a byte string (32 raw bytes,
   a `memoryview`, an `array`), which the rule judges but which is not text, so the error falls on
-  the closed side.
+  the closed side. A whole ctypes array of `c_char_p` or `c_wchar_p` is walked, and ctypes reads the
+  text each pointer names: the caller's pointers are followed by design, and the 288 accepts include
+  `(c_wchar_p * n)`. Measured with memory the probe allocated, the verdict follows the bytes at the
+  address (the weak key there: exit 2, other bytes: exit 0); a pointer in such an array that names
+  no valid address was not run and is not detected. Text held where no buffer of text holds it
+  names no key: `collections.UserString(W)` as an entry, and the hex text as ASCII bytes (`W.encode()`,
+  a `bytearray`, a `memoryview`, `np.bytes_`, an `S64` array, `create_string_buffer`), give exit 0
+  next to the real key, because bytes are read as raw key bytes and an object without a buffer names
+  no key. A record entry next to the real key refuses a list that main authorised (a read-only numpy
+  record: exit 2 where main gives exit 0); it fails closed. Serialising a signed field still runs
+  that value's own methods (`items()` of a `dict` subclass, `__iter__` of a `list` subclass, a
+  `__class__` property through the serialiser's `default()`); with one serialisation per receipt,
+  none of them makes a verifier raise. Four NULL `c_void_p` passed as the whole list are 32 zero
+  bytes, a point of small order, and are refused (exit 2) where c8c61651 walked them (exit 0 or 3);
+  one, two, three, five or eight are walked as before.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
