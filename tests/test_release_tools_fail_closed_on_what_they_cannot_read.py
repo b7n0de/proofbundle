@@ -231,6 +231,61 @@ def test_a_version_part_that_is_no_ascii_digit_counts_as_none(version):
     assert gate._semver_tuple(version)[:3] == (6, 1, 0)
 
 
+#: More digits than `int()` reads from decimal text (4300), a version part the gate compared with `int()`
+#: (the sweep of the class a review lens found in the mutant guard, 2026-09-27 at 53676296).
+LONG = "1" * 5000
+
+
+@pytest.mark.parametrize("smaller,larger", [
+    ("1" * 4999 + ".0.0", LONG + ".0.0"),
+    (LONG + ".0.0", "1" * 4999 + "2.0.0"),
+    ("1.0.0.post1", "1.0.0.post" + LONG),
+    ("1.0.0a1.dev1000000001", "1.0.0a1"),
+    ("1.0.0a1.dev" + LONG, "1.0.0a1"),
+], ids=["more-digits", "same-length", "long-post", "dev-past-a-billion", "long-dev"])
+def test_a_version_part_past_the_digit_limit_is_compared_by_value(smaller, larger):
+    """PEP 440 order, as `packaging` gives it for each pair; `int()` raised on the long ones, and a dev
+    number of 10**9 or more sorted after the release it comes before."""
+    gate = _load(VERSION_GATE, "_version_gate_long_digits")
+    assert gate._semver_tuple(smaller) < gate._semver_tuple(larger)
+    assert gate._semver_tuple("6.1.0")[:3] == (6, 1, 0)
+
+
+def test_a_version_of_5000_digits_ends_in_the_gates_report(tmp_path):
+    """Check 3 compares the source version with the last release tag; the version below ended the gate
+    with a ValueError traceback there."""
+    r = tmp_path / "r"
+    r.mkdir()
+    (r / "pyproject.toml").write_text(f'[project]\nname = "proofbundle"\nversion = "{LONG}.0.0"\n',
+                                      encoding="utf-8")
+    _git(r, "init", "-q")
+    _git(r, "add", "-A")
+    _git(r, "commit", "-q", "-m", "base")
+    _git(r, "tag", "v1.0.0")
+    (r / "a.txt").write_text("x\n", encoding="utf-8")
+    _git(r, "add", "-A")
+    _git(r, "commit", "-q", "-m", "fix: a commit after the tag")
+    out = _run(VERSION_GATE, "--repo", str(r))
+    assert "Traceback" not in out.stderr, out.stderr
+    assert out.returncode == 1, out.stdout + out.stderr
+    assert out.stdout.startswith("check_version_and_changelog: FAIL"), out.stdout
+    assert "non-trivial commit(s) since tag" not in out.stdout, "the long version is past the tag"
+
+
+def test_the_version_gate_names_an_exception_no_branch_names_as_a_problem(monkeypatch):
+    """Planted: the gate's code for a problem is 1, as its docstring says, and an exception is one
+    problem with its reason instead of a traceback."""
+    gate = _load(VERSION_GATE, "_version_gate_unexpected")
+
+    def planted(repo):
+        raise ValueError("planted in a check")
+
+    monkeypatch.setattr(gate, "_check", planted)
+    problems = gate.check(Path("."))
+    assert len(problems) == 1 and "ValueError: planted in a check" in problems[0], problems
+    assert gate.NICHT_MESSBAR in problems[0], problems
+
+
 def test_a_release_tag_with_a_superscript_digit_is_no_crash(tree):
     _git(tree, "tag", "v6.1.0\u00b2")
     (tree / "README.md").write_bytes((tree / "README.md").read_bytes() + b"x\n")

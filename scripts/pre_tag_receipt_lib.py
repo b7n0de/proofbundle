@@ -271,7 +271,13 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
                        "absent/empty) — the gate has no trust anchor and fails closed")
     signer = receipt.get("signer_pubkey")
     if signer not in trusted_pubkeys:
-        return False, f"receipt signer_pubkey is not in the trusted set (signer={str(signer)[:20]}...)"
+        # QUOTED WITH `!r`, as every other value in this function. The receipt verifier prints this
+        # reason as it is, and `str(signer)[:20]` wrote a line break in the field as a report line of
+        # its own (found by reading, 2026-09-27 at 53676296). Only a string is cut and shown; any other
+        # value is named by its type, since `str()` of an int past the digit limit raises.
+        shown = (f"signer={signer[:20]!r}..." if isinstance(signer, str)
+                 else f"a signer of type {type(signer).__name__}")
+        return False, f"receipt signer_pubkey is not in the trusted set ({shown})"
     sig = receipt.get("signature")
     if not isinstance(sig, str):
         return False, "receipt carries no signature"

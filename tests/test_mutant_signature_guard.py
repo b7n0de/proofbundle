@@ -270,6 +270,23 @@ class TestStagedMode(_RepoFixture):
         self.assertIn("src/proofbundle/guarded.py:2: trivial-truth branch", r.stdout)
         self.assertIn("    if True:", r.stdout)
 
+    #: An int Python compiles and cannot write in decimal: 3600 hex digits are 14400 bits, more than
+    #: 4300 decimal digits (2026-09-27, a review lens at 53676296: traceback and exit 1 in both modes).
+    HUGE_INT = "N = 0x" + "f" * 3600 + "\n"
+
+    def test_a_file_with_an_int_literal_past_the_digit_limit_is_judged(self):
+        self._stage(self.HUGE_INT + "if False:\n    pass\n")
+        r = _guard(self.repo, "--staged")
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:2: trivial-truth branch", r.stdout)
+
+    def test_control_an_int_literal_past_the_digit_limit_alone_is_clean(self):
+        self._stage(self.HUGE_INT)
+        r = _guard(self.repo, "--staged")
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_line_end_that_exists_only_in_the_decoded_text_starts_a_python_line(self):
         """`+AAo-` is a newline under UTF-7: one git line, two Python lines, as with a lone CR."""
         self.target.write_bytes(b"# coding: utf-7\nx = 1+AAo-if False:\n    pass\n")
@@ -310,7 +327,9 @@ class TestStagedMode(_RepoFixture):
         """A file Python cannot decode or parse is not judged, and never reported clean."""
         cases = {"no cookie, a byte that is not UTF-8": b"s = '\xfc'\n",
                  "a cookie Python does not know": b"# coding: no-such-codec\nx = 1\n",
-                 "a syntax error": b"def broken(:\n    pass\n"}
+                 "a syntax error": b"def broken(:\n    pass\n",
+                 # Python refuses a decimal literal past 4300 digits when it compiles the file.
+                 "a decimal literal past the digit limit": b"x = " + b"1" * 5000 + b"\nif False:\n    pass\n"}
         for label, content in cases.items():
             with self.subTest(label):
                 self.target.write_bytes(content)
@@ -434,6 +453,16 @@ class TestBaseMode(_RepoFixture):
         r = _guard(self.repo, "--base", base)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("src/proofbundle/linked.py: a symlink on a security path", r.stdout)
+
+    def test_a_committed_int_literal_past_the_digit_limit_is_judged(self):
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.target.write_text(TestStagedMode.HUGE_INT + "if False:\n    pass\n", encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "an int Python cannot write in decimal, and a mutant")
+        r = _guard(self.repo, "--base", base)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("src/proofbundle/guarded.py:2: trivial-truth branch", r.stdout)
 
     def test_a_symlinked_src_in_the_range_is_a_finding(self):
         base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
@@ -617,6 +646,31 @@ class TestAStopIsNotAFinding(_RepoFixture):
         self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
         self.assertEqual(_guard(self.repo, "--staged").returncode, 1)
 
+    def test_an_exception_no_stop_names_exits_2(self):
+        """An int past the digit limit raised a ValueError in `_tree_shape`, and Python ended the run
+        with exit 1 (2026-09-27 at 53676296). Planted here, since that one is fixed: any exception the
+        guard does not name is a stop with its reason, never a finding."""
+        import contextlib
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("_msg_guard_unexpected", SCRIPT)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+
+        def planted(tree):
+            raise ValueError("planted in the shape of a tree")
+
+        guard._tree_shape = planted
+        guard._repo_root = lambda: self.repo
+        self._stage(BENIGN.replace('data.get("ok")', 'data.get("okay")'))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = guard.main(["--staged"])
+        self.assertEqual(rc, 2, err.getvalue())
+        self.assertIn("the run stopped on an unexpected exception at ", err.getvalue())
+        self.assertIn("ValueError: planted in the shape of a tree, so the change is not judged (fail closed)",
+                      err.getvalue())
+
 
 class TestTheHeaderPathIsDecoded(unittest.TestCase):
     """The decoder itself, over the forms git writes (C escapes, octal bytes) and one it does not."""
@@ -674,6 +728,22 @@ class TestTheDiffIsReadInGitsGrammar(unittest.TestCase):
         self.assertEqual([n.lineno for n in tree.body], [2, 3])
         _, lines, _ = self.guard._read_as_python("p.py", b"\xef\xbb\xbfx = '\xc3\xbc'\n")
         self.assertEqual(lines, ["x = '\u00fc'", ""])
+
+    def test_the_tree_shape_compares_a_number_by_value_and_type(self):
+        """`repr` of an int of 14400 bits raised (2026-09-27 at 53676296). A shape that merged two
+        numbers would let a file whose second reading differs pass as the text Python parsed, so each
+        pair below has the same positions and differs only in the value or its type."""
+        import ast
+
+        def shape(source):
+            return self.guard._tree_shape(ast.parse(source))
+        huge = "N = 0x" + "f" * 3600
+        self.assertEqual(shape(huge), shape(huge))
+        self.assertNotEqual(shape(huge), shape("N = 0x" + "f" * 3599 + "e"))
+        self.assertNotEqual(shape("x = 0b01"), shape("x = True"))    # 1 == True, one is a bool
+        self.assertNotEqual(shape("x = 1_0"), shape("x = 10."))      # 10 == 10.0, one is a float
+        tree, _, _ = self.guard._read_as_python("p.py", (huge + "\n").encode())
+        self.assertEqual(tree.body[0].value.value.bit_length(), 14400)
 
 
 class TestSelfTest(unittest.TestCase):

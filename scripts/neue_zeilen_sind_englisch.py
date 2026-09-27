@@ -49,6 +49,7 @@ import os
 import re
 import subprocess
 import tokenize
+import traceback
 import sys
 from pathlib import Path
 
@@ -280,6 +281,19 @@ def _auszug(text: str) -> str:
     """A line of a judged file as a report quotes it: as it is when every character prints, and in the
     form `_pfad` writes otherwise, so a separator such as U+2028 in it does not start a report line."""
     return text if text.isprintable() else _pfad(text)
+
+
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
 
 
 def _git(*args: str) -> tuple[int, str]:
@@ -713,6 +727,24 @@ def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool | None:
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
+    """The verdict over the range (`_pruefe`), or NOT MEASURABLE with its reason; never an exception.
+
+    Python ends a run on an exception with exit 1, the code of ROT. An int past the digit limit in a
+    changed `.py` file raised in the reader this gate takes from the mutant guard, and a file with no
+    German in it was ROT by its exit code, in the HEAD form and in the working-tree form (a review lens,
+    measured 2026-09-27 at 53676296). An exception no branch names is a range this run did not judge.
+    """
+    try:
+        return _pruefe(basis, arbeitsbaum)
+    except Exception as fehler:  # noqa: BLE001 -- every other exception is no verdict of this gate
+        return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": [],
+                "grund": f"the run stopped on {_unerwartet(fehler)}, so the range was not judged",
+                "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
+                "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
+                "wortlisten_baum": str(WERKZEUG_WURZEL)}
+
+
+def _pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     if REPO_HERKUNFT.startswith("rueckfall"):
         return {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": [],
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,

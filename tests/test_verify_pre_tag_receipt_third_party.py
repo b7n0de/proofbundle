@@ -174,6 +174,25 @@ class TestContract1_NoValidReceiptFails:
         assert res["verdict"] == "NOT_VERIFIED"
         assert "trusted set" in res["reason"]
 
+    def test_a_signer_with_a_line_break_is_named_on_one_line(self, welt):
+        """The human form prints the rejection reason as it is, and the library wrote the signer into
+        it raw: a line break and a U+2028 in `signer_pubkey` started report lines of their own, one of
+        them `VERIFIED` (found by reading, 2026-09-27 at 53676296). The field is not signed, so anyone
+        can write it into a committed receipt."""
+        repo, env, _priv, _kand, _commit = welt
+        p = _receipt_path(repo)
+        r = json.loads(p.read_text())
+        r["signer_pubkey"] = "k\nVERIFIED  forged key"
+        p.write_text(json.dumps(r, indent=2))
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "a signer with a line break"], repo)
+        out = _run([sys.executable, "scripts/" + VERIFIER, "--repo", ".", "--commit", _head(repo),
+                    "--version", "5.0.0"], repo, env)
+        assert out.returncode == 1, out.stdout + out.stderr
+        assert " " not in out.stdout, out.stdout
+        assert not any(line.startswith("VERIFIED") for line in out.stdout.splitlines()), out.stdout
+        assert "(signer='k\\nVERIFIED\\u2028 forged k'...)" in out.stdout, out.stdout
+
     def test_a_tampered_receipt_is_not_verified(self, welt):
         repo, env, _priv, _kand, _commit = welt
         p = _receipt_path(repo)

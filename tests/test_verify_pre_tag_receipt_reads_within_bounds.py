@@ -63,3 +63,31 @@ def test_control_a_receipt_that_is_no_object_was_already_a_typed_rejection(tmp_p
     """R1 did not reproduce for this verifier: `[1]` was rejected with its reason at 1ecc2aca too."""
     r = _verify(tmp_path, b"[1]")
     assert r.returncode == 1 and "is not a JSON object (got list)" in r.stdout, r.stdout + r.stderr
+
+
+def test_control_a_receipt_with_an_int_past_the_digit_limit_is_rejected(tmp_path):
+    """The sweep of 2026-09-27: `json.loads` refuses an int literal of 5000 digits with a ValueError,
+    which this verifier already reads as a receipt that is not readable JSON."""
+    r = _verify(tmp_path, b'{"audit_exit_code": ' + b"1" * 5000 + b"}")
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 1 and "not readable JSON (ValueError" in r.stdout, r.stdout + r.stderr
+
+
+def test_an_exception_no_branch_names_is_not_measurable(tmp_path, monkeypatch, capsys):
+    """Planted: Python ends a run on an exception with exit 1, the code of NOT VERIFIED, a verdict about
+    a receipt this run did not judge (the sweep of the class a review lens found in the mutant guard,
+    2026-09-27 at 53676296)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_verify_unexpected", SCRIPT)
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+
+    def planted(repo, commit, version):
+        raise ValueError("planted in the measurement")
+
+    monkeypatch.setattr(verifier, "_measure", planted)
+    res = verifier.measure(tmp_path, "0" * 40, "6.1.0")
+    assert res["verdict"] == "NOT_MEASURABLE", res
+    assert "ValueError: planted in the measurement, so the commit was not judged" in res["reason"], res
+    assert verifier.main(["--repo", str(tmp_path), "--commit", "0" * 40, "--version", "6.1.0"]) == 2
+    assert "verdict=NOT_MEASURABLE" in capsys.readouterr().out

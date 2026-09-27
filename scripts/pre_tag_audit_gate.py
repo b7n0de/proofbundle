@@ -281,9 +281,13 @@ def _receipt_candidates(repo: Path, version: str) -> list:
                         f"receipt path is present but {art} — present-but-unusable is a finding "
                         "about the artefact, never the leniency reserved for absence"))
             continue
+        # ValueError, not only its subclass JSONDecodeError: `json.loads` refuses an int literal of more
+        # than 4300 digits with a plain ValueError, and a receipt holding one ended this gate with a
+        # traceback and exit 1; RecursionError for a receipt nested 100000 deep, the same way (the sweep
+        # of the class a review lens found in the mutant guard, measured 2026-09-27 at 53676296).
         try:
             rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             out.append((str(f.relative_to(repo)), None,
                         f"receipt file is present but unreadable ({type(exc).__name__}: {exc})"))
             continue

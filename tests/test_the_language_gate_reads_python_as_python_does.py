@@ -105,6 +105,46 @@ def test_a_file_python_cannot_decode_is_not_measurable(repo, form):
     assert (result["urteil"], result["rc"], result["ohne_prosakarte"]) == ("NOT MEASURABLE", 2, ["n.py"])
 
 
+#: An int Python compiles and cannot write in decimal: 3600 hex digits are 14400 bits, more than 4300
+#: decimal digits. The reader this gate takes from the mutant guard raised on it, and the run ended with a
+#: traceback and exit 1, the code of ROT, in every form (a review lens, 2026-09-27 at 53676296).
+HUGE_INT = b"N = 0x" + b"f" * 3600 + b"\n"
+
+
+@pytest.mark.parametrize("form", ["committed", "staged", "untracked"])
+def test_a_file_with_an_int_literal_past_the_digit_limit_is_judged(repo, form):
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "n.py").write_bytes(HUGE_INT + b"# " + GERMAN.encode() + b"\n")
+    if form == "committed":
+        _commit(repo, "an int Python cannot write in decimal, and a German comment")
+    elif form == "staged":
+        _git(repo, "add", "-A")
+    assert _judge(repo, base, working_tree=form != "committed") == ("ROT", [("n.py", 2)])
+
+
+def test_control_an_int_literal_past_the_digit_limit_alone_is_green(repo):
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "n.py").write_bytes(HUGE_INT)
+    _commit(repo, "an int Python cannot write in decimal")
+    assert _judge(repo, base) == ("gruen", [])
+
+
+def test_an_exception_no_branch_names_is_not_measurable(repo, monkeypatch):
+    """Planted, since the int is fixed: any exception the gate does not name is a range it did not
+    judge, NOT MEASURABLE with exit 2, and never ROT."""
+    base = _git(repo, "rev-parse", "HEAD")
+    gate = _gate()
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+
+    def planted(*args, **kwargs):
+        raise ValueError("planted in the range")
+
+    monkeypatch.setattr(gate, "_neue_zeilen", planted)
+    result = gate.pruefe(base)
+    assert (result["urteil"], result["rc"], result["befunde"]) == ("NOT MEASURABLE", 2, []), result
+    assert "ValueError: planted in the range, so the range was not judged" in result["grund"], result
+
+
 def test_control_a_latin_1_cookie_is_read_and_judged(repo):
     base = _git(repo, "rev-parse", "HEAD")
     (repo / "n.py").write_bytes(b"# -*- coding: latin-1 -*-\ns = '\xfc'\n# " + GERMAN.encode() + b"\n")

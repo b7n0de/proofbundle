@@ -54,8 +54,10 @@ import stat
 import subprocess
 import sys
 import tokenize
+import traceback
 import urllib.error
 import urllib.request
+from decimal import Decimal
 from pathlib import Path
 
 # Commit-subject prefixes that do NOT require a changelog entry (docs/tooling/meta).
@@ -453,6 +455,19 @@ def _pfad(rel: str) -> str:
         for c in rel) + '"'
 
 
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
+
+
 def _roh(p: Path, name: str) -> bytes | None:
     """The bytes of a regular file, or None for a path that is none (missing, a directory, a FIFO).
 
@@ -664,8 +679,16 @@ def _semver_tuple(v: str) -> tuple:
     (die Freigabe kommt zuletzt) — ausser wenn nur eine Entwicklungsfassung da ist, dann DAVOR.
     Und ein fehlendes `dev` sortiert NACH einem vorhandenen. Wer beide Faelle mit derselben Null
     belegt, dreht die Ordnung an genau diesen Stellen um.
+
+    A RELEASE NUMBER IS COMPARED BY ITS VALUE, AND NOT CONVERTED TO AN INT. `int()` refuses decimal
+    text of more than 4300 digits, and a `pyproject.toml` version of 5000 ones ended the gate with a
+    traceback in Check 3 (the sweep of the class a review lens found in the mutant guard, measured
+    2026-09-27 at 53676296). `Decimal` reads a run of digits exactly, without that limit and in time
+    linear in its length, and it compares with an int by value, so every key compares as the int key
+    did. The two bounds are infinite for the same reason: a dev number of 10**9 or more did not sort
+    before the missing one it must sort before, so `1.0.0a1.dev1000000001` came after `1.0.0a1`.
     """
-    _VOR, _NACH = -(10 ** 9), 10 ** 9
+    _VOR, _NACH = Decimal("-Infinity"), Decimal("Infinity")
     core = v.split("-")[0].split("+")[0]
     m = re.match(r"^([0-9]+)\.([0-9]+)\.([0-9]+)"
                  r"(?:\.?(a|b|rc)([0-9]+))?"
@@ -677,18 +700,18 @@ def _semver_tuple(v: str) -> tuple:
         # ASCII digits only: `str.isdigit()` is true for `²` and `٣`, and `int("0²")` raised while
         # `int("0٣")` read 3 (a review lens, run 10, and its sweep, measured 2026-09-26).
         parts = core.split(".")
-        haupt = tuple(int(x) if re.fullmatch(r"[0-9]+", x) else 0 for x in (parts + ["0", "0", "0"])[:3])
+        haupt = tuple(Decimal(x) if re.fullmatch(r"[0-9]+", x) else 0 for x in (parts + ["0", "0", "0"])[:3])
         return haupt + (_NACH, 0, _VOR, _NACH)
-    haupt = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    haupt = (Decimal(m.group(1)), Decimal(m.group(2)), Decimal(m.group(3)))
     vorab, post, dev = m.group(4), m.group(6), m.group(7)
     if vorab is not None:
-        vorab_key = ({"a": 0, "b": 1, "rc": 2}[vorab], int(m.group(5)))
+        vorab_key = ({"a": 0, "b": 1, "rc": 2}[vorab], Decimal(m.group(5)))
     elif post is None and dev is not None:
         vorab_key = (_VOR, 0)          # eine reine Entwicklungsfassung liegt VOR jeder Vorabversion
     else:
         vorab_key = (_NACH, 0)         # keine Vorabversion heisst: die Freigabe selbst, sie kommt zuletzt
-    post_key = _VOR if post is None else int(post)
-    dev_key = _NACH if dev is None else int(dev)
+    post_key = _VOR if post is None else Decimal(post)
+    dev_key = _NACH if dev is None else Decimal(dev)
     return haupt + vorab_key + (post_key, dev_key)
 
 
@@ -699,6 +722,12 @@ def check(repo: Path) -> list[str]:
         return _check(repo)
     except _NichtLesbar as nicht:
         return [f"{nicht}; the checks that read it did not run"]
+    # An exception no branch names is a problem too, and this gate's code for one is 1, as its
+    # docstring says. It ended the run with a traceback instead of a report before (the sweep of the
+    # class a review lens found in the mutant guard, measured 2026-09-27 at 53676296).
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this gate
+        return [f"the run stopped on {_unerwartet(exc)}, so what it checks is {NICHT_MESSBAR} here and "
+                "the checks after that point did not run"]
 
 
 def _check(repo: Path) -> list[str]:

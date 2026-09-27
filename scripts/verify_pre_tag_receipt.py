@@ -47,7 +47,8 @@ library it calls are files of the very tree it verifies. The limit is printed wi
 RELEASE.md, "What these commands establish, and what they do not", says the same in prose.
 
 Exit codes: 0 VERIFIED · 1 NOT VERIFIED (absent, rejected, or bound to another tree) ·
-2 not measurable (no git, malformed commit id, checkout not at the named commit).
+2 not measurable (no git, malformed commit id, checkout not at the named commit, or an exception the
+verifier does not name).
 """
 from __future__ import annotations
 
@@ -59,9 +60,10 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
-_HEX40 = re.compile(r"\A[0-9a-f]{40}\Z")
+_HEX40 =re.compile(r"\A[0-9a-f]{40}\Z")
 
 #: The limit, in one place, printed with every verdict -- a reader who only sees the last line
 #: must still see it. Keep it in sync with the section in RELEASE.md.
@@ -273,6 +275,19 @@ def _pfad(rel: str) -> str:
         for c in rel) + '"'
 
 
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
+
+
 def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
     try:
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
@@ -286,21 +301,36 @@ def _version_token(version: str) -> str:
 
 
 def measure(repo: Path, commit: str, version: str) -> dict:
-    """See `_measure`; the import state of the process is the same afterwards."""
+    """See `_measure`; the import state of the process is the same afterwards.
+
+    An exception no branch of `_measure` names is NOT_MEASURABLE with its reason, exit 2. Python ends a
+    run on one with exit 1, the code of NOT VERIFIED, a verdict about a receipt this run did not judge;
+    the sweep of the class a review lens found in the mutant guard (measured 2026-09-27 at 53676296)
+    put the same exit in each of the five release tools."""
     with _importzustand():
-        return _measure(repo, commit, version)
+        try:
+            return _measure(repo, commit, version)
+        except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this verifier
+            out = _ergebnis(commit, version)
+            out["reason"] = f"the measurement stopped on {_unerwartet(exc)}, so the commit was not judged"
+            return out
+
+
+def _ergebnis(commit, version) -> dict:
+    """The result before anything is read: NOT_MEASURABLE, no reason yet."""
+    return {"schema": "b7n0de.verify_pre_tag_receipt.v1", "commit": commit, "version": version,
+            "checkout_head": None, "receipt_path": None, "receipt_read_from": None,
+            "subject_tree_digest": None, "gate_source_digest": None,
+            "trusted_pubkey_count": None, "signer_pubkey": None,
+            "verified": [], "rejected": [], "foreign_files": [],
+            "verdict": "NOT_MEASURABLE", "reason": None, "limit": LIMIT}
 
 
 def _measure(repo: Path, commit: str, version: str) -> dict:
     """The whole measurement as one dict. ``verdict`` is VERIFIED, NOT_VERIFIED or NOT_MEASURABLE;
     every other field says what was read and from where. Never raises on a bad input -- a reader
     gets a verdict with a reason, not a traceback."""
-    out: dict = {"schema": "b7n0de.verify_pre_tag_receipt.v1", "commit": commit, "version": version,
-                 "checkout_head": None, "receipt_path": None, "receipt_read_from": None,
-                 "subject_tree_digest": None, "gate_source_digest": None,
-                 "trusted_pubkey_count": None, "signer_pubkey": None,
-                 "verified": [], "rejected": [], "foreign_files": [],
-                 "verdict": "NOT_MEASURABLE", "reason": None, "limit": LIMIT}
+    out = _ergebnis(commit, version)
     commit = commit.strip().lower() if isinstance(commit, str) else commit
     out["commit"] = commit
     if not isinstance(commit, str) or not _HEX40.match(commit):

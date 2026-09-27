@@ -27,7 +27,8 @@ THREE STATES, never two:
     NICHT_MESSBAR      the receipt is missing/unreadable, no JSON object, nested too deep to parse
                        or larger than a receipt is; the field is absent; git could not list the
                        tree; or no tracked file matched while some tracked path could not be
-                       hashed. Explicitly NOT a pass and explicitly NOT a failure
+                       hashed; or the run stopped on an exception the resolver does not name.
+                       Explicitly NOT a pass and explicitly NOT a failure
 
 WHAT IS READ WHOLE IS CAPPED (a review of the stack at 1ecc2aca, on main as well, measured
 2026-09-26). A receipt `[1]` or `"x"` ended the run with an AttributeError and exit 1, the code of
@@ -56,6 +57,7 @@ import os
 import stat
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -89,6 +91,19 @@ def _pfad(rel: str) -> str:
     return '"' + "".join(
         "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
         for c in rel) + '"'
+
+
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
 
 
 def _tracked_files(repo: Path) -> list[str] | None:
@@ -135,7 +150,21 @@ def _digest_wie_das_receipt(p: Path) -> str | None:
 
 
 def aufloesbar(receipt: dict, repo: Path) -> dict:
-    """-> {zustand, digest, treffer, geprueft, grund}. Reports; never raises on a bad receipt."""
+    """-> {zustand, digest, treffer, geprueft, grund}. Reports; never raises on a bad receipt.
+
+    An exception no branch of `_aufloesbar` names is NICHT_MESSBAR with its reason. Python ends a run
+    on one with exit 1, the code of NICHT_AUFLOESBAR, a negative this run did not measure; the sweep of
+    the class a review lens found in the mutant guard (measured 2026-09-27 at 53676296) put the same
+    exit in each of the five release tools."""
+    try:
+        return _aufloesbar(receipt, repo)
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this resolver
+        return {"schema": SCHEMA, "repo": str(repo), "zustand": "NICHT_MESSBAR", "digest": None,
+                "treffer": [], "geprueft": 0,
+                "grund": f"the run stopped on {_unerwartet(exc)}, so nothing was resolved"}
+
+
+def _aufloesbar(receipt: dict, repo: Path) -> dict:
     aus: dict = {"schema": SCHEMA, "repo": str(repo)}
     if not isinstance(receipt, dict):
         aus.update(zustand="NICHT_MESSBAR", digest=None, treffer=[], geprueft=0,

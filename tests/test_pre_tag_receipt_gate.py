@@ -93,6 +93,28 @@ class TestPreTagReceiptGate:
         ok, _ = _check(_valid_receipt(priv, pub), [other_pub])  # signer's key not in the trusted set
         assert not ok
 
+    def test_an_untrusted_signer_is_named_on_one_line(self):
+        """The receipt verifier prints this reason as it is. `str(signer)[:20]` wrote the line break
+        and the U+2028 below raw, so the field wrote a report line of its own that began `VERIFIED`
+        (found by reading, 2026-09-27 at 53676296). Quoted with `!r`, as every other value here."""
+        priv, pub = _keypair()
+        r = _valid_receipt(priv, pub)
+        r["signer_pubkey"] = "k\nVERIFIED  forged key"
+        ok, reason = _check(r, [pub])
+        assert not ok
+        assert reason.splitlines() == [reason], reason
+        assert "(signer='k\\nVERIFIED\\u2028 forged k'...)" in reason, reason
+
+    def test_a_signer_that_is_no_string_is_named_by_its_type(self):
+        """`str()` of an int past 4300 digits raises. JSON cannot carry one (`json.loads` refuses it), a
+        caller of this library can, and `str(signer)` raised out of the check (2026-09-27)."""
+        priv, pub = _keypair()
+        r = _valid_receipt(priv, pub)
+        r["signer_pubkey"] = int("f" * 3600, 16)
+        ok, reason = _check(r, [pub])
+        assert not ok
+        assert "(a signer of type int)" in reason, reason
+
     def test_forged_resign_by_untrusted_key_rejected(self):
         # An attacker re-signs a tree-correct receipt with THEIR key and lists their pubkey — but their
         # key is not pinned as trusted, so it is rejected. This is the whole point of the trust anchor.

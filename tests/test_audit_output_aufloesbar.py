@@ -161,6 +161,31 @@ def test_a_receipt_larger_than_a_receipt_is_not_read(baum, tmp_path, monkeypatch
     assert "at most 64 bytes" in capsys.readouterr().out
 
 
+def test_a_receipt_with_an_int_past_the_digit_limit_is_not_measurable(baum, tmp_path, capsys):
+    """Control for the sweep of 2026-09-27: `json.loads` refuses an int literal of 5000 digits with a
+    ValueError, which this resolver already reads as an unreadable receipt."""
+    q = tmp_path / "q.json"
+    q.write_text('{"audit_output_digest": ' + "1" * 5000 + "}", encoding="utf-8")
+    assert A.main(["--receipt", str(q), "--repo", str(baum)]) == 2
+    assert "NICHT_MESSBAR" in capsys.readouterr().out
+
+
+def test_an_exception_no_branch_names_is_not_measurable(baum, tmp_path, monkeypatch, capsys):
+    """Planted: Python ends a run on an exception with exit 1, the code of NICHT_AUFLOESBAR, a negative
+    this run did not measure (the sweep of the class a review lens found in the mutant guard,
+    2026-09-27 at 53676296)."""
+    def planted(repo):
+        raise ValueError("planted in the listing")
+
+    monkeypatch.setattr(A, "_tracked_files", planted)
+    r = A.aufloesbar({"audit_output_digest": "a" * 64}, baum)
+    assert r["zustand"] == "NICHT_MESSBAR" and "ValueError: planted in the listing" in r["grund"], r
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"audit_output_digest": "a" * 64}), encoding="utf-8")
+    assert A.main(["--receipt", str(q), "--repo", str(baum)]) == 2
+    assert len(capsys.readouterr().out.splitlines()) == 1
+
+
 def test_a_tracked_path_that_cannot_be_hashed_leaves_a_hole_not_a_negative(baum, monkeypatch):
     """Too large, missing from the working tree, a FIFO: the negative over such a set is no negative.
     A match elsewhere is still a match."""

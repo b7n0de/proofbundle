@@ -110,6 +110,26 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `CITATION.cff` that states no version is a problem of its own instead of a silent agreement. The
   file of this repository binds `__version__` once, so no verdict here changes.
 
+  A number too long for Python to write in decimal ends in each tool's own verdict. A changed file
+  under `src/proofbundle` that binds `N = 0x` and 3600 `f` digits is valid Python, an int of 14400
+  bits. The mutant guard compares two readings of a file by their syntax trees, and it wrote each
+  constant in decimal to do so, which Python refuses past 4300 digits. Measured at 53676296, the
+  guard in `--staged` and `--base` and the language gate in its HEAD and working-tree forms each
+  ended with a traceback and exit 1, the code of a finding. The guard now compares an int by its
+  value and its type, so two such numbers of one length still differ, and the four runs end clean
+  and green with exit 0. The sweep of the five tools found two more of the class. The version gate
+  compared release numbers with `int()`, and a `pyproject.toml` version of 5000 ones ended it with a
+  traceback; it compares them with `Decimal` now, and a dev number of 10**9 or more sorts before the
+  release it comes before, which it did not. The pre-tag audit gate, which the receipt verifier
+  loads, caught only a JSON syntax error, so a receipt with a 5000-digit int or nested 100000 deep
+  ended it with a traceback; it rejects such a receipt with its reason now. Each of the five tools
+  now ends a run on an exception it does not name in its own verdict: exit 2 in the guard, the
+  language gate, the resolver and the receipt verifier, and a problem with exit 1 in the version
+  gate, its only failure code. The receipt verifier also printed an untrusted `signer_pubkey` raw,
+  and a line break in it wrote a report line of its own that began `VERIFIED`; the value is quoted
+  now, like every other value in that reason. Of the new test cases, 26 failed at 53676296, and all
+  of them pass now.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in

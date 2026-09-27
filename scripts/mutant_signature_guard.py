@@ -59,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import tokenize
+import traceback
 from pathlib import Path
 
 
@@ -103,6 +104,19 @@ def _auszug(text: str) -> str:
     """A line of a judged file as a report quotes it: as it is when every character prints, and in the
     form `_pfad` writes otherwise, so a separator such as U+2028 in it does not start a report line."""
     return text if text.isprintable() else _pfad(text)
+
+
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
 
 
 def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
@@ -397,8 +411,9 @@ _POSITION = ("lineno", "col_offset", "end_lineno", "end_col_offset")
 
 def _tree_shape(tree: ast.AST) -> list[tuple]:
     """A syntax tree as a flat list, node by node in `ast.walk` order: its type, its position, and
-    every field, a child as its type. The order and the child types fix the tree, so two trees are
-    the same, positions included, exactly when their shapes are equal.
+    every field, a child as its type and a value as `_field_value` holds it. The order and the child
+    types fix the tree, so two trees are the same, positions included, exactly when their shapes are
+    equal.
 
     `ast.dump` answers the same question by recursion. On a file Python compiles, 2000 nested unary
     minus or 1000 terms joined by `+`, it ran out of stack, and the guard stopped with "not the text
@@ -411,12 +426,26 @@ def _tree_shape(tree: ast.AST) -> list[tuple]:
             if isinstance(value, ast.AST):
                 fields.append((name, type(value).__name__))
             elif isinstance(value, list):
-                fields.append((name, tuple(type(v).__name__ if isinstance(v, ast.AST) else repr(v)
+                fields.append((name, tuple(type(v).__name__ if isinstance(v, ast.AST) else _field_value(v)
                                            for v in value)))
             else:
-                fields.append((name, repr(value)))
+                fields.append((name, _field_value(value)))
         shape.append((type(node).__name__, *(getattr(node, a, None) for a in _POSITION), tuple(fields)))
     return shape
+
+
+def _field_value(value: object) -> object:
+    """A field value as `_tree_shape` holds it: an int as the number itself, anything else as its `repr`.
+
+    `repr` writes an int in decimal, and Python refuses that past 4300 digits. A changed file binding
+    `N = 0x` and 3600 `f` digits, which Python compiles, ended the guard in `--staged` and `--base`, and
+    the language gate in both of its forms, with a traceback and exit 1, the code of a finding and of
+    ROT (a review lens, measured 2026-09-27 at 53676296). Two ints are compared by value, without any
+    text, so two numbers are one shape exactly when they are one number, however long; `type(...) is
+    int` keeps `True` apart from `1`, as `repr` did. Every other constant Python parses has a `repr`
+    that cannot fail: a float, a complex number, a string or bytes, None and Ellipsis.
+    """
+    return value if type(value) is int else repr(value)
 
 
 def _allowlisted(file_lines: list[str], lineno: int, last: int | None = None) -> bool:
@@ -678,6 +707,11 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
     # Parentheses around the first operand do not move where the condition starts (2026-09-26).
     ("A: a parenthesized constant as the first operand",
      _BENIGN.replace('if not isinstance(data, dict):', 'if (True) and data:'), True),
+    # An int Python compiles and cannot write in decimal, past 4300 digits (2026-09-27).
+    ("A: beside an int literal past the decimal digit limit",
+     "N = 0x" + "f" * 3600 + "\nif False:\n    pass\n", True),
+    ("negative: an int literal past the decimal digit limit alone stays quiet",
+     "N = 0x" + "f" * 3600 + "\n", False),
 ]
 
 
@@ -808,6 +842,14 @@ def main(argv: list[str] | None = None) -> int:
             print(stop.code, file=sys.stderr)
             return 2
         raise
+    # AN EXCEPTION NO STOP NAMES IS A STOP TOO. Python ends a run on one with exit 1, the code of a
+    # finding: an int past the digit limit in a changed file raised in `_tree_shape`, and the guard said
+    # "mutant found" by its exit code over a file with no signature in it (a review lens, measured
+    # 2026-09-27 at 53676296). It cannot say what it did not judge, so it says that it did not.
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this guard
+        print(f"mutant_signature_guard: the run stopped on {_unerwartet(exc)}, so the change is not "
+              "judged (fail closed)", file=sys.stderr)
+        return 2
     if findings:
         print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
         for f in findings:

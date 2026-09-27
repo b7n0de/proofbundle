@@ -195,6 +195,21 @@ class TheGateReportsATypedState(unittest.TestCase):
         self.assertEqual(len(r["rejected_receipts"]), 1, r)
         self.assertIn("unreadable", r["rejected_receipts"][0]["reason"].lower())
 
+    def test_a_receipt_json_refuses_is_rejected_not_a_crash(self):
+        """`json.loads` refuses an int literal past 4300 digits with a plain ValueError, which an except
+        clause naming JSONDecodeError let through, and 100000 nested arrays with a RecursionError: each
+        ended the gate with a traceback and exit 1, where it must rule (the sweep of the class a review
+        lens found in the mutant guard, measured 2026-09-27 at 53676296)."""
+        shapes = {"an int past the digit limit": '{"audit_exit_code": ' + "1" * 5000 + "}",
+                  "nested too deep": "[" * 100000 + "]" * 100000}
+        for label, content in shapes.items():
+            with self.subTest(shape=label):
+                d = _tree()
+                _plant(d, "600", "receipt.json", content)
+                r = self.pta.evaluate(d, "6.0.0")
+                self.assertEqual(r["state"], "rejected", r)
+                self.assertIn("unreadable", r["rejected_receipts"][0]["reason"])
+
     def test_a_valid_receipt_of_another_tree_is_other_tree_not_rejected(self):
         """2026-09-17, measured on pull request 218: main's own receipt (trusted key, version 6.0.0,
         audit exit 0) binds main's tree. Judged against a pull-request tree it was `rejected`, and

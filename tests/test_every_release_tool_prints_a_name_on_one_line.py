@@ -56,6 +56,27 @@ def test_the_two_tools_that_quote_a_line_of_a_file_carry_the_same_excerpt_functi
     assert None not in sources and len(sources) == 1
 
 
+def test_the_five_tools_carry_one_and_the_same_function_for_an_unexpected_exception():
+    """Each tool ends a run on an exception no branch names in its own verdict for what it did not judge
+    (a review lens, 2026-09-27 at 53676296: exit 1, the code of a finding, in the guard and the gate)."""
+    sources = {tool: _function_source(ROOT / tool, "_unerwartet") for tool in TOOLS}
+    assert all(sources.values()), [tool for tool, source in sources.items() if not source]
+    assert len(set(sources.values())) == 1, "the five copies of `_unerwartet` differ"
+
+
+def test_an_unexpected_exception_is_one_line_even_when_its_message_cannot_be_printed():
+    """`str()` of an exception that carries an int past the digit limit raises in turn."""
+    unerwartet = _guard_module()._unerwartet
+    for message in (int("f" * 3600, 16), "a\nb c"):
+        try:
+            raise ValueError(message)
+        except ValueError as exc:
+            line = unerwartet(exc)
+        assert line.splitlines() == [line], line
+        assert line.startswith("an unexpected exception at test_every_release_tool_prints_a_name_on_one_line.py:")
+    assert line.endswith('"ValueError: a\\nb\\u2028c"'), line
+
+
 @pytest.mark.parametrize("name,printed", [
     ("docs/a.md", "docs/a.md"),
     ("docs/pr\u00fcfung.md", "docs/pr\u00fcfung.md"),
