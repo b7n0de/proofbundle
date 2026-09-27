@@ -77,11 +77,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   are not the pattern either: `renewal._sign_ats_content` signs a time authority's own archive
   time-stamp content, a digest it computed, and `sdjwt_issue.present_with_key_binding` signs the
   holder's key-binding JWT over the presentation it holds; neither reads an eval receipt. Contract
-  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 35 cases and 177 subtests: on
-  126ed1dc 22 cases fail, 12 of them outright (one of those also with 13 failing subtests) and 10
-  only through 112 subtests, 125 failing subtests in all, and the 13 controls and preconditions
-  pass on both trees. A case counts once, as outright when its own assertion fails, whatever its
-  subtests do.
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 40 cases and 263 subtests: on
+  126ed1dc 27 cases fail, 14 of them outright (one of those also with 13 failing subtests) and 13
+  only through 195 subtests, 208 failing subtests in all; on 053c7800 15 fail, 6 outright and 9
+  through 136 subtests; on 8cf49247 5 fail, 1 outright and 4 through 84 subtests; the 13 controls
+  and preconditions pass on every tree. A case counts once, as outright when its own assertion
+  fails, whatever its subtests do; a unittest result counter and `pytest -rA` give the same numbers.
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
