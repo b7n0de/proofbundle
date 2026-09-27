@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re as _re
 from pathlib import Path
 
@@ -24,6 +25,51 @@ _SIGNED_FIELDS = (
     "schema", "version", "subject_tree_digest", "gate_source_digest",
     "audit_command", "audit_exit_code", "audit_output_digest", "runner_identity", "produced_at",
 )
+
+
+#: Environment names through which git answers about ANOTHER repository, index, object store,
+#: ref view or configuration than the one named with `-C <repo>`. ONE list for the receipt chain:
+#: the producer drops these names from its own process at import, and this library passes an
+#: environment without them to every git call it makes itself.
+#:
+#: WHY THE LIBRARY DOES IT TOO, measured 2026-09-27 on the merge of main into PR 249: the release
+#: gate calls `subject_tree_digest` and `load_trusted_pubkeys` from a process nobody cleaned. A
+#: tampered tree carrying a receipt copied from the genuine release was judged `ok=true,
+#: state=verified` by `pre_tag_audit_gate.py --repo <tampered>` with `GIT_DIR` pointing at a clone
+#: of the genuine release, and `ok=false` without the variable: both the digest and the trust
+#: anchor were read from the other repository. The producer was safe only because of what its
+#: caller had done first, which is the shape of the Codex finding this list answers.
+#:
+#: THE CORE IS GIT'S OWN LIST, `git rev-parse --local-env-vars` (git 2.34.1), so a test can hold the
+#: enumeration against git instead of against memory. The producer's first list lacked five of
+#: those names; one of them, `GIT_INTERNAL_SUPER_PREFIX`, made `ls-tree` fail on a clean tree, so
+#: the environment decided the verdict in the refusing direction. The rest: discovery and ref
+#: visibility, and the configuration files the environment selects.
+GIT_UMLEITUNG = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX", "GIT_INTERNAL_SUPER_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+    "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
+})
+#: `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` carry configuration too; they are numbered, so
+#: they are matched by prefix rather than listed.
+_GIT_UMLEITUNG_PRAEFIXE = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+
+
+def ist_git_umleitung(name: str) -> bool:
+    """True iff the environment name `name` can make git answer about something not named."""
+    return name in GIT_UMLEITUNG or name.startswith(_GIT_UMLEITUNG_PRAEFIXE)
+
+
+def git_umgebung() -> dict:
+    """The environment for a git call of the receipt chain: the process environment without the
+    names above, and with replacement objects switched off, so `ls-tree HEAD` lists the tree the
+    head really names (the producer sets the same switch for its whole process)."""
+    umgebung = {k: v for k, v in os.environ.items() if not ist_git_umleitung(k)}
+    umgebung["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return umgebung
 
 
 #: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
@@ -157,8 +203,14 @@ def subject_tree_digest(repo) -> str:
             f"({_nachbar}) — the exclusion set would be a guess, and a digest over the wrong set "
             f"is worse than none: {type(e).__name__}: {e}") from e
     try:
-        r = _sp.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
-                    capture_output=True, text=True, timeout=10)
+        # `core.quotePath=true` IS PINNED, not left to the configuration: the digest hashes the TEXT
+        # of the listing, and with `core.quotePath=false` in a user's `~/.gitconfig` a non-ASCII
+        # path is printed raw instead of octal-quoted. Measured 2026-09-27: `caf\303\251.txt` by
+        # default, the two raw UTF-8 bytes under that setting, so two machines would compute two
+        # digests for one tree. Pinned to git's default, which leaves every digest computed so far
+        # unchanged.
+        r = _sp.run(["git", "-C", str(repo), "-c", "core.quotePath=true", "ls-tree", "-r", "HEAD"],
+                    capture_output=True, text=True, timeout=10, env=git_umgebung())
     except (OSError, _sp.SubprocessError) as e:  # kein git-Binary, Zeitueberschreitung, Signal
         raise BaumNichtLesbar(f"cannot read the tree in {repo}: {type(e).__name__}: {e}") from e
     if r.returncode != 0:
@@ -209,9 +261,12 @@ def load_trusted_pubkeys(repo: Path, *, ref: str = "HEAD") -> list[str]:
     trust-all (one key per line, ``#`` comments). The gate resolves the digest from the same ``HEAD``."""
     import subprocess  # noqa: PLC0415
     try:
+        # The anchor is read with the same environment as the digest: a gate that isolated one of
+        # the two would take the tree from `--repo` and the trusted keys from wherever `GIT_DIR`
+        # points, and a receipt signed by a key of that other repository would then verify.
         r = subprocess.run(
             ["git", "-C", str(repo), "show", f"{ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt"],
-            capture_output=True, text=True, timeout=10)
+            capture_output=True, text=True, timeout=10, env=git_umgebung())
     except Exception:  # noqa: BLE001 — no git binary / timeout -> no trust anchor, fail closed
         return []
     if r.returncode != 0:  # file not committed in this tree, or unknown ref -> fail closed

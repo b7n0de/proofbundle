@@ -115,18 +115,16 @@ def _bytecode_cache_elsewhere() -> None:
 #: the cleanliness gate would have judged a tree nobody named. Dropped from THIS process before the
 #: first git call, so every git invocation of this run -- the gate's listings, the tree digest and any
 #: git the audit program runs -- answers about the tree given as `--repo`.
-_GIT_UMLEITUNG = (
-    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
-    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_REPLACE_REF_BASE",
-)
+#:
+#: THE LIST LIVES IN `pre_tag_receipt_lib.GIT_UMLEITUNG` since 2026-09-27, one list for the tool
+#: and the library: the library cleans the environment of its own git calls as well, because the
+#: release gate calls it from a process that nobody cleaned. Two typed lists would drift, and the
+#: shorter one would decide wherever it stands. Importing the library runs no git.
 
 
 def _umgebung_ohne_git_umleitung() -> None:
-    """Remove the redirecting GIT_* variables from this process (see `_GIT_UMLEITUNG`), and make
-    every git call of this process read the RAW objects.
+    """Remove the redirecting GIT_* variables from this process (see `GIT_UMLEITUNG` in the
+    library), and make every git call of this process read the RAW objects.
 
     REPLACEMENT OBJECTS (Codex, fifth round, 2026-09-21): `refs/replace/*` under the root `.git`
     make git substitute one object for another everywhere it reads, `ls-tree HEAD`, `show` and
@@ -139,24 +137,55 @@ def _umgebung_ohne_git_umleitung() -> None:
     digest and any git the audit program runs all read the objects the revision really names.
     """
     for name in list(os.environ):
-        if name in _GIT_UMLEITUNG or name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+        if ist_git_umleitung(name):
             os.environ.pop(name, None)
     os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
 
 
 _bytecode_cache_elsewhere()
-_umgebung_ohne_git_umleitung()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, subject_tree_digest  # noqa: E402
+from pre_tag_receipt_lib import (  # noqa: E402
+    RECEIPT_SCHEMA,
+    canonical_bytes,
+    ist_git_umleitung,
+    subject_tree_digest,
+)
+
+_umgebung_ohne_git_umleitung()
 
 
 def _tree_digest(repo: Path) -> str:
     return subject_tree_digest(repo)
 
 
+#: The gate whose digest the receipt binds, as a path inside the tree.
+_GATE_REL = "scripts/pre_tag_audit_gate.py"
+
+
 def _gate_source_digest(repo: Path) -> str:
-    return hashlib.sha256((repo / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+    """sha256 of the gate source AS THE HEAD STORES IT: a regular file's committed blob.
+
+    MEASURED 2026-09-27: the tool read `scripts/pre_tag_audit_gate.py` with `read_bytes()`, which
+    follows a symbolic link. With that path committed as a link to `scripts/real_gate.py`, the
+    emit returned 0 and bound sha256 of the TARGET (3af880f3...), while the head carries the LINK
+    TEXT at that path (sha256 edca6c03...), and the third-party verifier hashes exactly that blob
+    (`git show <commit>:scripts/pre_tag_audit_gate.py`). The receipt named a gate the commit does
+    not have at the path it names. A link has no coherent gate digest here: the release gate hashes
+    the file it runs from, which is the target, and a reader of the commit hashes the link text.
+    So a gate source that is not a regular file refuses, and a regular one is read from the head:
+    the tree was measured equal to the head before and after the audit, so those are the bytes on
+    disk as well, and they are the bytes the verifier reads.
+    """
+    eintraege = _git_z(repo, "ls-tree", "-z", "HEAD", "--", _GATE_REL)
+    kopf = eintraege[0].partition("\t")[0].split() if len(eintraege) == 1 else []
+    if len(kopf) != 3 or kopf[1] != "blob" or kopf[0] not in ("100644", "100755"):
+        art = "no entry" if not eintraege else f"mode {kopf[0]}" if kopf else "an unreadable entry"
+        raise SystemExit(
+            f"emit: the head carries {_GATE_REL} as {art}, not as a regular file — refusing, "
+            "because the receipt binds the digest of the gate source, and only a regular file has "
+            "one digest for the gate that runs it and for a reader of the commit")
+    return hashlib.sha256(_git_bytes(repo, "cat-file", "blob", kopf[2])).hexdigest()
 
 
 def _version_token(v: str) -> str:
@@ -324,8 +353,16 @@ def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
 
 
 def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
-    """A NUL-separated git listing as a list of entries, raw paths, no quoting."""
-    return [e.decode("utf-8", "replace")
+    """A NUL-separated git listing as a list of entries, raw paths, no quoting.
+
+    DECODED THE WAY THE FILESYSTEM NAMES ARE, `os.fsdecode`, not UTF-8 with replacement. Measured
+    2026-09-27: a committed file named with the byte 0xE9 came back from `ls-tree` as a name with
+    U+FFFD in it, which no file on disk carries, so a clean tree refused with the file both missing
+    (`D`) and untracked (`??`). The walk below reads names with `os.scandir`, which escapes such a
+    byte as a surrogate; the same decoding here makes the two spellings of one name compare equal,
+    and `os.fsencode` gives git the original bytes back.
+    """
+    return [os.fsdecode(e)
             for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
 
 
@@ -383,7 +420,7 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
     # exit 1 means "none of the given paths is ignored", which is an answer, not an error.
     roh = _git_bytes(repo, "-c", "core.ignorecase=false", "check-ignore", "-v", "-z", "--no-index",
                      "--stdin", eingabe=eingabe, erlaubte_codes=(0, 1))
-    felder = [f.decode("utf-8", "replace") for f in roh.split(b"\0")]
+    felder = [os.fsdecode(f) for f in roh.split(b"\0")]          # same decoding as `_git_z`
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
     for i in range(0, len(felder) - 3, 4):
         quelle, _zeile, muster, pfad = felder[i:i + 4]

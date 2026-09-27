@@ -338,6 +338,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
   it starts inherits them.
 
+- **The pre-tag receipt chain asks git about the tree it names, and reads each path as git stores
+  it** (`scripts/pre_tag_receipt_lib.py`, `scripts/pre_tag_receipt.py`). The library's tree digest
+  and trust-anchor read ran with whatever environment their caller had. The producer cleaned its own
+  process, the release gate and the third-party verifier did not: measured on 2026-09-27, with
+  `GIT_DIR` pointing at a clone of a genuine release, `pre_tag_audit_gate.py` judged a tampered tree
+  that carried the copied receipt `ok=true, state=verified`, and `verify_pre_tag_receipt.py` said
+  `VERIFIED` for a checkout at a commit that injected a dependency after the receipt. The library
+  now passes every git call an environment without the redirecting names, one list shared with the
+  producer and checked against `git rev-parse --local-env-vars` (the producer's list lacked five of
+  git's own names, and `GIT_INTERNAL_SUPER_PREFIX` made a clean tree refuse), and it pins
+  `core.quotePath=true` for the listing it hashes, because `core.quotePath=false` in a user's
+  configuration changed the digest of a tree with a non-ASCII path; the pin is git's default, so no
+  digest computed so far changes. The producer binds the gate source as the head stores it and
+  refuses one that is a symbolic link (it had bound the target's digest while the commit carries
+  the link text), and it decodes git's listings the way the filesystem names are, so a committed
+  name that is not UTF-8 no longer refuses a clean tree. The verifier's own git calls still follow
+  the environment; with this change such a run ends `NOT_VERIFIED` instead of passing. Contract:
+  `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`.
+
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
   and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
