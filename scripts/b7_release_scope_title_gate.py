@@ -28,6 +28,7 @@ says so quietly reads, in a pull-request check list, exactly like one that passe
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import pathlib
 import re
@@ -114,24 +115,31 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
     NEWEST untagged scope file is the release after next (6.3.0 while 6.2.0 is being built), the
     OLDEST untagged one is 3.7.1, a patch scope that never shipped.
 
-    Not measurable, with the reason in the second value: no TOML reader, an unreadable or
+    THE SOURCE VERSION IS READ BY THE RELEASE-INTEGRITY GATE'S OWN READER,
+    `scripts/check_version_and_changelog.py::_pyproject_version`, loaded from beside this file, not by
+    a second reader here. The first version of this rule parsed pyproject.toml with `tomllib`, and
+    `tomli` below Python 3.11. That is an import outside the standard library of 3.10, the floor of
+    this repository, and `tests/test_release_tooling_refuses_weak_pinned_keys.py` refuses it there
+    (measured in CI at caccdbad, crypto-floor: `tomllib` and `tomli` seen, not in the table). A table
+    entry would be stale on 3.11 and later, where `tomllib` is standard. The release-integrity gate
+    already reads this version, and it is the reading a release is checked against, so this rule
+    reads the same one.
+
+    Not measurable, with the reason in the second value: the reader not loadable, an unreadable or
     version-less pyproject.toml, a source version that is not a released one, or no scope file
     above it.
     """
+    leser = pathlib.Path(__file__).resolve().parent / "check_version_and_changelog.py"
     try:
-        import tomllib  # noqa: PLC0415
-    except ModuleNotFoundError:            # Python 3.10
-        try:
-            import tomli as tomllib  # noqa: PLC0415
-        except ModuleNotFoundError:
-            return None, ("NOT MEASURABLE: no TOML reader here (tomllib from Python 3.11 on, tomli "
-                          "below), so the source version in pyproject.toml cannot be read")
-    try:
-        daten = tomllib.loads((wurzel / "pyproject.toml").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        return None, f"NOT MEASURABLE: pyproject.toml is not readable ({type(e).__name__}: {e})"
-    projekt = daten.get("project")
-    quelle = projekt.get("version") if isinstance(projekt, dict) else None
+        spec = importlib.util.spec_from_file_location("_release_integrity_version", leser)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {leser}")
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        quelle = modul._pyproject_version(wurzel)
+    except Exception as e:  # noqa: BLE001 - not knowing the source version blocks, it never passes
+        return None, (f"NOT MEASURABLE: the source version in pyproject.toml cannot be read with "
+                      f"{leser.name} ({type(e).__name__}: {e})")
     m = _FREIGEGEBEN.match(quelle) if isinstance(quelle, str) else None
     if m is None:
         return None, (f"NOT MEASURABLE: the source version {quelle!r} in pyproject.toml is not a "

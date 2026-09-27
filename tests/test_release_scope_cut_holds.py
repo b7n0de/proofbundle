@@ -559,10 +559,12 @@ _SCOPE_STUB = ("# Release scope - {v}\n\n## In\n\n"
 
 
 def _tree(tmp_path: pathlib.Path, source_version: str, scopes: tuple[str, ...]) -> pathlib.Path:
-    """A throwaway repository root: the two scripts as they are, a pyproject, some scope files."""
+    """A throwaway repository root: the two scripts and the version reader they load, as they are,
+    a pyproject, some scope files."""
     root = tmp_path / "tree"
     (root / "scripts").mkdir(parents=True)
-    for name in ("b7_release_scope_title_gate.py", "b7_release_scope_landing_card.py"):
+    for name in ("b7_release_scope_title_gate.py", "b7_release_scope_landing_card.py",
+                 "check_version_and_changelog.py"):
         shutil.copy2(REPO / "scripts" / name, root / "scripts" / name)
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "probe"\nversion = "{source_version}"\n', encoding="utf-8")
