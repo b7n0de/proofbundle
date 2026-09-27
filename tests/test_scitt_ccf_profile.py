@@ -987,3 +987,94 @@ def test_parsing_surfaces_refuse_typed(bad):
         with pytest.raises(S.ScittFormatError):
             fn(bad)
     assert S.verify_transparent_statement(bad, canonical_root=ROOT).status in S.STATUS_ORDER
+
+
+# ------------------------------------------------------------------------------------------------
+# CWT Claims (label 15): protected, with a text iss and sub (RFC 9943 section 6)
+# ------------------------------------------------------------------------------------------------
+# FINDING of round 3 of the policy-boundary matrix (owner addendum of 2026-09-27, 20:4x Berlin): the
+# vector M-u15 moves CWT Claims from the protected to the unprotected header and is signed again. The
+# local scitt-ccf-ledger refused it, "Signed statement protected header must contain CWT_Claims with at
+# least an issuer"; the v1 reader at 531e2564 read its statement side as confirmed. RFC 9943 section 6:
+# "The protected header of a Signed Statement and a Receipt MUST include the `CWT Claims` header
+# parameter" and "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the
+# `Subject Claim` (Claim label 2)"; RFC 9597 section 2 recommends the protected header only and allows
+# the parameter once. The class: a label the architecture requires in the protected header that the
+# profile did not check. Its sibling here, a protected x5chain, was already required (owner answer N7 b).
+#
+# REAL BYTES: the submitted statement of M-u15, round 3 (differential_corpus_round3/vectors/m-u15/
+# request.hex on the matrix branch, commit a38494dc), signed with ES256 by leaf A, SPKI below.
+M_U15 = bytes.fromhex(
+    "d284590383a401261821825901ac308201a83082014fa0030201020214700ea4375a9ac932c898cec555464b83d225aa"
+    "48300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f62"
+    "65204341301e170d3236303932373230303531395a170d3236303932383230313031395a30223120301e06035504030c"
+    "1770726f6f6662756e646c652d73636974742d70726f62653059301306072a8648ce3d020106082a8648ce3d03010703"
+    "420004a1f74fc6c3b32c63b435c82663f4717c5552987908e4478334551117f4c33007e0300423b1abd7e9aac267ee36"
+    "5db5c92e7f9a9e5646df2c2ecb9cac3b503175a360305e300c0603551d130101ff04023000300e0603551d0f0101ff04"
+    "0403020780301d0603551d0e04160414083fc0bbb6b1ab3e05f6720255337ca9ed233de9301f0603551d230418301680"
+    "145a28403f44ef610edcef4fc1077297d8ab93ccd4300a06082a8648ce3d040302034700304402206e03bc73b0a5ed6f"
+    "6c5dd5616eade0540f1516b303233a3404705ef3a1a8545d022017a6bcf49a6fd22d82e7c7d13732631f3ffdd78a14a4"
+    "ce1d7730f3198e59c4c05901b3308201af30820155a00302010202140804f1a2c3a0ecf66bf59819b6ed56c7ccd9b00c"
+    "300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265"
+    "204341301e170d3236303932373230303531395a170d3236303932383230313031395a30253123302106035504030c1a"
+    "70726f6f6662756e646c652d73636974742d70726f62652043413059301306072a8648ce3d020106082a8648ce3d0301"
+    "0703420004637eb1150d8a075beb335ae641f2ed94fd586b5b21ed4ce7bbaab4184031d75d2ebc750756eb773ad38030"
+    "d15a609ee558d47c36173d010c2e60b9ce5721022ea3633061300f0603551d130101ff040530030101ff300e0603551d"
+    "0f0101ff040403020106301d0603551d0e041604145a28403f44ef610edcef4fc1077297d8ab93ccd4301f0603551d23"
+    "0418301680145a28403f44ef610edcef4fc1077297d8ab93ccd4300a06082a8648ce3d0403020348003045022037e029"
+    "3fcf9647461c34d9733c0bccebd1ae3cedd52f5d693bd71a224a18dcda0221009fd0d1ec7fd7d9a4d42addfe74169b15"
+    "8e19741c15b0c8812fb67d36b615011e1901022f190103706170706c69636174696f6e2f6a736f6ea10fa20178616469"
+    "643a783530393a303a7368613235363a6f6849547434785f5831614b746c676b786d6a4232724777482d50704c72334e"
+    "6b4d6e504157614e4469343a3a7375626a6563743a434e3a70726f6f6662756e646c652d73636974742d70726f626502"
+    "782870726f6f6662756e646c6520646966666572656e7469616c20636f727075732c20726f756e6420335820df6557c0"
+    "af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9584052a0cbf826ae43d6915ab5f200523c1cc3d1"
+    "f4c906bbf0247f43358dab7a651f936e461af854e779c029827d4437cb29bb59cc3699a738d616386a8b63dd8461"
+)
+M_U15_SIGNER = bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d03010703420004a1f74fc6c3b32c63b435c82663f4717c5552987908e4478334"
+    "551117f4c33007e0300423b1abd7e9aac267ee365db5c92e7f9a9e5646df2c2ecb9cac3b503175")
+M_U15_SIGNER = bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d03010703420004a1f74fc6c3b32c63b435c82663f4717c5552987908e4478334"
+    "551117f4c33007e0300423b1abd7e9aac267ee365db5c92e7f9a9e5646df2c2ecb9cac3b503175")
+M_U15_ROOT = bytes.fromhex("df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9")
+
+
+def _statement_side(data: bytes, key: bytes, root: bytes) -> str:
+    return S.verify_transparent_statement(data, canonical_root=root,
+                                          rp_trust={"scitt_statement_keys": [key]}).statement_status
+
+
+def test_the_real_m_u15_bytes_are_the_recorded_ones():
+    assert hashlib.sha256(M_U15).hexdigest() == "bae0467d702873b556c55d755d8f751c88db71607411cc0e36bb22ba2b624795"
+    st = S.decode_cose_sign1(M_U15)
+    assert 15 not in st.protected and 15 in st.unprotected and 33 in st.protected
+
+
+def test_cwt_claims_only_unprotected_is_outside_the_profile_on_real_bytes():
+    assert _statement_side(M_U15, M_U15_SIGNER, M_U15_ROOT) == "outside_profile"
+
+
+def _without_cwt(prot_cwt=None, unprot_cwt=None) -> bytes:
+    prot = {1: -7, 258: -16, 259: "application/json"}
+    if prot_cwt is not None:
+        prot[15] = prot_cwt
+    st = Stmt(prot_map=prot)
+    unprot = {} if unprot_cwt is None else {15: unprot_cwt}
+    return b"\xd2\x84" + enc(st.protected()) + enc(unprot) + enc(st.payload) + enc(st.signature())
+
+
+@pytest.mark.parametrize("prot_cwt, unprot_cwt", [
+    (None, {1: "did:example:signer", 2: "s"}),     # moved to the unprotected header
+    (None, None),                                   # absent
+    ({2: "s"}, None),                               # no iss
+    ({1: "did:example:signer"}, None),              # no sub
+    ({1: "", 2: "s"}, None),                        # empty iss
+    ({1: "did:example:signer", 2: 7}, None),        # sub not text
+    ([1, 2], None),                                 # not a map
+])
+def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_cwt):
+    assert _statement_side(_without_cwt(prot_cwt, unprot_cwt), spki(STMT_KEY), ROOT) == "outside_profile"
+
+
+def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():
+    assert _statement_side(_without_cwt({1: "did:example:signer", 2: "s"}), spki(STMT_KEY), ROOT) == "confirmed"
