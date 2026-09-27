@@ -593,6 +593,94 @@ _WHY_NOT_READY = ("needs cargo-audit 0.22.2, git and an advisory database cargo-
                   "rust-parity job fetches it right before its gate)")
 
 
+def _database_with_an_advisory(home: Path) -> Path:
+    """`_database`, with one advisory and a README committed, HEAD at that commit and the fetch marker naming
+    it: the smallest database whose worktree cargo-audit would read advisories from."""
+    db = _database(home)
+    (db / "crates" / "curve25519-dalek").mkdir(parents=True)
+    (db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md").write_text(
+        "```toml\n[advisory]\nid = \"RUSTSEC-2024-0344\"\npackage = \"curve25519-dalek\"\n```\n", encoding="utf-8")
+    (db / "README.md").write_text("advisory database for a test\n", encoding="utf-8")
+    _git(db, "add", "-A")
+    _git(db, "commit", "-q", "-m", "one advisory")
+    kopf = _git(db, "rev-parse", "HEAD")
+    (db / ".git" / "FETCH_HEAD").write_text(f"{kopf}\t\t{_ADVISORY_DB_URL}\n", encoding="utf-8")
+    return db
+
+
+@unittest.skipIf(_NO_STAND_IN, _WHY_NO_STAND_IN)
+class C3TheWorktreeIsTheFetchedCommit(unittest.TestCase):
+    """PROPERTY (review of PR 296 at f97cb257, P1): the gate vouches for the bytes cargo-audit reads, and
+    rustsec reads the advisories from the database's worktree, not from its commit. Measured at f97cb257 with
+    cargo-audit 0.22.2 on a copy of the fetched database (e2111519, 1271 advisories) whose worktree lost
+    crates/curve25519-dalek/RUSTSEC-2024-0344.md, HEAD and .git/FETCH_HEAD untouched: `database_state`
+    succeeded, cargo-audit loaded 1270 advisories, and the gate printed OK and exited 0 on curve25519-dalek
+    4.1.2, which the fetched database fails with exit 1. The worktree must hold exactly HEAD's files, with
+    HEAD's bytes, and nothing else; compared by content, since a stat cache can be kept while bytes change."""
+
+    def _state(self, db: Path) -> str:
+        return g.database_state(db)
+
+    def test_c3_control_a_clean_worktree_is_established(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = _database_with_an_advisory(Path(tmp))
+            self.assertIn("fetched 0 s ago", self._state(db))
+
+    def _refused(self, change, wort: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = _database_with_an_advisory(Path(tmp))
+            change(db)
+            with self.assertRaises(g.GateError) as fall:
+                self._state(db)
+            self.assertIn(wort, str(fall.exception))
+
+    def test_c3_a_deleted_advisory_ends_the_gate_with_2(self) -> None:
+        self._refused(lambda db: (db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md").unlink(),
+                      "lacks 1 file")
+
+    def test_c3_a_changed_advisory_ends_the_gate_with_2(self) -> None:
+        def aendern(db: Path) -> None:
+            datei = db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md"
+            datei.write_text(datei.read_text(encoding="utf-8").replace("curve25519-dalek", "curve25519-dalex"),
+                             encoding="utf-8")
+        self._refused(aendern, "worktree")
+
+    def test_c3_a_change_that_keeps_size_and_mtime_ends_the_gate_with_2(self) -> None:
+        # Same length, modification time put back, and the database's own config telling git not to trust
+        # ctime: git's stat cache then says clean (asserted below), and only the content says otherwise.
+        def aendern(db: Path) -> None:
+            datei = db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md"
+            _git(db, "config", "core.trustctime", "false")
+            alt = time.time() - 3600
+            os.utime(datei, (alt, alt))
+            _git(db, "update-index", "--refresh")     # the index caches the old mtime, not racily clean
+            datei.write_bytes(datei.read_bytes().replace(b"0344", b"0345"))
+            os.utime(datei, (alt, alt))
+            self.assertEqual(_git(db, "status", "--porcelain"), "", "git's stat cache must not see the change")
+        self._refused(aendern, "differ from commit")
+
+    def test_c3_an_untracked_advisory_ends_the_gate_with_2(self) -> None:
+        def zufuegen(db: Path) -> None:
+            (db / "crates" / "other").mkdir()
+            (db / "crates" / "other" / "RUSTSEC-2099-0001.md").write_text("x\n", encoding="utf-8")
+        self._refused(zufuegen, "worktree")
+
+    def test_c3_an_ignored_file_ends_the_gate_with_2(self) -> None:
+        def zufuegen(db: Path) -> None:
+            (db / ".git" / "info" / "exclude").write_text("*.md\n", encoding="utf-8")
+            (db / "crates" / "curve25519-dalek" / "RUSTSEC-2099-0002.md").write_text("x\n", encoding="utf-8")
+        self._refused(zufuegen, "worktree")
+
+    def test_c3_a_file_turned_into_a_symlink_ends_the_gate_with_2(self) -> None:
+        def ersetzen(db: Path) -> None:
+            datei = db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md"
+            ziel = db.parent / "elsewhere.md"
+            ziel.write_bytes(datei.read_bytes())
+            datei.unlink()
+            datei.symlink_to(ziel)
+        self._refused(ersetzen, "worktree")
+
+
 @unittest.skipUnless(_cargo_audit_ready(), _WHY_NOT_READY)
 class C3AgainstTheRealTool(unittest.TestCase):
     """The verdict's case with cargo-audit 0.22.2 itself: curve25519-dalek 4.1.2 fails against the fetched
