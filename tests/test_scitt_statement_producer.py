@@ -204,7 +204,10 @@ class TestTheSignCommand:
 
     def test_a_bundle_that_does_not_verify_is_not_signed(self, tmp_path):
         bundle = _bundle()
-        bundle["signature"]["sig_b64"] = bundle["signature"]["sig_b64"][::-1]
+        import base64  # noqa: PLC0415
+        sig = bytearray(base64.b64decode(bundle["signature"]["sig_b64"]))
+        sig[0] ^= 1                                # a well-formed signature that fails
+        bundle["signature"]["sig_b64"] = base64.b64encode(bytes(sig)).decode("ascii")
         src = tmp_path / "broken.json"
         src.write_text(json.dumps(bundle), encoding="utf-8")
         rc, _o, err = _cli(["scitt", "sign", str(src), "--out", str(tmp_path / "s.cose"), "--issuer", ISSUER,

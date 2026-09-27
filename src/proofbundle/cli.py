@@ -379,6 +379,59 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_scitt_sign(args: argparse.Namespace) -> int:
+    """`scitt sign` (EXPERIMENTAL, 6.4.0): a SCITT Signed Statement over a receipt that verifies.
+
+    Exit 0 written, 1 the receipt does not verify (nothing written), 2 unusable input or arguments."""
+    from .bundle import load_bundle, verify_bundle  # noqa: PLC0415
+    from .scitt_ccf import ScittUnavailable  # noqa: PLC0415
+    from .scitt_statement import ScittStatementError, sign_statement  # noqa: PLC0415
+    # Checked before a --new-key file is written: a refused call leaves nothing behind.
+    for name in ("issuer", "subject", "kid", "location"):
+        value = getattr(args, name, None)
+        if value is not None and not value:
+            print(f"ERROR: --{name} must not be empty", file=sys.stderr)
+            return 2
+    try:
+        bundle = load_bundle(args.receipt)
+        result = verify_bundle(bundle)
+    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:
+        _err(exc)
+        return 2
+    if not result.ok:
+        failed = ", ".join(_safe_line(str(c.name)) for c in result.checks if not c.ok)
+        print(f"ERROR: the receipt does not verify (failed: {failed}); no statement written", file=sys.stderr)
+        return 1
+    try:
+        kid = None if args.kid is None else args.kid.encode("utf-8")
+    except UnicodeEncodeError:
+        print("ERROR: --kid is not valid UTF-8 text", file=sys.stderr)
+        return 2
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        data = sign_statement(bundle, signer, issuer=args.issuer, subject=args.subject, kid=kid,
+                              location=args.location)
+    except (ScittStatementError, ScittUnavailable) as exc:
+        _err(exc)
+        return 2
+    from .scitt_ccf import decode_cose_sign1  # noqa: PLC0415
+    written_kid = decode_cose_sign1(data).protected[4]
+    with open(args.out, "wb") as handle:
+        handle.write(data)
+    print(f"wrote SCITT signed statement {args.out} ({len(data)} bytes, EdDSA)")
+    print(f"kid {_safe_line(written_kid.decode('utf-8', 'replace'))}")
+    if args.public_key_out:
+        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+        pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
+                                               serialization.PublicFormat.SubjectPublicKeyInfo)
+        with open(args.public_key_out, "wb") as handle:
+            handle.write(pem)
+        print(f"wrote the statement's public key {args.public_key_out}")
+    return 0
+
+
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
@@ -3155,6 +3208,28 @@ def build_parser() -> argparse.ArgumentParser:
     a_in.add_argument("path", help="path to a detached OTS proof (.ots) or an evidence pack JSON")
     a_in.add_argument("--json", action="store_true", help="machine readable output")
     a_in.set_defaults(func=_cmd_anchor_inspect)
+
+    scitt = sub.add_parser(
+        "scitt",
+        help="SCITT Signed Statements over receipts (EXPERIMENTAL, 6.4.0): sign one offline")
+    scsub = scitt.add_subparsers(dest="scitt_command", required=True)
+    sc_sign = scsub.add_parser(
+        "sign",
+        help="sign a COSE_Sign1 hash envelope (RFC 9995) over a receipt's anchor root, EdDSA with a "
+             "protected kid; the receipt must verify. Offline; registration is a separate step")
+    sc_sign.add_argument("receipt", help="path to the receipt bundle JSON")
+    sc_sign.add_argument("--out", required=True, help="path to write the statement (binary COSE_Sign1)")
+    sc_sign.add_argument("--issuer", required=True, help="CWT iss (RFC 9943 section 6)")
+    sc_sign.add_argument("--subject", required=True, help="CWT sub (RFC 9943 section 6)")
+    sc_sign.add_argument("--kid", default=None,
+                         help="protected kid as text; default: the hex SHA-256 of the key's "
+                              "SubjectPublicKeyInfo")
+    sc_sign.add_argument("--location", default=None, help="payload location, label 260 (only if given)")
+    sc_sign.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
+    sc_sign.add_argument("--new-key", dest="new_key", help="generate a signing key and save it to this file")
+    sc_sign.add_argument("--public-key-out", dest="public_key_out", default=None,
+                         help="also write the statement's public key (PEM SubjectPublicKeyInfo)")
+    sc_sign.set_defaults(func=_cmd_scitt_sign)
 
     return parser
 
