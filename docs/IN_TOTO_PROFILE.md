@@ -5,7 +5,8 @@ and submitted as [PR #575](https://github.com/in-toto/attestation/pull/575), whi
 Not standardized. The `predicateType` lives in a vendor namespace until (and unless) it is registered
 upstream. Nothing here changes the native receipt or what it proves — see [NON_CLAIMS.md](NON_CLAIMS.md).
 
-The v0.2 field table below mirrors the submitted spec as revised on 2026-09-28. When the two differ, the
+The v0.2 field table below mirrors the submitted spec as revised on 2026-09-28 (the upstream file at
+git blob `46a33e7`). When the two differ, the
 PR is the source of truth and this page is the one that is wrong; a byte-for-byte copy of the submitted
 file lives in [docs/upstream/eval-result.md](upstream/eval-result.md).
 
@@ -66,23 +67,37 @@ fields are speaking RFC-3339):
 
 | field | meaning |
 |---|---|
-| `evaluator.id` | **required**, the URI of the party that ran the evaluation and produced the `claims`. Not the signer (the DSSE envelope names that) and not a verifier in the SVR sense. The emitter has no default: proofbundle records a result, it does not run the evaluation |
+| `evaluator.id` | **required**, the URI of the party that ran the evaluation and produced the `claims`: the evaluation role, distinct from the verification role of an SVR. The signer is authenticated by the DSSE envelope; the same party MAY hold more than one role, so an evaluator that is also the signer is not refused. The emitter has no default: proofbundle records a result, it does not run the evaluation |
 | `evaluatedAt` | when the eval ran (from the signed receipt) |
 | `suite` | `{name, version}`, both required |
 | `claims[]` | `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
 | `sampleSize` | `n` |
-| `commitments` | per **private** identity, `model` and/or `dataset`, each `{alg, value, salted}` — a **salted commitment**, NOT an artifact hash |
+| `commitments` | per **private** identity, `model` and/or `dataset`, each `{alg, value, salted}` — a **salted commitment**, NOT an artifact hash. Each commitment entry MUST set `salted` to `true`; `false` is refused |
 | `model`, `dataset` | a **public** identity: a ResourceDescriptor that MUST carry `digest` (a DigestSet over the real content) |
 | `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in `evidence` |
 | `subjectProfile` | which subject profile produced the `subject` (below) |
 | `preRegistration` | optional `{alg, value}` — present only if the receipt carries a prereg hash |
-| `evidence[]` | optional ResourceDescriptors for supporting material. Each entry MUST carry `digest`, and SHOULD carry `mediaType` and one of `uri` or `downloadLocation`. proofbundle writes the receipt as the first entry: the SHA-256 of the receipt file's exact bytes, `application/json`, the `--receipt-uri` if given, and the Merkle root as the annotation `merkleRootB64` |
+| `evidence[]` | optional ResourceDescriptors for supporting material. Each entry MUST carry `digest`, and SHOULD carry `mediaType` and one of `uri` or `downloadLocation`. The digest identifies the referenced artifact; with `content` present it identifies the decoded bytes, and the verifier refuses a `content` whose SHA-2 or SHA-3 digest differs from the one stated. An internal Merkle root is not a substitute for the digest of that artifact |
 | `harness` | optional `{name, version}` plus an optional `digest` ([DigestSet](https://github.com/in-toto/attestation/blob/main/spec/v1/digest_set.md)) for consumers that need to bind the exact artifact that produced the result. A `harness` carrying only `name` and `version` stays conforming. The digest binds **identity only** and asserts nothing about the harness's detection performance |
 
-**One identification each.** For each of the model and the dataset, exactly one identification MUST be
-present: `commitments.<x>` or the top-level descriptor. The verifier refuses a predicate that identifies
-either of them twice or not at all. With `--subject-profile public-model`, the emitter writes the model as
-a descriptor with the subject's name and digest instead of a commitment; the dataset stays a commitment.
+**One identification each.** For each of the model and the dataset, exactly one of `commitments.<x>` and
+the predicate-level descriptor `<x>` MUST be present. The verifier inspects both locations before it
+decides, refuses both and neither, and requires the present representation to satisfy its own rules (a
+commitment with `salted: true`, a descriptor with a usable `digest`). Statement `subject` entries and
+`evidence` references never count, in either direction. With `--subject-profile public-model`, the
+emitter writes the model as a descriptor with the subject's name and digest instead of a commitment; the
+dataset stays a commitment. The draft says openly that this check is not monotonic under removal of a
+recognized field (a statement with both representations is refused, and removing one makes it
+conforming); that is a question for the maintainers and is implemented as written.
+
+**What the receipt's evidence digest covers.** `proofbundle intoto --predicate-version v0.2` reads the
+receipt file once and writes one evidence entry for it: `name` `eval-receipt`, `mediaType`
+`application/json`, the `--receipt-uri` if given, and `digest.sha256` over the file's exact bytes. A
+proofbundle receipt is one JSON object that carries the signed payload, the `signature` and the `merkle`
+tree together, so the digest covers the signature and changes with it. The receipt's internal Merkle
+root is not written into the entry at all, neither as the digest nor beside it. The library writes no
+evidence entry unless the caller supplies one (`receipt_evidence(receipt_bytes)` builds it from the bytes
+the caller holds); nothing is derived from a Merkle root.
 
 **Written beyond the draft, allowed by its parsing rules.** `subjectDigestNote` stays, for the `receipt`
 profile only: that subject digest is a binder that names no file, and the note says so. `anchors` is not
@@ -176,50 +191,70 @@ type, `https://b7n0de.com/attestation/eval-result/v0.2`.
 
 | v0.1 | v0.2 | reason in the draft |
 |---|---|---|
-| `verifier.id` (the tool) | `evaluator.id`, required, set by the caller | the party that ran the evaluation; `verifier` stays reserved for the SVR sense, the signer stays in the envelope |
-| `commitments.model` and `commitments.dataset`, both required | per identity: a commitment (private) or a top-level ResourceDescriptor with `digest` (public), exactly one each | salted commitments are only needed for a private identity |
-| `receipt: {schema, merkleRootB64}` | `evidence[]`, each entry with `digest` | a generic reference to supporting material instead of an emitter-specific block |
+| `verifier.id` (the tool) | `evaluator.id`, required, set by the caller | the evaluation role; `verifier` stays reserved for the verification role of an SVR, the signer is authenticated by the envelope |
+| `commitments.model` and `commitments.dataset`, both required | per identity exactly one of a commitment (private, `salted: true`) and a predicate-level ResourceDescriptor with `digest` (public) | salted commitments are only needed for a private identity |
+| `receipt: {schema, merkleRootB64}` | `evidence[]`, each entry with the `digest` of the artifact it names | a generic reference to supporting material instead of an emitter-specific block; an internal Merkle root is not a substitute |
 
-What does not change (gate G2):
+**Compatibility is a requirement, and this is the evidence for it (gate G2).** Statements of
+`https://b7n0de.com/attestation/eval-result/v0.1` keep verifying under their original rules:
 
-- a v0.1 statement verifies exactly as before, under `verify_eval_result_dsse`'s default, which still
-  expects v0.1; two envelopes written by the released 6.1.0 wheel are pinned in
-  `tests/fixtures/eval_result_v0_1/` and verified on every run, and the v0.1 emitter still writes them
-  byte for byte;
+- the regression set is `tests/fixtures/eval_result_v0_1/corpus.json`: 14 v0.1 envelopes, 5 of them
+  fixtures from release 6.1.0 (emitted by the published wheel) and 9 own reconstructions from the source
+  at the release tags v2.0.0, v2.1.0, v3.0.0, v3.3.0, v3.6.0, v4.0.0, v5.0.0, v5.1.0 and v6.0.0, each
+  with its origin; no statement from a foreign tool is known;
+- for every entry, for the same entry under another key, and for six negative variants, the verdict of
+  this version equals the verdict the released 6.1.0 verifier gives (recorded in the corpus, not
+  recomputed); every entry is judged under the v0.1 rules (`predicate_shape_ok` is `None`) and returns
+  its statement unchanged;
+- the v0.1 emitter still writes the five wheel envelopes byte for byte;
+- the verifier dispatches on `predicateType`: the same predicate relabelled as v0.2 is refused by the
+  revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which never checked
+  the predicate's shape;
+- `verify_eval_result_dsse` still expects v0.1 by default, so a v0.2 statement under the default call is
+  refused for its type and a caller that reads v0.1 fields never receives a v0.2 predicate;
 - `proofbundle intoto` still writes v0.1 unless `--predicate-version v0.2` is given, because an existing
   consumer's default is never switched silently ([MIGRATION_EVAL_PREDICATE.md](MIGRATION_EVAL_PREDICATE.md)).
-  Switching the default is a release decision, not part of this change;
-- `proofbundle intoto --verify` accepts both types, each under its own contract.
+  Switching the default is a release decision, not part of this change. `--verify` accepts both types,
+  each under its own rules.
 
-A v0.1 statement relabelled as v0.2 is refused (it has no `evaluator`). A v0.2 statement verified with the
-default call is refused (wrong type), so a caller that reads v0.1 fields never receives a v0.2 predicate.
+Measured when the corpus was made: the receipt statement of every tag from v2.1.0 to v6.0.0 is byte
+identical to the 6.1.0 wheel's `jcs-sha256-v1` statement, and v2.0.0's to its `legacy-sortkeys-json-v0`
+statement; the v0.1 wire did not change across these releases for these inputs.
 
 ## Readings of the draft
 
 Where the draft text admits more than one reading, the reading implemented is named here; each is a
-finding for the draft, not a settled question. Line numbers are those of
-[docs/upstream/eval-result.md](upstream/eval-result.md).
+finding for the draft, not a settled question. Line numbers are those of the upstream file (the mirror
+[docs/upstream/eval-result.md](upstream/eval-result.md) without its header; in the mirror they are
+seven lines further down).
 
-- **A1, `salted: false`** (lines 107-111, schema lines 62-63). The draft says what `salted: true` means and
-  shows `true` as a literal; it says nothing about `false`. Readings: `false` is not allowed; `false` is
-  allowed with no stated meaning; `false` marks a plain content digest. Implemented: any boolean is
-  accepted.
-- **A2, a present `null`** (lines 116-118). Whether `"commitments": {"model": null}` counts as an
-  identification. Readings: null is absence (the protobuf JSON mapping); null is a present, unusable value.
-  Implemented: present and unusable, so it is refused, and beside a descriptor it counts as twice.
-- **A3, "decimal string"** (line 83). No grammar is given. Readings: any string; a plain decimal
+- **A1, `salted: false`** (lines 114-117). Settled by the revision: each commitment entry MUST set
+  `salted` to `true`. Implemented: anything but `true` is refused.
+- **A2, a present `null`** (lines 123-126). Whether `"commitments": {"model": null}` counts as a present
+  representation. Readings: null is absence (the protobuf JSON mapping); null is a present value that
+  fails its field rules. Implemented: present and failing, so it is refused, and beside a descriptor it
+  counts as both.
+- **A3, "decimal string"** (line 90). No grammar is given. Readings: any string; a plain decimal
   `-?[0-9]+(\.[0-9]+)?`; a decimal with exponent or sign. Implemented: the plain decimal, the grammar the
   claim builder enforces.
-- **A4, `suite.version`** (line 98). Whether both members of `{name, version}` are required. Implemented:
-  both, as non-empty strings. The v0.1 emitter wrote `version: null` for a claim without a suite version;
-  the v0.2 emitter refuses such a claim.
-- **A5, `public-model` and the `model` descriptor** (lines 113-114, 126-127). The draft does not say whether
-  a `public-model` subject requires a `model` descriptor, or whether its digest must equal the subject's.
-  Implemented: no cross-check in the verifier; the CLI writes the descriptor with the subject's digest.
-- **A6, `harness` members** (lines 138-142). Whether `name` and `version` are required when `harness` is
+- **A4, `suite.version`** (line 105). Whether both members of `{name, version}` are required.
+  Implemented: both, as non-empty strings. The v0.1 emitter wrote `version: null` for a claim without a
+  suite version; the v0.2 emitter refuses such a claim.
+- **A5, `public-model` and the `model` descriptor** (lines 120-121, 135-137). The revision settles that a
+  subject entry never counts as an identification; it does not say whether a `public-model` subject
+  requires a `model` descriptor, or whether its digest must equal the subject's. Implemented: no
+  cross-check in the verifier; the CLI writes the descriptor with the subject's digest.
+- **A6, `harness` members** (lines 152-156). Whether `name` and `version` are required when `harness` is
   present. Implemented: required.
-- **A7, empty `evidence`** (line 132). An empty array violates no entry rule. Implemented: accepted.
-- **A8, `sampleSize` range** (line 105). No range is given. Implemented: an integer from 0 to 2^53 − 1.
+- **A7, empty `evidence`** (line 141). An empty array violates no entry rule. Implemented: accepted.
+- **A8, `sampleSize` range** (line 112). No range is given. Implemented: an integer from 0 to 2^53 − 1.
+- **A9, the encoding of `content`** (lines 147-148). The digest identifies the decoded bytes; the JSON
+  encoding of the bytes is the ResourceDescriptor's. Readings: standard base64 only; any alphabet or
+  padding a protobuf JSON parser accepts. Implemented: canonical, padded standard base64, the house's one
+  strict decoder; digests under algorithms other than SHA-1, SHA-2 and SHA-3 are not compared with the
+  content.
+- **A10, `uri` and `downloadLocation` describe the same artifact** (lines 148-149). Not checkable offline;
+  the verifier does not fetch, so this is not verified.
 
 ## Migration path (vendor namespace → in-toto.io)
 

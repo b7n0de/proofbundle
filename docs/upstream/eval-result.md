@@ -1,5 +1,12 @@
 # Predicate type: ML eval-result
 
+<!-- MIRROR of the spec file submitted upstream as in-toto/attestation#575
+(spec/predicates/eval-result.md). The PR is OPEN; this copy exists so proofbundle's own docs and the
+submission cannot drift apart. When the two differ, the PR is the source of truth and this file is
+the one that is wrong. Last aligned 2026-09-28 against 35c83da plus 3166f71, 4476f0e and 648b764 (file
+blob 46a33e7). The protobuf definition follows as a separate PR, as SVR did: spec #470, proto #519,
+README #537. -->
+
 Type URI: https://in-toto.io/attestation/eval-result/v0.1
 
 Version: v0.1
@@ -9,10 +16,11 @@ Authors: Konrad Gruszka (@b7n0de, ORCID 0009-0006-8947-6065)
 ## Purpose
 
 Attest the result of a machine-learning **evaluation** in a way a generic in-toto verifier can consume,
-while keeping the evaluated model and dataset **private**. An ML eval has three properties the generic
-[`test-result`](test-result.md) predicate does not model: a **metric threshold** with a pass/fail
-against it, the need to withhold the model/dataset identity, and optional references to supporting
-evidence such as an external signed receipt (and, later, an external time anchor for pre-registration).
+with support for private model or dataset identities through salted commitments and public artifacts
+through content digests. An ML eval has three properties the generic [`test-result`](test-result.md)
+predicate does not model: a **metric threshold** with a pass/fail against it, the need to withhold the
+model/dataset identity, and optional references to supporting evidence such as an external signed
+receipt (and, later, an external time anchor for pre-registration).
 
 This predicate authenticates a *claim*: *who signed these exact eval bytes, and that nothing changed
 since*. It does **not** assert the semantic truth, fairness, safety, or generalization of the result;
@@ -45,6 +53,9 @@ may summarize "a verifier confirmed this passed" as passing property strings.
 
 ## Schema
 
+The following is a field overview. For each of the model and dataset, an instance includes exactly one
+of the commitment entry or the predicate-level ResourceDescriptor, as specified below.
+
 ```jsonc
 {
   "_type": "https://in-toto.io/Statement/v1",
@@ -76,22 +87,25 @@ may summarize "a verifier confirmed this passed" as passing property strings.
 ### Parsing Rules
 
 This predicate follows the in-toto attestation
-[spec v1 parsing rules](../v1/README.md#parsing-rules): consumers **match on the subject `digest`
-alone**; `subject[].name` is a hint and MAY be `"_"` or omitted; unknown predicate fields MUST be
-ignored (forward compatibility); and the
-[Monotonic Principle](../../docs/validation.md) applies: a verifier denies unless a valid attestation
-exists. Time fields are RFC 3339. `threshold` is a decimal **string**, never a JSON float, so a value
-is never altered by float round-tripping.
+[spec v1 parsing rules](../v1/README.md#parsing-rules), with the one exception stated in this paragraph.
+Consumers **match on the subject `digest` alone**; `subject[].name` is a hint and MAY be `"_"` or
+omitted. Unknown predicate fields MUST be ignored (forward compatibility). The exactly-once
+identification rule under [Fields](#fields) is a predicate-specific conformance check. Consumers MUST
+inspect both representation locations for each identity before applying it. This check is not monotonic
+under removal of a recognized identification field. Policy evaluation of conforming predicates SHOULD
+follow the in-toto [Monotonic Principle](../v1/README.md#parsing-rules). Time fields are RFC 3339.
+`threshold` is a decimal **string**, never a JSON float, so a value is never altered by float
+round-tripping.
 
 Unless a field specifies otherwise, absence of an optional field means only that no claim is made
 for that field. Consumers MUST NOT infer or synthesize a default value from absence.
 
 ### Fields
 
-`evaluator.id` *(TypeURI, required)*: the party that ran the evaluation and produced the `claims`. It is
-not a verifier in the sense of [SVR](svr.md), which confirms properties of attestations after the fact,
-and it is not the statement signer, who is identified by the signature envelope that carries this
-statement.
+`evaluator.id` *(TypeURI, required)*: the party that ran the evaluation and produced the `claims`. This
+field identifies the evaluation role, distinct from the verification role in [SVR](svr.md). The
+statement signer is authenticated through the enclosing signature envelope. The same party MAY perform
+more than one role.
 
 `evaluatedAt` *(Timestamp, required)*: when the evaluation ran.
 
@@ -105,18 +119,20 @@ consumer can authenticate the verdict but cannot recompute it from the predicate
 `sampleSize` *(int, required)*: number of samples the result is over.
 
 `commitments` *(object, conditionally required)*: `model` and/or `dataset` entries, each
-`{alg, value, salted}`, for an identity that stays private. When `salted` is `true` the `value` is a
-commitment (a hash over a secret salt ‖ identifier), **NOT** an artifact content digest; a generic
-verifier MUST NOT treat it as one. This is what lets the evaluated model/dataset stay private while the
-claim is still verifiable.
+`{alg, value, salted}`, for an identity that stays private. Each commitment entry MUST set `salted` to
+`true`. When `salted` is `true` the `value` is a commitment (a hash over a secret salt ‖ identifier),
+**NOT** an artifact content digest; a generic verifier MUST NOT treat it as one. This is what lets the
+evaluated model/dataset stay private while the claim is still verifiable.
 
 `model`, `dataset` *([ResourceDescriptor](../v1/resource_descriptor.md), conditionally required)*: a
 public model or dataset, identified by its real content. The descriptor MUST carry `digest`.
 
-For each of the model and the dataset, exactly one identification MUST be present: the entry in
-`commitments`, or the top-level descriptor. A consumer MUST reject a predicate that identifies either of
-them twice or not at all. The commitment form is unchanged; only the obligation to use it for public
-artifacts is dropped.
+For the model, exactly one of `commitments.model` and predicate-level `model` MUST be present. For the
+dataset, exactly one of `commitments.dataset` and predicate-level `dataset` MUST be present. Each
+present representation MUST satisfy its field requirements. Consumers MUST reject a predicate with both
+representations or neither representation for either identity. Statement `subject` entries and
+references in `evidence` do not satisfy or violate this count. The existing commitment form is retained;
+public artifacts may instead use descriptors.
 
 `assuranceLevel` *(string, required)*: an issuer-declared assurance claim about how the result was
 produced: `self_attested` (producer testimony), `third_party`, `reproduced`, or `enclave_attested`. The
@@ -134,6 +150,11 @@ material that supports the result, for example an external signed receipt, an ev
 transparency log entry. Each entry MUST carry `digest` and SHOULD carry `mediaType` and one of `uri` or
 `downloadLocation`. This predicate does not interpret the referenced material; a consumer that relies on
 it verifies it under its own rules.
+
+The digest identifies the referenced evidence artifact. When `content` is present, the digest identifies
+its decoded bytes. A `uri` or `downloadLocation`, when provided, describes the same artifact. For a
+signed receipt, the described artifact includes the signature envelope when that envelope is part of the
+supplied receipt. An internal Merkle root is not a substitute for the digest of that artifact.
 
 `harness` *(object, optional)*: the eval harness. `name` and `version` identify it. `digest` is an
 optional [DigestSet](../v1/digest_set.md) over the harness artifact, for consumers that need to bind
@@ -182,8 +203,13 @@ A private-model eval (subject is the receipt; the model stays secret):
 }
 ```
 
+In this example, the evidence artifact is supplied alongside the attestation, so no retrieval location
+is included.
+
 A release-gate example (subject is the deployed artifact's real digest) is in the reference
-implementation's `examples/intoto/release-gate.statement.json`.
+implementation's `examples/intoto/release-gate.statement.json`. The reference implementation update for
+this revised shape is pending. Existing implementation examples may use the earlier shape and are not
+conformance examples for this revision.
 
 ## Changelog and Migrations
 
