@@ -30,12 +30,15 @@ Aufruf: `PYTHONPATH=src python -m pytest tests/test_lens_claude_291_3a8074fc976f
 Ergebnis an 3a8074fc: 17 fehlschlagende Faelle. An main 31816e08: 15 (N1 bis N4; N5 ist dort gruen, also
 von dieser Runde eingefuehrt). Am D4-Kopf fa555f13 (Linsenzweig d6c12c73): 10 (N1 bis N3; N4 dort
 geschlossen).
+Nachtrag 0cd498f8 (N3 prueft jetzt drei Stellen statt einer, je "false" und "no"): an 3a8074fc 21, an main
+31816e08 19, an main 0ace3039 19, mit dem `src/` von fa555f13 14 (gemessen 17:4xZ, dieselbe Datei an allen
+vier Koepfen, CPython 3.11.15, pytest 9.1.1).
 
 | Nr | Richtung | Flaeche | Eigenschaft | Schwere | Aufruf (`-k`) | Ergebnis |
 |---|---|---|---|---|---|---|
 | N1 | Geschwister im beruehrten Modul | `assurance.classify_digest_evidence(applicable=...)`, damit `classify_receiver_corroboration` | Was der Aufrufer liefert, zaehlt nur als exaktes bool (67bb104e). `if not applicable`: None, 0, "", [] machen ein schwaches Feld nicht anwendbar, `evidence_ladder_summary` uebergeht es, die Zusammenfassung aus CLAIMED und CONTENT_RESOLVED steigt auf CONTENT_RESOLVED. "false" bleibt anwendbar. | P1 | `test_n1` | rot |
 | N2 | Geschwister (Emitter) | `adapters._provenance.bind_reported_version(bound=...)` | Derselbe Satz. `if bound and ...`: "false", "no", 1, [0] schreiben die Version mit Status `reported`; False schreibt `not_bound` mit Grund. Der Block wird in den Beleg signiert. | P1 | `test_n2` | rot |
-| N3 | Geschwister im beruehrten Modul | `agent_review.emit_agent_review(legacy_v01=...)` | Derselbe Satz. `return not legacy_v01`: "false" und "no" stellen ein v0.1-Predicate nach den v0.1-Regeln aus, das False, 0 und None nach den v0.2-Regeln ablehnen (`subjectContext.disclosureCoreDigest is required`). | P1 | `test_n3` | rot |
+| N3 | Geschwister im beruehrten Modul | `agent_review.emit_agent_review`, `require_valid_agent_review_predicate_any`, `render_disclosure_block` (je `legacy_v01=...`) | Derselbe Satz. `return not legacy_v01` (`_fassung_fuer_renderer`): "false" und "no" stellen ein v0.1-Predicate nach den v0.1-Regeln aus, nehmen es an und rendern es, wo False, 0 und None nach den v0.2-Regeln ablehnen (`subjectContext.disclosureCoreDigest is required`). | P1 | `test_n3` | rot |
 | N4 | Geschwister (Runde 2, "Urteile, die der Aufrufer baut") | `intoto.svr_properties`, `export_svr_dsse` | Ein Check und ein attestierter Schalter verdienen eine signierte SVR-Eigenschaft nur als exaktes True. `Check("ed25519-signature", "false")` ergibt PROOFBUNDLE_SIGNATURE_VALID, `anchor_verified="false"` PROOFBUNDLE_ANCHOR_VALID (auch `export_svr_dsse`, per Sweep). Hier nicht beruehrt; am D4-Kopf fa555f13 geschlossen. | P0 | `test_n4` | rot |
 | N5 | Regression | `anchors.verify_anchor` mit registriertem Pruefer | Ein registrierter Pruefer liefert ein dict. Ein `OrderedDict` oder `defaultdict` ohne eigene Methode mit ok True ist jetzt ein gescheiterter Anker; Detail: "returned no result object". An main PASS. Der Test haelt die schwaechere Eigenschaft, dass die Ablehnung den gelieferten Typ nennt. | P2 | `test_n5` | rot |
 
@@ -85,9 +88,16 @@ Bewertung (getrennt von der Messung):
 - Rust-Differenz: NICHT ANWENDBAR, die Rueckrufe und Schalter gibt es nur in der Python-API.
 - Der Sweep erreicht nur, was die Samen des Korpus erreichen, und erkennt einen Wahrheitsleser nur, wenn False
   und True fuer den Samen verschieden antworten; 73 Schalter wurden gerufen, entscheidbar war ein Teil davon.
-- `legacy_v01` an `render_disclosure_block` und `require_valid_agent_review_predicate_any`: gelesen
-  (`_fassung_fuer_renderer`), NICHT GEMESSEN.
-- Volle Suite auf dem Linsenbranch: nicht gelaufen.
+- `legacy_v01` an `render_disclosure_block` und `require_valid_agent_review_predicate_any`: gemessen im
+  Nachtrag 0cd498f8 (N3), vorher nur gelesen.
+- Volle Suite auf dem Linsenbranch, nachgereicht: an 452c67f9 (pytest tests/, CPython 3.11.15, uid 0,
+  17:08:12Z bis 17:43:30Z) 19 failed, 5968 passed, 174 skipped, 3526 subtests passed, 2115,9 s. Das Protokoll
+  nennt drei davon mit Namen (N4 `anchor_verified` und die zwei nur-als-root-Faelle von
+  `test_sammelabbruch_vor_dem_import.py`, an main ebenso); die SUBFAILED-Zeilen hat mein Filter nicht
+  mitgeschrieben. Die Zahl 19 ist 17 Linsenfaelle der Datei in der Fassung 452c67f9 plus die zwei
+  root-Faelle; die Datei wurde um 17:16:15Z waehrend des Laufs erweitert (0cd498f8), die erweiterte
+  Fassung ergaebe 21 plus 2. Welche Fassung gesammelt wurde, ist aus der Zahl geschlossen, nicht
+  protokolliert. Die volle Suite an 0cd498f8: nicht gelaufen.
 - Keine Aussage ueber Vollstaendigkeit.
 
 Prepared with AI agent involvement, reviewed and submitted under human oversight.
