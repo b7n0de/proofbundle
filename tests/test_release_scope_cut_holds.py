@@ -32,6 +32,12 @@ them.
    and nothing checked it. Both are read in one grammar now, and a token that begins like a
    reference and is none of its forms is refused with its name.
 
+A second owner decision of 2026-09-27, recorded at 20:16 UTC, moved three of the frozen fixes, on
+six branches, to 6.3.0, and left the head of pull request 296 open. Section 1 holds the cut to it
+in both directions: a moved branch is not counted among the frozen fixes, a staying one does not
+stand under Out, each moved branch stands with the head it moved at, and the head of 296 is marked
+open, not decided.
+
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
 stands in the lines it points at; and fenced blocks, which quote tool output and artefact digests
@@ -138,6 +144,12 @@ def _outside(text: str, heading_word: str) -> str:
     return text[: m.start()] + (text[m.end() + ende.start():] if ende else "")
 
 
+def _outside_open(text: str) -> str:
+    """The text without the two sections that record heads of open branches: the frozen fixes, and
+    the fixes moved to 6.3.0 (`_MOVED`)."""
+    return _outside(_outside(text, "frozen fix"), _MOVED)
+
+
 def _cells(row: str) -> list[str]:
     return [c.strip() for c in row.strip().strip("|").split("|")]
 
@@ -212,28 +224,41 @@ def _cited_commits(unit: str) -> list[str]:
 #:
 #: What it holds: the open fix branches of the owner's decision of 2026-09-27, 10:04 UTC, option A,
 #: as the cut first recorded them (c38fe56d to 351fce0c), plus the addition of the same day, pull
-#: request 296. The pull request number stands where the decision or the addition gave one; the
-#: branch then has to stand in the same row or item as its number.
+#: request 296, minus the six branches the decision of 20:16 UTC moved to 6.3.0 (`MOVED_HEADS`).
+#: The pull request number stands where the decision or the addition gave one; the branch then has
+#: to stand in the same row or item as its number.
 DECIDED_OPEN = {
     "fix/the-commit-pattern-holds-at-the-verify-boundary": None,
     "fix/a-small-order-key-is-refused-at-every-carrier": 293,
-    "fix/every-constant-lookup-on-a-foreign-key-is-classified": None,
-    "fix/script-patterns-end-at-the-value-and-read-githubs-whitespace": None,
-    "fix/whole-value-patterns-read-ascii-digits": None,
-    "fix/a-diff-is-read-in-gits-grammar": None,
-    "fix/the-mutant-guard-reads-a-quoted-path": None,
-    "fix/git-paths-are-read-as-git-names-them": None,
     "fix/a-resolver-promotes-only-on-exact-true": 291,
     "fix/a70-clean-tree-before-binding": 249,
     "claude/cargo-audit-rust-parity": 296,
 }
 
-#: The one open branch the cut records at a head: pull request 296, frozen at the head its
-#: correction left, two commits on top of the head its review read (`git ls-remote` on 2026-09-27).
-#: Every other open branch stands without a digest, which is the file's rule.
+#: The one open branch that stays in 6.2.0 and that the cut records at a head: pull request 296, at
+#: the head read with `git ls-remote` when the cut moved the three fixes out. The decision puts the
+#: branch in with a head; the head itself is OPEN, NOT DECIDED (a review of it found a P1), and the
+#: item has to say so. Every other staying branch stands without a digest, which is the file's rule.
 DECIDED_HEADS = {
-    "claude/cargo-audit-rust-parity": "5138b4d2db54a3ba67b7d38639913a5f12f57259",
+    "claude/cargo-audit-rust-parity": "d30f236e2672c879d245194be33ac9707fe5898e",
 }
+
+#: THE DECISION OF 2026-09-27, 20:16 UTC: the six branches of three frozen fixes that left 6.2.0
+#: for 6.3.0, each with the head read with `git ls-remote` when the cut recorded the move. Typed
+#: here for the same reason as `DECIDED_OPEN`: read from the file, it would agree by construction.
+MOVED_HEADS = {
+    "fix/every-constant-lookup-on-a-foreign-key-is-classified":
+        "eb08ddbcc23955640390f30d68fbc71c92386ffb",
+    "fix/script-patterns-end-at-the-value-and-read-githubs-whitespace":
+        "184644f6332c44cbba50c76715589ed4eb5f8ccb",
+    "fix/whole-value-patterns-read-ascii-digits": "90c5ab485360e364edf380db906170d00b691f3d",
+    "fix/a-diff-is-read-in-gits-grammar": "948e4cf2c236801d820d9e5585825a19c5fb3234",
+    "fix/the-mutant-guard-reads-a-quoted-path": "f8f1e9e4c768c1777b2a5afd4e7bb52aafcb19c5",
+    "fix/git-paths-are-read-as-git-names-them": "6ceb2a15bd77513a025e3ec7e0daddb7d7fd3b1b",
+}
+
+#: The heading word of the section that records the move.
+_MOVED = "three frozen fixes moved"
 
 #: The other addition of that day, which landed before the cut was written up: the ECDSA
 #: inventory, pull request 295. It belongs in the list of what is on main, not among the frozen.
@@ -275,6 +300,12 @@ def frozen_fix_findings(text: str) -> list[str]:
         unit = next((u for u in units if f"`{branch}`" in u), "")
         if not any(len(h) >= 8 and head.startswith(h) for h in _cited_commits(unit)):
             findings.append(f"{branch} is frozen at {head} and the cut does not record that head")
+        if unit and "open, not decided" not in _flat(unit):
+            findings.append(f"{branch} is recorded at a head the cut does not mark as open, not "
+                            f"decided")
+    for branch in MOVED_HEADS:
+        if branch in named:
+            findings.append(f"{branch} moved to 6.3.0 and is still counted among the frozen fixes")
     for unit in units:
         heads = [DECIDED_HEADS[b] for b in DECIDED_HEADS if f"`{b}`" in unit]
         for h in _cited_commits(unit):
@@ -304,6 +335,44 @@ def frozen_fix_findings(text: str) -> list[str]:
     return findings
 
 
+def moved_findings(text: str) -> list[str]:
+    """Every way the section of the moved fixes disagrees with the decision or with its counts.
+
+    A moved branch must stand there with the head it moved at, beside its own name; a branch that
+    stays in 6.2.0 must not stand there; and no digest may stand there that is not a moved head, so
+    the head of a staying branch cannot be filed under Out either.
+    """
+    units = _units(_section(text, _MOVED))
+    items = [u for u in units if u.startswith("- ") and any(
+        _BRANCH.match(t) and not _FILE_SUFFIX.search(t) for t in re.findall(r"`([^`]+)`", u))]
+    findings = []
+    for branch, head in MOVED_HEADS.items():
+        unit = next((u for u in items if f"`{branch}`" in u), None)
+        if unit is None:
+            findings.append(f"the decision moved {branch} to 6.3.0 and the section does not "
+                            f"name it")
+            continue
+        beside = re.search(rf"`{re.escape(branch)}` at\s+`([0-9A-Fa-f]{{7,40}})`", unit)
+        if not beside or len(beside[1]) < 8 or not head.startswith(beside[1].lower()):
+            findings.append(f"{branch} moved at {head} and the section does not record that head "
+                            f"beside it ({beside[1] if beside else 'none'})")
+    for branch in DECIDED_OPEN:
+        if any(f"`{branch}`" in u for u in units):
+            findings.append(f"{branch} stays in 6.2.0 and stands under Out")
+    moved = set(MOVED_HEADS.values())
+    for unit in units:
+        for h in _cited_commits(unit):
+            if not any(m.startswith(h) for m in moved):
+                findings.append(f"a digest under Out ({h}) is no head the decision moved")
+    branches = sum(len([b for b in MOVED_HEADS if f"`{b}`" in u]) for u in items)
+    m = re.search(r"(?m)^\| Frozen fixes moved to 6\.3\.0 \| (\d+) subjects on (\d+) branches",
+                  text)
+    if not m or (int(m[1]), int(m[2])) != (len(items), branches):
+        findings.append(f"the accounting reads {m[0] if m else 'no row'}, the section has "
+                        f"{len(items)} subjects on {branches} branches")
+    return findings
+
+
 def _on_main_list(text: str) -> list[tuple[int, str]]:
     return [(int(n), h) for n, h in
             re.findall(r"(?m)^- #([0-9]+) `([0-9A-Fa-f]{7,40})` ",
@@ -313,6 +382,44 @@ def _on_main_list(text: str) -> list[tuple[int, str]]:
 def test_every_open_frozen_fix_the_decisions_name_is_in_the_cut_and_the_counts_match():
     findings = frozen_fix_findings(CUT.read_text(encoding="utf-8"))
     assert not findings, "\n".join(findings)
+
+
+def test_the_moved_fixes_stand_under_out_with_their_heads_and_nowhere_in():
+    assert not set(DECIDED_OPEN) & set(MOVED_HEADS), "a branch is typed as staying and as moved"
+    findings = moved_findings(CUT.read_text(encoding="utf-8"))
+    assert not findings, "\n".join(findings)
+
+
+def test_catch_proof_in_and_out_cannot_trade_places():
+    """Five plants, each on its own copy of the cut. A moved branch put back among the frozen fixes;
+    a staying branch put under Out; the head of 296 put under Out in place of a moved head; a moved
+    item dropped; and the head of 296 no longer marked open. Each must become a finding."""
+    text = CUT.read_text(encoding="utf-8")
+    moved, stays = "fix/the-mutant-guard-reads-a-quoted-path", "fix/a70-clean-tree-before-binding"
+    out = _section(text, _MOVED)
+
+    def under_out(old: str, new: str) -> str:
+        assert old in out, f"{old!r} is not under Out, so there is nothing to plant on"
+        return text.replace(out, out.replace(old, new))
+
+    back_in = text.replace(f"`{stays}`.", f"`{stays}`, with `{moved}`.")
+    assert back_in != text
+    assert any(f"{moved} moved to 6.3.0 and is still counted" in f
+               for f in frozen_fix_findings(back_in))
+    found = moved_findings(under_out("both ancestors of it.",
+                                     f"both ancestors of it, and `{stays}`."))
+    assert any(f"{stays} stays in 6.2.0 and stands under Out" in f for f in found), found
+    in_head = DECIDED_HEADS["claude/cargo-audit-rust-parity"]
+    found = moved_findings(under_out(MOVED_HEADS[moved], in_head))
+    assert any(f"a digest under Out ({in_head})" in f for f in found), found
+    assert any(f"{moved} moved at" in f for f in found), found
+    item = next(u for u in _units(out) if "`fix/every-constant-lookup-on-a-foreign-key" in u)
+    found = moved_findings(under_out(item + "\n", ""))
+    assert any("does not name it" in f for f in found), found
+    assert any("the accounting reads" in f for f in found), found
+    decided = text.replace("open, not decided: a review", "decided: a review")
+    assert decided != text
+    assert any("does not mark as open" in f for f in frozen_fix_findings(decided))
 
 
 def test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts_match():
@@ -375,10 +482,11 @@ def test_catch_proof_a_wrong_head_and_a_digest_on_another_branch_are_found():
 
 def test_the_frozen_head_lies_on_its_branch():
     """A recorded head is a record only while it can be recomputed: it has to resolve, and where
-    this clone carries the branch, the branch has to stand at it or have grown from it."""
+    this clone carries the branch, the branch has to stand at it or have grown from it. That holds
+    for the open head of 296 and for the heads the moved fixes left at."""
     text = CUT.read_text(encoding="utf-8")
     measured = []
-    for branch, head in DECIDED_HEADS.items():
+    for branch, head in {**DECIDED_HEADS, **MOVED_HEADS}.items():
         assert head in text.lower(), f"{branch}: the cut does not carry the head {head}"
         if _commit(head) is None:
             continue
@@ -424,13 +532,14 @@ def commits_needing_old_history(text: str, base: str, head: str) -> list[str]:
 
 
 def test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head():
-    """Every commit outside the frozen section. A head recorded there is the head of an open
-    branch and by nature not an ancestor of the cut; it has its own case above."""
+    """Every commit outside the frozen section and the section of the moved fixes. A head recorded
+    there is the head of an open branch and by nature not an ancestor of the cut; those have their
+    own cases above."""
     _full_history_or_skip()
     head = _commit("HEAD")
     seen, problems = 0, []
     for path in SCOPE_FILES:
-        for unit in _units(_outside(path.read_text(encoding="utf-8"), "frozen fix")):
+        for unit in _units(_outside_open(path.read_text(encoding="utf-8"))):
             for written, h in _commit_words(unit):
                 seen += 1
                 full = _commit(h)
@@ -475,7 +584,7 @@ def test_no_cited_commit_needs_history_older_than_the_files_base():
         base = _commit(tag)
         if base is None:
             pytest.skip(f"NOT MEASURED: the tag {tag} is not in this clone")
-        outside = _outside(text, "frozen fix")
+        outside = _outside_open(text)
         problems += [f"{path.name}: {p}" for p in commits_needing_old_history(outside, base, head)]
     assert not problems, "\n".join(problems)
 
