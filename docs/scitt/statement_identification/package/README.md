@@ -95,6 +95,18 @@ verify, and the SHA-256 of pycose's own ToBeSigned value equals `sha256_to_be_si
 `references.json` for all three. pycose 1.1.0 does not decode any COSE message under cbor2 6.1.4,
 which returns CBOR arrays as tuples where pycose expects lists; install `"cbor2<6"` next to it.
 
+## Measured in a fresh virtual environment
+
+On 27 September 2026, 19:23Z, the steps of "Check it" were run on a copy of this directory in a new
+virtual environment: CPython 3.11.15, pip 24.0, and from PyPI cbor2 6.1.4 and cryptography 50.0.1
+(with cffi 2.1.1 and pycparser 3.0), nothing else installed. `verify.py` printed 22 lines ending in
+`ALL OK: 0 check(s) failed` and exited 0; the whole run, from creating the environment to the last
+line, took 6 seconds. The same `verify.py` in a Linux network namespace with no network interface up
+(`unshare -n`) printed the same 22 lines, byte for byte, and exited 0.
+
+Not measured: other Python versions, other operating systems, and other versions of the two
+libraries.
+
 ## Rebuilding
 
 `python3 build.py` writes a new package into this directory with two new key pairs. Every signature
