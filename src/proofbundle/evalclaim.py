@@ -27,11 +27,11 @@ from typing import Any, Optional, Sequence
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
+from .bundle import SCHEMA as BUNDLE_SCHEMA, _verify_bundle, load_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe, render_safe
 from .canonical import _plain_for_jcs, _type_name, _zeichen_von
-from .errors import ProofBundleError
+from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
 from ._strict_json import enforce_structural_budget
@@ -661,12 +661,32 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     (a ``UserDict``, a ``MappingProxyType``) and an iterator, a generator or a dict view of pairs
     are refused as not JSON values. A shape ``dict()`` cannot
     read is ``EvalClaimError`` now, where it was a raw TypeError or ValueError.
+
+    THE PAIR FORM REFUSES A DUPLICATE KEY, as the copy does for an object (round 11, lens run 10 at
+    fa555f13, finding L9). ``dict()`` keeps the last of two pairs with one key, so ``passed`` False
+    then True was signed as True: the caller's input contradicted itself and the emitter chose. Two
+    keys whose characters are equal are one JSON key, and ``EvalClaimError`` names it now, whatever
+    the order.
     """
     claim = _plain_for_jcs(claim, EvalClaimError)
+    paare = claim
     try:
         claim = dict(claim)
     except (TypeError, ValueError) as exc:
         raise EvalClaimError(f"claim must be a JSON object, got {type(claim).__name__}") from exc
+    if type(paare) is list and len(claim) != len(paare):
+        # `dict()` read every item as exactly one key and one value, so fewer keys than items means a
+        # key came twice. Only the plain copy is read here, so no code of the caller runs.
+        gesehen: set = set()
+        doppelt: Any = None
+        for schluessel, _ in paare:
+            if schluessel in gesehen:
+                doppelt = schluessel
+                break
+            gesehen.add(schluessel)
+        raise EvalClaimError(
+            f"claim key {render_safe(doppelt)} appears twice in the pair form; JSON has one key for "
+            "both, and the emitter does not choose between them")
     claim["issuer"] = issuer_fingerprint(signer)
     # A claim without an explicit assurance_level is self_attested — the weakest, safest default; never
     # silently elevate. (v1.1: keeps pre-1.1 claim JSONs emittable while binding the honest level.)
@@ -691,6 +711,50 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
 
+def _eine_lesung(bundle: Any) -> Any:
+    """THE ONE READING of a caller's bundle (round 11): a path through ``load_bundle``, anything else
+    through the structural budget and the plain copy (`canonical._plain_for_jcs`).
+
+    Everything after reads only what this returns, which nobody else holds. The copy reads what the
+    object stores, through the base types' methods, and a ``str`` subclass as the characters it
+    holds: no ``__getitem__``, ``get`` or ``__contains__`` of a dict subclass and no ``encode`` of a
+    ``str`` subclass runs. The budget comes first, because it bounds the depth the copy recurses
+    over, and it reads stored contents too. What the copy refuses (a value that is no JSON value, a
+    key that is not a string, two keys with the same characters) is a BundleFormatError, and a tuple
+    is read as the array JSON writes it.
+
+    The type is asked of the object's own type, not with ``isinstance``, which reads ``__class__``."""
+    if issubclass(type(bundle), str):
+        return load_bundle(str.__str__(bundle))
+    enforce_structural_budget(bundle)
+    return _plain_for_jcs(bundle, BundleFormatError)
+
+
+def _claim_of_verified(bundle: dict, claim: Any, expected_context: Any) -> Optional[dict]:
+    """The checks `decode_eval_claim` makes on a claim parsed from a VERIFIED bundle's payload, or
+    None. ``bundle`` is the plain copy that was verified, so the issuer binding reads the key the
+    signature was checked under.
+
+    Every check on the claim itself lives in ``_claim_violation``, which the emitter calls too. What
+    stays here is what needs the bundle or the caller: the issuer binding and ``expected_context``."""
+    # Every check on the claim's own content, the same call the emitter makes. The history of
+    # each check (F3, the release-review CRITICAL, L3, A-15, the domains round, R-B1, the v1.6
+    # samples invariants) is in the docstring of _claim_violation, next to the check.
+    if _claim_violation(claim) is not None:
+        return None
+    # Issuer binding: the claim's issuer must be the key that signed the bundle. Bundle-side,
+    # so it stays here; the emitter satisfies it by setting the issuer from its own signer.
+    sig_pub_b64 = bundle["signature"]["public_key_b64"]
+    want = "ed25519:" + base64.b64encode(decode_b64(sig_pub_b64)).decode("ascii")
+    if claim.get("issuer") != want:
+        return None
+    if expected_context is not None:
+        erwartet = _zeichen_von(expected_context)
+        if erwartet is None or claim.get("context_binding") != erwartet:
+            return None
+    return claim
+
+
 def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Optional[dict]:
     """Verify the bundle, then check the signing key matches the claim's `issuer` field.
 
@@ -701,6 +765,17 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     same object is both verified and parsed — a second re-read of the path would be a TOCTOU (CWE-367)
     file-race window (a swap between the two reads could return content whose signature was never
     checked). Release-review fix 2026-07-02.
+
+    THE SAME HOLDS FOR AN OBJECT since round 11 (lens run 10 at fa555f13, findings L1 and L2). A
+    dict was read twice, once by ``verify_bundle`` and once to parse ``payload_b64``, both through
+    the caller's object, and the issuer binding read ``signature.public_key_b64`` a second time too.
+    Measured at fa555f13 (and by the lens on main 31816e08): a dict subclass storing the signed
+    payload whose ``__getitem__`` answered with another from the second read on, and a plain dict whose
+    ``payload_b64`` was a ``str`` subclass with its own ``encode``, each returned a claim the
+    signature does not cover (``passed`` True, ``suite`` "forged-suite"). The object is now read
+    once (`_eine_lesung`); the payload bytes the signature was checked over are the bytes parsed,
+    and the issuer binding reads the key from the same copy. A bundle holding a value that is no
+    JSON value is None.
 
     v1.6 verify-side invariants (external review: guarantees must hold on the VERIFY path, not
     only in the blessed emitter): when the claim carries ``samples``, its shape, 32-byte root,
@@ -727,29 +802,14 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     corpus, not a proof over every input.
     """
     try:
-        if isinstance(bundle, str):
-            bundle = load_bundle(bundle)   # resolve the PATH to a dict ONCE — verify + parse the SAME bytes (no TOCTOU re-read)
-        result = verify_bundle(bundle)
+        # ONE READING: a PATH is resolved to a dict once, an object is read once into its plain copy,
+        # and the signature, the parse and the issuer binding all read that one result.
+        bundle = _eine_lesung(bundle)
+        result, payload = _verify_bundle(bundle)
         if not result.ok:
             return None
-        payload = decode_b64(bundle["payload_b64"])
         claim = load_claim_text(payload.decode("utf-8"))
-        # Every check on the claim's own content, the same call the emitter makes. The history of
-        # each check (F3, the release-review CRITICAL, L3, A-15, the domains round, R-B1, the v1.6
-        # samples invariants) is in the docstring of _claim_violation, next to the check.
-        if _claim_violation(claim) is not None:
-            return None
-        # Issuer binding: the claim's issuer must be the key that signed the bundle. Bundle-side,
-        # so it stays here; the emitter satisfies it by setting the issuer from its own signer.
-        sig_pub_b64 = bundle["signature"]["public_key_b64"]
-        want = "ed25519:" + base64.b64encode(decode_b64(sig_pub_b64)).decode("ascii")
-        if claim.get("issuer") != want:
-            return None
-        if expected_context is not None:
-            erwartet = _zeichen_von(expected_context)
-            if erwartet is None or claim.get("context_binding") != erwartet:
-                return None
-        return claim
+        return _claim_of_verified(bundle, claim, expected_context)
     except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError, OSError):
         # MJSON-01 (RE-GATE never-raise): the documented contract is "Returns the parsed claim on success,
         # None on any failure". load_bundle (a bad path str -> OSError) and verify_bundle (a non-bundle dict
@@ -813,18 +873,25 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
     carries no bytes, so the ``input_bytes`` cap cannot be applied to it. That is the same asymmetry
     ``verify_bundle`` has for our own format on its dict path.
 
+    ONE READING (round 11, lens run 10 at fa555f13, finding L3). The bundle was read three times,
+    for the identifier and ``verify_bundle``, for the parse, and again inside ``decode_eval_claim``,
+    each time through the caller's object. Measured at fa555f13 (and by the lens on main 31816e08):
+    a dict subclass storing the signed payload whose ``__getitem__`` answered with another from the fourth read on
+    gave ``CLAIM_VALID`` with a claim the signature does not cover. The object is read once now
+    (`_eine_lesung`, the budget first, as above), and the identifier, the signature, the parse and
+    the claim checks read that one copy; the claim is parsed from the payload bytes that were
+    verified. A dict holding a value that is no JSON value is ``CLAIM_INVALID``, whatever its
+    identifier names: it is no JSON document of any format.
+
     Never raises — same never-raise contract as ``decode_eval_claim``.
     """
     try:
-        if isinstance(bundle, str):
-            bundle = load_bundle(bundle)
-        elif isinstance(bundle, dict):
-            enforce_structural_budget(bundle)
+        bundle = _eine_lesung(bundle)
         if _names_a_foreign_bundle_format(bundle):
             return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
-        if not verify_bundle(bundle).ok:
+        result, payload = _verify_bundle(bundle)
+        if not result.ok:
             return (CLAIM_INVALID, None)
-        payload = decode_b64(bundle["payload_b64"])
         claim = load_claim_text(payload.decode("utf-8"))
     except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError, OSError):
         return (CLAIM_INVALID, None)
@@ -832,7 +899,10 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
         return (CLAIM_INVALID, None)
     if claim.get("schema") != EVAL_CLAIM_SCHEMA:
         return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
-    decoded = decode_eval_claim(bundle, expected_context=expected_context)
+    try:
+        decoded = _claim_of_verified(bundle, claim, expected_context)
+    except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError):
+        decoded = None
     if decoded is None:
         return (CLAIM_INVALID, None)
     return (CLAIM_VALID, decoded)

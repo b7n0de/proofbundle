@@ -559,12 +559,16 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
         # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity — the CLI
         # already caught it via its ProofBundleError handler, the API did not).
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
             # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
         # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
         DEFAULT_BUDGET.check("input_bytes", len(body))
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a

@@ -29,6 +29,7 @@ from dataclasses import dataclass, replace
 from typing import Optional
 
 from .budget import DEFAULT_BUDGET, render_safe
+from .canonical import _flagge
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -97,7 +98,14 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
 
     Raises ``MissingHashAlgId`` for an absent/empty id (no implicit default), ``UnknownHashAlg`` for an
     id not in the registry, and ``DeprecatedHashAlg`` for a weak algorithm unless ``allow_deprecated``.
+
+    ``allow_deprecated`` must be True or False, and any other value is ProofBundleError before the id
+    is read (round 11, `canonical._flagge`). Measured at fa555f13, and by the lens on main 31816e08
+    (lens run 10, finding L7): the flag was read by its truth, so ``"false"``, ``"no"``, ``1`` and
+    ``[0]`` opened the gate for sha1 and md5. ``compute_digest`` reaches the gate through this
+    function.
     """
+    allow_deprecated = _flagge(allow_deprecated, "resolve_hash_alg", "allow_deprecated")
     if not alg_id or not isinstance(alg_id, str):
         raise MissingHashAlgId(
             "a hash algorithm id is required — proofbundle never defaults a missing hash to SHA-256")

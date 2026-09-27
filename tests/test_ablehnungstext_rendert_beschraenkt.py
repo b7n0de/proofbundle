@@ -80,6 +80,12 @@ class DieAblehnungBleibtTypisiert(unittest.TestCase):
         """Der L3-600-03-Fall: ``sorted`` über {5, "zzz"} hob einen rohen TypeError."""
         with self.assertRaises(BundleFormatError) as cm:
             pb.verify_bundle({**_bundle(), 5: 1, "zzz": 1})
+        # Since round 11 verify_bundle reads the plain copy of the bundle first (one reading of the
+        # caller's object), and the copy refuses a key that is not a string before any field is judged:
+        # still BundleFormatError, with a bounded text. The unknown string key alone is still named.
+        self.assertIn("object keys must be strings", str(cm.exception))
+        with self.assertRaises(BundleFormatError) as cm:
+            pb.verify_bundle({**_bundle(), "zzz": 1})
         self.assertIn("unknown field(s)", str(cm.exception))
         self.assertIn("'zzz'", str(cm.exception))
         b = _bundle()

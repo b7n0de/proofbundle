@@ -32,6 +32,7 @@ from typing import Optional
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
+from .canonical import _flagge
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
@@ -789,8 +790,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     present ANYWHERE in the presented sequence (truncated away) and PASSES when it is still present —
     whether unchanged or followed by legitimate further renewals (forward progress). Not surfaced when
     omitted (fully backward compatible).
+
+    ``allow_unauthenticated_anchor`` must be True or False; any other value is a failed
+    ``renewal:anchor_mode`` check, before anything else is read (round 11, class B of lens run 10,
+    `canonical._flagge`). Measured at fa555f13: it was read by its truth, so ``"false"`` selected the
+    structural-only anchor mode and an unauthenticated sequence verified ok=True.
     """
     result = VerificationResult()
+    try:
+        allow_unauthenticated_anchor = _flagge(allow_unauthenticated_anchor, "verify_sequence",
+                                               "allow_unauthenticated_anchor")
+    except ProofBundleError as exc:
+        result.checks.append(Check("renewal:anchor_mode", False, str(exc)))
+        return result
 
     # shape guard: an untrusted/deserialized sequence must be a list of chains (lists) of ArchiveTimeStamp
     # — a malformed shape fails closed, never an uncaught crash (the never-raise contract).

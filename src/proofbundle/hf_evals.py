@@ -30,6 +30,7 @@ from typing import Optional, Tuple
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
+from .canonical import _flagge
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
@@ -211,7 +212,13 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     a value that CONTRADICTS the verdict (a "passed" receipt published with a failing value); it does
     NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
     ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
+
+    ``allow_value_mismatch`` must be True or False; any other value is ProofBundleError before anything
+    is read (round 11, class B of lens run 10, `canonical._flagge`). Measured at fa555f13: it was read
+    by its truth, so ``allow_value_mismatch="false"`` built an entry whose value contradicts the signed
+    verdict.
     """
+    allow_value_mismatch = _flagge(allow_value_mismatch, "to_eval_results_entry", "allow_value_mismatch")
     if require_verified:
         result = verify_bundle(bundle)
         if not result.ok:

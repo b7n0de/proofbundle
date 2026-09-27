@@ -586,6 +586,130 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   subtests. Against the source of 6b223d8e the new catch-proof case is red in all 6 of its subtests
   (3 TypeError, 3 UnicodeEncodeError), with PASSED printed beside it, and its control passes.
 
+- **A verify boundary reads the caller's object once, so the bytes a signature covers are the bytes
+  it parses** (round 11, lens run 10 at fa555f13, findings L1 to L6, P0, class A: "verified bytes
+  and parsed bytes are two readings of the caller's object"). `evalclaim.decode_eval_claim` read
+  `payload_b64` once for `verify_bundle` and once to parse it, and `classify_eval_claim` read it
+  three times, each time through the caller's object; `intoto.verify_intoto_dsse`,
+  `verify_eval_result_dsse` and `verify_svr_dsse` read `payload` through `dsse.verify_envelope` and
+  again through `dsse.load_payload`. Measured at fa555f13 with the lens's cases (a dict subclass
+  that stores the signed value and whose own `__getitem__` and `get` answer another from a later
+  read on, and a `str` subclass whose own `encode` answers another value the second time):
+  `decode_eval_claim` returned a claim the signature does not cover (`passed` True, `suite`
+  "forged-suite"), `classify_eval_claim` gave `valid` for it, and the three DSSE verifiers returned
+  ok=True over a statement nobody signed (a test result PASSED against a signed FAILED, and SVR
+  properties nobody signed). The lens measured the same on main 31816e08. The issuer binding of
+  `decode_eval_claim` read `signature.public_key_b64` a second time as well: a claim signed by one
+  key and naming another as its issuer was returned.
+
+  The caller's object is read once now, by what it stores, and nothing reads it again. A bundle goes
+  through `evalclaim._eine_lesung` (a path through `load_bundle`, an object through the structural
+  budget and the plain copy `canonical._plain_for_jcs`); `bundle._verify_bundle`, the body of
+  `verify_bundle`, returns the payload bytes its signature check read, and those are the bytes
+  parsed; the issuer binding reads the key from the same copy. An envelope goes through
+  `dsse._read_once` (the budget, then the plain copy), and `dsse._verify_and_load` returns the
+  verdict with the payload bytes it judged, which the three in-toto verifiers parse. No
+  `__getitem__`, `get` or `__contains__` of a dict subclass and no `encode` of a `str` subclass
+  runs: a recording subclass over every dict, list, key and string of the object counts no call at
+  the five surfaces, where it counted eleven methods at fa555f13 (among them `get`, `__getitem__`,
+  `__contains__`, `__iter__`, `__eq__`, `__hash__` and `encode`). `verify_envelope` and
+  `load_payload` are unchanged.
+
+  What a caller sees differently: an object holding a value that is no JSON value (bytes, a set, a
+  key that is not a string, two keys with the same characters) is refused at these surfaces (None,
+  `invalid`, ok=False), where fa555f13 ignored a field it did not read and returned the claim or
+  ok=True; a tuple is read as the array JSON writes it. A parsed file holds only plain JSON values,
+  so nothing changes for one, and nothing changes for the Rust verifier, which reads files.
+  Tests: `tests/test_verified_bytes_are_the_parsed_bytes.py` carries the lens's cases L1 to L6 from
+  e664c010 and this round's own; each is red at fa555f13 and green here.
+
+  The owner decided the scope of the class (option A): every `dsse.load_payload` site reads once.
+  Measured at fa555f13 with the lens's construction (the envelope stores a statement S1 that the
+  verifying key signed and the verifier refuses; the subclass answers S2, a valid statement signed
+  by another key, from read `after + 1` on; both controls give ok=False): `decision.py:567`
+  (`verify_decision_receipt`), `verification_summary.py:223`, `run_ledger.py:275`,
+  `outcome.py:599`, `relation_statement.py:215`, `agent_review.py:2300` (`verify_agent_review`,
+  v0.1) and `agent_review.py:2626` (`verify_agent_review_v02`) returned ok=True over S2 at
+  after=1, and `agent_review.py:3044` (`verify_agent_review_any`, the version switch) at after=2.
+  `trust_pack.py:463` (`verify_trust_pack`) read `payload` once but `signatures` twice, for the
+  cap and for the threshold loop: with 20 000 entries answered from the second read, the cap judged
+  the stored three and the loop checked 20 000 signatures (2.0 s; the cap is 512). Each site reads
+  once now, through `dsse._verify_and_load`, or through `dsse._read_once` where no
+  `verify_envelope` is called (the switch, which hands the copy to the verifier it chooses, and the
+  trust pack). The CLI's `--with-related` reader (`cli.py:1842`) reads a parsed file and changes no
+  verdict; it uses the same call, so that no function pairs `verify_envelope` with `load_payload`.
+  A static test holds that: eleven functions paired them at fa555f13.
+
+  The native bundle has the same class beside the five surfaces, and the sweep measured three more
+  readers at fa555f13. `verify_bundle` read `payload_b64` and `merkle` again for the SD-JWT
+  binding: an SD-JWT issued for receipt B (passed True) grafted onto receipt A (passed False) is
+  refused, and with the second reads answering B's fields it verified ok=True. It reads the plain
+  copy of the bundle now, after the budget, and so do its direct callers; an object whose
+  `__class__` claims dict and which holds another type is its BundleFormatError, where a raw
+  AttributeError escaped. `intoto.export_svr_dsse` read the bundle in `decode_eval_claim`,
+  `verify_bundle` and `recompute_merkle_root_b64`, and signed an SVR whose subject binds another
+  receipt's root; it reads once now. `hf_evals.to_eval_results_entry` read it in `verify_bundle`,
+  `decode_eval_claim` and for `payload_b64`, and built an entry whose value contradicts the signed
+  verdict; the one reading of `decode_eval_claim` closes it. One existing case changed with it:
+  `tests/test_ablehnungstext_rendert_beschraenkt.py` pinned the refusal text of a bundle holding the
+  key 5 beside the unknown field "zzz" ("unknown field(s)"); the copy refuses the non-string key
+  first now ("object keys must be strings", still BundleFormatError with a bounded text), and the
+  case pins that text and, for "zzz" alone, the unknown-field text it pinned before.
+
+- **A permissive flag is True or False** (round 11, lens run 10 at fa555f13, finding L7 and the
+  class-B sweep, P1). `hashalg.resolve_hash_alg` and `compute_digest` read `allow_deprecated` by its
+  truth: measured at fa555f13, "false", "no", 1 and [0] opened the gate for sha1 and md5. It must be
+  True or False now (`canonical._flagge`), and anything else is ProofBundleError before the id is
+  read. The sweep measured the bool keywords the lens named and the other `allow_*` keywords of
+  `src/` with False, True, "false", 0 and an object whose `__bool__` records its call. Five more
+  opened a gate for "false" at fa555f13 and are refused the same way:
+  `anchors.verify_anchors(allow_pending=...)` let a pending anchor satisfy `require`,
+  `renewal.verify_sequence(allow_unauthenticated_anchor=...)` verified an unauthenticated sequence
+  ok=True, `hf_evals.to_eval_results_entry(allow_value_mismatch=...)` built an entry whose value
+  contradicts the signed verdict, `trust_pack.verify_trust_pack(allow_unverified_rotation=...)`
+  accepted a rotation-claiming pack on its own self-signature, and
+  `agent_review.render_disclosure_line(leaf_witnessed=...)` dropped "not yet in a witnessed
+  checkpoint". `verify_sequence` and `verify_trust_pack` give a fail-closed verdict naming the flag,
+  because they never raise; the others raise ProofBundleError. Not changed, because "false" reads as
+  True there and a truthy value closes the gate: `strict`, `require_derived_subject`,
+  `require_canonical`, `require_signature_line` and `applicable`; `include_token` switches content,
+  not a gate. Named, not changed: a falsy non-bool (0, None) reads as False at each of these, which
+  is the lenient branch where the default is True (`to_eval_results_entry(require_verified=0)`
+  built an entry from a receipt that does not verify; `require_signature_line` is a private
+  keyword whose callers pass literals).
+
+- **The trust-pack patterns hold the schema's ECMA-262 meaning** (round 11, lens run 10 at
+  fa555f13, finding L8, P1, `src/proofbundle/trust_pack.py`). `_RFC3339_Z`, `_SHA256_HEX` and
+  `_SEMVER_0_1_X` were `^...$` with `\d` under Python `re`, where `$` also matches before a final
+  newline and `\d` matches every Unicode decimal digit; JSON Schema names ECMA-262 for `pattern`,
+  where `$` ends the input and `\d` is [0-9]. Measured at fa555f13: a hex digest, `expires` and
+  `schemaVersion` ending in a newline, and `expires` and `schemaVersion` holding Arabic-Indic digits
+  validated as []; the lens measured all five refused by node v22.22.2. The three are `\A..\Z` with
+  [0-9] now, and so is `_parse_rfc3339_z`, which parsed both kinds of `expires`. Named, not changed:
+  twelve patterns in `decision`, `outcome`, `run_ledger`, `relation`, `verification_summary`,
+  `agent_review` and `relation_statement` are `\A..\Z` but still `\d`, and each matches
+  Arabic-Indic digits (measured here and on fa555f13); branch 234 (e5b39b81) moves all of them to
+  one module with [0-9].
+
+- **The pair form of `emit_eval_receipt` refuses a duplicate key** (round 11, lens run 10 at
+  fa555f13, finding L9, P1). The copy refuses two keys with the same characters in an object, and
+  the documented pair form (a list of `[key, value]` pairs) went through `dict()`, which keeps the
+  last: measured at fa555f13, `passed` False then True was signed as True, and True then False as
+  False. A key that comes twice is `EvalClaimError` naming it now, in either order.
+
+- **`svr_properties` withholds a property when any check of its name failed** (round 11, lens run
+  10 at fa555f13, finding L10, P1). The checks of the caller's result were folded into a dict by
+  name, so the last of two checks named `ed25519-signature` decided: measured at fa555f13, False
+  then True earned PROOFBUNDLE_SIGNATURE_VALID, True then False did not. A property is earned now
+  only when its name has at least one check and every check of that name has `ok` True, in any order:
+  the conjunction `VerificationResult.ok` applies to the whole result. Refusing a repeated name was
+  the other rule; it would make a result that records a check once per signer an error on a surface
+  whose output lists passing properties only, where withholding is already the fail-closed answer.
+  `verify_bundle` names each check once and `export_svr_dsse` builds its own result, so neither
+  changes. Named, not changed: `bundle.root_authenticity_summary` folds the checks the same way
+  (measured: `payloadSignature` PASS for False then True, FAIL for True then False), and so do two
+  readers in `cli.py` (read, not measured).
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

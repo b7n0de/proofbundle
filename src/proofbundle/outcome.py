@@ -593,10 +593,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # BundleFormatError. So the crypto verify + body load + budget + parse ALL live inside the never-raise
         # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
         # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity).
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         # Finding 15b: refuse an absurdly oversized payload before any JSON parsing work.
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))

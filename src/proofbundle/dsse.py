@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import Optional
+from typing import Any, Optional
 
+from .canonical import _plain_for_jcs
 from .errors import BundleFormatError
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
@@ -65,6 +66,11 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
 def _payload_bytes(envelope: dict) -> bytes:
     if not isinstance(envelope, dict):
         raise BundleFormatError("DSSE envelope must be a JSON object")
+    _within_budget(envelope)
+    return _payload_of(envelope)
+
+
+def _within_budget(envelope: Any) -> None:
     # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). This module already bounded TWO
     # dimensions — the base64 payload against input_bytes below, and the signatures COUNT before the verify
     # loop — which is exactly why the gap was easy to miss: the surface looked bounded. It was not. The
@@ -91,6 +97,9 @@ def _payload_bytes(envelope: dict) -> bytes:
         # Same mapping this module already applies twice: the docstrings of the public surfaces name only
         # BundleFormatError, so a direct third-party caller never sees a raw sibling exception.
         raise BundleFormatError(f"DSSE envelope exceeds the verification budget (fail-closed): {exc}") from exc
+
+
+def _payload_of(envelope: dict) -> bytes:
     p = envelope.get("payload")
     if not isinstance(p, str):
         raise BundleFormatError("DSSE envelope.payload must be a base64 string")
@@ -125,9 +134,16 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     with the identity point printed "CRYPTO: OK" and exited 0 for a receipt nobody signed, while the
     same key in a trust policy was refused. Every DSSE verify path (decision, outcome, relation
     statement, run ledger, verification summary, in-toto exports, agent review, the CLI's related
-    targets) funnels through this one call."""
+    targets) funnels through this one judgment, `_verify_body`: through this call, or through
+    `_verify_and_load`, which gives it the one plain reading of the envelope (round 11)."""
+    return _verify_body(envelope, _payload_bytes(envelope), public_key, payload_type)
+
+
+def _verify_body(envelope: dict, body: bytes, public_key: bytes, payload_type: Optional[str]) -> bool:
+    """The judgment of `verify_envelope` over the decoded ``body``, reading ``payloadType`` and
+    ``signatures`` from ``envelope``, in the order and with the refusals `verify_envelope` has
+    always had."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import matches repo convention, avoids any cycle
-    body = _payload_bytes(envelope)
     ptype = envelope.get("payloadType")
     if not isinstance(ptype, str) or not ptype:
         raise BundleFormatError("DSSE envelope.payloadType must be a non-empty string")
@@ -169,3 +185,45 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
 def load_payload(envelope: dict) -> bytes:
     """Return the raw decoded payload bytes (the in-toto Statement JSON) — for a verified envelope."""
     return _payload_bytes(envelope)
+
+
+def _read_once(envelope: Any) -> dict:
+    """THE ONE READING of a caller's envelope: the plain copy of what it stores, after the budget.
+
+    THE CLASS (round 11, lens run 10 at fa555f13, findings L4 to L6): the bytes a signature is
+    checked over and the bytes that are parsed were two readings of the caller's object.
+    `verify_envelope` read ``payload`` through the envelope's own ``get``, and `load_payload` read
+    it again the same way. Measured at fa555f13 (and by the lens on main 31816e08) with a dict
+    subclass that stores the signed payload and whose ``__getitem__`` and ``get`` answer with
+    another from the second read on: `intoto.verify_intoto_dsse`, `verify_eval_result_dsse` and
+    `verify_svr_dsse` returned ok=True over a statement the signature does not cover (``result``
+    PASSED against a signed FAILED, and SVR properties nobody signed).
+
+    The envelope is read here once and by what it stores: its type is its own (``issubclass`` on
+    ``type(envelope)``), the structural budget walks its stored contents, and the copy
+    (`canonical._plain_for_jcs`) reads containers through the base types' methods and a ``str``
+    subclass as the characters it holds, so no ``__getitem__``, ``get`` or ``encode`` of the caller
+    runs. Everything after reads only the copy, which nobody else holds. What the copy refuses is
+    refused here, as this module's BundleFormatError: a value that is no JSON value (bytes, a set, a
+    key that is not a string) and two keys with the same characters. A tuple is read as the array
+    JSON writes it, as the copy reads it everywhere.
+
+    `verify_envelope` and `load_payload` keep reading the caller's object as before. A caller that
+    pairs them reads it twice; `_verify_and_load` is the one-line replacement."""
+    if not issubclass(type(envelope), dict):
+        raise BundleFormatError("DSSE envelope must be a JSON object")
+    _within_budget(envelope)
+    return _plain_for_jcs(envelope, lambda text: BundleFormatError(f"DSSE envelope: {text}"))
+
+
+def _verify_and_load(envelope: Any, public_key: bytes, *,
+                     payload_type: Optional[str] = None) -> tuple[bool, bytes]:
+    """``(verdict, body)`` from ONE reading of ``envelope`` (`_read_once`): ``body`` is the payload the
+    signature was checked over, and the caller parses exactly those bytes.
+
+    The verdict is `verify_envelope`'s, from the same judgment (`_verify_body`), with the same
+    refusals in the same order; the body is returned whatever the verdict, as `load_payload` did for
+    the callers that report the statement of an envelope that does not verify."""
+    umschlag = _read_once(envelope)
+    body = _payload_of(umschlag)
+    return _verify_body(umschlag, body, public_key, payload_type), body

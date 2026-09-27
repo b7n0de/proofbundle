@@ -1839,11 +1839,13 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
         try:
             with _open_input(path) as handle:
                 env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-            body = _dsse.load_payload(env)
-            root_hex = _anchors_mod.statement_content_root(body).hex()
+            # One reading, as at every verify site (round 11): the file is already a plain dict, so
+            # this changes no verdict here, but no function pairs verify_envelope with load_payload.
             # L3-audit fix: inside the try so a malformed-envelope error names the offending file too.
-            verified = bool(_dsse.verify_envelope(env, verify_key,
-                                                  payload_type="application/vnd.in-toto+json"))
+            verified_raw, body = _dsse._verify_and_load(env, verify_key,
+                                                        payload_type="application/vnd.in-toto+json")
+            verified = bool(verified_raw)
+            root_hex = _anchors_mod.statement_content_root(body).hex()
         except (ProofBundleError, OSError, ValueError) as exc:
             errs.append(f"cannot read --with-related {path}: {exc}")
             continue

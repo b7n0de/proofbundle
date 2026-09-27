@@ -21,7 +21,7 @@ from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
 from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs, _type_name,
-                        canonicalize_statement)
+                        _zeichen_von, canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -795,7 +795,11 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as
     its plain copy and must be a string or None, else this function raises BundleFormatError (round
     9; at ee489403 ``10**5000`` raised a raw ValueError from the mismatch message, and a ``str``
-    subclass was compared through its own ``__eq__``). The verdict on the envelope never raises."""
+    subclass was compared through its own ``__eq__``). The verdict on the envelope never raises.
+
+    The envelope is read once, as the plain copy of what it stores (`dsse._read_once`), and the
+    returned statement is parsed from the payload bytes the signature was checked over (round 11).
+    An envelope holding a value that is no JSON value is refused, ok=False."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -805,8 +809,12 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
         # never-raise guard; a wide/oversized (BudgetExceeded) / dup-key (BundleFormatError) / malformed
         # untrusted envelope yields a fail-closed verdict, never a raw exception out of this dict-returning
         # verify surface (mirrors decision/outcome/run_ledger).
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        # ONE READING (round 11, L4): `body` is the payload the signature was checked over, read once
+        # from the plain copy of the envelope. At fa555f13 `verify_envelope` and `load_payload` were two
+        # readings of the caller's object, and a dict subclass answering the second read with another
+        # payload verified ok=True over a statement nobody signed. The same holds for the two
+        # verifiers below (L5, L6).
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
@@ -1046,7 +1054,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule, and so
     does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
     `_judge_claim_fields`). An absent field is not judged. ``expected_predicate_type`` must be a
-    string or None, as for `verify_intoto_dsse`."""
+    string or None, and the envelope is read once, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -1055,8 +1063,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
         # exception out of this dict-returning verify surface.
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
@@ -1102,7 +1109,9 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     verified binding.
 
     A check of `result` earns its property only when its `ok` is True itself; any other value earns
-    none (round 10, R-B4 at the checks: `ok` was read by its truth, and "false" earned it)."""
+    none (round 10, R-B4 at the checks: `ok` was read by its truth, and "false" earned it). When a
+    name comes more than once, every check of that name must have `ok` True, whatever the order
+    (round 11)."""
     # THE MOST LOAD-BEARING OF THE SIX SITES, because what it decides gets SIGNED. Measured 2026-09-24:
     # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
     # empty property list. This function is public, so the check belongs here and not only at
@@ -1124,17 +1133,36 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     require_bool_verdict(claim, wo="svr_properties")
     claim = require_eval_claim(claim, wo="svr_properties")
     verdikt = require_bool_verdict(claim, wo="svr_properties")
-    checks = {c.name: c.ok for c in result.checks}
-    props = []
     # A check of `result` counts only when its `ok` is the exact True (round 10), compared by
     # identity, so neither the value's `__bool__` nor its `__class__` is asked. R-B4 at the checks:
     # the caller builds `result`, and `ok` was read by its truth. Measured at 493c2f86:
     # `Check("ed25519-signature", "false")` and `Check("merkle-inclusion", "false")` gave
     # PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_RECEIPT_UNCHANGED, so did [0], 1 and "true", an
     # object's own `__bool__` ran, and False gave neither.
-    if checks.get("ed25519-signature") is True:
+    #
+    # A NAME THAT COMES TWICE (round 11, lens run 10 at fa555f13, finding L10). The checks were folded
+    # into a dict by name, so the last check of a name decided: `ed25519-signature` False then True
+    # earned PROOFBUNDLE_SIGNATURE_VALID, True then False did not. The rule now is the conjunction
+    # `VerificationResult.ok` already applies to the whole result: a property is earned only when its
+    # name has at least one check and every check of that name has `ok` True. One failed check of a
+    # name withholds the property in any order. Refusing a repeated name was the other rule; it would
+    # turn a result that records a check once per signer or per anchor into an error on a surface
+    # whose output lists passing properties only, where withholding is already the fail-closed
+    # answer. A name is compared by its characters (`canonical._zeichen_von`).
+    verdikte: dict = {}
+    for check in result.checks:
+        name = _zeichen_von(check.name)
+        if name is not None:
+            verdikte.setdefault(name, []).append(check.ok)
+
+    def _verdient(name: str) -> bool:
+        oks = verdikte.get(name, [])
+        return bool(oks) and all(ok is True for ok in oks)
+
+    props = []
+    if _verdient("ed25519-signature"):
         props.append("PROOFBUNDLE_SIGNATURE_VALID")
-    if checks.get("merkle-inclusion") is True:
+    if _verdient("merkle-inclusion"):
         props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
     if verdikt:
         props.append("PROOFBUNDLE_THRESHOLD_MET")
@@ -1170,9 +1198,14 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     from . import dsse  # noqa: PLC0415
     from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
-    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    from .evalclaim import _eine_lesung, decode_eval_claim  # noqa: PLC0415
 
     try:
+        # ONE READING (round 11, class A): decode, verify_bundle and recompute_merkle_root_b64 below each
+        # read the bundle, and each read the caller's object. Measured at fa555f13 with a dict subclass
+        # answering another receipt's `merkle` from its third read on: the SVR was signed with a subject
+        # binding that other receipt's root. All three read the one plain copy now (a path is loaded once).
+        bundle = _eine_lesung(bundle)
         claim = decode_eval_claim(bundle)
     except ProofBundleError as exc:   # a non-receipt / malformed bundle → clean fail-closed, not a raw error
         raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
@@ -1261,7 +1294,7 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
     contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
     SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out. It must
-    be a string or None, as for `verify_intoto_dsse`."""
+    be a string or None, and the envelope is read once, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -1270,8 +1303,7 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
         # exception out of this dict-returning verify surface.
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _intoto_verify_result(False, False, None, None,

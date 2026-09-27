@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from ._membership import is_member
+from .canonical import _flagge
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -1248,7 +1249,13 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     transparency-log leaf is referenced it states whether that leaf is WITNESSED yet. An entry can be
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
+
+    ``leaf_witnessed`` is the caller's word that the leaf is witnessed, so it must be True or False;
+    any other value is ProofBundleError before anything is rendered (round 11, class B of lens run 10,
+    `canonical._flagge`). Measured at fa555f13: it was read by its truth, so ``leaf_witnessed="false"``
+    dropped "not yet in a witnessed checkpoint" from the line.
     """
+    leaf_witnessed = _flagge(leaf_witnessed, "render_disclosure_line", "leaf_witnessed")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
@@ -2293,11 +2300,15 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
     try:
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
-                                                   payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
@@ -2619,11 +2630,15 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
                else validate_agent_review_v02_predicate)
     r = _leeres_v02_ergebnis()
     try:
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
-                                                   payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
@@ -3041,6 +3056,12 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
         # dieser Weiche dekodierte nur das Standard-Alphabet: ein kryptografisch gueltiger
         # url-safe Umschlag war direkt ok=True und ueber die Weiche ENVELOPE_UNREADABLE — eine
         # zweite Wahrheit ueber dieselben Bytes. Und derselbe strikte JSON-Leser wie im Inneren.
+        #
+        # ONE READING (round 11, class A): the switch reads the envelope once into its plain copy
+        # (`dsse._read_once`) and hands THAT copy to the verifier it chooses. At fa555f13 it read
+        # `payload` for the type and handed the caller's envelope on, whose verifier read it twice
+        # more; a dict subclass answering the third read with another statement got ok=True.
+        envelope = dsse._read_once(envelope)
         payload = loads_strict(dsse.load_payload(envelope).decode("utf-8"))
         typ = payload.get("predicateType")
     except Exception:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche

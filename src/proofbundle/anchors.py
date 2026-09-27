@@ -43,6 +43,7 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
+from .canonical import _flagge
 from .errors import BundleFormatError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -305,7 +306,12 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     count as a verifying anchor, so ``--require-anchor`` demands a full external-time proof. With
     ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
     the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
-    anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
+    anchor into a pass: a hard-failing anchor still aggregates to FAIL.
+
+    ``allow_pending`` must be True or False; any other value is ProofBundleError before anything is
+    read (round 11, class B of lens run 10, `canonical._flagge`). Measured at fa555f13: it was read by
+    its truth, so ``allow_pending="false"`` let a pending anchor satisfy ``require``."""
+    allow_pending = _flagge(allow_pending, "verify_anchors", "allow_pending")
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
             f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")

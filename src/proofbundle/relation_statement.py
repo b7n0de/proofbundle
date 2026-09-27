@@ -208,11 +208,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # malformed untrusted envelope yields a fail-closed verdict, never a raw uncaught BudgetExceeded (a
         # ProofBundleError sibling of BundleFormatError the old narrow except let escape) out of this
         # dict-returning verify surface (mirrors decision/outcome).
-        r["crypto_ok"] = bool(dsse.verify_envelope(
-            envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         # L4-01 (deep gate 2026-09-05): the ONE payload oracle shared with the --with-related resolver, so
         # "well-formed standalone" and "well-formed as an attached target" can never mean two things.
         # (input_bytes budget + strict parse + object check; canonicality is judged below, as before.)

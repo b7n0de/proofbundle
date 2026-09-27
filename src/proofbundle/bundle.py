@@ -30,6 +30,7 @@ from typing import Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
+from .canonical import _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -282,6 +283,19 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     stated root's BYTES (canonicalization-agnostic). Absent, root authenticity stays NOT_EVALUATED and
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
     """
+    return _verify_bundle(bundle, expected_aud=expected_aud, expected_nonce=expected_nonce,
+                          expected_root_b64=expected_root_b64,
+                          expected_tree_size=expected_tree_size)[0]
+
+
+def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
+                   expected_root_b64: Optional[str] = None,
+                   expected_tree_size: Optional[int] = None) -> tuple[VerificationResult, bytes]:
+    """`verify_bundle`, and the payload bytes its signature and inclusion checks read.
+
+    For a reader of the payload (round 11, `evalclaim.decode_eval_claim`): it parses exactly the
+    bytes that were verified, instead of decoding ``payload_b64`` a second time. This is the body of
+    `verify_bundle`, which returns the first element: the same checks in the same order."""
     if isinstance(bundle, str):
         try:
             bundle = load_bundle(bundle)
@@ -312,6 +326,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         raise
     except ProofBundleError as exc:
         raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
+    # ONE READING (round 11, class A): every check below reads the plain copy of what the caller's object
+    # stores (`canonical._plain_for_jcs`, after the budget bounded its depth), never the object again.
+    # Measured at fa555f13 with a dict subclass whose own `__getitem__`/`get` answer another receipt's
+    # `payload_b64` and `merkle` from the second read on: the signature and the inclusion proof read the
+    # first answer and the SD-JWT binding below the second, so an SD-JWT issued for receipt B (passed
+    # True) grafted onto receipt A (passed False) verified ok=True. A value that is no JSON value is
+    # refused here (BundleFormatError), and a tuple is read as the array JSON writes it. A parsed file
+    # holds only plain JSON values, so nothing changes for one.
+    bundle = _plain_for_jcs(bundle, BundleFormatError)
+    if type(bundle) is not dict:   # an object whose `__class__` claimed dict, holding another type
+        raise BundleFormatError("bundle must be a JSON object")
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -572,7 +597,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             "expected_aud/expected_nonce were supplied but the bundle carries no verifiable Key "
             "Binding JWT — the requested replay/audience binding cannot be enforced (fail-closed)")
 
-    return result
+    return result, payload
 
 
 def root_authenticity_summary(result: VerificationResult, *,

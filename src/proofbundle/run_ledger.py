@@ -269,10 +269,14 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
         # untrusted envelope yields a fail-closed verdict — never a raw uncaught exception out of this
         # dict-returning verify surface (mirrors decision/outcome; BudgetExceeded is a ProofBundleError sibling
         # of BundleFormatError the old narrow except let escape).
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
