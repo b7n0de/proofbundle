@@ -382,10 +382,14 @@
       "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Rust: tools/pb_verify_rs/src/scitt.rs, its own CBOR reader, statement header types, x5chain walk and key checks; ES256, ES384, PS256 and PS384 through the RustCrypto crates p256, p384 and rsa, the certificate through x509-cert. COVERED on the shared vectors tests/fixtures/scitt_statement_signature/vectors.json (real statements of both differential-corpus rounds and synthetic ones for every rule on the path), each run through both verifiers by crosscheck.py and tests/test_scitt_statement_signature_parity.py against the status and verdict it is built to produce. A statement file above the Rust input budget is malformed in both, the Rust exit class 3 included, as for any statement above the 65536 bytes the profile reads (Codex, PR 290). NOT COVERED: an RSA public exponent above 2^33 - 1, which the rsa crate refuses and OpenSSL may take."
     },
     "proofbundle.scitt_ccf.verify_transparent_statement": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "scitt-ccf/v1 (ADR 0009): a Transparent Statement with CCF receipts, value 1 against the canonical root, value 3 recomputed from the statement bytes, value 4 from each inclusion proof, receipt signatures under rp_trust. Not an anchor type yet and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING. Compared offline against microsoft/scitt-verifier at bd6fb8ba on the same bytes: 58 values agree, 0 differ (tools/scitt_ccf_external/rust_crosscheck.json)."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-scitt-transparent-statement"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-scitt-transparent-statement\""
+      ],
+      "notes": "scitt-ccf/v1 (ADR 0009): a Transparent Statement with CCF receipts, value 1 against the canonical root, value 3 recomputed from the statement bytes, value 4 from each inclusion proof, receipt signatures under rp_trust. Not an anchor type yet and not reachable from any verify path. Rust: tools/pb_verify_rs/src/scitt_transparent.rs over src/scitt.rs, which share no reading code with the Python module: the receipts under label 394, the CDDL pass of each receipt and of every -05 proof family, the roots, the receipt signature under the service keys of rp_trust, and the status order. COVERED on the shared vectors tests/fixtures/scitt_transparent_statement/vectors.json (every Transparent Statement a local scitt-ccf-ledger served in both differential-corpus rounds, under the keysets and signers of their round and phase, the local-ledger control, and synthetic ones for every rule), each run through both verifiers by crosscheck.py and tests/test_scitt_transparent_statement_parity.py: Python == Rust on every field of the result but the prose, both == the built verdict, the Rust exit class included; a file above the Rust input budget is malformed in both. NOT COVERED: the prose (detail, and the text of ignored_trust, whose count is compared); trust the JSON trust file cannot carry (a tuple or a bytearray, which Python reads as a list and bytes; a canonical root that is not bytes, which Python reads as unbound); an RSA public exponent above 2^33 - 1 in a statement key, as for verify_statement_signature. Compared offline against microsoft/scitt-verifier at bd6fb8ba on the same bytes: 58 values agree, 0 differ (tools/scitt_ccf_external/rust_crosscheck.json)."
     },
     "proofbundle.sdjwt.verify_sd_jwt": {
       "status": "PENDING",

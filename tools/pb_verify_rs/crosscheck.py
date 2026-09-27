@@ -585,7 +585,7 @@ def main() -> int:
     # tests/fixtures/scitt_statement_signature/vectors.json carries the status and verdict each vector
     # is built to produce (the oracle); Python and Rust must both give exactly that, the Rust exit
     # class included (0 confirmed, 1 statement_signature_invalid, 3 a status that is no verdict).
-    from proofbundle.scitt_ccf import verify_statement_signature  # noqa: PLC0415
+    from proofbundle.scitt_ccf import verify_statement_signature, verify_transparent_statement  # noqa: PLC0415
     scitt_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json")
                            .read_text(encoding="utf-8"))
 
@@ -633,6 +633,52 @@ def main() -> int:
         failures.append(f"scitt statement signature over the input budget ({scitt_budget + 1} bytes): "
                         f"Python {py}, Rust {out}/exit{code}, both must be malformed, exit 3")
     (tmp / "scitt_over_budget.cbor").unlink()
+
+    # (6c) scitt-ccf/v1 Transparent Statements (ADR 0009): every shared vector through BOTH verifiers.
+    # tests/fixtures/scitt_transparent_statement/vectors.json carries the verdict each vector is built to
+    # produce (for a statement the ledger served, the status its corpus round recorded and the leaf
+    # data-hash of the ledger's receipt). Python and Rust must both give it, the Rust exit class included
+    # (0 confirmed, 1 a check over the evidence failed, 3 no verdict), and each other's result on every
+    # field but the prose. The file is read by the generator's own functions, as the parity test reads it.
+    sys.path.insert(0, str(ROOT / "tools" / "scitt_ccf_external"))
+    import transparent_statement_vectors as tsv  # noqa: PLC0415
+    ts_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_transparent_statement" / "vectors.json")
+                        .read_text(encoding="utf-8"))
+    ts_failed = {"unbound", "statement_signature_invalid", "root_mismatch", "signature_invalid",
+                 "receipt_not_bound"}
+    ts_n = 0
+    for v in ts_doc["vectors"]:
+        ts_trust = tsv.trust_of(ts_doc, v)
+        (tmp / "scitt_ts.cbor").write_bytes(tsv.assemble(v["statement"], ts_doc["refs"]))
+        ts_argv = [str(tmp / "scitt_ts.cbor"), tsv.assemble(v["root"], ts_doc["refs"]).hex()]
+        if ts_trust is not None:
+            (tmp / "scitt_ts_trust.json").write_text(json.dumps(ts_trust), encoding="utf-8")
+            ts_argv.append(str(tmp / "scitt_ts_trust.json"))
+        code, out = _run("verify-scitt-transparent-statement", *ts_argv)
+        py = tsv.python_result(ts_doc, v)
+        try:
+            rs = json.loads(out)
+        except ValueError:
+            rs = None
+        want = v["want"]["status"]
+        want_code = 0 if want == "confirmed" else 1 if want in ts_failed else 3
+        if rs != py or tsv.mismatch(v["want"], py) or code != want_code:
+            failures.append(f"scitt transparent statement {v['id']}: built for {v['want']}, Python "
+                            f"{tsv.observed(py)}, Rust {tsv.observed(rs) if rs else out}/exit{code}")
+        ts_n += 1
+    # The input budget, as in (6b): a confirmed synthetic statement one byte past it is malformed, exit 3.
+    ts_s01 = next(v for v in ts_doc["vectors"] if v["id"] == "s01-confirmed")
+    ts_root = tsv.assemble(ts_s01["root"], ts_doc["refs"]).hex()
+    with (tmp / "scitt_ts_over_budget.cbor").open("wb") as f:
+        f.write(tsv.assemble(ts_s01["statement"], ts_doc["refs"]))
+        f.truncate(scitt_budget + 1)
+    code, out = _run("verify-scitt-transparent-statement", str(tmp / "scitt_ts_over_budget.cbor"), ts_root)
+    py_status = verify_transparent_statement((tmp / "scitt_ts_over_budget.cbor").read_bytes(),
+                                             canonical_root=bytes.fromhex(ts_root)).status
+    if py_status != "malformed" or '"status":"malformed"' not in out or code != 3:
+        failures.append(f"scitt transparent statement over the input budget: Python {py_status}, Rust "
+                        f"{out[:80]}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_ts_over_budget.cbor").unlink()
 
     # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
@@ -823,6 +869,9 @@ def main() -> int:
           f"scitt-ccf/v1 statement signature: {scitt_n} shared vector(s), Python == Rust == the built "
           "verdict, the Rust exit class included, and a statement file over the input budget malformed "
           "in both; "
+          f"scitt-ccf/v1 transparent statement: {ts_n} shared vector(s), Python == Rust on every field but "
+          "the prose, both == the built verdict, the Rust exit class included, and a file over the input "
+          "budget malformed in both; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "
