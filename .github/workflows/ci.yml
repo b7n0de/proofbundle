@@ -245,6 +245,14 @@ jobs:
         run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py
       - name: Rust parity report (advisory — PENDING is the expected, honest majority state)
         run: python scripts/rust_parity_gate.py --strict --json
+      # Owner decision of 2026-09-27 (option A): the locked Rust dependencies are audited against the
+      # RustSec advisory database, warnings (unmaintained, unsound, yanked) included. The step runs in
+      # tools/pb_verify_rs because cargo-audit reads its exceptions from .cargo/audit.toml in the
+      # directory it runs in (measured with 0.22.2); each exception stands there with its reason and a
+      # review date, never as a flag here. It is the last step, so a red audit does not skip the
+      # crosscheck and the parity report above.
+      - name: Rust dependency audit (cargo audit, deny warnings)
+        run: cd tools/pb_verify_rs && cargo install --locked cargo-audit --version 0.22.2 && cargo audit --file Cargo.lock --deny warnings
 
   test:
     runs-on: ubuntu-latest
