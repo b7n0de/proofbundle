@@ -326,6 +326,44 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   Linux keeps across exec, and so reported the high-water mark of the pytest process that started it. It
   reads its own (`VmHWM`) now, and an eighth case holds that from a parent of 256 MiB.
 
+  A fourth lens, on 4813a37a, found the regex sweep's "no anchor" verdict for a negative lookahead
+  drawn from one probe character: `(?!X)` counted as none as soon as X missed one character on its own,
+  and that premise failed twice. The missed character may be a final `\n`, so the lookahead is Python's
+  `$`: `\A\d+(?!.|\n(?s:.))`, `\A[0-9]+(?![^\n]|\n[\s\S])` and `\A\d+(?!.|\n(?=[\s\S]))` each match
+  what `^\d+$` matches. And the item before the lookahead may take the missed character itself:
+  `(?s)\A\d+(?!\D|\d.)` and `\A\d+(?![^0-9]|[0-9](?s:.))` each match what `\A\d+\Z` matches. Such a
+  whole-value pattern with a Unicode `\d` passed without a reading and without a gap. The reader now
+  reads a lookaround as none only where that is proven: X takes a character, and some character begins
+  (for a lookbehind: ends) no match of X, so the value runs on past the lookaround with anything,
+  whatever the item before it takes. Anything else leaves the branch undecided, and the call is an
+  unfolded site; a lookahead that lets a bounded tail through, `(?![\s\S]{2})`, and a lookbehind wider
+  than one character are undecided too, where the first form read them as none. Beside it, a
+  lookaround holding an anchor in a form the reader does not place was undecided only at that anchor's
+  side: `\A\d+(?![\s\S]|\A)` and `(?<![\s\S]|(?:$)\S)\d+\Z` each match what `\A\d+\Z` matches and passed;
+  such a lookaround is undecided at its own side too now. With the seeds of the lens's runs, its
+  whole-pattern fuzz finds 0 silent whole-value patterns (20 on 4813a37a), and its lookaround fuzz 0
+  lookarounds of the `$` class read as none (21 on 4813a37a); the three it still reports are judged
+  over an alphabet without the letter `b`, and each holds before (after) a `b` followed (preceded) by
+  anything. The same lens measured that each call had a bound and no module
+  did: a callee bound 8000 times and called once in each of 8000 functions took 51 to 101 s, a pattern
+  name bound 8000 times and read by 8000 calls 120 s, and one call spending the whole anchor budget,
+  written 200 times in 33 KB, 88 s. A callee is kept now by the binding it resolves to, not by the
+  scopes that read it, a name's value is folded once per module, and every step the calls of one
+  module take, resolving, folding and reading anchors, is charged to one budget of 2,000,000 steps,
+  past which the module is an unfolded site for every call not yet read. The three inputs take 4.7 s,
+  5.0 s and 0.9 s now, one per child at a load average near 23 (timings vary with load); from 1000 to
+  16000 bindings and calls the time grows linearly (0.62 s to 8.86 s for the callee, 1.13 s to 9.26 s
+  for the pattern name), and no module of the tree spends more than 20,785 steps. The sweep on the tree
+  reads no finding and the same eight unfolded sites under six keys, with the same gaps, and its work
+  does not grow: 38,484,592 Python function calls before and 38,594,522 after (0.3 %), and a mean of
+  3.46 s of CPU time before and 3.21 s after over six paired runs. The named limits now say that an
+  `attrgetter` or `methodcaller` object bound to a name and called later
+  (`m = operator.methodcaller("match", s)`, then `m(R)`) is not followed, and the pattern is then
+  judged by its own anchors. Three new cases fail on 4813a37a. Run on every interpreter of the CI
+  matrix, two existing cases failed on Python 3.11, at 4813a37a too: 3.11 bounds the depth of the
+  syntax tree it builds where 3.10 and 3.12 do not, so `ast.parse` raised RecursionError for a chain
+  of 3000 `+` and the sweep let it out. Such a source is an unfolded site now.
+
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
   `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
