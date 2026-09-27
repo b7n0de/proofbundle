@@ -211,19 +211,26 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   tokenizer reads brackets, strings and backslashes; a prefix is parsed only where Python could end a
   statement, and a search ends at an error no later line repairs. That MiB takes 0.4 s now. The parsing
   that remains is bounded by 8 bytes handed to the parser per byte of comment: a MiB of decorator lines
-  waiting for a `def`, built to get past the lexer, ends fail-closed with exit 2 in under 3 s, never
-  clean. The tree takes at most 0.94 bytes of parsing per byte of comment, and each of its files
-  commented out whole at most 1.09; the class B reader goes over its 72 files in 0.35 s, against 0.81 s
-  at a435ba32 on the same machine. Before 3.12 an f-string ends as any string does; from 3.12 on, where
+  waiting for a `def`, built to get past the lexer, ends fail-closed with exit 2, never clean, in 2.0 to
+  2.6 s at a load average of 16 to 22 on 24 cores (3.3 to 4.4 s in a review lens's runs, at a load
+  average of 17 to 54 over its session).
+  The tree takes at most 1.034 bytes of parsing per byte of comment (`_membership.py`), and each of its
+  files commented out whole at most 1.093 with `# ` and 1.109 with `#` (`dsse.py`), on 3.10 and on
+  3.12; the class B reader goes over its 72 files in 0.35 s, against 0.81 s at a435ba32 on the same
+  machine. Before 3.12 an f-string ends as any string does; from 3.12 on, where
   its fields may hold quotes, the lexer follows one only where every version ends it alike, and parses
   every prefix after it otherwise. That branch ran on 3.10 with its switch forced, since 3.12 is not
   installed here. Checked against the parser, the lexer ruled out 50086 of 150083 windows of up to six
   lines of the tree, and Python parses none of them. Its first fuzz run found one false claim, `else:\\`
   (the reader drops one backslash that ends a last line), which is fixed; after it, none in 3.6 million
   random windows, 2.6 million of them ruled out. With each tracked file commented out whole in four
-  comment styles, the old and the new reader flag the same 1140 ranges, under the forced 3.12 branch
-  too, and in 60000 random comment blocks built from the tree's lines the new reader flags every range
-  the old one does, and 24 more. `return` with `True` written in fullwidth letters opening
+  comment styles (`# `, `#`, `## ` and `# # `), the old and the new reader flag 1140 ranges each, on
+  3.10 and on 3.12, and each range of the one ends on the line a range of the other ends on: 1040 are
+  identical, and 100, 25 per style in 14 files, begin at the statement's own first line, where the old
+  reader began at the comment lines above it (`agent_review.py` 508-510 against 503-510), so an allow
+  marker for such a range goes directly above the statement. In 60000 random comment blocks built from
+  the tree's lines the new reader flags every range the old one does, and 24 more. `return` with `True`
+  written in fullwidth letters opening
   `verify_thing`, and `if` with `False` written so at a check, parse as names that load the constants,
   and were clean with exit 0, on main too; a name whose NFKC form is `True` or `False` is that constant
   in classes A and C now. All 294 statements under `src/proofbundle` that call a check are still caught
@@ -232,6 +239,48 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   bullet list and both fullwidth constants. Of the 48 new test cases, 35 failed at a435ba32 (23 missed
   findings, 7 flagged bullets, the 2 cost cases past their timeout, and 3 that call what a435ba32 does
   not have), 13 controls passed there, and all 48 pass now.
+
+  The work class B does on a tree it parsed is linear in the reading, so the bound on the parsing bounds
+  it too. A review lens, run 14 at 0b9edc94, measured the reader's time as quadratic in the size of one
+  comment statement: `_no_check` read the space after a star or a dot with `ast.get_source_segment`,
+  which splits the whole reading into lines again at each call, and it asked once per expression
+  statement of those forms, work the bound on the parsing does not count. One comment line of `a.f(); `
+  13000 times, in a staged file of 91,182 bytes, ran 259 s with exit 0, `* f(); ` 258 s and `a. f(); `
+  (104,182 bytes) 283 s on 3.10, against 0.41 s for `ab.f(); `, which is asked nothing, and 20 to 21 s
+  each on 3.12; in one process each doubling of the line took 2.4 to 7 times as long, four in the
+  median, on 3.10 and on 3.12. A reading is now split into lines once and each line encoded once
+  (`_Segments`), and a node's text is cut from those bytes as `get_source_segment` cuts it; a test holds
+  the two equal on every node of 600 generated texts, with text of more than one byte a character before
+  a node, nodes over several lines, CR LF, a lone CR and a form feed. The three files take 0.52 to 0.57
+  s now (0.31 to 0.43 s on 3.12), and a MiB of each form 4.0 to 4.7 s. A sweep of every other walk over
+  a tree and every reading of a line or a file in the guard, each input doubled twice, found each
+  linear. The heaviest run that remains is a MiB of comment lines built so that every prefix of a run
+  parses into a tree and joins the next line: it spends the whole allowance on parsing and ends
+  fail-closed with exit 2 in 21 to 50 s at a load average of 23 to 38 on 24 cores. Built of `a;`, it
+  took 45 s here and 42 s at 0b9edc94; built of `a.f(); `, in lines of about 800 and 26,000 bytes, it
+  takes 25 and 37 s here and ran past 600 s there. Over the tree, and each of its files commented out
+  whole in four styles, the reader flags the same ranges as at 0b9edc94, on all five versions. Of the 7
+  new test cases, the 6 cost cases fail at 0b9edc94 past their 100 s timeout, on 3.10 and on 3.12, and
+  the seventh calls what 0b9edc94 does not have; all 7 pass now.
+
+  The guard's verdict no longer depends on the Python that runs it. The package runs on 3.10 to 3.14,
+  and CI tests on all five. A name whose NFKC form is `True`, `False` or `None`, written otherwise
+  (`True` in fullwidth letters), is a name to 3.10, 3.11 and 3.12, which load the constant through it,
+  and 3.13 and later refuse the whole source with a ValueError. Measured at 0b9edc94: `return` with
+  `True` written so, opening `verify_thing`, was a finding with exit 1 on 3.10 to 3.12 and stopped the
+  run with exit 2 on 3.13 and 3.14; a comment holding `if` such a `True` `and` a check was a finding on
+  3.10 to 3.12 and clean with exit 0 on 3.13 and 3.14; and a file that binds such a name elsewhere was
+  clean on 3.10 to 3.12 and stopped on 3.13 and 3.14. Six cases of the previous change and the test of
+  the self-test failed on 3.13 and 3.14 for that reason. Where the running Python refuses a source for
+  that reason alone, `_parse` now reads it as 3.10 to 3.12 do: each such word is read as an ASCII name
+  of the same length in UTF-8 that no word of the source is, so every position stays, and the tree gets
+  the NFKC form back in an identifier and the word as written in a string. On 3.10 to 3.12 that tree
+  equals the one their own parser builds, positions included, in 20 forms (a name loaded, stored, as a
+  parameter, an attribute, a keyword, a definition, an import, in `global`, in strings and f-strings);
+  the three measured cases give exit 1, 1 and 0 on all five versions, and the self-test plants the
+  comment form. Of the 5 new test cases, the reading test and the planted refusal fail at 0b9edc94 on
+  3.10, 3.13 and 3.14, and the 2 comment cases and the control pass there on 3.10 and fail on 3.13 and
+  3.14; all 5 pass now on all five versions, as do those six and the self-test.
 
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read

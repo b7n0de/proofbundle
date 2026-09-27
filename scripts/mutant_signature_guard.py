@@ -44,7 +44,9 @@ line after it anew, and a change that only removes, or only adds, lines that ope
 turns text that stood in the string into statements; each left a `return True` opening a verify
 function unreported with exit 0 while only the added lines were judged (a review lens, run 10, and
 a sibling measured beside it, 2026-09-26). A changed file there that Python itself cannot decode or
-parse is not judged; the run stops fail-closed with the reason.
+parse is not judged; the run stops fail-closed with the reason. One refusal differs between the
+versions the package runs on: 3.13 and later refuse a name spelled as `True`, `False` or `None`, which
+3.10 to 3.12 read, and the guard reads such a source as 3.10 to 3.12 do on every version (`_parse`).
 Legitimate exceptions are possible but must be VISIBLE in the diff: put a `# mutant-guard: allow`
 comment on the flagged line or the line directly above it.
 
@@ -66,8 +68,10 @@ import ast
 import codecs
 import contextlib
 import io
+import itertools
 import os
 import re
+import string
 import subprocess
 import sys
 import tempfile
@@ -175,7 +179,8 @@ def _bool_constant(node: ast.AST) -> bool | None:
     """The bool a node is: the constant True or False, or a name whose NFKC form is `True` or `False`.
 
     Python binds a name in its NFKC form, so `True` written in fullwidth letters is no keyword to the
-    parser but the name `True`, and running it loads True from the builtins. Such a `return` opening
+    parser but the name `True`, and running it loads True from the builtins (3.10 to 3.12; 3.13 and later
+    refuse the source, which `_parse` reads as the earlier versions do). Such a `return` opening
     `verify_thing`, and an `if` with `False` written that way at a check, were clean with exit 0, on
     main too (a review lens, run 13, measured 2026-09-27 at a435ba32). Classes A and C read such a name
     as the constant. Any other node is no bool constant (None)."""
@@ -268,6 +273,13 @@ def _first_operand(node: ast.AST) -> ast.AST:
 # Python does, every prefix after it is parsed, as before. The parsing that remains is bounded:
 # `_PARSE_PER_BYTE` bytes handed to the parser per byte of the file's comments, and `_PARSE_FLOOR` more.
 # Past that the file is not judged, and the run stops fail-closed with exit 2, never clean.
+#
+# AND THE WORK ON A TREE IT PARSED IS LINEAR IN THE READING, so the bound on the parsing bounds that work
+# too. `_no_check` read the space after a star or a dot with `ast.get_source_segment`, which splits the
+# whole reading into lines again at each call; asked once per statement, it cost the number of statements
+# times the size of the reading, and the bound counts only the bytes handed to the parser. A review lens,
+# run 14, found it at 0b9edc94: one comment line of `a.f(); ` 13000 times, 91,182 bytes staged, ran 259 s
+# there with exit 0 on 3.10, and `* f(); ` and `a. f(); ` as long. `_Segments` splits a reading once.
 
 #: The name of a check, by its stem, for class B's callee and class C's function: `verif` holds verify,
 #: verifies, verified, verification and verifier, `validat` holds validate, validated and validation,
@@ -305,9 +317,11 @@ _STRING_REST = {"'": re.compile(r"(?:[^\\']|\\.)*'"), '"': re.compile(r'(?:[^\\"
 _FIELD_PREFIXES = {"f", "rf", "fr", "t", "rt", "tr"}
 _FIELDS_NEST = sys.version_info >= (3, 12)
 #: The parsing class B may do for one file: `_PARSE_PER_BYTE` bytes handed to the parser per byte of the
-#: comments it reads, and `_PARSE_FLOOR` bytes more. Measured 2026-09-27: the 72 files under
-#: src/proofbundle take at most 0.94 bytes per byte of comment, and each of them commented out whole, line
-#: by line, at most 1.09; a MiB of comment lines built to get past `_lex` reaches the bound in under 3 s.
+#: comments it reads, and `_PARSE_FLOOR` bytes more. Measured 2026-09-27, as the bytes handed to the
+#: parser: the 72 files under src/proofbundle take at most 1.034 bytes per byte of comment (`_membership.py`),
+#: and each of them commented out whole, line by line, at most 1.093 with `# ` and 1.109 with `#` (`dsse.py`);
+#: a MiB of comment lines built to get past `_lex` reaches the bound in 2.0 to 2.6 s at a load average of 16
+#: to 22 on 24 cores (3.3 to 4.4 s in a review lens's runs, at a load average of 17 to 54 over its session).
 _PARSE_PER_BYTE = 8
 _PARSE_FLOOR = 1 << 16
 
@@ -352,6 +366,78 @@ def _dedented(bodies: list[str]) -> str:
     return "\n".join(lines)
 
 
+#: Python 3.13 and later refuse to build a tree for an identifier whose NFKC form is `True`, `False` or `None`,
+#: with a ValueError of this text; 3.10 to 3.12 build it as that name (`_parse`).
+_REFUSED_NAME = re.compile(r"identifier field can't represent '(?:True|False|None)' constant")
+_CONSTANT_NAMES = frozenset({"True", "False", "None"})
+_WORD = re.compile(r"\w+")
+_STAND_IN_LETTERS = string.ascii_letters + string.digits
+
+
+def _parse(source: str | bytes) -> ast.Module:
+    """The tree `ast.parse` builds, and where a later Python refuses one for a name alone, the tree Python
+    3.10 to 3.12 build.
+
+    A name whose NFKC form is `True`, `False` or `None`, written otherwise (`True` in fullwidth letters),
+    is a name to 3.10, 3.11 and 3.12, which load the constant through it; 3.13 and later refuse the whole
+    source with a ValueError. The package runs on all five, so the verdict must not depend on the one that
+    runs the guard, and it did (measured 2026-09-27 at 0b9edc94): `return` with `True` in fullwidth letters
+    opening a check was a finding with exit 1 on 3.10 to 3.12 and stopped the run with exit 2 on 3.13 and
+    3.14; a comment holding `if` such a `True` `and` a check was a finding on 3.10 to 3.12 and clean with
+    exit 0 on 3.13 and 3.14; and a file that binds such a name elsewhere was clean on 3.10 to 3.12 and
+    stopped the run on 3.13 and 3.14. Where the running Python refuses a source for that reason, it is read
+    as 3.10 to 3.12 read it (`_parse_as_before_313`); every other refusal stays the caller's to judge."""
+    try:
+        return ast.parse(source)
+    except ValueError as exc:
+        if not _REFUSED_NAME.search(str(exc)):
+            raise
+    if isinstance(source, bytes):
+        source = source.decode(tokenize.detect_encoding(io.BytesIO(source).readline)[0])
+    return _parse_as_before_313(source)
+
+
+def _parse_as_before_313(text: str) -> ast.Module:
+    """`text` as Python 3.10 to 3.12 parse it, on every version. Each word that NFKC turns into `True`,
+    `False` or `None` is read as an ASCII name of the same length in UTF-8 that no word of the text is, so
+    every position stays; in the tree, an identifier that is such a name gets the NFKC form back, as 3.10 to
+    3.12 store it, and a string gets the word as written."""
+    taken = set(_WORD.findall(text))
+    stand_in: dict[str, str] = {}                  # a word as written -> the name read in its place
+
+    def replace(match: re.Match[str]) -> str:
+        word = match.group(0)
+        if word.isascii() or unicodedata.normalize("NFKC", word) not in _CONSTANT_NAMES:
+            return word
+        if word not in stand_in:
+            for letters in itertools.product(_STAND_IN_LETTERS, repeat=len(word.encode()) - 1):
+                if (name := "Q" + "".join(letters)) not in taken:
+                    break
+            else:                                  # every name of that length is a word of the text
+                raise ValueError(f"no name of {len(word.encode())} bytes is left to read {word!r} as")
+            taken.add(name)
+            stand_in[word] = name
+        return stand_in[word]
+
+    tree = ast.parse(_WORD.sub(replace, text))
+    written = {name: word for word, name in stand_in.items()}
+
+    def identifier(value: str) -> str:
+        return ".".join(unicodedata.normalize("NFKC", written[part]) if part in written else part
+                        for part in value.split("."))
+
+    for node in ast.walk(tree):
+        for field, value in ast.iter_fields(node):
+            if isinstance(node, ast.Constant) and field == "value":
+                if isinstance(value, str):
+                    node.value = _WORD.sub(lambda m: written.get(m.group(0), m.group(0)), value)
+            elif isinstance(value, str):
+                setattr(node, field, identifier(value))
+            elif isinstance(value, list) and value and isinstance(value[0], str):
+                setattr(node, field, [identifier(v) for v in value])
+    return tree
+
+
 def _commented_statement(code: str,
                          spend: Callable[[int], None] | None = None) -> tuple[ast.Module, str] | None:
     """The code as Python parses it, with the reading that parsed, or None when it does not parse. A
@@ -381,10 +467,55 @@ def _commented_statement(code: str,
             if spend is not None:
                 spend(len(reading))
             try:
-                return ast.parse(reading), reading
+                return _parse(reading), reading
             except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
                 continue
     return None
+
+
+#: A line as `ast.get_source_segment` splits a text: it ends at CR LF, at a lone CR or at LF, and at no other
+#: character (`str.splitlines` would also end one at a form feed or a U+2028).
+_SEGMENT_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+")
+
+
+class _Segments:
+    """`ast.get_source_segment(source, node)` for the nodes of one text, with the text split into lines once
+    and each line encoded once.
+
+    `ast.get_source_segment` splits the whole text into lines again at each call (on 3.10 and 3.11 character
+    by character in a Python loop, from 3.12 on with a pattern, up to the node's last line), so asking it
+    once per statement cost the number of statements times the size of the text (the class B notes above),
+    on 3.12 as well: one line of `a.f(); ` 8000 times took 13 s there. The text is split here once,
+    on first use, where `get_source_segment` splits it, and a node's text is cut from the UTF-8 bytes of its
+    lines by the node's positions, which count bytes, as `get_source_segment` cuts it: the same string,
+    character for character, which a test holds against `get_source_segment` itself."""
+
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._lines: list[str] | None = None
+        self._encoded: dict[int, bytes] = {}
+
+    def _text_lines(self) -> list[str]:
+        if self._lines is None:
+            self._lines = _SEGMENT_LINE.findall(self._source)
+        return self._lines
+
+    def _line(self, index: int) -> bytes:
+        if index not in self._encoded:
+            self._encoded[index] = self._text_lines()[index].encode()
+        return self._encoded[index]
+
+    def __call__(self, node: ast.expr) -> str | None:
+        try:
+            if node.end_lineno is None or node.end_col_offset is None:
+                return None
+            first, last, start, end = node.lineno - 1, node.end_lineno - 1, node.col_offset, node.end_col_offset
+        except AttributeError:                 # a node built without positions, as `get_source_segment` has it
+            return None
+        if first == last:
+            return self._line(first)[start:end].decode()
+        return (self._line(first)[start:].decode() + "".join(self._text_lines()[first + 1:last])
+                + self._line(last)[:end].decode())
 
 
 def _verify_calls(tree: ast.AST, source: str | None = None) -> list[str]:
@@ -393,13 +524,14 @@ def _verify_calls(tree: ast.AST, source: str | None = None) -> list[str]:
     annotation does not count: prose such as `# NOTE: verify(x) ...` parses as a name annotated with the
     call, while code puts the call in the value (`# ok: bool = verify(x)` counts). Nor does a call in an
     expression statement that makes no check by what it does (`_no_check`, read in `source`, the text
-    the tree was parsed from)."""
+    the tree was parsed from). The work is linear in the tree and in `source` (`_Segments`)."""
+    segment = None if source is None else _Segments(source)
     left_out: set[int] = set()
     for node in ast.walk(tree):
         for annotation in (getattr(node, "annotation", None), getattr(node, "returns", None)):
             if isinstance(annotation, ast.AST):
                 left_out.update(id(n) for n in ast.walk(annotation))
-        if isinstance(node, ast.Expr) and _no_check(node.value, source):
+        if isinstance(node, ast.Expr) and _no_check(node.value, segment):
             left_out.update(id(n) for n in ast.walk(node))
     names = []
     for node in ast.walk(tree):
@@ -411,21 +543,21 @@ def _verify_calls(tree: ast.AST, source: str | None = None) -> list[str]:
     return names
 
 
-def _no_check(value: ast.expr, source: str | None) -> bool:
+def _no_check(value: ast.expr, segment: Callable[[ast.expr], str | None] | None) -> bool:
     """Whether an expression statement with this value makes no check, by what it does as code (the class
     B notes above): `-`, `+` or `~` applied to a call; a star with a space after it before a call; or a
     call on an attribute of a one-letter name with a space after the dot, an enumerated item (`a.
-    verify(sig)`). The space is read in `source`; without it, only the first form counts."""
+    verify(sig)`). The space is read in the node's text, which `segment` gives as `ast.get_source_segment`
+    does (`_Segments`); without it, only the first form counts."""
     if isinstance(value, ast.UnaryOp):
         return isinstance(value.op, (ast.USub, ast.UAdd, ast.Invert)) and isinstance(value.operand, ast.Call)
-    if source is None:
+    if segment is None:
         return False
     if isinstance(value, ast.Starred):
-        return isinstance(value.value, ast.Call) and \
-            re.match(r"\*[ \t]", ast.get_source_segment(source, value) or "") is not None
+        return isinstance(value.value, ast.Call) and re.match(r"\*[ \t]", segment(value) or "") is not None
     func = value.func if isinstance(value, ast.Call) else None
     return isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and len(func.value.id) == 1 \
-        and re.match(r"\w\.[ \t]", ast.get_source_segment(source, func) or "") is not None
+        and re.match(r"\w\.[ \t]", segment(func) or "") is not None
 
 
 def _lex(code: str, state: str) -> tuple[str | None, int, int, bool, bool]:
@@ -819,13 +951,14 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
     Each git line is decoded in turn, so a line end that exists only in the decoded text (a lone CR,
     or `+AAo-` under UTF-7) starts a new Python line inside its git line. Two checks hold the reading
     to Python's: the lines decoded one by one join to the text of the whole file, and that text
-    parses to the same tree, positions included, as the bytes did.
+    parses to the same tree, positions included, as the bytes did. Both parses go through `_parse`, so a
+    name spelled as a constant is read on every version as 3.10 to 3.12 read it.
     """
     def stop(reason: str) -> SystemExit:
         return SystemExit(f"mutant_signature_guard: {_pfad(path)}: Python cannot read this file as "
                           f"source, so the guard cannot judge it (fail closed): {reason}")
     try:
-        tree = ast.parse(raw)
+        tree = _parse(raw)
         encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
         whole = raw.decode(encoding)
     except (SyntaxError, ValueError, LookupError, RecursionError, MemoryError) as exc:
@@ -850,7 +983,7 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
         spans.append(range(len(lines) + 1, len(lines) + 1 + len(pieces)))
         lines.extend(pieces)
     try:
-        again = ast.parse(whole)
+        again = _parse(whole)
     except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
         raise stop(f"the text decoded here as {encoding} does not parse again: "
                    f"{type(exc).__name__}: {exc}") from None
@@ -1189,6 +1322,11 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
      _BENIGN.replace('if not isinstance(data, dict):', f'if {_fullwidth("False")}:'), True),
     ("C: `return True` spelled in fullwidth letters",
      f'def verify_thing(data):\n    return {_fullwidth("True")}\n', True),
+    # 3.13 and later refuse such a name, and a comment holding one was read as no code there (2026-09-27).
+    ("B: a commented-out check behind a constant spelled in fullwidth letters",
+     _BENIGN.replace('    return bool(data.get("ok"))',
+                     f'    # if {_fullwidth("True")} and verify_thing(data):\n    #     return False\n'
+                     '    return True'), True),
 ]
 
 
