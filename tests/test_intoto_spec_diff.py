@@ -1,13 +1,15 @@
 """O6 spec-diff probe: every predicateType / payloadType literal used in the code is asserted against
 the documented constant, so a typo can never drift the code away from the spec silently."""
+import hashlib
 import pathlib
+import re
 import unittest
 
-from proofbundle.intoto import (
-    EVAL_RESULT_PREDICATE_TYPE,
-    INTOTO_STATEMENT_PAYLOAD_TYPE,
-    SVR_PREDICATE_TYPE,
-)
+from proofbundle import intoto
+
+EVAL_RESULT_PREDICATE_TYPE = intoto.EVAL_RESULT_PREDICATE_TYPE
+INTOTO_STATEMENT_PAYLOAD_TYPE = intoto.INTOTO_STATEMENT_PAYLOAD_TYPE
+SVR_PREDICATE_TYPE = intoto.SVR_PREDICATE_TYPE
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -17,21 +19,29 @@ class TestIntotoSpecDiff(unittest.TestCase):
         # The SVR + DSSE literals are FIXED by the in-toto spec — an exact match, not a doc lookup.
         self.assertEqual(SVR_PREDICATE_TYPE, "https://in-toto.io/attestation/svr/v0.1")
         self.assertEqual(INTOTO_STATEMENT_PAYLOAD_TYPE, "application/vnd.in-toto+json")
-        # The eval-result type is a vendor namespace until registered upstream.
+        # The eval-result type is a vendor namespace until registered upstream. v0.1 was emitted and
+        # signed by released versions and keeps its meaning; the revised #575 shape is its own version.
         self.assertEqual(EVAL_RESULT_PREDICATE_TYPE, "https://b7n0de.com/attestation/eval-result/v0.1")
+        self.assertEqual(intoto.EVAL_RESULT_V02_PREDICATE_TYPE, "https://b7n0de.com/attestation/eval-result/v0.2")
 
     def test_implementation_doc_matches_code(self):
         # IN_TOTO_PROFILE.md documents exactly what the code emits (no drift between doc and code).
         profile = (ROOT / "docs" / "IN_TOTO_PROFILE.md").read_text(encoding="utf-8")
         self.assertIn(EVAL_RESULT_PREDICATE_TYPE, profile)
+        self.assertIn(intoto.EVAL_RESULT_V02_PREDICATE_TYPE, profile)
         self.assertIn(SVR_PREDICATE_TYPE, profile)
         self.assertIn(INTOTO_STATEMENT_PAYLOAD_TYPE, profile)
 
     def test_upstream_draft_uses_the_intoto_namespace_and_notes_the_vendor_alias(self):
-        # The ready-to-submit spec draft proposes the in-toto.io type but names the vendor alias honestly.
+        # The spec draft proposes the in-toto.io type. The vendor alias is disclosed beside the mirror,
+        # in docs/upstream/README.md, and no longer inside it. REASON FOR THE MOVE (2026-09-28): the
+        # mirror is now the upstream file byte for byte, and the upstream file carries no
+        # proofbundle-specific note, so a note appended to the copy would make it a different file.
         draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
         self.assertIn("https://in-toto.io/attestation/eval-result/v0.1", draft)
-        self.assertIn(EVAL_RESULT_PREDICATE_TYPE, draft)   # the vendor alias is disclosed, not hidden
+        beside = (ROOT / "docs" / "upstream" / "README.md").read_text(encoding="utf-8")
+        self.assertIn(EVAL_RESULT_PREDICATE_TYPE, beside)   # the vendor aliases are disclosed, not hidden
+        self.assertIn(intoto.EVAL_RESULT_V02_PREDICATE_TYPE, beside)
 
 
 class TestSubmittedPredicateInvariants(unittest.TestCase):
@@ -87,14 +97,35 @@ class TestSubmittedPredicateInvariants(unittest.TestCase):
                           f"{pfad} lost the non-claim that a harness digest says nothing about "
                           f"detection performance")
 
+    def test_both_docs_carry_the_three_revisions(self):
+        # The #575 revision of 2026-09-28: the evaluator role, one identification each for model and
+        # dataset, and evidence[] with a mandatory digest in place of the receipt block.
+        for pfad, text in self._docs().items():
+            self.assertIn("evaluator.id", text, f"{pfad} does not name the evaluator role")
+            self.assertIn("exactly one identification", text,
+                          f"{pfad} lost the rule that model and dataset are each identified once")
+            self.assertIn("MUST carry `digest`", text, f"{pfad} lost the digest obligation")
+
+    def test_the_mirror_carries_neither_old_field(self):
+        draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
+        self.assertNotIn("`verifier.id`", draft, "the mirror still lists the v0.1 role name as a field")
+        self.assertNotIn('"receipt":', draft, "the mirror still carries the receipt block")
+
     def test_the_mirror_names_the_pr_as_the_source_of_truth(self):
         # The copy must not drift into looking authoritative. It also must not keep claiming the PR
-        # is unopened, which is how it read until 2026-08-07.
-        draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
-        self.assertIn("575", draft, "the mirror does not name the PR it mirrors")
-        self.assertIn("source of truth", draft,
-                      "the mirror does not say which side wins when the two differ")
-        self.assertNotIn("NOT yet opened as", draft, "the mirror still claims the PR is unopened")
+        # is unopened, which is how it read until 2026-08-07. REASON FOR THE MOVE (2026-09-28): these
+        # sentences were an HTML comment at the top of the mirror; the mirror is now the upstream file
+        # byte for byte, so they stand in docs/upstream/README.md, together with the SHA-256 of the
+        # mirror, which makes any later edit of the mirror visible as a mismatch here.
+        beside = (ROOT / "docs" / "upstream" / "README.md").read_text(encoding="utf-8")
+        self.assertIn("575", beside, "the note beside the mirror does not name the PR it mirrors")
+        self.assertIn("source of truth", beside,
+                      "the note beside the mirror does not say which side wins when the two differ")
+        self.assertNotIn("not yet opened", beside, "the note still claims the PR is unopened")
+        draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_bytes()
+        pins = re.findall(r"`([0-9a-f]{64})`", beside)
+        self.assertIn(hashlib.sha256(draft).hexdigest(), pins,
+                      "docs/upstream/README.md does not pin the SHA-256 of the mirror as it stands")
 
 
 if __name__ == "__main__":
