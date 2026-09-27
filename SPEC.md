@@ -197,6 +197,42 @@ is present but `issuer_public_key_b64` is **absent**, this check **FAILS**
 treated as a passing credential. There is no opt-out that lets an unsigned
 SD-JWT verify.
 
+**Both spellings of an ES256 signature verify, and they are one credential**
+(finding D1, owner decisions of 2026-09-26). ECDSA is malleable: whoever holds a
+valid ES256 signature `(r, s)` can write `(r, n − s)` without the key (`n` is the
+order of the P-256 group), and it verifies as well. RFC 7518 §3.4 does not
+require the low half, OpenSSL (which this implementation uses) signs with either
+half and accepts both, and three of the five IETF SD-JWT VC examples vendored in
+`tests/fixtures/sdjwtvc` carry a high `s` (the fourth and the fifth in the issuer
+signature, the second in its Key Binding JWT). A verifier therefore MUST accept
+both spellings, and the rules are these:
+
+- **An identity is computed over the canonical form.** Every identity, receipt
+  root, deduplication, replay or log key computed from bytes that carry an ES256
+  signature is computed over the form in which every such signature has
+  `s ≤ n/2`: in `sd_jwt_vc.compact`, the issuer JWT's and a trailing Key Binding
+  JWT's (`signature.canonical_es256_signature`,
+  `sdjwt.canonical_sd_jwt_compact`). So `(r, s)` and `(r, n − s)` have one
+  identity. In this implementation that covers the `receipt` anchor root (§7i)
+  and the identity of a `pb1.` receipt token (`hf_evals.receipt_token_identity`,
+  which is that root of the bundle the token carries).
+- **A foreign issuer's bytes are never rewritten.** A compact the implementation
+  emits, the compact inside a `pb1.` token and the bundle a token verifier
+  returns carry the issuer's bytes exactly as presented, with or without a Key
+  Binding JWT: the KB-JWT's `sd_hash` covers the issuer JWT as presented, so a
+  rewritten issuer signature would fail that check at every verifier that hashes
+  the bytes it gets.
+- **A low `s` is required only of signatures the implementation makes itself.**
+  This implementation makes no ES256 signature today. Its own signatures on these
+  paths (the bundle signature, an SD-JWT it issues, a Key Binding JWT it
+  presents) are Ed25519, which has one spelling (§4a). It also signs with ML-DSA
+  (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal
+  layer); whether an ML-DSA signature has a second spelling was not measured.
+
+The cost is that a receipt and its twin are two different `pb1.` token strings;
+they have one identity. The **sd-jwt-key-binding** check below accepts an
+`sd_hash` over either spelling of the issuer signature.
+
 Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
 its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
 verified the signature MUST be the key it names (`issuer_public_key_b64` is already
@@ -234,7 +270,10 @@ be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
 presented `<Issuer-signed JWT>~<Disclosure 1>~…~<Disclosure N>~`)) with H the
-SD-JWT's `_sd_alg` hash; and the KB-JWT signature verifies under the holder key
+SD-JWT's `_sd_alg` hash, where for an ES256 issuer JWT a match over either
+spelling of the issuer signature counts (the holder hashed the spelling it
+received; the two differ in the signature segment only, see above); and the
+KB-JWT signature verifies under the holder key
 from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
 binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
 the relying party's (an offline verifier has no trusted clock); the library
@@ -612,7 +651,7 @@ Each `anchors[]` entry is a JSON object:
 | target | claim | canonical root |
 |---|---|---|
 | `preRegistration` | the commitment existed **before** the run (backdating protection; in-toto/attestation#565) | SHA-256 of the raw protocol bytes, i.e. the receipt's `prereg_sha256` |
-| `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`** |
+| `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`**, computed over the canonical form in which every ES256 signature in `sd_jwt_vc.compact` (the issuer JWT's and a trailing Key Binding JWT's) has `s ≤ n/2` (§6; the steps are in `docs/ANCHORS.md`). The bundle itself is not rewritten. |
 
 **The type name is an identifier, not a grammar (rev 2026-09-20).** An earlier revision of the
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or

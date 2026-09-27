@@ -26,10 +26,55 @@ not control.
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
 (JCS) sha256 of the receipt bundle **excluding its own `anchors` field** (the anchors are detached
 evidence; an anchor cannot attest a root that already contains itself, so a verifier recomputing the
-receipt root MUST strip `anchors`), for `preRegistration` the sha256 of the raw protocol bytes (the
+receipt root MUST strip `anchors`), **with every ES256 signature in `sd_jwt_vc.compact` in its low-`s`
+spelling** (see below), for `preRegistration` the sha256 of the raw protocol bytes (the
 receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload bytes (the
 `statement_content_root`). A `preRegistration` anchor can therefore never validate a `receipt` or
 `statement` target, and vice versa: the roots differ, and a mismatch is a FAIL.
+
+**The receipt root, step by step** (finding D1, 2026-09-26). An ES256 signature verifies both as
+`(r, s)` and as `(r, n − s)`, where `n` is the order of the P-256 group
+(`0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551`), and the verifier accepts
+both (SPEC §6). So that one receipt has one root, the root is computed over one spelling:
+
+1. Take the receipt bundle and drop its `anchors` field.
+2. If it carries `sd_jwt_vc.compact`, split the compact on `~`. The candidate slots are the first
+   part (the issuer JWT) and, when the last part contains exactly two dots, the last part (the Key
+   Binding JWT). A slot is folded when all of the following hold, and only then:
+   - it has exactly three dot-separated segments;
+   - its header segment is strict base64url: the URL-safe alphabet only, no `=` padding, and pad
+     bits zero (RFC 4648 §5 and §3.5);
+   - the header decodes to a JSON object as proofbundle's strict JSON reader reads it
+     (`_strict_json.loads_strict`, the reader verification uses). That reader is Python's `json`
+     module over the decoded bytes, with a duplicate key or a lone surrogate in a string refused and
+     with the limits of the default verification budget: 200,000 keys and items, nesting depth 64
+     (a value counts one level below the container that holds it, so 64 nested arrays pass only when
+     the innermost one is empty), and integers of 8,192 bits. An integer literal longer than the
+     interpreter's `sys.get_int_max_str_digits()` is refused too; that is 4,300 digits by default in
+     CPython, and a different setting changes it. The reader's input and string limits (8 MiB,
+     1,000,000 characters) do not bind here: the receipt's own budget refuses any string over
+     1,000,000 characters, the compact included, before a root is computed, so such a slot is
+     refused, never folded. Beyond RFC 8259 it accepts what that module accepts from bytes: `NaN`,
+     `Infinity` and `-Infinity`, a leading UTF-8 byte order mark, and UTF-16 or UTF-32 text, so a
+     header in one of these forms is folded too;
+   - that object has `"alg": "ES256"`;
+   - its signature segment is strict base64url in the same sense and decodes to 64 bytes `R‖S`
+     (big-endian) with `⌊n / 2⌋ < S < n`.
+
+   A folded slot gets its signature segment replaced with the base64url, unpadded, of `R‖(n − S)`.
+   Every other slot, and every other byte of the compact, stays as it is. So a slot whose header
+   segment is padded, or whose header carries a duplicate key, is not folded, and its two spellings
+   keep two roots. A bundle that carries such a slot fails verification too, because verification
+   reads the header with the same decoders. The fold does not depend on the verdict: a slot whose
+   header and signature decode as above is folded whether or not its signature verifies.
+3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
+
+This form exists only to compute the root. The bundle itself is never rewritten: a Key Binding
+JWT's `sd_hash` covers the issuer JWT exactly as presented, so the foreign issuer's bytes travel as
+they came. A `receipt` anchor that an earlier proofbundle version stamped over a bundle with a high
+`s` in one of those signatures does not match this root. The identity of a `pb1.` token
+(`hf_evals.receipt_token_identity`) is this root of the bundle it carries.
+`tests/test_es256_signature_has_one_identity.py` follows these three steps with its own code.
 
 ## Schema
 

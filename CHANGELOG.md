@@ -10,6 +10,108 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
+  rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
+  `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,
+  `anchors_rootcommit.eip191_recover_address`, `anchors_rootcommit.eip191_signature_identity`). ECDSA is
+  malleable: from a valid ES256 signature (r, s) anyone can write (r, n − s) without the key, and
+  both verify. Measured on main 126ed1dc: `verify_ecdsa_p256`, `verify_sd_jwt` and `verify_bundle`
+  accepted both; the `pb1.` tokens of a bundle and of its twin were two different tokens that both
+  verified, and nothing gave them one identity; `receipt_canonical_root` gave two roots, so a
+  `receipt` anchor over one spelling failed `--require-anchor` for the other; and the Key Binding
+  JWT's `sd_hash` check refused the twin of a genuine presentation, so with a KB-JWT attached
+  `verify_bundle` accepted one spelling and refused the other. For secp256k1,
+  `eip191_recover_address` recovered the same wallet from the vendored `v2sig-01-valid` signature
+  and from its twin (r, n − s, recovery id flipped), so one signature made two rootcommit anchor
+  lines that both verified.
+
+  The owner decided on 2026-09-26, in two steps; the second refines the first. (1) Verification
+  keeps accepting both spellings of an ES256 signature: RFC 7518 §3.4 does not require the low
+  half, OpenSSL signs with either half (987 of 2000 signatures in one measurement with
+  `cryptography` 49.0.0) and accepts both, and three of the five IETF SD-JWT VC examples vendored in
+  `tests/fixtures/sdjwtvc` carry a high s (the fourth and the fifth in the issuer signature, the
+  second in its Key Binding JWT); all five and their twins stay green. (2) Every identity, receipt
+  root, dedup, replay or log key is computed over the canonical form, in which every ES256 signature
+  of the compact, the issuer JWT's and a Key Binding JWT's, has s ≤ n/2; so twins have one identity.
+  (3) The bytes of a foreign issuer are never rewritten: not in a bundle from `emit_bundle` or
+  `emit_eval_receipt`, not inside a `pb1.` token, not in the bundle `verify_receipt_token` returns,
+  not in a presentation from `present_with_key_binding`, with or without a KB-JWT. (4) A low s is
+  required only of signatures proofbundle makes itself. It makes no ES256 signature today; its own
+  signatures on these paths are Ed25519, which has one spelling by the S bound, and a test keeps an
+  inventory of the ECDSA code in the package so a new signing path is noticed. proofbundle also
+  signs with ML-DSA (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal layer);
+  whether an ML-DSA signature has a second spelling was not measured in this change.
+
+  Why (3), for an external reviewer: a Key Binding JWT's `sd_hash` covers the issuer JWT exactly as
+  presented (RFC 9901 §4.3). A first version of this change on the same branch (f536af50) wrote the
+  low s into everything proofbundle emitted. Measured there with an independent RFC 9901 check: a
+  genuine presentation, whose holder had hashed the high-s issuer JWT it received, failed on the
+  compact from `emit_bundle`, on the one inside the `pb1.` token and on the one `verify_receipt_token`
+  returned. proofbundle's own verifier still accepted it, because it compares both spellings; a
+  verifier that hashes the bytes it gets did not.
+
+  The cost, stated so nobody has to find it: a receipt and its twin are two `pb1.` token strings with
+  one identity. `hf_evals.receipt_token_identity(token)` (new) is that identity: the receipt root of
+  the bundle the token carries, i.e. `receipt_canonical_root` without `anchors`, the value a
+  `receipt` anchor stamps. It is the key to deduplicate, replay-check or log tokens by; the token
+  string never was one, since another zlib level or other JSON whitespace also verifies.
+  `receipt_canonical_root` folds both ES256 slots, so one receipt has one root, and
+  `docs/ANCHORS.md` now gives the steps. The KB-JWT's `sd_hash` is accepted over either spelling of
+  the issuer signature, so the verdict does not depend on which one a relay passed on; the two differ
+  in that segment only. A `pb1.` token with a high s is accepted and returned as it came.
+
+  eip191 now refuses, before any recovery, a signature whose s lies above n/2, as OpenZeppelin's
+  `ECDSA.recover` does (EIP-2); libsecp256k1, which Ethereum wallets sign with, emits the low s
+  only, and all five vendored v2-sig vectors carry a low s, so no genuine signature is refused. It
+  also refuses s = 0 and r outside (0, n), which no ECDSA signature has (SEC 1) and for which
+  `ecrecover` gives the zero address. Measured on f536af50: s = 0 recovered an address for every v,
+  and r = n + k recovered one for 21 of the 40 values k < 40. A signature that is not bytes, or a
+  message that is not a str, now gives None instead of a raw TypeError or AttributeError, and so
+  does a message with no UTF-8 form (a lone surrogate), which raised UnicodeEncodeError on 126ed1dc,
+  on f536af50 and on accd932c (lens run 2).
+
+  The same class in a second form, decided by the owner on 2026-09-26 as addendum 11 (the reference
+  to `ECDSA.recover` above holds for the high s only): `v` is accepted as 27/28 or as the raw
+  recovery id 0/1, which some signers emit, hardware wallets among them, and every other value is
+  refused, EIP-155 values from 35 included, because personal_sign has no chain id. That accepted set
+  is unchanged; measured over all 256 values of `v` on 126ed1dc and on f536af50, it was
+  {0, 1, 27, 28} there too. So one signature has two texts: measured on f536af50, the vendored
+  `v2sig-01-valid` checkpoint with v = 27 and the same checkpoint with v = 0 both verified with
+  sig_ok True and reject False. The checkpoint bytes are never rewritten. Two texts, one identity:
+  `anchors_rootcommit.eip191_signature_identity` (new) gives r ‖ s ‖ v with v written as 27 or 28,
+  the form every identity, dedup, replay or log key over such a signature is computed over, and
+  None for any signature eip191 refuses, a high s included. No code in the package forms such a key
+  today: `verify_rootcommit_v2sig` returns no signature bytes, and nothing else in `src` calls the
+  module.
+
+  One consequence is stated here rather than left to be found: a `receipt` anchor stamped by an
+  earlier version over a bundle with a high s in either ES256 slot of its `sd_jwt_vc` no longer
+  matches its root. None of the 618 JSON files tracked in this repository (616 of them parse)
+  carries an ES256 `sd_jwt_vc`. SPEC §6 and §7i state the rules. Before the change, the places where
+  signature bytes enter an identity were mapped for ES256, secp256k1, Ed25519 and ML-DSA; the
+  Ed25519 row has no such twin, because the S bound and the strict base64 decoders leave one
+  spelling, and the ML-DSA row is the one named above as not measured. The receipt-root steps in
+  `docs/ANCHORS.md` state the exact domain the code folds: strict unpadded base64url, a header
+  read by the strict JSON reader (a duplicate key refused), `alg` ES256, a 64-byte signature with
+  n/2 < S < n. An earlier text of this change folded any header that decodes to ES256, wider than
+  the code, and a padded or duplicate-key header then got one root by the text and two in code
+  (lens run 2 at accd932c); both forms fail verification. The text also names what the reader
+  accepts beyond RFC 8259, because the fold follows it there: `NaN`, a UTF-8 byte order mark, and
+  UTF-16 or UTF-32 text. A header in such a form verifies, and a third party that read the text as
+  RFC 8259 got two roots where the code gives one (lens run 3 at 15d0b643; the anchor then fails
+  closed). The text states how the reader's limits apply to the fold: depth counts a value one level
+  below its container, the digit limit is the interpreter's setting, and the input and string limits
+  never bind there because the receipt's budget refuses a longer compact first (lens run 4 at
+  dce5f9ef; each fails closed). Whether verification should accept these forms at all is a question for every verify
+  path, not for this change. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
+  `tests/test_signature.py`, `tests/test_sdjwtvc_external_vectors.py` and
+  `tests/test_anchors_rootcommit.py`: 38 cases, measured with each tree's own src and docs.
+  Against f536af50, the first version of this change, 21 are red; the 17 green there are cases
+  carried over from it and guards. Against 126ed1dc, 24 are red; the 14 green there are guards and
+  the rules 126ed1dc already kept (it never rewrote a foreign issuer's bytes, and it accepted the
+  same four values of v). Against accd932c, the second version, 2 are red: the lone surrogate, and
+  the case that checks the text of `docs/ANCHORS.md`. Each case says which in its docstring.
+
 - **The mutation gate judges each mutant by the test files that reach it, and only a test that
   passed in the baseline and fails again when it runs by itself kills**
   (`scripts/mutation_check.py`). Run 36253567619, a manual dispatch of CI on the branch of pull request 279 at 57184964 (not
