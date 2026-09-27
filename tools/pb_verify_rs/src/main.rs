@@ -14,6 +14,9 @@
 //!   verify-bundle <bundle.json> [flags]        -> native proofbundle bundle exit-code contract
 //!   verify-trust-pack-threshold <envelope.json> -> trust-pack/v0.1 root-of-trust THRESHOLD check (Ed25519
 //!                                                  leg only; see VERIFIED_SUBCOMMANDS / Finding 11)
+//!   verify-scitt-statement-signature <statement.cbor> [<spki_hex>...]
+//!                                              -> scitt-ccf/v1 statement signature under relying-party
+//!                                                 keys (src/scitt.rs); prints `<status> <valid>`
 //!   coverage-report                            -> JSON self-declaration of the subcommands above (single
 //!                                                  source of truth consumed by scripts/rust_parity_gate.py
 //!                                                  in the Python repo — never hand-duplicate this list)
@@ -21,6 +24,8 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::process::exit;
+
+mod scitt;
 
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -1007,6 +1012,7 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
     "verify-trust-pack-threshold",
     "verify-relation",
     "verify-relation-statement",
+    "verify-scitt-statement-signature",
 ];
 
 // ---------------------------------------------------------------------------
@@ -2997,7 +3003,8 @@ fn main() {
     if args.len() < 2 {
         eprintln!(
             "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
-verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-report> ..."
+verify-trust-pack-threshold|verify-relation|verify-relation-statement|verify-scitt-statement-signature|\
+coverage-report> ..."
         );
         exit(2);
     }
@@ -3162,6 +3169,28 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     exit(1);
                 }
             }
+        }
+        // scitt-ccf/v1 (ADR 0009): `proofbundle.scitt_ccf.verify_statement_signature`. The status and
+        // the verdict are printed as Python returns them; the exit code is 0 for `confirmed`, 1 for
+        // `statement_signature_invalid` and 3 for a status that is no verdict about the signature.
+        "verify-scitt-statement-signature" => {
+            let path = args.get(2).unwrap_or_else(|| {
+                fatal("verify-scitt-statement-signature needs a statement file")
+            });
+            let data = read_file(path);
+            let keys: Vec<&str> = args[3..].iter().map(String::as_str).collect();
+            let (status, valid) = scitt::verify_statement_signature(&data, &keys);
+            let shown = match valid {
+                Some(true) => "true",
+                Some(false) => "false",
+                None => "none",
+            };
+            println!("{status} {shown}");
+            exit(match status {
+                scitt::CONFIRMED => 0,
+                scitt::INVALID => 1,
+                _ => 3,
+            });
         }
         "coverage-report" => {
             // Self-declared, single source of truth (see VERIFY_SUBCOMMANDS doc comment above) — the
