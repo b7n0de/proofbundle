@@ -1,0 +1,1116 @@
+{
+ "about": "Normative class per row of the policy-boundary matrix (owner order, round 3 design version 2). Judgement, kept apart from the measurement: each class names the sources and quotes the rule as it stands in the archived source revision (sources.json). The predicted local outcome is recorded apart, in the round 3 records.",
+ "classes": [
+  "explicit rejection required",
+  "mandatory input constraint violated",
+  "conditional processing requirement",
+  "permitted form, admission policy dependent",
+  "implementation/profile restriction",
+  "no applicable placement rule established in the named sources"
+ ],
+ "sources_file": "sources.json",
+ "rows": {
+  "r1/a01-label-99-text": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a02-label-99-other-text": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a03-label-99-bstr": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a04-label-99-int": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a05-text-label": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a06-negative-label": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a07-kid": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `kid` header parameter MUST be present when neither `x5t` nor `x5chain` is present in the protected header."
+    }
+   ],
+   "note": "x5chain is protected, so kid is not required, and no named source places kid"
+  },
+  "r1/a08-receipts-label": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9942 section 4.3",
+     "text": "When the receipts header parameter is present, the verifier MUST confirm that the associated verifiable data structure and verifiable data structure proofs match entries present in the registries established in this specification, including values added in subsequent registrations.."
+    },
+    {
+     "section": "RFC 9942 section 4.3",
+     "text": "Receipts MUST be tagged as COSE_Sign1."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "condition": "applies to a verifier that processes the receipts header parameter; the entry is not a tagged COSE_Sign1. Whether a Transparency Service registering a Signed Statement is such a verifier is not established in the named sources"
+  },
+  "r1/a09-x5chain-both-buckets": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected value governs"
+  },
+  "r1/a10-cwt-claims-unprotected": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9597 section 2",
+     "text": "The header parameter MUST only occur once in either the protected or unprotected header of a COSE structure."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "CWT Claims in both buckets; the unprotected copy names another issuer"
+  },
+  "r1/a11-two-labels": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a12-int-and-text-labels": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/a13-negative-after-positive": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/b01-width4": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/b02-width8": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/b03-indefinite1": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/b04-indefinite2": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/c01-width2": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/c02-width4": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/c03-width8": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/c04-indefinite1": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/c05-indefinite2": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/control": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r1/control-resubmitted": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r1/d01-width2": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/d02-width4": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/d03-width8": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/d04-indefinite1": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/d05-indefinite2": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "indefinite-length framing of a byte string of the transmitted message; RFC 9052 section 9 binds the Sig_structure, not the message, and no named source rules on it"
+  },
+  "r1/e01-two-labels-reversed": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/e02-text-label-first": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/e03-negative-first": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "A Transparency Service MAY accept a Signed Statement with content in its unprotected header, and MAY use values from that unprotected header during verification and registration policy evaluation."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "However, the unprotected header of a Signed Statement MUST be set to an empty map before the Signed Statement can be included in a Statement Sequence."
+    }
+   ],
+   "note": "a label with no placement rule in the named sources, in the unprotected bucket"
+  },
+  "r1/f01-second-signature": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "note": "a valid signature; no named source makes a signature unique"
+  },
+  "r1/f02-third-signature": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "note": "a valid signature; no named source makes a signature unique"
+  },
+  "r1/f03-high-s-twin": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "note": "(r, n - s) verifies under RFC 9052 section 4.4 as (r, s) does; no named source makes a signature unique"
+  },
+  "r2/control": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r2/g01-keys-descending": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "map key order encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g02-cwt-claims-keys-reversed": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "map key order encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g03-alg-1-byte-argument": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g04-alg-2-byte-argument": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g05-label-1-byte-argument": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g06-map-count-1-byte-argument": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g07-text-2-byte-length": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g08-x5chain-array-1-byte-count": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/g09-map-indefinite": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r2/h01-protected-duplicate-alg-equal": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Labels in each of the maps MUST be unique.  When processing messages, if a label appears multiple times, the message MUST be rejected as malformed."
+    },
+    {
+     "section": "RFC 9052 section 9",
+     "text": "Applications MUST NOT parse and process messages with the same label used twice as a key in a single map."
+    }
+   ]
+  },
+  "r2/h02-protected-duplicate-alg-conflicting": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Labels in each of the maps MUST be unique.  When processing messages, if a label appears multiple times, the message MUST be rejected as malformed."
+    },
+    {
+     "section": "RFC 9052 section 9",
+     "text": "Applications MUST NOT parse and process messages with the same label used twice as a key in a single map."
+    }
+   ]
+  },
+  "r2/h03-unprotected-duplicate-equal": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Labels in each of the maps MUST be unique.  When processing messages, if a label appears multiple times, the message MUST be rejected as malformed."
+    },
+    {
+     "section": "RFC 9052 section 9",
+     "text": "Applications MUST NOT parse and process messages with the same label used twice as a key in a single map."
+    }
+   ]
+  },
+  "r2/h04-unprotected-duplicate-conflicting": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Labels in each of the maps MUST be unique.  When processing messages, if a label appears multiple times, the message MUST be rejected as malformed."
+    },
+    {
+     "section": "RFC 9052 section 9",
+     "text": "Applications MUST NOT parse and process messages with the same label used twice as a key in a single map."
+    }
+   ]
+  },
+  "r2/h05-alg-both-buckets-equal": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter MUST be authenticated where the ability to do so exists."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected value governs"
+  },
+  "r2/h06-alg-both-buckets-conflicting": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter MUST be authenticated where the ability to do so exists."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected value governs"
+  },
+  "r2/h07-payload-hash-alg-both-buckets-conflicting": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "258 in the unprotected bucket"
+  },
+  "r2/h08-cwt-claims-both-buckets-equal": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9597 section 2",
+     "text": "The header parameter MUST only occur once in either the protected or unprotected header of a COSE structure."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "CWT Claims in both buckets, equal"
+  },
+  "r2/h09-x5chain-both-buckets-conflicting": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected value governs"
+  },
+  "r2/i01-crit-x5chain": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "When present, this the 'crit' header parameter MUST be placed in the protected header parameter bucket. The array MUST have at least one value in it."
+    }
+   ],
+   "note": "crit protected, not empty, every listed label present"
+  },
+  "r2/i02-crit-cwt-claims": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "When present, this the 'crit' header parameter MUST be placed in the protected header parameter bucket. The array MUST have at least one value in it."
+    }
+   ],
+   "note": "crit protected, not empty, every listed label present"
+  },
+  "r2/i03-crit-cwt-claims-and-x5chain": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "When present, this the 'crit' header parameter MUST be placed in the protected header parameter bucket. The array MUST have at least one value in it."
+    }
+   ],
+   "note": "crit protected, not empty, every listed label present"
+  },
+  "r2/i04-crit-unknown-int-present": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter is used to indicate which protected header parameters an application that is processing a message is required to understand."
+    }
+   ],
+   "condition": "a processor that does not understand a listed parameter must not accept the message; one that processes it may"
+  },
+  "r2/i05-crit-unknown-int-absent": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "If the 'crit' value list includes a label for which the header parameter is not in the protected header parameters bucket, this is a fatal error in processing the message."
+    }
+   ],
+   "note": "the source calls it a fatal error in processing"
+  },
+  "r2/i06-crit-unknown-text-present": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter is used to indicate which protected header parameters an application that is processing a message is required to understand."
+    }
+   ],
+   "condition": "a processor that does not understand a listed parameter must not accept the message; one that processes it may"
+  },
+  "r2/i07-crit-registered-not-listed": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter is used to indicate which protected header parameters an application that is processing a message is required to understand."
+    }
+   ],
+   "condition": "a processor that does not understand a listed parameter must not accept the message; one that processes it may"
+  },
+  "r2/i08-crit-empty": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "The array MUST have at least one value in it."
+    }
+   ]
+  },
+  "r2/j01-after-configuration-change": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r2/j02-after-restart": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r3/b259-conflicting": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `259` (content type of the preimage of the payload) MAY be present in the protected header and MUST NOT be present in the unprotected header."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "259 in both buckets, the unprotected value conflicting"
+  },
+  "r3/c-crit33": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "When present, this the 'crit' header parameter MUST be placed in the protected header parameter bucket. The array MUST have at least one value in it."
+    }
+   ],
+   "note": "crit protected, not empty, every listed label present"
+  },
+  "r3/c-g09-map-indefinite": {
+   "normative_class": "no applicable placement rule established in the named sources",
+   "sources": [
+    {
+     "section": "RFC 9052 section 9",
+     "text": "The restriction applies to the encoding of the Sig_structure, the Enc_structure, and the MAC_structure. Encoding MUST be done using definite lengths and the value's length MUST be the minimum possible length."
+    }
+   ],
+   "note": "an encoding inside the protected bytes, which are signed as they stand; RFC 9052 section 9 binds the Sig_structure, which carries them as one byte string, and no named source rules on their inner encoding"
+  },
+  "r3/c-h01-protected-duplicate-alg-equal": {
+   "normative_class": "explicit rejection required",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Labels in each of the maps MUST be unique.  When processing messages, if a label appears multiple times, the message MUST be rejected as malformed."
+    },
+    {
+     "section": "RFC 9052 section 9",
+     "text": "Applications MUST NOT parse and process messages with the same label used twice as a key in a single map."
+    }
+   ]
+  },
+  "r3/c-signature-invalid": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "note": "the Transparency Service MUST verify the signature before registration, and this one does not verify; the sources state the check, not the word reject"
+  },
+  "r3/control": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r3/m-u15": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The protected header of a Signed Statement and a Receipt MUST include the `CWT Claims` header parameter as specified in {{Section 2 of -CWT_CLAIMS_COSE}}."
+    },
+    {
+     "section": "RFC 9597 section 2",
+     "text": "It is RECOMMENDED that the CWT Claims header parameter is used only in a protected header to avoid the contents being malleable."
+    }
+   ],
+   "note": "CWT Claims only in the unprotected bucket"
+  },
+  "r3/m-u2": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "When present, this the 'crit' header parameter MUST be placed in the protected header parameter bucket."
+    }
+   ],
+   "note": "crit only in the unprotected bucket; 33 stays protected"
+  },
+  "r3/m-u258": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "condition": "RFC 9995 applies to a hash envelope; without 258 protected the statement fails RFC 9995's own test for one, and a processor that reads it as a plain Signed Statement applies no RFC 9995 rule"
+  },
+  "r3/m-u259": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `259` (content type of the preimage of the payload) MAY be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "258 stays protected, so the statement is a hash envelope"
+  },
+  "r3/r-a10-cwt-claims-unprotected": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9597 section 2",
+     "text": "The header parameter MUST only occur once in either the protected or unprotected header of a COSE structure."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "CWT Claims in both buckets; the unprotected copy names another issuer"
+  },
+  "r3/r-h06-alg-both-buckets-conflicting": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9052 section 3.1",
+     "text": "This header parameter MUST be authenticated where the ability to do so exists."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected value governs"
+  },
+  "r3/r-h07-payload-hash-alg-both-buckets-conflicting": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "258 in the unprotected bucket"
+  },
+  "r3/r-h08-cwt-claims-both-buckets-equal": {
+   "normative_class": "mandatory input constraint violated",
+   "sources": [
+    {
+     "section": "RFC 9597 section 2",
+     "text": "The header parameter MUST only occur once in either the protected or unprotected header of a COSE structure."
+    },
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    }
+   ],
+   "note": "CWT Claims in both buckets, equal"
+  },
+  "r3/x-a-only": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r3/x-b-only": {
+   "normative_class": "permitted form, admission policy dependent",
+   "sources": [
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST also check the Signed Statement includes the required protected headers."
+    },
+    {
+     "section": "RFC 9943 section 5.1.1.1",
+     "text": "The protected header of the COSE_Sign1 Envelope MUST include either the Issuer's certificate as `x5t` or the chain including the Issuer's certificate as `x5chain`, as defined in {{RFC9360}}."
+    },
+    {
+     "section": "RFC 9943 section 6",
+     "text": "The `CWT Claims` value MUST include the `Issuer Claim` (Claim label 1) and the `Subject Claim` (Claim label 2) {{IANA.cwt}}."
+    },
+    {
+     "section": "RFC 9995 section 4",
+     "text": "Label `258` (payload hash alg) MUST be present in the protected header and MUST NOT be present in the unprotected header."
+    }
+   ],
+   "note": "every required protected header is present; admission depends on the service's registration policy"
+  },
+  "r3/x-pa-ub-sig-a": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected x5chain governs, and the signature must verify under its end-entity key"
+  },
+  "r3/x-pa-ub-sig-b": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected x5chain governs, and the signature must verify under its end-entity key"
+  },
+  "r3/x-pb-ua-sig-a": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected x5chain governs, and the signature must verify under its end-entity key"
+  },
+  "r3/x-pb-ua-sig-b": {
+   "normative_class": "conditional processing requirement",
+   "sources": [
+    {
+     "section": "RFC 9052 section 3",
+     "text": "Applications SHOULD verify that the same label does not occur in both the protected and unprotected header parameters.  If the message is not rejected as malformed, attributes MUST be obtained from the protected bucket, and only if not found  are attributes obtained from the unprotected bucket."
+    },
+    {
+     "section": "RFC 9360 section 2",
+     "text": "The end-entity certificate MUST be integrity protected by COSE."
+    },
+    {
+     "section": "RFC 9943 section 6.3",
+     "text": "The Transparency Service MUST perform signature verification per {{Section 4.4 of -COSE}} and MUST verify the signature of the Signed Statement with the signature algorithm and verification key of the Issuer per {{RFC9360}}."
+    }
+   ],
+   "condition": "if the message is not rejected as malformed, the protected x5chain governs, and the signature must verify under its end-entity key"
+  }
+ }
+}

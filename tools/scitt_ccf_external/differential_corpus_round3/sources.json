@@ -1,0 +1,260 @@
+{
+ "about": "The revisions of the sources cited in normative.json, archived on 2026-09-27 by git clone of the WG repositories. The files are not committed; each is named by repository, tag or commit, path, size and SHA-256. The published RFC texts were NOT RETRIEVED (www.rfc-editor.org and www.ietf.org not reachable from the measuring environment).",
+ "sources": [
+  {
+   "name": "RFC 9052",
+   "wg_source": "https://github.com/cose-wg/cose-rfc8152bis",
+   "draft_name": "draft-ietf-cose-rfc8152bis-struct",
+   "tag": "NOT FOUND: the repository has no draft-ietf-cose-rfc8152bis-struct-NN tag (its only tag is 'schaad-01')",
+   "commit": "146df4015e97b916250c1ba052aecc8cffb0eeb0",
+   "file": "rfc9052/draft-ietf-cose-rfc8152bis-struct.xml",
+   "bytes": 172919,
+   "sha256": "7484e39b0a9a7c81e0e1723c7ac8139258616dc6b82ecf023c2a2bad4adc459c",
+   "retrieved_utc": "2026-09-27T20:07:38Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9052 section 1.4",
+     "heading_in_source": "<section anchor=\"cbor-grammar\"> <name>CBOR Grammar</name>",
+     "lines": "154-216",
+     "mapping_note": "UNCERTAIN (heading). The source has no section numbers; 1.4 is computed as the fourth numbered subsection of 'Introduction'. Its heading in the source is 'CBOR Grammar'; the title used in the published RFC could not be checked and may differ (RFC Editor retitling). Content is the CDDL grammar conventions subsection. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9052 section 3",
+     "heading_in_source": "<section anchor=\"header-parameters\"> <name>Header Parameters</name>",
+     "lines": "425-606",
+     "mapping_note": "Computed draft number 3, heading 'Header Parameters'. Range includes subsection 3.1. Not checked against the published RFC. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9052 section 3.1",
+     "heading_in_source": "<section anchor=\"cose-headers\"> <name>Common COSE Header Parameters</name>",
+     "lines": "476-605",
+     "mapping_note": "Computed draft number 3.1, heading 'Common COSE Header Parameters'. Corroborated: the RFC 9596 source (archived here, rfc9596/, section 2) cites 'Section 3.1 of RFC9052' for the content type header parameter, which this subsection defines. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9052 section 4.4",
+     "heading_in_source": "<section anchor=\"Sig_structure\"> <name>Signing and Verification Process</name>",
+     "lines": "757-827",
+     "mapping_note": "Computed draft number 4.4, heading 'Signing and Verification Process' (anchor Sig_structure). Corroborated: the RFC 9995 source (line 172) cites 'Section 4.4 of RFC9052' for the to-be-signed structure, and the RFC 9943 source (line 800, alias -COSE = RFC9052) cites it for signature verification. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9052 section 9",
+     "heading_in_source": "<section anchor=\"CBOR-Canonical\"> <name>CBOR Encoding Restrictions</name>",
+     "lines": "1598-1623",
+     "mapping_note": "Computed draft number 9, heading 'CBOR Encoding Restrictions'. Not checked against the published RFC. Revision caveat above applies."
+    }
+   ],
+   "notes": "No version tag exists. The archived file is the last content state of the source on the master branch: commit 146df4015e97b916250c1ba052aecc8cffb0eeb0 (2021-01-30, merge of pull request #29) is the last mainline commit that changed the file; the file blob b2b22b3c84db86fc788feb539f4b6326a842be80 is unchanged through master HEAD 3fa9e3c34a3419cd40586a389f2a5d55bc8f8f1e (checked with git ls-remote at 2026-09-27T20:14:19Z). The file's docName attribute reads 'draft-ietf-cose-rfc8152bis-struct-13'; the repository did not record later version numbers, so which submitted version this file equals, and whether it is the last draft before RFC 9052, is UNCERTAIN (the datatracker, which would settle it, is not reachable)."
+  },
+  {
+   "name": "RFC 9597",
+   "wg_source": "https://github.com/tplooker/draft-ietf-cose-cwt-claims-in-headers",
+   "draft_name": "draft-ietf-cose-cwt-claims-in-headers",
+   "tag": "draft-ietf-cose-cwt-claims-in-headers-10",
+   "commit": "bed79952c6d43fd9bec21f8a3cc2cd323393750b",
+   "file": "rfc9597/draft-ietf-cose-cwt-claims-in-headers.md",
+   "bytes": 9304,
+   "sha256": "d06a013438a5e71b74aaf18add1ad897e88616a88ad53b9a09e0ceecaba75500",
+   "retrieved_utc": "2026-09-27T20:08:14Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9597 section 2",
+     "heading_in_source": "# Representation",
+     "lines": "76-99",
+     "mapping_note": "The mmark source has no section numbers; computed draft number 2, heading '# Representation'. Corroborated: the RFC 9943 source (line 692, alias -CWT_CLAIMS_COSE = RFC9597) cites 'Section 2' of RFC 9597 for the CWT Claims header parameter, which this section defines. Note: the source still says 'TBD (requested assignment 15)' for the label."
+    }
+   ],
+   "notes": "https://github.com/cose-wg/draft-ietf-cose-cwt-claims-in-headers does not exist or is not public (git clone at 2026-09-27T20:07:38Z failed: authentication requested). Also probed without success: cose-wg/cwt-claims-in-headers, cose-wg/draft-ietf-cose-cwt-claims-in-header, cose-wg/cose-cwt-claims-in-headers, tplooker/cwt-claims-in-headers. Found: the repository of the first author, tplooker/draft-ietf-cose-cwt-claims-in-headers (its README links the datatracker page of this draft; the older name tplooker/draft-looker-cose-cwt-claims-in-headers resolves to the same refs). That the account belongs to the author, and that the datatracker lists this repository, is not verified from here. A fork, selfissued/draft-ietf-cose-cwt-claims-in-headers, has no tags and was not used. Tag draft-ietf-cose-cwt-claims-in-headers-10 is a lightweight tag, is the highest version tag, and equals the head of main (no later commits); that -10 is the last version before the RFC is not verified against the datatracker."
+  },
+  {
+   "name": "RFC 9943",
+   "wg_source": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-architecture",
+   "draft_name": "draft-ietf-scitt-architecture",
+   "tag": "NOT FOUND: the highest version tag is draft-ietf-scitt-architecture-11 (commit 4ad18b4a86b4741b569989ebca94bc815dbd6055, 2025-03-03); later versions are not tagged",
+   "commit": "ba7d23d40557f0206735592036532414139d9a57",
+   "file": "rfc9943/draft-ietf-scitt-architecture.md",
+   "bytes": 66486,
+   "sha256": "67c439c0b738546c0ab43f5ba062840356cb6d97d6780eb32d36b15a5e2ca0dd",
+   "retrieved_utc": "2026-09-27T20:07:39Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9943 section 5.1.1.1",
+     "heading_in_source": "#### Mandatory Registration Checks",
+     "lines": "586-602",
+     "mapping_note": "Computed draft number 5.1.1.1, heading '#### Mandatory Registration Checks'. Corroborated for the surrounding numbering: draft-ietf-scitt-receipts-ccf-profile-05 (line 389, alias scitt-architecture = RFC9943) cites 'Section 5.1.1.2 of RFC9943' for registration auditability, which is the next sibling here; draft-ietf-scitt-scrapi-11 (line 166) cites 'Section 5.1.1' for registration policies. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9943 section 6",
+     "heading_in_source": "# Signed Statements {#signed-statements}",
+     "lines": "647-821",
+     "mapping_note": "Computed draft number 6, heading '# Signed Statements {#signed-statements}'. Range includes 6.1, 6.2 and 6.3. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9943 section 6.1",
+     "heading_in_source": "## Signed Statement Examples",
+     "lines": "698-739",
+     "mapping_note": "Computed draft number 6.1, heading '## Signed Statement Examples'. Revision caveat above applies."
+    },
+    {
+     "cited": "RFC 9943 section 6.3",
+     "heading_in_source": "## Registration of Signed Statements",
+     "lines": "794-821",
+     "mapping_note": "Computed draft number 6.3, heading '## Registration of Signed Statements'. Corroborated: draft-ietf-scitt-scrapi-11 (line 157) cites 'Section 6.3' of the architecture for registration of Signed Statements. Revision caveat above applies."
+    }
+   ],
+   "notes": "The repository's tags stop at draft-ietf-scitt-architecture-11 (2025-03-03), while commits continue to 2025-10-17, so later versions were submitted without tags. The archived file is the head of main, commit ba7d23d40557f0206735592036532414139d9a57 (2025-10-17, the last commit on main and the last that changed the file; confirmed with git ls-remote at 2026-09-27T20:14:20Z). Its docname is 'draft-ietf-scitt-architecture-latest'. Which submitted version this file equals, and whether it matches the last draft before RFC 9943, is UNCERTAIN (the datatracker is not reachable). The file at tag -11 was not used because later commits changed the text."
+  },
+  {
+   "name": "RFC 9360",
+   "wg_source": "https://github.com/cose-wg/X509",
+   "draft_name": "draft-ietf-cose-x509",
+   "tag": "NOT FOUND: the repository has no draft-ietf-cose-x509-NN tag (tags: IETF-104, draft-schaad-cose-x509-03, draft-schaad-cose-x509-07)",
+   "commit": "4228b190f3682cf21e45ffb8037158ed97d1f743",
+   "file": "rfc9360/draft-ietf-cose-x509.md",
+   "bytes": 23972,
+   "sha256": "10dd06b1960d081b11247ab45c0d029ba0f477d000380ada8b3471c746150b3d",
+   "retrieved_utc": "2026-09-27T20:07:40Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9360 section 2",
+     "heading_in_source": "# X.509 COSE Header Parameters",
+     "lines": "88-311",
+     "mapping_note": "Computed draft number 2, heading '# X.509 COSE Header Parameters'. Not independently corroborated and not checked against the published RFC. Revision caveat above applies."
+    }
+   ],
+   "notes": "No draft-ietf version tag exists. The archived file is the head of master, commit 4228b190f3682cf21e45ffb8037158ed97d1f743 (2022-05-22, 'Fix issue 46 using the suggested text'), the last commit in the repository (confirmed with git ls-remote at 2026-09-27T20:14:21Z). Its docname reads 'draft-ietf-cose-x509-08', unchanged since the move to markdown on 2022-01-22. Whether a later version was submitted from outside this repository, and which version this file equals, is UNCERTAIN (the datatracker is not reachable). The file contains HTML comments with author notes that would not appear in a rendered draft."
+  },
+  {
+   "name": "RFC 9995",
+   "wg_source": "https://github.com/cose-wg/draft-ietf-cose-hash-envelope",
+   "draft_name": "draft-ietf-cose-hash-envelope",
+   "tag": "draft-ietf-cose-hash-envelope-10 (annotated tag object 6ff994220b9d349642fbf50e46894abaa6be31f9)",
+   "commit": "5a07f912582f45dc533f12d9113d710fd78c2342",
+   "file": "rfc9995/draft-ietf-cose-hash-envelope.md",
+   "bytes": 14413,
+   "sha256": "66c79685d1daf910a7c67b15b1f646ed06e916183c1e732a7441430391645dbf",
+   "retrieved_utc": "2026-09-27T20:07:41Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9995 section 4",
+     "heading_in_source": "# Hash Envelope CDDL",
+     "lines": "96-174",
+     "mapping_note": "UNCERTAIN. Computed draft number 4, heading '# Hash Envelope CDDL' (range includes 4.1 'Envelope Extended Diagnostic Notation'). No cross-reference was found that confirms the RFC keeps this numbering, and the published RFC could not be checked; if the RFC Editor restructured the front sections (1 Introduction, 2 Terminology, 3 Header Parameters), section 4 of the RFC could be a different section."
+    }
+   ],
+   "notes": "Highest version tag; it equals the head of main (no later commits). Tags -02, -07, -08 and -09 are missing, so tagging was not complete; that -10 is the last version before the RFC is not verified against the datatracker, but no later source change exists in the repository."
+  },
+  {
+   "name": "RFC 9942",
+   "wg_source": "https://github.com/cose-wg/draft-ietf-cose-merkle-tree-proofs",
+   "draft_name": "draft-ietf-cose-merkle-tree-proofs",
+   "tag": "draft-ietf-cose-merkle-tree-proofs-18 (annotated tag object 5481b86a95ac36305aab474d4ecd102087243602)",
+   "commit": "e08aa7beab9dfb6e928186ecaca998741aa5438c",
+   "file": "rfc9942/draft-ietf-cose-merkle-tree-proofs.md",
+   "bytes": 31994,
+   "sha256": "3ce90752250d3ca35be00095463bb2a8c0357b3d023a63836ecbdd159ce30302",
+   "retrieved_utc": "2026-09-27T20:07:42Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9942 section 4.3",
+     "heading_in_source": "## Usage {#receipt-spec}",
+     "lines": "188-355",
+     "mapping_note": "Computed draft number 4.3, heading '## Usage {#receipt-spec}'. Corroborated: in auth48/rfc9942.xml at the head of main, df5113e94e6b6788de0bfb112db63726516b88ab (file last changed in commit 7bc703bf1098a6e52f40062fa6d95f28d14850b3; RFC Editor copy with author edits, not the published RFC) the section with anchor receipt-spec is also numbered 4.3 and named 'Usage'."
+    }
+   ],
+   "notes": "Highest version tag (2025-12-02). The next commits on main start on 2026-04-30 and are AUTH48 work (an auth48/ directory with the RFC Editor's rfc9942.xml plus author edits, added 2026-05-06), which indicates -18 was the last draft; not verified against the datatracker. The AUTH48 XML is not the published RFC and was not archived; it was read only to cross-check numbering."
+  },
+  {
+   "name": "RFC 9596",
+   "wg_source": "https://github.com/selfissued/draft-ietf-cose-typ-header-parameter",
+   "draft_name": "draft-ietf-cose-typ-header-parameter",
+   "tag": "draft-ietf-cose-typ-header-parameter-05",
+   "commit": "d508ecf2db4a8a6b25e53395640c3f803507f63a",
+   "file": "rfc9596/draft-ietf-cose-typ-header-parameter.xml",
+   "bytes": 10857,
+   "sha256": "c1eac88d885145ad79d9db63929f10f9feb4cf2b3a0bfde540871ee94cd8c263",
+   "retrieved_utc": "2026-09-27T20:08:15Z",
+   "published_rfc_text": "NOT RETRIEVED: rfc-editor.org and ietf.org not reachable from this environment",
+   "sections": [
+    {
+     "cited": "RFC 9596 section 2",
+     "heading_in_source": "<section anchor=\"typ\" title='COSE \"typ\" (type) header parameter'>",
+     "lines": "100-140",
+     "mapping_note": "Computed draft number 2, heading given by the title attribute 'COSE \"typ\" (type) header parameter' (anchor typ). Not independently corroborated and not checked against the published RFC."
+    }
+   ],
+   "notes": "https://github.com/cose-wg/draft-ietf-cose-typ-header-parameter does not exist or is not public (git clone at 2026-09-27T20:07:43Z failed: authentication requested). Also probed without success: cose-wg/typ-header-parameter, cose-wg/draft-ietf-cose-typ-header-parameters, cose-wg/cose-typ-header-parameter, OR13/draft-ietf-cose-typ-header-parameter. Found: the repository of the first author, selfissued/draft-ietf-cose-typ-header-parameter (its README calls it the working area for the COSE working group draft and links the datatracker page; the older name selfissued/draft-jones-cose-typ-header-parameter resolves to the same refs). That the account belongs to the author, and that the datatracker lists this repository, is not verified from here. OR13/draft-jones-cose-typ-header-parameter (no tags, individual-draft file) was not used. Tag -05 is a lightweight tag, is the highest version tag and equals the head of main; that -05 is the last version before the RFC is not verified against the datatracker."
+  },
+  {
+   "name": "draft-ietf-scitt-receipts-ccf-profile-05",
+   "wg_source": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
+   "draft_name": "draft-ietf-scitt-receipts-ccf-profile-05",
+   "tag": "draft-ietf-scitt-receipts-ccf-profile-05 (annotated tag object 047eed1fa73a74e61097a182c11b5ba71f1746d4)",
+   "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
+   "file": "ccf-profile-05/draft-ietf-scitt-receipts-ccf-profile.md",
+   "bytes": 22426,
+   "sha256": "7efdb7aa934ab0cfc1093e99932f7d2efd39bb66f5bf43594806d7b282ca0077",
+   "retrieved_utc": "2026-09-27T20:07:43Z",
+   "published_rfc_text": "n/a",
+   "sections": [
+    {
+     "cited": "draft-ietf-scitt-receipts-ccf-profile-05 section 2.2",
+     "heading_in_source": "## Transaction Components {#transaction-components}",
+     "lines": "140-173",
+     "mapping_note": "Computed draft number 2.2, heading '## Transaction Components {#transaction-components}'."
+    },
+    {
+     "cited": "draft-ietf-scitt-receipts-ccf-profile-05 section 3.1",
+     "heading_in_source": "## CCF Inclusion Proof Signature {#ccf-inclusion-proof-signature}",
+     "lines": "197-209",
+     "mapping_note": "Computed draft number 3.1, heading '## CCF Inclusion Proof Signature {#ccf-inclusion-proof-signature}'."
+    },
+    {
+     "cited": "draft-ietf-scitt-receipts-ccf-profile-05 section 5",
+     "heading_in_source": "# Usage in COSE Receipts {#receipt-usage}",
+     "lines": "316-361",
+     "mapping_note": "Computed draft number 5, heading '# Usage in COSE Receipts {#receipt-usage}'."
+    }
+   ],
+   "notes": "Confirmed: the tag peels to commit e729c2ec037ac763d0cf422bb58a219f8d6a02f4, in the clone and with git ls-remote at 2026-09-27T20:14:23Z. The submitted -05 text on the datatracker was not compared (not reachable)."
+  },
+  {
+   "name": "draft-ietf-scitt-scrapi-11",
+   "wg_source": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-scrapi",
+   "draft_name": "draft-ietf-scitt-scrapi-11",
+   "tag": "draft-ietf-scitt-scrapi-11 (annotated tag object cb08788412b2d6c55b8e03cc16edb85b06b58e5e)",
+   "commit": "eaa562436f68326488105470166b26df7037dd93",
+   "file": "scrapi-11/draft-ietf-scitt-scrapi.md",
+   "bytes": 36419,
+   "sha256": "fe1799fe6048b4b665ef3746ebe7b481d8bff8d6cda5e5a226dfde040a96eadc",
+   "retrieved_utc": "2026-09-27T20:07:44Z",
+   "published_rfc_text": "n/a",
+   "sections": [
+    {
+     "cited": "draft-ietf-scitt-scrapi-11 section 2.3",
+     "heading_in_source": "## Register Signed Statement",
+     "lines": "359-560",
+     "mapping_note": "Computed draft number 2.3, heading '## Register Signed Statement'. Range includes 2.3.1 to 2.3.4."
+    },
+    {
+     "cited": "draft-ietf-scitt-scrapi-11 section 2.3.3",
+     "heading_in_source": "### Status 400 - Invalid Client Request",
+     "lines": "470-541",
+     "mapping_note": "Computed draft number 2.3.3, heading '### Status 400 - Invalid Client Request'."
+    },
+    {
+     "cited": "draft-ietf-scitt-scrapi-11 section 4.4.2.3",
+     "heading_in_source": "#### Use of Unauthenticated HTTP Metadata",
+     "lines": "769-780",
+     "mapping_note": "Computed draft number 4.4.2.3, heading '#### Use of Unauthenticated HTTP Metadata' (4 Security Considerations > 4.4 Threat Model > 4.4.2 Out of Scope > third subsection)."
+    }
+   ],
+   "notes": "The tag peels to commit eaa562436f68326488105470166b26df7037dd93, in the clone and with git ls-remote at 2026-09-27T20:14:24Z. The submitted -11 text on the datatracker was not compared (not reachable)."
+  }
+ ]
+}
