@@ -38,7 +38,8 @@ you publish out of band (repo, ORCID, model card) so a reader can pin it.
 
     export PROOFBUNDLE_EMIT=1              # master opt-in — nothing is emitted without it
     export PROOFBUNDLE_KEY=./signer.key    # omit for an ephemeral key
-    # optional: PROOFBUNDLE_OUT=<file-or-dir>, PROOFBUNDLE_METRIC, PROOFBUNDLE_COMPARATOR, PROOFBUNDLE_THRESHOLD
+    export PROOFBUNDLE_THRESHOLD=0.8       # required, no default: without it no receipt is written
+    # optional: PROOFBUNDLE_OUT=<file-or-dir>, PROOFBUNDLE_METRIC, PROOFBUNDLE_COMPARATOR (default ">=")
     inspect eval my_task.py --model <model>
     # → your usual eval log, plus proofbundle_receipt_<eval_id>.json
 
