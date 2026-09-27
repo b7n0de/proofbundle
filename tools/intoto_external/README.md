@@ -136,6 +136,56 @@ F5, cosign verify-attestation needs the subject to be the image.
 - of the three subject profiles only release-gate can name an image; receipt and public-model are checked with `verify-blob-attestation` against the subject's own bytes (`receipt_binder.json`, `public_model.txt`)
 - judgement: none against the export; it is what release-gate is for
 
+## RE-MEASURED ON THE FIX BRANCH (Z239)
+
+Measured 2026-09-27 on this branch with `claude/intoto-fixes` at
+`55450b691e50360899a98513f54548252b8292d2` merged in. The tools measure the tree they stand in
+(`make_inputs.py` sets `PYTHONPATH` to its own `src`), so the fix is merged here, as main 8a6594b
+was for the first re-measurement. Results in `results_fixes/results.json`, inputs in `inputs_fixes/`,
+written by:
+
+```
+PYTHONPATH=src python3 tools/intoto_external/run.py --go-probe /tmp/z225probe --py /tmp/z225py/bin/python \
+    --bin DIR --out tools/intoto_external/results_fixes --inputs tools/intoto_external/inputs_fixes
+```
+
+The foreign tools are the versions of SOURCES above:
+- cosign, guacone and guacgql: sha256 equal to their release checksum files and to the digests above
+- the in-toto-attestation wheel: sha256 `1f44d3f3bded1ed551e260c5e9f834ee05de03f1d2f360bada5a172c11d748ff`
+- securesystemslib 1.5.1, protobuf 7.36.2, cryptography 50.0.1
+- the Go probe: built with go1.25.0
+- crane and registry v0.22.1: built by the go1.26.8 toolchain that `go install` switched to
+
+| before, at 13d8faa | after, at 55450b6 |
+|---|---|
+| no export carried a keyid | every export and every control carries `SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k`, the keyid go-securesystemslib derives |
+| Python DSSE: 1 of 11 verified (the keyid control) | 11 of 11 verified |
+| GUAC: every cell stopped at "failed to find key from key providers" [F3] | GUAC verifies every signature and stops at "no document parser registered for type: ITE6" [F4]; the SLSA control is ingested as before (1 HasSLSA, 2 artifacts, 2 IsOccurrence) |
+| strict parses and cosign: as in RESULTS | unchanged, F1, F2 and F5 as in RESULTS |
+
+Both runs have eleven rows and the GUAC control. The keyid control is still built, and it now
+equals the default. The strict parse of the keyid control is refused for F1
+like every export.
+
+| cell | keyid | Go DSSE | Go Statement, strict | Python DSSE | Python Statement, strict | cosign verify-attestation | cosign verify-blob-attestation | GUAC |
+|---|---|---|---|---|---|---|---|---|
+| eval-result.receipt | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+| eval-result.public-model | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+| eval-result.release-gate | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+| test-result.receipt | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+| svr.receipt | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+| control.legacy.eval-result.receipt | yes | yes | yes | yes | yes | no | yes | not ingested, no ITE6 parser [F4] |
+| control.legacy.eval-result.public-model | yes | yes | yes | yes | yes | no | yes | not ingested, no ITE6 parser [F4] |
+| control.legacy.eval-result.release-gate | yes | yes | yes | yes | yes | yes | yes | not ingested, no ITE6 parser [F4] |
+| control.legacy.test-result.receipt | yes | yes | yes | yes | yes | no | no | not ingested, no ITE6 parser [F4] |
+| control.legacy.svr.receipt | yes | yes | yes | yes | yes | no | yes | not ingested, no ITE6 parser [F4] |
+| control.keyid.eval-result.receipt | yes | yes | no | yes | no | no | no | not ingested, no ITE6 parser [F4] |
+
+Status of the findings after Z239:
+- F3: fixed, measured here with securesystemslib and GUAC.
+- F1, F2, F4, F5: unchanged by design. `docs/IN_TOTO_PROFILE.md` on the fix branch records each as
+  what a tool does with a conforming statement.
+
 ## FILES
 
 | file | what |

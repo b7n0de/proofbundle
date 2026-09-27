@@ -1,0 +1,31 @@
+{
+  "made_by": "tools/intoto_external/make_inputs.py",
+  "public_key_b64": "mynxKHubLIYkMqPv3D6NItw/bK/32htXDU3rBnr6p6g=",
+  "subjects": {
+    "receipt": "73ff9ae4bd6d6ecfd90b775f31441835a852b9e9ca973834fc666ba0d85bd75d",
+    "public-model": "b2ef35d2073ddff6c2711fb1b86150f93aaa2aa57a41c3a1c34df0898359a53d",
+    "release-gate": "92612334558cd5b6eb82d03e5d564eefaff6ae8fcfc8d068507cf88874f6fbcb"
+  },
+  "keyid_of_the_keyid_control": "SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k",
+  "attestations": {
+    "eval-result.receipt": "eval-result.receipt.dsse.json",
+    "eval-result.public-model": "eval-result.public-model.dsse.json",
+    "eval-result.release-gate": "eval-result.release-gate.dsse.json",
+    "test-result.receipt": "test-result.receipt.dsse.json",
+    "svr.receipt": "svr.receipt.dsse.json"
+  },
+  "controls": {
+    "legacy.eval-result.receipt": "control.legacy.eval-result.receipt.dsse.json",
+    "legacy.eval-result.public-model": "control.legacy.eval-result.public-model.dsse.json",
+    "legacy.eval-result.release-gate": "control.legacy.eval-result.release-gate.dsse.json",
+    "legacy.test-result.receipt": "control.legacy.test-result.receipt.dsse.json",
+    "legacy.svr.receipt": "control.legacy.svr.receipt.dsse.json",
+    "keyid.eval-result.receipt": "control.keyid.eval-result.receipt.dsse.json"
+  },
+  "not_applicable": {
+    "test-result.public-model": "export_intoto_dsse takes no subject profile; its subject is the receipt binder",
+    "test-result.release-gate": "export_intoto_dsse takes no subject profile; its subject is the receipt binder",
+    "svr.public-model": "export_svr_dsse takes no subject profile; its subject is the receipt binder",
+    "svr.release-gate": "export_svr_dsse takes no subject profile; its subject is the receipt binder"
+  }
+}
