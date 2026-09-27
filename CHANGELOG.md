@@ -379,18 +379,35 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   make the end `\Z`, so `^[0-9]+$(?!x)`, which read `$` rightly, is an unfolded site now. Of the tree's 19
   lookaround texts in 51 places, 45 read as none before and 29 now; one call becomes an unfolded site,
   the requirement-line pin the version gate cannot compare, listed with its reason (it matches with any
-  of 4856 tails tried), and the tree still reads no finding. A context fuzz of 6000 draws over 22
-  neighbourhoods leaves 34 whole-value patterns silent on 64c6a9fc under Python 3.10 (30 under 3.12) and
-  none now; eight more seeds of 20000 draws each, none.
+  of 4856 tails tried), and the tree still reads no finding. Two siblings of the class were found while
+  this was checked, both older than this change and neither in the tree. An item matched zero times or
+  more was off the path by its quantifier alone, whatever it held, while its neighbours can force it:
+  `\A(?:\d$)?\b\n`, `\A(?:\d$)?(?<=\d)\n` and `\A(\d$)?\n(?(1)|[^\s\S])` each match what `\A\d\n\Z` matches
+  and passed, read as `\A` with no end. A group holding an anchor leaves its branch undecided at that
+  anchor's side now, so `(?:\A\d+){0,1}\Z` and `(?:\A\d+)*\Z`, which two cases pinned as judging none, are
+  unfolded sites too. And a lookaround inside one of the other direction was read on the path inside it,
+  so a lookahead that ends a lookbehind counted as standing at the end: `\A\d*(?<=(?!\d[\s\S]))\d` and
+  `\d(?=(?<![\s\S]\d))\d*\Z` each match what `\A\d+\Z` matches and passed; no place inside such a
+  lookaround is an end or a start of the match now. A context fuzz of 6000 draws over 23 neighbourhoods
+  (27 from Python 3.11 on) leaves 39 whole-value patterns silent on 64c6a9fc under Python 3.10 (42 under
+  3.12) and none now; seeds 1 to 8 with 20000 draws each, none.
   The same lens measured work no budget charged: the covering check of a negative lookaround held the
   characters a negated class leaves out one by one, so 200 literals beside such a class took about 30 s,
   1000 took 176.5 s, and two classes 239 MB; it holds intervals now, charged before each pass, and the
   inputs take under 0.2 s and 40 MB with their readings. Its sibling: compiling a class for the reader
   was charged one step whatever the class covered, and twenty calls with classes over the Basic
   Multilingual Plane took 37.4 s; `re` visits every code point of such a range, and that is charged
-  before it compiles now, so each such call is an unfolded site at once. The leading inline flags were
-  cut from the text once per flag group; they are read from a position now (490,000 characters of
-  `(?i)` in one call: 2.9 s before, 1.7 s now, linear; timings at a load average near 40). A class
+  before it compiles now, so each such call is an unfolded site at once. The neighbourhood reader, in the
+  first form of this fix, scanned the run of a lookaround once per lookaround and looked at the items
+  before a lookahead once per run, charged for neither: a run of 1900 negative lookaheads written twenty
+  times in one module took 46.9 s, and 700 alternatives each ending in a lookahead behind 5000 items,
+  twenty times, 73.6 s; the runs of a sequence are found in one pass and every item looked at is charged
+  now (5.1 s and 2.7 s, load near 48). A repetition bound of 5000 digits raised ValueError out of the
+  sweep, past Python's limit on integer text (on 64c6a9fc too); it is an unfolded site now. The leading
+  inline flags were cut from the text once per flag group; they are read from a position now (490,000
+  characters of `(?i)` in one call: 2.9 s before, 1.7 s now, linear; timings at a load average near 40),
+  so the one charge of a pattern's length bounds that step, as the charge of each compiled class bounds
+  `_randzeichen`. A class
   attribute and a name in the class body shared one key, `("class", id, name)`, with different
   bindings: the module-wide fold memo of 64c6a9fc gave the call in the class body of
   `P = r"\A\d+\Z"`, `class K: A = re.compile(P); P = r"\A[0-9]+\Z"`, `B = re.compile(K.P)` the

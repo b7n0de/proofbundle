@@ -246,7 +246,9 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # flags, its comments and VERBOSE whitespace (`_lesung`): an anchor counts wherever it stands on the
 # pattern's own path, at its top level or in a group there that is matched at least once, quantified or
 # not (`\A\d+\Z()`, `(?:\A\d+){1}\Z`); an alternation, the top-level one included, is a set of
-# branches (`\A\d+\Z|none`, `(?:^|/)x$`); a group matched zero times or more anchors nothing; and a
+# branches (`\A\d+\Z|none`, `(?:^|/)x$`); a group matched zero times or more holds no anchor on the path,
+# and one that holds an anchor leaves the branch undecided there, since its neighbours can force it (lens
+# on 64c6a9fc, a sibling: `\A(?:\d$)?\b\n` is `\A\d\n\Z`); and a
 # lookaround is read as an anchor in the forms `(?=\Z)`, `(?=$)`, `(?=\n?\Z)` (the `$` of re), `(?!.)`
 # under DOTALL and a negative lookahead of a class of every character, and in any other form Python's own
 # parse of it shows to be one (`_umschau_einordnung`: a negative lookaround of parts that match every
@@ -254,7 +256,8 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # no anchor, ONLY in a neighbourhood on the positive list of `_umschau_einordnung`, which Python's parse of
 # the whole pattern shows (`_nachbarschaften`): it never holds, always holds, reads only characters of the
 # match, or stands at the end (start) of its path, alone or in a run of negative ones, with neighbours
-# that neither read past it nor commit, and its own text proves the value runs on there. Its own text was
+# that neither read past it nor commit, and its own text proves the value runs on there; inside a
+# lookaround of the other direction no path has such an end. Its own text was
 # not enough (lens on 4813a37a: `(?!.|\n(?s:.))` is `$`; lens on 64c6a9fc: `\A\d++(?!\D)`,
 # `\A\d*(?!\d[\s\S])\d` and `\A\d+\b(?!\W)` each are `\A\d+\Z`, the neighbour made the anchor).
 # Any other lookaround, and an anchor in a lookaround or a conditional
@@ -264,7 +267,8 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # make it an unfolded site. A module whose calls take more than `_MODULE_WORK` steps together, resolving,
 # folding and reading, is an unfolded site from that point on (lens on 4813a37a: each call had a bound and
 # nothing bounded a module); each step's own cost is bounded, so the budgets bound time (lens on 64c6a9fc:
-# the covering check of a lookaround and compiling a class were charged one step for unbounded work).
+# the covering check of a lookaround and compiling a class were charged one step for unbounded work, and
+# the first form of the neighbourhood reader scanned a run and a prefix per lookaround, uncharged).
 #
 # A CALLEE is resolved through the bindings of the scope it is read in, the machinery of the fold
 # (`_Module.funktionen`): an import from `re`, an assignment (chained, annotated, a literal tuple, an
@@ -1757,8 +1761,9 @@ def _folge(a, b, budget) -> frozenset:
 
 
 def _abseits(a) -> frozenset:
-    """The readings of an item off the path: one matched zero times or more, whose anchors need not
-    hold; a Unicode class in it still reads a value."""
+    """The readings of an item off the path, whose anchors need not hold: a lookaround or a conditional
+    group read as none, or an item matched zero times or more that holds no anchor (`_anhaengen`); a
+    Unicode class in it still reads a value."""
     return frozenset((False, 0, u, 0) for _s, _e, u, _x in a)
 
 
@@ -1777,7 +1782,10 @@ def _wiederholt(a, most, budget) -> frozenset:
 def _quantifier(text, i) -> tuple:
     """(least, most or None for no bound, position after it) of the quantifier at `i`, (1, 1, i) for none.
     `{` begins one only as `re` reads it (ASCII digits, a comma, ASCII digits, `}`), and a lazy `?` or a
-    possessive `+` after it belongs to it."""
+    possessive `+` after it belongs to it. A bound of more than ten digits after its leading zeros is
+    past what `re` compiles, and the call is an unfolded site: `int()` of 5000 digits raised ValueError
+    out of the sweep (Python's limit on integer text, on 3.10.12 and 3.12.14; found while this round was
+    checked, on 64c6a9fc too)."""
     if i >= len(text):
         return 1, 1, i
     c = text[i]
@@ -1797,7 +1805,9 @@ def _quantifier(text, i) -> tuple:
             high = low
         if j >= len(text) or text[j] != "}" or j == i + 1:
             return 1, 1, i
-        least, most, j = int(low or 0), (int(high) if high else None), j + 1
+        if max(len(low.lstrip("0")), len(high.lstrip("0"))) > 10:
+            raise _Unentschieden("a repetition bound past what re compiles")
+        least, most, j = int(low.lstrip("0") or 0), (int(high.lstrip("0") or 0) if high else None), j + 1
     else:
         return 1, 1, i
     if j < len(text) and text[j] in "?+":
@@ -1885,11 +1895,19 @@ class _Rahmen:
 
 def _anhaengen(rahmen, menge, text, i, budget) -> int:
     """Append one item's readings, under the quantifier after it, to the alternative being read; returns
-    the position after that quantifier. Matched zero times or more, the item is off the path."""
+    the position after that quantifier. Matched zero times or more, the item is off the path, unless it
+    holds an anchor (or one not decided): then it is undecided at that anchor's side, since its neighbours
+    can force it. `\\A(?:\\d$)?\\b\\n` and `\\A(?:\\d$)?(?<=\\d)\\n` match what `\\A\\d\\n\\Z` matches (the `\\b` and
+    the lookbehind fail where the group is skipped, and its `$` holds only before the final newline), and
+    each passed without a reading and without a gap on 64c6a9fc and before, read as `\\A` with no end: the
+    group's `$` was dropped by its quantifier alone. An item matched at most zero times is off the path."""
     if rahmen.verbose:
         i = _ueberspringen(text, i)
     least, most, i = _quantifier(text, i)
-    if least == 0:
+    verborgen = _verborgene_anker(menge) if least == 0 and most != 0 else 0
+    if verborgen:
+        menge = frozenset({(False, 0, any(u for _s, _e, u, _x in menge), verborgen)})
+    elif least == 0:
         menge = _abseits(menge)
     elif most is None or most > 1:
         menge = _wiederholt(menge, most, budget)
@@ -2241,6 +2259,13 @@ def _umschau_einordnung(art, innen, flags, is_bytes, budget, nachbarschaft=None)
     start of a lookahead (the first item that consumes a character is read whole, at any depth). Then c
     (a `\\n`), anything before it, and the value from k on are accepted.
 
+    Neither of the last two applies inside a lookaround of the other direction: a lookahead that ends a
+    lookbehind stands where the lookbehind stands, and the pattern goes on from there, so the end of its
+    path is no end of the match (and the mirror). `\\A\\d*(?<=(?!\\d[\\s\\S]))\\d` and
+    `\\d(?=(?<![\\s\\S]\\d))\\d*\\Z` each match what `\\A\\d+\\Z` matches and passed on 64c6a9fc and on the first
+    form of this list: the inner one read as none there, and the outer one, undecided, was undecided at
+    its own side only.
+
     The first reading, a lookaround none by its text alone (X missing one probe character, then a probe
     character no match of X begins with), is the AT THE END and AT THE START entries without their
     conditions on the neighbours. Anything else, a reference or a condition inside, a text Python does
@@ -2395,27 +2420,44 @@ def _nachbarn_lesen(wurzel, fl, is_bytes, budget) -> list:
         summe = breiten[id(daten)]
         return summe[bis] - summe[von]
 
-    aus = []
+    def laufgrenzen(daten, i, voraus) -> tuple:
+        """(a, b): the run of negative lookarounds of one direction `daten[i]` stands in, from the bounds of
+        every run of the sequence, found in one pass once per sequence and direction (a scan per lookaround
+        cost the length of its run, and a run of 1900 cost 1900 times that, uncharged)."""
+        if (id(daten), voraus) not in grenzen_der_laeufe:
+            budget.charge(2 * len(daten))
+            anfang, von = 0, []
+            for j, item in enumerate(daten):
+                anfang = anfang if _gleiche_umschau(item, voraus) else j + 1
+                von.append(anfang)
+            ende, bis = len(daten), [0] * len(daten)
+            for j in range(len(daten) - 1, -1, -1):
+                ende = ende if _gleiche_umschau(daten[j], voraus) else j
+                bis[j] = ende
+            grenzen_der_laeufe[(id(daten), voraus)] = (von, bis)
+        von, bis = grenzen_der_laeufe[(id(daten), voraus)]
+        return von[i], bis[i]
+
+    grenzen_der_laeufe, aus = {}, []
     for ort in orte:
-        pfad = ort
+        daten, i, f = ort[-1]
+        op, av = daten[i]
+        voraus, negativ = av[0] >= 0, getattr(op, "name", "") == "ASSERT_NOT"
+        pfad, gegenlaeufig = ort, False
         for j in range(len(ort) - 2, -1, -1):
             d, k, _f = ort[j]
             if getattr(d[k][0], "name", "") in _UMSCHAU:
-                pfad = ort[j + 1:]
+                pfad, gegenlaeufig = ort[j + 1:], (d[k][1][0] >= 0) != voraus
                 break
-        daten, i, f = pfad[-1]
-        op, av = daten[i]
-        voraus, negativ = av[0] >= 0, getattr(op, "name", "") == "ASSERT_NOT"
         innen = sum(breite(d, k + 1, len(d)) if voraus else breite(d, 0, k) for d, k, _f in pfad)
-        a, b = i, i + 1                                # the run it stands in: negative ones of its direction
-        if negativ:
-            while a > 0 and _gleiche_umschau(daten[a - 1], voraus):
-                a -= 1
-            while b < len(daten) and _gleiche_umschau(daten[b], voraus):
-                b += 1
+        a, b = laufgrenzen(daten, i, voraus) if negativ else (i, i + 1)   # a run: negatives of its direction
         schluessel = (id(daten), a, b)
         if schluessel not in laeufe:
-            am_rand = _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite)
+            # A lookaround inside one of the other direction: its path ends where that one stands, and the
+            # pattern goes on from there, so no end (start) of it is the end (start) of the match (lens on
+            # 64c6a9fc, the sibling: `\\A\\d*(?<=(?!\\d[\\s\\S]))\\d` and `\\d(?=(?<![\\s\\S]\\d))\\d*\\Z` match what
+            # `\\A\\d+\\Z` matches and passed; the enclosing one, undecided, was undecided at its own side only).
+            am_rand = not gegenlaeufig and _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite)
             laeufe[schluessel] = (am_rand, _einmal(lambda lauf=daten[a:b], f=f, voraus=voraus: _lauf_frei(
                 lauf, f, not voraus, is_bytes, budget)) if am_rand and negativ else lambda: False)
         am_rand, frei = laeufe[schluessel]
@@ -2442,7 +2484,9 @@ def _gleiche_umschau(item, voraus) -> bool:
 def _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite) -> bool:
     """Whether the lookarounds `daten[a:b]` of the innermost level of `pfad` stand as AT THE END (a
     lookahead) or AT THE START (a lookbehind) asks (`_umschau_einordnung`): at that edge of the path, no
-    repetition around them, and the items on the other side of them free of what the entry names."""
+    repetition around them, and the items on the other side of them free of what the entry names. Each item
+    looked at is charged, the ones whose features are kept too (`merkmale`): 700 alternatives each ending in
+    a lookahead behind 5000 items looked at 3.5 million items for one call, charged for none of them."""
     for tiefe, (d, k, _f) in enumerate(pfad):
         innerste = tiefe == len(pfad) - 1
         if voraus and (b if innerste else k + 1) != len(d):
@@ -2458,11 +2502,13 @@ def _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite) -> bool:
     if voraus:
         # the items before it: none reads past it or commits, at any depth; none at its position reads it
         for d, k in ebenen:
+            budget.charge(k)
             for item in d[:k]:
                 if _merkmale(item, budget, merkmale) & {"voraus", "bindet", "bezug"}:
                     return False
         for d, k in reversed(ebenen):
             for j in range(k - 1, -1, -1):
+                budget.charge()
                 if _merkmale(d[j], budget, merkmale) & {"grenze", "ende"}:
                     return False
                 if breite(d, j, j + 1) >= 1:
@@ -2471,6 +2517,7 @@ def _steht_am_rand(pfad, a, b, voraus, budget, merkmale, breite) -> bool:
     # a lookbehind: the items after it that can stand at its position read nothing before it
     for d, k in reversed(ebenen):
         for j in range(k, len(d)):
+            budget.charge()
             if _merkmale(d[j], budget, merkmale) & {"zurueck", "grenze", "anfang"}:
                 return False
             if breite(d, j, j + 1) >= 1:
@@ -2498,12 +2545,13 @@ def _lauf_frei(lauf, fl, von_hinten, is_bytes, budget) -> bool:
             return False
         raender.append(rand)
         for name, a, _f in _teile(teil, fl):
-            budget.charge()
+            budget.charge(1 + (len(a) if name == "IN" else 0))
             for n, x in ([(getattr(o, "name", str(o)), y) for o, y in a] if name == "IN" else [(name, a)]):
                 if n in ("LITERAL", "NOT_LITERAL"):
                     proben.update((x - 1, x, x + 1))
                 elif n == "RANGE":
                     proben.update((x[0] - 1, x[1] + 1))
+    budget.charge(len(proben) * max(1, len(proben).bit_length()))
     proben = sorted(p for p in proben if 0 <= p <= (0xFF if is_bytes else 0x10FFFF))[:256]
     budget.charge(sum(map(len, raender)) * len(proben))
     for c in proben:
@@ -2582,9 +2630,10 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
     (`\\A\\d+\\Z|none`, `n/a|^[0-9]+$`). An alternation is a set of branches, a repeated group combines
     the branches of its repetitions, and a group matched zero times or more, a lookaround and a
     conditional group are off the path; a lookaround that is an anchor is read as one (`(?=\\n?\\Z)`
-    like `$`, `(?!.)` under DOTALL like `\\Z`), and one holding an anchor in another form leaves its
-    branch undecided. `^` and `$` under MULTILINE are line anchors, never the value's. A Unicode class
-    counts under the flags of the group it stands in, so `(?a:\\d)` reads ASCII.
+    like `$`, `(?!.)` under DOTALL like `\\Z`), and one holding an anchor in another form, like a group
+    matched zero times or more that holds one, leaves its branch undecided. `^` and `$` under MULTILINE
+    are line anchors, never the value's. A Unicode class counts under the flags of the group it stands
+    in, so `(?a:\\d)` reads ASCII.
 
     A lookaround is read in its neighbourhood, which Python's parse of the whole pattern shows
     (`_nachbarschaften`, once per pattern and only where it holds a lookaround): the n-th lookaround the
@@ -2678,9 +2727,10 @@ def _aus_menge(menge, mode) -> list:
     An anchor that is not placed decides a branch only where the other anchor could complete it and it
     could change the reading: an undecided start where the branch is not anchored at the start already,
     an undecided end where it does not end in `\\Z` already (a lookaround only narrows what a branch
-    matches, so behind `\\A` and `\\Z` the reading stands, and `\\A\\d+\\Z(?!x)` still reads its `\\d`).
-    Since a lookaround outside the positive list of `_umschau_einordnung` is undecided, this keeps the
-    readings of such branches as they were."""
+    matches, and an optional group holding an anchor at most forces a part of it, so behind `\\A` and `\\Z`
+    the branch judges the whole value either way and the reading stands: `\\A\\d+\\Z(?!x)` still reads its
+    `\\d`). Since a lookaround outside the positive list of `_umschau_einordnung` is undecided, this keeps
+    the readings of such branches as they were."""
     if mode == "fullmatch":
         passend = [(2, u) for _s, _e, u, _x in menge]
     else:
@@ -2688,8 +2738,8 @@ def _aus_menge(menge, mode) -> list:
             anfang = s or mode == "match"
             offen = (x & 1 and not anfang) or (x & 2 and e != 2)
             if offen and (anfang or x & 1) and (e or x & 2):
-                raise _Unentschieden("an anchor in a lookaround or a conditional group in a form the sweep "
-                                     "does not place")
+                raise _Unentschieden("an anchor the sweep does not place: a lookaround on no positive list, "
+                                     "or an anchor in a lookaround, a conditional group or an optional group")
         passend = [(e, u) for s, e, u, _x in menge if e and (mode == "match" or s)]
     readings = []
     if any(e == 1 for e, _u in passend):
@@ -3229,8 +3279,9 @@ class TheSweepReadsAliasesAnchorsReceiversAndSourcesAsPythonDoes(unittest.TestCa
     def test_an_anchor_in_a_group_a_lookahead_or_an_alternation_is_read(self):
         """F2: `(?:\\A\\d+)\\Z`, `\\A(?:\\d+\\Z)`, `\\A\\d+(?=\\Z)` and `(?:^[0-9]+)$` judge a whole value and
         were read as unanchored, under proofbundle.* too. An alternation on the chain is read branch by
-        branch: `(?:^|/)[0-9]+$` judges a whole value through `^`; `(?:^|\\s)#` and a quantified group
-        judge none."""
+        branch: `(?:^|/)[0-9]+$` judges a whole value through `^`; `(?:^|\\s)#` judges none. A group matched
+        zero times or more that holds an anchor, `(?:\\A\\d+)*\\Z`, was read as judging none and is an
+        unfolded site now, since a neighbour could force it (lens on 64c6a9fc, a sibling of F9-1a)."""
         planted = ('import re\nA = re.compile(r"(?:\\A\\d+)\\Z")\nB = re.compile(r"\\A(?:\\d+\\Z)")\n'
                    'C = re.compile(r"\\A\\d+(?=\\Z)")\nD = re.compile(r"(?:^[0-9]+)$")\n'
                    'E = re.compile(r"(?:^|/)[0-9]+$")\nF = re.compile(r"\\A(?:x|\\d+\\Z)")\n'
@@ -3242,7 +3293,7 @@ class TheSweepReadsAliasesAnchorsReceiversAndSourcesAsPythonDoes(unittest.TestCa
                 self.assertEqual(sorted((line, reading) for _m, line, _p, reading in found),
                                  [(2, UNICODE), (3, UNICODE), (4, UNICODE), (5, DOLLAR), (6, DOLLAR),
                                   (7, UNICODE), (10, UNICODE)])
-        self.assertEqual(self._sites(planted), [])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 1)])
 
     def test_an_anchor_the_reader_cannot_place_is_a_gap(self):
         """Deny by default: an anchor in a lookaround or a conditional group in a form the reader does not
@@ -3347,8 +3398,9 @@ class TheSweepReadsTheFormsOfTheLensOnFb6eda0d(unittest.TestCase):
     def test_an_anchor_is_read_wherever_it_stands_on_the_path(self):
         """`\\A\\d+\\Z()`, `(?s)\\A\\d+(?!.)`, `\\A\\d+(?=\\n?\\Z)` (the `$` of re) and `(?:\\A\\d+){1}\\Z`
         judge a whole value, and so do `()\\A\\d+\\Z` and `\\A\\d+\\Z\\b`; the first reader read an anchor only
-        as the first or the last item of a chain. Without DOTALL `(?!.)` ends a line, not the value, and a
-        group matched zero times or once anchors nothing."""
+        as the first or the last item of a chain. Without DOTALL `(?!.)` ends a line, not the value. A group
+        matched zero times or once that holds an anchor, `(?:\\A\\d+){0,1}\\Z`, was read as anchoring nothing
+        and is an unfolded site now, since a neighbour could force it (lens on 64c6a9fc, a sibling of F9-1a)."""
         planted = ('import re\nA = re.compile(r"\\A\\d+\\Z()")\nB = re.compile(r"(?s)\\A\\d+(?!.)")\n'
                    'C = re.compile(r"\\A\\d+(?=\\n?\\Z)")\nD = re.compile(r"(?:\\A\\d+){1}\\Z")\n'
                    'E = re.compile(r"\\A\\d+(?!.)")\nF = re.compile(r"(?:\\A\\d+){0,1}\\Z")\n'
@@ -3357,7 +3409,7 @@ class TheSweepReadsTheFormsOfTheLensOnFb6eda0d(unittest.TestCase):
         self.assertEqual(sorted((line, reading) for _m, line, _p, reading in found),
                          [(2, UNICODE), (3, UNICODE), (4, DOLLAR), (4, UNICODE), (5, UNICODE), (8, UNICODE),
                           (9, UNICODE)])
-        self.assertEqual(self._sites(planted), [])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 1)])
 
     def test_a_format_or_percent_result_is_judged_by_its_size_before_it_is_built(self):
         """I: `"{0}" * 3333` formatted with a text of 10000 characters is 33 million characters; only the
@@ -3656,8 +3708,9 @@ def _gleich(muster, mode, referenz, texte) -> bool:
 
 #: The neighbourhoods the context fuzz puts a lookaround in (L), with how the pattern is matched: alone at
 #: an end, behind a capture of a lookahead, `\b`, `\B`, MULTILINE `$` and `^`, a neighbour that consumes
-#: what it reads, groups, an optional group, a run of two, a repetition, a lookaround beside it, and from
-#: Python 3.11 on possessive and atomic items.
+#: what it reads, groups, an optional group, a run of two, a repetition, a lookaround beside it, inside a
+#: lookaround of the other direction, behind an optional group holding `$`, and from Python 3.11 on
+#: possessive and atomic items.
 _FUZZ_FORMEN = (
     (lambda L: r"\A\d+" + L, "search"), (lambda L: L + r"\d+\Z", "search"),
     (lambda L: r"\A(?=(\d+))\1" + L, "search"), (lambda L: r"\A\d+\b" + L, "search"),
@@ -3668,6 +3721,9 @@ _FUZZ_FORMEN = (
     (lambda L: r"\A\d+" + L + "(?:x)?", "search"), (lambda L: r"\d+" + L, "match"),
     (lambda L: r"\A\d+" + L + L, "search"), (lambda L: r"\A(?:\d" + L + ")+", "search"),
     (lambda L: r"\A\d+(?=\d*)" + L, "search"), (lambda L: r"(?<![a-z])" + L + r"\d+\Z", "search"),
+    (lambda L: r"\A\d*(?<=" + L + r")\d", "search"), (lambda L: r"\A\d*(?<!" + L + r")\d", "search"),
+    (lambda L: r"\d(?=" + L + r")\d*\Z", "search"), (lambda L: r"\d(?!" + L + r")\d*\Z", "search"),
+    (lambda L: r"\A(?:\d+$)?" + L + r"\n", "search"),
 ) + ((
     (lambda L: r"\A\d++" + L, "search"), (lambda L: r"\A(?>\d+)" + L, "search"),
     (lambda L: r"\A\d*+" + L + r"\d", "search"), (lambda L: L + r"(?>\d+)\Z", "search"),
@@ -3679,10 +3735,10 @@ _FUZZ_TEILE = (".", r"\n", r"[^\n]", r"[\s\S]", r"\d", r"\D", r"\w", r"\W", r"\s
 def _umschau_fuzz(seed, draws) -> tuple:
     """(patterns tried, patterns equal to a whole-value reference, those the sweep is silent on): a
     lookaround X drawn from `_FUZZ_TEILE` by alternation, sequence and group, put in a neighbourhood of
-    `_FUZZ_FORMEN`; a pattern that accepts what `\\A\\d+\\Z`, `^\\d+$` or `\\A\\d*\\Z` accepts on every text of
-    `_orakeltexte` is whole-value, and the sweep must read it or name it an unfolded site."""
+    `_FUZZ_FORMEN`; a pattern that accepts what `\\A\\d+\\Z`, `^\\d+$`, `\\A\\d*\\Z` or `\\A\\d+\\n\\Z` accepts
+    on every text of `_orakeltexte` is whole-value, and the sweep must read it or name it an unfolded site."""
     rnd, texte = random.Random(seed), _orakeltexte()
-    referenzen = [re.compile(r) for r in (r"\A\d+\Z", r"^\d+$", r"\A\d*\Z")]
+    referenzen = [re.compile(r) for r in (r"\A\d+\Z", r"^\d+$", r"\A\d*\Z", r"\A\d+\n\Z")]
 
     def teil(tiefe=0):
         r = rnd.random()
@@ -3760,9 +3816,11 @@ class TheSweepReadsTheFormsOfTheLensOn64c6a9fc(unittest.TestCase):
         self.assertEqual(self._lines('import re\nA = re.compile(r"\\A\\d++\\Z")\n'), [2])
 
     def test_a_context_fuzz_finds_no_silent_whole_value_pattern(self):
-        """F9-1a as a class: 6000 draws of `_umschau_fuzz` (seed 21). On 64c6a9fc's sweep the same draws
-        left 34 whole-value patterns silent on 3.10.12 and 30 on 3.12.14 (measured 2026-09-27), none now;
-        seeds 1 to 8 with 20000 draws each found none on either (about 600 whole-value patterns each)."""
+        """F9-1a as a class: 6000 draws of `_umschau_fuzz` (seed 21) over 23 neighbourhoods, 27 from Python
+        3.11 on. The same draws leave 39 whole-value patterns silent on 64c6a9fc's sweep under 3.10.12 and
+        42 under 3.12.14, and 16 and 14 on the first form of the positive list (11ff4fd6: the two siblings
+        of the cases below), measured 2026-09-27; none now. Seeds 1 to 8 with 20000 draws each find none on
+        either (518 to 601 whole-value patterns each)."""
         versucht, gleich, stumm = _umschau_fuzz(21, 6000)
         self.assertGreater(len(versucht), 4000)
         self.assertGreater(len(gleich), 150, "the fuzz reached whole-value patterns")
@@ -3780,6 +3838,40 @@ class TheSweepReadsTheFormsOfTheLensOn64c6a9fc(unittest.TestCase):
         self.assertIn(r"\A\d*(?!\d[\s\S])\d", stumme)
         self.assertTrue(stumm)
         self.assertEqual(_stumme_der_linse(), [])
+
+    def test_an_optional_group_holding_an_anchor_is_undecided(self):
+        """A sibling of F9-1a, found while this fix was checked: an item matched zero times or more was off
+        the path by its quantifier alone, whatever it held, while its neighbours can force it. `\\b`, a
+        lookbehind or a condition fails where the group below is skipped, and the group's `$` holds only
+        before the final newline, so each pattern matches what its reference matches on every text of
+        `_orakeltexte`; each passed 64c6a9fc's sweep and the first form of the positive list without a
+        reading and without a gap, read as `\\A` with no end. Each is an unfolded site now. Controls: an
+        optional group without an anchor stays off the path, and behind `\\A` and `\\Z` one holding `$`
+        keeps the reading of the branch."""
+        texte = _orakeltexte()
+        for pattern, referenz in ((r"\A(?:\d$)?\b\n", r"\A\d\n\Z"), (r"\A(?:\d$)?(?<=\d)\n", r"\A\d\n\Z"),
+                                  (r"\A(\d$)?\n(?(1)|[^\s\S])", r"\A\d\n\Z"),
+                                  (r"\A\d\d?(?:x$)?(?<=x)\n", r"\A\d\d?x\n\Z")):
+            with self.subTest(pattern=pattern):
+                self.assertTrue(_gleich(re.compile(pattern), "search", re.compile(referenz), texte), "whole value")
+                self.assertFalse(_stumm(pattern, "search"), "read or unfolded, never silent")
+        planted = 'import re\nA = re.compile(r"\\A\\d+(?:\\.\\d+)?\\Z")\nB = re.compile(r"\\A(?:\\d$)?\\n\\Z")\n'
+        self.assertEqual(self._lines(planted), [2, 3])
+        self.assertEqual(self._sites(planted), [])
+
+    def test_a_lookaround_inside_one_of_the_other_direction_stands_at_no_end(self):
+        """A sibling of F9-1a, found while this fix was checked: a lookaround inside another was read in the
+        path inside that one, so a lookahead that ends a lookbehind was read as AT THE END (a lookbehind that
+        starts a lookahead as AT THE START); but it stands where the outer one stands, and the pattern goes
+        on from there. Each pattern below matches what `\\A\\d+\\Z` matches on every text of
+        `_orakeltexte` and passed 64c6a9fc's sweep and the first form of the positive list without a reading
+        and without a gap, the outer lookaround undecided at its own side only; each is an unfolded site
+        now."""
+        texte, referenz = _orakeltexte(), re.compile(r"\A\d+\Z")
+        for pattern in (r"\A\d*(?<=(?!\d[\s\S]))\d", r"\A\d*(?<!(?=\d[\s\S]))\d", r"\d(?=(?<![\s\S]\d))\d*\Z"):
+            with self.subTest(pattern=pattern):
+                self.assertTrue(_gleich(re.compile(pattern), "search", referenz, texte), "whole value")
+                self.assertFalse(_stumm(pattern, "search"), "read or unfolded, never silent")
 
     def test_a_class_attribute_and_a_class_body_name_do_not_share_a_key(self):
         """The memo collision of 64c6a9fc: `resolve` read `P` in the class body as `("class", id(K), "P")`
@@ -3840,6 +3932,50 @@ class TheSweepReadsTheFormsOfTheLensOn64c6a9fc(unittest.TestCase):
         self.assertEqual((result["two negated classes"]["readings"], result["two negated classes"]["gaps"]), (1, []))
         self.assertLess(result["_peak_bytes"], 100 * 10**6)
 
+    def test_the_neighbourhood_reader_charges_every_item_it_looks_at(self):
+        """The same class as F9-2a, in the first form of the positive list (11ff4fd6, not on 64c6a9fc): the
+        reader found the run a negative lookaround stands in by a scan per lookaround, and looked at the
+        items before a lookahead once per run, charged for neither. A run of 1900 negative lookaheads took
+        3.19 s for one call and 46.87 s for twenty in one module, 700 alternatives each ending in a lookahead
+        behind 5000 items 5.09 s and 73.6 s (one input per child, 2026-09-27, load 40 to 50). The runs of a
+        sequence are found in one pass now and every item looked at is charged: 0.63 s, 5.06 s, 0.86 s and
+        2.71 s at a load near 48, the first keeping its reading, the others unfolded sites."""
+        lauf = chr(92) + "A" + chr(92) + "d+" + "(?!a)" * 1900
+        vorne = chr(92) + "A" + "a" * 5000 + "(?:" + "|".join(["a(?!x)"] * 700) + ")"
+        eingaben = {
+            "a run of 1900, one call": "import re\nA = re.compile(r\"" + lauf + "\")\n",
+            "a run of 1900, twenty calls": "import re\nP = r\"" + lauf + "\"\n" + "A = re.compile(P)\n" * 20,
+            "700 alternatives, one call": "import re\nA = re.compile(r\"" + vorne + "\")\n",
+            "700 alternatives, twenty calls": "import re\nP = r\"" + vorne + "\"\n" + "A = re.compile(P)\n" * 20,
+        }
+        run = subprocess.run([sys.executable, "-c", _BOUNDED_CHILD, __file__], input=json.dumps(eingaben),
+                             capture_output=True, text=True, timeout=900)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        for name in eingaben:
+            with self.subTest(input=name):
+                self.assertNotIn("raised", result[name])
+                self.assertLess(result[name]["seconds"], 25)
+                self.assertEqual(result[name]["readings"], 0)
+        self.assertEqual(result["a run of 1900, one call"]["gaps"], [])
+        for name in ("a run of 1900, twenty calls", "700 alternatives, twenty calls"):
+            self.assertIn(f"more than {_MODULE_WORK} steps reading one module; its calls from there on were not "
+                          "read", result[name]["gaps"])
+        self.assertEqual(result["700 alternatives, one call"]["gaps"],
+                         [f"more than {_ANCHOR_WORK} steps reading the anchors of one call"])
+        self.assertLess(result["_peak_bytes"], 200 * 10**6)
+
+    def test_a_repetition_bound_of_thousands_of_digits_is_a_gap_not_a_raise(self):
+        """Found while this round was checked, on 64c6a9fc too: the reader converted a repetition bound with
+        `int()`, and 5000 digits pass Python's limit on integer text, so `\\A\\d{1111...}\\Z` raised
+        ValueError out of the sweep (Python 3.10.12 and 3.12.14). Such a bound is past what `re` compiles and
+        the call is an unfolded site now; leading zeros are not digits of the bound."""
+        viele = "import re\nA = re.compile(r\"\\A\\d{" + "1" * 5000 + "}\\Z\")\n"
+        nullen = "import re\nA = re.compile(r\"\\A\\d{" + "0" * 5000 + "1}\\Z\")\n"
+        self.assertEqual(self._lines(viele), [])
+        self.assertEqual(self._sites(viele), [("<module>", "compile", "Constant", 1)])
+        self.assertEqual(self._lines(nullen), [2])
+
     def test_a_lookaround_behind_both_anchors_keeps_the_reading(self):
         """An undecided lookaround decides a branch only where it could change the reading: behind `\\A`
         and `\\Z` a lookaround only narrows what the branch matches, so `\\A\\d+\\Z(?!x)` and `\\A(?<!x)\\d+\\Z`
@@ -3854,9 +3990,11 @@ class TheSweepReadsTheFormsOfTheLensOn64c6a9fc(unittest.TestCase):
     def test_the_tree_lookarounds_keep_their_readings(self):
         """What the positive list does to the tree (measured 2026-09-27): 19 lookaround texts in 51 places
         (per pattern, flags value and alternative) read as none 45 times on 64c6a9fc and 29 times now (15 AT
-        THE END, 7 INSIDE THE MATCH, 7 AT THE START); of the 16 that are undecided now, one makes a call an
-        unfolded site (`_UNFOLDED_PATTERN_SITES`, the requirement-line pin the gate cannot compare), and the
-        others stand in branches no other anchor completes. Pinned here by forms of the tree: the version
+        THE END, 7 INSIDE THE MATCH, 7 AT THE START); of the 16 that were none and are undecided now, one
+        makes a call an unfolded site (`_UNFOLDED_PATTERN_SITES`, the requirement-line pin the gate cannot
+        compare), and the others stand in branches no other anchor completes. The two siblings fixed beside
+        it (an optional group holding an anchor, a lookaround inside one of the other direction) change no
+        reading of the tree. Pinned here by forms of the tree: the version
         pin with its lookbehind first and its two lookaheads last reads nothing and is no site, the same
         behind `^\\s*` too, and the GitHub expression's `!(?!=)` in a `match`."""
         planted = ('import re\nA = re.compile(r"(?<![\\w.-])proofbundle\\s*==\\s*v?([0-9]+\\.[0-9]+)(?![0-9A-Za-z])'
