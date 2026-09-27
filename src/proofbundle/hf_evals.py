@@ -31,6 +31,7 @@ from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
+from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
@@ -64,12 +65,21 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     Malformed tokens raise BundleFormatError — never a crash, never a silent pass."""
     if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX):
         raise BundleFormatError(f"not a proofbundle receipt token (expected {TOKEN_PREFIX!r} prefix)")
+    # Deep gate Z195, L2-Z195-TOKEN-TRAILING-DATA-01: the body was base64-decoded in full before any
+    # size check (64 MiB of 'A' took 0.97 s to refuse on main 1f7a62d2), where kbjwt, sdjwt and
+    # statuslist refuse a segment over input_bytes BEFORE decoding it. Same guard, same place, and
+    # before the slice below, which would itself copy the whole body.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import, as in the sibling modules
+    if len(token) - len(TOKEN_PREFIX) > DEFAULT_BUDGET.input_bytes:
+        raise BundleFormatError("receipt token exceeds the input_bytes budget (pre-decode DoS guard)")
+    body = token[len(TOKEN_PREFIX):]
     try:
-        decomp = zlib.decompressobj()
-        raw = decomp.decompress(_b64url_decode(token[len(TOKEN_PREFIX):]), _MAX_TOKEN_BYTES)
-        if decomp.unconsumed_tail:
-            raise BundleFormatError("receipt token exceeds the decompression cap")
+        # ONE complete zlib stream and nothing after it: the same finding measured a genuine token with
+        # bytes appended after the end of its stream verifying ok=True (see `_inflate`).
+        raw = inflate_whole_stream(_b64url_decode(body), _MAX_TOKEN_BYTES)
         bundle = loads_strict(raw)   # WP-C1: duplicate keys rejected fail-closed
+    except InflateCapExceeded as exc:
+        raise BundleFormatError("receipt token exceeds the decompression cap") from exc
     except BundleFormatError:
         raise
     except ProofBundleError as exc:
@@ -78,7 +88,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         # never a raw BudgetExceeded leak (this function's contract is "malformed tokens raise BundleFormatError").
         raise BundleFormatError("receipt token exceeds the verification budget") from exc
     except (ValueError, TypeError, zlib.error) as exc:
-        raise BundleFormatError("receipt token is not valid base64url(zlib(JSON))") from exc
+        raise BundleFormatError(f"receipt token is not valid base64url(zlib(JSON)): {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("receipt token does not contain a bundle object")
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed

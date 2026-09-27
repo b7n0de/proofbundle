@@ -537,20 +537,39 @@ def _geschwisterdateien_die_ein_skript_zusammensetzt(quelle: str, namen: set[str
 
     Erkannt wird deshalb nur ein ``/``-Ausdruck (``ast.BinOp`` mit ``ast.Div``), in dessen Aesten
     eine Zeichenkette steht, die eine wirklich existierende Datei unter ``scripts/`` benennt.
+
+    A NAME BOUND TO SUCH A STRING AT MODULE LEVEL COUNTS AS THE STRING (Z230 round 2, 2026-09-26).
+    ``scripts/mutation_check.py`` reads its allowlist as ``work / ERLAUBNIS_DATEI`` with
+    ``ERLAUBNIS_DATEI = "scripts/mutation_baseline_allowlist.json"``; the detector saw only literals
+    and missed it, and the file went undecided in MANIFEST.in while a shipped script read it.
     """
     treffer: set[str] = set()
     try:
         baum = ast.parse(quelle)
     except SyntaxError:
         return treffer
+    konstanten: dict[str, str] = {}
+    for k in getattr(baum, "body", []):
+        wert = getattr(k, "value", None)
+        if not (isinstance(k, (ast.Assign, ast.AnnAssign)) and isinstance(wert, ast.Constant)
+                and isinstance(wert.value, str)):
+            continue
+        for z in (k.targets if isinstance(k, ast.Assign) else [k.target]):
+            if isinstance(z, ast.Name):
+                konstanten[z.id] = wert.value
     for k in ast.walk(baum):
         if not isinstance(k, ast.BinOp) or not isinstance(k.op, ast.Div):
             continue
         for teil in ast.walk(k):
             if isinstance(teil, ast.Constant) and isinstance(teil.value, str):
-                name = teil.value.rsplit("/", 1)[-1]
-                if name in namen:
-                    treffer.add(name)
+                wert = teil.value
+            elif isinstance(teil, ast.Name) and teil.id in konstanten:
+                wert = konstanten[teil.id]
+            else:
+                continue
+            name = wert.rsplit("/", 1)[-1]
+            if name in namen:
+                treffer.add(name)
     return treffer
 
 
@@ -611,6 +630,20 @@ def test_meta_der_detektor_unterscheidet_zusammensetzung_von_erwaehnung():
         "eine echte Pfad-Zusammensetzung wird nicht gesehen — der Riegel ist blind"
     assert _geschwisterdateien_die_ein_skript_zusammensetzt(erwaehnt, namen) == set(), \
         "eine blosse Erwaehnung gilt als Zugriff — der Riegel meldet Bedarf, wo keiner ist"
+
+
+def test_meta_a_path_through_a_module_constant_is_seen():
+    """The form `scripts/mutation_check.py` reads its allowlist with (Z230 round 2): the file name
+    stands in a module-level constant, and the `/` expression names the constant. Both directions:
+    the composition is seen, a constant that only appears in a message is not."""
+    namen = {"registry.json"}
+    zusammengesetzt = ('from pathlib import Path\nDATEI = "scripts/registry.json"\n'
+                       'def lies(wurzel):\n    return (wurzel / DATEI).read_text()\n')
+    erwaehnt = 'DATEI = "scripts/registry.json"\nMSG = f"see {DATEI} for the reason"\n'
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(zusammengesetzt, namen) == {"registry.json"}, \
+        "a path composed from a module constant is not seen — the detector is blind to it"
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(erwaehnt, namen) == set(), \
+        "a constant named only in a message counts as an access"
 
 
 def test_meta_eine_entfernte_datendatei_wird_wirklich_gefunden():

@@ -446,6 +446,319 @@ def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
     return r.returncode == 0
 
 
+def _manifest_verspricht(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Does this distribution's own MANIFEST.in PROMISE this path (graft, include, recursive-include)?
+
+    DEEP GATE Z195, FINDING L6-Z195-01 (P2, jury 3 of 3). The derived skip below counted every absent
+    root-relative path as "the sdist deliberately prunes this". It never asked whether the distribution
+    was supposed to carry the path. Measured with one appended line, `exclude
+    examples/trust_policy_strict.json`, while `graft examples` still stood: the built sdist lacked the
+    file, tests/test_trust_policy.py went from 47 passed to 47 skipped with the reason "repo-context
+    test", and the whole shipped suite stayed rc=0. The import guard further down asks SOURCES.txt,
+    but an `exclude` removes the path from SOURCES.txt as well, so that list cannot tell an intended
+    omission from an accidental one. The allowlist can: a path under a `graft` line, named by an
+    `include` line or matched by a `recursive-include` line was promised, and its absence is a
+    packaging failure, never a reason to skip.
+
+    WHY MANIFEST.in AND NOT A SECOND LIST. setuptools ships MANIFEST.in in every sdist, and it is the
+    document that states the promise. Another list would be the same promise written twice.
+
+    READ AS SETUPTOOLS READS IT (gate on this change, lenses 227-A and 227-B). The first version split
+    each physical line on whitespace and matched with `fnmatch`, and a lens built four templates it read
+    differently from setuptools 59 and 69: a `recursive-include` continued with a backslash promised
+    nothing, so its absence was skipped again, the very defect this closes (227A-01); `fnmatch` lets `*`
+    cross `/`, so `include docs/*.md` promised `docs/adr/x.md`, which setuptools does not ship (227A-03);
+    words of an inline comment became patterns (227A-04). The lines are now read as setuptools'
+    `read_template` reads them (`TextFile` with comments stripped, `\\#` kept, continuations joined,
+    whitespace stripped, blank lines skipped), a line setuptools refuses (an unknown action, a wrong
+    number of words) promises nothing, and the patterns match as setuptools matches them:
+    `include`, `recursive-include` and `graft` through setuptools' own glob (`*` and `?` stay inside one
+    path segment, `**` spans segments only where setuptools globs recursively, hidden files are NOT
+    ignored), `global-include` through its `translate_pattern`. Proven against setuptools itself:
+    `tests/fixtures/manifest_semantics/` carries vectors a real `build_sdist` produced.
+
+    A NEGATIVE LINE DOES NOT WITHDRAW A PROMISE, and that is the design, not an omission (lens 227-A
+    measured it as a difference from setuptools, 227A-02, and it is one). The defect this closes is an
+    `exclude` that removes a file a `graft` promised; a reader that let the `exclude` win would call that
+    file unpromised and skip it again. So `exclude`, `prune`, `recursive-exclude` and `global-exclude`
+    are not read here. The cost is named: a path under a positive line that a negative line removes ON
+    PURPOSE fails loudly from the sdist instead of skipping. In this repository no negative line cuts
+    into a positive one except `global-exclude` for caches and build output (`__pycache__`, `*.py[cod]`,
+    `*.so`, `*.rs`, `*.orig`), which no test reads.
+
+    WHAT SETUPTOOLS ADDS ON ITS OWN is promised too (227B-01): the template itself (`manifest_maker`
+    appends it to every sdist), `pyproject.toml`, `setup.cfg`, `setup.py`, `PKG-INFO`, the README
+    variants and the license files. Without that, a test that binds "the sdist carries MANIFEST.in"
+    was skipped by this very rule the moment MANIFEST.in was missing, because its module names the file.
+    setuptools adds each of these only when the source tree has it (gate run 2, lens 227-A, 227-2-02:
+    a project without `setup.py` ships none). A distribution cannot show which ones its source had, so
+    all of them count as promised. That is the loud direction on purpose: a test naming one the project
+    never had fails in a checkout just the same.
+
+    AND WHAT BUILD_PY SHIPS (227-2-01): the modules of every package the project's package discovery
+    finds, and the package data it declares, go into the sdist whatever the template says
+    (`sdist._add_defaults_python`). This repository's template never mentions `src/`, so a test naming
+    `src/proofbundle/agent_review.py` was skipped as repo-context the moment packaging lost that module.
+    `_build_py_verspricht` reads `[tool.setuptools]` of pyproject.toml the way setuptools does, and the
+    vectors hold it against a real `build_sdist`. NAMED LIMITS: automatic discovery (no `packages` and no
+    `packages.find`), `py-modules`, `exclude-package-data` and extension modules are not read; a project
+    relying on them gets no promise from this part, which is the old rule.
+
+    NO BASIS, NO PROMISE. Without a readable MANIFEST.in and without a PKG-INFO (a throwaway tree in a
+    test, say) nothing is promised and the old rule stands. A tree that carries PKG-INFO is a
+    distribution, and a distribution without its template is itself the packaging failure."""
+    import fnmatch  # noqa: PLC0415 - only on the from-sdist path
+    wurzel = pathlib.Path(wurzel)
+    try:
+        text: str | None = (wurzel / "MANIFEST.in").read_text(encoding="utf-8")
+    except OSError:
+        text = None
+    if text is None and not (wurzel / "PKG-INFO").is_file():
+        return False
+    pfad = [s for s in rel.split("/") if s not in ("", ".")]
+    if rel in _SETUPTOOLS_VORGABEN or (len(pfad) == 1 and any(
+            fnmatch.fnmatchcase(pfad[0], m) for m in _SETUPTOOLS_LIZENZMUSTER)):
+        return True
+    if _build_py_verspricht(pfad, wurzel):
+        return True
+    if text is None:
+        return False
+    for zeile in _manifest_zeilen(text):
+        worte = zeile.split()
+        befehl, args = worte[0], worte[1:]
+        if befehl == "include" and args:
+            if any(not m.endswith("/") and _glob_trifft(_segmente(m), pfad, rekursiv=False) for m in args):
+                return True
+        elif befehl == "recursive-include" and len(args) >= 2:
+            if any(_glob_trifft(_segmente(args[0]) + ["**"] + _segmente(m), pfad, rekursiv=True)
+                   for m in args[1:]):
+                return True
+        elif befehl == "graft" and len(args) == 1:
+            # glob(dir) findet die Verzeichnisse, findall darunter JEDE Datei: mindestens ein Segment
+            if _glob_trifft(_segmente(args[0]) + ["**", "*"], pfad, rekursiv=True):
+                return True
+        elif befehl == "global-include" and args:
+            if any(_translate_pattern("/".join(["**"] + _segmente(m))).match(rel) for m in args):
+                return True
+    return False
+
+
+#: What setuptools puts into every sdist without a template line: `manifest_maker.add_defaults` appends
+#: the template, `sdist._add_defaults_standards` a README and `setup.py`, `_add_defaults_optional`
+#: `setup.cfg` and (setuptools) `pyproject.toml`; PKG-INFO is written into the sdist root. Read from the
+#: setuptools 69.5.1 source on 2026-09-26.
+_SETUPTOOLS_VORGABEN = frozenset({"MANIFEST.in", "pyproject.toml", "setup.cfg", "setup.py", "PKG-INFO",
+                                  "README", "README.rst", "README.txt", "README.md"})
+#: setuptools' default `license_files` patterns, matched at the root only.
+_SETUPTOOLS_LIZENZMUSTER = ("LICEN[CS]E*", "COPYING*", "NOTICE*", "AUTHORS*")
+
+
+def _paketkonfiguration(wurzel: pathlib.Path) -> dict | None:
+    """`[tool.setuptools]` of pyproject.toml ({} when absent), or None when the file cannot be read."""
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:            # Python 3.10, see _projektname
+        import tomli as tomllib  # noqa: PLC0415
+    try:
+        daten = tomllib.loads((pathlib.Path(wurzel) / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    werkzeug = daten.get("tool")
+    konf = werkzeug.get("setuptools") if isinstance(werkzeug, dict) else None
+    return konf if isinstance(konf, dict) else {}
+
+
+def _paket_von(pfad: list[str], konf: dict, wurzel: pathlib.Path,
+               angefragt: str | None = None) -> tuple[str, int] | None:
+    """(dotted package name, number of path segments of its directory) if the directory holding the
+    last segment of `pfad` is a package setuptools would build, else None.
+
+    `packages.find` as `setuptools.discovery.PackageFinder._find_iter` (69.5.1) walks: no directory with
+    a dot in its name, with `namespaces = false` every directory needs an `__init__.py`, `include` and
+    `exclude` are fnmatch patterns over the dotted name (`ez_setup` and `*__pycache__` are always
+    excluded), and a directory under an exclude written `name*` or `name.*` is not descended into.
+    An explicit `packages` list is read with `package-dir`.
+
+    `angefragt` is the path the caller really asks about, when `pfad` is a probe built from it. A
+    missing `__init__.py` counts as present only when it IS that path: an absent package file is
+    promised, which is the loud direction. The probe for package data builds `<dir>/__init__.py`
+    itself, and the first version compared the probe with itself, so a directory without
+    `__init__.py` under `namespaces = false` read as a package and its data as promised (gate run 3,
+    measured against a real sdist setuptools built without that directory)."""
+    import fnmatch  # noqa: PLC0415
+    pakete = konf.get("packages")
+    if isinstance(pakete, list):
+        paketwurzel = konf.get("package-dir") if isinstance(konf.get("package-dir"), dict) else {}
+        for name in pakete:
+            if not isinstance(name, str):
+                continue
+            ort = paketwurzel.get(name)
+            if not isinstance(ort, str):
+                basis = paketwurzel.get("", "")
+                ort = "/".join(_segmente(basis if isinstance(basis, str) else "") + name.split("."))
+            teile = _segmente(ort)
+            if pfad[:len(teile)] == teile and len(pfad) == len(teile) + 1:
+                return name, len(teile)
+        return None
+    finden = pakete.get("find") if isinstance(pakete, dict) else None
+    if not isinstance(finden, dict):
+        return None                                   # automatic discovery: not read (named limit)
+    orte = finden.get("where", ["."])
+    einschluss = finden.get("include", ["*"])
+    ausschluss = ["ez_setup", "*__pycache__"] + list(finden.get("exclude", []))
+    namensraeume = finden.get("namespaces", True) is not False
+    for ort in (orte if isinstance(orte, list) else []):
+        basis = _segmente(ort) if isinstance(ort, str) else None
+        if basis is None or pfad[:len(basis)] != basis:
+            continue
+        verzeichnisse = pfad[len(basis):-1]
+        if not verzeichnisse:
+            continue
+        gueltig = True
+        for k in range(1, len(verzeichnisse) + 1):
+            teil, name = verzeichnisse[k - 1], ".".join(verzeichnisse[:k])
+            init = "/".join(basis + verzeichnisse[:k] + ["__init__.py"])
+            if "." in teil or not (namensraeume or (pathlib.Path(wurzel) / init).is_file()
+                                   or init == (angefragt if angefragt is not None else "/".join(pfad))):
+                gueltig = False
+                break
+            if k < len(verzeichnisse) and (f"{name}*" in ausschluss or f"{name}.*" in ausschluss):
+                gueltig = False                            # setuptools does not descend here
+                break
+        name = ".".join(verzeichnisse)
+        if (gueltig and any(fnmatch.fnmatchcase(name, m) for m in einschluss if isinstance(m, str))
+                and not any(fnmatch.fnmatchcase(name, m) for m in ausschluss if isinstance(m, str))):
+            return name, len(basis) + len(verzeichnisse)
+    return None
+
+
+def _build_py_verspricht(pfad: list[str], wurzel: pathlib.Path) -> bool:
+    """Would setuptools' `build_py` put this path into the sdist without a template line: a module
+    (`*.py`) directly in a package it builds, or a file its `package-data` names for that package?"""
+    konf = _paketkonfiguration(wurzel)
+    if not konf or not pfad:
+        return False
+    # the package that holds the file directly: a module, or package data at the package's top level
+    treffer = _paket_von(pfad, konf, wurzel)
+    if treffer is not None and pfad[-1].endswith(".py"):
+        return True
+    daten = konf.get("package-data") if isinstance(konf.get("package-data"), dict) else {}
+    # package data may lie below its package: try every enclosing directory as the package
+    for tiefe in range(len(pfad) - 1, 0, -1):
+        paket = _paket_von(pfad[:tiefe] + ["__init__.py"], konf, wurzel, angefragt="/".join(pfad))
+        if paket is None:
+            continue
+        name, laenge = paket
+        muster = [m for schluessel in (name, "*", "") for m in (daten.get(schluessel) or [])
+                  if isinstance(m, str)]
+        if any(_glob_trifft(_segmente(m), pfad[laenge:], rekursiv=True) for m in muster):
+            return True
+    return False
+
+
+def _manifest_zeilen(text: str) -> list[str]:
+    """The logical lines of a MANIFEST.in as setuptools' `read_template` gets them: `TextFile` with
+    strip_comments, skip_blanks, join_lines, lstrip_ws, rstrip_ws and collapse_join all on. A `#` starts a
+    comment unless a backslash precedes it (then `\\#` becomes `#`); a comment-only line is dropped BEFORE
+    it can end a continuation; a line ending in a backslash joins the next, whose leading whitespace is
+    dropped; a continuation at the end of the file stands as it is."""
+    ergebnis: list[str] = []
+    aufbau = ""
+    for roh in text.splitlines(keepends=True) + [None]:
+        zeile = roh
+        if zeile is not None:
+            pos = zeile.find("#")
+            if pos != -1:
+                if pos == 0 or zeile[pos - 1] != "\\":
+                    zeile = zeile[:pos] + ("\n" if zeile.endswith("\n") else "")
+                    if zeile.strip() == "":
+                        continue
+                else:
+                    zeile = zeile.replace("\\#", "#")
+        if aufbau:
+            if zeile is None:
+                ergebnis.append(aufbau)
+                break
+            zeile = aufbau + zeile.lstrip()
+            aufbau = ""
+        elif zeile is None:
+            break
+        zeile = zeile.strip()
+        if not zeile:
+            continue
+        if zeile.endswith("\\"):
+            aufbau = zeile[:-1]
+            continue
+        ergebnis.append(zeile)
+    return ergebnis
+
+
+def _segmente(muster: str) -> list[str]:
+    return [s for s in muster.split("/") if s not in ("", ".")]
+
+
+def _glob_trifft(muster: list[str], pfad: list[str], *, rekursiv: bool) -> bool:
+    """Would setuptools' glob (`setuptools/glob.py`, hidden files NOT ignored) yield this path?
+
+    Segment by segment with `fnmatch`, which is what its `glob1` does; `**` is zero or more whole
+    segments only where setuptools globs with `recursive=True` (`recursive-include`, and the walk under a
+    `graft`), elsewhere it is an ordinary one-segment pattern."""
+    import fnmatch  # noqa: PLC0415
+    import functools  # noqa: PLC0415
+
+    @functools.lru_cache(maxsize=None)
+    def ab(i: int, j: int) -> bool:
+        if i == len(muster):
+            return j == len(pfad)
+        if rekursiv and muster[i] == "**":
+            return any(ab(i + 1, k) for k in range(j, len(pfad) + 1))
+        return j < len(pfad) and fnmatch.fnmatchcase(pfad[j], muster[i]) and ab(i + 1, j + 1)
+    return ab(0, 0)
+
+
+def _translate_pattern(glob: str):
+    """`setuptools.command.egg_info.translate_pattern` (69.5.1), which `global-include` uses. It differs
+    from the glob above on purpose, because setuptools differs: a character class is taken literally
+    (`[a-c]` is the set of `a`, `-` and `c`), and `**` spans segments wherever it stands."""
+    import re  # noqa: PLC0415
+    pat, chunks = "", glob.split("/")
+    for c, chunk in enumerate(chunks):
+        last = c == len(chunks) - 1
+        if chunk == "**":
+            pat += ".*" if last else "(?:[^/]+/)*"
+            continue
+        i = 0
+        while i < len(chunk):
+            char = chunk[i]
+            if char == "*":
+                pat += "[^/]*"
+            elif char == "?":
+                pat += "[^/]"
+            elif char == "[":
+                j = i + 1
+                if j < len(chunk) and chunk[j] == "!":
+                    j += 1
+                if j < len(chunk) and chunk[j] == "]":
+                    j += 1
+                while j < len(chunk) and chunk[j] != "]":
+                    j += 1
+                if j >= len(chunk):
+                    pat += re.escape(char)
+                else:
+                    inner = chunk[i + 1:j]
+                    klasse = ""
+                    if inner[0] == "!":
+                        klasse, inner = "^", inner[1:]
+                    pat += "[%s]" % (klasse + re.escape(inner))
+                    i = j
+            else:
+                pat += re.escape(char)
+            i += 1
+        if not last:
+            pat += "/"
+    return re.compile(pat + r"\Z", flags=re.MULTILINE | re.DOTALL)
+
+
 def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     """True iff this test module reads a root-relative path that is ABSENT here.
 
@@ -453,7 +766,8 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
     shown to be package-only, and outside a checkout the safe answer is to skip it.
 
     A path that is absent because it has not been BUILT is not the same signal (see
-    `_ist_bauartefakt`) and does not count.
+    `_ist_bauartefakt`) and does not count. Neither is a path the distribution's MANIFEST.in promised
+    (see `_manifest_verspricht`): its absence is a packaging failure, and the module runs and fails.
     """
     try:
         quelle = pfad.read_text(encoding="utf-8", errors="ignore")
@@ -477,8 +791,14 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
         tiefe = len(pfad.resolve().relative_to(pathlib.Path(wurzel).resolve()).parts)
     except (ValueError, OSError):
         tiefe = None                       # Modul liegt nicht unter der Wurzel: nicht binden
-    return any(not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)
-               for rel in _wurzel_relative_pfade(quelle, tiefe))
+    fehlend = [rel for rel in _wurzel_relative_pfade(quelle, tiefe)
+               if not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)]
+    # A PROMISED ABSENCE WINS. A module that reads a pruned path AND a promised one that is missing
+    # must not be skipped for the first, or the second, a packaging failure, would vanish into the
+    # same skip it is being told apart from.
+    if any(_manifest_verspricht(rel, wurzel) for rel in fehlend):
+        return False
+    return bool(fehlend)
 
 
 def pytest_collection_modifyitems(config, items):
