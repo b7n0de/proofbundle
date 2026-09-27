@@ -18,8 +18,10 @@ so it passes for real releases and only fires when the discipline was genuinely 
 CLI:
   python scripts/pre_tag_audit_gate.py [--repo .] [--version X.Y.Z] [--json] [--strict]
 
-Exit code: 0 unless ``--strict`` and no audit record for the release version is found. Wired
-``--strict`` into release.yml (a pre-build step) so a tag cannot ship without the audit note.
+Exit code: 0 when a valid receipt binds this tree, 1 otherwise, with or without ``--strict``, which is
+retained. Wired ``--strict`` into release.yml (a pre-build step) so a tag cannot ship without the audit
+note. A run that stops on an exception no branch names ends in the state ``not_determinable`` with its
+reason, exit 1, as a run that cannot read the release version does.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ import json
 import os
 import re
 import sys
+import traceback
 from pathlib import Path
 
 # The discipline markers the CHANGELOG section / audit artifact must carry.
@@ -289,7 +292,7 @@ def _receipt_candidates(repo: Path, version: str) -> list:
             rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
         except (OSError, ValueError, RecursionError) as exc:
             out.append((str(f.relative_to(repo)), None,
-                        f"receipt file is present but unreadable ({type(exc).__name__}: {exc})"))
+                        f"receipt file is present but unreadable ({_pfad(f'{type(exc).__name__}: {exc}')})"))
             continue
         if isinstance(rc, dict):
             out.append((str(f.relative_to(repo)), rc, None))
@@ -545,7 +548,7 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
             ok_r, reason = verify_receipt(rc, trusted_pubkeys=trusted, expected_version=version,
                                           subject_tree_digest=tree, gate_source_digest=gate_src)
         except Exception as e:  # noqa: BLE001
-            ok_r, reason = False, f"verify_receipt raised {type(e).__name__}: {e} (fail-closed reject)"
+            ok_r, reason = False, f"verify_receipt raised {_pfad(f'{type(e).__name__}: {e}')} (fail-closed reject)"
         if ok_r:
             verified.append({"path": rp, "reason": reason})
             continue
@@ -609,50 +612,112 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
         "changelog_records_audit": changelog_ok,
         "changelog_is_presentational": True,
         "reason": None if ok else (
-            f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. "
+            f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {_pfad(version)} + this gate. "
             + (f"{len(rejected)} candidate receipt(s) rejected: {[r['reason'] for r in rejected]}"
                if rejected else
                f"{len(other_tree)} valid receipt(s) bind ANOTHER tree or gate version, none this one: "
                f"{[r['path'] for r in other_tree]} — a receipt attests one candidate tree; this tree "
                "has none"
                if other_tree else
-               f"no receipt under audit_artifacts/{_version_token(version)}/*.json — a CHANGELOG line is "
+               f"no receipt under {_pfad(f'audit_artifacts/{_version_token(version)}/*.json')} — a CHANGELOG line is "
                "presentational and cannot grant this. The RUNNER must produce a signed receipt "
                "(scripts/pre_tag_receipt.py) bound to this tree. Fail-closed by design (reviewer F6).")),
     }
 
 
+def _pfad(rel: str) -> str:
+    """A name as a line-oriented report prints it: on one line, and with one reading.
+
+    Printed raw, a name with a line break in it starts a line of its own, so a file name can write a
+    line that reads like a verdict: a tracked file named `docs/z<LF>  - README.md:1: fake finding.md`
+    split one problem of the version gate into two printed items, one blaming README.md (7056ebf6),
+    and the four other release tools printed such a name raw as well (a review lens, run 10, measured
+    2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
+    backslash is written in double quotes with backslash escapes; every other name as it is. The same
+    function stands in each of the six release tools, held identical by a test.
+    """
+    if all(c.isprintable() and c not in '"\\' for c in rel):
+        return rel
+    return '"' + "".join(
+        "\\" + c if c in '"\\' else c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in rel) + '"'
+
+
+def _unerwartet(exc: BaseException) -> str:
+    """An exception no branch of this tool names, as one report line: where it was raised, and its
+    type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
+    past Python's limit for writing it in decimal raises in turn. The same function stands in each of
+    the six release tools, held identical by a test, so that each ends such a run in its own verdict
+    for what it could not judge, and never in the exit code of a finding (a review lens, measured
+    2026-09-27 at 53676296)."""
+    ort = traceback.extract_tb(exc.__traceback__)[-1:]
+    wo = f" at {Path(ort[0].filename).name}:{ort[0].lineno}" if ort else ""
+    text = traceback.format_exception_only(type(exc), exc)[-1].strip()
+    return f"an unexpected exception{wo}: {_pfad(text[:300])}"
+
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--repo", type=Path, default=Path("."))
-    p.add_argument("--version", default=None, help="override the release version (default: pyproject)")
-    p.add_argument("--json", action="store_true")
-    p.add_argument("--strict", action="store_true",
-                   help="retained; the gate is FAIL-CLOSED by default now — no valid receipt exits "
-                        "non-zero WITHOUT --strict")
-    args = p.parse_args(argv)
-    result = evaluate(args.repo.resolve(), args.version)
-    if args.json:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        status = "OK" if result["ok"] else "NO_VALID_RECEIPT"
-        print(f"[pre-tag-audit] version={result['version']} receipt-verified={result['ok']} ({status}) "
-              f"tree={result.get('subject_tree_digest', '?')[:12]} "
-              f"trusted_keys={result.get('trusted_pubkey_count', 0)}")
-        for r in result.get("verified_receipts", []):
-            print(f"  VERIFIED {r['path']}")
-        for r in result.get("rejected_receipts", []):
-            print(f"  REJECTED {r['path']}: {r['reason']}")
-        for r in result.get("other_tree_receipts", []):
-            print(f"  OTHER-TREE {r['path']}: {r['reason']}")
-        for r in result.get("foreign_files", []):
-            print(f"  FOREIGN {r['path']}: schema {r['schema']} is not a receipt")
-        if not result["ok"]:
-            print(f"  {result['reason']}")
-    # Fail-closed by default (reviewer F6): no valid receipt -> non-zero, --strict not required.
-    if not result["ok"]:
+    """The gate as a command. EVERY LINE OF IT ENDS IN A VERDICT, and a value it prints from outside
+    stays on one line.
+
+    Measured at e5bb214c: a `--repo` that is a symlink to itself raised a RuntimeError in
+    `Path.resolve()` (Python 3.10), and the run ended with a traceback, exit 1 and no verdict line; a
+    receipt candidate named `x<LF>  VERIFIED forged.json` printed a line of its own that began
+    `  VERIFIED`, and a `--version` holding a line break did the same in the verdict line and the
+    reason. It is the sweep of the class a review lens found in the five other release tools at
+    6614ac32. From the stream set-up to the printed verdict, an exception no branch names ends in the
+    state `not_determinable` with its reason, exit 1, the code this gate gives a run that cannot say
+    what it judges; a stdout that refuses the verdict leaves it on stderr. The version, each path and
+    each value an exception carries are written as a name is (`_pfad`)."""
+    als_json, version = False, None
+    try:
+        # A path is read as the file system names it, so a name that is not UTF-8 carries surrogates;
+        # backslash escapes instead of an error, as in the other release tools.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+        p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+        p.add_argument("--repo", type=Path, default=Path("."))
+        p.add_argument("--version", default=None, help="override the release version (default: pyproject)")
+        p.add_argument("--json", action="store_true")
+        p.add_argument("--strict", action="store_true",
+                       help="retained; the gate is FAIL-CLOSED by default now — no valid receipt exits "
+                            "non-zero WITHOUT --strict")
+        args = p.parse_args(argv)
+        als_json, version = args.json, args.version
+        result = evaluate(args.repo.resolve(), args.version)
+        _melde(result, als_json)
+        # Fail-closed by default (reviewer F6): no valid receipt -> non-zero, --strict not required.
+        return 1 if not result["ok"] else 0
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this gate
+        result = {"ok": False, "state": "not_determinable", "version": version,
+                  "reason": f"the run stopped on {_unerwartet(exc)}, so no receipt was judged"}
+        try:
+            _melde(result, als_json)
+        except Exception:  # noqa: BLE001 -- stdout refused the verdict, so stderr carries it
+            with contextlib.suppress(Exception):
+                print(f"[pre-tag-audit] state=not_determinable {result['reason']}", file=sys.stderr)
         return 1
-    return 0
+
+
+def _melde(result: dict, als_json: bool) -> None:
+    """The verdict on stdout: the whole result as JSON, or the verdict line and one line per candidate."""
+    if als_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+    status = "OK" if result["ok"] else "NO_VALID_RECEIPT"
+    print(f"[pre-tag-audit] version={_pfad(str(result['version']))} receipt-verified={result['ok']} "
+          f"({status}) tree={result.get('subject_tree_digest', '?')[:12]} "
+          f"trusted_keys={result.get('trusted_pubkey_count', 0)}")
+    for r in result.get("verified_receipts", []):
+        print(f"  VERIFIED {_pfad(r['path'])}")
+    for r in result.get("rejected_receipts", []):
+        print(f"  REJECTED {_pfad(r['path'])}: {r['reason']}")
+    for r in result.get("other_tree_receipts", []):
+        print(f"  OTHER-TREE {_pfad(r['path'])}: {r['reason']}")
+    for r in result.get("foreign_files", []):
+        print(f"  FOREIGN {_pfad(r['path'])}: schema {r['schema']} is not a receipt")
+    if not result["ok"]:
+        print(f"  {result['reason']}")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@ the language gate's text form, the digest resolver's reason and the receipt veri
 reason each printed a name with a line break raw, so a file name could write a line that reads like
 a verdict. Each case below was reproduced there. The same quoting function, `_pfad`, now stands in
 each of the five tools, and a test holds the five copies identical, since the guard and the version
-gate run on a bare interpreter where one tool does not import another.
+gate run on a bare interpreter where one tool does not import another. The pre-tag audit gate, which
+release.yml runs, carries a sixth copy since 2026-09-27, and the test holds the six identical.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ("scripts/mutant_signature_guard.py", "scripts/neue_zeilen_sind_englisch.py",
          "scripts/audit_output_aufloesbar.py", "scripts/verify_pre_tag_receipt.py",
-         "scripts/check_version_and_changelog.py")
+         "scripts/check_version_and_changelog.py", "scripts/pre_tag_audit_gate.py")
 #: A name that writes a line of its own when printed raw, shaped like one of the guard's findings.
 NAME = "z\n  ok.py:1: fake verdict"
 GERMAN = "Diese Zeile ist deutsch und die Pruefung muss sie sehen.\n"
@@ -45,10 +46,10 @@ def _guard_module():
     return module
 
 
-def test_the_five_tools_carry_one_and_the_same_quoting_function():
+def test_the_six_tools_carry_one_and_the_same_quoting_function():
     sources = {tool: _function_source(ROOT / tool, "_pfad") for tool in TOOLS}
     assert all(sources.values()), [tool for tool, source in sources.items() if not source]
-    assert len(set(sources.values())) == 1, "the five copies of `_pfad` differ"
+    assert len(set(sources.values())) == 1, "the six copies of `_pfad` differ"
 
 
 def test_the_two_tools_that_quote_a_line_of_a_file_carry_the_same_excerpt_function():
@@ -56,12 +57,12 @@ def test_the_two_tools_that_quote_a_line_of_a_file_carry_the_same_excerpt_functi
     assert None not in sources and len(sources) == 1
 
 
-def test_the_five_tools_carry_one_and_the_same_function_for_an_unexpected_exception():
+def test_the_six_tools_carry_one_and_the_same_function_for_an_unexpected_exception():
     """Each tool ends a run on an exception no branch names in its own verdict for what it did not judge
     (a review lens, 2026-09-27 at 53676296: exit 1, the code of a finding, in the guard and the gate)."""
     sources = {tool: _function_source(ROOT / tool, "_unerwartet") for tool in TOOLS}
     assert all(sources.values()), [tool for tool, source in sources.items() if not source]
-    assert len(set(sources.values())) == 1, "the five copies of `_unerwartet` differ"
+    assert len(set(sources.values())) == 1, "the six copies of `_unerwartet` differ"
 
 
 def test_an_unexpected_exception_is_one_line_even_when_its_message_cannot_be_printed():

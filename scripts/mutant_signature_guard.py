@@ -11,9 +11,13 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
   A  a trivial-truth branch added at a check site:      `if False:` / `if True:` /
      `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`),
      judged on the syntax tree: the statement Python sees, however its lines are broken
-  B  a commented-out verification line: a comment whose content reads like a code statement
-     calling a verify/validate/check/compare_digest function (prose comments do not match)
-  C  `return True` as the first statement of a function whose name says verify/validate/check
+  B  a commented-out verification call: a comment line that, read as Python on its own or joined
+     with the comment lines directly below it, is a statement holding a call, anywhere in its expression
+     tree, to a callee named for a check (verify/validate/check/compare_digest and their forms):
+     `# if not merkle.verify_inclusion(...):`, `# key.from_public_bytes(b).verify(sig, msg)`, a
+     call over two commented lines. Prose does not parse and does not match
+  C  `return True` as the first statement of a function named for a check (`verify_x`,
+     `_verifies`, `is_verified`, `validate`, `check_x`)
   D  a symlink or a gitlink under src/proofbundle, or `src` or `src/proofbundle` itself as one, in
      the judged state: the diff shows a link's text or a commit id, Python runs what it points at,
      which the scan does not reach (a mutant planted outside the security path and linked in was
@@ -59,8 +63,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import tokenize
 import traceback
+import unicodedata
+import warnings
 from pathlib import Path
 
 
@@ -92,7 +99,7 @@ def _pfad(rel: str) -> str:
     and the four other release tools printed such a name raw as well (a review lens, run 10, measured
     2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
     backslash is written in double quotes with backslash escapes; every other name as it is. The same
-    function stands in each of the five release tools, held identical by a test.
+    function stands in each of the six release tools, held identical by a test.
     """
     if all(c.isprintable() and c not in '"\\' for c in rel):
         return rel
@@ -111,7 +118,7 @@ def _unerwartet(exc: BaseException) -> str:
     """An exception no branch of this tool names, as one report line: where it was raised, and its
     type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
     past Python's limit for writing it in decimal raises in turn. The same function stands in each of
-    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    the six release tools, held identical by a test, so that each ends such a run in its own verdict
     for what it could not judge, and never in the exit code of a finding (a review lens, measured
     2026-09-27 at 53676296)."""
     ort = traceback.extract_tb(exc.__traceback__)[-1:]
@@ -173,37 +180,154 @@ def _first_operand(node: ast.AST) -> ast.AST:
             return node
 
 
-# Class B — commented-out verification CODE, two-stage: a cheap prefilter (a comment whose
-# content starts like a statement calling a verify/validate/check/compare_digest function),
-# then the decisive test: the content must PARSE as a Python statement. Prose that merely
-# names a function keeps trailing English words and fails to parse (`# verify_envelope
-# (docstring says ...) never gets ...`), commented-out code parses (`# ok =
-# hmac.compare_digest(a, b)`). The three false-positive shapes found on real 3.6.0..HEAD
-# history are pinned as negative self-test cases below.
-_COMMENTED_VERIFY = re.compile(
-    r"^\s*#\s*(?:if\s+|elif\s+|return\s+|assert\s+|not\s+)?(?:[\w.]+\s*=\s*)?"
-    r"[\w.]*(?:verify|validate|compare_digest|check)[\w.]*\s*\(")
+# Class B — commented-out verification CODE. A comment line is read as Python, on its own and joined
+# with the comment lines directly below it: the shortest run from it that parses is the statement it
+# holds, and it is a finding when that statement holds a call, anywhere in its expression tree, to a
+# callee named for a check. Prose that merely names a function keeps words the parser refuses (`# verify_envelope
+# (docstring says ...) never gets ...`), commented-out code parses (`# ok = hmac.compare_digest(a, b)`).
+# The three false-positive shapes found on real 3.6.0..HEAD history are pinned as negative self-test
+# cases below.
+#
+# THE STATEMENT, NOT ITS FIRST WORDS. The first form took a comment only when the check's name came
+# first in it, after at most one `if`, `elif`, `return`, `assert` or `not` and one plain `name =`, and
+# only when the comment parsed on its own line. A review lens measured 23 of 61 such forms caught at
+# 6614ac32, every miss on main too (2026-09-27): a negated guard clause `# if not
+# merkle.verify_inclusion(...):`, a verify called on a call's result, `# Ed25519PublicKey.
+# from_public_bytes(...).verify(...)` (the Ed25519 check of signature.py), `bool(verify_anchor(...))`, a
+# call over two commented lines, a tuple or subscript target, `##`, `# #`, `await` and a CamelCase name
+# each passed with exit 0. Commented out one at a time, 151 of the 294 statements under src/proofbundle
+# that call such a callee were caught then; all 294 are now.
+
+#: The name of a check, by its stem, for class B's callee and class C's function: `verif` holds verify,
+#: verifies, verified, verification and verifier, `validat` holds validate, validated and validation,
+#: `check` holds check, checks and checked. Python binds a name in NFKC form, so a fullwidth `verify` is
+#: this name too. The verb `verify` alone missed `_verifies` and `is_verified` opening with `return
+#: True` (a review lens, 2026-09-27; demo.py binds `_verifies`).
+_VERIFYISH_NAME = re.compile(r"verif|validat|check", re.IGNORECASE)
+#: Class B's callee may also be the constant-time comparison a check calls.
+_VERIFY_CALLEE = re.compile(r"verif|validat|check|compare_digest", re.IGNORECASE)
+#: The longest run of comment lines read as one statement. The longest statement under src/proofbundle
+#: that calls such a callee spans 23 lines (measured 2026-09-27).
+_MAX_JOINED = 40
+#: A clause that continues a compound statement, read after the start it needs.
+_CLAUSE_START = {"elif": "if 0:\n    pass\n", "else": "if 0:\n    pass\n",
+                 "except": "try:\n    pass\n", "finally": "try:\n    pass\n"}
 
 
-def _commented_content_parses(text: str) -> bool | None:
-    """Whether a comment's content parses as a statement; None when the parser runs out of stack or
-    memory on it, and the guard cannot say. A comment `# ok = verify(` with 7000 nested unary minus
-    raised a MemoryError past an except clause that named SyntaxError and ValueError, and the guard
-    ended with a traceback and exit 1, the code of a finding (a review lens, run 10, measured
-    2026-09-26). The caller stops fail-closed on None."""
-    content = re.sub(r"^\s*#\s?", "", text).strip()
-    if content.endswith(":"):
-        content += "\n    pass"  # a commented-out `if verify(x):` header needs a body to parse
+def _comments(path: str, lines: list[str]) -> list[tuple[int, str, bool]]:
+    """(line, text, alone) of every comment of a file, by Python's tokenizer: a `#` inside a string is
+    no comment, and one behind code is; `alone` says whether the comment is all of its line. The lines
+    are Python's (`_read_as_python`), the CR that ends one taken off, so the tokenizer numbers them as
+    the parser did. A file the parser read and the tokenizer does not stops the run fail-closed."""
+    text = "\n".join(line[:-1] if line.endswith("\r") else line for line in lines)
+    found = []
     try:
-        ast.parse(content)
-    except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
-        return False
-    except (RecursionError, MemoryError):
-        return None
-    return True
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                row, col = tok.start
+                found.append((row, tok.string, not lines[row - 1][:col].strip()))
+    except (tokenize.TokenError, SyntaxError, ValueError) as exc:
+        raise SystemExit(f"mutant_signature_guard: {_pfad(path)}: the tokenizer does not read this file "
+                         "as the parser did, so the guard cannot say which of its lines are comments "
+                         f"(fail closed): {_pfad(f'{type(exc).__name__}: {exc}')}") from None
+    return found
 
-# Class C — verification-function names.
-_VERIFYISH_NAME = re.compile(r"(?:verify|validate|check)", re.IGNORECASE)
+
+def _code_of(comments: list[str]) -> str:
+    """The code a run of comments holds: each one's `#` marks taken off (a run of them and a `:` after
+    them, as in `##` and `#:`, and a second level, as in `# #`), then the lines dedented together, so a
+    commented-out block keeps the indentation its lines have to each other."""
+    bodies = [re.sub(r"^\s*#+:?", "", c) for c in comments]
+    while all(b.lstrip().startswith("#") for b in bodies):
+        bodies = [re.sub(r"^\s*#+:?", "", b) for b in bodies]
+    lines = textwrap.dedent("\n".join(bodies)).split("\n")
+    lines[0] = lines[0].lstrip()
+    return "\n".join(lines)
+
+
+def _commented_statement(code: str) -> ast.Module | None:
+    """The code as Python parses it, or None when it does not parse. A header is given a body (`# if not
+    verify(x):` needs one, also with a comment behind its colon), a last line that ends in a backslash
+    loses it (the line it continued was not commented out), and a clause such as `elif` or `except` is
+    read after the start it continues. RecursionError and MemoryError pass to the caller, which cannot
+    say and stops: a comment `# ok = verify(` with 7000 nested unary minus raised a MemoryError past an
+    except clause that named SyntaxError and ValueError, and the guard ended with a traceback and exit
+    1, the code of a finding (a review lens, run 10, measured 2026-09-26)."""
+    lines = code.rstrip().split("\n")
+    if lines[-1].endswith("\\"):
+        lines[-1] = lines[-1][:-1].rstrip()
+    text = "\n".join(lines)
+    readings = [text]
+    if ":" in lines[-1]:
+        readings.append(text + "\n" + " " * (len(lines[-1]) - len(lines[-1].lstrip()) + 4) + "pass")
+    word = re.match(r"\w+", lines[0])
+    if word and word.group(0) in _CLAUSE_START:
+        readings += [_CLAUSE_START[word.group(0)] + r for r in readings]
+    elif word and word.group(0) == "case":
+        readings += ["match 0:\n" + textwrap.indent(r, "    ") for r in readings]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")      # `# re.compile("\d")` warns of an escape; no verdict of ours
+        for reading in readings:
+            try:
+                return ast.parse(reading)
+            except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
+                continue
+    return None
+
+
+def _verify_calls(tree: ast.AST) -> list[str]:
+    """The names of the calls in `tree` whose callee is named for a check: a name, or the attribute that
+    ends any chain (`merkle.verify_inclusion`, `key.from_public_bytes(b).verify`). A call inside an
+    annotation does not count: prose such as `# NOTE: verify(x) ...` parses as a name annotated with the
+    call, while code puts the call in the value (`# ok: bool = verify(x)` counts)."""
+    in_annotation: set[int] = set()
+    for node in ast.walk(tree):
+        for annotation in (getattr(node, "annotation", None), getattr(node, "returns", None)):
+            if isinstance(annotation, ast.AST):
+                in_annotation.update(id(n) for n in ast.walk(annotation))
+    names = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and id(node) not in in_annotation:
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+            if _VERIFY_CALLEE.search(name):
+                names.append(name)
+    return names
+
+
+def _commented_out_calls(path: str, lines: list[str]) -> list[tuple[int, int]]:
+    """Class B over a file's Python lines: (first line, last line) of each comment that holds a call to a
+    check. A comment that stands alone on its line is read with the ones directly below it, up to
+    `_MAX_JOINED`; the shortest run from it that parses is the statement it holds, and the lines of a run
+    that holds such a call are not read again as a start. A run whose text names no check (NFKC, any
+    case) cannot hold such a call and is not parsed. A comment behind code on its line is not read: the
+    review lens that measured this class left `ok = True  # ok = verify(...)` at the class's boundary."""
+    comments = _comments(path, lines)
+    alone_at = {row: text for row, text, alone in comments if alone}
+    found: list[tuple[int, int]] = []
+    covered = 0
+    for row, text in alone_at.items():
+        if row <= covered:
+            continue
+        run = [text]
+        while len(run) < _MAX_JOINED and row + len(run) in alone_at:
+            run.append(alone_at[row + len(run)])
+        if not _VERIFY_CALLEE.search(unicodedata.normalize("NFKC", "\n".join(run))):
+            continue
+        for end in range(len(run)):
+            try:
+                tree = _commented_statement(_code_of(run[:end + 1]))
+            except (RecursionError, MemoryError):
+                raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{row}: a comment nests deeper "
+                                 "than the parser reads, so the guard cannot say whether it is "
+                                 "commented-out code (fail closed)") from None
+            if tree is None:
+                continue
+            if _verify_calls(tree):
+                found.append((row, row + end))
+                covered = row + end
+            break
+    return found
 
 
 def _git_bytes(*args: str, cwd: Path) -> bytes:
@@ -532,7 +656,9 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
 
     Measured when this became so, 2026-09-26: none of the 72 tracked `.py` files under
     src/proofbundle carries a class A, B or C signature when read whole, so judging a changed file
-    whole reports no line that was there before."""
+    whole reports no line that was there before. Measured again when class B came to read the
+    statement a comment holds and class C the stem of a check's name, 2026-09-27: none of the 72
+    does, and none of their 5242 comments holds a call to a check."""
     try:
         per_file = _added_lines_by_file(diff_text)
     except ValueError as exc:
@@ -560,18 +686,11 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
             header = " ".join(file_lines[n - 1].strip() for n in range(first, last + 1))
             in_order.append((first, f"{_pfad(path)}:{first}: trivial-truth branch (`if/elif "
                                     f"False|True` / `while False`) at a check\n    {_auszug(header)}"))
-        for lineno in sorted(judged):
-            text = file_lines[lineno - 1]
-            if not _COMMENTED_VERIFY.match(text) or _allowlisted(file_lines, lineno):
+        for first, last in _commented_out_calls(path, file_lines):
+            if _allowlisted(file_lines, first, last):
                 continue
-            parses = _commented_content_parses(text)
-            if parses is None:
-                raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{lineno}: a comment nests "
-                                 "deeper than the parser reads, so the guard cannot say whether it is "
-                                 "commented-out code (fail closed)")
-            if parses:
-                in_order.append((lineno, f"{_pfad(path)}:{lineno}: commented-out verification call\n"
-                                         f"    {_auszug(text.strip())}"))
+            in_order.append((first, f"{_pfad(path)}:{first}: commented-out verification call\n"
+                                    f"    {_auszug(file_lines[first - 1].strip())}"))
         findings.extend(finding for _, finding in sorted(in_order))
         for lineno, reason in _class_c_findings(tree, judged):
             if not _allowlisted(file_lines, lineno):
@@ -683,6 +802,18 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
     ("B: commented-out if-header of a check",
      _BENIGN.replace('if not isinstance(data, dict):',
                      '# if _validate_shape(data):\n    if data is None:'), True),
+    # Class B reads the statement a comment holds, not its first words (2026-09-27): each of these two
+    # passed with exit 0, the second the Ed25519 check of signature.py.
+    ("B: a commented-out negated guard clause",
+     _BENIGN.replace('    return bool(data.get("ok"))',
+                     '    # if not merkle.verify_inclusion(leaf, index, size, proof, root):\n'
+                     '    #     return False\n    return True'), True),
+    ("B: a commented-out verify called on a call's result",
+     _BENIGN.replace('    return bool(data.get("ok"))',
+                     '    # Ed25519PublicKey.from_public_bytes(bytes(key)).verify(bytes(sig), bytes(msg))\n'
+                     '    return True'), True),
+    ("negative: prose that parses as a name annotated with a call",
+     _BENIGN + '\n# NOTE: verify_thing(data)\n', False),
     ("negative: prose naming a function before a parenthetical (real FP shape, dsse.py)",
      _BENIGN + '\n# verify_thing (docstring says only ValueError) never gets a raw error.\n', False),
     ("negative: function name with parens inside prose (real FP shape, outcome.py)",

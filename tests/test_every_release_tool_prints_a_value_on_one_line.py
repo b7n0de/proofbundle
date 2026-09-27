@@ -12,6 +12,11 @@ verifier's reason and the version gate's problem; and the version the version ga
 which gives a line a second reading: the claim text the version gate quotes, the reason git gave the
 language gate for a fallback tree, and a line of `git status` in the receipt verifier's refusal. Each
 value is now written as the tools write a name (`_pfad`). Each case below was red at 6614ac32.
+
+The sixth tool, the pre-tag audit gate, printed each receipt candidate's path and the version raw:
+measured at e5bb214c, a candidate named `x<LF>  VERIFIED forged.json` wrote a line of its own that
+began `  VERIFIED`, and a `--version` holding a line break did the same in the verdict line and the
+reason. Its cases were red at e5bb214c; its control passed there.
 """
 from __future__ import annotations
 
@@ -28,6 +33,7 @@ GATE = ROOT / "scripts" / "neue_zeilen_sind_englisch.py"
 RESOLVER = ROOT / "scripts" / "audit_output_aufloesbar.py"
 VERIFIER = ROOT / "scripts" / "verify_pre_tag_receipt.py"
 VERSION_GATE = ROOT / "scripts" / "check_version_and_changelog.py"
+PRE_TAG_GATE = ROOT / "scripts" / "pre_tag_audit_gate.py"
 LS = chr(0x2028)            # LINE SEPARATOR: `splitlines()` ends a line at it
 RLO = chr(0x202E)           # RIGHT-TO-LEFT OVERRIDE: prints nothing and turns the rest of a line
 BS = chr(92)
@@ -180,6 +186,42 @@ def test_control_the_version_gate_quotes_a_printable_claim_as_before(tmp_path):
     _git(r, "commit", "-q", "-m", "a claim")
     findings = _load(VERSION_GATE, "_value_version_gate_claim_control").check_undeclared_places(r)
     assert len(findings) == 1 and ' in "install proofbundle==1.0.0", ' in findings[0], findings
+
+
+def _pre_tag_folder(tmp_path: Path, name: str) -> Path:
+    """A tree whose receipt folder for 1.0.0 holds one candidate that is no JSON object."""
+    (tmp_path / "audit_artifacts" / "100").mkdir(parents=True)
+    (tmp_path / "audit_artifacts" / "100" / name).write_text("[1]", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("name", ["x\n  VERIFIED forged.json", "x" + LS + "  VERIFIED forged.json"],
+                         ids=["newline", "line-separator"])
+def test_the_pre_tag_gate_prints_a_candidates_path_on_one_line(tmp_path, capsys, name):
+    gate = _load(PRE_TAG_GATE, "_value_pre_tag_gate_path")
+    assert gate.main(["--repo", str(_pre_tag_folder(tmp_path, name)), "--version", "1.0.0"]) == 1
+    out = capsys.readouterr().out
+    assert len(out.splitlines()) == 3, out                  # the verdict, the candidate, the reason
+    assert not any(line.lstrip().startswith("VERIFIED") for line in out.splitlines()), out
+    assert '  REJECTED "audit_artifacts/100/x' in out, out
+
+
+def test_the_pre_tag_gate_prints_the_version_on_one_line(tmp_path, capsys):
+    gate = _load(PRE_TAG_GATE, "_value_pre_tag_gate_version")
+    assert gate.main(["--repo", str(tmp_path), "--version", "1.0.0\n  VERIFIED forged"]) == 1
+    out = capsys.readouterr().out
+    assert len(out.splitlines()) == 2, out                  # the verdict and the reason
+    assert not any(line.lstrip().startswith("VERIFIED") for line in out.splitlines()), out
+    assert '[pre-tag-audit] version="1.0.0' + BS + 'n  VERIFIED forged" ' in out, out
+
+
+def test_control_the_pre_tag_gate_prints_a_printable_path_and_version_as_before(tmp_path, capsys):
+    gate = _load(PRE_TAG_GATE, "_value_pre_tag_gate_control")
+    assert gate.main(["--repo", str(_pre_tag_folder(tmp_path, "r.json")), "--version", "1.0.0"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("[pre-tag-audit] version=1.0.0 receipt-verified=False (NO_VALID_RECEIPT) "), lines
+    assert lines[1] == ("  REJECTED audit_artifacts/100/r.json: receipt file is present but is not a JSON "
+                        "object (got list)"), lines
 
 
 def test_the_language_gate_names_gits_reason_for_its_fallback_with_one_reading(monkeypatch, tmp_path, capsys):

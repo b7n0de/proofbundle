@@ -157,6 +157,39 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   form say it in the conditional now. Of the 31 new test cases, 29 failed at 6614ac32, the two
   controls passed there, and all 31 pass now.
 
+  Class B of the mutant guard reads the statement a comment holds, class C the stem of a check's
+  name, and the pre-tag audit gate takes the treatment of the paragraph above as a sixth tool. A review
+  lens, run 12b at 6614ac32, measured 23 of 61 forms of a commented-out verification call caught, every
+  miss on main too: class B took a comment only when the check's name came first in it and the comment
+  parsed on its own line. Commented out, `if not merkle.verify_inclusion(...):` in `persample.py` and
+  the Ed25519 check of `signature.py`, `Ed25519PublicKey.from_public_bytes(...).verify(...)`, each left
+  the guard clean with exit 0 in both modes, while `# pub.verify(...)` in the same file was flagged. A
+  comment line, found by Python's tokenizer rather than by a line pattern, is now read as Python on its
+  own and joined with up to 40 comment lines below it, and a call anywhere in the statement's
+  expression tree to a callee whose name holds `verif`, `validat` or `check` in any case, or
+  `compare_digest`, is the finding; a call in an annotation is not, so `# NOTE: verify(x)` stays quiet.
+  Class C read the verb `verify`, so `_verifies` (`demo.py`) and `is_verified` opening with
+  `return True` passed; it reads the stem now. Rerun against the new guard, the lens's harness flags
+  all 61 forms of class B and all 27 in-class cases of class C in both modes; its 4 clean and 13
+  out-of-class cases stay clean, and of its 21 boundary cases 18 stay clean, while `verifier`,
+  `verification_ok` and `validator` opening with `return True` flag now, since the stem names them. A
+  comment behind code on its line, `ok = True  # ok = verify(...)`, is still not read, as the lens left
+  it at the class's boundary. None of the 5242 comments of the 72 tracked `.py` files under
+  `src/proofbundle` holds such a call and no function there named for a check opens with `return True`,
+  so no verdict on this repository changes; commented out one at a time, 151 of the 294 statements there
+  that call a check were caught before and all 294 are now. Measured at e5bb214c, the pre-tag audit
+  gate, which release.yml runs before the build, ended `--repo loop2` with a traceback, exit 1 and no
+  verdict line, and printed a receipt candidate named `x<LF>  VERIFIED forged.json` and a `--version`
+  with a line break raw, each writing a line of its own that began `  VERIFIED`. Every line of its
+  `main` now stands in the catch, and such a run ends in its state `not_determinable` with the reason
+  `_unerwartet` writes, exit 1, the code it gives every run without a valid receipt; the version, each
+  path and the text of an exception it reports are written with `_pfad`, and those two functions stand
+  in six tools now, held identical by the test. Its docstring said it exits 0 unless `--strict`; it
+  exits 1 without a valid receipt either way, and says so. Of the 66 new test cases, 54 failed at
+  e5bb214c (44 catch proofs of the guard, the guard's control of a `#` line inside a string, which that
+  guard read as a comment, and 9 cases of the gate), 10 controls passed there, the two measurements
+  over the tree need a git checkout and did not run in the extraction, and all 66 pass now.
+
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read
   `git diff` by the shape of a line, in text mode, under the caller's configuration. Measured in

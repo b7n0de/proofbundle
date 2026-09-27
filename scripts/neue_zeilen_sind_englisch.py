@@ -269,7 +269,7 @@ def _pfad(rel: str) -> str:
     and the four other release tools printed such a name raw as well (a review lens, run 10, measured
     2026-09-26 at 50f3ef33). A name that holds a character that does not print, a double quote or a
     backslash is written in double quotes with backslash escapes; every other name as it is. The same
-    function stands in each of the five release tools, held identical by a test.
+    function stands in each of the six release tools, held identical by a test.
     """
     if all(c.isprintable() and c not in '"\\' for c in rel):
         return rel
@@ -288,7 +288,7 @@ def _unerwartet(exc: BaseException) -> str:
     """An exception no branch of this tool names, as one report line: where it was raised, and its
     type and message. `traceback` makes the message text and says so when it cannot: `str()` of an int
     past Python's limit for writing it in decimal raises in turn. The same function stands in each of
-    the five release tools, held identical by a test, so that each ends such a run in its own verdict
+    the six release tools, held identical by a test, so that each ends such a run in its own verdict
     for what it could not judge, and never in the exit code of a finding (a review lens, measured
     2026-09-27 at 53676296)."""
     ort = traceback.extract_tb(exc.__traceback__)[-1:]
