@@ -1,41 +1,44 @@
 #!/usr/bin/env python3
 """The policy-boundary matrix over the differential corpus: one row per registered vector.
 
-WHY. Owner order of 2026-09-27 (20:2x Berlin, addendum 20:4x): a reviewer of the corpus asked to see
-two things apart, (1) which bytes the service commits to in data-hash, and (2) which semantically
-awkward or conflicting COSE structures its parser and policy still accept. The rows of rounds 1 and 2
-are derived here from their stored bytes alone. Round 3 is registered only after its design has been
-reviewed (owner hold of 2026-09-27, 21:0x Berlin); its rows join this matrix then.
+WHY. Owner order of 2026-09-27 (20:2x Berlin, addendum 20:4x; design version 2 of 21:4x Berlin): a
+reviewer of the corpus asked to see two things apart, (1) which bytes the service commits to in
+data-hash, and (2) which semantically awkward or conflicting COSE structures its parser and policy still
+accept. The rows of rounds 1 and 2 are derived from their stored bytes; they keep their own pins and are
+never combined with round 3, which was registered in a new frozen cohort on a rebuilt ledger
+(differential_corpus_round3.py).
 
-COLUMNS, the reviewer's eight:
-  vector                         round and id
-  protected semantics            the protected header as submitted, decoded entry by entry, in order,
-                                 with every encoding that is not the preferred one named
-  unprotected semantics          the unprotected header as submitted, the same way
-  accepted/refused               what the service did, nothing else
-  data-hash match                accepted: whether the receipt's data-hash equals the preimage rule of
-                                 the first round through three encoders; refused: n/a
-  committed representation       accepted: the bytes the data-hash commits to, as the rule and the
-                                 returned statement show them; refused: nothing committed
-  parser-visible interpretation  only what can be observed without changing the service: the error
-                                 text of a refusal; otherwise NOT MEASURABLE, with the reason
-  expected-policy result         the normative source per row; PENDING until the reviewed design names it
-and two of ours (addendum of 20:4x), the verdict of src/proofbundle/scitt_ccf.py (scitt-ccf/v1):
-  our reader, submitted          on the exact submitted bytes: the decode status and text (the column
-                                 rounds 1 and 2 recorded), the statement-side status of
-                                 verify_transparent_statement, and the status of verify_statement_signature
-  our reader, returned           on the exact returned statement: verify_transparent_statement, status and
-                                 detail as the reader gives them
+COLUMNS (design version 2):
+  vector                                  round and id
+  profile and mutation                    the statement profile of the row and what changes against its control
+  P semantics, U semantics                both buckets as submitted, decoded entry by entry, every encoding that
+                                          is not the preferred one named
+  normative class and source              JUDGEMENT, kept apart: normative.json, one of six classes, the sources
+                                          and the rule as quoted from the archived revision (sources.json), and
+                                          the condition of a conditional rule
+  predicted local outcome                 round 3: written into the generator before the run; rounds 1 and 2:
+                                          NOT RECORDED
+  final registration outcome, error stage registered (a receipt that verifies with the service's key set,
+                                          checked with recompute.py), refused, timeout, unfinished or
+                                          receipt_unverified, and where it ended
+  data-hash rule match                    registered: the receipt's data-hash against the preimage rule through
+                                          own computation, cbor2 and EverCBOR (round 3: EverCBOR NOT MEASURED)
+  reconstructed commitment preimage       registered: the bytes the data-hash commits to, and the evidence
+  interpretation observation and method   what can be observed without changing the service, and how
+  own decode, submitted / returned        decode_cose_sign1 of src/proofbundle/scitt_ccf.py on both forms
+  statement signature, both forms         verify_statement_signature on both forms under the round's signer
+                                          key(s); round 3 also which key verifies, established independently
+  own full verification, returned         verify_transparent_statement on the returned statement: status and the
+                                          three booleans readable, signature_valid, profile_satisfied
 
-ORACLES. The service's answers, the returned statements and the receipts are fixtures: the bytes recorded
-by differential_corpus.py and differential_corpus_round2.py, checked against their recorded digests
-before use. The preimage rule and the "own" data-hash path are our own computation (preimage_candidates.py,
-candidate 4-tagged); the "cbor2" path is a foreign library re-encoding the same candidate
-(`cbor2_equal`); the "EverCBOR" path is a foreign tool built by us (vendored_encoder_probe.py, CCF's
-vendored encoder). The reader columns are our own reader, run here on the stored bytes. The unprotected
-check (`reader_unprotected_effect`) runs the reader again on the submitted bytes with the unprotected map
-replaced by an empty one, a variant derived here (the first round's candidate 11 form), to see whether
-anything in that bucket changes our reader's verdict.
+ORACLES. The service's answers, the returned statements and the receipts are fixtures: the bytes the
+generators recorded, checked against their recorded digests before use. The preimage rule and the "own"
+data-hash path are our own computation (preimage_candidates.py, candidate 4-tagged); the "cbor2" path is
+a foreign library re-encoding the same candidate; the "EverCBOR" path is a foreign tool built by us
+(vendored_encoder_probe.py, CCF's vendored encoder). The receipt check is recompute.py, independent of
+the reader under test. The reader columns are our own reader, run here on the stored bytes. The
+unprotected check (`reader_unprotected_effect`) runs the reader again on the submitted bytes with the
+unprotected map replaced by an empty one, to see whether anything in that bucket changes its verdict.
 
 USAGE:
     python3 policy_matrix.py --write      # derive and write differential_corpus_round3/matrix.json and the
@@ -56,12 +59,17 @@ HERE = Path(__file__).resolve().parent
 OUT = HERE / "differential_corpus_round3"
 sys.path.insert(0, str(HERE))
 import differential_corpus as D  # noqa: E402 - the corpus's own reader and hex files
+import recompute as R  # noqa: E402 - the independent receipt check
 
-ROUNDS = ((1, "differential_corpus"), (2, "differential_corpus_round2"))
+ROUNDS = ((1, "differential_corpus"), (2, "differential_corpus_round2"), (3, "differential_corpus_round3"))
 VENDORED = HERE / "vendored_encoder_result.json"
+NORMATIVE = OUT / "normative.json"
 PREIMAGE_RULE = "4-tagged"
-PENDING = ("PENDING: the normative source for this row comes with the reviewed design (owner hold of "
-           "2026-09-27, 21:0x Berlin); no conformance claim is made either way")
+NOT_RECORDED = "NOT RECORDED: rounds 1 and 2 were registered before any outcome was predicted"
+EVERCBOR_R3 = ("NOT MEASURED for round 3: vendored_encoder_probe.py needs a CCF clone at ccf-7.0.17 and an "
+               "EverParse build, not run in this step")
+PROFILE = ("v1 hash envelope over the example bundle's root: ES256, CWT Claims {iss: did:x509, sub}, "
+           "x5chain [leaf, CA], 258 = -16, 259 = application/json")
 NOT_MEASURABLE_ACCEPTED = (
     "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say "
     "which of the submitted header values its parser or policy read; the corpus queried no other read "
@@ -150,7 +158,10 @@ def _load_round(number: int, name: str) -> list:
     man = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     from proofbundle import scitt_ccf as S
     root = bytes.fromhex(man["target"]["receipt_canonical_root"])
-    signer = [bytes.fromhex(man["signer"]["spki_hex"])]
+    if "spki_hex" in man["signer"]:
+        signer = [bytes.fromhex(man["signer"]["spki_hex"])]
+    else:   # round 3: one CA, two leaves; the reader selects among them by the protected x5chain
+        signer = [bytes.fromhex(k["spki_hex"]) for _n, k in sorted(man["signer"]["keys"].items())]
     if "phases" in man:
         keysets = {ph["name"]: D.read_hex(corpus / ph["keyset"]) for ph in man["phases"]}
     else:
@@ -170,18 +181,50 @@ def _load_round(number: int, name: str) -> list:
             if _sha(files[fname]) != want["sha256"]:
                 raise SystemExit(f"REFUSED: {name}/{vid}/{fname} is not the recorded bytes")
         phase = (meta.get("phase") or {}).get("name")
+        if "outcome" in meta:     # round 3: the generator's states, read as the earlier rounds' fields
+            o = meta["outcome"]
+            meta = {**meta, "class": meta["kind"],
+                    "service": {"post_status": meta["http"][0]["status"], "accepted": o["state"] == "registered",
+                                "txid": o.get("txid"), "error": o.get("api_detail")}}
         rp = {"scitt_ccf_services": {"127.0.0.1:8000": S.load_cose_keyset(keysets[phase])},
               "scitt_statement_keys": signer}
         cands = d / "candidate_hashes.json"
         out.append({"round": number, "corpus": name, "id": vid, "meta": meta, "files": files, "rp": rp,
                     "root": root, "candidates": json.loads(cands.read_text(encoding="utf-8")) if cands.exists() else None,
-                    "vendored": vendored.get(vid)})
+                    "vendored": vendored.get(vid), "keyset": R.cose_keyset(keysets[phase])})
     return out
+
+
+def _receipt_data_hash(v: dict):
+    """The data-hash of the first inclusion proof, read by recompute.py (independent of the reader)."""
+    rr = R.receipt(v["files"]["receipt.hex"], v["keyset"], None)
+    proofs = rr.get("inclusion_proofs") or []
+    return (proofs[0]["data_hash"] if proofs else None), rr
+
+
+def _own_4_tagged(v: dict) -> tuple:
+    """Candidate 4-tagged computed here: deterministic [protected, {}, payload, signature], tag 18, the
+    contents as submitted, preferred heads; and the same through cbor2."""
+    import cbor2
+    prot, payload, sig, _spans = D.contents(v["files"]["request.hex"])
+    bstr = lambda b: R.encode(b)  # noqa: E731
+    own = b"\xd2\x84" + bstr(prot) + b"\xa0" + bstr(payload) + bstr(sig)
+    via = cbor2.dumps(cbor2.CBORTag(18, [prot, {}, payload, sig]))
+    return _sha(own), via == own
 
 
 def _data_hash_match(v: dict) -> dict:
     if not v["meta"]["service"]["accepted"]:
-        return {"text": "n/a: refused, no receipt"}
+        return {"text": "NOT MEASURABLE: refused, no receipt"}
+    if v["candidates"] is None:
+        dh, _rr = _receipt_data_hash(v)
+        own_hash, cbor2_same = _own_4_tagged(v)
+        own = own_hash == dh
+        paths = {"own": own, "cbor2": own and cbor2_same, "evercbor": None}
+        yes = [k for k, x in paths.items() if x is True]
+        no = [k for k, x in paths.items() if x is False]
+        text = ("match: " + ", ".join(yes) if yes else "") + (("; NO: " + ", ".join(no)) if no else "")
+        return {**paths, "text": (text + "; evercbor " + EVERCBOR_R3).strip("; "), "receipt_data_hash": dh}
     cand = ((v["candidates"] or {}).get("candidates") or {}).get(PREIMAGE_RULE) or {}
     own = cand.get("equals_data_hash")
     cbor2 = (own is True and cand.get("cbor2_equal") is True) if cand.get("cbor2_equal") is not None else None
@@ -197,7 +240,7 @@ def _data_hash_match(v: dict) -> dict:
 
 def _committed(v: dict, statement: dict) -> str:
     if not v["meta"]["service"]["accepted"]:
-        return "nothing committed: refused, no receipt"
+        return "NOT MEASURABLE: refused, no receipt, nothing committed"
     facts = (v["candidates"] or {}).get("facts") or {}
     sub = D.cose_structure(v["files"]["request.hex"])
     ret = statement
@@ -230,27 +273,106 @@ def row(v: dict) -> dict:
               f"changes: {ours_sub['statement_status']} as submitted, {emptied['statement_status']} with the "
               "unprotected map emptied")
     error = meta["service"].get("error")
-    return {
-        "vector": f"r{v['round']}/{v['id']}",
-        "round": v["round"], "class": meta.get("class"), "phase": (meta.get("phase") or {}).get("name"),
+    vector = f"r{v['round']}/{v['id']}"
+    full_ret = _full(returned, root=v["root"], rp=v["rp"]) if returned else None
+    out = {
+        "vector": vector,
+        "round": v["round"], "cohort": "round 3, new frozen cohort" if v["round"] == 3 else f"round {v['round']}",
+        "class": meta.get("class"), "phase": (meta.get("phase") or {}).get("name"),
+        "profile_and_mutation": {"profile": PROFILE, "control": meta.get("control", meta.get("base")),
+                                 "mutation": meta.get("mutation")},
         "mutation": meta.get("mutation"),
         "protected_semantics": header_text((st_sub.get("protected") or {}).get("decoded")),
         "unprotected_semantics": header_text(st_sub.get("unprotected")),
+        "normative": v["normative"],
+        "predicted": (meta["predicted"] if "predicted" in meta else {"outcome": None, "why": NOT_RECORDED}),
+        "registration": _registration(v, accepted),
         "accepted_refused": "accepted" if accepted else "refused",
         "service": {"post_status": meta["service"].get("post_status"), "txid": meta["service"].get("txid"),
                     "error": error},
         "data_hash_match": _data_hash_match(v),
-        "committed_representation": _committed(v, st_ret) if accepted else "nothing committed: refused, no receipt",
+        "committed_representation": _committed(v, st_ret) if accepted else "NOT MEASURABLE: refused, no receipt, nothing committed",
         "parser_visible_interpretation": (f"error text: {error}" if not accepted and error else
                                           ("NOT MEASURABLE: refused without an error text" if not accepted
                                            else NOT_MEASURABLE_ACCEPTED)),
-        "expected_policy_result": PENDING,
+        "interpretation": _interpretation(meta, accepted, error),
         "our_reader_submitted": ours_sub,
         "our_reader_returned": ours_ret,
+        "statement_signature_checks": {
+            "submitted": ours_sub["statement_signature"],
+            "returned": ours_ret["statement_signature"] if ours_ret else None,
+            "which_key_verifies": meta.get("signature_verifies_under"),
+        },
+        "own_full_verification_returned": full_ret,
+        "reader_booleans_submitted": _full(sub, root=v["root"], rp=v["rp"]),
         "reader_unprotected_effect": effect,
         "reader_against_service": _against(accepted, ours_sub),
         "files": {"corpus": v["corpus"], "vector": f"vectors/{v['id']}/",
                   "request_sha256": _sha(sub), "statement_sha256": _sha(returned) if returned else None},
+    }
+    if "outcome" in meta:
+        out["record"] = _machine_record(meta)
+    return out
+
+
+def _full(raw: bytes, *, root: bytes, rp: dict) -> dict:
+    """verify_transparent_statement: the status and the three booleans, apart."""
+    from proofbundle import scitt_ccf as S
+    r = S.verify_transparent_statement(raw, canonical_root=root, rp_trust=rp)
+    return {"status": r.status, "readable": r.readable, "signature_valid": r.signature_valid,
+            "profile_satisfied": r.profile_satisfied, "statement_status": r.statement_status}
+
+
+def _registration(v: dict, accepted: bool) -> dict:
+    """The final state and where it ended. Rounds 1 and 2 recorded the POST answer and the receipt; the
+    receipt is checked here with recompute.py, as round 3's generator checked it."""
+    meta = v["meta"]
+    if "outcome" in meta:
+        o = meta["outcome"]
+        return {"state": o["state"], "error_stage": o.get("error_stage"), "api_status": o.get("api_status"),
+                "api_detail": o.get("api_detail"), "receipt_check": o.get("receipt_check_recompute")}
+    s = meta["service"]
+    if not accepted:
+        return {"state": "refused", "error_stage": "POST /entries" if s.get("post_status") == 400 else "operation",
+                "api_status": s.get("post_status"), "api_detail": s.get("error"), "receipt_check": None}
+    _dh, rr = _receipt_data_hash(v)
+    ok = bool(rr.get("readable")) and rr.get("signature_valid") is True
+    return {"state": "registered" if ok else "receipt_unverified", "error_stage": None if ok else "receipt check",
+            "api_status": s.get("post_status"), "api_detail": None,
+            "receipt_check": {"readable": rr.get("readable"), "signature_valid": rr.get("signature_valid")}}
+
+
+def _interpretation(meta: dict, accepted: bool, error) -> dict:
+    """What can be observed without changing the service, and how."""
+    keys = meta.get("signature_verifies_under")
+    if keys is not None and meta.get("kind", "").startswith("two-key"):
+        who = [k for k, ok in sorted(keys.items()) if ok]
+        return {"observation": f"{'registered' if accepted else 'refused'}; the signature verifies under key "
+                               f"{', '.join(who) or 'none'}; P and U as in the semantics columns",
+                "method": "the registration outcome beside which key verifies the signature, established "
+                          "with cryptography over the Sig_structure, independent of the service"}
+    if not accepted:
+        return {"observation": f"error text: {error}" if error else "refused without an error text",
+                "method": "the service's error answer"}
+    return {"observation": NOT_MEASURABLE_ACCEPTED, "method": "none available without changing the service"}
+
+
+def _machine_record(meta: dict) -> dict:
+    """Round 3's machine record, as the design asks for it: bytes and digests, commits, pins, trust
+    material, configuration digest and transaction, external AAD, the control, the raw API answer."""
+    pins = meta["pins"]
+    return {
+        "generator": {"tool": pins["verifier"].get("tool"), "commit": pins["verifier"]["commit"],
+                      "tree_clean": pins["verifier"]["tree_clean"]},
+        "reader": pins["verifier"].get("reader_file"),
+        "service": {k: pins["service"].get(k) for k in ("commit", "image_id", "node_version", "attestation_format",
+                                                         "configuration_sha256", "configuration_read_at_txid")},
+        "configuration_written_at_txid": ("NOT MEASURED: the governance API names the accepted proposal, not the "
+                                          "transaction that applied it"),
+        "external_aad": meta.get("external_aad"), "control": meta.get("control"), "signer": meta.get("signer"),
+        "signing": meta.get("signing"),
+        "http": [{k: h[k] for k in ("n", "step", "method", "path", "status", "body_sha256")} for h in meta["http"]],
+        "files": meta["files"],
     }
 
 
@@ -265,27 +387,42 @@ def _against(accepted: bool, ours_sub: dict) -> str:
 
 
 def derive() -> dict:
+    normative = json.loads(NORMATIVE.read_text(encoding="utf-8"))["rows"]
     rows = []
     for number, name in ROUNDS:
         vectors = _load_round(number, name)
         control = next((v for v in vectors if v["id"] == "control"), None)
-        control_dh = ((control or {}).get("candidates") or {}).get("receipt_data_hash")
+        control_dh = (((control or {}).get("candidates") or {}).get("receipt_data_hash") if number < 3
+                      else _receipt_data_hash(control)[0])
         for v in vectors:
+            n = normative[f"r{number}/{v['id']}"]      # the quoted rules stay in normative.json
+            v["normative"] = {"normative_class": n["normative_class"],
+                              "sections": sorted({s["section"] for s in n["sources"]}),
+                              **{k: n[k] for k in ("condition", "note") if k in n}}
             r = row(v)
-            dh = (v["candidates"] or {}).get("receipt_data_hash") if r["accepted_refused"] == "accepted" else None
+            dh = (((v["candidates"] or {}).get("receipt_data_hash") if number < 3 else _receipt_data_hash(v)[0])
+                  if r["accepted_refused"] == "accepted" else None)
             r["data_hash_match"]["receipt_data_hash"] = dh
             r["data_hash_match"]["equals_round_control"] = (dh == control_dh) if dh and control_dh else None
             rows.append(r)
-    counts = {}
+    counts: dict = {}
+    by_class: dict = {}
     for r in rows:
         key = f"r{r['round']}/{r['class']}"
         c = counts.setdefault(key, {"vectors": 0, "accepted": 0, "refused": 0})
         c["vectors"] += 1
         c["accepted" if r["accepted_refused"] == "accepted" else "refused"] += 1
+        cohort = "round 3" if r["round"] == 3 else "rounds 1 and 2"
+        n = by_class.setdefault(r["normative"]["normative_class"], {}).setdefault(
+            cohort, {"vectors": 0, "accepted": 0, "refused": 0})
+        n["vectors"] += 1
+        n["accepted" if r["accepted_refused"] == "accepted" else "refused"] += 1
     return {
         "tool": "tools/scitt_ccf_external/policy_matrix.py",
         "rounds": {"1": "differential_corpus/", "2": "differential_corpus_round2/",
-                   "3": "not registered: on hold until the design is reviewed (owner hold of 2026-09-27, 21:0x Berlin)"},
+                   "3": "differential_corpus_round3/vectors/, a new frozen cohort on a rebuilt ledger (design version 2)"},
+        "normative": "normative.json (judgement) and sources.json (the archived revisions)",
+        "counts_by_normative_class": {k: by_class[k] for k in sorted(by_class)},
         "preimage_rule": "candidate 4-tagged of preimage_candidates.py: deterministic [protected, {}, payload, "
                          "signature], tag 18, the protected header as the bytes submitted",
         "oracles": {"service answers, returned statements, receipts": "fixtures, the recorded bytes",
@@ -309,23 +446,61 @@ def _data_hash_cell(d: dict) -> str:
     return d["text"] + ("; the same data-hash as the round's control" if same else "; other than the round's control")
 
 
-def _reader_cell(o) -> str:
+
+def _normative_cell(n: dict) -> str:
+    return n["normative_class"] + ": " + "; ".join(n["sections"]) + (f" (condition: {n['condition']})" if n.get("condition") else "")
+
+
+def _predicted_cell(p: dict) -> str:
+    return p["why"] if p.get("outcome") is None else f"{p['outcome']}: {p['why']}"
+
+
+def _registration_cell(r: dict) -> str:
+    stage = f", at {r['error_stage']}" if r.get("error_stage") else ""
+    return f"{r['state']}{stage}" + (f": {r['api_detail']}" if r.get("api_detail") else "")
+
+
+def _decode_cell(o) -> str:
     if o is None:
         return "n/a: nothing returned"
-    head = f"{o['status']} (statement side {o['statement_status']}; decode {o['decode']['status']}; statement signature {o['statement_signature']['status']})"
-    why = o["detail"] or (o["decode"]["text"] if o["decode"]["status"] != "read" else "")
-    return head + (f": {why}" if why else "")
+    d = o["decode"]
+    return d["status"] + ("" if d["status"] == "read" else f": {d['text']}")
+
+
+def _signature_cell(r: dict) -> str:
+    s = r["statement_signature_checks"]
+    ret = s["returned"]["status"] if s["returned"] else "n/a"
+    text = f"submitted {s['submitted']['status']}; returned {ret}"
+    if s.get("which_key_verifies") is not None:
+        keys = [k for k, ok in sorted(s["which_key_verifies"].items()) if ok]
+        text += f"; verifies under key {', '.join(keys) or 'none'}"
+    return text
+
+
+def _full_cell(f) -> str:
+    if f is None:
+        return "n/a: nothing returned"
+    return (f"{f['status']} (readable {str(f['readable']).lower()}, signature_valid "
+            f"{str(f['signature_valid']).lower()}, profile_satisfied {str(f['profile_satisfied']).lower()})")
 
 
 def table(m: dict) -> str:
-    head = ("| vector | protected semantics | unprotected semantics | accepted/refused | data-hash match | "
-            "committed representation | parser-visible interpretation | expected-policy result | "
-            "our reader, submitted | our reader, returned |\n|" + "---|" * 10 + "\n")
+    cols = ["vector", "profile and mutation", "P semantics", "U semantics", "normative class and source",
+            "predicted local outcome", "final registration outcome and error stage", "data-hash rule match",
+            "reconstructed commitment preimage and evidence", "interpretation observation and method",
+            "own decode, submitted", "own decode, returned", "statement signature, both forms",
+            "own full verification, returned"]
+    head = "| " + " | ".join(cols) + " |\n|" + "---|" * len(cols) + "\n"
     lines = []
     for r in m["rows"]:
-        cells = [r["vector"], r["protected_semantics"], r["unprotected_semantics"], r["accepted_refused"],
-                 _data_hash_cell(r["data_hash_match"]), r["committed_representation"], r["parser_visible_interpretation"],
-                 "PENDING", _reader_cell(r["our_reader_submitted"]), _reader_cell(r["our_reader_returned"])]
+        pm = r["profile_and_mutation"]
+        cells = [r["vector"], f"control {pm['control']}; {pm['mutation']}" if pm["control"] else pm["mutation"],
+                 r["protected_semantics"], r["unprotected_semantics"], _normative_cell(r["normative"]),
+                 _predicted_cell(r["predicted"]), _registration_cell(r["registration"]),
+                 _data_hash_cell(r["data_hash_match"]), r["committed_representation"],
+                 f"{r['interpretation']['observation']} (method: {r['interpretation']['method']})",
+                 _decode_cell(r["our_reader_submitted"]), _decode_cell(r["our_reader_returned"]),
+                 _signature_cell(r), _full_cell(r["own_full_verification_returned"])]
         lines.append("| " + " | ".join(_cell(c) for c in cells) + " |")
     return head + "\n".join(lines) + "\n"
 
