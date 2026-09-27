@@ -625,6 +625,14 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
         return f"label {_PAYLOAD_LOCATION} is not tstr (RFC 9995)"
     if _CTY in ph or _CTY in uh:
         return "label 3 (content type) present in a hash envelope"
+    # RFC 9943 section 6: the protected header of a Signed Statement carries CWT Claims with iss and sub.
+    # Round 3 of the policy-boundary matrix measured the service refusing M-u15 (CWT Claims moved to the
+    # unprotected header) while this profile confirmed it: a required protected label it did not check.
+    if _CWT in uh:
+        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
+    cwt = ph.get(_CWT)
+    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
+        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
     why = _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
     if why:
         return why

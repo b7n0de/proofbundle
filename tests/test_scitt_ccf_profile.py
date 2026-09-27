@@ -110,7 +110,7 @@ AUTO = object()     # the protected x5chain names the signer, which v1 requires 
 @dataclass
 class Stmt:
     prot_map: dict = field(default_factory=lambda: {1: -7, 258: -16, 259: "application/json",
-                                                    15: {1: "did:example:signer"}})
+                                                    15: {1: "did:example:signer", 2: "s"}})
     prot_raw: bytes | None = None
     payload: bytes | None = ROOT
     unprot: dict = field(default_factory=dict)
@@ -349,7 +349,7 @@ def test_unique_headers_control():
 
 
 def test_unique_headers_duplicate_label_in_protected_is_malformed():
-    prot = enc({1: -7, 258: -16, 15: {1: "did:example:signer"}})
+    prot = enc({1: -7, 258: -16, 15: {1: "did:example:signer", 2: "s"}})
     dup = b"\xa4" + prot[1:] + b"\x01\x26"                   # a second label 1, same value
     st = Stmt(prot_raw=dup)
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "malformed"
@@ -357,11 +357,11 @@ def test_unique_headers_duplicate_label_in_protected_is_malformed():
 
 @pytest.mark.parametrize("stmt_kw, extra_unprot, status", [
     (dict(), {1: -7}, "malformed"),                                              # label in both buckets
-    (dict(prot_map={1: -7, 15: {1: "i"}}), {258: -16}, "outside_profile"),       # 258 only unprotected
-    (dict(prot_map={1: -7, 258: -16, 15: {1: "i"}}), {259: "text/plain"}, "outside_profile"),
+    (dict(prot_map={1: -7, 15: {1: "i", 2: "s"}}), {258: -16}, "outside_profile"),       # 258 only unprotected
+    (dict(prot_map={1: -7, 258: -16, 15: {1: "i", 2: "s"}}), {259: "text/plain"}, "outside_profile"),
     (dict(), {259: "text/plain"}, "malformed"),                                   # 259 in both buckets
     (dict(), {260: "https://example.invalid"}, "outside_profile"),
-    (dict(prot_map={1: -7, 258: -16, 3: "application/json", 15: {1: "i"}}), {}, "outside_profile"),
+    (dict(prot_map={1: -7, 258: -16, 3: "application/json", 15: {1: "i", 2: "s"}}), {}, "outside_profile"),
     (dict(), {3: "application/json"}, "outside_profile"),
 ])
 def test_unique_headers_placement(stmt_kw, extra_unprot, status):
@@ -390,15 +390,15 @@ def test_unique_headers_duplicate_keys_deeper_down():
 # Class: crit
 # ------------------------------------------------------------------------------------------------
 def test_crit_control_listing_a_processed_label_still_confirms():
-    st = Stmt(prot_map={1: -7, 2: [1], 258: -16, 15: {1: "i"}})
+    st = Stmt(prot_map={1: -7, 2: [1], 258: -16, 15: {1: "i", 2: "s"}})
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "confirmed"
 
 
 @pytest.mark.parametrize("prot_map, extra_unprot", [
-    ({1: -7, 258: -16, 15: {1: "i"}}, {2: [1]}),                  # crit in unprotected
-    ({1: -7, 2: [], 258: -16, 15: {1: "i"}}, {}),                 # empty crit
-    ({1: -7, 2: [260], 258: -16, 15: {1: "i"}}, {}),              # lists an absent label
-    ({1: -7, 2: [259], 258: -16, 259: "a/b", 15: {1: "i"}}, {}),  # lists a label v1 does not process
+    ({1: -7, 258: -16, 15: {1: "i", 2: "s"}}, {2: [1]}),                  # crit in unprotected
+    ({1: -7, 2: [], 258: -16, 15: {1: "i", 2: "s"}}, {}),                 # empty crit
+    ({1: -7, 2: [260], 258: -16, 15: {1: "i", 2: "s"}}, {}),              # lists an absent label
+    ({1: -7, 2: [259], 258: -16, 259: "a/b", 15: {1: "i", 2: "s"}}, {}),  # lists a label v1 does not process
 ])
 def test_crit_statement(prot_map, extra_unprot):
     st = Stmt(prot_map=prot_map)
@@ -482,10 +482,10 @@ def test_limits_tags_refused_in_statement_and_receipt(tag_hex):
 
 
 def test_limits_tag_1_only_around_a_cwt_time_claim():
-    ok = Stmt(prot_map={1: -7, 258: -16, 15: {1: "i", 6: T(1, 1790000000)}})
+    ok = Stmt(prot_map={1: -7, 258: -16, 15: {1: "i", 2: "s", 6: T(1, 1790000000)}})
     assert verify(transparent(ok, [Rcpt(data_hash=dh_of(ok)).build()])).status == "confirmed"
     for bad in ({1: -7, 258: -16, 15: {1: "i", 2: T(1, 5)}},          # around a non-time claim
-                {1: -7, 258: -16, 15: {1: "i"}, 99: T(1, 5)}):         # outside the CWT map
+                {1: -7, 258: -16, 15: {1: "i", 2: "s"}, 99: T(1, 5)}):         # outside the CWT map
         st = Stmt(prot_map=bad)
         assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "malformed"
     st = Stmt()
@@ -595,7 +595,7 @@ def test_algorithm_label_and_key_type_must_belong_together():
 
 
 def test_algorithm_outside_v1_is_not_invalid():
-    st = Stmt(prot_map={1: -8, 258: -16, 15: {1: "i"}}, sig=b"\x00" * 64)
+    st = Stmt(prot_map={1: -8, 258: -16, 15: {1: "i", 2: "s"}}, sig=b"\x00" * 64)
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "outside_profile"
     st = Stmt()
     rc = Rcpt(data_hash=dh_of(st), extra_prot={1: -36}).build()
@@ -610,7 +610,7 @@ def test_algorithm_ecdsa_signature_of_wrong_length():
 
 def test_algorithm_pss_salt_length_and_key_size():
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    prot = {1: -37, 258: -16, 15: {1: "i"}, 33: chain_of(key)}
+    prot = {1: -37, 258: -16, 15: {1: "i", 2: "s"}, 33: chain_of(key)}
     good_sig = key.sign(tbs(enc(prot), ROOT), padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32),
                         hashes.SHA256())
     st = Stmt(prot_map=prot, sig=good_sig)
@@ -735,7 +735,7 @@ def test_the_hash_envelope_labels_have_their_rfc_9995_value_types():
     """Codex, PR 278 round five: RFC 9995's CDDL gives label 259 uint / tstr and label 260 tstr
     (draft-ietf-cose-hash-envelope, "payload_preimage_content_type" and "payload_location"). The
     placement rule alone let any value through to confirmed."""
-    base = {1: -7, 258: -16, 15: {1: "did:example:signer"}}
+    base = {1: -7, 258: -16, 15: {1: "did:example:signer", 2: "s"}}
 
     def status(extra):
         st = Stmt(prot_map={**base, **extra})
@@ -849,7 +849,7 @@ def chain_of(key) -> list:
 
 
 def x5(x5chain, signer=None) -> Stmt:
-    return Stmt(prot_map={1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer"},
+    return Stmt(prot_map={1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"},
                           33: x5chain}, key=signer)
 
 
