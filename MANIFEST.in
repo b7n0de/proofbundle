@@ -155,8 +155,16 @@ include Makefile
 # in den sdist. Dass er dabei seine eigenen Muster mitliefert, ist bedacht: der Riegel nimmt genau
 # eine Datei aus, sich selbst (EIGENER_PFAD), und zwar praefix-tolerant, weil im sdist jeder Pfad
 # unter proofbundle-<version>/ liegt.
+#
+# IN, decided the way its reader is (2026-09-26): scripts/mutation_baseline_allowlist.json. The
+# shipped scripts/mutation_check.py reads it for every baseline (`lade_erlaubnisliste`), and the
+# shipped contract tests/test_mutation_selection.py reads it as well. Left undecided, it turned
+# `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` red, a test that stands in every
+# selection of the gate, so the first baseline of every shard stopped; and the contract failed from
+# the sdist with FileNotFoundError. It is data of a shipped script, like the shard weights below.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
+include scripts/mutation_baseline_allowlist.json
 include scripts/mutation_shard_weights.json
 include scripts/rust_parity_registry.json
 include scripts/_build_anchor_fixture.py
