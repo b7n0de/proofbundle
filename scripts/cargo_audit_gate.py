@@ -12,16 +12,17 @@ step also reads `cargo audit --json` and judges it here.
 
 THE JUDGEMENT. Every entry of `vulnerabilities.list` and every entry of every kind under `warnings`
 (unmaintained, unsound, yanked, notice, and any kind a later cargo-audit adds) fails the gate unless
-its advisory ID is listed under `[advisories] ignore` in `<dir>/.cargo/audit.toml`. An entry without an
-advisory ID (a yanked crate) cannot be listed and always fails. Output that is not the JSON shape
+its advisory ID is listed under `[advisories] ignore` in `<dir>/.cargo/audit.toml`, read as the list
+cargo-audit reports it applied (`settings.ignore`). An entry without an advisory ID (a yanked crate) cannot be listed and always fails. Output that is not the JSON shape
 cargo-audit 0.22.2 writes, a cargo-audit exit code other than 0 or 1, or a count that disagrees with its
-list, is an error: exit 2, never a pass. So is an audit.toml that narrows what cargo-audit reports
+list, is an error: exit 2, never a pass. An audit.toml that narrows what cargo-audit reports
 (`severity_threshold`, or `informational_warnings` without one of unmaintained, unsound, notice), read
-from the report's own `settings`: it would hide an advisory without listing its ID, so it fails (1).
+from the report's own `settings`, fails the gate too (1): it would hide an advisory without listing
+its ID.
 
 The step runs cargo-audit in the directory that holds the checked-in audit.toml, because cargo-audit
 reads `.cargo/audit.toml` from its working directory and an audit.toml under CARGO_HOME only when none
-lies there (lens finding F2 on PR 296); this script reads the listed IDs from the same file.
+lies there (lens finding F2 on PR 296); the listed IDs are the ones cargo-audit read from that file.
 
 `--self-test` proves both directions with two lock files it writes into a temporary directory (so the
 repository carries no fixture): a lock holding personnummer 0.1.0 fails the gate although
@@ -50,24 +51,6 @@ class GateError(Exception):
     """The audit could not be judged; the gate answers 2, never 0."""
 
 
-def listed_ids(directory: Path) -> set:
-    """The advisory IDs under `[advisories] ignore` in `<directory>/.cargo/audit.toml`; none if absent."""
-    pfad = directory / ".cargo" / "audit.toml"
-    if not pfad.exists():
-        return set()
-    try:
-        import tomllib  # noqa: PLC0415 - Python 3.11+; the audit step runs on 3.12, the test suite on 3.10 too
-    except ImportError as exc:
-        raise GateError("reading audit.toml needs Python 3.11 or newer (tomllib)") from exc
-    try:
-        ignore = tomllib.loads(pfad.read_text(encoding="utf-8")).get("advisories", {}).get("ignore", [])
-    except (tomllib.TOMLDecodeError, OSError, AttributeError) as exc:
-        raise GateError(f"{pfad}: not readable as cargo-audit configuration ({exc})") from exc
-    if not (isinstance(ignore, list) and all(isinstance(i, str) for i in ignore)):
-        raise GateError(f"{pfad}: [advisories] ignore must be a list of advisory IDs")
-    return set(ignore)
-
-
 def _advisory_id(entry, wo: str):
     if not isinstance(entry, dict):
         raise GateError(f"{wo}: an entry is not an object")
@@ -81,6 +64,19 @@ def _advisory_id(entry, wo: str):
 
 #: The informational kinds cargo-audit 0.22.2 reports by default (`settings.informational_warnings`).
 _ALL_INFORMATIONAL = ("unmaintained", "unsound", "notice")
+
+
+def listed_ids(report) -> set:
+    """The advisory IDs cargo-audit applied from `[advisories] ignore` of the audit.toml it read, as its
+    report states them in `settings.ignore`. The step runs next to the checked-in
+    tools/pb_verify_rs/.cargo/audit.toml, so that is the file read (an audit.toml under CARGO_HOME
+    applies only when none lies there, lens finding F2). Read from the report and not by parsing the
+    file: that needs tomllib, which Python 3.10, the floor of this repository, does not have."""
+    settings = report.get("settings") if isinstance(report, dict) else None
+    ignore = settings.get("ignore") if isinstance(settings, dict) else None
+    if not (isinstance(ignore, list) and all(isinstance(i, str) for i in ignore)):
+        raise GateError("cargo audit --json lacks settings.ignore as a list of advisory IDs")
+    return set(ignore)
 
 
 def _narrowed(settings) -> list:
@@ -106,7 +102,7 @@ def _narrowed(settings) -> list:
     return gruende
 
 
-def judge(report, listed: set) -> list:
+def judge(report) -> list:
     """The reasons `report` (parsed `cargo audit --json`) fails the gate; empty when it passes."""
     if not isinstance(report, dict):
         raise GateError("cargo audit --json did not write an object")
@@ -118,6 +114,7 @@ def judge(report, listed: set) -> list:
         raise GateError(f"vulnerabilities.count {vulns['count']} disagrees with its list of "
                         f"{len(vulns['list'])}")
     gruende = _narrowed(report.get("settings"))
+    listed = listed_ids(report)
     for entry in vulns["list"]:
         kennung = _advisory_id(entry, "vulnerabilities.list")
         if kennung not in listed:
@@ -152,8 +149,8 @@ def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool):
 
 def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
     rc, report = run_audit(directory, lock, cargo, no_fetch)
-    listed = listed_ids(directory)
-    gruende = judge(report, listed)
+    gruende = judge(report)
+    listed = listed_ids(report)
     if rc == 1 and not report["vulnerabilities"]["list"]:
         raise GateError("cargo audit exited 1 but reports no vulnerability")
     for grund in gruende:
@@ -198,7 +195,7 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
                                   + (["--no-fetch"] if no_fetch else []),
                                   cwd=ort, capture_output=True, text=True, timeout=600)
             _rc, report = run_audit(ort, "Cargo.lock", cargo, no_fetch)
-            gruende = judge(report, listed_ids(ort))
+            gruende = judge(report)
             ergebnis = 1 if gruende else 0
             genannt = all(any(art in g and kennung in g for g in gruende) for art, kennung in muss_nennen.items())
             sauber = erwartet == 1 or (report["vulnerabilities"]["count"] == 0 and not report["warnings"])

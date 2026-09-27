@@ -42,36 +42,37 @@ def _report(vulns=(), settings=None, **warnings) -> dict:
 
 class TheJudgement(unittest.TestCase):
     def test_a_clean_report_passes(self) -> None:
-        self.assertEqual(g.judge(_report(), set()), [])
+        self.assertEqual(g.judge(_report()), [])
 
     def test_a_notice_fails_unless_listed(self) -> None:
-        gruende = g.judge(_report(notice=[_NOTICE]), set())
+        gruende = g.judge(_report(notice=[_NOTICE]))
         self.assertEqual(len(gruende), 1)
         self.assertIn("notice RUSTSEC-2020-0166", gruende[0])
-        self.assertEqual(g.judge(_report(notice=[_NOTICE]), {"RUSTSEC-2020-0166"}), [])
+        self.assertEqual(g.judge(_report(settings={"ignore": ["RUSTSEC-2020-0166"]}, notice=[_NOTICE])), [])
 
     def test_every_warning_kind_fails_a_later_one_included(self) -> None:
         for art in ("unmaintained", "unsound", "notice", "informational", "a-kind-not-yet-named"):
             with self.subTest(kind=art):
                 entry = dict(_NOTICE, kind=art, advisory={"id": "RUSTSEC-2099-0001"})
-                self.assertEqual(len(g.judge(_report(**{art: [entry]}), {"RUSTSEC-2020-0166"})), 1)
+                bericht = _report(settings={"ignore": ["RUSTSEC-2020-0166"]}, **{art: [entry]})
+                self.assertEqual(len(g.judge(bericht)), 1)
 
     def test_a_warning_without_an_advisory_id_cannot_be_listed(self) -> None:
         yanked = {"kind": "yanked", "package": {"name": "x", "version": "1.0.0"}, "advisory": None}
-        self.assertEqual(len(g.judge(_report(yanked=[yanked]), {"RUSTSEC-2023-0071"})), 1)
+        self.assertEqual(len(g.judge(_report(settings={"ignore": ["RUSTSEC-2023-0071"]}, yanked=[yanked]))), 1)
 
     def test_a_vulnerability_fails_unless_listed(self) -> None:
-        self.assertEqual(len(g.judge(_report([_RSA]), set())), 1)
-        self.assertEqual(g.judge(_report([_RSA]), {"RUSTSEC-2023-0071"}), [])
+        self.assertEqual(len(g.judge(_report([_RSA]))), 1)
+        self.assertEqual(g.judge(_report([_RSA], settings={"ignore": ["RUSTSEC-2023-0071"]})), [])
 
     def test_an_audit_toml_that_narrows_the_report_fails(self) -> None:
         # Measured with 0.22.2: each setting hid an advisory from --json, and cargo-audit exited 0.
         for settings in ({"severity": "critical"}, {"informational_warnings": ["unmaintained"]},
                          {"informational_warnings": ["unmaintained", "unsound"]}, {"severity": "low"}):
             with self.subTest(settings=settings):
-                self.assertNotEqual(g.judge(_report(settings=settings), set()), [])
+                self.assertNotEqual(g.judge(_report(settings=settings)), [])
         self.assertEqual(g.judge(_report(settings={"informational_warnings": [
-            "notice", "unsound", "unmaintained", "a-later-kind"]}), set()), [])
+            "notice", "unsound", "unmaintained", "a-later-kind"]})), [])
 
     def test_a_report_of_another_shape_is_an_error_never_a_pass(self) -> None:
         schlecht = [
@@ -82,28 +83,33 @@ class TheJudgement(unittest.TestCase):
             _report(notice=[dict(_NOTICE, advisory={"id": 7})]),
             {k: v for k, v in _report().items() if k != "settings"},
             _report(settings={"informational_warnings": "notice"}),
+            _report(settings={"ignore": "RUSTSEC-2023-0071"}), _report(settings={"ignore": [7]}),
+            {k: v for k, v in _report().items() if k != "settings"} | {"settings": {"severity": None}},
         ]
         for bericht in schlecht:
             with self.subTest(report=bericht):
                 with self.assertRaises(g.GateError):
-                    g.judge(bericht, set())
+                    g.judge(bericht)
 
 
-@unittest.skipIf(sys.version_info < (3, 11), "audit.toml is read with tomllib, Python 3.11+")
 class TheListedIds(unittest.TestCase):
-    def test_the_checked_in_audit_toml_lists_the_one_exception(self) -> None:
-        self.assertEqual(g.listed_ids(REPO / "tools" / "pb_verify_rs"), {"RUSTSEC-2023-0071"})
+    """The listed IDs are the ones cargo-audit applied, `settings.ignore` of its report."""
 
-    def test_no_audit_toml_lists_nothing_and_a_broken_one_is_an_error(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            ort = Path(tmp)
-            self.assertEqual(g.listed_ids(ort), set())
-            (ort / ".cargo").mkdir()
-            for text in ("[advisories\n", '[advisories]\nignore = "RUSTSEC-2023-0071"\n'):
-                with self.subTest(text=text):
-                    (ort / ".cargo" / "audit.toml").write_text(text, encoding="utf-8")
-                    with self.assertRaises(g.GateError):
-                        g.listed_ids(ort)
+    def test_the_listed_ids_are_the_reports_ignore_list(self) -> None:
+        self.assertEqual(g.listed_ids(_report(settings={"ignore": ["RUSTSEC-2023-0071"]})),
+                         {"RUSTSEC-2023-0071"})
+        self.assertEqual(g.listed_ids(_report()), set())
+
+    def test_an_ignore_list_of_another_shape_is_an_error(self) -> None:
+        for ignore in ("RUSTSEC-2023-0071", [7], None, {"RUSTSEC-2023-0071": True}):
+            with self.subTest(ignore=ignore):
+                with self.assertRaises(g.GateError):
+                    g.listed_ids(_report(settings={"ignore": ignore}))
+
+    def test_the_checked_in_audit_toml_lists_the_one_exception(self) -> None:
+        # The step's cargo-audit reads this file; its text names the one exception the report must carry.
+        text = (REPO / "tools" / "pb_verify_rs" / ".cargo" / "audit.toml").read_text(encoding="utf-8")
+        self.assertIn('ignore = ["RUSTSEC-2023-0071"]', text)
 
 
 @unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
@@ -149,7 +155,7 @@ def _cargo_audit_ready() -> bool:
     return lauf.returncode == 0 and "0.22.2" in lauf.stdout
 
 
-@unittest.skipUnless(sys.version_info >= (3, 11) and _cargo_audit_ready(),
+@unittest.skipUnless(_cargo_audit_ready(),
                      "needs cargo-audit 0.22.2 and a fetched advisory database (the rust-parity job has both)")
 class TheSelfTestAgainstTheRealTool(unittest.TestCase):
     def test_both_directions(self) -> None:
