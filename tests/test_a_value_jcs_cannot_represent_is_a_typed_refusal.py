@@ -536,9 +536,29 @@ def test_the_test_result_reference_refuses_a_budget_value_by_type(label):
     assert j["ok"] is False and j["digest_matches"] is False
 
 
+def _past_the_json_dumps_limit() -> list:
+    """A list nested deeper than `json.dumps` of the RUNNING interpreter renders.
+
+    How deep that is depends on the interpreter (measured on 27.09.2026 for the render test,
+    smallest depth `json.dumps` refuses: 993 on 3.10 and 3.11, 9,997 on 3.12, 9,998 on 3.13, 74,509
+    on 3.14.7). The fixed 3000 this case planted before was refused on 3.10 and 3.11 only; on 3.12 to
+    3.14 both exports serialized the name and the case was red. The depth is doubled from 1000 until
+    `json.dumps` refuses, and is never below that 3000, so 3.10 and 3.11 plant what they did. A call
+    site deeper in the stack refuses no later on any of the five interpreters."""
+    tiefe = 1000
+    while tiefe <= 1 << 20:
+        wert = _tief(max(3000, tiefe))
+        try:
+            json.dumps(wert)
+        except RecursionError:
+            return wert
+        tiefe *= 2
+    raise AssertionError("no nesting up to 2**20 levels makes json.dumps raise RecursionError here")
+
+
 @pytest.mark.parametrize("export", ["export_intoto_dsse", "export_eval_result_dsse"])
-@pytest.mark.parametrize("wert", [chr(0xD800), 10**5000, "deep 3000", {1, 2}],
-                         ids=["lone surrogate", "10**5000", "nesting 3000 deep", "a set"])
+@pytest.mark.parametrize("wert", [chr(0xD800), 10**5000, "deep", {1, 2}],
+                         ids=["lone surrogate", "10**5000", "nesting past the json.dumps limit", "a set"])
 def test_the_legacy_serializer_refuses_by_type_too(export, wert):
     """The lens's sibling: under `legacy-sortkeys-json-v0` a lone surrogate raised a raw
     UnicodeEncodeError out of both exports on d5747000; an integer past the int->str cap raised
@@ -546,7 +566,7 @@ def test_the_legacy_serializer_refuses_by_type_too(export, wert):
     type TypeError, each from `json.dumps`. Each is the module's BundleFormatError now."""
     from proofbundle import intoto  # noqa: PLC0415
     from proofbundle.errors import BundleFormatError  # noqa: PLC0415
-    name = _tief(3000) if wert == "deep 3000" else wert
+    name = _past_the_json_dumps_limit() if wert == "deep" else wert
     with pytest.raises(BundleFormatError):
         getattr(intoto, export)(_CLAIM, SK, harness={"name": name},
                                 content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG)

@@ -462,7 +462,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   install as well: it raises `PQUnavailable` from an `ImportError` before it reads an argument, so
   its pass measured the import only.
   `is_int_member` joins the render test's family, 319 public functions now, 310 with a parameter,
-  seeded by hand with a call the suite makes.
+  seeded by hand with a call the suite makes. The render test's depth class had one more site: the
+  legacy-serializer case of `tests/test_a_value_jcs_cannot_represent_is_a_typed_refusal.py` planted
+  a harness name nested a fixed 3000 levels, which `json.dumps` refuses on 3.10 and 3.11 only, so
+  its two nesting cases were red on 3.12, 3.13 and 3.14 (measured at e5b39b81). It plants a depth
+  `json.dumps` of the running interpreter refuses now, doubled from 1000 and never below 3000.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the

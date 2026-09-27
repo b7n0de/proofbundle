@@ -218,10 +218,6 @@ class TestChiaAnchorRegistration(unittest.TestCase):
         self.assertIs(out2["ok"], False)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestASideIsTheInteger0Or1(unittest.TestCase):
     """`side not in (0, 1)` read `true`, `false`, `1.0` and `0.0` as sides (True == 1, 0.0 == 0), so a
     DataLayer proof had several accepted spellings and one of them names a type the format does not use.
@@ -246,3 +242,7 @@ class TestASideIsTheInteger0Or1(unittest.TestCase):
         self.assertEqual({layer["other_hash_side"] for layer in self.obj["inclusion_layers"][:2]}, {0, 1},
                          "the two layers above must carry both sides, or the case tests one only")
         self.assertTrue(verify_chia_datalayer(_pbytes(self.obj), self.root)["ok"])
+
+
+if __name__ == "__main__":
+    unittest.main()
