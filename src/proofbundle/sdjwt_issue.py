@@ -178,8 +178,14 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                 f"passed={ergibt}, and the claim says passed={always_open['passed']}; a disclosure "
                 "that contradicts the always-open verdict is not signed")
     if status is not None:
-        # A plain copy, read once: the check below and the signature read the same dict.
-        status = dict(status) if isinstance(status, dict) else status
+        # A plain copy, read once, with every key as its characters (`canonical._plain_for_jcs`): the
+        # check below and the signature read the same dict, and a key is tested by the characters that
+        # are signed. Lens run 4 at c3ca546b: `dict(status)` kept a `str` subclass key whose `__hash__`
+        # and `__eq__` claimed to be "status_list", so the membership test passed and the signed
+        # status carried another key; a non-string key or two keys equal as characters are refused.
+        if isinstance(status, dict):
+            from .canonical import _plain_for_jcs  # noqa: PLC0415
+            status = _plain_for_jcs(status, ValueError)
         if not isinstance(status, dict) or "status_list" not in status:
             raise ValueError("status must be a dict with a status_list member "
                              "(use proofbundle.statuslist.status_claim)")

@@ -228,6 +228,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   failed). Two cases in `tests/test_kbjwt.py` disclosed a score that contradicts their passing claim
   and now disclose one that earns it.
 
+  A fourth lens at c3ca546b found two smaller gaps in that round. `issue_sd_jwt` copied `status` with
+  `dict()`, which kept a `str` subclass key that hashes and compares like "status_list": the
+  membership test passed and the signed status carried the key's own characters, without a
+  `status_list`. It now reads `status` through the same plain copy the serializers use, so a key is
+  tested by the characters that are signed, and a key that is not a string is refused. And that copy
+  walked lists through a list comprehension, a frame of its own per level on Python 3.10, so
+  `evalclaim.canonicalize` refused lists nested 497 deep that `rfc8785.dumps` writes (measured: 496
+  equal, 497 refused); it walks them with a loop now, and 497, 900 and 990 levels give the bytes
+  `rfc8785.dumps` gives. Three new cases are red at c3ca546b, and a control passes there.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

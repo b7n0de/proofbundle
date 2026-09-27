@@ -114,7 +114,13 @@ def _plain_for_jcs(value: Any, key_error: type) -> Any:
             kopie[schluessel] = _plain_for_jcs(eintrag, key_error)
         return kopie
     if isinstance(value, (list, tuple)):
-        return [_plain_for_jcs(eintrag, key_error) for eintrag in list(value)]
+        # A loop, not a list comprehension: on Python 3.10 a comprehension is a function of its own and
+        # cost a second frame per nesting level, so the copy refused lists nested half as deep as the
+        # serializer reads (lens run 4 at c3ca546b: 497 levels here against 994 in rfc8785).
+        liste: list = []
+        for eintrag in list(value):
+            liste.append(_plain_for_jcs(eintrag, key_error))
+        return liste
     return value
 
 

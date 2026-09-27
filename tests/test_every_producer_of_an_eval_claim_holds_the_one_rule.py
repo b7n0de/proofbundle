@@ -1140,5 +1140,52 @@ class TestAKeyIsSerializedByItsCharacters(_Basis):
         self._alle_weisen_ab(claim)
 
 
+# ---- round 5: lens run 4 at c3ca546b ------------------------------------------------------------------
+
+class _NenntSichStatusList(str):
+    """A key that hashes and compares like "status_list" and whose characters are something else."""
+
+    def __hash__(self):
+        return hash("status_list")
+
+    def __eq__(self, other):
+        return other == "status_list" or str.__eq__(self, other)
+
+
+class TestTheLastTwoReadsOfRoundFour(_Basis):
+    """Lens run 4 at c3ca546b, two P3. The `status` copy kept a key that claimed to be "status_list"
+    through `__hash__` and `__eq__`, so the membership test passed and the signed status carried the
+    key's own characters, without a `status_list`. And `_plain_for_jcs` copied a list through a list
+    comprehension, a frame of its own per level on Python 3.10, so `canonicalize` refused lists nested
+    497 deep that `rfc8785.dumps` writes."""
+
+    def test_a_status_key_is_judged_by_its_characters(self):
+        status = {_NenntSichStatusList("revocation-off"): {"idx": 7, "uri": "https://example.org/status/1"}}
+        self.assertIn("status_list", status)                     # the premise: the lie works on a dict
+        with self.assertRaises(ValueError) as ctx:
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+        self.assertIn("status_list", str(ctx.exception))
+
+    def test_a_status_key_that_is_no_string_is_refused(self):
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                         status={"status_list": {"idx": 7, "uri": "https://example.org/status/1"}, 5: 1})
+
+    def test_the_copy_reads_lists_as_deep_as_the_serializer(self):
+        import rfc8785  # noqa: PLC0415
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        for tiefe in (497, 900):
+            with self.subTest(tiefe=tiefe):
+                wert: object = 1
+                for _ in range(tiefe):
+                    wert = [wert]
+                self.assertEqual(canonicalize({"provenance": wert}), rfc8785.dumps({"provenance": wert}))
+
+    def test_control_a_plain_status_is_signed_as_given(self):
+        status = {"status_list": {"idx": 7, "uri": "https://example.org/status/1"}}
+        self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                                                   status=status))["status"], status)
+
+
 if __name__ == "__main__":
     unittest.main()
