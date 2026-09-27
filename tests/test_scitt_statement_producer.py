@@ -528,3 +528,124 @@ class TestVerifyWithAStatement:
         rc, out, _err = _cli(self._files(tmp_path) + ["--require-anchor"])
         assert rc == 3
         assert "SCITT-STATEMENT: CONFIRMED" in out and "ANCHOR: REQUIRED_NOT_MET" in out
+
+
+# ------------------------------------------------------------------------------------------------
+# Owner decision B: ES256 with a protected x5chain, only for statements that must pass the v1 reader,
+# register with scitt-ccf-ledger and cross-verify with scitt-verifier. Key and chain from the user.
+# ------------------------------------------------------------------------------------------------
+N_P256 = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def _p256_chain(curve=None, leaf_key=None):
+    import datetime  # noqa: PLC0415
+
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    from cryptography.x509.oid import NameOID  # noqa: PLC0415
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    key = leaf_key or ec.generate_private_key(curve or ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test CA")])
+
+    def cert(subject, pub, ca):
+        return (x509.CertificateBuilder().subject_name(subject).issuer_name(ca_name).public_key(pub)
+                .serial_number(x509.random_serial_number()).not_valid_before(now)
+                .not_valid_after(now + datetime.timedelta(days=1))
+                .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+                .sign(ca_key, hashes.SHA256()).public_bytes(serialization.Encoding.DER))
+    ca_der = cert(ca_name, ca_key.public_key(), True)
+    leaf_der = cert(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test leaf")]), key.public_key(), False)
+    return key, [leaf_der, ca_der]
+
+
+def _sign_es256(key=None, chain=None, **kw):
+    if key is None:
+        key, chain = _p256_chain()
+    kw.setdefault("issuer", ISSUER)
+    kw.setdefault("subject", SUBJECT)
+    return _p().sign_statement(_bundle(), key, x5chain=chain, **kw), key, chain
+
+
+class TestTheEs256Path:
+    def test_a_protected_x5chain_and_no_kid(self):
+        data, key, chain = _sign_es256()
+        _raw, prot, unprot, payload, _sig = _read(data)
+        assert sorted(prot) == [1, 15, 33, 258, 259]
+        assert prot[1] == -7 and [bytes(c) for c in prot[33]] == chain
+        assert dict(prot[15]) == {1: ISSUER, 2: SUBJECT} and dict(unprot) == {} and payload == _root(_bundle())
+
+    def test_one_certificate_is_a_byte_string_as_rfc9360_requires(self):
+        key, chain = _p256_chain()
+        data, _k, _c = _sign_es256(key, chain[:1])
+        assert _read(data)[1][33] == chain[0]
+
+    def test_it_passes_the_v1_reader_under_the_leaf_key(self):
+        from proofbundle import scitt_ccf  # noqa: PLC0415
+        data, key, _chain = _sign_es256()
+        assert scitt_ccf.verify_statement_signature(data, statement_keys=[_spki(key)]) == ("confirmed", True)
+        assert scitt_ccf._statement_profile(scitt_ccf.decode_cose_sign1(data)) is None
+
+    def test_the_producers_check_confirms_it_under_the_leaf_key_only(self):
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+        data, key, _chain = _sign_es256()
+        assert _check(data, keys=[_spki(key)]).status == "confirmed"
+        other = _spki(ec.generate_private_key(ec.SECP256R1()))
+        assert _check(data, keys=[other]).status == "needs_rp_trust"
+        assert _check(data, keys=[_spki(_signer())]).status == "needs_rp_trust"
+
+    def test_the_signature_has_a_low_s_and_verifies(self):
+        from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric import ec, utils  # noqa: PLC0415
+        from proofbundle import scitt_ccf  # noqa: PLC0415
+        key, chain = _p256_chain()
+        for i in range(32):
+            data, _k, _c = _sign_es256(key, chain, subject=f"s{i}")
+            raw, _prot, _u, payload, sig = _read(data)
+            assert len(sig) == 64 and int.from_bytes(sig[32:], "big") <= N_P256 // 2
+            der = utils.encode_dss_signature(int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big"))
+            key.public_key().verify(der, scitt_ccf._sig_structure(raw, payload), ec.ECDSA(hashes.SHA256()))
+
+    def test_it_refuses_what_it_cannot_write_honestly(self):
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+        key, chain = _p256_chain()
+        E = _p().ScittStatementError
+        with pytest.raises(E):
+            _p().sign_statement(_bundle(), key, issuer=ISSUER, subject=SUBJECT)              # no x5chain
+        with pytest.raises(E):
+            _sign_es256(ec.generate_private_key(ec.SECP256R1()), chain)                        # another leaf key
+        with pytest.raises(E):
+            _sign_es256(*_p256_chain(ec.SECP384R1()))                                          # not P-256
+        with pytest.raises(E):
+            _sign_es256(key, [b"not a certificate"])
+        with pytest.raises(E):
+            _sign_es256(key, [])
+        with pytest.raises(E):
+            _p().sign_statement(_bundle(), _signer(), issuer=ISSUER, subject=SUBJECT, x5chain=chain)  # EdDSA
+
+    def test_the_command_signs_with_a_user_key_and_chain(self, tmp_path):
+        from cryptography import x509  # noqa: PLC0415
+        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+        key, chain = _p256_chain()
+        key_pem = tmp_path / "leaf.key.pem"
+        key_pem.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                              serialization.NoEncryption()))
+        chain_pem = tmp_path / "chain.pem"
+        chain_pem.write_bytes(b"".join(x509.load_der_x509_certificate(c).public_bytes(serialization.Encoding.PEM)
+                                       for c in chain))
+        out, pub = tmp_path / "s.cose", tmp_path / "leaf.pub.pem"
+        rc, stdout, err = _cli(["scitt", "sign", str(BUNDLE), "--out", str(out), "--issuer", ISSUER,
+                                "--subject", SUBJECT, "--ec-key", str(key_pem), "--x5chain", str(chain_pem),
+                                "--public-key-out", str(pub)])
+        assert rc == 0, stdout + err
+        _raw, prot, _u, _p2, _s = _read(out.read_bytes())
+        assert prot[1] == -7 and [bytes(c) for c in prot[33]] == chain
+        rc, stdout, _e = _cli(["verify", str(BUNDLE), "--scitt-statement", str(out), "--scitt-statement-key", str(pub)])
+        assert rc == 0 and "SCITT-STATEMENT: CONFIRMED" in stdout
+
+    def test_the_command_refuses_two_kinds_of_key(self, tmp_path):
+        rc, _o, err = _cli(["scitt", "sign", str(BUNDLE), "--out", str(tmp_path / "s.cose"), "--issuer", ISSUER,
+                            "--subject", SUBJECT, "--key", "k", "--ec-key", "e", "--x5chain", "c"])
+        assert rc == 2 and "not both" in err and "unrecognized" not in err
+        assert not (tmp_path / "s.cose").exists()
