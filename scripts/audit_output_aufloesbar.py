@@ -51,6 +51,7 @@ Exit: 0 AUFLOESBAR · 1 NICHT_AUFLOESBAR · 2 NICHT_MESSBAR
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import json
 import os
@@ -152,10 +153,10 @@ def _digest_wie_das_receipt(p: Path) -> str | None:
 def aufloesbar(receipt: dict, repo: Path) -> dict:
     """-> {zustand, digest, treffer, geprueft, grund}. Reports; never raises on a bad receipt.
 
-    An exception no branch of `_aufloesbar` names is NICHT_MESSBAR with its reason. Python ends a run
-    on one with exit 1, the code of NICHT_AUFLOESBAR, a negative this run did not measure; the sweep of
-    the class a review lens found in the mutant guard (measured 2026-09-27 at 53676296) put the same
-    exit in each of the five release tools."""
+    An exception no branch of `_aufloesbar` names is NICHT_MESSBAR with its reason, and `main` exits 2
+    on it. Uncaught, such an exception would end the run with exit 1, the code of NICHT_AUFLOESBAR, a
+    negative this run did not measure; the sweep of the class a review lens found in the mutant guard
+    (measured 2026-09-27 at 53676296) gave each of the five release tools its own verdict for it."""
     try:
         return _aufloesbar(receipt, repo)
     except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this resolver
@@ -177,6 +178,10 @@ def _aufloesbar(receipt: dict, repo: Path) -> dict:
         return aus
     digest = digest.strip().lower()
     aus["digest"] = digest
+    # THE RECEIPT'S VALUE IS PRINTED AS A NAME IS (`_pfad`). Printed raw, a digest `a<LF>AUFLOESBAR`
+    # split the one report line in two, and so did a U+2028 in it (a review lens, measured 2026-09-27
+    # at 6614ac32); b17c141c had quoted the verifier's `signer_pubkey` and not swept this reader.
+    gezeigt = _pfad(digest[:12])
     dateien = _tracked_files(repo)
     if dateien is None:
         aus.update(zustand="NICHT_MESSBAR", treffer=[], geprueft=0,
@@ -215,42 +220,67 @@ def _aufloesbar(receipt: dict, repo: Path) -> dict:
         aus.update(zustand="NICHT_MESSBAR",
                    grund=(f"{len(nicht_gehasht)} tracked path(s) could not be read as a regular file of at "
                           f"most {FILE_CAP} bytes (first {_pfad(nicht_gehasht[0])}), and none of the "
-                          f"{geprueft} hashed carries {digest[:12]}…"))
+                          f"{geprueft} hashed carries {gezeigt}…"))
     else:
         aus.update(zustand="NICHT_AUFLOESBAR",
-                   grund=(f"{geprueft} verfolgte Datei(en) gehasht, keine traegt {digest[:12]}… — "
+                   grund=(f"{geprueft} verfolgte Datei(en) gehasht, keine traegt {gezeigt}… — "
                           f"der signierte Digest ist attribuierbar, aber nicht nachrechenbar"))
     return aus
 
 
 def main(argv: list[str] | None = None) -> int:
-    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
-    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--receipt", required=True, type=Path)
-    ap.add_argument("--repo", type=Path, default=Path("."))
-    ap.add_argument("--json", action="store_true")
-    a = ap.parse_args(argv)
-    roh = _bytes_bis(a.receipt, RECEIPT_CAP)
+    """The resolver as a command. EVERY LINE OF IT ENDS IN ONE OF THE THREE STATES.
+
+    `aufloesbar` held an exception no branch names to NICHT_MESSBAR, and the lines around that call did
+    not: a `--repo` that is a symlink to itself raised a RuntimeError in `Path.resolve()`, and the run
+    ended with a traceback and exit 1, the code of NICHT_AUFLOESBAR (a review lens, measured 2026-09-27
+    at 6614ac32 and on main at 10f3466b). From the stream set-up to the printed verdict, such an
+    exception is NICHT_MESSBAR with its reason, exit 2, and a stdout that refuses the verdict leaves it
+    on stderr."""
+    als_json = False
     try:
-        if roh is None:
-            raise OSError(f"no regular file of at most {RECEIPT_CAP} bytes: {_pfad(str(a.receipt))}")
-        # RecursionError: a receipt nested deeper than the parser's stack, measured at 100000.
-        rc = json.loads(roh.decode("utf-8"))
-    except (OSError, ValueError, RecursionError) as e:
-        r = {"schema": SCHEMA, "zustand": "NICHT_MESSBAR", "digest": None, "treffer": [],
-             "geprueft": 0, "grund": f"Receipt nicht lesbar: {type(e).__name__}: {e}"}
-    else:
-        r = aufloesbar(rc, a.repo.resolve())
-    if a.json:
+        # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+        # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+        # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+        # the escape of the same code point, so the name reads back as it was.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+        ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+        ap.add_argument("--receipt", required=True, type=Path)
+        ap.add_argument("--repo", type=Path, default=Path("."))
+        ap.add_argument("--json", action="store_true")
+        a = ap.parse_args(argv)
+        als_json = a.json
+        roh = _bytes_bis(a.receipt, RECEIPT_CAP)
+        try:
+            if roh is None:
+                raise OSError(f"no regular file of at most {RECEIPT_CAP} bytes: {_pfad(str(a.receipt))}")
+            # RecursionError: a receipt nested deeper than the parser's stack, measured at 100000.
+            rc = json.loads(roh.decode("utf-8"))
+        except (OSError, ValueError, RecursionError) as e:
+            r = {"schema": SCHEMA, "zustand": "NICHT_MESSBAR", "digest": None, "treffer": [],
+                 "geprueft": 0, "grund": f"Receipt nicht lesbar: {type(e).__name__}: {e}"}
+        else:
+            r = aufloesbar(rc, a.repo.resolve())
+        _melde(r, als_json)
+        return {"AUFLOESBAR": 0, "NICHT_AUFLOESBAR": 1}.get(r["zustand"], 2)
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this resolver
+        r = {"schema": SCHEMA, "zustand": "NICHT_MESSBAR", "digest": None, "treffer": [], "geprueft": 0,
+             "grund": f"the run stopped on {_unerwartet(exc)}, so nothing was resolved"}
+        try:
+            _melde(r, als_json)
+        except Exception:  # noqa: BLE001 -- stdout refused the verdict, so stderr carries it
+            with contextlib.suppress(Exception):
+                print(f"audit_output_digest: NICHT_MESSBAR — {r['grund']}", file=sys.stderr)
+        return 2
+
+
+def _melde(r: dict, als_json: bool) -> None:
+    """The verdict on stdout: the whole result as JSON, or one line."""
+    if als_json:
         print(json.dumps(r, indent=2, ensure_ascii=False))
     else:
         print(f"audit_output_digest: {r['zustand']} — {r['grund']}")
-    return {"AUFLOESBAR": 0, "NICHT_AUFLOESBAR": 1}.get(r["zustand"], 2)
 
 
 if __name__ == "__main__":

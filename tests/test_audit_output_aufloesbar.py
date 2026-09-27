@@ -171,9 +171,9 @@ def test_a_receipt_with_an_int_past_the_digit_limit_is_not_measurable(baum, tmp_
 
 
 def test_an_exception_no_branch_names_is_not_measurable(baum, tmp_path, monkeypatch, capsys):
-    """Planted: Python ends a run on an exception with exit 1, the code of NICHT_AUFLOESBAR, a negative
-    this run did not measure (the sweep of the class a review lens found in the mutant guard,
-    2026-09-27 at 53676296)."""
+    """Planted: uncaught, such an exception would end the run with exit 1, the code of NICHT_AUFLOESBAR,
+    a negative this run did not measure; the resolver says NICHT_MESSBAR and exits 2 instead (the sweep
+    of the class a review lens found in the mutant guard, 2026-09-27 at 53676296)."""
     def planted(repo):
         raise ValueError("planted in the listing")
 

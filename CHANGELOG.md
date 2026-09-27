@@ -123,12 +123,39 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   release it comes before, which it did not. The pre-tag audit gate, which the receipt verifier
   loads, caught only a JSON syntax error, so a receipt with a 5000-digit int or nested 100000 deep
   ended it with a traceback; it rejects such a receipt with its reason now. Each of the five tools
-  now ends a run on an exception it does not name in its own verdict: exit 2 in the guard, the
-  language gate, the resolver and the receipt verifier, and a problem with exit 1 in the version
-  gate, its only failure code. The receipt verifier also printed an untrusted `signer_pubkey` raw,
-  and a line break in it wrote a report line of its own that began `VERIFIED`; the value is quoted
-  now, like every other value in that reason. Of the new test cases, 26 failed at 53676296, and all
-  of them pass now.
+  now ends a run on an exception it does not name, raised in its judging call, in its own verdict:
+  exit 2 in the guard, the language gate, the resolver and the receipt verifier, and a problem with
+  exit 1 in the version gate, its only failure code. That catch did not hold the other lines of
+  `main`; the next paragraph closes them. The receipt verifier also printed an untrusted
+  `signer_pubkey` raw, and a line break in it wrote a report line of its own that began `VERIFIED`;
+  the value is quoted now, like every other value in that reason. Of the new test cases, 26 failed
+  at 53676296, and all of them pass now.
+
+  Every line of each tool's `main` ends in that verdict, and a value it prints from a receipt, a file
+  or git output stays on one line. A review lens measured at 6614ac32, and on main at 10f3466b, that
+  a `--repo` that is a symlink to itself raised `RuntimeError: Symlink loop` in `Path.resolve()`
+  (Python 3.10) outside that catch and ended the resolver, the version gate, the language gate and the
+  receipt verifier with a traceback and exit 1, the code of a finding in three of them; the version
+  gate also read the source version a second time in `main` and caught only its read error there. A
+  sweep of each `main` found lines outside the catch in all five: the stream set-up, the printed
+  verdict, `Path.resolve()` of `--repo` in the four tools that take one, and that second read. From
+  the stream set-up to the printed verdict, an exception now ends in the tool's own verdict, written
+  by the shared `_unerwartet`: exit 2 in four tools, and one problem with exit 1 in the version gate,
+  which does not count twice an exception `check` already reported; a stdout that refuses the
+  verdict leaves it on stderr with the same exit code. The resolver printed the receipt's
+  `audit_output_digest` raw, so a value `a<LF>AUFLOESBAR`, or one holding a U+2028, split its one
+  report line; b17c141c had closed that class for `signer_pubkey` in the verifier. The sweep for such
+  values found git's own reason printed raw in the guard's stop, in five reasons and two exception
+  texts of the receipt verifier and in the version gate's problem for a failed `git log` (git echoes
+  a path as it is and writes some reasons over three lines), and the source version, which
+  `pyproject.toml` or `__init__.py` can give with a line break in it, in the seven places the version
+  gate prints it; a character that does not print could reach the claim text the version gate
+  quotes, git's reason the language gate names its fallback tree by, and a `git status` line in the
+  verifier's refusal. Each is written as a name is now (`_pfad`), and a value that prints reads as
+  before. Three docstrings and comments that said what Python does without the catch ("Python ends a
+  run on one with exit 1") read to two reviewers as the tool's own exit; they and four more of that
+  form say it in the conditional now. Of the 31 new test cases, 29 failed at 6614ac32, the two
+  controls passed there, and all 31 pass now.
 
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read

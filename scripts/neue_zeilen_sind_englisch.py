@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import ast
 import collections
+import contextlib
 import functools
 import io
 import os
@@ -729,10 +730,11 @@ def _ist_prosa(datei: str, nr: int, text: str, lies=None) -> bool | None:
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     """The verdict over the range (`_pruefe`), or NOT MEASURABLE with its reason; never an exception.
 
-    Python ends a run on an exception with exit 1, the code of ROT. An int past the digit limit in a
-    changed `.py` file raised in the reader this gate takes from the mutant guard, and a file with no
-    German in it was ROT by its exit code, in the HEAD form and in the working-tree form (a review lens,
-    measured 2026-09-27 at 53676296). An exception no branch names is a range this run did not judge.
+    Uncaught, an exception would end the run with exit 1, the code of ROT, so this gate names it NOT
+    MEASURABLE with exit 2 instead. An int past the digit limit in a changed `.py` file raised in the
+    reader this gate takes from the mutant guard, and a file with no German in it was ROT by its exit
+    code, in the HEAD form and in the working-tree form (a review lens, measured 2026-09-27 at
+    53676296). An exception no branch names is a range this run did not judge.
     """
     try:
         return _pruefe(basis, arbeitsbaum)
@@ -751,7 +753,7 @@ def _pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
                 "wortlisten_baum": str(WERKZEUG_WURZEL),
                 "grund": ("no tree to judge here, and git's own reason is carried in "
                           f"baum_herkunft; name one with --repo instead of taking this tool's own "
-                          f"({REPO_HERKUNFT})")}
+                          f"({_pfad(REPO_HERKUNFT)})")}
     lies = _stand_leser(aus_head=not arbeitsbaum)
     je_datei, lage = _neue_zeilen(basis, arbeitsbaum, lies)
     if lage != "measured":
@@ -807,40 +809,76 @@ def _pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
 
 
 def main(argv=None) -> int:
-    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
-    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--base", default="origin/main",
-                   help="the base of the change range (default origin/main)")
-    p.add_argument("--arbeitsbaum", action="store_true",
-                   help="measure the working tree instead of HEAD (local fixing, not CI)")
-    p.add_argument("--repo",
-                   help="the tree to judge (default: the working directory's repository)")
-    p.add_argument("--json", action="store_true")
-    a = p.parse_args(argv)
+    """The gate as a command. EVERY LINE OF IT ENDS IN A VERDICT.
+
+    `pruefe` held an exception no branch names to NOT MEASURABLE, and the lines around that call did
+    not: a `--repo` that is a symlink to itself raised a RuntimeError in `Path.resolve()` where the tree
+    is named, and the run ended with a traceback and exit 1, the code of ROT (a review lens, measured
+    2026-09-27 at 6614ac32 and on main at 10f3466b). From the stream set-up to the printed verdict,
+    such an exception is NOT MEASURABLE with its reason, exit 2, and a stdout that refuses the verdict
+    leaves it on stderr. A tree the run stopped before naming is reported as it was asked for.
+    """
     global REPO, REPO_HERKUNFT
-    REPO, REPO_HERKUNFT = _gemessener_baum(a.repo)
-    d = pruefe(a.base, a.arbeitsbaum)
-    if a.json:
+    als_json, gefragt, stand, benannt = False, None, None, False
+    try:
+        # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+        # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+        # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+        # the escape of the same code point, so the name reads back as it was.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+        p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+        p.add_argument("--base", default="origin/main",
+                       help="the base of the change range (default origin/main)")
+        p.add_argument("--arbeitsbaum", action="store_true",
+                       help="measure the working tree instead of HEAD (local fixing, not CI)")
+        p.add_argument("--repo",
+                       help="the tree to judge (default: the working directory's repository)")
+        p.add_argument("--json", action="store_true")
+        a = p.parse_args(argv)
+        als_json, gefragt = a.json, a.repo
+        stand = "working tree" if a.arbeitsbaum else "HEAD"
+        REPO, REPO_HERKUNFT = _gemessener_baum(a.repo)
+        benannt = True
+        d = pruefe(a.base, a.arbeitsbaum)
+        _melde(d, als_json)
+        return int(d["rc"])
+    except Exception as fehler:  # noqa: BLE001 -- every other exception is no verdict of this gate
+        d = {"urteil": "NOT MEASURABLE", "rc": 2, "befunde": [],
+             "grund": f"the run stopped on {_unerwartet(fehler)}, so the range was not judged",
+             "gemessener_stand": stand or "?",
+             "gemessener_baum": str(REPO) if benannt else (gefragt or "?"),
+             "baum_herkunft": REPO_HERKUNFT if benannt else "not named, the run stopped first",
+             "wortlisten_baum": str(WERKZEUG_WURZEL)}
+        try:
+            _melde(d, als_json)
+        except Exception:  # noqa: BLE001 -- stdout refused the verdict, so stderr carries it
+            with contextlib.suppress(Exception):
+                print(f"new-lines-english: NOT MEASURABLE · {d['grund']}", file=sys.stderr)
+        return 2
+
+
+def _melde(d: dict, als_json: bool) -> None:
+    """The verdict on stdout: the whole result as JSON, or the summary line, the findings and the reason.
+
+    `baum_herkunft` carries git's own reason when the gate falls back to its own tree, and git writes a
+    path in it as it is; it is quoted as a name is, as `grund`, which repeats it, quotes it too (the
+    sweep of the class a review lens found in the resolver, measured 2026-09-27 at 6614ac32)."""
+    if als_json:
         import json
         print(json.dumps(d, ensure_ascii=False, indent=2))
-    else:
-        print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
-              f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
-              f" · measured tree: {_pfad(d.get('gemessener_baum', '?'))}"
-              f" ({d.get('baum_herkunft', '?')})"
-              f" · word list from: {_pfad(d.get('wortlisten_baum', '?'))}")
-        for b in d["befunde"][:20]:
-            print(f"  {_pfad(b['datei'])}:{b['zeile']}  {b['woerter']}  {_auszug(b['text'])}")
-        if len(d["befunde"]) > 20:
-            print(f"  ... and {len(d['befunde']) - 20} more, not listed here (--json shows all)")
-        if d.get("grund"):
-            print(f"  ! {d['grund']}")
-    return int(d["rc"])
+        return
+    print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
+          f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
+          f" · measured tree: {_pfad(d.get('gemessener_baum', '?'))}"
+          f" ({_pfad(d.get('baum_herkunft', '?'))})"
+          f" · word list from: {_pfad(d.get('wortlisten_baum', '?'))}")
+    for b in d["befunde"][:20]:
+        print(f"  {_pfad(b['datei'])}:{b['zeile']}  {b['woerter']}  {_auszug(b['text'])}")
+    if len(d["befunde"]) > 20:
+        print(f"  ... and {len(d['befunde']) - 20} more, not listed here (--json shows all)")
+    if d.get("grund"):
+        print(f"  ! {d['grund']}")
 
 
 if __name__ == "__main__":

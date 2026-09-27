@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import ast
 import codecs
+import contextlib
 import io
 import re
 import subprocess
@@ -206,11 +207,16 @@ _VERIFYISH_NAME = re.compile(r"(?:verify|validate|check)", re.IGNORECASE)
 
 
 def _git_bytes(*args: str, cwd: Path) -> bytes:
-    """git's output as it wrote it, as bytes; a failing call stops fail-closed."""
+    """git's output as it wrote it, as bytes; a failing call stops fail-closed.
+
+    The stop names the call and git's reason as a name is written (`_pfad`): the call can carry a path
+    (`show :<path>`), git echoes a path as it is and writes some reasons over several lines, so
+    `fatal: path '<name>' does not exist` wrote a name with a line break as a second line of the stop
+    (the sweep of the class a review lens found in the resolver, measured 2026-09-27 at 6614ac32)."""
     proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True)
     if proc.returncode != 0:
-        raise SystemExit(f"mutant_signature_guard: git {' '.join(args[:2])} failed (fail closed): "
-                         f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
+        raise SystemExit(f"mutant_signature_guard: git {_pfad(' '.join(args[:2]))} failed (fail closed): "
+                         f"{_pfad(proc.stderr.decode('utf-8', 'replace').strip()[:200])}")
     return proc.stdout
 
 
@@ -815,51 +821,63 @@ def self_test() -> int:
     return 0 if failures == 0 else 1
 
 
+def _stop(text: str) -> int:
+    """A fail-closed stop: its reason on stderr, exit 2. A stderr that refuses the reason does not
+    change the exit code."""
+    with contextlib.suppress(Exception):
+        print(text, file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    mode = p.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--staged", action="store_true", help="scan the staged diff (pre-commit)")
-    mode.add_argument("--base", metavar="SHA", help="scan merge-base(SHA, HEAD)..HEAD (CI)")
-    mode.add_argument("--self-test", action="store_true", help="prove the guard catches each class")
-    a = p.parse_args(argv)
-    # A path is read as git names it, so a name that is not UTF-8 carries surrogates, and a strict
-    # stdout raised on one with exit 1 and a traceback instead of the finding (measured 2026-09-26,
-    # a mutant under src/proofbundle/ in a file whose name is the byte 0xff). The four path readers
-    # below this change write such a name with backslash escapes; so does this report.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
-    # ONE EXIT FOR EVERY FAIL-CLOSED STOP. Each stop raises SystemExit with its reason as text, and
-    # Python exits 1 on a text, the exit code of a finding, while the docstring says 2: a caller who
-    # reads the exit code took "not inside a git repository" or "git diff failed" for a mutant found
-    # (a review lens of another model family, measured 2026-09-26).
+    # ONE EXIT FOR EVERY FAIL-CLOSED STOP. Each stop raises SystemExit with its reason as text.
+    # Uncaught, such a SystemExit would end the run with exit 1, the exit code of a finding, while the
+    # docstring says 2: a caller who reads the exit code took "not inside a git repository" or "git
+    # diff failed" for a mutant found (a review lens of another model family, measured 2026-09-26).
+    #
+    # AND EVERY LINE OF `main` STANDS IN THAT CATCH, from the parsed arguments to the printed verdict.
+    # The stream set-up and the report stood outside it, so an exception there ended the run with a
+    # traceback and exit 1, the code of a finding; the other four release tools also resolved a path
+    # outside theirs (a review lens, measured 2026-09-27 at 6614ac32).
     try:
+        p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+        mode = p.add_mutually_exclusive_group(required=True)
+        mode.add_argument("--staged", action="store_true", help="scan the staged diff (pre-commit)")
+        mode.add_argument("--base", metavar="SHA", help="scan merge-base(SHA, HEAD)..HEAD (CI)")
+        mode.add_argument("--self-test", action="store_true", help="prove the guard catches each class")
+        a = p.parse_args(argv)
+        # A path is read as git names it, so a name that is not UTF-8 carries surrogates, and a strict
+        # stdout raised on one with exit 1 and a traceback instead of the finding (measured 2026-09-26,
+        # a mutant under src/proofbundle/ in a file whose name is the byte 0xff). The four path readers
+        # below this change write such a name with backslash escapes; so does this report.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
         if a.self_test:
             return self_test()
         repo = _repo_root()
         findings = run_staged(repo) if a.staged else run_base(a.base, repo)
+        if findings:
+            print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
+            for f in findings:
+                print(f"  {f}")
+            if any(_NO_MARKER not in f for f in findings):
+                print("If this is intentional and legitimate, add a visible `# mutant-guard: allow` "
+                      "comment on (or directly above) the flagged line so review sees the exception.")
+            return 1
+        print("mutant_signature_guard: clean, no mutant signatures in the scanned change")
+        return 0
     except SystemExit as stop:
         if isinstance(stop.code, str):
-            print(stop.code, file=sys.stderr)
-            return 2
-        raise
-    # AN EXCEPTION NO STOP NAMES IS A STOP TOO. Python ends a run on one with exit 1, the code of a
-    # finding: an int past the digit limit in a changed file raised in `_tree_shape`, and the guard said
-    # "mutant found" by its exit code over a file with no signature in it (a review lens, measured
-    # 2026-09-27 at 53676296). It cannot say what it did not judge, so it says that it did not.
+            return _stop(stop.code)
+        raise                             # argparse's own exit: 2 for a usage error, 0 for --help
+    # AN EXCEPTION NO STOP NAMES IS A STOP TOO. Uncaught, such an exception would end the run with exit
+    # 1, the code of a finding: an int past the digit limit in a changed file raised in `_tree_shape`,
+    # and the guard said "mutant found" by its exit code over a file with no signature in it (a review
+    # lens, measured 2026-09-27 at 53676296). It cannot say what it did not judge, so it says that it
+    # did not, with exit 2.
     except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this guard
-        print(f"mutant_signature_guard: the run stopped on {_unerwartet(exc)}, so the change is not "
-              "judged (fail closed)", file=sys.stderr)
-        return 2
-    if findings:
-        print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
-        for f in findings:
-            print(f"  {f}")
-        if any(_NO_MARKER not in f for f in findings):
-            print("If this is intentional and legitimate, add a visible `# mutant-guard: allow` "
-                  "comment on (or directly above) the flagged line so review sees the exception.")
-        return 1
-    print("mutant_signature_guard: clean, no mutant signatures in the scanned change")
-    return 0
+        return _stop(f"mutant_signature_guard: the run stopped on {_unerwartet(exc)}, so the change is "
+                     "not judged (fail closed)")
 
 
 if __name__ == "__main__":

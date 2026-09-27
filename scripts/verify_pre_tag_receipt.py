@@ -289,6 +289,11 @@ def _unerwartet(exc: BaseException) -> str:
 
 
 def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
+    """(exit code, stdout, git's reason). Every reason that reaches a report line is written as a name
+    is (`_pfad`): git echoes a path as it is and writes some reasons over several lines, so a `--repo`
+    named `no<LF>VERIFIED such clone` made `cannot change to '...'` write a report line of its own that
+    began `VERIFIED` (the sweep of the class a review lens found in the resolver, measured 2026-09-27
+    at 6614ac32)."""
     try:
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -303,10 +308,10 @@ def _version_token(version: str) -> str:
 def measure(repo: Path, commit: str, version: str) -> dict:
     """See `_measure`; the import state of the process is the same afterwards.
 
-    An exception no branch of `_measure` names is NOT_MEASURABLE with its reason, exit 2. Python ends a
-    run on one with exit 1, the code of NOT VERIFIED, a verdict about a receipt this run did not judge;
-    the sweep of the class a review lens found in the mutant guard (measured 2026-09-27 at 53676296)
-    put the same exit in each of the five release tools."""
+    An exception no branch of `_measure` names is NOT_MEASURABLE with its reason, exit 2. Uncaught,
+    such an exception would end the run with exit 1, the code of NOT VERIFIED, a verdict about a
+    receipt this run did not judge; the sweep of the class a review lens found in the mutant guard
+    (measured 2026-09-27 at 53676296) gave each of the five release tools its own verdict for it."""
     with _importzustand():
         try:
             return _measure(repo, commit, version)
@@ -339,14 +344,14 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         return out
     rc, head, err = _git(repo, "rev-parse", "--verify", "HEAD")
     if rc != 0:
-        out["reason"] = f"not a git checkout, or no HEAD: {err or 'git rev-parse failed'}"
+        out["reason"] = f"not a git checkout, or no HEAD: {_pfad(err or 'git rev-parse failed')}"
         return out
     head_s = head.decode().strip()
     out["checkout_head"] = head_s
     rc, obj, err = _git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}")
     if rc != 0 or obj.decode().strip() != commit:
         out["reason"] = (f"commit {commit[:12]} is not an object of this clone "
-                         f"({err or 'rev-parse failed'}) -- fetch it, or check the id")
+                         f"({_pfad(err or 'rev-parse failed')}) -- fetch it, or check the id")
         return out
     if head_s != commit:
         # REFUSED, NOT MEASURED. The tree digest is taken over HEAD by the library the release
@@ -363,12 +368,15 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     # honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
     rc, schmutz, err = _git(repo, "status", "--porcelain", "--untracked-files=all", "--", *_CODE_PFADE)
     if rc != 0:
-        out["reason"] = f"the working tree could not be inspected: {err or 'git status failed'}"
+        out["reason"] = f"the working tree could not be inspected: {_pfad(err or 'git status failed')}"
         return out
     zeilen = [ln for ln in schmutz.decode("utf-8", "replace").splitlines() if ln.strip()]
     if zeilen:
+        # The status line is git's, quoted as a name is: with `core.quotePath=false` git writes a
+        # character outside ASCII as it is, one that does not print included (measured 2026-09-27).
+        erste = _pfad(zeilen[0].strip()[:80])
         out["reason"] = (f"the checkout carries {len(zeilen)} local modification(s) or untracked file(s) under "
-                         f"{'/'.join(_CODE_PFADE)} ({zeilen[0].strip()[:80]}{' …' if len(zeilen) > 1 else ''}); "
+                         f"{'/'.join(_CODE_PFADE)} ({erste}{' …' if len(zeilen) > 1 else ''}); "
                          "the verifier and the library it calls run from these files, so a modified "
                          "checkout cannot judge the commit -- `git stash` or clone afresh, then run again")
         return out
@@ -412,7 +420,8 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     try:
         out["subject_tree_digest"] = lib.subject_tree_digest(repo)
     except Exception as exc:  # noqa: BLE001 -- the library raises a typed error; report, never crash
-        out["reason"] = f"the tree digest could not be measured: {type(exc).__name__}: {exc}"
+        out["reason"] = ("the tree digest could not be measured: "
+                         f"{_pfad(f'{type(exc).__name__}: {exc}')}")
         return out
 
     trusted = lib.load_trusted_pubkeys(repo, ref=commit)
@@ -424,7 +433,7 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     for rel in sorted(kandidaten):
         rc, groesse, err = _git(repo, "cat-file", "-s", f"{commit}:{rel}")
         if rc != 0 or not groesse.strip().isdigit():
-            rejected.append({"path": rel, "reason": f"not readable from the commit: {err}"})
+            rejected.append({"path": rel, "reason": f"not readable from the commit: {_pfad(err)}"})
             continue
         if int(groesse) > RECEIPT_CAP:
             rejected.append({"path": rel, "reason": (f"the committed file is {int(groesse)} bytes, more "
@@ -432,7 +441,7 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
             continue
         rc, blob, err = _git(repo, "show", f"{commit}:{rel}")
         if rc != 0:
-            rejected.append({"path": rel, "reason": f"not readable from the commit: {err}"})
+            rejected.append({"path": rel, "reason": f"not readable from the commit: {_pfad(err)}"})
             continue
         # RecursionError: a receipt nested deeper than the parser's stack ended the run with a
         # traceback and exit 1 (a review of the stack at 1ecc2aca, on main as well, measured at 100000).
@@ -456,7 +465,8 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                                             subject_tree_digest=out["subject_tree_digest"],
                                             gate_source_digest=out["gate_source_digest"])
         except Exception as exc:  # noqa: BLE001 -- fail closed with the reason, like the gate does
-            ok, reason = False, f"verify_receipt raised {type(exc).__name__}: {exc} (fail-closed)"
+            ok, reason = False, (f"verify_receipt raised {_pfad(f'{type(exc).__name__}: {exc}')} "
+                                 "(fail-closed)")
         signer = receipt.get("signer_pubkey")
         eintrag = {"path": rel, "reason": reason,
                    "signer_pubkey": signer if isinstance(signer, str) else None}
@@ -484,34 +494,59 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
-    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--repo", type=Path, default=Path("."), help="the clone (default: .)")
-    p.add_argument("--commit", required=True, help="full 40-hex commit id named by the attestation")
-    p.add_argument("--version", required=True, help="release version, e.g. 6.0.0")
-    p.add_argument("--json", action="store_true")
-    a = p.parse_args(argv)
-    res = measure(a.repo.resolve(), a.commit, a.version)
-    if a.json:
+    """The verifier as a command. EVERY LINE OF IT ENDS IN A VERDICT.
+
+    `measure` held an exception no branch names to NOT_MEASURABLE, and the lines around that call did
+    not: a `--repo` that is a symlink to itself raised a RuntimeError in `Path.resolve()`, and the run
+    ended with a traceback and exit 1, the code of NOT VERIFIED (a review lens, measured 2026-09-27 at
+    6614ac32 and on main at 10f3466b). From the stream set-up to the printed verdict, such an exception
+    is NOT_MEASURABLE with its reason, exit 2, and a stdout that refuses the verdict leaves it on
+    stderr."""
+    als_json, commit, version = False, None, None
+    try:
+        # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+        # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+        # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+        # the escape of the same code point, so the name reads back as it was.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+        p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+        p.add_argument("--repo", type=Path, default=Path("."), help="the clone (default: .)")
+        p.add_argument("--commit", required=True, help="full 40-hex commit id named by the attestation")
+        p.add_argument("--version", required=True, help="release version, e.g. 6.0.0")
+        p.add_argument("--json", action="store_true")
+        a = p.parse_args(argv)
+        als_json, commit, version = a.json, a.commit, a.version
+        res = measure(a.repo.resolve(), a.commit, a.version)
+        _melde(res, als_json)
+        if res["verdict"] == "VERIFIED":
+            return 0
+        if res["verdict"] == "NOT_VERIFIED":
+            return 1
+        return 2
+    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this verifier
+        res = _ergebnis(commit, version)
+        res["reason"] = f"the run stopped on {_unerwartet(exc)}, so the commit was not judged"
+        try:
+            _melde(res, als_json)
+        except Exception:  # noqa: BLE001 -- stdout refused the verdict, so stderr carries it
+            with contextlib.suppress(Exception):
+                print(f"[pre-tag-receipt] verdict=NOT_MEASURABLE {res['reason']}", file=sys.stderr)
+        return 2
+
+
+def _melde(res: dict, als_json: bool) -> None:
+    """The verdict on stdout: the whole result as JSON, or the verdict line, the reason and the limit."""
+    if als_json:
         print(json.dumps(res, indent=2, ensure_ascii=False))
-    else:
-        commit = _pfad(res["commit"][:12]) if isinstance(res["commit"], str) else res["commit"]
-        print(f"[pre-tag-receipt] verdict={res['verdict']} commit={commit} "
-              f"version={_pfad(str(res['version']))} tree={(res['subject_tree_digest'] or '?')[:12]} "
-              f"receipt={_pfad(res['receipt_path'] or '-')} trusted_keys={res['trusted_pubkey_count']}")
-        if res["reason"]:
-            print(f"  {res['reason']}")
-        print(f"  {LIMIT}")
-    if res["verdict"] == "VERIFIED":
-        return 0
-    if res["verdict"] == "NOT_VERIFIED":
-        return 1
-    return 2
+        return
+    commit = _pfad(res["commit"][:12]) if isinstance(res["commit"], str) else res["commit"]
+    print(f"[pre-tag-receipt] verdict={res['verdict']} commit={commit} "
+          f"version={_pfad(str(res['version']))} tree={(res['subject_tree_digest'] or '?')[:12]} "
+          f"receipt={_pfad(res['receipt_path'] or '-')} trusted_keys={res['trusted_pubkey_count']}")
+    if res["reason"]:
+        print(f"  {res['reason']}")
+    print(f"  {LIMIT}")
 
 
 if __name__ == "__main__":

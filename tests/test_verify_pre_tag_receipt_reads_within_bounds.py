@@ -74,9 +74,9 @@ def test_control_a_receipt_with_an_int_past_the_digit_limit_is_rejected(tmp_path
 
 
 def test_an_exception_no_branch_names_is_not_measurable(tmp_path, monkeypatch, capsys):
-    """Planted: Python ends a run on an exception with exit 1, the code of NOT VERIFIED, a verdict about
-    a receipt this run did not judge (the sweep of the class a review lens found in the mutant guard,
-    2026-09-27 at 53676296)."""
+    """Planted: uncaught, such an exception would end the run with exit 1, the code of NOT VERIFIED, a
+    verdict about a receipt this run did not judge; the verifier says NOT_MEASURABLE and exits 2
+    instead (the sweep of the class a review lens found in the mutant guard, 2026-09-27 at 53676296)."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("_verify_unexpected", SCRIPT)
     verifier = importlib.util.module_from_spec(spec)

@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import io
 import json
 import os
@@ -720,14 +721,21 @@ def check(repo: Path) -> list[str]:
     is one problem, and the checks that need it do not run: fail closed, with the file named."""
     try:
         return _check(repo)
-    except _NichtLesbar as nicht:
-        return [f"{nicht}; the checks that read it did not run"]
     # An exception no branch names is a problem too, and this gate's code for one is 1, as its
     # docstring says. It ended the run with a traceback instead of a report before (the sweep of the
     # class a review lens found in the mutant guard, measured 2026-09-27 at 53676296).
-    except Exception as exc:  # noqa: BLE001 -- every other exception is no verdict of this gate
-        return [f"the run stopped on {_unerwartet(exc)}, so what it checks is {NICHT_MESSBAR} here and "
-                "the checks after that point did not run"]
+    except Exception as exc:  # noqa: BLE001 -- `_NichtLesbar`, and every exception no branch names
+        return [_problem_aus(exc)]
+
+
+def _problem_aus(exc: Exception) -> str:
+    """The one problem an exception makes of the run: what `_NichtLesbar` says, or where an exception
+    no branch names was raised and what it says. `check` and `main` write it alike, so an exception both
+    meet is one problem, not two."""
+    if isinstance(exc, _NichtLesbar):
+        return f"{exc}; the checks that read it did not run"
+    return (f"the run stopped on {_unerwartet(exc)}, so what it checks is {NICHT_MESSBAR} here and "
+            "the checks after that point did not run")
 
 
 def _check(repo: Path) -> list[str]:
@@ -754,8 +762,12 @@ def _check(repo: Path) -> list[str]:
     headings = _changelog_headings(repo)
 
     # 2. CHANGELOG documents the current version
+    # THE VERSION IS A FILE'S TEXT, printed as a name is (`_pfad`) wherever a line names it: the pattern
+    # for pyproject.toml crosses a line end inside the quotes, and a value `1.0.0<LF>  - README.md:1:
+    # ...` printed raw wrote a second problem item of its own (the sweep of the class a review lens
+    # found in the resolver, measured 2026-09-27 at 6614ac32). The comparisons read the value itself.
     if version and version not in headings:
-        problems.append(f"CHANGELOG.md has no `## [{version}]` section for the current version "
+        problems.append(f"CHANGELOG.md has no `## [{_pfad(version)}]` section for the current version "
                         f"(headings seen: {headings[:5]})")
 
     # 3. Post-tag drift (M2 catcher), git-gated
@@ -770,8 +782,10 @@ def _check(repo: Path) -> list[str]:
         # non-trivial commit and quoted as one (measured 2026-09-26).
         nontrivial = []
         if rc2 != 0:
+            # git's reason, quoted as a name is: for a range it cannot resolve, git 2.34 writes it over
+            # three lines (measured 2026-09-27).
             problems.append(f"git log {_pfad(last_tag_raw)}..HEAD failed, so the post-tag drift is "
-                            f"{NICHT_MESSBAR}: {log[:200]}")
+                            f"{NICHT_MESSBAR}: {_pfad(log[:200])}")
         else:
             nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
         version_bumped = bool(version) and _semver_tuple(version) > _semver_tuple(last_tag)
@@ -1007,9 +1021,15 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
                                 if not (nur_aktuelle and version and m.group(1) != version)), None)
                 if not treffer:
                     continue
+                # The claim is the file's text: in double quotes as it stands when every character
+                # prints, and in the form `_pfad` writes otherwise, so a character that does not print
+                # (a direction override, an escape sequence) gives the line no second reading. It holds
+                # no line break: `splitlines` ends a logical line at every one.
+                auszug = zeile[treffer.start():treffer.end()].strip()
+                gezeigt = f'"{auszug}"' if auszug.isprintable() else _pfad(auszug)
                 problems.append(
                     f"{_pfad(rel)}:{nr}: states a current version ({treffer.group(1)}) as a {form} — "
-                    f"{beschreibung} — in \"{zeile[treffer.start():treffer.end()].strip()}\", but is not a declared "
+                    f"{beschreibung} — in {gezeigt}, but is not a declared "
                     f"place. Either add it to _TRACKED_PLACES so it is kept current, or reword it "
                     f"so it does not claim to be.")
                 gefunden = True
@@ -1052,7 +1072,7 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
         wrong = sorted({v for v in found if v != version})
         if wrong:
             problems.append(f"{rel}: {beschreibung} states {wrong} but the source version is "
-                            f"{version}, read from {herkunft}")
+                            f"{_pfad(version)}, read from {herkunft}")
     return problems
 
 
@@ -1097,7 +1117,7 @@ def check_external(version: str, timeout: float = 15.0,
         else:
             ergebnisse.append(("PyPI", "OK" if veroeffentlicht == version else "ABWEICHUNG",
                                f"PyPI states {_pfad(str(veroeffentlicht))} (published sdist/wheel version), "
-                               f"source states {version}, read from {herkunft}"))
+                               f"source states {_pfad(version)}, read from {herkunft}"))
 
     seite = _fetch(_PROJECT_PAGE, timeout)
     if seite is None:
@@ -1111,75 +1131,103 @@ def check_external(version: str, timeout: float = 15.0,
                                "no `PyPI latest <code>X.Y.Z</code>` statement found on the page"))
         elif genannt == [version]:
             ergebnisse.append(("project page", "OK",
-                               f"page states {version} as `PyPI latest`, matching {version} "
+                               f"page states {_pfad(version)} as `PyPI latest`, matching {_pfad(version)} "
                                f"read from {herkunft}"))
         else:
             ergebnisse.append(("project page", "ABWEICHUNG",
-                               f"page states {genannt} as `PyPI latest`, source states {version}, "
+                               f"page states {genannt} as `PyPI latest`, source states {_pfad(version)}, "
                                f"read from {herkunft}"))
     return ergebnisse
 
 
-def main() -> int:
-    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
-    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
-    ap = argparse.ArgumentParser(description="proofbundle release-integrity gate")
-    ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
-    ap.add_argument("--external", action="store_true",
-                    help="also compare against PyPI and the project page (needs the network)")
-    ap.add_argument("--require-external", action="store_true",
-                    help="with --external: treat NICHT MESSBAR as a failure (for the release checklist)")
-    ap.add_argument("--timeout", type=float, default=15.0, help="per-request timeout for --external")
-    a = ap.parse_args()
-    repo = Path(a.repo).resolve()
-    problems = check(repo)
+def main(argv: list[str] | None = None) -> int:
+    """The gate as a command. EVERY LINE OF IT ENDS IN THE GATE'S VERDICT.
 
+    `check` held an exception no branch names to one problem, and the lines around that call did not:
+    a `--repo` that is a symlink to itself raised a RuntimeError in `Path.resolve()`, and the run ended
+    with a traceback and exit 1 instead of a report (a review lens, measured 2026-09-27 at 6614ac32 and
+    on main at 10f3466b). The second read of the source version below caught only `_NichtLesbar`, so an
+    exception `check` had reported already ended the run the same way. From the stream set-up to the
+    printed verdict, such an exception is one problem, exit 1, as in `check`; a stdout that refuses the
+    report leaves it on stderr."""
+    problems: list[str] = []
     try:
-        version, herkunft = _source_version(repo)
-    except _NichtLesbar:
-        version, herkunft = None, "a source file that is not readable"   # `check` reported it
+        # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+        # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+        # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+        # the escape of the same code point, so the name reads back as it was.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+        ap = argparse.ArgumentParser(description="proofbundle release-integrity gate")
+        ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
+        ap.add_argument("--external", action="store_true",
+                        help="also compare against PyPI and the project page (needs the network)")
+        ap.add_argument("--require-external", action="store_true",
+                        help="with --external: treat NICHT MESSBAR as a failure (for the release checklist)")
+        ap.add_argument("--timeout", type=float, default=15.0, help="per-request timeout for --external")
+        a = ap.parse_args(argv)
+        repo = Path(a.repo).resolve()
+        problems.extend(check(repo))
 
-    aussen: list[tuple[str, str, str]] = []
-    if a.external or a.require_external:
-        if not version:
-            problems.append("cannot check external surfaces: no source version found")
+        try:
+            version, herkunft = _source_version(repo)
+        except Exception as exc:  # noqa: BLE001 -- `check` read the same sources first
+            # `check` stopped on the same exception and reported it; one it did not meet (a source
+            # that changed between the two reads) is a problem of its own.
+            version, herkunft = None, "a source file that is not readable"
+            if _problem_aus(exc) not in problems:
+                problems.append(_problem_aus(exc))
+
+        aussen: list[tuple[str, str, str]] = []
+        if a.external or a.require_external:
+            if not version:
+                problems.append("cannot check external surfaces: no source version found")
+            else:
+                aussen = check_external(version, a.timeout, herkunft)
+                print("external surfaces:")
+                for name, state, detail in aussen:
+                    print(f"  - {name}: {state} ({detail})")
+                for name, state, detail in aussen:
+                    if state == "ABWEICHUNG":
+                        problems.append(f"{name} disagrees with the source version: {detail}")
+                    elif state == NICHT_MESSBAR and a.require_external:
+                        problems.append(f"{name} is {NICHT_MESSBAR} and --require-external was given: {detail}")
+
+        if problems:
+            _melde_fehler(problems)
+            return 1
+
+        # The number names its object and its source, here too: an OK line that does not say WHICH
+        # version was verified leaves the reader to assume one.
+        quelle = f"source version {_pfad(str(version))}, read from {herkunft}"
+        geprueft = ("single-sourced across pyproject.toml/__init__.py/CITATION.cff, tracked places "
+                    "current, changelog carries the section, no undelivered post-tag drift, "
+                    "no undeclared place claiming a current version")
+        if not aussen:
+            print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
+                  f"External surfaces NOT checked (neither --external nor --require-external given).")
+        elif any(s == NICHT_MESSBAR for _, s, _ in aussen):
+            offen = ", ".join(n for n, s, _ in aussen if s == NICHT_MESSBAR)
+            print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
+                  f"NOT verified ({NICHT_MESSBAR}): {offen}.")
         else:
-            aussen = check_external(version, a.timeout, herkunft)
-            print("external surfaces:")
-            for name, state, detail in aussen:
-                print(f"  - {name}: {state} ({detail})")
-            for name, state, detail in aussen:
-                if state == "ABWEICHUNG":
-                    problems.append(f"{name} disagrees with the source version: {detail}")
-                elif state == NICHT_MESSBAR and a.require_external:
-                    problems.append(f"{name} is {NICHT_MESSBAR} and --require-external was given: {detail}")
-
-    if problems:
-        print("check_version_and_changelog: FAIL")
-        for p in problems:
-            print(f"  - {p}")
+            print(f"check_version_and_changelog: OK — {quelle}; {geprueft}; external surfaces agree.")
+        return 0
+    except Exception as exc:  # noqa: BLE001 -- every other exception is a problem of this gate
+        problems.append(_problem_aus(exc))
+        try:
+            _melde_fehler(problems)
+        except Exception:  # noqa: BLE001 -- stdout refused the report, so stderr carries it
+            with contextlib.suppress(Exception):
+                _melde_fehler(problems, sys.stderr)
         return 1
 
-    # The number names its object and its source, here too: an OK line that does not say WHICH
-    # version was verified leaves the reader to assume one.
-    quelle = f"source version {version}, read from {herkunft}"
-    geprueft = ("single-sourced across pyproject.toml/__init__.py/CITATION.cff, tracked places "
-                "current, changelog carries the section, no undelivered post-tag drift, "
-                "no undeclared place claiming a current version")
-    if not aussen:
-        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
-              f"External surfaces NOT checked (neither --external nor --require-external given).")
-    elif any(s == NICHT_MESSBAR for _, s, _ in aussen):
-        offen = ", ".join(n for n, s, _ in aussen if s == NICHT_MESSBAR)
-        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
-              f"NOT verified ({NICHT_MESSBAR}): {offen}.")
-    else:
-        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}; external surfaces agree.")
-    return 0
+
+def _melde_fehler(problems: list[str], datei=None) -> None:
+    """The FAIL report: its first line, then one line per problem (on stdout unless `datei` is given)."""
+    print("check_version_and_changelog: FAIL", file=datei)
+    for p in problems:
+        print(f"  - {p}", file=datei)
 
 
 if __name__ == "__main__":
