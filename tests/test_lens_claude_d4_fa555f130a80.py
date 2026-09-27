@@ -175,10 +175,14 @@ class L8TrustPackPatternsHoldTheSchemaDialect(unittest.TestCase):
 
         def _fixture(version: int) -> dict:
             # The genesis or version-2 pack of tests/test_trust_pack.py `_fixture`, with fixed keys.
-            keys = {f"root-{i}": {"publicKey": base64.b64encode(
-                Ed25519PrivateKey.from_private_bytes(bytes([i + 1]) * 32).public_key().public_bytes(
-                    serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
-                "scheme": "ed25519"} for i in range(3)}
+            # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a
+            # shipped test only over a seed written out in the source.
+            seeds = (Ed25519PrivateKey.from_private_bytes(b"\x01" * 32),
+                     Ed25519PrivateKey.from_private_bytes(b"\x02" * 32),
+                     Ed25519PrivateKey.from_private_bytes(b"\x03" * 32))
+            keys = {f"root-{i}": {"publicKey": base64.b64encode(sk.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
+                "scheme": "ed25519"} for i, sk in enumerate(seeds)}
             return {
                 "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": version,
                 "expires": "2027-01-01T00:00:00Z",
