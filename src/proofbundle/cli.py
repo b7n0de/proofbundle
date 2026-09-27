@@ -658,7 +658,6 @@ def _pem_or_der(raw: bytes, what: str) -> bytes:
     check builds it by its own type, and a key of another type is absent trust there."""
     if b"-----BEGIN" not in raw:
         return raw
-    import base64 as _b64  # noqa: PLC0415
     import binascii  # noqa: PLC0415
     text = raw.decode("ascii", "replace")
     begin, end = "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----"
@@ -666,9 +665,9 @@ def _pem_or_der(raw: bytes, what: str) -> bytes:
         raise ValueError(f"{what}: not one PEM PUBLIC KEY block")
     body = "".join(text.split(begin, 1)[1].split(end, 1)[0].split())
     try:
-        return _b64.b64decode(body, validate=True)
+        return decode_b64(body)      # canonical standard base64, the one wire form (_wire_b64)
     except (binascii.Error, ValueError) as exc:
-        raise ValueError(f"{what}: the PEM body is not base64") from exc
+        raise ValueError(f"{what}: the PEM body is not canonical base64") from exc
 
 
 def _load_scitt_inputs(args: argparse.Namespace):

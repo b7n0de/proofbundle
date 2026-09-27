@@ -291,7 +291,7 @@ class StatementCheck:
                 for k, v in ((k, getattr(self, k)) for k in self.__dataclass_fields__)}
 
 
-def check_signed_statement(data: bytes, *, canonical_root: bytes, statement_keys=None,
+def check_signed_statement(data: bytes, *, canonical_root: Optional[bytes], statement_keys=None,
                            rp_trust: Optional[dict] = None) -> StatementCheck:
     """Check a Signed Statement (or the statement inside a Transparent Statement) offline.
 
@@ -326,7 +326,8 @@ def _check(data, canonical_root, statement_keys, rp_trust) -> StatementCheck:
         return StatementCheck(status=exc.status, readable=False, signature_valid=None,
                               registration=REGISTRATION_NOT_EVALUATED, detail=str(exc))
     ph = st.protected
-    cwt = ph.get(_CWT) if isinstance(ph.get(_CWT), dict) else {}
+    raw_cwt = ph.get(_CWT)
+    cwt: dict = raw_cwt if isinstance(raw_cwt, dict) else {}
     alg, kid = ph.get(_ALG), ph.get(_KID)
     seen = {
         "alg": alg if isinstance(alg, int) and not isinstance(alg, bool) else None,
@@ -385,9 +386,10 @@ def _header_rules(st) -> Optional[str]:
     ph, uh = st.protected, st.unprotected
     if not st.tagged:
         return "the statement is not tagged 18"
+    from ._membership import is_member  # noqa: PLC0415
     for label in uh:
         if label != _RECEIPTS:
-            return _UNPROTECTED_WHY.get(label) if not isinstance(label, bool) and label in _UNPROTECTED_WHY \
+            return _UNPROTECTED_WHY[label] if not isinstance(label, bool) and is_member(label, _UNPROTECTED_WHY) \
                 else f"label {label!r} in the unprotected header: only receipts (394) stand there"
     alg = ph.get(_ALG)
     if isinstance(alg, bool) or alg not in (_EDDSA, _ES256):

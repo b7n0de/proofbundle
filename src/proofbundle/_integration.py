@@ -108,9 +108,9 @@ def _emit_scitt_statement(bundle: dict, signer, receipt_path: Path) -> Optional[
     try:
         issuer = os.environ.get("PROOFBUNDLE_SCITT_ISSUER")
         subject = os.environ.get("PROOFBUNDLE_SCITT_SUBJECT")
-        missing = [name for name, value in (("PROOFBUNDLE_SCITT_ISSUER", issuer),
-                                            ("PROOFBUNDLE_SCITT_SUBJECT", subject)) if not value]
-        if missing:
+        if not issuer or not subject:
+            missing = [name for name, value in (("PROOFBUNDLE_SCITT_ISSUER", issuer),
+                                                ("PROOFBUNDLE_SCITT_SUBJECT", subject)) if not value]
             print(f"[proofbundle] PROOFBUNDLE_SCITT=1 needs {' and '.join(missing)} — SCITT statement "
                   "skipped (the receipt is written)")
             return None
