@@ -1,0 +1,3680 @@
+{
+ "tool": "tools/scitt_ccf_external/policy_matrix.py",
+ "rounds": {
+  "1": "differential_corpus/",
+  "2": "differential_corpus_round2/",
+  "3": "not registered: on hold until the design is reviewed (owner hold of 2026-09-27, 21:0x Berlin)"
+ },
+ "preimage_rule": "candidate 4-tagged of preimage_candidates.py: deterministic [protected, {}, payload, signature], tag 18, the protected header as the bytes submitted",
+ "oracles": {
+  "service answers, returned statements, receipts": "fixtures, the recorded bytes",
+  "own": "own computation (preimage_candidates.py)",
+  "cbor2": "foreign library, cbor2, re-encoding the same candidate",
+  "evercbor": "foreign tool built by us (vendored_encoder_probe.py)",
+  "our reader": "src/proofbundle/scitt_ccf.py, run on the stored bytes"
+ },
+ "counts": {
+  "r1/control": {
+   "vectors": 2,
+   "accepted": 2,
+   "refused": 0
+  },
+  "r1/a": {
+   "vectors": 13,
+   "accepted": 13,
+   "refused": 0
+  },
+  "r1/e": {
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0
+  },
+  "r1/b": {
+   "vectors": 4,
+   "accepted": 2,
+   "refused": 2
+  },
+  "r1/c": {
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2
+  },
+  "r1/d": {
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2
+  },
+  "r1/f": {
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0
+  },
+  "r2/control": {
+   "vectors": 1,
+   "accepted": 1,
+   "refused": 0
+  },
+  "r2/g": {
+   "vectors": 9,
+   "accepted": 8,
+   "refused": 1
+  },
+  "r2/h": {
+   "vectors": 9,
+   "accepted": 5,
+   "refused": 4
+  },
+  "r2/i": {
+   "vectors": 8,
+   "accepted": 3,
+   "refused": 5
+  },
+  "r2/j": {
+   "vectors": 2,
+   "accepted": 2,
+   "refused": 0
+  }
+ },
+ "rows": [
+  {
+   "vector": "r1/control",
+   "round": 1,
+   "class": "control",
+   "phase": null,
+   "mutation": "the v1 shape: tagged, definite, shortest, embedded payload, empty unprotected",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.70",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/control/",
+    "request_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "statement_sha256": "a902f345359d5623c4f3a345db9a641f58201f955d7b58e9e79c5cd704cc4368"
+   }
+  },
+  {
+   "vector": "r1/control-resubmitted",
+   "round": 1,
+   "class": "control",
+   "phase": null,
+   "mutation": "the control's bytes submitted a second time (zero changes; a reference)",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.72",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/control-resubmitted/",
+    "request_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "statement_sha256": "007d530005f66c9e1aad82c9bd3c3a3a8d199bacbbbe6e362d2c54205c2d09de"
+   }
+  },
+  {
+   "vector": "r1/a01-label-99-text",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected label 99 added, a text value",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'probe'}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.74",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a01-label-99-text/",
+    "request_sha256": "8ded76809fa768b62f2de3783f7efda5d31569d82cad1afa6876b4a6bd546092",
+    "statement_sha256": "46aef65d2e9b2ddb585ca1d3dc8105a27a77a72aca7554389f7114d30a8b8379"
+   }
+  },
+  {
+   "vector": "r1/a02-label-99-other-text",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected label 99 added, another text value",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'other'}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.76",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a02-label-99-other-text/",
+    "request_sha256": "1ff14c6c7f065882146577d7040dfcd4b9d3d2ad81dd2a1dbfe8801a264e8ad4",
+    "statement_sha256": "54e99e9a35294ba77a69a8f048e552845b0da2e1b251183b9d3fd128ba18c868"
+   }
+  },
+  {
+   "vector": "r1/a03-label-99-bstr",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected label 99 added, a byte string value",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: bstr[1]}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.78",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a03-label-99-bstr/",
+    "request_sha256": "7e7051a0c421737e011da7dafa30e864ec4c450b167046bbf75efe2fb7f98ad5",
+    "statement_sha256": "f51eca1c5383315b8b10327d9a40caacd7ac729dbb12935f98feea42dfa0876b"
+   }
+  },
+  {
+   "vector": "r1/a04-label-99-int",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected label 99 added, an integer value",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 0}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.80",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a04-label-99-int/",
+    "request_sha256": "661281232e95165e5c7b81f3b8e12d52b4d15c090ae55d7a349353fff3201e7b",
+    "statement_sha256": "3222a7094835c1a2eea0220e7817d99e38e38f719c3ed2a62397c35c50a4ce5a"
+   }
+  },
+  {
+   "vector": "r1/a05-text-label",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected text label 'x' added",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{'x': 1}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.82",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a05-text-label/",
+    "request_sha256": "bf35ab0703e8120920734d95bd8bc8bf190c613741bf60b2cfbcd9b70098d8bd",
+    "statement_sha256": "d2b7a268ea87d6c574b6c1c85ffc2373b7c52129411d6fa3cd6fafe67e488679"
+   }
+  },
+  {
+   "vector": "r1/a06-negative-label",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected label -70000 added",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{-70000: 1}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.84",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a06-negative-label/",
+    "request_sha256": "991e0194fe94dd4f1d4e66dea569d7bf862735568d95a6a26d55f7dbccbfe3de",
+    "statement_sha256": "cbcd1c6fb8160833a337f3b40c52d0fceabd14608535259ed3f4535bd74d732c"
+   }
+  },
+  {
+   "vector": "r1/a07-kid",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected kid (4) added",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{4 kid: bstr[3]}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.86",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a07-kid/",
+    "request_sha256": "b9f028523cf1c84c342da7aa247d1e27706fdd7922364d718645458041225b21",
+    "statement_sha256": "8965205fc7ee7bfd6cac397a4a98cb3d1cb14a365f21f2ffbd4442036e45632e"
+   }
+  },
+  {
+   "vector": "r1/a08-receipts-label",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected receipts label (394) added with one junk entry",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{394 receipts: [bstr[1]]}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.88",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a08-receipts-label/",
+    "request_sha256": "cdd9a46d4fc417305dc6d464c28a61cf8fe1fefdf7a73ae47a84e9919d0da4c1",
+    "statement_sha256": "75ce7023c0d3294ea5cc3ed6701066e69a020174df4403fc3728fba226bf2e07"
+   }
+  },
+  {
+   "vector": "r1/a09-x5chain-both-buckets",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "x5chain (33) also in the unprotected bucket",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{33 x5chain: [bstr[428], bstr[434]]}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.90",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [33] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [33] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a09-x5chain-both-buckets/",
+    "request_sha256": "1cc09f823f7031db19ff403ef77543c13f4d6450498c7e6a575f5fead1dc697b",
+    "statement_sha256": "2856c9b32cd52ae7ae3823e9374951d6691b07dc5ef694813c2fc504be7c873f"
+   }
+  },
+  {
+   "vector": "r1/a10-cwt-claims-unprotected",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "CWT claims (15) with another issuer in the unprotected bucket",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{15 CWT claims: {1 iss: 'did:example:spoofed'}}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.92",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [15] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [15] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a10-cwt-claims-unprotected/",
+    "request_sha256": "438162d8f74c898e9833226658c15b09c65e1dfd6d6f8f5df7700ce3b255ef4c",
+    "statement_sha256": "e24d0282ef36295053f1915980ed572e5a3d85b4295713c93f66d08c50662453"
+   }
+  },
+  {
+   "vector": "r1/a11-two-labels",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected labels 99 and 100 added, in ascending order",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'a'; 100: 'b'}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.94",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a11-two-labels/",
+    "request_sha256": "6143372c526dccd57d81c09b2fc25d11646a82b0124de80a669aee195a07d28f",
+    "statement_sha256": "6e62f9ff74ef66cc64ea6c976824355eef3d42e18b9f284258d84226f995aab8"
+   }
+  },
+  {
+   "vector": "r1/a12-int-and-text-labels",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected labels 99 and 'x' added, integer first",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'a'; 'x': 1}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.96",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a12-int-and-text-labels/",
+    "request_sha256": "d800ee0bc9455fe693266da40ff066a8b49a9b0979229b64d5495d918bebeb6c",
+    "statement_sha256": "f510fee391f10e569aa49629e55b64203deebc5069f6ebc0458890d334fccc4b"
+   }
+  },
+  {
+   "vector": "r1/a13-negative-after-positive",
+   "round": 1,
+   "class": "a",
+   "phase": null,
+   "mutation": "unprotected labels 10 and -10 added, in canonical order",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{10: 0; -10: 0}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.98",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/a13-negative-after-positive/",
+    "request_sha256": "094fdc2e98e4ad0a72fc00b0e52ee5033b7bf954e67488e3eae03de988b01156",
+    "statement_sha256": "9cc34ade286ab33e63754ea2117d48749e67e3c6a724a204500bff0152a94f97"
+   }
+  },
+  {
+   "vector": "r1/e01-two-labels-reversed",
+   "round": 1,
+   "class": "e",
+   "phase": null,
+   "mutation": "the labels of a11 in descending order",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{100: 'b'; 99: 'a'}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.100",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/e01-two-labels-reversed/",
+    "request_sha256": "2d2947c6204a417ba1c591bb24dde7b9ee64306d8d8d6cf59b658a56c04e2444",
+    "statement_sha256": "4a9b4039d0732e8ffa96030b46c2433311407c999320e0d9c77cb2fa511d29ba"
+   }
+  },
+  {
+   "vector": "r1/e02-text-label-first",
+   "round": 1,
+   "class": "e",
+   "phase": null,
+   "mutation": "the labels of a12, text label first",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{'x': 1; 99: 'a'}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.102",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/e02-text-label-first/",
+    "request_sha256": "52332fc55261d08ea83887170801ff23e1ef51325ea1632e9a11d07c80b69d16",
+    "statement_sha256": "de606c6af9eb4966e3f52c7d3ffc57e0e092a9a76ca767b52f80579cf2c970fd"
+   }
+  },
+  {
+   "vector": "r1/e03-negative-first",
+   "round": 1,
+   "class": "e",
+   "phase": null,
+   "mutation": "the labels of a13, -10 first",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{-10: 0; 10: 0}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.104",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/e03-negative-first/",
+    "request_sha256": "1d9f806c96e676ae560b7ee36a8ac3d2ba31c19442d50a3319b33566b53cbf86",
+    "statement_sha256": "48d019c4fb9d931e32e3d3ab27dc32520a1d2956e6b6b0a240a07424d7ff61c7"
+   }
+  },
+  {
+   "vector": "r1/b01-width4",
+   "round": 1,
+   "class": "b",
+   "phase": null,
+   "mutation": "the protected byte string with a 4-byte length argument, 1034 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.106",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/b01-width4/",
+    "request_sha256": "04104d95caa66cc4ad73136963f1f1ae7c2fef4123e498f3e8cc68611f617469",
+    "statement_sha256": "32a6394861f0ecb0e9507378ebffe3de2bed0a8a3e74b961b8443e2668b8bf02"
+   }
+  },
+  {
+   "vector": "r1/b02-width8",
+   "round": 1,
+   "class": "b",
+   "phase": null,
+   "mutation": "the protected byte string with a 8-byte length argument, 1034 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.108",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/b02-width8/",
+    "request_sha256": "3d70513a01b363d12435327f21f462f1934ab509e7b48f112eebf1ab99b090ea",
+    "statement_sha256": "ce62639778941634f01653661a985be37d658e76c38382dbdcf00f938c84b432"
+   }
+  },
+  {
+   "vector": "r1/b03-indefinite1",
+   "round": 1,
+   "class": "b",
+   "phase": null,
+   "mutation": "the protected byte string with indefinite length, one chunk",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/b03-indefinite1/",
+    "request_sha256": "ac7c19e73c8cbb1403c64169e0a6669e2c57524f8d696d2960bff0c00bfcd9cf",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/b04-indefinite2",
+   "round": 1,
+   "class": "b",
+   "phase": null,
+   "mutation": "the protected byte string with indefinite length, two chunks",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/b04-indefinite2/",
+    "request_sha256": "75ba13380268b103d30387c1b2c8452b802edcf887ea1d62c0b83e8d4e1d8814",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/c01-width2",
+   "round": 1,
+   "class": "c",
+   "phase": null,
+   "mutation": "the payload byte string with a 2-byte length argument, 32 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.110",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1040: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/c01-width2/",
+    "request_sha256": "be566e8f02ba4ea7012ee8a4fadfddb6bc0f10eb8245387838b16bcc928ccad6",
+    "statement_sha256": "39c759883e649ea1d28c776661675eb1c36f291380990e53990ac044d4638392"
+   }
+  },
+  {
+   "vector": "r1/c02-width4",
+   "round": 1,
+   "class": "c",
+   "phase": null,
+   "mutation": "the payload byte string with a 4-byte length argument, 32 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.112",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1040: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/c02-width4/",
+    "request_sha256": "40500c8b388eb08246e02bad9e92616c22236514878ef8f8058a6d66caf7a937",
+    "statement_sha256": "a68c65c41a4fffadca44553a170115c6b9115a6e84a36f07ca3f180260d6da6a"
+   }
+  },
+  {
+   "vector": "r1/c03-width8",
+   "round": 1,
+   "class": "c",
+   "phase": null,
+   "mutation": "the payload byte string with a 8-byte length argument, 32 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.114",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1040: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/c03-width8/",
+    "request_sha256": "781fbf12ed12ae6f49868c2460ad37d3e2ed693b4b69b81b0bcc43a47c363070",
+    "statement_sha256": "f0139bc6c2c5a21c11cfb6c5cb612a9b617ba36d922b1460efd085a9edfc229e"
+   }
+  },
+  {
+   "vector": "r1/c04-indefinite1",
+   "round": 1,
+   "class": "c",
+   "phase": null,
+   "mutation": "the payload byte string with indefinite length, one chunk",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1040: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/c04-indefinite1/",
+    "request_sha256": "958a003a07a77c7b98d9d4c31025810ba1d66da4fa1d39bf154f87659bba0955",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/c05-indefinite2",
+   "round": 1,
+   "class": "c",
+   "phase": null,
+   "mutation": "the payload byte string with indefinite length, two chunks",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1040: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1040: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/c05-indefinite2/",
+    "request_sha256": "3ea4e4db2b0c388bd415376e568f3f0974a38749086685979b46114db88d0b23",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/d01-width2",
+   "round": 1,
+   "class": "d",
+   "phase": null,
+   "mutation": "the signature byte string with a 2-byte length argument, 64 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.116",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1074: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/d01-width2/",
+    "request_sha256": "12b7026598b57998f7372965a8e1c5821310c72fc76aa206f9fa2c3ab47d135d",
+    "statement_sha256": "40e7807ce9e75841949fa4cc72ade11e25a74771590724ce4f8bd4eb2fa3ecd9"
+   }
+  },
+  {
+   "vector": "r1/d02-width4",
+   "round": 1,
+   "class": "d",
+   "phase": null,
+   "mutation": "the signature byte string with a 4-byte length argument, 64 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.118",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1074: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/d02-width4/",
+    "request_sha256": "fce8d4c9f22d5e6fd1d7c85f3714e3482e15cd5884b127a77f07ac91b5287f7e",
+    "statement_sha256": "5172b193380cdbbead2b1ca6fae65d821aea59d69c45bea849d9d7a87e016a91"
+   }
+  },
+  {
+   "vector": "r1/d03-width8",
+   "round": 1,
+   "class": "d",
+   "phase": null,
+   "mutation": "the signature byte string with a 8-byte length argument, 64 bytes of content",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.120",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1074: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/d03-width8/",
+    "request_sha256": "cad79dd7c0f8aa674849dde96ecc6e8fb743e3d4279e9e2d1fcb719cab18c55b",
+    "statement_sha256": "0a52393df43d33d4b3638309b9a9f5a449c7add49cafc93ae099315af0e92972"
+   }
+  },
+  {
+   "vector": "r1/d04-indefinite1",
+   "round": 1,
+   "class": "d",
+   "phase": null,
+   "mutation": "the signature byte string with indefinite length, one chunk",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1074: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/d04-indefinite1/",
+    "request_sha256": "5c44085497e23be23fa5036a7b7070c7cb9c69b800caa6d25a6bf1a8f50a2aa2",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/d05-indefinite2",
+   "round": 1,
+   "class": "d",
+   "phase": null,
+   "mutation": "the signature byte string with indefinite length, two chunks",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1074: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1074: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/d05-indefinite2/",
+    "request_sha256": "83638cda530eabcc05095e657bd0b0310c911fd9275790bfafd51391b4e2b670",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r1/f01-second-signature",
+   "round": 1,
+   "class": "f",
+   "phase": null,
+   "mutation": "a second ES256 signature by the same key over the same Sig_structure",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.122",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "ba435c275a82e22f211095b483ff503156d690237ddbc32493178ce8bc4b967a",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/f01-second-signature/",
+    "request_sha256": "ba435c275a82e22f211095b483ff503156d690237ddbc32493178ce8bc4b967a",
+    "statement_sha256": "f396bc9b25b9a0f0c9f07bb7e003cd556decc4e53d79cb98b946bfdbfff776ab"
+   }
+  },
+  {
+   "vector": "r1/f02-third-signature",
+   "round": 1,
+   "class": "f",
+   "phase": null,
+   "mutation": "a third ES256 signature by the same key over the same Sig_structure",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.124",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "f145c3e6e7bb459f14363ace70141e3fb3860db7bf3b2476d65448c3fc47dbac",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/f02-third-signature/",
+    "request_sha256": "f145c3e6e7bb459f14363ace70141e3fb3860db7bf3b2476d65448c3fc47dbac",
+    "statement_sha256": "d07d924b0343957f59e9e0d7753ce055f87e619c3f8ada7dd30cea962d5c2891"
+   }
+  },
+  {
+   "vector": "r1/f03-high-s-twin",
+   "round": 1,
+   "class": "f",
+   "phase": null,
+   "mutation": "the control's signature with s replaced by n - s, made without the key",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBd...'; 2 sub: 'proofbundle differential corpus'}; 33 x5chain: [bstr[428], bstr[434]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.126",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "aa4d75c7864e1d4aad1fd1b7dc0c507edb98b1351ad3abf49fb28c0fc77afa07",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1034 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus",
+    "vector": "vectors/f03-high-s-twin/",
+    "request_sha256": "aa4d75c7864e1d4aad1fd1b7dc0c507edb98b1351ad3abf49fb28c0fc77afa07",
+    "statement_sha256": "c788b86dba5643beda9ae1975f91053b8c1aee48e2fe86116bf83fd5e83d780a"
+   }
+  },
+  {
+   "vector": "r2/control",
+   "round": 2,
+   "class": "control",
+   "phase": "initial",
+   "mutation": "the v1 shape of this run: tagged, definite, shortest, embedded payload, empty unprotected, protected labels in ascending order",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.12",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/control/",
+    "request_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "statement_sha256": "23eddd114e0279eec796b1428f8137f3c19ea191789c41f023d1649a6381d39c"
+   }
+  },
+  {
+   "vector": "r2/g01-keys-descending",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected labels in descending order; signed again",
+   "protected_semantics": "{259 preimage content type: 'application/json'; 258 payload hash alg: -16; 33 x5chain: [bstr[428], bstr[435]]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 1 alg: -7}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.14",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "a15d0c38ea7ee2994a7e64dc304dda4a097d934f1b9b32319d39914bac506713",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g01-keys-descending/",
+    "request_sha256": "a15d0c38ea7ee2994a7e64dc304dda4a097d934f1b9b32319d39914bac506713",
+    "statement_sha256": "7c3ed12c11388fbc70b8422e00a0750fe739c142905b57bf0a4c4fc0b3af42bb"
+   }
+  },
+  {
+   "vector": "r2/g02-cwt-claims-keys-reversed",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the CWT claims map (15) with its keys 2 before 1; signed again",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {2 sub: 'proofbundle differential corpus, round 2'; 1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.16",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "47d0688ccea3b130cac164eeea968aa82ed96609f6d066f97c80caa578554e3f",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g02-cwt-claims-keys-reversed/",
+    "request_sha256": "47d0688ccea3b130cac164eeea968aa82ed96609f6d066f97c80caa578554e3f",
+    "statement_sha256": "16f01b856c0f3e52cc3a2b6a7dc6668f964be3e4165d3be508e35faec02fb743"
+   }
+  },
+  {
+   "vector": "r2/g03-alg-1-byte-argument",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "alg -7 as 38 06, a 1-byte argument; signed again",
+   "protected_semantics": "{1 alg: -7 <1-byte argument, NOT shortest>; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.18",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1045 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g03-alg-1-byte-argument/",
+    "request_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+    "statement_sha256": "201d40e2ead83257c8597f2f356d67339ac0cb61fffaf72ab744abdf5916456c"
+   }
+  },
+  {
+   "vector": "r2/g04-alg-2-byte-argument",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "alg -7 as 39 00 06, a 2-byte argument; signed again",
+   "protected_semantics": "{1 alg: -7 <2-byte argument, NOT shortest>; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.20",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "9394b64f3a434d4889a8bc2b5aec6f92aa6ecddf4b107d8e475fc96b944f7501",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1046 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 2: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 2: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g04-alg-2-byte-argument/",
+    "request_sha256": "9394b64f3a434d4889a8bc2b5aec6f92aa6ecddf4b107d8e475fc96b944f7501",
+    "statement_sha256": "77f7ef9c00514833ca01e69d2aac9d082a21586a3c51f3479ed68a72400b1e97"
+   }
+  },
+  {
+   "vector": "r2/g05-label-1-byte-argument",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the label 1 as 18 01, a 1-byte argument; signed again",
+   "protected_semantics": "{1 alg <1-byte argument, NOT shortest>: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.22",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1045 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g05-label-1-byte-argument/",
+    "request_sha256": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+    "statement_sha256": "414a5c1e9e38b64b5e8693aae7aee646357c3c639e961cc0da997a1e633f84c2"
+   }
+  },
+  {
+   "vector": "r2/g06-map-count-1-byte-argument",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected map head b8 05, a 1-byte count; signed again",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'} <1-byte argument, NOT shortest>",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.24",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "738814dd42e6f686778229fcb5eb2736d92ee012fd62058c0c58551eb81d88b6",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1045 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 0: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 0: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 0: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 0: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g06-map-count-1-byte-argument/",
+    "request_sha256": "738814dd42e6f686778229fcb5eb2736d92ee012fd62058c0c58551eb81d88b6",
+    "statement_sha256": "1acf8828bb44aa68ad5c46e2d0ae1df1f745e2745f9343ee981c64740977f202"
+   }
+  },
+  {
+   "vector": "r2/g07-text-2-byte-length",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the content type text of 259 with a 2-byte length argument; signed again",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json' <2-byte argument, NOT shortest>}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.26",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0c1a2adb9dc0cf1df2c5f763dcd5b61f3f5518f0ed4e2b24886ead2ccafeecab",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1046 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1027: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1027: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1027: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1027: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g07-text-2-byte-length/",
+    "request_sha256": "0c1a2adb9dc0cf1df2c5f763dcd5b61f3f5518f0ed4e2b24886ead2ccafeecab",
+    "statement_sha256": "0b035769edcc4c6c10bdb7e2b746384aac864bc39ec1bc723a19291055ceb10a"
+   }
+  },
+  {
+   "vector": "r2/g08-x5chain-array-1-byte-count",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the x5chain array head 98 02, a 1-byte count; signed again",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]] <1-byte argument, NOT shortest>; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.28",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "fb60e2edd5294b1cf3683418d380c96bf7c1b8664063bf6e22ef13bb1217f62b",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1045 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 150: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 150: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 150: head not in its shortest form"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 150: head not in its shortest form",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g08-x5chain-array-1-byte-count/",
+    "request_sha256": "fb60e2edd5294b1cf3683418d380c96bf7c1b8664063bf6e22ef13bb1217f62b",
+    "statement_sha256": "87478e07471a62bd0124a875d2ed3b8e26e9bc88632c6d73b238165c14d81b14"
+   }
+  },
+  {
+   "vector": "r2/g09-map-indefinite",
+   "round": 2,
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected map with an indefinite length (bf ... ff); signed again",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'} <indefinite length>",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 0: indefinite length"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 0: indefinite length",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/g09-map-indefinite/",
+    "request_sha256": "c31d76fae28457dd6bb28f5055474d01cc728941d49363a28c39d138af5aef44",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/h01-protected-duplicate-alg-equal",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 both times, the two entries adjacent; signed again",
+   "protected_semantics": "{1 alg: -7; 1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 3: duplicate map key 1"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 3: duplicate map key 1",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h01-protected-duplicate-alg-equal/",
+    "request_sha256": "68cabbd65d173492f2a587f0ece5882bafb8e5e83f1e57b0cff103717141552a",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/h02-protected-duplicate-alg-conflicting",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 then -35, the two entries adjacent; signed again",
+   "protected_semantics": "{1 alg: -7; 1 alg: -35; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 3: duplicate map key 1"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 3: duplicate map key 1",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h02-protected-duplicate-alg-conflicting/",
+    "request_sha256": "0c465e67741a0d80555f4e6c3c479f8a86d42e1f35bd15d5a89f4260aac9fa18",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/h03-unprotected-duplicate-equal",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, equal; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'a'; 99: 'a'}",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1054: duplicate map key 99"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1054: duplicate map key 99",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h03-unprotected-duplicate-equal/",
+    "request_sha256": "375ab3f89651615f74b472914bc70e3c11fe749da7345bb1a0992581d29de774",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/h04-unprotected-duplicate-conflicting",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, conflicting; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{99: 'a'; 99: 'b'}",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: CBOR refused at offset 1054: duplicate map key 99"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: CBOR refused at offset 1054: duplicate map key 99",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h04-unprotected-duplicate-conflicting/",
+    "request_sha256": "d19c1684cc0052869fd284493f6b8320c0fbd7e1dfbd5bd88d04546e4c757a4c",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/h05-alg-both-buckets-equal",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) also in the unprotected bucket, equal; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{1 alg: -7}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.30",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [1] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [1] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h05-alg-both-buckets-equal/",
+    "request_sha256": "d68fb25974ac1a8fe5920a814b6a91386e4c1a7b872d958a7739d910a0c927a7",
+    "statement_sha256": "b35bd0736bd9ef9a2cb0f42a2d19febe68f3973fc7451d088f2e3b3e9e09d62e"
+   }
+  },
+  {
+   "vector": "r2/h06-alg-both-buckets-conflicting",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) also in the unprotected bucket, -35; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{1 alg: -35}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.32",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [1] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [1] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h06-alg-both-buckets-conflicting/",
+    "request_sha256": "1fa50fc7301b7674696363007e457861cc2b11641c42c9b8adcf68b92282f72e",
+    "statement_sha256": "2db3d17bd90f1d7f156bfb3668759d1eb2c445b6129f98e165659c72b785889c"
+   }
+  },
+  {
+   "vector": "r2/h07-payload-hash-alg-both-buckets-conflicting",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "the payload hash algorithm (258) also in the unprotected bucket, -43; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{258 payload hash alg: -43}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.34",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [258] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [258] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h07-payload-hash-alg-both-buckets-conflicting/",
+    "request_sha256": "96c2781b082f1d1a7b952b3cb0f8940118994ae524b54f9e5540fdce507e4163",
+    "statement_sha256": "283e19957d62e42687da995ff0b42284bafdf6ff2948a52708468929ccff23cd"
+   }
+  },
+  {
+   "vector": "r2/h08-cwt-claims-both-buckets-equal",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "CWT claims (15) also in the unprotected bucket, equal; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.36",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [15] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [15] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h08-cwt-claims-both-buckets-equal/",
+    "request_sha256": "a76c87c3f90bdd7528e2c97df59a5c9bacb5d89edc13652f5bf823e84022a180",
+    "statement_sha256": "9f316a09dd6393464bb1d706f23fbcbe0b0ab3967daa9bc7f9ceb72dba479317"
+   }
+  },
+  {
+   "vector": "r2/h09-x5chain-both-buckets-conflicting",
+   "round": 2,
+   "class": "h",
+   "phase": "initial",
+   "mutation": "x5chain (33) also in the unprotected bucket, the end-entity certificate alone; the control's signature",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{33 x5chain: bstr[428]}",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.38",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "malformed",
+     "text": "malformed: label(s) [33] in both header buckets"
+    },
+    "statement_status": "malformed",
+    "status": "malformed",
+    "detail": "malformed: label(s) [33] in both header buckets",
+    "statement_signature": {
+     "status": "malformed",
+     "valid": null
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "changes: malformed as submitted, confirmed with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says malformed",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/h09-x5chain-both-buckets-conflicting/",
+    "request_sha256": "39b968b313b27fc5fbdb837f69507e277927b489826957756ddd432c424c42cd",
+    "statement_sha256": "32a161c6fe3e7546b8f4e4e19db16076b4e5e1b9759eee49d45cb83dbe27024c"
+   }
+  },
+  {
+   "vector": "r2/i01-crit-x5chain",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [33], x5chain; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [33]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.40",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "3965d248fba2a5bb24dbb37d03e914c6eea0d428819c8eeb5246136058df8c25",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1048 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "outside_profile",
+    "detail": "crit lists 33, which scitt-ccf/v1 does not process",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says outside_profile",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i01-crit-x5chain/",
+    "request_sha256": "3965d248fba2a5bb24dbb37d03e914c6eea0d428819c8eeb5246136058df8c25",
+    "statement_sha256": "7c7881deed1dda2291310d8bb34d69bfc4ea2945a323c74451ee0fa1a8358618"
+   }
+  },
+  {
+   "vector": "r2/i02-crit-cwt-claims",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [15], CWT claims; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [15]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.42",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1047 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "outside_profile",
+    "detail": "crit lists 15, which scitt-ccf/v1 does not process",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says outside_profile",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i02-crit-cwt-claims/",
+    "request_sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+    "statement_sha256": "b886186906eeebd0a9c3c2ccf7594207cd11c831b69242cdafe78a0d3d8a0d7b"
+   }
+  },
+  {
+   "vector": "r2/i03-crit-cwt-claims-and-x5chain",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [15, 33]; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [15, 33]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.44",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "f23c08749fac7b380fac0459d7d7782ad8c8186a4c4c00910bcf2ab37b0f84c2",
+    "equals_round_control": false
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1049 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "outside_profile",
+    "detail": "crit lists 15, which scitt-ccf/v1 does not process",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "stricter than the service: the service accepted, our reader says outside_profile",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i03-crit-cwt-claims-and-x5chain/",
+    "request_sha256": "f23c08749fac7b380fac0459d7d7782ad8c8186a4c4c00910bcf2ab37b0f84c2",
+    "statement_sha256": "4d4d22263d82a857b27e8cc9c53292f9904c2e71ba46e0de1bed35231c145a58"
+   }
+  },
+  {
+   "vector": "r2/i04-crit-unknown-int-present",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 present; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [99]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 99: 'x'; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i04-crit-unknown-int-present/",
+    "request_sha256": "8308784a5837613c73a41d0680e7ad595d5f20fa9720db8f04d1bc4ec65381fb",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/i05-crit-unknown-int-absent",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 absent; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [99]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i05-crit-unknown-int-absent/",
+    "request_sha256": "8e2f1d7aa7d866e198b7099dbd215a4902e3beaddccfe57f52370ee947fb98cc",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/i06-crit-unknown-text-present",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [\"x\"], label \"x\" present; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: ['x']; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'; 'x': 1}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit values must be integers\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit values must be integers\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i06-crit-unknown-text-present/",
+    "request_sha256": "be4d15e04752f924705a7206eab2a42948998f3f608e2c61eecdc9f61398fc07",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/i07-crit-registered-not-listed",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [259], a registered label the service does not list; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: [259]; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i07-crit-registered-not-listed/",
+    "request_sha256": "1db441b65715bedc20b4dd81651451a48b5be39f92ba0b6400eeb1d87f669880",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/i08-crit-empty",
+   "round": 2,
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [], an empty array; signed again",
+   "protected_semantics": "{1 alg: -7; 2 crit: []; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "refused",
+   "service": {
+    "post_status": 400,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Cannot have crit array of length 0 in COSE protected header.\"}"
+   },
+   "data_hash_match": {
+    "text": "n/a: refused, no receipt",
+    "receipt_data_hash": null,
+    "equals_round_control": null
+   },
+   "committed_representation": "nothing committed: refused, no receipt",
+   "parser_visible_interpretation": "error text: {\"-1\": \"InvalidInput\", \"-2\": \"Cannot have crit array of length 0 in COSE protected header.\"}",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "outside_profile",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": null,
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/i08-crit-empty/",
+    "request_sha256": "4b3a1c2fe41e93e02e938b3ee9b73920296f3be8ad8f4feaaeae37ccc49e804c",
+    "statement_sha256": null
+   }
+  },
+  {
+   "vector": "r2/j01-after-configuration-change",
+   "round": 2,
+   "class": "j",
+   "phase": "after-configuration-change",
+   "mutation": "the control's bytes registered again, after-configuration-change: the policy script replaced through a governance proposal by one that also refuses the issuer did:example:blocked",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "2.49",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/j01-after-configuration-change/",
+    "request_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "statement_sha256": "67d3545a6f73fa2047fe1dfef83b3693c4ede16bb4a328673dbadf0489c133bf"
+   }
+  },
+  {
+   "vector": "r2/j02-after-restart",
+   "round": 2,
+   "class": "j",
+   "phase": "after-restart",
+   "mutation": "the control's bytes registered again, after-restart: the node stopped; a plain restart of the node refused (PID file my_node.pid already exists, exit 103); the service recovered from its ledger in a new node (command Recover, transition_service_to_open, one recovery share), with a new service identity",
+   "protected_semantics": "{1 alg: -7; 15 CWT claims: {1 iss: 'did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6B...'; 2 sub: 'proofbundle differential corpus, round 2'}; 33 x5chain: [bstr[428], bstr[435]]; 258 payload hash alg: -16; 259 preimage content type: 'application/json'}",
+   "unprotected_semantics": "{} (empty)",
+   "accepted_refused": "accepted",
+   "service": {
+    "post_status": 202,
+    "txid": "4.62",
+    "error": null
+   },
+   "data_hash_match": {
+    "own": true,
+    "cbor2": true,
+    "evercbor": true,
+    "text": "match: own, cbor2, evercbor",
+    "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "equals_round_control": true
+   },
+   "committed_representation": "preimage = [tag 18, protected as submitted (1044 bytes), unprotected emptied in the preimage, payload as submitted, signature as submitted]; the returned statement's unprotected labels: [394]",
+   "parser_visible_interpretation": "NOT MEASURABLE: the service accepted, and what it returned (the statement, the receipt) does not say which of the submitted header values its parser or policy read; the corpus queried no other read endpoint, and observing it otherwise needs a change to the service",
+   "expected_policy_result": "PENDING: the normative source for this row comes with the reviewed design (owner hold of 2026-09-27, 21:0x Berlin); no conformance claim is made either way",
+   "our_reader_submitted": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "malformed",
+    "detail": "no receipt under label 394: a Signed Statement is not a Transparent Statement",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "our_reader_returned": {
+    "decode": {
+     "status": "read",
+     "text": "decode_cose_sign1 reads it"
+    },
+    "statement_status": "confirmed",
+    "status": "confirmed",
+    "detail": "",
+    "statement_signature": {
+     "status": "confirmed",
+     "valid": true
+    }
+   },
+   "reader_unprotected_effect": "none: the same statement-side status with the unprotected map emptied",
+   "reader_against_service": "same direction as the service",
+   "files": {
+    "corpus": "differential_corpus_round2",
+    "vector": "vectors/j02-after-restart/",
+    "request_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+    "statement_sha256": "fafb70ffadaee868eb96566f3218e798db675d9b7eb80392b8a29c00cfaf4f3b"
+   }
+  }
+ ]
+}
