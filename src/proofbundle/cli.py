@@ -608,6 +608,93 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
     return rp or None
 
 
+_SCITT_FLAGS = ("scitt_statement_key", "scitt_statement_kid", "scitt_service_keys", "scitt_service_issuer")
+
+
+def _pem_or_der(raw: bytes, what: str) -> bytes:
+    """The DER bytes of a PEM ``PUBLIC KEY`` block, or ``raw`` itself. The key is not built here: the
+    check builds it by its own type, and a key of another type is absent trust there."""
+    if b"-----BEGIN" not in raw:
+        return raw
+    import base64 as _b64  # noqa: PLC0415
+    import binascii  # noqa: PLC0415
+    text = raw.decode("ascii", "replace")
+    begin, end = "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----"
+    if text.count(begin) != 1 or text.count(end) != 1 or text.index(begin) > text.index(end):
+        raise ValueError(f"{what}: not one PEM PUBLIC KEY block")
+    body = "".join(text.split(begin, 1)[1].split(end, 1)[0].split())
+    try:
+        return _b64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"{what}: the PEM body is not base64") from exc
+
+
+def _load_scitt_inputs(args: argparse.Namespace):
+    """The statement bytes and trust material for ``verify --scitt-statement``, or None without it.
+    A trust flag without a statement is a usage error (exit 2): the question would silently not be asked."""
+    path = getattr(args, "scitt_statement", None)
+    if path is None:
+        if any(getattr(args, name, None) for name in _SCITT_FLAGS):
+            raise ValueError("--scitt-statement-key, --scitt-statement-kid, --scitt-service-keys and "
+                             "--scitt-service-issuer only apply together with --scitt-statement")
+        return None
+    service_keys = getattr(args, "scitt_service_keys", None)
+    service_issuer = getattr(args, "scitt_service_issuer", None)
+    if bool(service_keys) != bool(service_issuer):
+        raise ValueError("--scitt-service-keys and --scitt-service-issuer belong together (the key set "
+                         "and the issuer it is trusted for)")
+    with _open_input(path, binary=True) as handle:
+        data = _read_capped_bytes(handle)
+    kid = getattr(args, "scitt_statement_kid", None)
+    if kid is not None:
+        if not kid:
+            raise ValueError("--scitt-statement-kid must not be empty")
+        kid = kid.encode("utf-8")
+    keys: list = []
+    for key_path in getattr(args, "scitt_statement_key", None) or []:
+        with _open_input(key_path, binary=True) as handle:
+            der = _pem_or_der(_read_capped_bytes(handle), f"--scitt-statement-key {key_path!r}")
+        keys.append({"spki": der, "kid": kid} if kid is not None else der)
+    rp_trust = None
+    if service_keys:
+        from .scitt_ccf import ScittFormatError, load_cose_keyset  # noqa: PLC0415
+        with _open_input(service_keys, binary=True) as handle:
+            keyset = _read_capped_bytes(handle)
+        try:
+            rp_trust = {"scitt_ccf_services": {service_issuer: load_cose_keyset(keyset)}}
+        except ScittFormatError as exc:
+            raise ValueError(f"--scitt-service-keys {service_keys!r}: {exc}") from exc
+    return {"data": data, "statement_keys": keys, "rp_trust": rp_trust}
+
+
+def _check_scitt_statement(bundle: dict, scitt_input: dict):
+    from .anchors import receipt_canonical_root  # noqa: PLC0415
+    from .scitt_statement import check_signed_statement  # noqa: PLC0415
+    try:
+        root = receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
+    except (ProofBundleError, ValueError, RecursionError):
+        root = None      # no receipt root: the statement cannot be bound, and the check says so
+    return check_signed_statement(scitt_input["data"], canonical_root=root,
+                                  statement_keys=scitt_input["statement_keys"],
+                                  rp_trust=scitt_input["rp_trust"])
+
+
+#: Statement and registration statuses that are a relying-party requirement not met (exit 3); every
+#: other status but confirmed and the two registration states below is a failed check (exit 1).
+_SCITT_EXIT_3 = ("needs_rp_trust", "no_lib")
+_SCITT_REGISTRATION_NEUTRAL = ("confirmed", "not_registered", "not_evaluated")
+
+
+def _with_scitt_exit(rc: int, check) -> int:
+    """Fold the statement's verdict into the verify exit code: 1 dominates 3, 3 dominates 0."""
+    codes = [rc]
+    if check.status != "confirmed":
+        codes.append(3 if check.status in _SCITT_EXIT_3 else 1)
+    if check.registration not in _SCITT_REGISTRATION_NEUTRAL:
+        codes.append(3 if check.registration in _SCITT_EXIT_3 else 1)
+    return 1 if 1 in codes else (3 if 3 in codes else rc)
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .policy import (  # noqa: PLC0415
@@ -634,6 +721,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # --trusted-tsa-root / --bitcoin-header is a clean exit 2 (not a raw traceback), like every other
         # malformed flag. Built once, used at the anchor-requirement site (which is outside this try).
         rp_trust_material = _build_rp_trust(args)
+        # 6.4.0: the SCITT statement and its trust material, read inside the try so an unreadable or
+        # malformed file is a clean exit 2; None when no --scitt-statement was given.
+        scitt_input = _load_scitt_inputs(args)
         # A-P0-2 §6.3: historical verification only via an EXPLICIT instant — never silent backdating.
         verification_time = None
         if getattr(args, "verification_time", None) is not None:
@@ -819,6 +909,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             bundle, require=require_anchor, allow_pending=allow_pending,
             require_target=anchor_target, rp_trust=rp_trust_material)
         anchor_required_ok = anchor_report["ok"]
+    # 6.4.0: the SCITT statement, checked ONLY when crypto passed (like --policy and --require-anchor).
+    # It is a verdict of its own; it never enters anchor_required_ok, so a statement without a receipt
+    # can never satisfy --require-anchor.
+    scitt_check = None
+    if scitt_input is not None and crypto_ok:
+        scitt_check = _check_scitt_statement(bundle, scitt_input)
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
     assurance = _assurance_from_bundle(bundle) if crypto_ok else None
@@ -987,6 +1083,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         fields["anchor_detail"] = anchor_report["detail"]
         fields["anchor_results"] = anchor_report["results"]
 
+    if scitt_input is not None:
+        fields["scitt_statement"] = (scitt_check.to_dict() if scitt_check is not None else
+                                     {"status": "not_evaluated", "detail": "crypto failed"})
+
     if args.json:
         out = result.as_dict()
         if roots is not None:
@@ -1079,7 +1179,18 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                     print(f"ANCHOR: OK ({_safe_line(anchor_report['detail'])})")
                 else:
                     print(f"ANCHOR: REQUIRED_NOT_MET ({_safe_line(anchor_report['detail'])})")
-    return _verify_exit_code(crypto_ok, policy_ok, anchor_required_ok)
+        if scitt_input is not None:
+            if scitt_check is None:
+                print("SCITT-STATEMENT: NOT_EVALUATED (crypto failed — the statement is not checked)")
+            else:
+                detail = f" ({_safe_line(scitt_check.detail)})" if scitt_check.detail else ""
+                print(f"SCITT-STATEMENT: {scitt_check.status.upper()}{detail}")
+                print(f"SCITT-REGISTRATION: {scitt_check.registration.upper()} "
+                      f"({_safe_line(scitt_check.registration_detail)})")
+    rc = _verify_exit_code(crypto_ok, policy_ok, anchor_required_ok)
+    if scitt_check is not None:
+        rc = _with_scitt_exit(rc, scitt_check)
+    return rc
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
@@ -2766,6 +2877,24 @@ def build_parser() -> argparse.ArgumentParser:
                              "(internal/node byte order, as bitcoind returns it), repeatable. The ONLY "
                              "trust source that CONFIRMS an OpenTimestamps anchor — the bundle's frozen "
                              "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
+    verify.add_argument("--scitt-statement", dest="scitt_statement", default=None, metavar="FILE",
+                        help="(EXPERIMENTAL, 6.4.0) also check a SCITT Signed Statement over this receipt "
+                             "(from `scitt sign`), offline: header rules, payload = the receipt's anchor "
+                             "root, signature under --scitt-statement-key. A statement without a receipt "
+                             "under label 394 reads SCITT-REGISTRATION: NOT_REGISTERED, a named state that "
+                             "changes no exit code and never satisfies --require-anchor. A failed statement "
+                             "is exit 1, no usable statement key exit 3")
+    verify.add_argument("--scitt-statement-key", dest="scitt_statement_key", action="append", default=None,
+                        metavar="FILE", help="the statement signer's Ed25519 public key (PEM or DER "
+                                             "SubjectPublicKeyInfo), supplied by the relying party; repeatable")
+    verify.add_argument("--scitt-statement-kid", dest="scitt_statement_kid", default=None, metavar="TEXT",
+                        help="the kid the relying party pairs with --scitt-statement-key; default: the "
+                             "hex SHA-256 of each key's SubjectPublicKeyInfo")
+    verify.add_argument("--scitt-service-keys", dest="scitt_service_keys", default=None, metavar="FILE",
+                        help="a COSE_KeySet of the Transparency Service (as served at "
+                             "/.well-known/scitt-keys), to evaluate a receipt under label 394")
+    verify.add_argument("--scitt-service-issuer", dest="scitt_service_issuer", default=None, metavar="ISS",
+                        help="the service's CWT issuer, exact string; belongs with --scitt-service-keys")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")

@@ -394,6 +394,19 @@ class TestTheProducersCheck:
         r = _check(_sign(), keys=[{"spki": p256, "kid": kid}])
         assert r.status == "needs_rp_trust" and r.ignored_trust
 
+    def test_a_low_order_relying_party_key_is_absent_trust(self):
+        """The statement key is a trust anchor supplied from outside the statement, so it passes the
+        house rule for trusted Ed25519 keys (signature.ed25519_trust_anchor_weakness): under the
+        identity point the signature R = identity, S = 0 verifies for every message."""
+        identity = bytes([1]) + bytes(31)
+        spki = bytes.fromhex("302a300506032b6570032100") + identity
+        c = _control()
+        forged = _encode(c["prot"], c["unprot"], c["payload"], identity + bytes(32), prot_raw=c["raw"])
+        kid = c["prot"][4]
+        r = _check(forged, keys=[{"spki": spki, "kid": kid}])
+        assert r.status == "needs_rp_trust" and r.signature_valid is None
+        assert any("low-order" in why for why in r.ignored_trust)
+
     def test_a_duplicate_protected_key_is_malformed(self):
         c = _control()
         raw = c["raw"]
