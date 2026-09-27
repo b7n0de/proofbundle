@@ -37,7 +37,6 @@ Usage:  PYTHONPATH=src python tools/scitt_ccf_external/transparent_statement_vec
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import sys
@@ -49,6 +48,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(HERE))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import encode_head  # noqa: E402
+from proofbundle._wire_b64 import decode_b64  # noqa: E402  (the one strict base64 decoder tools may use)
 from statement_signature_vectors import Builder as StatementBuilder, bstr, spki, uint  # noqa: E402
 
 from cryptography.hazmat.primitives import hashes  # noqa: E402
@@ -77,7 +77,7 @@ def assemble(parts: list, refs: dict) -> bytes:
             out += bytes.fromhex("".join((ROOT / p["hexfile"]).read_text(encoding="ascii").split()))
         else:
             doc = json.loads((ROOT / p["fixture"]).read_text(encoding="utf-8"))
-            out += base64.b64decode(doc[p["field"]])
+            out += decode_b64(doc[p["field"]])
     return out
 
 
@@ -454,9 +454,9 @@ def real_vectors(b: Builder) -> None:
         b.add_ts(vid, what, parts, want, trust=trust, root=r, origin="differential corpus, rebuilt trust")
     fixture = "tests/fixtures/scitt_ccf/local_ledger_control.json"
     doc = json.loads((ROOT / fixture).read_text(encoding="utf-8"))
-    b.refs["spki_local_ledger_signer"] = base64.b64decode(doc["statement_signer_spki_b64"]).hex()
+    b.refs["spki_local_ledger_signer"] = decode_b64(doc["statement_signer_spki_b64"]).hex()
     services = []
-    for i, k in enumerate(C.load_cose_keyset(base64.b64decode(doc["service_keyset_b64"]))):
+    for i, k in enumerate(C.load_cose_keyset(decode_b64(doc["service_keyset_b64"]))):
         b.refs[f"spki_local_ledger_{i}"] = k["spki"].hex()
         services.append({"spki": {"ref": f"spki_local_ledger_{i}"}, "kid": k["kid"].hex()})
     b.trusts["local-ledger"] = {"scitt_statement_keys": [{"ref": "spki_local_ledger_signer"}],
