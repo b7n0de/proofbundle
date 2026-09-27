@@ -172,6 +172,11 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     SD-JWT's ``_sd_alg`` hash — so dropping or swapping a disclosure after signing is detectable.
     ``iat`` is the POSIX issuance time chosen by the holder (explicit, not sampled here, so
     presentations are reproducible in tests).
+
+    The compact is presented byte for byte as handed, and ``sd_hash`` is computed over exactly the
+    bytes this function emits. The issuer JWT belongs to a foreign issuer and is never rewritten, an
+    ES256 signature with a high s included (finding D1, owner decision 2026-09-26). The one
+    signature this function makes is the holder's EdDSA signature over the KB-JWT.
     """
     if not compact.endswith("~"):
         raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")

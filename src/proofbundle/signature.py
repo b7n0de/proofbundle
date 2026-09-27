@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "verify_ecdsa_p256"]
+           "verify_ecdsa_p256", "canonical_es256_signature"]
 
 
 _ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
@@ -155,6 +155,9 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     curve (raises ``ValueError``, caught below) — a malformed/forged public key never silently
     verifies. Any malformed input returns False rather than raising, matching
     :func:`verify_ed25519`'s contract so callers get a boolean per check regardless of alg.
+
+    Both spellings of a signature verify, ``(r, s)`` and ``(r, n - s)``; see
+    :func:`canonical_es256_signature` for why that stays so and what an identity is formed over.
     """
     if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
             or not isinstance(message, (bytes, bytearray))):
@@ -172,3 +175,51 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
+
+
+#: The order n of the P-256 group (FIPS 186-5, SEC 2 secp256r1). The r and s of an ES256 signature
+#: are integers modulo n.
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_P256_HALF_N = _P256_N // 2
+
+
+def _es256_other_spelling(signature: bytes) -> "bytes | None":
+    """The second valid spelling ``R || (n - S)`` of a 64-byte ES256 signature, or None when ``S`` is
+    not in ``(0, n)``: such a signature never verifies, so it has no second spelling."""
+    s = int.from_bytes(signature[32:], "big")
+    if not 0 < s < _P256_N:
+        return None
+    return signature[:32] + (_P256_N - s).to_bytes(32, "big")
+
+
+def canonical_es256_signature(signature):
+    """The one spelling of an ES256 signature that an identity is formed over: ``R || min(S, n - S)``.
+
+    ECDSA verification computes a point from ``s`` and compares only its x-coordinate; ``n - s`` gives
+    the negated point, which has the same x-coordinate. So whoever sees a valid ``(r, s)`` can write
+    ``(r, n - s)`` without the key, and :func:`verify_ecdsa_p256` accepts it as well. It keeps accepting
+    both, by the owner's decision on finding D1 (2026-09-26): RFC 7518 §3.4 does not require the low
+    half, OpenSSL (which ``cryptography`` wraps) signs with either half and accepts both, and three of
+    the five IETF SD-JWT VC examples vendored in ``tests/fixtures/sdjwtvc`` carry a high ``s`` (the
+    fourth and the fifth in the issuer signature, the second in its Key Binding JWT).
+    What must not follow from it is a second identity. Every identity, receipt root, dedup, replay or
+    log key that proofbundle computes from bytes carrying an ES256 signature is computed over this
+    function's output, the spelling with ``s <= n / 2``, so ``(r, s)`` and ``(r, n - s)`` have one
+    identity. The bytes themselves are never rewritten: a signature made by someone else is passed
+    on and returned as it came, because another signature can cover it (a Key Binding JWT's
+    ``sd_hash`` covers the issuer JWT). Only a signature proofbundle makes itself carries the low
+    ``s``; today proofbundle makes no ES256 signature. Its own signatures on these paths are
+    Ed25519; it also signs with ML-DSA elsewhere (``pqsig.sign_mldsa``), and whether an ML-DSA
+    signature has a second spelling was not measured.
+
+    Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value
+    verifies, so it has no second spelling to fold. Never raises.
+    """
+    if not isinstance(signature, (bytes, bytearray)) or len(signature) != 64:
+        return signature
+    sig = bytes(signature)
+    if int.from_bytes(sig[32:], "big") > _P256_HALF_N:
+        other = _es256_other_spelling(sig)
+        if other is not None:
+            return other
+    return sig
