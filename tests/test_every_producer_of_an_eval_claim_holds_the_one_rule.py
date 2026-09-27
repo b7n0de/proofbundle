@@ -37,6 +37,12 @@ container that escaped as a raw exception. The ones below the "round 8" marker w
 c8205c18, where a sixth lens found that caller code still ran inside the copy and after it; one
 round-2 case changed its expectation in round 8
 (`TestThePlantedObjectIsJudgedAsItSerializes.test_an_int_that_serializes_differently_is_written_as_what_it_holds`).
+The ones below the "round 9" marker were written against ee489403, where a seventh lens found a
+refusal that raised while naming a type, a band of depths in which a serializer after the copy
+raised RecursionError, numbers and a `subject_digest` that reached a serializer or `dict()` raw, an
+OrderedDict copied in its storage order, and caller-attested flags read by their truth. In round 9
+the round-8 proof passes plain booleans as the flags of `export_svr_dsse`, because a recording int is
+refused there now before the rest of the path runs; the recording ints stay as a case of their own.
 Run against its reference commit, every case whose name does not start with `test_control` fails;
 the controls pass there and here. One round-3 control changed in round 4
 (`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in
@@ -1882,9 +1888,15 @@ class TestTheCopyRunsNoCodeOfTheCaller(_Basis):
                 lambda: dict(profil=P[str]("release-gate"), subject_name=P[str]("m"),
                              subject_sha256=P[str]("AB" * 32)),
                 lambda kw: intoto.resolve_subject(kw.pop("profil"), b, **kw)),
+            # Round 9: a flag must be True or False, so these recording ints are refused, and the
+            # proof is that the refusal reads them without running them.
             "svr_properties flags": (
                 lambda: dict(prereg_verified=P[int](1), anchor_verified=P[int](0)),
                 lambda kw: intoto.svr_properties(_Ergebnis(), b, **kw)),
+            "export_svr_dsse flags as recording ints": (
+                lambda: dict(buendel=emit_eval_receipt(b, s), prereg_verified=P[int](1),
+                             anchor_verified=P[int](0)),
+                lambda kw: intoto.export_svr_dsse(kw.pop("buendel"), s, **kw)),
             "harness claims dict": (lambda: dict(harness=_BehauptetDict()),
                                     lambda kw: intoto.to_intoto_statement(b, **kw)),
             "harness hides dict": (lambda: dict(harness=_versteckt({"a": 1}), content_root_alg=alt),
@@ -1906,8 +1918,8 @@ class TestTheCopyRunsNoCodeOfTheCaller(_Basis):
                 lambda kw: intoto.export_eval_result_dsse(b, s, **kw))
             faelle[f"export_svr_dsse {alg}"] = (
                 lambda alg=alg: dict(buendel=emit_eval_receipt(b, s), time_created=P[str]("2026-01-01T00:00:00Z"),
-                                     policy=P[dict]({"uri": P[str]("u")}), prereg_verified=P[int](0),
-                                     anchor_verified=P[int](0), keyid=P[str]("k"), content_root_alg=P[str](alg)),
+                                     policy=P[dict]({"uri": P[str]("u")}), prereg_verified=False,
+                                     anchor_verified=False, keyid=P[str]("k"), content_root_alg=P[str](alg)),
                 lambda kw: intoto.export_svr_dsse(kw.pop("buendel"), s, **kw))
         for name, (aufbau, aufruf) in faelle.items():
             self._pruefe(name, aufbau, aufruf, (BundleFormatError,))
@@ -2350,6 +2362,450 @@ class TestTheChangesRoundEightNamesInReview(_Basis):
     def test_control_a_tuple_of_pairs_is_read_as_before(self):
         paare = tuple(tuple(p) for p in self.basis.items())
         self.assertEqual(emit_eval_receipt(paare, self.signer), emit_eval_receipt(self.basis, self.signer))
+
+
+# ---- round 9: lens run 7 at ee489403 ------------------------------------------------------------------
+
+def _typ_ohne_type_im_mro():
+    """F1, form A of lens run 7: an object whose type's metaclass leaves `type` out of its own MRO.
+    `type.__dict__["__name__"].__get__` checks its argument against that MRO and raised TypeError."""
+    class _OhneTypeMeta(type):
+        def mro(cls):
+            return [cls, object]
+
+    class _OhneType(type, metaclass=_OhneTypeMeta):
+        pass
+
+    class _Anfang(type):
+        pass
+
+    class Wert(metaclass=_Anfang):
+        pass
+    wert = Wert()
+    Wert.__class__ = _OhneType
+    return wert
+
+
+def _name_ohne_str_im_mro():
+    """F1, form B: an ordinary class whose `__name__` is a `str` subclass whose metaclass leaves `str`
+    out of its MRO. `str.__str__` checks against that MRO and raised TypeError. Its methods record."""
+    class _OhneStrMeta(type):
+        def mro(cls):
+            return [cls, object]
+    name = _OhneStrMeta("Name", (str,), {
+        "__str__": lambda self: (_merke("name __str__"), "x")[1],
+        "__repr__": lambda self: (_merke("name __repr__"), "x")[1],
+        "__eq__": lambda self, other: (_merke("name __eq__"), False)[1],
+        "__hash__": lambda self: (_merke("name __hash__"), 1)[1]})
+
+    class Wert:
+        pass
+    Wert.__name__ = name("harmlos")
+    return Wert()
+
+
+def _verschoben(klasse=collections.OrderedDict):
+    """An OrderedDict whose own order (salt_hex, identifier) is not its storage order."""
+    od = klasse([("identifier", "acme/model-x"), ("salt_hex", "00ff")])
+    od.move_to_end("identifier")
+    return od
+
+
+class _OdZeigtFremdes(collections.OrderedDict):
+    """Its own methods show a key it does not hold; the copy reads the base type's order."""
+
+    def __iter__(self):
+        return iter(["fremd"])
+
+    def keys(self):
+        return ["fremd"]
+
+    def items(self):
+        return [("fremd", 99)]
+
+    def __getitem__(self, schluessel):
+        return 99
+
+
+class _HashProtokoll(str):
+    """A key whose hash is its own code, and records that it ran."""
+
+    def __hash__(self):
+        _merke("key __hash__")
+        return str.__hash__(self)
+
+
+class _GleichProtokoll(str):
+    """A key with `str`'s own hash whose comparisons are its own code, and record that they ran."""
+
+    def __eq__(self, other):
+        _merke("key __eq__")
+        return str.__eq__(self, other)
+
+    def __ne__(self, other):
+        _merke("key __ne__")
+        return str.__ne__(self, other)
+
+    __hash__ = str.__hash__
+
+
+def _paare_in_reihenfolge(text: str) -> list:
+    """The key order of every object in a JSON text, as the text writes it."""
+    reihen: list = []
+
+    def merken(paare):
+        reihen.append([k for k, _ in paare])
+        return dict(paare)
+    json.loads(text, object_pairs_hook=merken)
+    return reihen
+
+
+class TestTheRefusalNamesEveryTypeWithoutRaising(_Basis):
+    """F1 of lens run 7 at ee489403, a regression of 86490e3c at the verify boundary. `_type_name`
+    raised a raw TypeError for the two forms below, so the refusal it was building escaped as that
+    TypeError: from the emitter, every producer, the budget and `statement_content_root`, and from
+    `verify_intoto_dsse`, where c8205c18 gave EvalClaimError and ok=False."""
+
+    def test_f1_a_type_whose_name_cannot_be_read_is_named_and_refused(self):
+        from proofbundle._strict_json import enforce_structural_budget  # noqa: PLC0415
+        s = self.signer
+        umschlag = intoto.export_intoto_dsse(self.basis, s)
+        for form, bau in (("metaclass hides type", _typ_ohne_type_im_mro),
+                          ("name hides str", _name_ohne_str_im_mro)):
+            with self.subTest(form=form):
+                _AUFRUFE.clear()
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(dict(self.basis, provenance={"k": bau()}), s)
+                self.assertIn("a value of type <unnamed type> is not a JSON value", str(ctx.exception))
+                for name, erzeuge in _produzenten().items():
+                    with self.assertRaises(BundleFormatError, msg=name):
+                        erzeuge(dict(self.basis, provenance={"k": bau()}), s)
+                with self.assertRaises(ValueError):
+                    issue_sd_jwt(self.basis, s, root_b64=ROOT_B64,
+                                 status={"status_list": {"idx": 7}, "x": bau()})
+                with self.assertRaises(BundleFormatError):
+                    enforce_structural_budget({"k": bau()})
+                for aufruf in (canonical.statement_content_root,
+                               lambda w: canonical.canonicalize_statement(w, require_statement_shape=True)):
+                    with self.assertRaises(ProofBundleError) as ctx:
+                        aufruf(bau())
+                    self.assertIn("<unnamed type>", str(ctx.exception))
+                with self.assertRaises(BundleFormatError):
+                    dsse.verify_envelope(dict(umschlag, extra=bau()), self.pub)
+                for verifiziere in (intoto.verify_intoto_dsse, intoto.verify_eval_result_dsse,
+                                    intoto.verify_svr_dsse):
+                    self.assertIs(verifiziere(dict(umschlag, extra=bau()), self.pub)["ok"], False)
+                self.assertEqual(_AUFRUFE, [])
+
+
+class TestTheSerializerAfterTheCopyGivesTheEntrysRefusal(_Basis):
+    """F2 and F3 of lens run 7 at ee489403: the serializers that run after the copy raised their own
+    errors. RecursionError in a band of depths just below the copy's limit (the disclosure's
+    json.dumps, the legacy serializer), rfc8785's FloatDomainError and IntegerDomainError and the
+    budget's BudgetExceeded under jcs, json's ValueError for 10**5000 under legacy, and `dict()`'s
+    TypeError or ValueError for a `subject_digest` that is no object."""
+
+    def _bandsuche(self, aufruf, erlaubt, art):
+        """(deepest written, outcomes of the twelve depths after it and of 5000), from one frame."""
+        def ergebnis(tiefe):
+            try:
+                aufruf(_geschachtelt(tiefe, art))
+                return "written"
+            except erlaubt:
+                return "refused"
+            except RecursionError:
+                return "RecursionError"
+        unten, oben = 1, 3000
+        while oben - unten > 1:
+            mitte = (unten + oben) // 2
+            if ergebnis(mitte) == "written":
+                unten = mitte
+            else:
+                oben = mitte
+        return unten, [ergebnis(t) for t in list(range(unten + 1, unten + 13)) + [5000]]
+
+    def test_f2_a_value_just_below_the_copys_limit_is_refused_not_raised(self):
+        b, s = self.basis, self.signer
+        alt = intoto.LEGACY_CONTENT_ROOT_ALG
+        buendel = emit_eval_receipt(b, s)
+        wege = {
+            "issue_sd_jwt model_id_opening": (ValueError, lambda w: issue_sd_jwt(
+                b, s, root_b64=ROOT_B64, model_id_opening=["m", w])),
+            "issue_sd_jwt dataset_id_opening": (ValueError, lambda w: issue_sd_jwt(
+                b, s, root_b64=ROOT_B64, dataset_id_opening=w)),
+            "export_intoto_dsse legacy harness": (BundleFormatError, lambda w: intoto.export_intoto_dsse(
+                b, s, harness={"h": w}, content_root_alg=alt)),
+            "export_eval_result_dsse legacy harness": (BundleFormatError, lambda w: intoto.export_eval_result_dsse(
+                b, s, harness={"h": w}, content_root_alg=alt)),
+            "export_eval_result_dsse legacy anchors": (BundleFormatError, lambda w: intoto.export_eval_result_dsse(
+                b, s, anchors=[w], content_root_alg=alt)),
+            "export_svr_dsse legacy policy": (BundleFormatError, lambda w: intoto.export_svr_dsse(
+                buendel, s, policy={"p": w}, content_root_alg=alt)),
+        }
+        for name, (erlaubt, aufruf) in wege.items():
+            for art in ("list", "dict"):
+                with self.subTest(weg=name, art=art):
+                    tiefste, danach = self._bandsuche(aufruf, erlaubt, art)
+                    self.assertGreater(tiefste, 64)
+                    self.assertEqual(danach, ["refused"] * 13, tiefste)
+
+    def test_f3_a_number_the_serializer_refuses_is_the_exporters_refusal(self):
+        b, s = self.basis, self.signer
+        alt = intoto.LEGACY_CONTENT_ROOT_ALG
+        buendel = emit_eval_receipt(b, s)
+        jcs_wege = {
+            "export_intoto_dsse harness": lambda v: intoto.export_intoto_dsse(b, s, harness={"h": v}),
+            "export_eval_result_dsse anchors": lambda v: intoto.export_eval_result_dsse(b, s, anchors=[v]),
+            "export_svr_dsse policy": lambda v: intoto.export_svr_dsse(buendel, s, policy={"p": v}),
+        }
+        werte = (("nan", float("nan")), ("inf", float("inf")), ("2**53", 2 ** 53), ("2**64", 2 ** 64),
+                 ("10**5000", 10 ** 5000))
+        for name, aufruf in jcs_wege.items():
+            for bezeichnung, wert in werte:
+                with self.subTest(weg=name, wert=bezeichnung):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        aufruf(wert)
+                    self.assertIn(name.split()[0], str(ctx.exception))
+        with self.subTest(weg="export_intoto_dsse legacy harness", wert="10**5000"):
+            with self.assertRaises(BundleFormatError):
+                intoto.export_intoto_dsse(b, s, harness={"h": 10 ** 5000}, content_root_alg=alt)
+
+    def test_f3_a_subject_digest_that_is_no_object_is_refused(self):
+        for wert in (None, 5, "ab", [1], True):
+            with self.subTest(subject_digest=wert):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    intoto.to_test_result_statement(self.basis, subject_digest=wert)
+                self.assertIn("subject_digest", str(ctx.exception))
+        for wert, erwartet in (({"sha256": "00"}, {"sha256": "00"}), ([["sha256", "00"]], {"sha256": "00"})):
+            with self.subTest(angenommen=wert):
+                stmt = intoto.to_test_result_statement(self.basis, subject_digest=wert)
+                self.assertEqual(stmt["subject"][0]["digest"], erwartet)
+
+
+class TestAnArgumentThatMustBeAStringIsOne(_Basis):
+    """The class of F3 at the string arguments, measured at ee489403 by a second lens: `_eigen` let
+    any JSON value through where the argument must be a string. `root_b64` or `content_root_alg`
+    of 10**5000 at `export_intoto_dsse`, `subject_profile=10**5000` at `export_eval_result_dsse`,
+    `expected_predicate_type=10**5000` at the verifiers and `passed=10**5000` at `svr_properties` raised
+    a raw ValueError from a message; a `url`, `keyid`, `root_b64`, `subject_name` or `subject_profile`
+    of another type was written into the statement or the envelope."""
+
+    def _wege(self):
+        b, s = self.basis, self.signer
+        buendel = emit_eval_receipt(b, s)
+        umschlag = intoto.export_intoto_dsse(b, s)
+        eval_umschlag = intoto.export_eval_result_dsse(b, s)
+        svr_umschlag = intoto.export_svr_dsse(buendel, s)
+        digest = {"sha256": "0" * 64}
+        sha = "ab" * 32
+        return {
+            ("to_intoto_statement", "root_b64"): lambda v: intoto.to_intoto_statement(b, root_b64=v),
+            ("to_test_result_statement", "root_b64"): lambda v: intoto.to_test_result_statement(
+                b, subject_digest=digest, root_b64=v),
+            ("to_test_result_statement", "url"): lambda v: intoto.to_test_result_statement(
+                b, subject_digest=digest, url=v),
+            ("to_test_result_statement", "content_root_alg"): lambda v: intoto.to_test_result_statement(
+                b, subject_digest=digest, content_root_alg=v),
+            ("export_intoto_dsse", "root_b64"): lambda v: intoto.export_intoto_dsse(b, s, root_b64=v),
+            ("export_intoto_dsse", "url"): lambda v: intoto.export_intoto_dsse(b, s, url=v),
+            ("export_intoto_dsse", "keyid"): lambda v: intoto.export_intoto_dsse(b, s, keyid=v),
+            ("export_intoto_dsse", "content_root_alg"): lambda v: intoto.export_intoto_dsse(
+                b, s, content_root_alg=v),
+            ("resolve_subject", "profile"): lambda v: intoto.resolve_subject(v, b),
+            ("resolve_subject", "root_b64"): lambda v: intoto.resolve_subject("receipt", b, root_b64=v),
+            ("resolve_subject", "subject_name"): lambda v: intoto.resolve_subject(
+                "public-model", b, subject_name=v, subject_sha256=sha),
+            ("resolve_subject", "subject_sha256"): lambda v: intoto.resolve_subject(
+                "release-gate", b, subject_name="m", subject_sha256=v),
+            ("to_eval_result_predicate", "root_b64"): lambda v: intoto.to_eval_result_predicate(b, root_b64=v),
+            ("to_eval_result_predicate", "subject_profile"): lambda v: intoto.to_eval_result_predicate(
+                b, subject_profile=v),
+            ("to_eval_result_statement", "content_root_alg"): lambda v: intoto.to_eval_result_statement(
+                b, subject=[digest], content_root_alg=v),
+            ("export_eval_result_dsse", "subject_profile"): lambda v: intoto.export_eval_result_dsse(
+                b, s, subject_profile=v),
+            ("export_eval_result_dsse", "subject_name"): lambda v: intoto.export_eval_result_dsse(
+                b, s, subject_profile="public-model", subject_name=v, subject_sha256=sha),
+            ("export_eval_result_dsse", "subject_sha256"): lambda v: intoto.export_eval_result_dsse(
+                b, s, subject_profile="public-model", subject_name="m", subject_sha256=v),
+            ("export_eval_result_dsse", "root_b64"): lambda v: intoto.export_eval_result_dsse(b, s, root_b64=v),
+            ("export_eval_result_dsse", "keyid"): lambda v: intoto.export_eval_result_dsse(b, s, keyid=v),
+            ("export_eval_result_dsse", "content_root_alg"): lambda v: intoto.export_eval_result_dsse(
+                b, s, content_root_alg=v),
+            ("export_svr_dsse", "time_created"): lambda v: intoto.export_svr_dsse(buendel, s, time_created=v),
+            ("export_svr_dsse", "keyid"): lambda v: intoto.export_svr_dsse(buendel, s, keyid=v),
+            ("export_svr_dsse", "content_root_alg"): lambda v: intoto.export_svr_dsse(
+                buendel, s, content_root_alg=v),
+            ("verify_intoto_dsse", "expected_predicate_type"): lambda v: intoto.verify_intoto_dsse(
+                umschlag, self.pub, expected_predicate_type=v),
+            ("verify_eval_result_dsse", "expected_predicate_type"): lambda v: intoto.verify_eval_result_dsse(
+                eval_umschlag, self.pub, expected_predicate_type=v),
+            ("verify_svr_dsse", "expected_predicate_type"): lambda v: intoto.verify_svr_dsse(
+                svr_umschlag, self.pub, expected_predicate_type=v),
+        }
+
+    def test_an_argument_of_another_type_is_refused_by_name(self):
+        for (weg, argument), aufruf in self._wege().items():
+            for wert in (10 ** 5000, 5, [1], {"a": "b"}, True):
+                with self.subTest(weg=weg, argument=argument, wert=type(wert).__name__):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        aufruf(wert)
+                    self.assertIn(f"{weg}: {argument} must be a string", str(ctx.exception))
+
+    def test_a_passed_the_message_cannot_print_is_refused(self):
+        with self.assertRaises(BundleFormatError) as ctx:
+            intoto.svr_properties(_Ergebnis(), dict(self.basis, passed=10 ** 5000))
+        self.assertIn("`passed` is int <int, 16610 bits>", str(ctx.exception))
+
+    def test_control_a_string_argument_is_written_as_its_characters(self):
+        """Green at ee489403 too: a `str` subclass is read as the characters it holds."""
+        class Text(str):
+            pass
+        b, s = self.basis, self.signer
+        self.assertEqual(intoto.export_intoto_dsse(b, s, root_b64=Text(ROOT_B64), url=Text("https://x"),
+                                                   keyid=Text("k")),
+                         intoto.export_intoto_dsse(b, s, root_b64=ROOT_B64, url="https://x", keyid="k"))
+        self.assertEqual(intoto.resolve_subject(Text("release-gate"), b, subject_name=Text("m"),
+                                                subject_sha256=Text("AB" * 32)),
+                         [{"name": "m", "digest": {"sha256": "ab" * 32}}])
+
+
+class TestACallerAttestedFlagIsABoolean(_Basis):
+    """R-B4 at the caller-attested flags, P2, found outside the targets of lens run 7 and measured at
+    ee489403 and on main 20e91c8e: `export_svr_dsse(env, signer, anchor_verified="false")` signed
+    PROOFBUNDLE_ANCHOR_VALID. A flag was read by its truth."""
+
+    def test_a_flag_that_is_not_true_or_false_is_refused(self):
+        buendel = emit_eval_receipt(self.basis, self.signer)
+        mit_prereg = dict(self.basis, prereg_sha256="a" * 64)
+        for flagge in ("prereg_verified", "anchor_verified"):
+            for wert in ("false", "true", "", 0, 1, None, [], {}):
+                with self.subTest(flagge=flagge, wert=wert):
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        intoto.svr_properties(_Ergebnis(), mit_prereg, **{flagge: wert})
+                    self.assertIn(f"svr_properties: {flagge} must be True or False", str(ctx.exception))
+                    with self.assertRaises(BundleFormatError) as ctx:
+                        intoto.export_svr_dsse(buendel, self.signer, **{flagge: wert})
+                    self.assertIn(f"export_svr_dsse: {flagge} must be True or False", str(ctx.exception))
+
+    def test_control_true_and_false_attest_as_before(self):
+        buendel = emit_eval_receipt(self.basis, self.signer)
+        mit_prereg = dict(self.basis, prereg_sha256="a" * 64)
+        for wert in (True, False):
+            with self.subTest(wert=wert):
+                props = intoto.svr_properties(_Ergebnis(), mit_prereg, prereg_verified=wert,
+                                              anchor_verified=wert)
+                self.assertEqual("PROOFBUNDLE_PREREG_BOUND" in props, wert)
+                self.assertEqual("PROOFBUNDLE_ANCHOR_VALID" in props, wert)
+                signiert = _nutzlast(intoto.export_svr_dsse(buendel, self.signer, anchor_verified=wert))
+                self.assertEqual("PROOFBUNDLE_ANCHOR_VALID" in signiert["predicate"]["properties"], wert)
+
+
+class TestAnOrderedDictIsReadInItsOwnOrder(_Basis):
+    """F4 of lens run 7 at ee489403, a regression of this round: the copy read an OrderedDict with
+    `dict.items`, its storage order, which `move_to_end` does not change. `issue_sd_jwt` signed the
+    opening ['identifier', 'salt_hex'] for an OrderedDict whose own order is the reverse, where
+    c8205c18 and main signed ['salt_hex', 'identifier'], and `to_test_result_statement` built another
+    subject digest. `status` read the storage order at c8205c18 too; it reads the own order now, as
+    on main."""
+
+    FORMEN = (("OrderedDict", lambda: _verschoben()),
+              ("a subclass whose own methods show another key", lambda: _verschoben(_OdZeigtFremdes)))
+
+    def test_every_order_sensitive_reader_sees_the_own_order(self):
+        b, s = self.basis, self.signer
+        for form, bau in self.FORMEN:
+            with self.subTest(form=form):
+                od = bau()
+                self.assertEqual(list(collections.OrderedDict.__iter__(od)), ["salt_hex", "identifier"])
+                self.assertEqual(list(dict.__iter__(od)), ["identifier", "salt_hex"])   # the premise
+                offen = _offenlegungen(issue_sd_jwt(b, s, root_b64=ROOT_B64, model_id_opening=od,
+                                                    dataset_id_opening=["d", od]))
+                self.assertEqual(offen["model_id_opening"], ["salt_hex", "identifier"])
+                self.assertEqual(list(offen["dataset_id_opening"][1]), ["salt_hex", "identifier"])
+                self.assertEqual(intoto.to_test_result_statement(b, subject_digest=[od])["subject"][0]
+                                 ["digest"], {"salt_hex": "identifier"})
+                self.assertEqual(list(intoto.to_intoto_statement(b, harness=od)["predicate"]["harness"]),
+                                 ["salt_hex", "identifier"])
+                compact = issue_sd_jwt(b, s, root_b64=ROOT_B64,
+                                       status={"status_list": {"idx": 7}, "x": od})
+                teil = compact.split("~", 1)[0].split(".")[1]
+                text = base64.urlsafe_b64decode(teil + "=" * (-len(teil) % 4)).decode("utf-8")
+                self.assertIn(["salt_hex", "identifier"], _paare_in_reihenfolge(text))
+
+    def test_an_ordered_dict_keeps_its_bytes_on_every_path(self):
+        """What the CHANGELOG says of OrderedDict, as bytes: on every path an OrderedDict writes what
+        the plain dict in its own order writes."""
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        b, s = self.basis, self.signer
+        alt = intoto.LEGACY_CONTENT_ROOT_ALG
+        for form, bau in self.FORMEN:
+            od = bau()
+            roh = {k: dict.__getitem__(od, k) for k in collections.OrderedDict.__iter__(od)}
+            wege = {
+                "canonicalize": lambda w: canonicalize(dict(b, provenance={"k": w})),
+                "canonicalize_statement": lambda w: canonical.canonicalize_statement({"k": w}),
+                "emit_eval_receipt": lambda w: emit_eval_receipt(dict(b, provenance={"k": w}), s),
+                "export_intoto_dsse legacy": lambda w: intoto.export_intoto_dsse(
+                    b, s, harness={"k": w}, content_root_alg=alt),
+                "export_intoto_dsse jcs": lambda w: intoto.export_intoto_dsse(b, s, harness={"k": w}),
+                "issue_sd_jwt status": lambda w: issue_sd_jwt(
+                    b, s, root_b64=ROOT_B64, status={"status_list": {"idx": 7}, "k": w}).split("~", 1)[0],
+                "issue_sd_jwt opening": lambda w: json.dumps(_offenlegungen(issue_sd_jwt(
+                    b, s, root_b64=ROOT_B64, model_id_opening=w, dataset_id_opening=["d", w]))),
+                "to_test_result_statement subject_digest": lambda w: json.dumps(
+                    intoto.to_test_result_statement(b, subject_digest=[w])),
+                "to_intoto_statement harness": lambda w: json.dumps(intoto.to_intoto_statement(b, harness=w)),
+            }
+            for weg, schreibe in wege.items():
+                with self.subTest(form=form, weg=weg):
+                    self.assertEqual(schreibe(od), schreibe(roh))
+
+    def test_a_key_that_computes_its_own_hash_is_refused_without_running_it(self):
+        """The base method hashes each key to find its node, and this key's hash is its own code. It
+        is refused before the order is read, and its hash never runs. At ee489403 the copy read the
+        storage order and signed it."""
+        od = collections.OrderedDict([(_HashProtokoll("a"), 1), ("b", 2)])
+        od.move_to_end("a")
+        _AUFRUFE.clear()
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(dict(self.basis, provenance={"k": od}), self.signer)
+        self.assertIn("computes its own hash", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status={"status_list": {}, "k": od})
+        self.assertEqual(_AUFRUFE, [])
+
+    def test_control_the_copy_of_an_ordered_dict_runs_no_code_of_the_caller(self):
+        """Green at ee489403 too, which read the storage order: a recording OrderedDict subclass, and
+        keys that compare through their own `__eq__` with `str`'s hash, are read without a call."""
+        PO = _protokolliert(collections.OrderedDict)
+        b, s = self.basis, self.signer
+
+        def aufbau():
+            od = PO([("identifier", "acme/model-x"), ("salt_hex", "00ff")])
+            collections.OrderedDict.move_to_end(od, "identifier")
+            return od
+
+        def eigene_vergleiche():
+            od = collections.OrderedDict([(_GleichProtokoll("a"), 1), (_GleichProtokoll("b"), 2)])
+            od.move_to_end(next(iter(od)))
+            return od
+        for weg, aufruf in (
+                ("emit provenance", lambda w: emit_eval_receipt(dict(b, provenance={"k": w}), s)),
+                ("issue_sd_jwt status", lambda w: issue_sd_jwt(b, s, root_b64=ROOT_B64,
+                                                               status={"status_list": {}, "k": w})),
+                ("issue_sd_jwt opening", lambda w: issue_sd_jwt(b, s, root_b64=ROOT_B64, model_id_opening=w)),
+                ("to_test_result_statement", lambda w: intoto.to_test_result_statement(
+                    b, subject_digest=[w])),
+                ("export_intoto_dsse legacy", lambda w: intoto.export_intoto_dsse(
+                    b, s, harness=w, content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG))):
+            for form, bau in (("recording OrderedDict", aufbau), ("keys that compare by their own code",
+                                                                  eigene_vergleiche),
+                              ("recording OrderedDict holding a recording key",
+                               lambda: PO([(P[str]("k"), 1)]))):
+                self._pruefe(f"{weg}, {form}", bau, aufruf, (ProofBundleError, ValueError))
+
+    _pruefe = TestTheCopyRunsNoCodeOfTheCaller._pruefe
 
 
 if __name__ == "__main__":

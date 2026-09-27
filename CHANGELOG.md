@@ -336,22 +336,29 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   500 whose `__int__` returns -1 is signed as 500, where the read-back refused it; the emitter
   refuses a claim given as a `UserDict`, a `MappingProxyType`, or an iterator, a generator or a dict
   view of pairs, which `dict()` read through their own methods (a list or a tuple of pairs is read
-  as before); `issue_sd_jwt` refuses an opening that is no JSON
+  as before), and gives EvalClaimError for a claim that is 5, True, None, "ab" or [1, 2], which
+  raised `dict()`'s TypeError or ValueError; `issue_sd_jwt` refuses an opening that is no JSON
   value (bytes, bytearray, memoryview, a set, a frozenset, a range, a deque, an array, a dict view,
-  a `UserDict`, a `UserList`, a `MappingProxyType`, a generator), which `list()` accepted, and a
-  `vct` or `root_b64` that is None, a number or a list, which was signed; the statement builders
-  refuse a `harness`, `anchors` or `subject` that is no JSON value, which they returned inside the
-  statement, and return a tuple as the list it is written as; the legacy serializer no longer turns
-  a non-string key into a string (`{1: "a"}` in `harness` was signed as `{"1":"a"}`), and under the
+  a `UserDict`, a `UserList`, a `MappingProxyType`, a generator), which `list()` accepted, a dict
+  opening that nests too deep (`{"m": <a dict nested 1000 deep>}` was signed as `['m']`) or holds a
+  key that is not a string anywhere (`{1: "a"}`, `{"m": {1: 2}}` and `["m", {1: 2}]` were signed as
+  `[1]`, `['m']` and `['m', {'1': 2}]`), and a `vct` or `root_b64` that is None, a number, a bool,
+  a list or an object such as `{}`, which was signed; the statement builders refuse a `harness`,
+  `anchors` or `subject` that is no JSON value or nests too deep (1000 levels), which they returned
+  inside the statement, and return a tuple as the list it is written as; the legacy serializer no
+  longer turns a non-string key into a string (`{1: "a"}` in `harness` was signed as `{"1":"a"}`),
+  and under the
   default algorithm such a key is the exporter's BundleFormatError, not rfc8785's
   CanonicalizationError; `statement_content_root` and the shape guard refuse a `Mapping` that is not
   a dict with ProofBundleError, one step before the budget refused it; a plain opening that is not
-  iterable is a ValueError (a raw TypeError before); a `release-gate` `subject_sha256` that is not a
-  string is a BundleFormatError (a raw AttributeError before); and `svr_properties` and
-  `export_svr_dsse` refuse a `prereg_verified` or `anchor_verified` flag that is no JSON value, such
-  as a NumPy boolean, which they read by its truth. A refused type that carries the name of a
-  built-in type is named as not the built-in one (a NumPy boolean was "a value of type bool").
-  Plain input is unchanged: over
+  iterable is a ValueError (a raw TypeError before); a `public-model` or `release-gate`
+  `subject_sha256` that is not a string is a BundleFormatError (a raw AttributeError before); and
+  `svr_properties` and `export_svr_dsse` refuse a `prereg_verified` or `anchor_verified` flag that
+  is no JSON value, such as a NumPy boolean, which they read by its truth (since round 9 every flag
+  that is not True or False, below). A refused type that carries the name of a built-in type is
+  named as not the built-in one (a NumPy boolean was "a value of type bool"), and a refusal shows a
+  Counter, an OrderedDict, an IntEnum, an IntFlag or a str Enum as the plain value it holds, as it
+  shows a tuple as the list it is written as. Plain input is unchanged by round 8: over
   20000 generated plain values, 3542 of them holding a tuple, in 480000 runs through
   `canonicalize`, `_jcs_bytes`, `canonicalize_statement` with and without the shape guard,
   `statement_content_root`, a signed `status`, `ci95`, `exact_score` and an opening of
@@ -362,7 +369,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   written as. The deepest nesting written is unchanged (from one caller: rfc8785 991 lists and 989
   dicts, `canonicalize` 989 and 987, the deepest signed `status` 989), and the standard library's
   own subclasses (Counter, OrderedDict, defaultdict, IntEnum, a str Enum, a namedtuple) keep their
-  bytes on every path. Not covered: `build_eval_claim`, which signs nothing and whose output the
+  bytes on every path. Corrected in round 9: an OrderedDict whose own order is not its storage order
+  did not, because the copy read it with `dict.items` (below). Not covered: `build_eval_claim`,
+  which signs nothing and whose output the
   emitter copies, still reads its own arguments; the emitter hands `prior_leaves` and `sd_jwt` to
   `emit_bundle`, which reads the leaves with `list()` and stores `sd_jwt` as given, outside the
   signed payload; `issue_sd_jwt` reads `holder_public_key` through the buffer protocol, which
@@ -373,6 +382,80 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   catch-proof cases and the changed round-2 case are red, and its 75 other earlier cases and 4 new
   controls pass (pytest: 247 failed). Three of those cases and one control pin the changes named
   above that the first description of this round left out.
+
+  A seventh lens at ee489403 found five smaller gaps, one of them a regression of round 8 at the
+  verify boundary, and a larger one outside its targets; round 9 closes them. The name a refusal
+  gives a type was not always readable: `_type_name` raised a raw TypeError for a type whose
+  metaclass leaves `type` out of its MRO, and for a type whose `__name__` is a `str` subclass whose
+  metaclass leaves `str` out of its MRO, so the refusal escaped as that TypeError from the emitter,
+  every producer, the budget, `statement_content_root` and the shape guard, and through the budget
+  from `dsse.verify_envelope` and `verify_bundle` (BundleFormatError at c8205c18) and the three
+  `verify_*_dsse` (ok=False at c8205c18); the lens's battery: 219 of 219 runs raw. Such a type is
+  named `<unnamed type>` now, by the same MRO walk the getter makes, and no refusal raises while it
+  names a type. A serializer that runs after the copy raised its own error: the disclosure's
+  `json.dumps` in `issue_sd_jwt` and the legacy serializer start a few frames below the copy, and a
+  value nested within those frames of the copy's limit raised a raw RecursionError (from one caller:
+  openings 988 to 992 levels, `export_intoto_dsse`'s `harness` 984 to 989,
+  `export_eval_result_dsse`'s `harness` and `anchors` 987 to 988, `export_svr_dsse`'s `policy` 986
+  to 990); under `jcs-sha256-v1` the exporters raised rfc8785's FloatDomainError for NaN and the
+  infinities, IntegerDomainError for 2**53 and 2**64, and the budget's BudgetExceeded for 10**5000,
+  and under the legacy algorithm json's ValueError for 10**5000. Each is the entry's own refusal now
+  (ValueError for an opening, BundleFormatError for an exporter), caught where the serializer is
+  called, so no frame is added before it. `to_test_result_statement` raised `dict()`'s TypeError or
+  ValueError for a `subject_digest` of None, 5, "ab", [1] or True; it is BundleFormatError now, and
+  an object or a list of pairs is read as before. The copy let any JSON value through where an
+  argument must be a string, so a message that interpolated it raised a raw ValueError
+  (`root_b64=10**5000` or `content_root_alg=10**5000` at `export_intoto_dsse`,
+  `subject_profile=10**5000` at `export_eval_result_dsse`, `expected_predicate_type=10**5000` at a
+  verifier, and `passed=10**5000` at `svr_properties`, whose `_verdict.require_bool_verdict` wrote
+  `{wert!r}`), and a number, a bool, a list or an object was written as a `url`, `keyid`,
+  `root_b64`, `subject_name`, `subject_profile` or `time_created`. Every argument that must be a
+  string is now checked as one on its copy (`root_b64`, `url`, `keyid`, `content_root_alg`,
+  `profile`, `subject_profile`, `subject_name`, `subject_sha256`, `time_created`, and
+  `expected_predicate_type` of the three verifiers, which raise BundleFormatError for it while the
+  verdict on an envelope still never raises), None where the argument may be absent, and every value
+  those messages and `require_bool_verdict` name is rendered with `budget.render_safe`. The copy
+  read an OrderedDict with `dict.items`, its storage order, which `move_to_end` does not change:
+  after `move_to_end("identifier")` `issue_sd_jwt` signed the opening `['identifier', 'salt_hex']`
+  where c8205c18 and main signed `['salt_hex', 'identifier']`, and `to_test_result_statement` built
+  another digest from `subject_digest=[od]`. An OrderedDict, and a subclass of it, is read in the
+  order `collections.OrderedDict.__iter__` gives now, whatever its own methods say. That base method
+  is C code of the standard library, but it hashes each key to find its node, so the keys are judged
+  first without hashing: an OrderedDict holding a `str` subclass key that defines its own `__hash__`
+  is refused, because its order cannot be read without running that code, and so is one whose own
+  order names other keys than it stores. And the caller-attested flags were read by their truth, the
+  R-B4 class: `export_svr_dsse(env, signer, anchor_verified="false")` signed
+  `PROOFBUNDLE_ANCHOR_VALID`, on main 20e91c8e too. `prereg_verified` and `anchor_verified` must be
+  True or False now. What a caller sees differently, measured at ee489403: an int 0 or 1, a string,
+  None, a list or an object as a flag is a BundleFormatError, where it was read by its truth; an
+  argument of the list above that is not a string is a BundleFormatError, where it was written or
+  raised a raw ValueError, and `export_eval_result_dsse` checks `subject_name` and `subject_sha256`
+  whether or not the profile reads them; the exporters' serializer errors above, the openings'
+  RecursionError and `subject_digest`'s TypeError or ValueError are the typed refusals named above;
+  an OrderedDict whose own order is not its storage order is signed and returned in its own order
+  (openings, `subject_digest`, the dicts the statement builders return, and `status`, which read the
+  storage order at c8205c18 too and now writes main's order), and one holding a key that hashes
+  through its own code is refused, where it was written in storage order; a refusal that names the
+  first bad value of an OrderedDict names it in the OrderedDict's own order; and the refusal of a
+  string argument says "must be a string", where it said "unknown contentRootAlg" or "unknown
+  subject profile". Measured with the lens's own generator (6000 values, 1350 holding a tuple, 48
+  surfaces, 288000 runs) at ee489403 and now: 3560 outputs differ (1415 in their bytes, 2145 only in
+  the key order of a dict a statement builder returns), 3402 of them for a value that holds an
+  OrderedDict whose own order is not its storage order and 158 for a falsy `time_created`, which
+  both trees replace with the current time, so that count follows the clock of the two runs; 49131
+  verdicts differ, each one of the refusals above; 22806 messages differ, each one of the messages
+  above. The deepest nesting written from one caller is unchanged at 26 of 26 measured entries,
+  arguments and container kinds, and none of them raises outside its typed errors in the twelve
+  levels past it or at 5000. The lens's recording set runs no caller code in 89 of 89 runs, and its
+  battery gives 219 of 219 typed refusals. Limits, named: the base method could still call a key's
+  `__eq__` on a collision of `str`'s own 64-bit hash between two keys with different characters; a
+  type whose metaclass hides `OrderedDict`, but not `dict`, from its MRO is read as the dict its MRO
+  names, in storage order; and the structural budget walks an OrderedDict in storage order, which
+  decides only which of two violations it names. The contract file has 113 cases, 5693 subtests; in
+  round 9 the round-8 proof passes plain booleans as the flags of `export_svr_dsse`, and the
+  recording ints are a case of their own. Against the source of ee489403 its 10 new catch-proof
+  cases are red, 8 of them with PASSED printed beside their failed subtests, and its 100 earlier
+  cases and 3 new controls pass (pytest: 197 failed, 195 of them subtests).
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

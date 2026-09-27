@@ -29,6 +29,8 @@ paths converge on. Providing it here does NOT change any released wire format â€
 from __future__ import annotations
 
 import hashlib
+import types
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Callable, Union
 
@@ -128,7 +130,23 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     ``float.__float__``), so a subclass is written as what it stores. ``bool`` and None are kept as
     they are. EVERY OTHER TYPE IS REFUSED with ``key_error``: a set, a frozenset, bytes, a Decimal,
     an object whose ``__class__`` claims a JSON type, and a type whose metaclass hides its base from
-    its MRO. Nothing is passed through to the serializer to judge.
+    its MRO. Nothing is passed through to the serializer to judge. The refusal names the type
+    through `_type_name`, which never raises (round 9): at ee489403 it raised a raw TypeError for a
+    type whose metaclass hides ``type`` from its own MRO and for a type whose ``__name__`` is a
+    ``str`` subclass that hides ``str``, so that refusal was a raw exception, at the emitter and
+    through the structural budget at ``verify_intoto_dsse``, where c8205c18 gave EvalClaimError and
+    ok=False.
+
+    A dict is copied in its own order: an ``OrderedDict`` (and a subclass of it) in the order
+    ``collections.OrderedDict``'s own ``__iter__`` gives, every other dict in its storage order
+    (round 9). ``dict.items`` reads an OrderedDict's storage order, which ``move_to_end`` does not
+    change, and at ee489403 the copy wrote that order: ``issue_sd_jwt`` signed an opening
+    ``['identifier', 'salt_hex']`` for an OrderedDict whose own order is the reverse, and
+    ``to_test_result_statement`` built another ``subject`` digest. The serializers that sort keys
+    are unaffected; ``list()``, ``dict()`` of pairs and ``json.dumps`` without sorting read the
+    order. That ``__iter__`` is C code of the standard library, but it hashes every key to find
+    its node, and the hash of a ``str`` subclass that defines ``__hash__`` is the caller's code; an
+    OrderedDict holding such a key is refused (see `_in_eigener_reihenfolge`).
 
     What that closed, measured at c8205c18. The copy asked ``isinstance`` about every value that is
     not a JSON type, and ``isinstance`` reads ``__class__``, so the caller's ``__class__`` property
@@ -179,18 +197,35 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
 #: The getter behind ``type.__name__``, taken from ``type`` itself.
 _TYPNAME = type.__dict__["__name__"]
 
+#: What `_type_name` says for a type whose name cannot be read without running code of the caller.
+_UNBENANNT = "<unnamed type>"
+
 
 def _type_name(typ: type) -> str:
-    """The name of ``typ`` for a message, read without running code of the caller.
+    """The name of ``typ`` for a message, read without running code of the caller. Never raises.
 
     ``type(x).__name__`` looks the attribute up on the type's metaclass first, and a metaclass that
     defines ``__name__`` as a property runs its own code there (measured on Python 3.10.12). The
-    getter of ``type`` itself returns the name the type holds, and ``str.__str__`` makes that a plain
-    ``str`` even when a caller assigned a ``str`` subclass to ``__name__``.
+    getter of ``type`` itself returns the name the type holds. A name that is a ``str`` subclass is
+    read as its characters (``str.__str__``).
+
+    TWO NAMES CANNOT BE READ THAT WAY, and each is ``<unnamed type>`` (round 9, lens run 7 at
+    ee489403, where each raised a raw TypeError out of the refusal it was meant to explain): a type
+    whose metaclass leaves ``type`` out of its MRO (the getter refuses it, because its own type check
+    walks that MRO), and a name that is a ``str`` subclass whose metaclass leaves ``str`` out of its
+    MRO (``str.__str__`` refuses it the same way). Both checks are ``issubclass`` against a base
+    whose metaclass is ``type``, an identity walk of the MRO that calls no hook, so the answer
+    agrees with the check the getter and ``str.__str__`` make.
 
     A type that carries the name of a built-in type and is not that type is named as such: a NumPy
     boolean's name is ``bool``, and a refusal read "a value of type bool is not a JSON value"."""
-    name = str.__str__(_TYPNAME.__get__(typ))
+    if not issubclass(type(typ), type):
+        return _UNBENANNT
+    name = _TYPNAME.__get__(typ)
+    if type(name) is not str:
+        if not issubclass(type(name), str):
+            return _UNBENANNT
+        name = str.__str__(name)
     eingebaut = _EINGEBAUT.get(name)
     if eingebaut is not None and eingebaut is not typ:
         return f"{name} (not the built-in {name})"
@@ -217,6 +252,80 @@ def _pfadteil(schluessel: str) -> str:
     return text if len(text) <= 40 else text[:37] + "..."
 
 
+#: The getters behind ``type.__mro__`` and ``type.__dict__``, and the items of a class's own dict.
+_MRO = type.__dict__["__mro__"]
+_KLASSENDICT = type.__dict__["__dict__"]
+_PROXY_ITEMS = types.MappingProxyType.items
+_STR_HASH = str.__dict__["__hash__"]
+
+
+def _hasht_als_zeichen(typ: type) -> bool:
+    """True when hashing an instance of ``typ``, a ``str`` subclass, runs ``str``'s own hash of its
+    characters and no code of the caller.
+
+    That is the case unless a class before ``str`` in the MRO puts a ``__hash__`` of its own into
+    its dict (``__hash__ = str.__hash__`` is ``str``'s own and counts as none). The class dicts are
+    read through ``type``'s own getters and iterated, not asked with ``in``, because a class dict can
+    hold a key that is not a string, and a lookup compares such a key through its own ``__eq__``. A
+    type whose MRO cannot be read that way, because a metaclass leaves ``type`` out of its own MRO,
+    is answered False."""
+    if typ is str:
+        return True
+    if not issubclass(type(typ), type):
+        return False
+    for klasse in _MRO.__get__(typ):
+        if klasse is str:
+            return True
+        if not issubclass(type(klasse), type):
+            return False
+        for name, eintrag in list(_PROXY_ITEMS(_KLASSENDICT.__get__(klasse))):
+            if type(name) is str and name == "__hash__" and eintrag is not _STR_HASH:
+                return False
+    return False
+
+
+def _in_eigener_reihenfolge(wert: Any, paare: list) -> list:
+    """The stored (key, value) pairs of the OrderedDict ``wert`` in its own order.
+
+    ``collections.OrderedDict.__iter__``, the base method, walks the OrderedDict's own list of
+    keys, which ``move_to_end`` reorders and ``dict.items`` does not see. It is C code of the
+    standard library, and it runs no method a subclass overrides, but it hashes each key to find
+    its node, and it compares two keys whose hashes are equal through their own ``__eq__``. So the
+    keys are judged first, from the stored pairs and without hashing: each must be a ``str`` whose
+    hash is ``str``'s own (`_hasht_als_zeichen`), and no two may have the same characters. Two
+    keys with ``str``'s hash and different characters then share a hash only on a collision of
+    ``str``'s own 64-bit hash, the one case in which a key's ``__eq__`` could still be called; this
+    is a limit of the reading, named here. An OrderedDict whose own order names other keys than it
+    stores (possible only by writing its storage past its own methods) is refused; so is one that
+    holds a key whose hash is its own code, because its order cannot be read without running that
+    code.
+
+    Values are taken from the stored pairs, by the identity of their key, so the value copied is the
+    stored one, as for every other dict."""
+    gesehen: set = set()
+    for schluessel, _ in paare:
+        styp = type(schluessel)
+        if not issubclass(styp, str):
+            raise _Abweisung("object keys must be strings")
+        if not _hasht_als_zeichen(styp):
+            raise _Abweisung(
+                f"an OrderedDict key of type {_type_name(styp)} computes its own hash, and the "
+                "OrderedDict's order cannot be read without running it")
+        zeichen = str.__str__(schluessel)
+        if zeichen in gesehen:
+            raise _Abweisung(f"object key {zeichen!r} appears twice")
+        gesehen.add(zeichen)
+    nach_id = {id(schluessel): (schluessel, eintrag) for schluessel, eintrag in paare}
+    try:
+        reihe = list(OrderedDict.__iter__(wert))
+    except (KeyError, RuntimeError):
+        reihe = None
+    if (reihe is None or len(reihe) != len(paare)
+            or any(id(schluessel) not in nach_id for schluessel in reihe)):
+        raise _Abweisung("the OrderedDict's own order does not name the keys it stores")
+    return [nach_id[id(schluessel)] for schluessel in reihe]
+
+
 def _plain_value(value: Any, offen: set) -> Any:
     """One level of `_plain_for_jcs`. `offen` holds the ids of the containers being copied above
     this one, so a container met again on its own path is a circle, and one met again beside
@@ -235,7 +344,12 @@ def _plain_value(value: Any, offen: set) -> Any:
             raise _Abweisung("the value contains itself (a circular reference)")
         offen.add(id(value))
         kopie: dict = {}
-        for schluessel, eintrag in list(dict.items(value)):
+        paare = list(dict.items(value))
+        # Its own order, not its storage order (round 9). Asked inline, so a plain dict costs no
+        # frame, and the deepest dict the copy reads stays as deep as the serializer's.
+        if typ is not dict and issubclass(typ, OrderedDict):
+            paare = _in_eigener_reihenfolge(value, paare)
+        for schluessel, eintrag in paare:
             if not issubclass(type(schluessel), str):
                 raise _Abweisung("object keys must be strings")
             schluessel = str.__str__(schluessel)

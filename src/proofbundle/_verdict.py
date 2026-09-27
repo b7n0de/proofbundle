@@ -37,6 +37,8 @@ from __future__ import annotations
 from typing import Any
 
 from ._membership import is_bool
+from .budget import render_safe
+from .canonical import _type_name
 from .errors import BundleFormatError
 
 __all__ = ["require_bool_verdict", "require_eval_claim"]
@@ -63,15 +65,21 @@ def require_bool_verdict(claim: Any, *, wo: str) -> bool:
     ``issubclass(BundleFormatError, ValueError)`` is False — a caller guarding this family writes
     ``except BundleFormatError`` (or ``ProofBundleError``). The refusal forms of the surrounding
     modules are NOT one family; ``tests/test_abweisungsformen_sind_drei.py`` measures the three.
+
+    THE REFUSAL NEVER FAILS HARDER THAN THE CHECK (round 9). The value is rendered with
+    ``budget.render_safe`` and its type named with ``canonical._type_name``. Measured at ee489403:
+    ``svr_properties(result, dict(claim, passed=10**5000))`` raised a raw ValueError from ``{wert!r}``,
+    the int-to-str digit limit, before the claim rule ran.
     """
     if not isinstance(claim, dict):
-        raise BundleFormatError(f"{wo}: needs a claim object, got {type(claim).__name__}")
+        raise BundleFormatError(f"{wo}: needs a claim object, got {_type_name(type(claim))}")
     wert = claim.get("passed")
     if not is_bool(wert):
+        gezeigt = render_safe(wert)
         raise BundleFormatError(
-            f"{wo}: `passed` is {type(wert).__name__} {wert!r}, expected a boolean — refusing rather "
-            f"than coercing or passing it on, because bool({wert!r}) would read a non-passing verdict "
-            "as a PASS (R-B4, CWE-1287)")
+            f"{wo}: `passed` is {_type_name(type(wert))} {gezeigt}, expected a boolean — refusing "
+            f"rather than coercing or passing it on, because bool({gezeigt}) would read a non-passing "
+            "verdict as a PASS (R-B4, CWE-1287)")
     return wert
 
 

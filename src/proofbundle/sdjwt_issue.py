@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
@@ -198,10 +199,10 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         ergibt = _passed_by(exact_score, claim["comparator"], claim["threshold"])
         if ergibt is not always_open["passed"]:
             raise BundleFormatError(
-                f"issue_sd_jwt: exact_score {exact_score!r} with comparator "
-                f"{claim['comparator']!r} and threshold {claim['threshold']!r} gives "
-                f"passed={ergibt}, and the claim says passed={always_open['passed']}; a disclosure "
-                "that contradicts the always-open verdict is not signed")
+                f"issue_sd_jwt: exact_score {render_safe(exact_score)} with comparator "
+                f"{render_safe(claim['comparator'])} and threshold {render_safe(claim['threshold'])} "
+                f"gives passed={ergibt}, and the claim says passed={always_open['passed']}; a "
+                "disclosure that contradicts the always-open verdict is not signed")
     if status is not None:
         # A plain copy, read once, with every key as its characters (`canonical._plain_for_jcs`): the
         # check below and the signature read the same dict, and a key is tested by the characters that
@@ -253,7 +254,15 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         if type(kopie) is not list and type(kopie) is not str and type(kopie) is not dict:
             raise ValueError(f"issue_sd_jwt: {name} must be a sequence such as "
                              f"(identifier, salt_hex), got {type(kopie).__name__}")
-        _add(name, list(kopie))
+        # The serializer's own depth, as for `status` below (round 9): the disclosure's json.dumps
+        # starts a few frames below the copy, so an opening nested within those frames of the copy's
+        # limit passed the copy and raised a raw RecursionError there. Measured at ee489403 from one
+        # caller: `model_id_opening` 988 to 991 levels deep and `dataset_id_opening` 989 to 992.
+        # Caught here, inline, so no frame is added before the serializer.
+        try:
+            _add(name, list(kopie))
+        except RecursionError as exc:
+            raise ValueError(f"issue_sd_jwt: {name}: the value nests too deep to serialize") from exc
 
     payload = dict(always_open)
     if sd_digests:

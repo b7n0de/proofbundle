@@ -20,7 +20,7 @@ from typing import Any, Optional
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs,
+from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs, _type_name,
                         canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 
@@ -99,8 +99,57 @@ def _eigen(wert: Any, wo: str, name: str = "") -> Any:
     legacy serializer (json.dumps) wrote a ``harness`` dict subclass through its own ``items()``, and
     ``resolve_subject`` built a ``release-gate`` subject digest from ``subject_sha256.lower()``, the
     caller's own method. A statement builder returns the copy, so a tuple comes back as the list it is
-    written as."""
+    written as.
+
+    An argument that must be a string is read with `_eigener_text`, and a caller-attested flag with
+    `_eigene_flagge` (round 9)."""
     return _plain_for_jcs(wert, lambda text: BundleFormatError(f"{wo}: {text}"), name)
+
+
+def _eigener_text(wert: Any, wo: str, name: str) -> Optional[str]:
+    """`_eigen` for an argument that must be a string or None: its plain copy, or this module's
+    BundleFormatError naming the argument and the type. `_eigener_pflichttext` refuses None too.
+
+    THE CLASS OF ROUND 9, lens run 7 at ee489403. `_eigen` accepts every JSON value, and a value of
+    the wrong JSON type then reached a comparison, a message or the binder's ``json.dumps``. Measured
+    at ee489403: ``root_b64`` or ``content_root_alg`` set to ``10**5000`` at ``export_intoto_dsse``
+    and ``subject_profile=10**5000`` at ``export_eval_result_dsse`` raised a raw ValueError from a
+    message that interpolated the value, and a ``url``, ``keyid``, ``subject_name`` or
+    ``subject_profile`` that is a number, a list or an object was written into the signed statement
+    or envelope. The type is checked on the copy, so a ``str`` subclass is accepted as the characters
+    it holds and no method of the caller runs."""
+    kopie = _eigen(wert, wo, name)
+    return None if kopie is None else _text_oder_abweisung(kopie, wo, name)
+
+
+def _eigener_pflichttext(wert: Any, wo: str, name: str) -> str:
+    """`_eigener_text` for an argument that must be a string and has no absent form."""
+    return _text_oder_abweisung(_eigen(wert, wo, name), wo, name)
+
+
+def _text_oder_abweisung(kopie: Any, wo: str, name: str) -> str:
+    if type(kopie) is not str:
+        raise BundleFormatError(f"{wo}: {name} must be a string, got {_type_name(type(kopie))}")
+    return kopie
+
+
+def _eigene_flagge(wert: Any, wo: str, name: str) -> bool:
+    """A caller-attested flag (``prereg_verified``, ``anchor_verified``) as a real bool, read from its
+    plain copy, or this module's BundleFormatError naming the flag.
+
+    R-B4 AT THE FLAGS (round 9). The flags were read by their truth, so any non-empty string was
+    true. Measured at ee489403 and on main 20e91c8e: ``export_svr_dsse(env, signer,
+    anchor_verified="false")`` signed ``PROOFBUNDLE_ANCHOR_VALID``. `_verdict.require_bool_verdict`
+    holds the same rule for ``passed``: a refusal, not a coercion, because only the caller knows what
+    ``"false"`` or ``1`` was meant to say. ``bool`` cannot be subclassed, so the copy of a flag is a
+    bool exactly when the caller passed True or False."""
+    kopie = _eigen(wert, wo, name)
+    if type(kopie) is not bool:
+        raise BundleFormatError(
+            f"{wo}: {name} must be True or False, got {_type_name(type(kopie))} {render_safe(kopie)}; "
+            "a flag that is not a boolean is refused rather than read by its truth, which signs a "
+            "property the caller may have meant to deny (R-B4, CWE-1287)")
+    return kopie
 
 
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
@@ -113,7 +162,7 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     """
     claim = require_eval_claim(claim, wo="to_intoto_statement")
     verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
-    root_b64 = _eigen(root_b64, "to_intoto_statement", "root_b64")
+    root_b64 = _eigener_text(root_b64, "to_intoto_statement", "root_b64")
     harness = _eigen(harness, "to_intoto_statement", "harness")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
@@ -203,7 +252,7 @@ def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
         return _canonical_body(statement)
     raise BundleFormatError(
-        f"unknown contentRootAlg {content_root_alg!r}: no silent default for a missing/unknown "
+        f"unknown contentRootAlg {render_safe(content_root_alg)}: no silent default for a missing/unknown "
         "algorithm (algorithm-confusion guard, ADR 0002 §1)")
 
 
@@ -217,7 +266,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
         return {k: v for k, v in statement.items() if k != "contentRootAlg"}
     raise BundleFormatError(
-        f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
+        f"unknown contentRootAlg {render_safe(content_root_alg)} (ADR 0002 §1; no silent default)")
 
 
 def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
@@ -247,7 +296,7 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[s
     if unbrauchbar:
         roh = statement.get("contentRootAlg") if isinstance(statement, dict) else None
         return False, gemeldet, (
-            f"contentRootAlg is present but unusable (found {type(roh).__name__} {roh!r}); a "
+            f"contentRootAlg is present but unusable (found {type(roh).__name__} {render_safe(roh)}); a "
             "declaration that names no algorithm is refused rather than read as absent")
     if not isinstance(statement, dict):
         return False, gemeldet, "payload is not a JSON in-toto Statement object"
@@ -282,15 +331,26 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     ``sha256`` — so ``name``-only descriptors, which are invalid, are avoided). Metric details (metric,
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
+
+    ``subject_digest`` is read as ``dict()`` reads its plain copy, so an object or a list of
+    ``[alg, hex]`` pairs is accepted as before; any other value is this function's BundleFormatError
+    (round 9: at ee489403 None, 5, "ab", [1] and True raised ``dict()``'s raw TypeError or
+    ValueError).
     """
     wo = "to_test_result_statement"
     claim = require_eval_claim(claim, wo=wo)
     verdikt = require_bool_verdict(claim, wo=wo)
     subject_digest = _eigen(subject_digest, wo, "subject_digest")
-    root_b64 = _eigen(root_b64, wo, "root_b64")
+    try:
+        digest = dict(subject_digest)
+    except (TypeError, ValueError) as exc:
+        raise BundleFormatError(
+            f"{wo}: subject_digest must be a JSON object (a DigestSet such as {{\"sha256\": <hex>}}), "
+            f"got {_type_name(type(subject_digest))} {render_safe(subject_digest)}") from exc
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
-    url = _eigen(url, wo, "url")
-    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
+    url = _eigener_text(url, wo, "url")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -334,7 +394,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
         predicate["url"] = url
     return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
-        "subject": [{"name": "eval-receipt", "digest": dict(subject_digest)}],
+        "subject": [{"name": "eval-receipt", "digest": digest}],
         "predicateType": TEST_RESULT_PREDICATE_TYPE,
         "predicate": predicate,
     }, content_root_alg)
@@ -352,14 +412,20 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
 
     The signed Statement declares its content-root algorithm (default `jcs-sha256-v1`, ADR 0002). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (json.dumps root,
-    no field)."""
+    no field).
+
+    A value the serializer cannot write (NaN, an infinity or an integer beyond the JCS range under
+    the default algorithm, an integer past the interpreter's digit limit under the legacy one, a
+    value nested deeper than the serializer recurses) is this function's BundleFormatError (round 9;
+    at ee489403 rfc8785's FloatDomainError or IntegerDomainError, the budget's BudgetExceeded, or a
+    raw ValueError or RecursionError from json.dumps). See `_signed_body_refusal`."""
     wo = "export_intoto_dsse"
     claim = require_eval_claim(claim, wo=wo)
-    root_b64 = _eigen(root_b64, wo, "root_b64")
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
-    url = _eigen(url, wo, "url")
-    keyid = _eigen(keyid, wo, "keyid")
-    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
+    url = _eigener_text(url, wo, "url")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
@@ -372,8 +438,36 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     subject_digest = {"sha256": hashlib.sha256(binder).hexdigest()}
     statement = to_test_result_statement(claim, subject_digest=subject_digest, root_b64=root_b64,
                                          harness=harness, url=url, content_root_alg=content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=TEST_RESULT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def _signed_body_refusal(wo: str, exc: BaseException) -> BundleFormatError:
+    """The exporter's BundleFormatError for a statement its serializer cannot write.
+
+    THE SERIALIZER RUNS AFTER THE COPY, and what it refuses is the exporter's refusal, like what the
+    copy refuses (round 9, lens run 7 at ee489403). The copy passes every JSON value, and three kinds
+    reached the serializer raw: under ``jcs-sha256-v1`` rfc8785's FloatDomainError (NaN, an infinity),
+    IntegerDomainError (2**53, 2**64) and the structural budget's BudgetExceeded (10**5000); under
+    the legacy algorithm json.dumps's ValueError for an integer past the interpreter's digit limit
+    and its RecursionError for a value nested within a few levels of the copy's own depth limit
+    (``export_intoto_dsse`` harness 984 to 989 levels, ``export_eval_result_dsse`` harness and
+    anchors 987 to 988, ``export_svr_dsse`` policy 986 to 990, measured from one caller). The
+    serializer is called inline at each exporter and only the refusal is built here, so no frame is
+    added before it and the deepest statement written stays as deep as before.
+
+    ``CanonicalizerUnavailable`` (a missing extra) and this module's own BundleFormatError (an
+    unknown algorithm) pass through unchanged. The verify path keeps its own handling in
+    `_content_root_binding`."""
+    if isinstance(exc, RecursionError):
+        return BundleFormatError(f"{wo}: the statement nests too deep to serialize")
+    return BundleFormatError(
+        f"{wo}: the statement cannot be serialized: {render_safe(str(exc), quote=False)}")
 
 
 def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
@@ -389,7 +483,8 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
         type_ok = (got == expected_predicate_type)
         merged_detail = detail if type_ok else (
             (detail + "; " if detail else "")
-            + f"predicateType {got!r} != expected {expected_predicate_type!r} (confusion attack?)")
+            + f"predicateType {render_safe(got)} != expected {render_safe(expected_predicate_type)} "
+              "(confusion attack?)")
     ok = bool(sig_ok) and binding_ok and (type_ok is not False)
     return {"ok": ok, "statement": statement, "predicate_type": got,
             "predicate_type_ok": type_ok, "content_root_alg": alg,
@@ -690,10 +785,16 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
     proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
     agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
-    `_judge_claim_fields`). A generic test-result entry without such a digest is not judged."""
+    `_judge_claim_fields`). A generic test-result entry without such a digest is not judged.
+
+    ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as
+    its plain copy and must be a string or None, else this function raises BundleFormatError (round
+    9; at ee489403 ``10**5000`` raised a raw ValueError from the mismatch message, and a ``str``
+    subclass was compared through its own ``__eq__``). The verdict on the envelope never raises."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_intoto_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise: crypto verify + body load + input_bytes budget + strict parse inside the
         # never-raise guard; a wide/oversized (BudgetExceeded) / dup-key (BundleFormatError) / malformed
@@ -705,11 +806,11 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
                                                          f"DSSE payload rejected (fail-closed): {exc}",
-                                                         expected_predicate_type),
+                                                         erwartet),
                                    TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _judge_claim_fields(
-        _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type),
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
         TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
 
 
@@ -773,14 +874,17 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
       lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
 
     Every argument is read once, as its plain copy (`_eigen`), before it is compared or used. A
-    ``subject_sha256`` that is not a string is refused as not a sha256, where ``.lower()`` of it
-    raised a raw AttributeError.
+    ``subject_sha256`` that is not a string is refused, where ``.lower()`` of it raised a raw
+    AttributeError. ``profile``, ``root_b64``, ``subject_name`` and ``subject_sha256`` must be strings
+    (the last three may be None), checked on the copy (round 9): a ``subject_name`` that is a number,
+    a list or an object was written as the subject's name, and a ``profile`` of ``10**5000`` raised
+    a raw ValueError from the refusal that named it.
     """
     wo = "resolve_subject"
-    profile = _eigen(profile, wo, "profile")
+    profile = _eigener_pflichttext(profile, wo, "profile")
     if profile == "receipt":
         claim = require_eval_claim(claim, wo=wo)
-        root_b64 = _eigen(root_b64, wo, "root_b64")
+        root_b64 = _eigener_text(root_b64, wo, "root_b64")
         if not claim.get("model_id_commit") or not claim.get("timestamp"):
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
@@ -791,14 +895,15 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return [{"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(binder).hexdigest()}}]
     if profile in ("public-model", "release-gate"):
-        subject_name = _eigen(subject_name, wo, "subject_name")
-        subject_sha256 = _eigen(subject_sha256, wo, "subject_sha256")
-        sha = subject_sha256.lower() if type(subject_sha256) is str else ""
+        subject_name = _eigener_text(subject_name, wo, "subject_name")
+        subject_sha256 = _eigener_text(subject_sha256, wo, "subject_sha256")
+        sha = subject_sha256.lower() if subject_sha256 is not None else ""
         if not subject_name or not _is_sha256_hex(sha):
             raise BundleFormatError(
                 f"subject profile '{profile}' requires --subject-name and a 64-char hex --subject-sha256")
         return [{"name": subject_name, "digest": {"sha256": sha}}]
-    raise BundleFormatError(f"unknown subject profile '{profile}' (one of {', '.join(SUBJECT_PROFILES)})")
+    raise BundleFormatError(
+        f"unknown subject profile {render_safe(profile)} (one of {', '.join(SUBJECT_PROFILES)})")
 
 
 def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
@@ -817,10 +922,10 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     _forbid_plaintext_in_export(claim)
     claim = require_eval_claim(claim, wo=wo)
     verdikt = _require_export_fields(claim)
-    root_b64 = _eigen(root_b64, wo, "root_b64")
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     anchors = _eigen(anchors, wo, "anchors")
-    subject_profile = _eigen(subject_profile, wo, "subject_profile")
+    subject_profile = _eigener_pflichttext(subject_profile, wo, "subject_profile")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -871,7 +976,7 @@ def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[s
     predicate = to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
                                          anchors=anchors, subject_profile=subject_profile)
     subject = _eigen(subject, "to_eval_result_statement", "subject")
-    content_root_alg = _eigen(content_root_alg, "to_eval_result_statement", "content_root_alg")
+    content_root_alg = _eigener_pflichttext(content_root_alg, "to_eval_result_statement", "content_root_alg")
     return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": subject,
@@ -889,7 +994,10 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     identical inputs produce byte-identical statement bytes. The signed Statement declares its content-root
     algorithm (default `jcs-sha256-v1`, ADR 0002 / WP2 activation). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (released 2.0.0 wire:
-    json.dumps root, no field)."""
+    json.dumps root, no field).
+
+    The string arguments are checked as strings whether or not the profile reads them (round 9), and
+    a value the serializer cannot write is this function's BundleFormatError (`_signed_body_refusal`)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     wo = "export_eval_result_dsse"
@@ -897,20 +1005,25 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
     claim = require_eval_claim(claim, wo=wo)
-    subject_profile = _eigen(subject_profile, wo, "subject_profile")
-    subject_name = _eigen(subject_name, wo, "subject_name")
-    subject_sha256 = _eigen(subject_sha256, wo, "subject_sha256")
-    root_b64 = _eigen(root_b64, wo, "root_b64")
+    subject_profile = _eigener_pflichttext(subject_profile, wo, "subject_profile")
+    subject_name = _eigener_text(subject_name, wo, "subject_name")
+    subject_sha256 = _eigener_text(subject_sha256, wo, "subject_sha256")
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     anchors = _eigen(anchors, wo, "anchors")
-    keyid = _eigen(keyid, wo, "keyid")
-    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
                                          anchors=anchors, subject_profile=subject_profile,
                                          content_root_alg=content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
@@ -927,10 +1040,12 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     `ok` also requires that every eval-claim field the predicate carries (claims[], sampleSize,
     commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule, and so
     does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
-    `_judge_claim_fields`). An absent field is not judged."""
+    `_judge_claim_fields`). An absent field is not judged. ``expected_predicate_type`` must be a
+    string or None, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_eval_result_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
@@ -941,11 +1056,11 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
                                                          f"DSSE payload rejected (fail-closed): {exc}",
-                                                         expected_predicate_type),
+                                                         erwartet),
                                    EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _judge_claim_fields(
-        _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type),
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
         EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
 
 
@@ -991,11 +1106,13 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # first call keeps its message, which names field and type; the verdict used below is read from
     # the claim as the rule read it back. The first call reads the plain copy of the claim since
     # round 8; on the caller's object it asked the object's own `get("passed")`. The two flags are
-    # read as their plain copies too, so their truth is the stored value's, and a flag that is no
-    # JSON value (a NumPy boolean) is refused.
+    # read as their plain copies too, and since round 9 each must be True or False (`_eigene_flagge`):
+    # a flag was read by its truth, so `anchor_verified="false"` signed PROOFBUNDLE_ANCHOR_VALID
+    # (measured at ee489403 and on main 20e91c8e), R-B4 at the flags. A NumPy boolean, an int 0 or 1
+    # and a string are refused.
     claim = _eigen(claim, "svr_properties")
-    prereg_verified = _eigen(prereg_verified, "svr_properties", "prereg_verified")
-    anchor_verified = _eigen(anchor_verified, "svr_properties", "anchor_verified")
+    prereg_verified = _eigene_flagge(prereg_verified, "svr_properties", "prereg_verified")
+    anchor_verified = _eigene_flagge(anchor_verified, "svr_properties", "anchor_verified")
     require_bool_verdict(claim, wo="svr_properties")
     claim = require_eval_claim(claim, wo="svr_properties")
     verdikt = require_bool_verdict(claim, wo="svr_properties")
@@ -1031,7 +1148,11 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     **Caller-attested properties (No-Overclaim, 6-lens review):** `prereg_verified` / `anchor_verified`
     are NOT verified by this function — it does not call `anchors.verify_anchors()`. If you pass them, the
     signed SVR asserts `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID` on your word; run a real
-    offline anchor verification first, or leave them False."""
+    offline anchor verification first, or leave them False. Each flag must be True or False; any other
+    value, the string "false" among them, is a BundleFormatError (round 9, R-B4).
+
+    ``time_created`` and ``keyid`` must be strings or None and ``content_root_alg`` a string, and a
+    value the serializer cannot write is a BundleFormatError (round 9, `_signed_body_refusal`)."""
     from . import dsse  # noqa: PLC0415
     from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
@@ -1047,12 +1168,12 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     # so each is read once, as its plain copy, like the other exporters' (round 8): `policy` was
     # written by the legacy serializer through a dict subclass's own `items()`.
     wo = "export_svr_dsse"
-    time_created = _eigen(time_created, wo, "time_created")
+    time_created = _eigener_text(time_created, wo, "time_created")
     policy = _eigen(policy, wo, "policy")
-    prereg_verified = _eigen(prereg_verified, wo, "prereg_verified")
-    anchor_verified = _eigen(anchor_verified, wo, "anchor_verified")
-    keyid = _eigen(keyid, wo, "keyid")
-    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
+    prereg_verified = _eigene_flagge(prereg_verified, wo, "prereg_verified")
+    anchor_verified = _eigene_flagge(anchor_verified, wo, "anchor_verified")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     result = verify_bundle(bundle)
     if not result.ok:
         raise BundleFormatError(
@@ -1077,7 +1198,12 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
             "properties": props,
         },
     }, content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
@@ -1120,10 +1246,12 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
     content_root_alg, content_root_ok, content_root_detail}. `ok` requires the signature, the canonical
     contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
-    SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out."""
+    SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out. It must
+    be a string or None, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_svr_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
@@ -1134,9 +1262,9 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _intoto_verify_result(False, False, None, None,
                                      f"DSSE payload rejected (fail-closed): {exc}",
-                                     expected_predicate_type)
+                                     erwartet)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet)
     # RT-06 (L3-600-06): the predicate SHAPE is part of the verdict. A signed statement whose predicate
     # is not what svr/v0.1 declares is not an SVR that verified — ``ok`` stays False and the reason is
     # named, so no consumer prints PASS and then walks a list that is an int.
