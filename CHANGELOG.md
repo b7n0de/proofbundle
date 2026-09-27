@@ -557,15 +557,34 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `input_bytes` cap through its own `__len__`; `build_eval_claim` still reads `n`, `samples`,
   `threshold` and `score` through the caller's objects, signs nothing, and the emitter and every
   producer judge its output on the plain copy; `enclave_assurance_proven` reads `eat_jws` by its
-  truth and hands `expected_profile` to `experimental.enclave`; and `verify_commitment` raises a raw
-  TypeError for a `commitment` with a non-ASCII character and a raw UnicodeEncodeError for an
-  `identifier` holding a lone surrogate, a different class, on main 31816e08 too. A limit of the new
-  check: it reads CPython's traversal, so it holds on CPython, the interpreter the CI runs. The
-  contract file has 126 cases, 6056 subtests. Against the source of 493c2f86 its 8 new catch-proof
-  cases are red in all 344 of their subtests, with PASSED printed beside each case, one of them (the
-  bytes path of `statement_content_root`, 3 subtests) only because its refusal is new there; the
-  round-9 case whose expected message changed fails; and its 112 other earlier cases and 5 new
-  controls pass (pytest: 345 failed, 344 of them subtests).
+  truth and hands `expected_profile` to `experimental.enclave`. A limit of the new check: it reads
+  CPython's traversal, so it holds on CPython, the interpreter the CI runs. Against the source of
+  493c2f86 the 8 catch-proof cases of the first round-10 commit are red in all 344 of their subtests,
+  with PASSED printed beside each case, one of them (the bytes path of `statement_content_root`, 3
+  subtests) only because its refusal is new there; the round-9 case whose expected message changed
+  fails; and its 112 other earlier cases and 5 new controls pass (pytest: 345 failed, 344 of them
+  subtests).
+
+  `verify_commitment` answers a bool for an input it cannot encode (second round-10 commit, on
+  6b223d8e). It is documented to answer a bool and checks an untrusted presentation, and at
+  493c2f86, at 6b223d8e and on main 31816e08 a `commitment` holding a character outside ASCII (a
+  lone surrogate included) raised a raw TypeError from `hmac.compare_digest`, and an `identifier`
+  holding a lone surrogate a raw UnicodeEncodeError from `salted_commit`. Each is False now: a
+  commitment outside ASCII matches no `sha256:<hex>` and is refused before the comparison, which
+  compares the ASCII bytes, and an identifier UTF-8 cannot encode cannot be the committed one; no
+  method of the caller runs. An identifier outside ASCII that UTF-8 encodes verifies as before. The
+  sweep for the same two raises (`hmac.compare_digest` over a `str` that may leave ASCII, `encode()`
+  of a caller string that may hold a lone surrogate) over the functions this branch touches found
+  no other on a verify path. Named, not changed, each measured at 6b223d8e and 493c2f86 and on
+  main: `salted_commit` and `build_eval_claim` raise a raw UnicodeEncodeError for an identifier
+  holding a lone surrogate (emit side), and `present_with_key_binding` raises a UnicodeEncodeError,
+  a ValueError, for a `compact` outside ASCII (holder side). The legacy serializer's `encode` of a
+  statement with a lone surrogate is each exporter's BundleFormatError since round 9 (a raw
+  UnicodeEncodeError on main), and `issue_sd_jwt` escapes a lone surrogate in what it signs.
+  `hmac.compare_digest` elsewhere in the package (merkle, policy, statuslist, bundle) is outside the
+  functions this branch touches and was not measured. The contract file has 128 cases, 6067
+  subtests. Against the source of 6b223d8e the new catch-proof case is red in all 6 of its subtests
+  (3 TypeError, 3 UnicodeEncodeError), with PASSED printed beside it, and its control passes.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

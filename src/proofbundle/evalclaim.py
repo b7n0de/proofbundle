@@ -924,7 +924,15 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     through the base type and never through a method of the caller; a value of another type is False.
     Measured at 493c2f86: an ``identifier`` holding "other" whose ``encode`` returned the committed
     identifier's bytes, and a ``commitment`` object whose ``__str__`` returned the right commitment,
-    each verified True."""
+    each verified True.
+
+    AN INPUT THAT CANNOT BE ENCODED IS FALSE, not a raw exception (round 10, second commit). Measured
+    at 493c2f86, at 6b223d8e and on main 31816e08: a ``commitment`` holding a character outside ASCII
+    raised a raw TypeError from ``hmac.compare_digest``, which compares a ``str`` only when it is
+    ASCII, and an ``identifier`` holding a lone surrogate raised a raw UnicodeEncodeError from
+    ``salted_commit``, because UTF-8 cannot encode it. A commitment is ``sha256:`` and hex digits, so
+    one outside ASCII matches nothing; it is refused before the comparison, which now compares the
+    ASCII bytes. An identifier that UTF-8 cannot encode cannot be the committed one."""
     kennung = _zeichen_von(identifier)
     zusage = _zeichen_von(commitment)
     salz_typ = type(salt)
@@ -941,12 +949,14 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
         salz = bytes(bytearray.__getitem__(gespeichert, slice(None)))
     else:
         return False
+    if not zusage.isascii():
+        return False
     try:
         expected = salted_commit(kennung, salz)
-    except EvalClaimError:
+    except (EvalClaimError, UnicodeEncodeError):
         return False
     import hmac  # noqa: PLC0415
-    return hmac.compare_digest(expected, zusage)
+    return hmac.compare_digest(expected.encode("ascii"), zusage.encode("ascii"))
 
 
 def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None) -> dict:

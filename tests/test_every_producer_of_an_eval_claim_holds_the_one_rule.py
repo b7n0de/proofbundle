@@ -52,6 +52,8 @@ message
 (`TestAnOrderedDictIsReadInItsOwnOrder.test_a_key_that_computes_its_own_hash_is_refused_without_running_it`),
 and one round-10 case fails at 493c2f86 because its refusal is new there, not because it catches a
 defect (`TestAFlagIsReadAsABoolean.test_the_bytes_path_refuses_a_flag_that_is_no_bool_too`).
+`TestVerifyCommitmentAnswersABool`, the last class of round 10, was written against 6b223d8e, the
+first commit of that round, and is run against that commit.
 Run against its reference commit, every case whose name does not start with `test_control` fails;
 the controls pass there and here. One round-3 control changed in round 4
 (`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in
@@ -3405,6 +3407,58 @@ class TestAStringIsComparedByItsCharacters(_Basis):
         for wurzel, erwartet in ((ROOT_B64, True), (Text(ROOT_B64), True), ("d3Jvbmc=", False)):
             with self.subTest(root_b64=wurzel):
                 self.assertIs(check_binds_bundle(compact, b, wurzel), erwartet)
+
+
+class TestVerifyCommitmentAnswersABool(_Basis):
+    """Written against 6b223d8e, the first commit of round 10, whose report named these two raises as
+    not changed. `verify_commitment` checks a presented identifier and salt against a commitment and
+    is documented to answer a bool. At 493c2f86, at 6b223d8e and on main 31816e08 a commitment
+    holding a character outside ASCII raised a raw TypeError from `hmac.compare_digest`, and an
+    identifier holding a lone surrogate raised a raw UnicodeEncodeError from `salted_commit`. Each is
+    a fail-closed False now, and no method of the caller runs."""
+
+    def test_an_input_that_cannot_be_encoded_is_false(self):
+        from proofbundle.evalclaim import salted_commit, verify_commitment  # noqa: PLC0415
+        salz = b"0" * 16
+        zusage = salted_commit("acme/model-x", salz)
+        akut, surrogat = chr(0xE9), chr(0xD800)
+        faelle = (
+            ("a commitment with a character outside ASCII", lambda: ("acme/model-x", "sha256:" + akut * 64)),
+            ("a commitment with a lone surrogate", lambda: ("acme/model-x", "sha256:" + surrogat)),
+            ("a recording str subclass commitment outside ASCII",
+             lambda: ("acme/model-x", P[str]("sha256:" + akut * 64))),
+            ("an identifier that is a lone surrogate", lambda: (surrogat, zusage)),
+            ("an identifier holding a lone surrogate", lambda: ("acme/" + surrogat, zusage)),
+            ("a recording str subclass identifier holding a lone surrogate",
+             lambda: (P[str]("acme/" + surrogat), zusage)),
+        )
+        for name, bau in faelle:
+            with self.subTest(fall=name):
+                kennung, commit = bau()
+                _AUFRUFE.clear()
+                try:
+                    ergebnis = verify_commitment(kennung, salz, commit)
+                finally:
+                    gesehen = list(_AUFRUFE)
+                    _AUFRUFE.clear()
+                self.assertIs(ergebnis, False)
+                self.assertEqual(gesehen, [])
+
+    def test_control_a_presented_opening_verifies_as_before(self):
+        """Green at 6b223d8e too: the right opening is True, a wrong identifier or salt is False, and an
+        identifier outside ASCII that UTF-8 can encode verifies against its own commitment."""
+        from proofbundle.evalclaim import salted_commit, verify_commitment  # noqa: PLC0415
+        salz = b"0" * 16
+        zusage = salted_commit("acme/model-x", salz)
+        cafe = "caf" + chr(0xE9)
+        for name, kennung, salzwert, commit, erwartet in (
+                ("right", "acme/model-x", salz, zusage, True),
+                ("right, the salt a bytearray", "acme/model-x", bytearray(salz), zusage, True),
+                ("wrong identifier", "other", salz, zusage, False),
+                ("wrong salt", "acme/model-x", b"1" * 16, zusage, False),
+                ("an identifier outside ASCII", cafe, salz, salted_commit(cafe, salz), True)):
+            with self.subTest(fall=name):
+                self.assertIs(verify_commitment(kennung, salzwert, commit), erwartet)
 
 
 if __name__ == "__main__":
