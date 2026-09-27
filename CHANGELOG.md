@@ -167,9 +167,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   comment line, found by Python's tokenizer rather than by a line pattern, is now read as Python on its
   own and joined with up to 40 comment lines below it, and a call anywhere in the statement's
   expression tree to a callee whose name holds `verif`, `validat` or `check` in any case, or
-  `compare_digest`, is the finding; a call in an annotation is not, so `# NOTE: verify(x)` stays quiet.
-  Class C read the verb `verify`, so `_verifies` (`demo.py`) and `is_verified` opening with
-  `return True` passed; it reads the stem now. Rerun against the new guard, the lens's harness flags
+  `compare_digest`, is the finding; a call in an annotation is not, so `# NOTE: verify(x)` stays quiet,
+  and since the next paragraph a Markdown bullet is not either. Class C read the verb `verify`, so
+  `_verifies` (`demo.py`) and `is_verified` opening with `return True` passed; it reads the stem now.
+  Rerun against the new guard, the lens's harness flags
   all 61 forms of class B and all 27 in-class cases of class C in both modes; its 4 clean and 13
   out-of-class cases stay clean, and of its 21 boundary cases 18 stay clean, while `verifier`,
   `verification_ok` and `validator` opening with `return True` flag now, since the stem names them. A
@@ -189,6 +190,48 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   e5bb214c (44 catch proofs of the guard, the guard's control of a `#` line inside a string, which that
   guard read as a comment, and 9 cases of the gate), 10 controls passed there, the two measurements
   over the tree need a git checkout and did not run in the extraction, and all 66 pass now.
+
+  Class B follows a backslash, makes nothing of a Markdown bullet and bounds what it reads, and classes
+  A and C read a bool constant however it is spelled. A review lens, run 13 at a435ba32, measured four
+  findings. A commented-out check continued over a backslash was clean with exit 0 in both modes, on
+  main too: its first line, the backslash dropped, parsed and called no check, and the search ended
+  there, while the line with the check does not parse alone. The Ed25519 check of `signature.py` in this
+  tree's backslash style was one, and an assignment, `and`, `return`, `assert`, a conditional
+  expression, a tuple and the same inside an `if` body were others. A run that parses and calls no check
+  is no longer the statement while its last line ends in a backslash that joins the next comment line.
+  Two Markdown bullets naming entry points, added to the spec block of `checkpoint.py`, were flagged
+  with exit 1, since `- verify_checkpoint(...)` parses as a unary minus on a call, and so were
+  `* verify(...)` and `a. verify(sig)`, all new at a435ba32. Decided now by what a statement does as
+  code, an expression statement that applies `-`, `+` or `~` to a call, a star with a space after it, or
+  a method call on a one-letter name with a space after the dot makes no check. `not` before a call, a
+  comparison, `and`, `or` and a star without a space stay findings, so the four prose forms flagged
+  since e5bb214c (`is idempotent`, `in O(n)`, `or`, `not`) are still flagged. 1312 comment lines of 798
+  bytes, each an unclosed call, took 623.96 s to read, since each line started a search that parsed up
+  to 40 prefixes of up to 40 lines. A lexer now reads each comment line's code once, as Python's
+  tokenizer reads brackets, strings and backslashes; a prefix is parsed only where Python could end a
+  statement, and a search ends at an error no later line repairs. That MiB takes 0.4 s now. The parsing
+  that remains is bounded by 8 bytes handed to the parser per byte of comment: a MiB of decorator lines
+  waiting for a `def`, built to get past the lexer, ends fail-closed with exit 2 in under 3 s, never
+  clean. The tree takes at most 0.94 bytes of parsing per byte of comment, and each of its files
+  commented out whole at most 1.09; the class B reader goes over its 72 files in 0.35 s, against 0.81 s
+  at a435ba32 on the same machine. Before 3.12 an f-string ends as any string does; from 3.12 on, where
+  its fields may hold quotes, the lexer follows one only where every version ends it alike, and parses
+  every prefix after it otherwise. That branch ran on 3.10 with its switch forced, since 3.12 is not
+  installed here. Checked against the parser, the lexer ruled out 50086 of 150083 windows of up to six
+  lines of the tree, and Python parses none of them. Its first fuzz run found one false claim, `else:\\`
+  (the reader drops one backslash that ends a last line), which is fixed; after it, none in 3.6 million
+  random windows, 2.6 million of them ruled out. With each tracked file commented out whole in four
+  comment styles, the old and the new reader flag the same 1140 ranges, under the forced 3.12 branch
+  too, and in 60000 random comment blocks built from the tree's lines the new reader flags every range
+  the old one does, and 24 more. `return` with `True` written in fullwidth letters opening
+  `verify_thing`, and `if` with `False` written so at a check, parse as names that load the constants,
+  and were clean with exit 0, on main too; a name whose NFKC form is `True` or `False` is that constant
+  in classes A and C now. All 294 statements under `src/proofbundle` that call a check are still caught
+  commented out, none of the 5242 comments is flagged, and over the 1227 distinct historical blobs there
+  none is flagged and all 8277 such statements are caught; the self-test plants the Ed25519 form, a
+  bullet list and both fullwidth constants. Of the 48 new test cases, 35 failed at a435ba32 (23 missed
+  findings, 7 flagged bullets, the 2 cost cases past their timeout, and 3 that call what a435ba32 does
+  not have), 13 controls passed there, and all 48 pass now.
 
 - **A diff is read in git's grammar, by one parser, and judged in Python's lines**
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). Both tools read

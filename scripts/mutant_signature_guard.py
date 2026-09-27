@@ -10,14 +10,21 @@ Signature classes (deliberately narrow and explainable: a safety net, not a lint
 
   A  a trivial-truth branch added at a check site:      `if False:` / `if True:` /
      `elif False:` / `elif True:` / `while False:` (also `if False and <original check>:`),
-     judged on the syntax tree: the statement Python sees, however its lines are broken
+     judged on the syntax tree: the statement Python sees, however its lines are broken, and the
+     constant however it is spelled (a name Python binds to it, such as `False` in fullwidth letters)
   B  a commented-out verification call: a comment line that, read as Python on its own or joined
      with the comment lines directly below it, is a statement holding a call, anywhere in its expression
      tree, to a callee named for a check (verify/validate/check/compare_digest and their forms):
      `# if not merkle.verify_inclusion(...):`, `# key.from_public_bytes(b).verify(sig, msg)`, a
-     call over two commented lines. Prose does not parse and does not match
+     call over two commented lines, or over a backslash that ends a commented line. Prose does not
+     parse and does not match. Nor does a statement that makes no check by what it does as code, which
+     is how a Markdown bullet parses: an expression statement that applies `-`, `+` or `~` to a call
+     (`# - verify(x)`), a star with a space after it (`# * verify(x)`), or an enumerated item, a method
+     call on a one-letter name with a space after the dot (`# a. verify(x)`). `not` before a call, a comparison,
+     `and` and `or` stay findings (the class B notes below say why). Reading comments as code is bounded
+     by their size; past the bound the file is not judged (exit 2)
   C  `return True` as the first statement of a function named for a check (`verify_x`,
-     `_verifies`, `is_verified`, `validate`, `check_x`)
+     `_verifies`, `is_verified`, `validate`, `check_x`), the constant however it is spelled
   D  a symlink or a gitlink under src/proofbundle, or `src` or `src/proofbundle` itself as one, in
      the judged state: the diff shows a link's text or a commit id, Python runs what it points at,
      which the scan does not reach (a mutant planted outside the security path and linked in was
@@ -59,6 +66,7 @@ import ast
 import codecs
 import contextlib
 import io
+import os
 import re
 import subprocess
 import sys
@@ -68,6 +76,7 @@ import tokenize
 import traceback
 import unicodedata
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -142,7 +151,8 @@ def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
     clean with exit 0 (a review lens, run 10, measured 2026-09-26). The first operand is therefore
     followed down, by `_first_operand`, to the first atom of the condition. A unary operator is not
     followed: `if not True:` and `if -True:` begin with an operator, not with the constant, and stay
-    outside this class as they were.
+    outside this class as they were. The constant is read as `_bool_constant` reads it, so a name that
+    Python binds to True or False counts as the constant.
     """
     headers = []
     for node in ast.walk(tree):
@@ -155,10 +165,27 @@ def _trivial_truth_headers(tree: ast.AST) -> list[tuple[int, int]]:
         test = node.test
         start = (test.lineno, test.col_offset)
         first = _first_operand(test)
-        if any(isinstance(n, ast.Constant) and isinstance(n.value, bool) and n.value in truths
-               and (n is first or (n.lineno, n.col_offset) == start) for n in ast.walk(test)):
+        if any(_bool_constant(n) in truths and (n is first or (n.lineno, n.col_offset) == start)
+               for n in ast.walk(test)):
             headers.append((node.lineno, test.end_lineno or test.lineno))
     return sorted(headers)
+
+
+def _bool_constant(node: ast.AST) -> bool | None:
+    """The bool a node is: the constant True or False, or a name whose NFKC form is `True` or `False`.
+
+    Python binds a name in its NFKC form, so `True` written in fullwidth letters is no keyword to the
+    parser but the name `True`, and running it loads True from the builtins. Such a `return` opening
+    `verify_thing`, and an `if` with `False` written that way at a check, were clean with exit 0, on
+    main too (a review lens, run 13, measured 2026-09-27 at a435ba32). Classes A and C read such a name
+    as the constant. Any other node is no bool constant (None)."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.Name):
+        name = unicodedata.normalize("NFKC", node.id)
+        if name in ("True", "False"):
+            return name == "True"
+    return None
 
 
 def _first_operand(node: ast.AST) -> ast.AST:
@@ -197,6 +224,50 @@ def _first_operand(node: ast.AST) -> ast.AST:
 # call over two commented lines, a tuple or subscript target, `##`, `# #`, `await` and a CamelCase name
 # each passed with exit 0. Commented out one at a time, 151 of the 294 statements under src/proofbundle
 # that call such a callee were caught then; all 294 are now.
+#
+# A BACKSLASH CONTINUES THE STATEMENT. The run that parses first is not the statement while its last
+# line ends in a backslash that joins the next comment line: the search goes on into that line.
+# `_commented_statement` drops a backslash that ends the last line it reads, since the line it
+# continued may not be commented out (`# ok = hmac.compare_digest(a, b) \` above live code). So the
+# Ed25519 check of signature.py, written in this tree's backslash style and commented out,
+# `# Ed25519PublicKey.from_public_bytes(bytes(public_key)) \` over `#     .verify(bytes(signature),
+# bytes(message))`, ended the search at its first line, which parses and calls no check, while its
+# second line, the check, does not parse on its own. It was clean with exit 0 in both modes, and so
+# were an assignment, `and`, `return`, `assert`, a conditional expression and a tuple continued that
+# way, and the same inside an `if` body (a review lens, run 13, measured 2026-09-27 at a435ba32). The
+# other ways a statement goes on past a line that parses alone are a bracket and a string still open,
+# and neither parses alone; a string literal after another, or an element after a trailing comma,
+# continues a statement only inside such a bracket or behind such a backslash.
+#
+# A BULLET IS NO STATEMENT OF A CHECK. A Markdown list in a comment parses as code: `#   -
+# verify_checkpoint(signed_note, log_vkey)` as a unary minus on the call, `#   * verify(sig)` as a
+# starred call, `# a. verify(sig)` as a method call. Two bullets naming entry points, added to the spec
+# block of checkpoint.py, were flagged with exit 1 (a review lens, run 13, at a435ba32). It is decided by
+# what the statement does as code (`_no_check`): an expression statement whose value applies `-`, `+` or
+# `~` to a call turns the check's result into a number nobody reads, and no check does that, inside live
+# brackets or outside them. A star counts as a bullet only with the space a bullet has: code writes
+# `*verify_each(x)`, which unpacks the check's results as the last element of live brackets. A call on an
+# attribute of a one-letter name with a space after the dot is an enumerated item: code writes no space
+# there. `not` stays a check, since `# not verify(x)` runs the check as `# verify(x)` does and is a
+# condition as an element of live brackets, and so do a comparison, `and` and `or`: prose such as
+# `# verify_chain() is idempotent` is still flagged, and an allow marker clears it.
+#
+# THE WORK IS BOUNDED BY THE SIZE OF THE COMMENTS. Each prefix of a run was parsed until one parsed, so a
+# run that parses nowhere cost up to 40 parses of up to 40 lines for each line it starts at: 1312 comment
+# lines of 798 bytes, each an unclosed call, took 623.96 s (1,047,007 bytes staged; a review lens, run
+# 13, at a435ba32). `_lex` now reads each comment line's code once, as Python's tokenizer reads its
+# brackets, strings and backslashes, and a prefix is parsed only where Python could end a statement: with
+# no bracket and no string still open, and, after a `try`, once a line of its own indentation follows.
+# No longer prefix is parsed after an error no later line repairs: a closing bracket without its opener,
+# a string left open, a character that is no token, a backslash with text after it, or a logical line
+# that is complete, parses alone in no reading, and is none a later line completes (a decorator, `try`,
+# `match`). The search ends there, unless a later line of the run is read at fewer levels of `#`, which
+# turns the line with the error into a comment. A search whose first line holds no code at the level it
+# is read at ends as well: the first code line below starts a search of its own, and comment lines above
+# it make no reading parse that fails without them. Where `_lex` cannot follow a line as the running
+# Python does, every prefix after it is parsed, as before. The parsing that remains is bounded:
+# `_PARSE_PER_BYTE` bytes handed to the parser per byte of the file's comments, and `_PARSE_FLOOR` more.
+# Past that the file is not judged, and the run stops fail-closed with exit 2, never clean.
 
 #: The name of a check, by its stem, for class B's callee and class C's function: `verif` holds verify,
 #: verifies, verified, verification and verifier, `validat` holds validate, validated and validation,
@@ -212,6 +283,33 @@ _MAX_JOINED = 40
 #: A clause that continues a compound statement, read after the start it needs.
 _CLAUSE_START = {"elif": "if 0:\n    pass\n", "else": "if 0:\n    pass\n",
                  "except": "try:\n    pass\n", "finally": "try:\n    pass\n"}
+#: The start of a logical line that parses alone in no reading and still stands in valid code: a
+#: decorator needs the `def` below it, `try` its handler, `match` its cases.
+_COMPLETED_LATER = re.compile(r"\s*(?:@|(?:try|match)\b)")
+#: A `try` statement: until a line of its own indentation follows it, it has no handler and no reading
+#: parses it.
+_TRY = re.compile(r"try\b")
+#: One group of `#` marks a comment's code opens with: `#`, `##` and `#:` are one each, `# #` is two.
+_HASH_GROUP = re.compile(r"\s*#+:?")
+#: Where `_lex` stops: a quote, a `#`, a bracket, a backslash, and the three characters that are no
+#: token of Python outside a string.
+_LEX_STOP = re.compile(r"""['"#()\[\]{}\\?$`]""")
+#: The rest of a string after its opening quotes, up to and with its closing quotes. A backslash escapes
+#: the character after it; for where a string ends, a raw string reads it the same way.
+_STRING_REST = {"'": re.compile(r"(?:[^\\']|\\.)*'"), '"': re.compile(r'(?:[^\\"]|\\.)*"'),
+                "'''": re.compile(r"(?:[^\\']|\\.|'(?!''))*'''"),
+                '"""': re.compile(r'(?:[^\\"]|\\.|"(?!""))*"""')}
+#: The prefixes of an f-string and of a t-string. From Python 3.12 on, a field of one may hold quotes
+#: (PEP 701), so `_lex` follows such a string only where every version ends it alike; before 3.12 it ends
+#: as any other string does, and a t-string is a name before a string.
+_FIELD_PREFIXES = {"f", "rf", "fr", "t", "rt", "tr"}
+_FIELDS_NEST = sys.version_info >= (3, 12)
+#: The parsing class B may do for one file: `_PARSE_PER_BYTE` bytes handed to the parser per byte of the
+#: comments it reads, and `_PARSE_FLOOR` bytes more. Measured 2026-09-27: the 72 files under
+#: src/proofbundle take at most 0.94 bytes per byte of comment, and each of them commented out whole, line
+#: by line, at most 1.09; a MiB of comment lines built to get past `_lex` reaches the bound in under 3 s.
+_PARSE_PER_BYTE = 8
+_PARSE_FLOOR = 1 << 16
 
 
 def _comments(path: str, lines: list[str]) -> list[tuple[int, str, bool]]:
@@ -233,26 +331,38 @@ def _comments(path: str, lines: list[str]) -> list[tuple[int, str, bool]]:
     return found
 
 
-def _code_of(comments: list[str]) -> str:
-    """The code a run of comments holds: each one's `#` marks taken off (a run of them and a `:` after
-    them, as in `##` and `#:`, and a second level, as in `# #`), then the lines dedented together, so a
-    commented-out block keeps the indentation its lines have to each other."""
-    bodies = [re.sub(r"^\s*#+:?", "", c) for c in comments]
-    while all(b.lstrip().startswith("#") for b in bodies):
-        bodies = [re.sub(r"^\s*#+:?", "", b) for b in bodies]
+def _hash_groups(comment: str) -> list[int]:
+    """Where each group of `#` marks a comment opens with ends (`_HASH_GROUP`): the first, and each further
+    one while only whitespace stands before its `#`. A run of comments holds the code left when the groups
+    all of its lines open with are taken off: `# # x` over `# # y` holds `x` over `y`, and `# # x` over
+    `# y` holds `# x` over `y`."""
+    ends: list[int] = []
+    group = _HASH_GROUP.match(comment)
+    while group:
+        ends.append(group.end())
+        group = _HASH_GROUP.match(comment, group.end())
+    return ends
+
+
+def _dedented(bodies: list[str]) -> str:
+    """The code a run of comment bodies holds: its lines dedented together, so a commented-out block keeps
+    the indentation its lines have to each other, and its first line without indentation of its own."""
     lines = textwrap.dedent("\n".join(bodies)).split("\n")
     lines[0] = lines[0].lstrip()
     return "\n".join(lines)
 
 
-def _commented_statement(code: str) -> ast.Module | None:
-    """The code as Python parses it, or None when it does not parse. A header is given a body (`# if not
-    verify(x):` needs one, also with a comment behind its colon), a last line that ends in a backslash
-    loses it (the line it continued was not commented out), and a clause such as `elif` or `except` is
-    read after the start it continues. RecursionError and MemoryError pass to the caller, which cannot
-    say and stops: a comment `# ok = verify(` with 7000 nested unary minus raised a MemoryError past an
-    except clause that named SyntaxError and ValueError, and the guard ended with a traceback and exit
-    1, the code of a finding (a review lens, run 10, measured 2026-09-26)."""
+def _commented_statement(code: str,
+                         spend: Callable[[int], None] | None = None) -> tuple[ast.Module, str] | None:
+    """The code as Python parses it, with the reading that parsed, or None when it does not parse. A
+    header is given a body (`# if not verify(x):` needs one, also with a comment behind its colon), a last
+    line that ends in a backslash loses it (the line it continued may not be commented out; the caller
+    reads on while a comment line follows), and a clause such as `elif` or `except` is read after the
+    start it continues. RecursionError and MemoryError pass to the caller, which cannot say and stops: a
+    comment `# ok = verify(` with 7000 nested unary minus raised a MemoryError past an except clause that
+    named SyntaxError and ValueError, and the guard ended with a traceback and exit 1, the code of a
+    finding (a review lens, run 10, measured 2026-09-26). `spend` is told the size of each reading
+    before it is parsed."""
     lines = code.rstrip().split("\n")
     if lines[-1].endswith("\\"):
         lines[-1] = lines[-1][:-1].rstrip()
@@ -268,26 +378,32 @@ def _commented_statement(code: str) -> ast.Module | None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")      # `# re.compile("\d")` warns of an escape; no verdict of ours
         for reading in readings:
+            if spend is not None:
+                spend(len(reading))
             try:
-                return ast.parse(reading)
+                return ast.parse(reading), reading
             except (SyntaxError, ValueError):  # ValueError: a NUL byte, which ast.parse refuses on its own
                 continue
     return None
 
 
-def _verify_calls(tree: ast.AST) -> list[str]:
+def _verify_calls(tree: ast.AST, source: str | None = None) -> list[str]:
     """The names of the calls in `tree` whose callee is named for a check: a name, or the attribute that
     ends any chain (`merkle.verify_inclusion`, `key.from_public_bytes(b).verify`). A call inside an
     annotation does not count: prose such as `# NOTE: verify(x) ...` parses as a name annotated with the
-    call, while code puts the call in the value (`# ok: bool = verify(x)` counts)."""
-    in_annotation: set[int] = set()
+    call, while code puts the call in the value (`# ok: bool = verify(x)` counts). Nor does a call in an
+    expression statement that makes no check by what it does (`_no_check`, read in `source`, the text
+    the tree was parsed from)."""
+    left_out: set[int] = set()
     for node in ast.walk(tree):
         for annotation in (getattr(node, "annotation", None), getattr(node, "returns", None)):
             if isinstance(annotation, ast.AST):
-                in_annotation.update(id(n) for n in ast.walk(annotation))
+                left_out.update(id(n) for n in ast.walk(annotation))
+        if isinstance(node, ast.Expr) and _no_check(node.value, source):
+            left_out.update(id(n) for n in ast.walk(node))
     names = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and id(node) not in in_annotation:
+        if isinstance(node, ast.Call) and id(node) not in left_out:
             func = node.func
             name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
             if _VERIFY_CALLEE.search(name):
@@ -295,38 +411,246 @@ def _verify_calls(tree: ast.AST) -> list[str]:
     return names
 
 
+def _no_check(value: ast.expr, source: str | None) -> bool:
+    """Whether an expression statement with this value makes no check, by what it does as code (the class
+    B notes above): `-`, `+` or `~` applied to a call; a star with a space after it before a call; or a
+    call on an attribute of a one-letter name with a space after the dot, an enumerated item (`a.
+    verify(sig)`). The space is read in `source`; without it, only the first form counts."""
+    if isinstance(value, ast.UnaryOp):
+        return isinstance(value.op, (ast.USub, ast.UAdd, ast.Invert)) and isinstance(value.operand, ast.Call)
+    if source is None:
+        return False
+    if isinstance(value, ast.Starred):
+        return isinstance(value.value, ast.Call) and \
+            re.match(r"\*[ \t]", ast.get_source_segment(source, value) or "") is not None
+    func = value.func if isinstance(value, ast.Call) else None
+    return isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and len(func.value.id) == 1 \
+        and re.match(r"\w\.[ \t]", ast.get_source_segment(source, func) or "") is not None
+
+
+def _lex(code: str, state: str) -> tuple[str | None, int, int, bool, bool]:
+    """One line of a comment's code as Python's tokenizer leaves it, entered in `state`: "" in code, or the
+    quotes of the triple-quoted string the line starts inside.
+
+    Returns the state after the line, the bracket depth it adds, the lowest depth within it, whether it
+    holds an error no later line repairs, and whether it ends in a backslash that joins the next line.
+    The errors are a single-quoted string left open with no backslash to continue it, a character that is
+    no token (`?`, `$`, a backtick) and a backslash with text after it. One more backslash is no such
+    text: `_commented_statement` drops a backslash that ends the last line, and `else:\\\\` read with a
+    body after it then parses (found by fuzzing this lexer against the parser, 2026-09-27). A closing
+    bracket below depth 0 is the caller's to see, which knows the depth the line starts at. The state is
+    None where this lexer cannot follow the line as the running Python does: from 3.12 on, an f-string or
+    a t-string whose fields `_plain_fields` cannot follow, or that spans lines, and in every version a
+    single-quoted string continued over a backslash.
+    """
+    pos = depth = low = 0
+    if state:
+        inside = _STRING_REST[state].match(code)
+        if not inside:
+            return state, 0, 0, False, False
+        pos = inside.end()
+    while stop := _LEX_STOP.search(code, pos):
+        c, i = stop.group(), stop.start()
+        pos = i + 1
+        if c == "#":
+            break
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            low = min(low, depth)
+        elif c == "\\":                 # `_commented_statement` drops one backslash that ends a last line
+            joins = code[pos:].strip() in ("", "\\")
+            return "", depth, low, not joins, joins
+        elif c in "?$`":
+            return "", depth, low, True, False
+        else:
+            quote = c * 3 if code.startswith(c * 3, i) else c
+            rest = _STRING_REST[quote].match(code, i + len(quote))
+            start = i            # the letters before the quote, up to three: a prefix has at most two
+            while start > 0 and i - start < 3 and (code[start - 1].isalnum() or code[start - 1] == "_"):
+                start -= 1
+            if _FIELDS_NEST and code[start:i].lower() in _FIELD_PREFIXES:
+                if len(quote) == 3 or not rest or not _plain_fields(code[i + 1:rest.end() - 1]):
+                    return None, depth, low, False, False
+            elif not rest:
+                if len(quote) == 3:
+                    return quote, depth, low, False, False
+                if (len(code) - len(code.rstrip("\\"))) % 2:
+                    return None, depth, low, False, False
+                return "", depth, low, True, False
+            pos = rest.end()
+    return "", depth, low, False, False
+
+
+def _plain_fields(text: str) -> bool:
+    """Whether Python 3.12 and later end an f-string at the quote after `text`, where the versions before
+    do: `text` runs from the opening quote to the first quote of the same kind, and that quote ends the
+    string only outside a field. So every field in `text` must close in order. Outside a field, `{{` and
+    `}}` are text and a backslash escapes the character after it. Inside one, a brace opens or closes, a
+    quote of the other kind opens a string that must close before the field does and hold no brace and no
+    backslash (a brace in it would miscount the field), and a triple quote, a backslash or a `#` is more
+    than this reading follows (False)."""
+    depth = i = 0
+    while i < len(text):
+        c = text[i]
+        if not depth:
+            if text.startswith(("{{", "}}"), i) or c == "\\":
+                i += 2
+                continue
+            if c == "}":
+                return False
+            depth += c == "{"
+        elif c in "'\"":
+            end = text.find(c, i + 1)
+            if end < 0 or text.startswith(c * 3, i) or any(x in text[i + 1:end] for x in "{}\\"):
+                return False
+            i = end
+        elif c in "#\\":
+            return False
+        else:
+            depth += (c == "{") - (c == "}")
+        i += 1
+    return depth == 0
+
+
+class _Lexed:
+    """What `_lex` knows after the lines of one search so far, read at one level of `#` marks: the state
+    after them (None once a line could not be followed), their bracket depth, whether an error no later
+    line repairs stands in them, whether the last line joins the next, the first line of the logical line
+    still open, and the logical line the last line completed, if it did. And, from the text alone: the
+    indentation every line with text shares, which `_dedented` takes off, and the least indentation of a
+    line with code after the first."""
+
+    def __init__(self) -> None:
+        self.state: str | None = ""
+        self.depth = 0
+        self.broken = self.joined = False
+        self.first: int | None = None
+        self.completed: tuple[int, int] | None = None
+        self.margin = ""
+        self.later: int | None = None
+        self.lines = 0
+
+    def feed(self, row: int, code: str, lexed: tuple[str | None, int, int, bool, bool] | None) -> None:
+        self.completed = None
+        indent = code[:len(code) - len(code.lstrip(" \t"))]
+        if code[len(indent):]:                      # `textwrap.dedent` reads only spaces and tabs
+            self.margin = os.path.commonprefix([self.margin, indent]) if self.lines else indent
+            if self.lines and code[len(indent)] != "#":
+                self.later = len(indent) if self.later is None else min(self.later, len(indent))
+        self.lines += 1
+        if self.state is None or lexed is None:
+            self.state = None
+            return
+        if self.first is None and not self.state and not self.depth and not self.joined \
+                and code.lstrip()[:1] not in ("", "#"):
+            self.first = row
+        after, delta, low, broken, joined = lexed
+        self.broken = self.broken or broken or self.depth + low < 0
+        self.depth += delta
+        self.state, self.joined = after, joined
+        if after == "" and not self.depth and not joined and self.first is not None:
+            self.completed, self.first = (self.first, row), None
+
+
 def _commented_out_calls(path: str, lines: list[str]) -> list[tuple[int, int]]:
     """Class B over a file's Python lines: (first line, last line) of each comment that holds a call to a
     check. A comment that stands alone on its line is read with the ones directly below it, up to
-    `_MAX_JOINED`; the shortest run from it that parses is the statement it holds, and the lines of a run
-    that holds such a call are not read again as a start. A run whose text names no check (NFKC, any
-    case) cannot hold such a call and is not parsed. A comment behind code on its line is not read: the
-    review lens that measured this class left `ok = True  # ok = verify(...)` at the class's boundary."""
+    `_MAX_JOINED`: the shortest run from it that parses is the statement it holds, unless the run's last
+    line ends in a backslash that joins the next comment line, and the lines of a run that holds such a
+    call are not read again as a start. A run whose text names no check (NFKC, any case) cannot hold such
+    a call and is not parsed, nor is a run `_lex` shows Python cannot end a statement at, and the search
+    from a line ends at an error no later line repairs (the class B notes above). A comment behind code on
+    its line is not read: the review lens that measured this class left `ok = True  # ok = verify(...)` at
+    the class's boundary."""
     comments = _comments(path, lines)
     alone_at = {row: text for row, text, alone in comments if alone}
+    groups = {row: _hash_groups(text) for row, text in alone_at.items()}
+    names_a_check = {row: bool(_VERIFY_CALLEE.search(unicodedata.normalize("NFKC", text)))
+                     for row, text in alone_at.items()}
+    allowance = _PARSE_PER_BYTE * sum(len(text) for text in alone_at.values()) + _PARSE_FLOOR
+    lexed: dict[tuple[int, int, str], tuple[str | None, int, int, bool, bool]] = {}
+    unparsed: set[tuple[int, int, int]] = set()
+
+    def body(row: int, level: int) -> str:
+        return alone_at[row][groups[row][level - 1]:]
+
+    def feed(lx: _Lexed, row: int, level: int) -> None:
+        key = (row, level, lx.state or "")
+        if lx.state is not None and key not in lexed:
+            lexed[key] = _lex(body(row, level), lx.state)
+        lx.feed(row, body(row, level), lexed.get(key) if lx.state is not None else None)
+
+    def spend(size: int) -> None:
+        nonlocal allowance
+        allowance -= size
+        if allowance < 0:
+            raise SystemExit(f"mutant_signature_guard: {_pfad(path)}: reading its comments as code takes "
+                             f"more parsing than {_PARSE_PER_BYTE} bytes per byte of comment, the bound of "
+                             "this reading, so the guard cannot say whether they hold commented-out code "
+                             "(fail closed)")
+
+    def parse(first: int, last: int, level: int) -> tuple[ast.Module, str] | None:
+        if (first, last, level) in unparsed:
+            return None
+        try:
+            statement = _commented_statement(_dedented([body(r, level) for r in range(first, last + 1)]),
+                                             spend)
+        except (RecursionError, MemoryError):
+            raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{first}: a comment nests deeper "
+                             "than the parser reads, so the guard cannot say whether it is "
+                             "commented-out code (fail closed)") from None
+        if statement is None:
+            unparsed.add((first, last, level))
+        return statement
+
     found: list[tuple[int, int]] = []
     covered = 0
-    for row, text in alone_at.items():
+    for row in alone_at:
         if row <= covered:
             continue
-        run = [text]
-        while len(run) < _MAX_JOINED and row + len(run) in alone_at:
-            run.append(alone_at[row + len(run)])
-        if not _VERIFY_CALLEE.search(unicodedata.normalize("NFKC", "\n".join(run))):
+        run = [row]
+        while len(run) < _MAX_JOINED and run[-1] + 1 in alone_at:
+            run.append(run[-1] + 1)
+        if not any(names_a_check[r] for r in run):
             continue
-        for end in range(len(run)):
-            try:
-                tree = _commented_statement(_code_of(run[:end + 1]))
-            except (RecursionError, MemoryError):
-                raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{row}: a comment nests deeper "
-                                 "than the parser reads, so the guard cannot say whether it is "
-                                 "commented-out code (fail closed)") from None
-            if tree is None:
-                continue
-            if _verify_calls(tree):
-                found.append((row, row + end))
-                covered = row + end
-            break
+        fewest_after, fewest = [], sys.maxsize        # the fewest groups of `#` a later line opens with
+        for r in reversed(run):
+            fewest_after.append(fewest)
+            fewest = min(fewest, len(groups[r]))
+        fewest_after.reverse()
+        level, lx, dead = sys.maxsize, _Lexed(), False    # dead: no longer prefix parses at this level
+        for end, r in enumerate(run):
+            if len(groups[r]) < level:                # the run is read at fewer levels now: read it again
+                level, lx, dead = len(groups[r]), _Lexed(), False
+                for earlier in run[:end]:
+                    feed(lx, earlier, level)
+                opens_a_try = _TRY.match(body(row, level).lstrip())
+            if body(row, level).lstrip()[:1] in ("", "#"):
+                break                                   # no code: the first code line starts its own search
+            feed(lx, r, level)
+            settled = fewest_after[end] >= level        # no later line of the run lowers the level
+            dead = dead or lx.broken                    # an error no later line at this level repairs
+            if dead or (lx.state is not None and (lx.state or lx.depth)):
+                if dead and settled:
+                    break
+                continue                                # or a bracket or a string still open
+            in_the_try = opens_a_try and (lx.later is None or lx.later > len(lx.margin))
+            statement = None if in_the_try else parse(row, r, level)
+            if statement is not None:
+                if _verify_calls(*statement):
+                    found.append((row, r))
+                    covered = r
+                elif end + 1 < len(run) and (lx.joined if lx.state is not None
+                                             else body(r, level).rstrip().endswith("\\")):
+                    continue                            # the statement goes on into the next comment line
+                break
+            if lx.completed and not _COMPLETED_LATER.match(body(lx.completed[0], level)) \
+                    and parse(lx.completed[0], r, level) is None:
+                if settled:
+                    break                               # a logical line that parses in no context
+                dead = True                             # at this level
     return found
 
 
@@ -601,8 +925,7 @@ def _class_c_findings(tree: ast.Module, judged: set[int]) -> list[tuple[int, str
             body = body[1:]  # skip the docstring
         if not body or not isinstance(body[0], ast.Return):
             continue
-        val = body[0].value
-        if isinstance(val, ast.Constant) and val.value is True:
+        if _bool_constant(body[0].value) is True:       # also a name Python binds to True
             if node.lineno in judged or body[0].lineno in judged:
                 findings.append((body[0].lineno,
                                  f"`return True` opens verification function `{node.name}`"))
@@ -788,6 +1111,11 @@ def helper(x):
     return x
 '''
 
+def _fullwidth(word: str) -> str:
+    """`word` in fullwidth letters, which Python binds as the name the letters spell (NFKC)."""
+    return "".join(chr(ord(c) + 0xFEE0) for c in word)
+
+
 _CASES: list[tuple[str, str | bytes, bool]] = [
     # (label, replacement content for src/proofbundle/guarded.py, expect_finding)
     ("A: if False at a check",
@@ -849,6 +1177,18 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
      "N = 0x" + "f" * 3600 + "\nif False:\n    pass\n", True),
     ("negative: an int literal past the decimal digit limit alone stays quiet",
      "N = 0x" + "f" * 3600 + "\n", False),
+    # A backslash that ends a commented line continues its statement, a Markdown bullet makes no check,
+    # and a bool constant is the constant however it is spelled (a review lens, run 13, 2026-09-27).
+    ("B: the Ed25519 check continued over a backslash, commented out",
+     _BENIGN.replace('    return bool(data.get("ok"))',
+                     '    # Ed25519PublicKey.from_public_bytes(bytes(key)) \\\n'
+                     '    #     .verify(bytes(sig), bytes(msg))\n    return True'), True),
+    ("negative: a Markdown bullet list that names checks",
+     _BENIGN + "\n# Entry points:\n#   - verify_thing(data)\n#   * verify_thing(data)\n", False),
+    ("A: a trivial truth spelled in fullwidth letters",
+     _BENIGN.replace('if not isinstance(data, dict):', f'if {_fullwidth("False")}:'), True),
+    ("C: `return True` spelled in fullwidth letters",
+     f'def verify_thing(data):\n    return {_fullwidth("True")}\n', True),
 ]
 
 
