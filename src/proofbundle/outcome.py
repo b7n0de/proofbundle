@@ -556,7 +556,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
 
     ``evidence_resolver`` (Finding 03, additive): an optional callable ``f(digest_obj) -> bool`` checking a
     digest against ACTUALLY RESOLVED content; when supplied, ``evidence_levels["effect"]`` may reach
-    ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``. Never
+    ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``, and only
+    when it answers the exact ``True``: any other answer, a truthy one included (``1``, ``"true"``,
+    ``"false"``, a non-empty list, an object whose ``__bool__`` says True), does not promote. Never
     changes ``execution_proven`` (unchanged, additive) or the aggregate ``ok``.
 
     ``receiverRefs`` / Finding 16 (self-fixable part, additive) — third-party receiver/observer
@@ -569,7 +571,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       (reused, same param) lets an entry reach ``CONTENT_RESOLVED``; the NEW ``receiver_attestation_resolver``
       (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
       signed statement from a party DISTINCT from the executor) lets it reach
-      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` — this is the built, self-fixable half of Finding 16;
+      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` only when it answers the exact ``True`` or the
+      32-byte signer key; any other answer, a truthy one included, does not promote (see
+      ``assurance.classify_receiver_corroboration``) — this is the built, self-fixable half of Finding 16;
       ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
     - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``

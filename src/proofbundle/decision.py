@@ -541,7 +541,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     ACTUALLY RESOLVED content — the missing wiring for `resolve_evidence_ref`, which existed but was never
     called from verify. When supplied, the corresponding `evidence_levels` entries reach
     `assurance.EvidenceLevel.CONTENT_RESOLVED` instead of stopping at `REFERENCE_WELL_FORMED` (a
-    syntactically valid digest, attacker-choosable content). Never changes `action_outcome_proven` /
+    syntactically valid digest, attacker-choosable content) only when it answers the exact `True`; any
+    other answer, a truthy one included (`1`, `"true"`, `"false"`, a non-empty list, an object whose
+    `__bool__` says True), does not promote. Never changes `action_outcome_proven` /
     `evidence_bound` (unchanged, additive) or the aggregate `ok`.
 
     `automation` (Finding 01, additive): a uniform `automationVerdict.automation_summary` verdict —

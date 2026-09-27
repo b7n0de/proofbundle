@@ -83,7 +83,10 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
 
     ``evidence_resolver``, when supplied, is called with ``digest_obj`` and must return True iff the
     digest was checked against the ACTUAL resolved bytes (mirrors ``resolve_evidence_ref``'s
-    ``content_root_ok``); on True the level reaches ``CONTENT_RESOLVED``, never higher —
+    ``content_root_ok``). Only the exact ``True`` promotes: any other answer, a truthy one included
+    (``1``, ``"true"``, ``"false"``, a non-empty list, an object whose ``__bool__`` says True), keeps
+    ``REFERENCE_WELL_FORMED``, the answer's own ``__bool__`` is never called, and when the answer is
+    not a bool at all the detail says so. On True the level reaches ``CONTENT_RESOLVED``, never higher —
     ``RECEIPT_CRYPTO_VERIFIED``/``POLICY_AUTHORIZED``/``INDEPENDENTLY_ATTESTED`` are each a STRONGER claim
     this classifier does not itself verify (conflating "checked against real bytes" with "the real bytes'
     OWN signature was checked" would be exactly the kind of unearned strength bump No-Overclaim forbids).
@@ -99,12 +102,18 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     detail = "a well-formed sha256 digest object is present (attacker-choosable content, not content-checked)"
     if evidence_resolver is not None:
         try:
-            resolved = bool(evidence_resolver(digest_obj))
+            answer = evidence_resolver(digest_obj)
         except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
-            resolved = False
-        if resolved:
+            answer = False
+        # The contract is a bool, so only the exact True promotes. bool(answer) would promote on 1, "true",
+        # "false", [0] or any object whose __bool__ says True, and would run the caller's __bool__. The
+        # answer is never rendered into the detail either (rendering could run caller code as well).
+        if answer is True:
             level = EvidenceLevel.CONTENT_RESOLVED
             detail = "digest checked against actually-resolved content bytes"
+        elif type(answer) is not bool:
+            detail += (" (the evidence resolver answered something other than True; only the exact True "
+                       "promotes)")
     return {"level": level, "level_name": level.name, "detail": detail}
 
 
@@ -132,7 +141,11 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
 
     Never raises: a raising ``independent_attestation_resolver`` is fail-closed (treated as False, the base
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
-    ``evidence_resolver`` contract). The resolver is only ever consulted once the digest has ALREADY reached
+    ``evidence_resolver`` contract). The resolver's answer attests only when it is the exact ``True`` or
+    32 bytes of key material (see KEY BINDING below): any other answer, a truthy one included (``1``,
+    ``"true"``, ``"false"``, a non-empty list, an object whose ``__bool__`` says True), keeps the base
+    level, the answer's own ``__bool__`` is never called, and when the answer is not a bool at all the
+    detail says so. The resolver is only ever consulted once the digest has ALREADY reached
     at least ``CONTENT_RESOLVED`` — an attacker-choosable digest that was never resolved cannot be promoted
     straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone.
 
@@ -189,7 +202,12 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                 "the attestation resolver did not return the signing key, so the label cannot be bound to "
                 "the signer — no promotion; return the 32-byte signer key from the resolver to bind it)"}
     else:
-        attested = bool(res)
+        # Only the exact True attests (the contract is a bool); bool(res) would attest on 1, "true", "false",
+        # [0] or any object whose __bool__ says True, and would run the caller's __bool__.
+        attested = res is True
+        if not attested and type(res) is not bool:
+            return {**base, "detail": base["detail"] + " (the attestation resolver answered neither True nor "
+                    "32 bytes of key material; only the exact True promotes)"}
     if not attested:
         return base
     return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,

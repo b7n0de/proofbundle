@@ -750,7 +750,10 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         (``_verify_ats_signature``) under those keys — a real cryptographic anchor, PQ-capable. A hybrid ATS
         needs both legs. The key material comes from the relying party (WP-A1), never the sequence itself.
       * ``anchor_verifier``: a caller callback bound to an external proof (e.g. an OTS proof), when the
-        anchor is not a native ATS signature.
+        anchor is not a native ATS signature. Only the exact ``True`` anchors: any other answer, a truthy
+        one included (``1``, ``"true"``, ``"false"``, a non-empty list, an object whose ``__bool__``
+        says True), leaves the newest ATS not anchored, the answer's own ``__bool__`` is never called,
+        and when the answer is not a bool at all the ``renewal:last_anchor`` detail says so.
       * ``allow_unauthenticated_anchor=True`` (EXPLICIT opt-in): fall back to the bare ``anchor_status``
         string, which is NOT cryptographically bound (excluded from ``token()``) — a STRUCTURAL check only.
         A PASS here means "structurally consistent", never "cryptographically anchored".
@@ -988,11 +991,22 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
     newest = flat[-1]
-    anchored = bool(verify_anchor(newest))
-    result.checks.append(Check("renewal:last_anchor", anchored,
-                               f"newest ATS anchored via {anchor_mode}" if anchored
-                               else f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
-                                    "for a cryptographic anchor"))
+    # Only the exact True anchors. In the "caller anchor_verifier" mode verify_anchor is the caller's
+    # callback, and bool(answer) would anchor on 1, "true", "false", [0] or any object whose __bool__
+    # says True (and run that __bool__). The house verifiers above return exact bools (_default_anchor
+    # whenever anchor_status is a str). The answer is never rendered into the detail (rendering could run
+    # caller code as well).
+    answer = verify_anchor(newest)
+    anchored = answer is True
+    if anchored:
+        anchor_detail = f"newest ATS anchored via {anchor_mode}"
+    elif type(answer) is not bool:
+        anchor_detail = (f"newest ATS not anchored (mode: {anchor_mode}) — the anchor verifier answered "
+                         "something other than True; only the exact True anchors")
+    else:
+        anchor_detail = (f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
+                         "for a cryptographic anchor")
+    result.checks.append(Check("renewal:last_anchor", anchored, anchor_detail))
 
     # 4b) optional, ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof
     #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).

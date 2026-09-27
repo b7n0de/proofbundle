@@ -67,7 +67,10 @@ def _as_list(v):
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
-    never raise for an ordinary bad proof."""
+    never raise for an ordinary bad proof. The result must be a plain ``dict``, and ``ok``, ``warn``,
+    ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``: any other
+    value, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list), counts as False and
+    the detail says so; a result that is not a dict is a failed anchor."""
     if not type_name or not isinstance(type_name, str) or not callable(verifier):
         raise BundleFormatError("register_anchor_type needs a non-empty name and a callable verifier")
     _VERIFIERS[type_name] = verifier
@@ -270,8 +273,17 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
-    out["ok"] = bool(res.get("ok"))
-    out["warn"] = bool(res.get("warn"))
+    # A registered verifier is caller code (register_anchor_type is a public extension point), so its
+    # result is read only as a plain dict, and each verdict and flag counts only as the exact True:
+    # bool(res.get("ok")) made {"ok": "false"} a verified anchor, {"warn": "false"} turned a hard FAIL into
+    # a pending one, and a result that is not a dict raised a raw AttributeError here. Neither the result
+    # nor its values are rendered into the detail (rendering could run caller code as well).
+    if type(res) is not dict:
+        out["detail"] = ("the anchor verifier returned no result object (a dict whose ok is the exact True "
+                         "is required); not verified (fail-closed)")
+        return out
+    out["ok"] = res.get("ok") is True
+    out["warn"] = res.get("warn") is True
     out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
     out["detail"] = res.get("detail", "")
     # WP-A1: surface the trust provenance so the relying party can see WHY (and the require gate can only
@@ -280,7 +292,14 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # `frozenEvidence` True → the bundle carried frozen material, reported but never trusted.
     for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
         if _f in res:
-            out[_f] = bool(res.get(_f))
+            out[_f] = res.get(_f) is True
+    _not_bool = [k for k in ("ok", "warn", "rp_trusted", "needs_rp_trust", "frozenEvidence")
+                 if k in res and type(res[k]) is not bool]
+    if _not_bool:
+        _d = out["detail"]
+        out["detail"] = ((_d + " " if type(_d) is str and _d else "")
+                         + f"(the anchor verifier answered something other than True or False for "
+                           f"{', '.join(_not_bool)}; only the exact True counts)")
     # WP-A2: structured trusted time, carried VERBATIM from the type verifier — present only when
     # the proof genuinely carries it (rfc3161 gen_time; a confirmed Bitcoin height). NEVER guessed,
     # NEVER derived from the informative anchoredAt field.

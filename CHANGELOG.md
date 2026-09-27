@@ -10,6 +10,54 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **Code a caller hands in promotes a verdict only when it answers the exact True**
+  (`assurance.classify_digest_evidence`, `assurance.classify_receiver_corroboration`,
+  `renewal.verify_sequence`, `anchors.verify_anchor`). Each of these calls code its caller supplies and
+  promoted on the truthiness of the answer, although the documented contract is a bool:
+  `bool(evidence_resolver(digest_obj))` lifted a digest from `REFERENCE_WELL_FORMED` to
+  `CONTENT_RESOLVED`; `bool(res)`, in the branch of `classify_receiver_corroboration` with neither 32
+  bytes of key material nor an expected key, lifted a receiver ref to `INDEPENDENTLY_ATTESTED`;
+  `bool(verify_anchor(newest))` anchored the newest ArchiveTimeStamp in the `anchor_verifier` mode; and
+  `verify_anchor` read the result of a verifier registered through `register_anchor_type`, a public
+  extension point, with `bool(res.get("ok"))`, `bool(res.get("warn"))` and `bool(res.get(flag))` for
+  `rp_trusted`, `needs_rp_trust` and `frozenEvidence`.
+
+  Measured on main 20e91c8e: the answers `1`, `1.0`, `"true"`, `"false"`, `[0]` and an object whose
+  `__bool__` says True promoted on every one of these surfaces, directly and through
+  `verify_decision_receipt` and `verify_outcome_receipt`, which pass `evidence_resolver` and
+  `receiver_attestation_resolver` on; a truthy evidence answer next to an attestation resolver answering
+  True took a digest nobody had resolved to `INDEPENDENTLY_ATTESTED`. `verify_sequence` returned ok for
+  an anchor verifier answering `"false"` or `1`. A registered anchor verifier answering
+  `{"ok": "false"}` met `verify_anchors(require="any")` and gave `anchors_ok` true and an aggregate `ok`
+  true in `verify_decision_receipt(anchors=...)`; `{"ok": False, "warn": "false"}` turned a failed
+  anchor into a pending one that met `require` with `allow_pending`; and a result that is not a dict
+  (`True`, `None`, a list, a string, an int) raised a raw AttributeError out of `verify_anchor`,
+  `verify_anchors` and the never-raise `verify_decision_receipt`, because the result was read outside
+  the `try` that guards the verifier call.
+
+  Now only the exact `True` promotes, anchors or counts. Any other answer leaves the level, the anchor
+  check or the flag where it was; the answer's own `__bool__` is never called and the answer is never
+  rendered into a detail; and when the answer is not a bool at all, the detail says so and says that
+  only the exact True counts. A registered anchor verifier's result is read only when it is a plain
+  `dict`; anything else, a dict subclass with its own `get` included, is a failed anchor whose detail
+  says the verifier returned no result object. Unchanged, and held by controls: the exact `True`
+  promotes, the exact `False` does not and keeps the detail it had, a raising resolver still counts as
+  False, a raising anchor verifier is still a failed anchor, and 32 bytes of key material still attest;
+  the expected-key branch of `classify_receiver_corroboration` is not touched. The package's own
+  verifiers on these paths already return exact bools, read line by line: the authority-signature and
+  no-anchor modes of `verify_sequence` and its structural mode for an `anchor_status` that is a str, and
+  the anchor verifiers for `rfc3161-tsa`, `opentimestamps`, `chia-datalayer/v1` and the opt-in
+  `markovian-provenance/v1`. The per-anchor `status` a registered verifier reports is
+  still carried as given; no gate in the package reads it, only `ok` and `warn`.
+
+  Reach: the Python API only. The CLI sets none of these resolvers and registers no anchor type beyond
+  the built-ins. The same lines stand in the tagged files of v6.0.0 (4e32e83b) and v6.1.0 (dcac5aee),
+  so the released 6.0.0 and 6.1.0 carry the old behavior. Contract
+  `tests/test_a_resolver_promotes_only_on_exact_true.py`: against 20e91c8e, 87 subtests fail in 11 of
+  its 16 cases, each on the promotion itself or, for a result that is not a dict, on the raw
+  AttributeError; the five control cases are green there. With this change all 16 cases and all 87
+  subtests pass.
+
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
   `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,
