@@ -193,7 +193,13 @@ def _strict_b64url(segment: str) -> "bytes | None":
 
 
 def _strict_json_object(raw: bytes) -> "dict | None":
-    """docs/ANCHORS.md, step 2: a JSON object, a duplicate key or a lone surrogate refused."""
+    """docs/ANCHORS.md, step 2: a JSON object as Python's ``json`` module reads the decoded bytes, a
+    duplicate key or a lone surrogate refused. The text names that module and what it accepts beyond
+    RFC 8259 (``NaN``, a UTF-8 byte order mark, UTF-16 and UTF-32), so this reading follows it.
+
+    NOT INDEPENDENT on that axis (lens run 3 at 15d0b643): it reads with the same module the code
+    reads with, so it pins that code and text agree, not that the module's extensions are right. The
+    size limits of the reader are not modelled either; no input here comes near them."""
     def no_duplicates(pairs):
         keys = [k for k, _ in pairs]
         if len(keys) != len(set(keys)):
@@ -224,7 +230,10 @@ def _docs_name_the_fold_domain(text: str) -> list:
     wanted = {"strict base64url": "strict base64url", "no padding": "no `=` padding",
               "pad bits zero": "pad bits zero", "duplicate key refused": "duplicate key",
               "lone surrogate refused": "lone surrogate", "the strict reader": "loads_strict",
-              "the signature segment strict too": "signature segment is strict base64url"}
+              "the signature segment strict too": "signature segment is strict base64url",
+              "NaN accepted": "`NaN`", "byte order mark accepted": "byte order mark",
+              "UTF-16 and UTF-32 accepted": "UTF-16 or UTF-32", "the digit limit": "4,300 digits",
+              "the fold ignores the verdict": "whether or not its signature verifies"}
     return [name for name, phrase in wanted.items() if phrase not in section]
 
 
@@ -363,9 +372,13 @@ class AForeignIssuersBytesAreNeverRewritten(unittest.TestCase):
 
 class TwinsHaveOneIdentity(unittest.TestCase):
     """Owner decision, point 3: the E-1 sweep of D1, every identity site for a bundle and its twin, in
-    the issuer slot and in the KB-JWT slot. RED on f536af50 except the ``verify --json`` case:
-    ``receipt_token_identity`` did not exist, and a KB-JWT twin had a second receipt root. RED on
-    126ed1dc in every case."""
+    the issuer slot and in the KB-JWT slot. Measured with each tree's own src and docs. RED on
+    f536af50 except three cases: the ``verify --json`` case, and the two that pin the code against
+    the text on edge forms (``test_the_docs_fold_no_wider_domain_than_the_code`` and
+    ``test_a_header_the_reader_accepts_beyond_rfc_8259_is_folded_by_both``), on which its code and
+    today's text agree; ``receipt_token_identity`` did not exist there, and a KB-JWT twin had a
+    second receipt root. RED on 126ed1dc except ``test_the_docs_fold_no_wider_domain_than_the_code``,
+    a guard there: twins had two roots on 126ed1dc, so a slot outside the domain kept two as well."""
 
     def setUp(self):
         try:
@@ -430,9 +443,10 @@ class TwinsHaveOneIdentity(unittest.TestCase):
         to ``"alg": "ES256"``, the code only what its strict decoders accept. For an issuer JWT with a
         padded header segment or a duplicate key, the twins got one root by the docs and two in code.
         Both forms fail verification, and no issuer emits them; the fix narrows the TEXT to the
-        code's domain and leaves the code's fold as it was. So this case is GREEN on accd932c (the
-        code already behaved) and pins that code and text now agree on both edge forms; the text
-        itself is checked by ``test_the_docs_name_the_domain_of_the_fold``."""
+        code's domain and leaves the code's fold as it was. So this case is a guard: GREEN on
+        accd932c, f536af50 and 126ed1dc, measured with each tree's own src (lens run 3), and it pins
+        that code and text agree on both edge forms; the text itself is checked by
+        ``test_the_docs_name_the_domain_of_the_fold``."""
         from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
 
         def signed(header_segment: str) -> str:
@@ -456,9 +470,40 @@ class TwinsHaveOneIdentity(unittest.TestCase):
             self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
                                 f"{label}: not folded, by the code and by the text")
 
+    def test_a_header_the_reader_accepts_beyond_rfc_8259_is_folded_by_both(self):
+        """Lens run 3 at 15d0b643, D3-1-a: a header with ``NaN``, a UTF-8 byte order mark, or in UTF-16
+        verifies, and the code folds its twins to one root; the text of that commit did not say the
+        reader accepts these forms, so a reader of it following RFC 8259 got two roots. The text names
+        them now. This pins, for each form, that verification accepts both spellings, that the code
+        gives them one root, and that the recipe as written gives the same root. GREEN on f536af50 and
+        accd932c; RED on 126ed1dc, where the twins had two roots."""
+        from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
+
+        def signed(header_raw: bytes) -> str:
+            header_segment = _b64u(header_raw)
+            body = _b64u(json.dumps({"vct": VCT, "iss": "x"}).encode())
+            r, s = decode_dss_signature(self.key.sign(f"{header_segment}.{body}".encode(),
+                                                      ec.ECDSA(hashes.SHA256())))
+            s = s if s > N // 2 else N - s
+            return f"{header_segment}.{body}.{_b64u(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))}~"
+
+        forms = {"NaN in the header": b'{"alg":"ES256","typ":"dc+sd-jwt","x":NaN}',
+                 "a UTF-8 byte order mark": b"\xef\xbb\xbf" + b'{"alg":"ES256","typ":"dc+sd-jwt"}',
+                 "UTF-16-LE text": '{"alg":"ES256","typ":"dc+sd-jwt"}'.encode("utf-16-le")}
+        for label, raw in forms.items():
+            compact = signed(raw)
+            bundle = _carrying(compact, self.pub_b64)
+            twin = _with_compact(bundle, _twin(compact))
+            self.assertTrue(verify_bundle(bundle).ok, label)
+            self.assertTrue(verify_bundle(twin).ok, label)
+            self.assertEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin), label)
+            self.assertEqual(receipt_canonical_root(twin), _root_per_docs(twin), label)
+
     def test_the_docs_name_the_domain_of_the_fold(self):
-        """RED on the docs/ANCHORS.md of accd932c, which named neither condition (measured by running
-        ``_docs_name_the_fold_domain`` on that text)."""
+        """RED on the docs/ANCHORS.md of accd932c, which named neither condition, and of 15d0b643, which
+        did not name the reader's extensions or say that the fold ignores the verdict (lens run 3);
+        RED on f536af50 and 126ed1dc too. Measured by running this file against each tree with its own
+        docs."""
         text = (SRC.parents[1] / "docs" / "ANCHORS.md").read_text(encoding="utf-8")
         self.assertEqual(_docs_name_the_fold_domain(text), [])
 

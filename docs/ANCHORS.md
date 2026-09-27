@@ -45,8 +45,13 @@ both (SPEC §6). So that one receipt has one root, the root is computed over one
    - its header segment is strict base64url: the URL-safe alphabet only, no `=` padding, and pad
      bits zero (RFC 4648 §5 and §3.5);
    - the header decodes to a JSON object as proofbundle's strict JSON reader reads it
-     (`_strict_json.loads_strict`, the reader verification uses): a duplicate key or a lone
-     surrogate in a string is refused, and so is anything over its size, depth or node limits;
+     (`_strict_json.loads_strict`, the reader verification uses). That reader is Python's `json`
+     module over the decoded bytes, with a duplicate key or a lone surrogate in a string refused and
+     with the limits of the default verification budget: 8 MiB of input, 200,000 keys and items,
+     nesting depth 64, strings of 1,000,000 characters, integers of 8,192 bits, and integer literals
+     of 4,300 digits. Beyond RFC 8259 it accepts what that module accepts from bytes: `NaN`,
+     `Infinity` and `-Infinity`, a leading UTF-8 byte order mark, and UTF-16 or UTF-32 text, so a
+     header in one of these forms is folded too;
    - that object has `"alg": "ES256"`;
    - its signature segment is strict base64url in the same sense and decodes to 64 bytes `R‖S`
      (big-endian) with `⌊n / 2⌋ < S < n`.
@@ -55,8 +60,8 @@ both (SPEC §6). So that one receipt has one root, the root is computed over one
    Every other slot, and every other byte of the compact, stays as it is. So a slot whose header
    segment is padded, or whose header carries a duplicate key, is not folded, and its two spellings
    keep two roots. A bundle that carries such a slot fails verification too, because verification
-   reads the header with the same strict rules; this step folds no wider domain than verification
-   accepts.
+   reads the header with the same decoders. The fold does not depend on the verdict: a slot whose
+   header and signature decode as above is folded whether or not its signature verifies.
 3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
 
 This form exists only to compute the root. The bundle itself is never rewritten: a Key Binding

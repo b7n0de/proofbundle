@@ -95,14 +95,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   read by the strict JSON reader (a duplicate key refused), `alg` ES256, a 64-byte signature with
   n/2 < S < n. An earlier text of this change folded any header that decodes to ES256, wider than
   the code, and a padded or duplicate-key header then got one root by the text and two in code
-  (lens run 2 at accd932c); both forms fail verification. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
+  (lens run 2 at accd932c); both forms fail verification. The text also names what the reader
+  accepts beyond RFC 8259, because the fold follows it there: `NaN`, a UTF-8 byte order mark, and
+  UTF-16 or UTF-32 text. A header in such a form verifies, and a third party that read the text as
+  RFC 8259 got two roots where the code gives one (lens run 3 at 15d0b643; the anchor then fails
+  closed). Whether verification should accept these forms at all is a question for every verify
+  path, not for this change. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
   `tests/test_signature.py`, `tests/test_sdjwtvc_external_vectors.py` and
-  `tests/test_anchors_rootcommit.py`: 37 cases. Against f536af50, the first version of this
-  change, 20 are red; the 17 green there are cases carried over from it and guards. Against
-  126ed1dc, 22 are red; the 15 green there are guards and the rules 126ed1dc already kept (it never
-  rewrote a foreign issuer's bytes, and it accepted the same four values of v). Against accd932c,
-  the second version, 1 is red (the lone surrogate); the case that checks the text of
-  `docs/ANCHORS.md` fails on that commit's text. Each case says which in its docstring.
+  `tests/test_anchors_rootcommit.py`: 38 cases, measured with each tree's own src and docs.
+  Against f536af50, the first version of this change, 21 are red; the 17 green there are cases
+  carried over from it and guards. Against 126ed1dc, 24 are red; the 14 green there are guards and
+  the rules 126ed1dc already kept (it never rewrote a foreign issuer's bytes, and it accepted the
+  same four values of v). Against accd932c, the second version, 2 are red: the lone surrogate, and
+  the case that checks the text of `docs/ANCHORS.md`. Each case says which in its docstring.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
