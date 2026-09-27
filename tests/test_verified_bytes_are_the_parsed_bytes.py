@@ -7,9 +7,18 @@ module docstring said: every case was RED at fa555f130a80cdfedd5965715bc7f8451c9
 31816e08 when it was written (Python 3.11.15); oracles are the package's own signed bytes (L1 to
 L6), the package's own documented rule (L7, L9, L10), and for L8 the regular-expression dialect
 JSON Schema names for "pattern" (ECMA-262), measured off-test with node v22.22.2. L11 goes to
-branch 234 and L12 to the residual-risk list; neither is here.
+branch 234 and L12 to the residual-risk list; neither is here. L8 is in the form of the lens's
+d6c12c73, which writes the fixture's seeds out (tests/test_sdist_ohne_signierwerkzeug.py allows
+`from_private_bytes` in a shipped test only over a seed written in the source).
 
-The classes after the lens's L10 are this round's own cases, each written where the fix needed
+The lens's L13 to L21 are taken unchanged, with their docstrings, from the same file at 7753961d
+(the review's section 6, written under the owner order of 2026-09-27): L13 to L19 are class A at the
+nine load_payload sites, L20 and L21 are two of the flags of the class-B sweep. The lens's L22 to
+L25 are not here: they are red at the head that adds this and green at the head of pull request 291
+(76365006), which fixes those flags; L24 and L25 are also this round's named limit (a falsy non-bool
+on a flag whose default is True).
+
+The classes after the lens's L21 are this round's own cases, each written where the fix needed
 more than the lens's case showed. Every case in this file was measured RED at fa555f13 and GREEN at
 the head that adds it, on Python 3.10 to 3.14.
 """
@@ -17,13 +26,18 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
+import pathlib
 import unittest
 from pathlib import Path
 
+import rfc8785
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from proofbundle import agent_review as AR
+from proofbundle import dsse
 from proofbundle import evalclaim as ec
 from proofbundle import intoto
 from proofbundle.canonical import canonicalize_statement
@@ -183,10 +197,14 @@ class L8TrustPackPatternsHoldTheSchemaDialect(unittest.TestCase):
 
         def _fixture(version: int) -> dict:
             # The genesis or version-2 pack of tests/test_trust_pack.py `_fixture`, with fixed keys.
-            keys = {f"root-{i}": {"publicKey": base64.b64encode(
-                Ed25519PrivateKey.from_private_bytes(bytes([i + 1]) * 32).public_key().public_bytes(
-                    serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
-                "scheme": "ed25519"} for i in range(3)}
+            # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a
+            # shipped test only over a seed written out in the source.
+            seeds = (Ed25519PrivateKey.from_private_bytes(b"\x01" * 32),
+                     Ed25519PrivateKey.from_private_bytes(b"\x02" * 32),
+                     Ed25519PrivateKey.from_private_bytes(b"\x03" * 32))
+            keys = {f"root-{i}": {"publicKey": base64.b64encode(sk.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
+                "scheme": "ed25519"} for i, sk in enumerate(seeds)}
             return {
                 "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": version,
                 "expires": "2027-01-01T00:00:00Z",
@@ -237,6 +255,236 @@ class L10OneFailedCheckWithholdsItsProperty(unittest.TestCase):
         except ProofBundleError:
             return
         self.assertNotIn("PROOFBUNDLE_SIGNATURE_VALID", props)
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# The lens's L13 to L21, taken unchanged from tests/test_lens_claude_d4_fa555f130a80.py at 7753961d.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+class _EncodesAfter(str):
+    """A str that holds the signed base64 and whose own `encode` returns `forged` from call
+    `after + 1` on (the verify_agent_review_any route reads the payload three times)."""
+
+    def __new__(cls, text: str, forged: str, after: int) -> "_EncodesAfter":
+        obj = super().__new__(cls, text)
+        obj.forged, obj.after, obj.calls = forged, after, 0
+        return obj
+
+    def encode(self, *args, **kwargs):  # type: ignore[override]
+        self.calls += 1
+        return (str.__str__(self) if self.calls <= self.after else self.forged).encode(*args, **kwargs)
+
+
+_INTOTO = "application/vnd.in-toto+json"
+_EXAMPLES = pathlib.Path(__file__).resolve().parent.parent / "examples"
+
+
+def _sign_statement(statement: dict) -> dict:
+    return dsse.sign_envelope(canonicalize_statement(statement), _SIGNER, payload_type=_INTOTO)
+
+
+def _with_predicate(statement: dict, predicate: dict) -> dict:
+    """The builder's statement for a valid predicate, carrying `predicate` instead, with its own
+    subject digest. The builders refuse the predicate a producer may still sign by other means."""
+    statement = copy.deepcopy(statement)
+    statement["predicate"] = predicate
+    statement["subject"][0]["digest"]["sha256"] = hashlib.sha256(rfc8785.dumps(predicate)).hexdigest()
+    return statement
+
+
+def _review_statement(predicate: dict, predicate_type: str) -> dict:
+    return {"_type": AR.STATEMENT_TYPE,
+            "subject": [{"name": AR._subject_name(predicate),
+                         "digest": {"sha256": AR._subject_digest(predicate)}}],
+            "predicateType": predicate_type, "predicate": predicate}
+
+
+def _review_predicate(v02: bool) -> dict:
+    # The v0.1 and v0.2 predicates of tests/test_agent_review_zeitsemantik.py (`_pred`, `_pred_v02`).
+    predicate = {
+        "schemaVersion": "0.1.0", "reviewId": "r",
+        "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
+                           "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
+                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64},
+        "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}],
+                        "reviewRuns": [], "findings": [], "findingsTotal": 0, "nonClaims": ["n"]},
+        "coverage": {"status": "UNKNOWN"},
+        "times": {"declaredAt": "2026-08-31T20:00:00Z", "observedAt": None},
+        "limitations": ["l"],
+    }
+    if v02:
+        predicate["subjectContext"]["disclosureCoreDigest"] = "e" * 64
+        predicate["limitationCodes"] = ["CURRENTNESS_UNKNOWN", "IDENTITY_UNBOUND",
+                                        "NOT_QUALITY_ATTESTATION", "TIME_SELF_DECLARED"]
+        predicate["times"]["signedAt"] = "2026-08-31T20:00:00Z"
+    return predicate
+
+
+class L13to19DsseReceiptVerifiersJudgeTheSignedStatement(unittest.TestCase):
+    """PROPERTY: `ok` True means the statement that was judged is the one the signature covers
+    (the class of L4 to L6, at the nine load_payload sites of decision, verification_summary,
+    trust_pack, run_ledger, outcome, relation_statement and agent_review). Each verifier calls
+    dsse.verify_envelope and then dsse.load_payload, and both read `payload` from the caller's
+    envelope. Each case signs a statement S that the verifier refuses on one signed field, and
+    offers F, the same statement with that field changed, from a later read: a dict subclass whose
+    `__getitem__` and `get` answer F, or a str subclass in the field whose `encode` answers F.
+    Controls in every case: S is refused, F in S's envelope is refused, F signed by the same key
+    passes. P0, same precondition as L1 to L6: a caller-built object, never bytes, the CLI or the
+    Rust verifier. trust_pack reads the payload once and holds; the dispatch read of
+    verify_agent_review_any refuses when it alone differs (the report has both)."""
+
+    def _check(self, signed: dict, forged: dict, verify, reads: int = 2) -> None:
+        envelope = _sign_statement(signed)
+        forged_b64 = base64.b64encode(canonicalize_statement(forged)).decode("ascii")
+        self.assertFalse(verify(copy.deepcopy(envelope))["ok"], "control: S is refused")
+        self.assertFalse(verify(dict(envelope, payload=forged_b64))["ok"], "control: F is unsigned")
+        self.assertTrue(verify(_sign_statement(forged))["ok"], "control: F passes when signed")
+        for after in range(reads + 1):
+            with self.subTest(form="dict subclass", after=after):
+                res = verify(_SwapAfter(copy.deepcopy(envelope), "payload", forged_b64, after))
+                self.assertFalse(res["ok"], "ok=True over a statement the signature does not cover")
+            with self.subTest(form="str subclass", after=after):
+                env = copy.deepcopy(envelope)
+                env["payload"] = _EncodesAfter(envelope["payload"], forged_b64, after)
+                self.assertFalse(verify(env)["ok"], "ok=True over a statement the signature does not cover")
+
+    def test_l13_verify_decision_receipt(self) -> None:
+        from proofbundle.decision import build_decision_statement, verify_decision_receipt  # noqa: PLC0415
+        signed = json.loads((_EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        forged = copy.deepcopy(signed)
+        forged["validity"]["nonce"] = "the-verifier-s-nonce"
+        self._check(build_decision_statement(signed), build_decision_statement(forged),
+                    lambda e: verify_decision_receipt(e, _PUB, expected_nonce="the-verifier-s-nonce"))
+
+    def test_l14_verify_verification_summary(self) -> None:
+        from proofbundle.verification_summary import (  # noqa: PLC0415
+            build_summary_statement, verify_verification_summary)
+        signed = {"schemaVersion": "0.1.0", "summaryId": "summary-0001", "producedAt": "2026-07-14T10:00:00Z",
+                  "producer": {"id": "verifier://example/summarizer"},
+                  "levels": [{"kind": "eval", "status": "VERIFIED", "evidenceClass": "authorship_integrity"}],
+                  "nonClaims": ["does not prove the eval number is true"]}
+        forged = copy.deepcopy(signed)
+        forged["levels"][0]["receiptRef"] = {"sha256": "a" * 64}
+        self._check(_with_predicate(build_summary_statement(forged), signed), build_summary_statement(forged),
+                    lambda e: verify_verification_summary(e, _PUB))
+
+    def test_l15_verify_run_ledger(self) -> None:
+        from proofbundle.run_ledger import build_run_ledger_statement, link_runs, verify_run_ledger  # noqa: PLC0415
+        signed = {"schemaVersion": "0.1.0", "studyId": "study-0001", "runBudget": 2,
+                  "runs": link_runs(["1" * 64, "2" * 64, "3" * 64], ["completed", "aborted", "completed"]),
+                  "selectedSeq": 3, "nonClaims": ["does not prove the selected run is representative"]}
+        forged = dict(signed, runBudget=5)
+        self._check(_with_predicate(build_run_ledger_statement(forged), signed),
+                    build_run_ledger_statement(forged), lambda e: verify_run_ledger(e, _PUB))
+
+    def test_l16_verify_outcome_receipt(self) -> None:
+        from proofbundle.outcome import build_outcome_statement, verify_outcome_receipt  # noqa: PLC0415
+        signed = {"schemaVersion": "0.1.0", "outcomeId": "outcome-0001", "decisionRef": {"sha256": "a" * 64},
+                  "executor": {"id": "executor:runner-7", "keyId": "kid-exec"},
+                  "requestedActionDigest": {"sha256": "c" * 64}, "status": "executed",
+                  "performedAt": "2026-07-14T10:00:00Z", "effectDigest": {"sha256": "c" * 64}}
+        forged = dict(signed, decisionRef={"sha256": "b" * 64})
+        self._check(build_outcome_statement(signed), build_outcome_statement(forged),
+                    lambda e: verify_outcome_receipt(e, _PUB, expected_decision_ref="b" * 64))
+
+    def test_l17_verify_relation_statement(self) -> None:
+        from proofbundle.relation_statement import (  # noqa: PLC0415
+            build_relation_statement, verify_relation_statement)
+        forged = {"schemaVersion": "0.1.0", "statementId": "urn:uuid:s-1",
+                  "relationships": [{"relation": "retracts", "targetReceiptDigest": {
+                      "digestAlgorithm": "jcs-sha256-v1", "digest": "f" * 64}}]}
+        signed = dict(forged, schemaVersion="0.2.0")
+        self._check(_with_predicate(build_relation_statement(forged), signed), build_relation_statement(forged),
+                    lambda e: verify_relation_statement(e, _PUB))
+
+    def test_l18_verify_agent_review_v01(self) -> None:
+        signed = _review_predicate(v02=False)
+        forged = copy.deepcopy(signed)
+        forged["subjectContext"]["headSha"] = "f" * 40
+        expected = AR._subject_digest(forged)
+        t = AR.AGENT_REVIEW_PREDICATE_TYPE
+        for name, verify, reads in (
+                ("verify_agent_review", AR.verify_agent_review, 2),
+                ("verify_agent_review_any", AR.verify_agent_review_any, 3)):
+            with self.subTest(surface=name):
+                self._check(_review_statement(signed, t), _review_statement(forged, t),
+                            lambda e, v=verify: v(e, _PUB, strict=True, expected_subject_digest=expected),
+                            reads)
+
+    def test_l19_verify_agent_review_v02_and_v03(self) -> None:
+        signed = _review_predicate(v02=True)
+        forged = copy.deepcopy(signed)
+        forged["subjectContext"]["headSha"] = "f" * 40
+        expected = AR._subject_digest(forged)
+        for name, verify, t, reads in (
+                ("verify_agent_review_v02", AR.verify_agent_review_v02, AR.AGENT_REVIEW_PREDICATE_TYPE_V02, 2),
+                ("verify_agent_review_v03", AR.verify_agent_review_v03, AR.AGENT_REVIEW_PREDICATE_TYPE_V03, 2),
+                ("verify_agent_review_any", AR.verify_agent_review_any, AR.AGENT_REVIEW_PREDICATE_TYPE_V02, 3)):
+            with self.subTest(surface=name):
+                self._check(_review_statement(signed, t), _review_statement(forged, t),
+                            lambda e, v=verify: v(e, _PUB, strict=True, expected_subject_digest=expected),
+                            reads)
+
+
+_NON_BOOL_TRUTHY = ("false", "no", 1, [0])
+
+
+# Only L20 and L21 of the lens's L20 to L25 are here. L22 to L25 are red at this round's head and
+# green at the head of pull request 291 (76365006), which fixes those flags; a falsy non-bool on a
+# flag whose default is True (L24, L25) is this round's named limit.
+class L20to25AFlagCountsOnlyAsABool(unittest.TestCase):
+    """PROPERTY (class B; round 10, `canonical._flagge`, R-B4; L7 holds it for allow_deprecated): a
+    boolean keyword is True or False, and any other value is refused, never read by its truth.
+    Measured at fa555f13 with the lens-3 flag sweep (73 keywords, six non-bool values): these six
+    keywords relax on a non-bool and change a verdict or a signed field. Truthy non-bools include
+    "false" and "no". L22 to L24 hold at this head what N3, N2 and N1 of the lens run on branch 291
+    (3a8074fc) hold there."""
+
+    def test_l20_allow_pending_opens_the_anchor_requirement(self) -> None:
+        # P1: verify_anchors(require="any") answers FAIL for a pending anchor, and allow_pending="false"
+        # makes the pending anchor meet the requirement.
+        from proofbundle import anchors  # noqa: PLC0415
+        root = b"\xaa" * 32
+        pending = [{"type": "lens-pending/v1", "target": "receipt", "canonicalRoot": base64.b64encode(root).decode(),
+                    "proof": base64.b64encode(b"p").decode(), "anchoredAt": "2026-07-05T12:00:00Z"}]
+        saved = dict(anchors._VERIFIERS)
+        anchors.register_anchor_type(
+            "lens-pending/v1",
+            lambda proof, r, *, frozen, now: {"ok": False, "warn": True, "status": "pending", "detail": "pending"})
+        try:
+            def run(value):
+                return anchors.verify_anchors(pending, target_roots={"receipt": root}, require="any",
+                                              allow_pending=value)
+            self.assertEqual(run(False)["status"], "FAIL")
+            self.assertEqual(run(True)["status"], "WARN")
+            for value in _NON_BOOL_TRUTHY:
+                with self.subTest(allow_pending=value):
+                    try:
+                        res = run(value)
+                    except ProofBundleError:
+                        continue
+                    self.assertEqual(res["status"], "FAIL")
+        finally:
+            anchors._VERIFIERS.clear()
+            anchors._VERIFIERS.update(saved)
+
+    def test_l21_allow_value_mismatch_publishes_a_contradiction(self) -> None:
+        # P1: the signed claim says passed=False (score 0.5 against >= 0.80); a published value of 0.95
+        # contradicts it and is refused, and allow_value_mismatch="false" publishes it.
+        from proofbundle import hf_evals  # noqa: PLC0415
+        bundle = ec.emit_eval_receipt(_claim("0.80"), _SIGNER)
+
+        def run(value):
+            return hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.95,
+                                                  allow_value_mismatch=value)
+        with self.assertRaises(ProofBundleError):
+            run(False)
+        self.assertEqual(run(True)["value"], 0.95)
+        for value in _NON_BOOL_TRUTHY:
+            with self.subTest(allow_value_mismatch=value):
+                with self.assertRaises(ProofBundleError):
+                    run(value)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -508,8 +756,10 @@ class L7SiblingsAPermissiveFlagIsABool(unittest.TestCase):
     def test_allow_unverified_rotation(self) -> None:
         from datetime import datetime, timezone  # noqa: PLC0415
         from proofbundle import trust_pack  # noqa: PLC0415
-        schluessel = {f"root-{i}": Ed25519PrivateKey.from_private_bytes(bytes([i + 1]) * 32)
-                      for i in range(3)}
+        # Literal seeds, as in L8: the sdist key rule allows `from_private_bytes` only over those.
+        schluessel = {"root-0": Ed25519PrivateKey.from_private_bytes(b"\x01" * 32),
+                      "root-1": Ed25519PrivateKey.from_private_bytes(b"\x02" * 32),
+                      "root-2": Ed25519PrivateKey.from_private_bytes(b"\x03" * 32)}
         keys = {k: {"publicKey": base64.b64encode(sk.public_key().public_bytes(
             serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
             "scheme": "ed25519"} for k, sk in schluessel.items()}
@@ -687,8 +937,10 @@ class ClassAAtTheNineSiblingSites(unittest.TestCase):
         from datetime import datetime, timezone  # noqa: PLC0415
         from proofbundle import trust_pack  # noqa: PLC0415
         from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
-        schluessel = {f"root-{i}": Ed25519PrivateKey.from_private_bytes(bytes([i + 1]) * 32)
-                      for i in range(3)}
+        # Literal seeds, as in L8: the sdist key rule allows `from_private_bytes` only over those.
+        schluessel = {"root-0": Ed25519PrivateKey.from_private_bytes(b"\x01" * 32),
+                      "root-1": Ed25519PrivateKey.from_private_bytes(b"\x02" * 32),
+                      "root-2": Ed25519PrivateKey.from_private_bytes(b"\x03" * 32)}
         keys = {k: {"publicKey": base64.b64encode(sk.public_key().public_bytes(
             serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii"),
             "scheme": "ed25519"} for k, sk in schluessel.items()}

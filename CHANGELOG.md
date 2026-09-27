@@ -620,8 +620,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `invalid`, ok=False), where fa555f13 ignored a field it did not read and returned the claim or
   ok=True; a tuple is read as the array JSON writes it. A parsed file holds only plain JSON values,
   so nothing changes for one, and nothing changes for the Rust verifier, which reads files.
-  Tests: `tests/test_verified_bytes_are_the_parsed_bytes.py` carries the lens's cases L1 to L6 from
-  e664c010 and this round's own; each is red at fa555f13 and green here.
+  Tests: `tests/test_verified_bytes_are_the_parsed_bytes.py` carries the lens's cases L1 to L10 from
+  e664c010 (L8 in the lens's d6c12c73 form, with its seeds written out), its L13 to L21 from
+  7753961d, and this round's own; each is red at fa555f13 and green here, on Python 3.10 to 3.14.
 
   The owner decided the scope of the class (option A): every `dsse.load_payload` site reads once.
   Measured at fa555f13 with the lens's construction (the envelope stores a statement S1 that the
@@ -638,7 +639,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `verify_envelope` is called (the switch, which hands the copy to the verifier it chooses, and the
   trust pack). The CLI's `--with-related` reader (`cli.py:1842`) reads a parsed file and changes no
   verdict; it uses the same call, so that no function pairs `verify_envelope` with `load_payload`.
-  A static test holds that: eleven functions paired them at fa555f13.
+  A static test holds that: eleven functions paired them at fa555f13. The lens's L13 to L19
+  (7753961d) measure the same sites with a second construction: the verifying key signs a statement
+  the verifier refuses on one signed field, and a dict subclass, or a `str` subclass in `payload`
+  whose own `encode` answers, gives the statement with that field changed from read 2 on (read 3
+  through the version switch). At fa555f13 each site gave ok=True for it; here none does.
 
   The native bundle has the same class beside the five surfaces, and the sweep measured three more
   readers at fa555f13. `verify_bundle` read `payload_b64` and `merkle` again for the SD-JWT
@@ -676,7 +681,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   not a gate. Named, not changed: a falsy non-bool (0, None) reads as False at each of these, which
   is the lenient branch where the default is True (`to_eval_results_entry(require_verified=0)`
   built an entry from a receipt that does not verify; `require_signature_line` is a private
-  keyword whose callers pass literals).
+  keyword whose callers pass literals). The lens's L20 and L21 (7753961d) hold `allow_pending` and
+  `allow_value_mismatch` too. Named, not changed here: the lens's sweep (7753961d) found two more
+  flags that open for "false", `legacy_v01` of `agent_review.emit_agent_review`,
+  `require_valid_agent_review_predicate_any` and `render_disclosure_block` (a v0.1 predicate judged
+  under the legacy rules) and `bound` of `adapters._provenance.bind_reported_version` (the version
+  written as `reported`), and it measured the falsy limit above at `applicable` of
+  `assurance.classify_digest_evidence` and `strict` of `decision.emit_decision_receipt`. Its cases
+  for these, L22 to L25, are red here and green at the head of pull request 291 (76365006), which
+  fixes those flags.
 
 - **The trust-pack patterns hold the schema's ECMA-262 meaning** (round 11, lens run 10 at
   fa555f13, finding L8, P1, `src/proofbundle/trust_pack.py`). `_RFC3339_Z`, `_SHA256_HEX` and
