@@ -292,19 +292,75 @@ def judge(report) -> list:
     return gruende
 
 
-def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool):
-    """(exit code, parsed report) of `cargo audit --json --file <lock>` run in `directory`."""
-    befehl = [cargo, "audit", "--json", "--file", lock] + (["--no-fetch"] if no_fetch else [])
+#: What cargo-audit 0.22.2 writes to stderr on a run it completed, read from the rust-parity job's log
+#: and measured locally: its progress, and the two summary lines of the terminal run.
+_STDERR_PROGRESS = (
+    re.compile(r"\s*Fetching advisory database from `[^`]+`"),
+    re.compile(r"\s*Loaded [0-9]+ security advisories \(from .+\)"),
+    re.compile(r"\s*Updating crates\.io index"),
+    re.compile(r"\s*Scanning .+ for vulnerabilities \([0-9]+ crate dependencies\)"),
+)
+_STDERR_VULNERABILITIES = re.compile(r"error: ([0-9]+) vulnerabilit(?:y|ies) found!")
+_STDERR_WARNINGS = re.compile(r"warning: ([0-9]+) allowed warnings? found")
+
+
+def stderr_counts(stderr: str, run: str) -> tuple:
+    """(vulnerabilities, warnings) that a run's stderr summary states; any other line is an error.
+
+    A lookup cargo-audit could not make is no finding: with `protocol = "git"` in .cargo/config.toml the
+    yanked check of libc 0.2.165 failed, the terminal run wrote `warning: couldn't open crates.io index:
+    ...` to stderr, the `--json` run wrote nothing there and no yanked warning, and both exited 0
+    (measured with 0.22.2; lens finding F3 at 5138b4d2). So stderr is read, and a line that is not
+    progress or a summary ends the gate with 2."""
+    schwachstellen = warnungen = 0
+    for zeile in stderr.splitlines():
+        if not zeile.strip() or any(m.fullmatch(zeile) for m in _STDERR_PROGRESS):
+            continue
+        treffer = _STDERR_VULNERABILITIES.fullmatch(zeile)
+        if treffer:
+            schwachstellen = int(treffer.group(1))
+            continue
+        treffer = _STDERR_WARNINGS.fullmatch(zeile)
+        if treffer:
+            warnungen = int(treffer.group(1))
+            continue
+        raise GateError(f"cargo audit ({run}) wrote {zeile.strip()[:300]!r} to stderr: a lookup it could not "
+                        "make is not a clean report")
+    return schwachstellen, warnungen
+
+
+def _cargo_audit(directory: Path, befehl: list):
     try:
         lauf = subprocess.run(befehl, cwd=directory, capture_output=True, text=True, timeout=600)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise GateError(f"{' '.join(befehl)} could not run ({exc})") from exc
     if lauf.returncode not in (0, 1):
         raise GateError(f"cargo audit exited {lauf.returncode}: {lauf.stderr.strip()[:400]}")
+    return lauf
+
+
+def _flags(no_fetch: bool, check_yanked: bool) -> list:
+    return (["--no-fetch"] if no_fetch else []) + ([] if check_yanked else ["--no-yanked"])
+
+
+def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True):
+    """(exit code, parsed report) of `cargo audit --json --file <lock>` run in `directory`.
+    `check_yanked=False` is for the self-test's cases that are not about a yanked crate; the gate
+    itself never skips the yanked check."""
+    lauf = _cargo_audit(directory, [cargo, "audit", "--json", "--file", lock] + _flags(no_fetch, check_yanked))
+    stderr_counts(lauf.stderr, "--json")
     try:
         return lauf.returncode, json.loads(lauf.stdout)
     except json.JSONDecodeError as exc:
         raise GateError(f"cargo audit --json wrote no JSON ({exc})") from exc
+
+
+def run_terminal(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True) -> tuple:
+    """(exit code, vulnerabilities, warnings) of the same audit in cargo-audit's terminal form, the one
+    that names a failed lookup on stderr."""
+    lauf = _cargo_audit(directory, [cargo, "audit", "--file", lock, "--color", "never"]
+                        + _flags(no_fetch, check_yanked))
+    return (lauf.returncode, *stderr_counts(lauf.stderr, "terminal"))
 
 
 def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
@@ -330,7 +386,12 @@ def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
             datei = str(Path(tmp) / "Cargo.lock")
             Path(datei).write_text(geprueft, encoding="utf-8")
         rc, report = run_audit(directory, datei, cargo, no_fetch)
+        terminal = run_terminal(directory, datei, cargo, no_fetch)
     gruende = fremd + judge(report)
+    json_zahlen = (rc, report["vulnerabilities"]["count"], sum(len(v) for v in report["warnings"].values()))
+    if terminal != json_zahlen:
+        raise GateError(f"the terminal run (exit, vulnerabilities, warnings) {terminal} and the --json run "
+                        f"{json_zahlen} disagree: the two did not see the same lookups")
     listed = listed_ids(report)
     if listed != set(ids):
         raise GateError(f"cargo-audit applied the ignore list {sorted(listed)}, the audit.toml it runs next "
@@ -376,9 +437,11 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
                 (ort / ".cargo").mkdir()
                 shutil.copyfile(toml, ort / ".cargo" / "audit.toml")
             deny = subprocess.run([cargo, "audit", "--file", "Cargo.lock", "--deny", "warnings"]
-                                  + (["--no-fetch"] if no_fetch else []),
+                                  + _flags(no_fetch, False),
                                   cwd=ort, capture_output=True, text=True, timeout=600)
-            _rc, report = run_audit(ort, "Cargo.lock", cargo, no_fetch)
+            # Not about a yanked crate: the yanked lookup of personnummer fails where the index does not
+            # carry it, and a failed lookup ends the gate with 2 (F3), which is not what these cases prove.
+            _rc, report = run_audit(ort, "Cargo.lock", cargo, no_fetch, check_yanked=False)
             gruende = judge(report)
             ergebnis = 1 if gruende else 0
             genannt = all(any(art in g and kennung in g for g in gruende) for art, kennung in muss_nennen.items())

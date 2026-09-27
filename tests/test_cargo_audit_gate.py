@@ -127,10 +127,25 @@ class TheExitCodes(unittest.TestCase):
             ort = Path(tmp)
             (ort / "Cargo.lock").write_text("version = 3\n", encoding="utf-8")
             cargo = ort / "cargo"
+            # The --json run writes the chosen report; the terminal run writes the summary cargo-audit
+            # writes for it to stderr (the gate requires the two to agree).
             cargo.write_text(textwrap.dedent(f"""\
                 #!{sys.executable}
-                import sys
-                sys.stdout.write({stdout!r})
+                import json, sys
+                ausgabe = {stdout!r}
+                if "--json" in sys.argv:
+                    sys.stdout.write(ausgabe)
+                else:
+                    try:
+                        bericht = json.loads(ausgabe)
+                        v = len(bericht["vulnerabilities"]["list"])
+                        w = sum(len(e) for e in bericht["warnings"].values())
+                    except Exception:
+                        v = w = 0
+                    if v:
+                        sys.stderr.write("error: %d vulnerabilit%s found!\\n" % (v, "y" if v == 1 else "ies"))
+                    if w:
+                        sys.stderr.write("warning: %d allowed warning%s found\\n" % (w, "" if w == 1 else "s"))
                 sys.exit({rc})
                 """), encoding="utf-8")
             cargo.chmod(0o755)
