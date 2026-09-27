@@ -157,6 +157,16 @@ class AgentReviewError(ProofBundleError):
     """An agent-review predicate is malformed (fail-closed)."""
 
 
+class _NotCanonicalizable(AgentReviewError):
+    """A value the strict parser reads and RFC 8785 (JCS) cannot represent, or a structure over the
+    canonicalizer's budget: either way there is no canonical form.
+
+    `loads_strict` admits an integer outside +-(2**53 - 1), NaN and Infinity; the canonicalizer
+    refuses each with a ValueError of its own (IntegerDomainError, FloatDomainError). As an
+    AgentReviewError it reaches the typed handling every caller already has, and the verifiers
+    tell it apart from a payload that has a canonical form and does not match it."""
+
+
 def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
@@ -309,15 +319,19 @@ def findings_root(findings: list[dict]) -> str:
     Order-independent by construction: each finding is canonicalized on its own, the leaf digests are
     SORTED, and the root is taken over their concatenation. Two producers that list the same findings
     in a different order must not disagree, or the root would report tampering where there is none.
+
+    A finding that holds a value RFC 8785 cannot represent (an integer outside +-(2**53 - 1), NaN,
+    Infinity) raises AgentReviewError, never the canonicalizer's own ValueError. Measured on
+    8ecb6edf: `findings[0] = 2**53` in a correctly signed receipt reached the loop below, and the
+    three verifiers, which catch AgentReviewError here, answered `internal_error`. The mapping
+    lives in `_rfc8785_bytes`, the one canonicalization of this module.
     """
-    from . import canonical  # noqa: PLC0415
     leaves = []
-    for f in findings:
+    for i, f in enumerate(findings):
         try:
-            leaves.append(hashlib.sha256(canonical.canonicalize_statement(f)).hexdigest())
-        except canonical.CanonicalizerUnavailable as exc:
-            raise AgentReviewError(
-                "findingsRoot needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+            leaves.append(hashlib.sha256(_rfc8785_bytes(f)).hexdigest())
+        except _NotCanonicalizable as exc:
+            raise _NotCanonicalizable(f"findingsRoot: findings[{i}] is {exc}") from exc
     return hashlib.sha256("".join(sorted(leaves)).encode("ascii")).hexdigest()
 
 
@@ -368,7 +382,10 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
     named exception each, instead of copied lists that drift apart."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
-        return ["predicate must be a JSON object"]
+        # A CODE, so that the verdict's top reason names the predicate's shape. Measured on 8ecb6edf:
+        # a signed v0.2 receipt whose predicate is `[1]` answered with POLICY_NOT_EVALUABLE as its
+        # only code, a sentence about the policy for a defect of the receipt.
+        return [_shape_err("PREDICATE_NOT_OBJECT", "predicate must be a JSON object")]
 
     for k in predicate:
         if not is_member(k, _ALLOWED_TOP):
@@ -1223,8 +1240,12 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     would report.
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
-    dec = predicate["declaration"]
-    cov = predicate["coverage"]
+    # The sections are read as the verifiers read them: one that is no object is absent (lens run 7 on
+    # 8ecb6edf, with the validator in front removed: a predicate, `declaration` or `coverage` that is
+    # no object raised TypeError, KeyError or AttributeError here and in the line renderer).
+    praed = as_dict(predicate)
+    dec = as_dict(praed.get("declaration"))
+    cov = as_dict(praed.get("coverage"))
     # `as_list`, not `(x or [])`: the validator above makes these arrays, and the renderer does not
     # lean on that for the one idiom that let a truthy non-list through in the verifiers.
     runs = as_list(dec.get("reviewRuns"))
@@ -1256,7 +1277,10 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
         "Review": f"{len(runs)} run(s), coverage {cov.get('status', 'UNKNOWN')}",
         "Findings": f"{listed_txt} ({findings_txt})",
         "Assurance": f"{weakest} — not independently witnessed",
-        "Limits": "; ".join(predicate.get("limitations") or []),
+        # The same idiom as two reads above, and it was left here: `limitations: 5` or `true` passed
+        # the `or` and `[5]` or `[[1]]` reached the join, each a TypeError (lens run 7 on 8ecb6edf).
+        # A list, and of it the strings; a valid predicate holds nothing else, so its line is the same.
+        "Limits": "; ".join(x for x in as_list(praed.get("limitations")) if isinstance(x, str)),
     }
     body = "\n".join(f"- **{k}:** {lines[k]}" for k in _HUMAN_LINE_ORDER)
     tail = f"\n- **Receipt:** `sha256:{receipt_digest}`" if receipt_digest else ""
@@ -1279,7 +1303,8 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     "notarised" while the witness round is still pending claims the second from the first.
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
-    dec = predicate["declaration"]
+    # As in the block renderer: a predicate or `declaration` that is no object is read as absent.
+    dec = as_dict(as_dict(predicate).get("declaration"))
     rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
              if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
@@ -1307,12 +1332,45 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
 
 # ── Emit / verify ───────────────────────────────────────────────────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
+    """The RFC 8785 (JCS) bytes of `obj`, and the ONE place this module maps what the canonicalizer
+    refuses to a typed error.
+
+    `canonical.canonicalize_statement` lets the canonicalizer's ValueError family through on
+    purpose (IntegerDomainError, FloatDomainError), and the structural budget raises
+    BudgetExceeded. The in-toto verifiers and `anchors.receipt_canonical_root` already map both to
+    their own typed refusal; this module did not. Measured on 8ecb6edf: a correctly signed v0.1,
+    v0.2 or v0.3 receipt with `2**53` in `subjectContext` or in a finding made all four verify
+    surfaces answer `internal_error`, and `emit_agent_review` raised a bare IntegerDomainError for
+    `subjectContext.humanRef = 2**53` after the validator had passed the predicate."""
     from . import canonical  # noqa: PLC0415
     try:
         return canonical.canonicalize_statement(obj)
     except canonical.CanonicalizerUnavailable as exc:
         raise AgentReviewError(
             "agent-review receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _NotCanonicalizable(f"not RFC 8785 (JCS) canonicalizable: {exc}") from exc
+
+
+def _canonical_binding(statement: object, body: bytes) -> tuple[bool, str]:
+    """Is the signed payload the RFC 8785 form of the statement it parses to? `(ok, error)`.
+
+    ONE HELPER FOR BOTH VERIFIER BODIES, for the reason `_zielbindung` gives for its own. Two
+    refusals, not one. A statement that holds a value RFC 8785 cannot represent has no canonical
+    form at all: that is STATEMENT_NOT_CANONICALIZABLE, a typed verdict about the receipt, where
+    8ecb6edf answered `internal_error`, a verdict about the verifier. Any other payload that differs
+    from the canonical form of its statement is not canonical, with the sentence it always had."""
+    nicht_kanonisch = "payload is not RFC-8785 canonical (hash_binding fail-closed)"
+    try:
+        gleich = _rfc8785_bytes(statement) == body
+    except _NotCanonicalizable as exc:
+        return False, _shape_err(
+            "STATEMENT_NOT_CANONICALIZABLE",
+            f"the signed statement has no RFC 8785 (JCS) canonical form, so its hash binding cannot "
+            f"be checked (hash_binding fail-closed): {exc}")
+    except Exception:  # noqa: BLE001 — the answer is a verdict, never a raise
+        return False, nicht_kanonisch
+    return gleich, "" if gleich else nicht_kanonisch
 
 
 def _rfc8785_available() -> bool:
@@ -2419,12 +2477,10 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
 
     canonical_ok = None
     if _rfc8785_available():
-        try:
-            canonical_ok = _rfc8785_bytes(statement) == body
-        except Exception:
-            canonical_ok = False
+        canonical_ok, _kanon_fehler = _canonical_binding(statement, body)
         if canonical_ok is False:
-            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+            r["errors"].append(_kanon_fehler)
+            _codes_sammeln(r["errors"][-1:])
     else:
         r["errors"].append(
             "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
@@ -2757,12 +2813,10 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     canonical_ok = None
     if _rfc8785_available():
-        try:
-            canonical_ok = _rfc8785_bytes(statement) == body
-        except Exception:                                        # noqa: BLE001
-            canonical_ok = False
+        canonical_ok, _kanon_fehler = _canonical_binding(statement, body)
         if canonical_ok is False:
-            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+            r["errors"].append(_kanon_fehler)
+            _codes_sammeln(r["errors"][-1:])
     else:
         r["errors"].append("RFC-8785 (JCS) canonicalizer unavailable — hash_binding fail-closed")
 
@@ -2899,7 +2953,21 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # der eine Pfad.
             _st = locals().get("statement")
             _praed = _st.get("predicate") if isinstance(_st, dict) else None
-            _pe = evaluate_limitation_policy(_praed or {}, policy)
+            # A PREDICATE THAT IS NO OBJECT IS NOT AN EMPTY ONE. `_praed or {}` replaced a falsy value
+            # only: measured on 8ecb6edf, `predicate: []`, `0` or an absent predicate was held against
+            # the policy as `{}`, and `[1]`, `"x"` or `5` reached `evaluate_limitation_policy`, whose
+            # refusal named the policy. There is nothing to evaluate; the refusal names the shape, and
+            # PREDICATE_NOT_OBJECT from the validator above is the verdict's first reason.
+            if not isinstance(_praed, dict):
+                _lage = ("absent" if not (isinstance(_st, dict) and "predicate" in _st)
+                         else "null" if _praed is None
+                         else "an array" if isinstance(_praed, list)
+                         else "a string" if isinstance(_praed, str)
+                         else "a boolean" if isinstance(_praed, bool) else "a number")
+                raise AgentReviewError(
+                    f"the predicate is {_lage}, not an object, so there is nothing to hold against the "
+                    f"policy")
+            _pe = evaluate_limitation_policy(_praed, policy)
             r["policy_decision"] = _pe["decision"]
             r["policy_name"] = _pe.get("policy_name")
             r["policy_digest"] = _pe.get("policy_digest")

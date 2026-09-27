@@ -45,6 +45,15 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise SubjectBindingError(
             "subject binding needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except ValueError as exc:
+        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
+        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
+        # agent_review._rfc8785_bytes. Measured on 8ecb6edf: `classify_subject`,
+        # `require_derived_subject` and `derive_subject_digest` raised the bare ValueError for a
+        # predicate holding `2**53` or NaN; the decision, outcome and relation verifiers catch every
+        # exception here and report "could not classify the subject binding", as before.
+        raise SubjectBindingError(
+            f"the predicate is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def derive_subject_digest(predicate: Any) -> str:
@@ -88,7 +97,10 @@ def classify_subject(statement: Any) -> dict:
         else ``EXTERNAL_ATTESTED`` (the subject points at something other than these predicate bytes).
       - ``matches`` mirrors ``mode == 'DERIVED'`` for a quick boolean gate.
     A malformed statement (no predicate / no subject digest) is ``EXTERNAL_ATTESTED`` with ``matches`` False —
-    fail-closed: we never call an unresolvable subject a genuine commitment."""
+    fail-closed: we never call an unresolvable subject a genuine commitment. A predicate that RFC 8785 cannot
+    represent (an integer outside +-(2**53 - 1), NaN, Infinity) has no derived digest at all and raises
+    :class:`SubjectBindingError`: reporting it as EXTERNAL_ATTESTED would call a subject that may well be
+    derived "a subject-rehang"."""
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     n = subject_cardinality(statement)
     if n is not None and n > 1:

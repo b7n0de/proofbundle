@@ -176,7 +176,14 @@ def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
     An unknown/unregistered id is a fail-closed error: a verifier MUST NOT default a missing/unknown
     algorithm (that is exactly where an algorithm-confusion attack would hide, ADR 0002 §1)."""
     if content_root_alg == CONTENT_ROOT_ALG:
-        return canonicalize_statement(statement)
+        try:
+            return canonicalize_statement(statement)
+        except ValueError as exc:
+            # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError) leaves as this
+            # module's typed error, as in agent_review._rfc8785_bytes: the export paths raised the bare
+            # ValueError for a harness value of `2**53` (measured on 8ecb6edf), and the verify path,
+            # `_content_root_binding`, reads a BundleFormatError as the same fail-closed verdict.
+            raise BundleFormatError(f"statement is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
         return _canonical_body(statement)
     raise BundleFormatError(

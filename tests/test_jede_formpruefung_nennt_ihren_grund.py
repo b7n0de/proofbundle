@@ -658,7 +658,11 @@ GRUNDLINIE_CODELOS = {
     "_verify_agent_review_inner": 14,
     "_verify_v02_inner": 13,
     "_zielbindung": 4,
-    "validate_agent_review_predicate": 19,
+    # Down from 19 to 18 after lens run 7 on 8ecb6edf: "predicate must be a JSON object" carries
+    # PREDICATE_NOT_OBJECT now, so a verdict's first reason names the shape instead of the policy.
+    # The carrier `errors` is still recognised (GRUNDLINIE_TRAEGER), so the number falls because the
+    # site got a code, not because the sweep went blind.
+    "validate_agent_review_predicate": 18,
     "validate_agent_review_v02_predicate": 5,
     "validate_time_claim": 9,
     "verify_agent_review": 1,

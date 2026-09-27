@@ -432,6 +432,13 @@ def _rfc8785_bytes(obj: Any) -> bytes:
         raise VerifierBlockError(
             "test-result statements need the RFC 8785 (JCS) canonicalizer -- proofbundle requires "
             "rfc8785 (core dependency)") from exc
+    except ValueError as exc:
+        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
+        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
+        # agent_review._rfc8785_bytes. Measured on 8ecb6edf: `join_test_result` and `test_result_ref`
+        # raised the bare ValueError for a statement with `2**53` or NaN in an annotation.
+        raise VerifierBlockError(
+            f"the test-result statement is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def statement_digest(statement: dict) -> str:
@@ -581,7 +588,14 @@ def join_test_result(block: dict, statement: dict) -> dict:
         fehler.extend(errs)
         return r
     r["subject_matches_build"] = statement["subject"][0]["digest"] == block["build"]["digest"]
-    r["digest_matches"] = statement_digest(statement) == block["testResult"]["statementDigest"]["sha256"]
+    # A STATEMENT WITHOUT A CANONICAL FORM HAS NO DIGEST TO COMPARE, and that is an answer about the
+    # statement, not an exception out of the join: the digest does not match, and the reason is named.
+    # Measured on 8ecb6edf: `2**53` or NaN in an annotation raised the canonicalizer's ValueError here.
+    try:
+        r["digest_matches"] = statement_digest(statement) == block["testResult"]["statementDigest"]["sha256"]
+    except ProofBundleError as exc:
+        r["digest_matches"] = False
+        fehler.append(f"the statement has no canonical digest: {exc}")
     r["result_matches"] = statement["predicate"]["result"] == block["testResult"]["result"]
     # THE FOURTH EQUALITY, and it was missing (un-review 2026-09-18, P1): the statement's
     # configuration names the vector set the run was held against, and the block declares one.

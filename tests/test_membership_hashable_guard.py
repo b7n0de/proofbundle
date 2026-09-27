@@ -31,7 +31,8 @@ imports them by name, `from .x import NAME`, through a chain of such imports, or
 `from .x import *`), the containers DERIVED from them (`_Sicht`: a set operation between two
 constants, a `set()`, `frozenset()`, `dict()` or `dict.fromkeys()` copy or a set or dict
 comprehension over one or over a module-level tuple, and a local name bound to such an expression,
-also by a walrus in a nested function's default), and single-operator comparisons. A binding counts
+also by a walrus in a nested function's default), and single-operator comparisons. A walrus is read
+as the value it passes on, so `k in (s := _A)` is `k in _A` (`_walrus_value`). A binding counts
 as followed only when a reader reads the name it binds (`_scope_bindings`); a container bound
 anywhere else is reported where it is read. NOT covered: a container built at runtime from a value
 that is not constant (`x in set(allowed)`: two membership tests in the tree,
@@ -108,6 +109,22 @@ def _scope_nodes(wurzel: ast.AST):
 
 #: The operators that build a set (or a dict, for `|`) out of two hashing containers.
 _SET_OPERATORS = (ast.BitOr, ast.BitAnd, ast.Sub, ast.BitXor)
+
+
+def _walrus_value(e):
+    """The value an expression passes on once every walrus around it is taken away: `(s := v)`
+    evaluates to `v`, and so does `(a := (b := v))`.
+
+    A WALRUS BINDS AND PASSES ON, both at once. The lens on 8ecb6edf wrote seven forms in which the
+    value of a walrus was itself an operand, `k in (s := _A)`, `(m := _M).get(k)`, `(m := _M)[k]`,
+    `(m := _M).setdefault(k, 1)`, `k in (s := _A - _B)`, `k in (s := set(_A))` and a walrus in a
+    comprehension condition: each raised TypeError at run time, and all three detectors were silent,
+    because the readers looked at the walrus and not at its value, and `other_uses` counted the value
+    as bound and looked no further. The readers now see the value, and `other_uses` judges it where
+    the walrus is used as well as where it is bound."""
+    while isinstance(e, ast.NamedExpr):
+        e = e.value
+    return e
 
 
 def _bindings(ziele: list, wert: ast.AST):
@@ -205,7 +222,8 @@ def _module_level_art(wert: ast.AST, bekannt: dict[str, str]) -> str | None:
     raised; `_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)` is the same result bound to a name.
     The kind of an operation is the kind of its left side, as Python's is. `dict.fromkeys(...)` and
     `types.MappingProxyType(...)` are dicts whatever they hold (the lens on c3bd89a4 bound both at
-    module level and read `.get(k)` unseen)."""
+    module level and read `.get(k)` unseen). A walrus is read as its value (`_walrus_value`)."""
+    wert = _walrus_value(wert)
     if isinstance(wert, (ast.Set, ast.SetComp)):
         return "set"
     if isinstance(wert, (ast.Dict, ast.DictComp)):
@@ -385,7 +403,9 @@ class _Sicht:
 
     `gebunden` holds the container reads that are the value of a binding a reader follows: the value
     of a pair `_scope_bindings` marks followed, whose name became a container in the scope that binds
-    it. `other_uses` counts exactly these as bound."""
+    it. `other_uses` counts exactly these as bound. A WALRUS IS READ AS ITS VALUE (`_walrus_value`),
+    by every reader here, because it passes that value to the expression around it: a bound walrus
+    value is judged where the walrus stands as well, unless the walrus is a statement of its own."""
 
     def __init__(self, tree: ast.Module, behaelter: dict[str, str]):
         self.behaelter = behaelter
@@ -443,6 +463,7 @@ class _Sicht:
                 if name in eigene:
                     continue
                 sichtbar = {**aussen, **eigene}
+                wert = _walrus_value(wert)
                 art = (self.konstant(wert, sichtbar) if isinstance(wert, ast.Name)
                        else self.derived(wert, sichtbar))
                 if art:
@@ -452,6 +473,7 @@ class _Sicht:
 
     def konstant(self, e: ast.AST, sichtbar: dict[str, str]) -> str | None:
         """The kind of a constant hashing operand, or None."""
+        e = _walrus_value(e)
         if isinstance(e, ast.Name):
             return sichtbar.get(e.id) or self.behaelter.get(e.id)
         if isinstance(e, ast.Set) and all(isinstance(x, ast.Constant) for x in e.elts):
@@ -464,6 +486,7 @@ class _Sicht:
         """Is `e` something constant a copy is built over: a constant operand, its `.keys()`, a
         module-level tuple constant, a copy of a source (`list`, `tuple`, `sorted`), or a list
         comprehension or generator over sources? Never `.values()` or `.items()` (see the class)."""
+        e = _walrus_value(e)
         if (isinstance(e, ast.Call) and not e.args and not e.keywords
                 and isinstance(e.func, ast.Attribute) and e.func.attr == "keys"):
             e = e.func.value
@@ -478,6 +501,7 @@ class _Sicht:
 
     def derived(self, e: ast.AST, sichtbar: dict[str, str]) -> str | None:
         """The kind of a derived expression (never a bare name), or None."""
+        e = _walrus_value(e)
         if isinstance(e, ast.BinOp) and isinstance(e.op, _SET_OPERATORS):
             links = self.konstant(e.left, sichtbar)
             return links if links and self.konstant(e.right, sichtbar) else None
@@ -494,8 +518,9 @@ class _Sicht:
 
     def container(self, e: ast.AST, bei: ast.AST) -> tuple[str, str] | None:
         """(label, kind) when `e`, read at `bei`, is a hashing container: a module-level one or a local
-        derived name by its name, a derived expression by its source text."""
+        derived name by its name, a derived expression by its source text. A walrus is its value."""
         sichtbar = self.visible(bei)
+        e = _walrus_value(e)
         if isinstance(e, ast.Name):
             art = sichtbar.get(e.id) or self.behaelter.get(e.id)
             return (e.id, art) if art else None
@@ -523,7 +548,7 @@ def unguarded_membership_sites(quelle: str, name: str = "<quelle>", modul: str |
             continue
         if not isinstance(node.ops[0], (ast.In, ast.NotIn)):
             continue
-        rechts = node.comparators[0]
+        rechts = _walrus_value(node.comparators[0])
         # `x in CONST.keys()` hashes x as `x in CONST` does (the second delta run on e4ea49b9).
         if (isinstance(rechts, ast.Call) and not rechts.args and isinstance(rechts.func, ast.Attribute)
                 and rechts.func.attr == "keys"):
@@ -854,6 +879,10 @@ def _hashed_downstream(e: ast.AST | None, parents: dict) -> bool:
             e = anzeige
         elif _passing_call(p, e):
             e = p
+        elif isinstance(p, ast.NamedExpr) and p.value is e:
+            # a walrus hands the elements on to the expression around it (`set((w := list(...)))`,
+            # the lens on 8ecb6edf); what the name then carries is the stated limit below
+            e = p
         else:
             return False
     return False
@@ -932,6 +961,17 @@ def other_uses(quelle: str, name: str = "<quelle>", modul: str | None = None, is
 
     def use_of(n: ast.AST, art: str) -> tuple[bool, str]:
         p, known = parents.get(n), False
+        if isinstance(p, ast.NamedExpr) and p.value is n:
+            # THE VALUE OF A WALRUS GOES TWO WAYS: into the name, which counts as known only when a
+            # reader follows it, and into the expression around the walrus, where it is judged as the
+            # walrus itself. A walrus standing as a statement of its own passes nothing on. Before,
+            # a followed binding was the whole answer, and `foo((s := _A))` or `k in (s := _A)` read
+            # as bound (the lens on 8ecb6edf).
+            if not bound(n):
+                return False, "NamedExpr"
+            if isinstance(parents.get(p), ast.Expr):
+                return True, "bound"
+            return use_of(p, art)
         if isinstance(p, ast.Attribute):
             call = parents.get(p)
             called = isinstance(call, ast.Call) and call.func is p
@@ -2103,6 +2143,24 @@ _PLANTED_FORMS: dict[str, tuple[str, object]] = {
     "list comprehension over a copy into set()": _ueber_die_werte("set([x for x in list(_M.values())])"),
     "filter between the copy and frozenset()":
         _ueber_die_werte("frozenset(filter(None, list(_M.values())))"),
+    # the lens on 8ecb6edf: the value of a walrus used as an operand, unseen by all three detectors
+    "walrus as the container of a membership test":
+        ('_A = {"a", "b"}\ndef f(k):\n    return k in (s := _A)\n', []),
+    "walrus over a set operation as the container":
+        ('_A = {"a", "b"}\n_B = {"b"}\ndef f(k):\n    return k in (s := _A - _B)\n', []),
+    "walrus over a set() copy as the container":
+        ('_A = {"a"}\ndef f(k):\n    return k in (s := set(_A))\n', []),
+    "walrus as the object of .get":
+        ('_M = {"a": 1}\ndef f(k):\n    return (m := _M).get(k)\n', []),
+    "walrus as the object of a subscript":
+        ('_M = {"a": 1}\ndef f(k):\n    return (m := _M)[k]\n', []),
+    "walrus as the object of .setdefault":
+        ('_M = {"a": 1}\ndef f(k):\n    (m := _M).setdefault(k, 1)\n', []),
+    "walrus in a comprehension condition":
+        ('_A = {"a"}\ndef f(k):\n    return [x for x in [k] if x in (s := _A)]\n', []),
+    "walrus over a module-level name as the container":
+        ('_A = {"a"}\n_X = None\ndef f(k):\n    return k in (_X := _A)\n', []),
+    "walrus between a copy of the values and set()": _ueber_die_werte("set((w := list(_M.values())))"),
     # controls, seen before this change
     "control: unpacking two containers":
         ('_S, _M = {"a"}, {"a": 1}\ndef f(k):\n    return _M.get(k)\n', []),
@@ -2123,7 +2181,9 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
       `dict.fromkeys`, `MappingProxyType` or a `set()` over a module-level tuple.
 
     Every test here fails against the guard of c3bd89a4, but the stated limit at the end, which is
-    green on purpose."""
+    green on purpose. The lens on 8ecb6edf added nine more forms, each a walrus whose value is itself
+    an operand; they fail `test_every_planted_form_that_raises_is_reported` against the guard of
+    8ecb6edf, and `test_a_walrus_passes_its_value_to_the_expression_around_it` fails there too."""
 
     @staticmethod
     def _funde(quelle: str) -> list:
@@ -2213,7 +2273,12 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
             with self.subTest(form=name):
                 self.assertTrue(unguarded_membership_sites(quelle) + constant_lookups(quelle),
                                 "the name is not read as a container")
-                self.assertEqual(other_uses(quelle), [])
+                # The walrus in `def g(x=(allowed := _A - _B))` passes its value to the default of
+                # `x` as well, and no reader follows a parameter: since the lens on 8ecb6edf that use
+                # is judged where it stands, and it is reported. The binding itself is followed.
+                erwartet = ([(4, "_A - _B", "arguments")] if name == "walrus in a nested default"
+                            else [])
+                self.assertEqual(other_uses(quelle), erwartet)
         self.assertEqual(_hashing_containers(ast.parse(textwrap.dedent('''
             import types
             _A = {"a"}
@@ -2264,6 +2329,48 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
                     return k in allowed
                 return fill()
         ''')), [(8, "k", "allowed")])
+
+    def test_a_walrus_passes_its_value_to_the_expression_around_it(self):
+        """The lens on 8ecb6edf: `_Sicht.gebunden` marked the value of every followed walrus as bound,
+        so a walrus used as an operand was judged by its binding alone, and the readers looked at the
+        walrus instead of its value. Each hashing use is now reported by the detector that owns the
+        form. A walrus standing as a statement, iterated, tested as a condition or handed to
+        `is_member` hashes nothing from outside and is not reported (anti-parity); handed to a function
+        it is an other use, as the bare container would be."""
+        quelle = textwrap.dedent('''
+            _A = {"a", "b"}
+            _B = {"b"}
+            _M = {"a": 1}
+            def f(k, foo):
+                r1 = k in (s := _A)
+                r2 = k in (t := _A - _B)
+                r3 = (m := _M).get(k)
+                r4 = (n := _M)[k]
+                (o := _M).setdefault(k, 1)
+                r5 = [x for x in [k] if x in (u := _A)]
+                foo((v := _A))
+                (w := _A)
+                for x in (y := _A):
+                    pass
+                if (z := _A):
+                    pass
+                return is_member(k, (q := _A)), r1, r2, r3, r4, r5
+        ''')
+        zeilen = quelle.splitlines()
+
+        def wo(funde) -> list[str]:
+            return [zeilen[z - 1].strip() for z, _c, _w in sorted(funde)]
+
+        self.assertEqual(wo(unguarded_membership_sites(quelle)),
+                         ["r1 = k in (s := _A)", "r2 = k in (t := _A - _B)",
+                          "r5 = [x for x in [k] if x in (u := _A)]"])
+        self.assertEqual(wo(constant_lookups(quelle)),
+                         ["r3 = (m := _M).get(k)", "r4 = (n := _M)[k]", "(o := _M).setdefault(k, 1)"])
+        self.assertEqual([(c, u) for _z, c, u in other_uses(quelle)], [("_A", "foo(argument 1)")])
+        for label, access in (("in", lambda k: k in (s := {"a"})), ("get", lambda k: (m := {"a": 1}).get(k)),
+                              ("subscript", lambda k: (m := {"a": 1})[k])):
+            with self.subTest(form=label), self.assertRaises(TypeError):
+                access([])
 
     def test_UNTERGRENZE_values_bound_to_a_name_leave_the_guard(self):
         """THE STATED LIMIT, green on purpose although the case is real: a copy of the values bound

@@ -190,6 +190,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise RunLedgerError(
             "run ledgers need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except ValueError as exc:
+        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
+        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
+        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+        raise RunLedgerError(
+            f"a run ledger value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:

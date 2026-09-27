@@ -206,9 +206,13 @@ _OUT_OF_SCOPE = frozenset({
     #       `attach` are ERZEUGER in the sense of the family rule above: they take our own values
     #       and refuse loudly (`require_valid_verifier_block`) rather than emit a malformed block.
     #   `statement_digest`, `test_result_ref` are digest helpers; `join_test_result` also feeds
-    #       `statement_digest` a caller-supplied statement, and a hostile one ends in a typed
+    #       `statement_digest` a caller-supplied statement, and a hostile one ended in a typed
     #       `BundleFormatError` from the canonicalizer (lens C, 2026-09-18, measured with a
     #       deeply nested `annotations` dict) -- an accepted termination, never a raw crash.
+    #       Since lens run 7 on 8ecb6edf the join answers such a statement instead: a digest
+    #       that does not match, with the reason (measured: the nested dict, and `2**53` or NaN,
+    #       which raised the canonicalizer's bare ValueError there); `statement_digest` and
+    #       `test_result_ref` raise `VerifierBlockError` for the value, their own typed error.
     #   `join_test_result` and `report` read a block that has ALREADY passed
     #       `validate_verifier_block` on the consumer side (`_verify_v02_inner` calls `report` only
     #       after the shape errors are empty); `report` returns a verdict dict for every input and

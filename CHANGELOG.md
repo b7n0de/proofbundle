@@ -14,8 +14,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
   the checkout a measurement was taken in; it now says "a second local checkout", and so does the
   test beside it. The guard reads every text file under `src/proofbundle` and refuses a path under
-  `/home/<name>/` or `/Users/<name>/`; it is red on the tree before this change, at that one line.
-  Files outside the package (audit records, the risk register) are not in its reach.
+  `/home/<name>` or `/Users/<name>`, with or without a slash after the name and inside a `file://`
+  URL; it is red on the tree before this change, at that one line. Files outside the package (audit
+  records, the risk register) are not in its reach.
 
 - **A lookup or write on a constant container with a key from outside is classified**
   (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
@@ -56,8 +57,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the guard. A container derived from constant containers is a container too, and that rule came with a live
   defect. `agent_review.validate_time_claim` tested a time claim's rung with
   `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
-  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1969` now). A set difference is a set and
-  `in` hashed the value, so an `assurance` of `[]`, `{}` or `["runnerObserved"]` raised `TypeError`
+  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` now). A set
+  difference is a set and `in` hashed the value, so an `assurance` of `[]`, `{}` or
+  `["runnerObserved"]` raised `TypeError`
   out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
   `validate_agent_review_v03_predicate`, and `verify_agent_review_v02` and `verify_agent_review_v03`
   answered a correctly signed receipt with `ok=False, reason_code=internal_error`, "a defect in the
@@ -118,10 +120,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `AttributeError` for a truthy `sd_jwt_vc` that is neither a string nor an object, and CAP-1 rule R2
   raised for `unexamined: 5`, which `check_cap1_document` reported as a rule it could not evaluate
   and agent-review v0.2 as `CAP1_DISPOSITION_NOT_CLOSED`; both read the wrong
-  type as absent now (R1 names the non-list). Of the 114 sites, 19 are gone, and one, in
-  `sd_jwt_hidden_count`, stays and reads through `as_dict` now. Of the other 94, 20 sit in the four
-  JSON adapters named below and can raise; 74 sit behind a type check or a typed `except`, read a
-  value the package built, or read caller arguments on a producer path. Two carried entries of
+  type as absent now (R1 names the non-list). The count reads `x or` with an empty list, tuple, set
+  or dict display, `""` or `0` as the last operand: 114 sites on c3bd89a4, 95 on 8ecb6edf, 93 now.
+  One, in `sd_jwt_hidden_count`, stays and reads through `as_dict` now. Of the other 94 on
+  8ecb6edf, 20 sit in the four JSON adapters named below and can raise, and 74 sit behind a type
+  check or a typed `except`, read a value the package built, or read caller arguments on a producer
+  path. Two of those 74 were not safe in that way, and a lens on 8ecb6edf found both: the policy
+  call of the v0.2 and v0.3 verifiers, `_praed or {}`, sat behind a broad `except` and held a
+  predicate `[]` or `0` against the policy as `{}`, and the renderer's `limitations` read held only
+  while the validator stood in front of it. Both are gone, which is the step from 95 to 93 (see the
+  paragraph on that lens below); the rest of that group was not read again. Two carried entries of
   `conformance/unguarded_hashing_constructions_baseline.json` are closed and leave it, and the
   two renderer rung sets below close two more (seven to three). Contract
   `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 42 tests, all 42 red on
@@ -155,6 +163,55 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   45 reads under 42 entries (five new, each a set or dict built over a module-level tuple and read at
   its source, in `adapters/agt_receipt`, `cli._error_verify_fields`, `public_transparency` and twice
   in `relation`); no binding the first form cleared is one no reader follows.
+
+  **A lens on 8ecb6edf: a value RFC 8785 cannot represent, and five smaller findings.** The strict
+  parser reads an integer outside ±(2**53 − 1), NaN and Infinity. The canonicalizer refuses each
+  with its own `ValueError`. The in-toto verifiers and `anchors.receipt_canonical_root` already
+  turned that refusal into their typed answer; the agent-review module did not. A correctly signed
+  v0.1, v0.2 or v0.3 receipt with such a value in a finding or in `subjectContext` made
+  `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+  `verify_agent_review_any` answer `internal_error`, "a defect in the verifier" (96 of 96 cases of
+  the new contract `tests/test_a_value_jcs_cannot_represent_is_a_typed_refusal.py`). Such a receipt
+  now fails with the reason code `STATEMENT_NOT_CANONICALIZABLE`. `emit_agent_review` raised the
+  bare `IntegerDomainError` for `subjectContext.humanRef = 2**53` after the validator had passed the
+  predicate; it raises `AgentReviewError` now. The sweep of the class signed a statement with such a
+  value at every node of a seed predicate of each signed type and called every public surface: 29
+  distinct findings in 22,590 calls on 8ecb6edf, 4 after. The other 25 were the agent-review ones
+  above and `subject_binding.classify_subject`, `require_derived_subject` and
+  `derive_subject_digest`, `verifier_block.join_test_result` and `test_result_ref`, and the
+  decision, outcome and run ledger emitters, each raising the bare error. Every wrapper of the
+  canonicalizer now maps it to its own module's typed error, `join_test_result` answers with a
+  digest that does not match, and the in-toto export paths raise `BundleFormatError` (measured with
+  `2**53` and NaN in `harness` and `url` of `export_intoto_dsse`). The four left are the two
+  primitives of `canonical`, which pass the refusal on by their documented contract. A test lists
+  the 17 functions that call the canonicalizer themselves, each with its answer to such a value.
+  `subjectContext.humanRef` stays untyped (`5`, `[1]` and `{}` still validate): no schema or
+  specification names the field, and refusing a type the validator accepts today is a new predicate
+  version under the predicate's own rule.
+
+  The policy call of the v0.2 and v0.3 verifiers read `_praed or {}`. A signed receipt whose
+  predicate is `[1]`, `"x"` or `5` answered with `POLICY_NOT_EVALUABLE` as its only code, a sentence
+  about the policy; one whose predicate is `[]`, `0`, null or absent was held against the policy as
+  `{}`. The validator gives "predicate must be a JSON object" the code `PREDICATE_NOT_OBJECT` now,
+  which is the first reason in all three versions, and the policy refusal names the shape instead of
+  evaluating an empty object. With the validator in front taken away, the two renderers raised on
+  `limitations` of `5`, `true`, `[5]` or `[[1]]` (the one read there still written `x or []`) and on
+  a predicate, `declaration` or `coverage` that is no object: 365 of 6,232 calls at six source lines.
+  They read these as the verifiers do now, a wrong type as absent and of a list the strings: 0 of
+  6,232. The 64 valid predicates the lens rendered give the same bytes, and a test pins 19 of them.
+  The membership guard counted the value of every followed walrus as bound and looked no further, so
+  a walrus used as an operand went unseen: `k in (s := _A)`, `(m := _M).get(k)`, `(m := _M)[k]`,
+  `(m := _M).setdefault(k, 1)`, `k in (s := _A - _B)`, `k in (s := set(_A))` and a walrus in a
+  comprehension condition each raised `TypeError` with all three detectors silent. A walrus is read
+  as the value it passes on now, and that value is judged where the walrus stands as well as where
+  it is bound. Nine planted forms, all nine unseen by the detectors of 8ecb6edf; the counts over the
+  tree do not move (no membership site, 20 lookup sites under 20 entries, 45 reads under 42
+  entries). The path guard missed `file:///home/<name>/x`, `/home/<name>` with nothing after the
+  name, and `/Users/<name>` at the end of a text; six planted texts, all six missed by the pattern
+  of 8ecb6edf, are found now, and the package still names no such path. The line of the time claim
+  test above was `:1978` on 8ecb6edf, not the `:1969` this entry said. The two ratchets over reason
+  codes follow: two new codes, and one error without a code fewer in
+  `validate_agent_review_predicate` (19 to 18).
 
   Not reached, and not claimed: the four JSON adapters (`adapters/eee.py`, `lm_eval.py`,
   `promptfoo.py`, `samples.py`) answer a wrong-typed field with a raw `AttributeError` or
