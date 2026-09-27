@@ -77,8 +77,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   are not the pattern either: `renewal._sign_ats_content` signs a time authority's own archive
   time-stamp content, a digest it computed, and `sdjwt_issue.present_with_key_binding` signs the
   holder's key-binding JWT over the presentation it holds; neither reads an eval receipt. Contract
-  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 48 cases and 702 subtests: on
-  126ed1dc 35 cases fail, 15 of them outright (one of those also with 13 failing subtests) and 20
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, as it stood at d461b41a with 48
+  cases and 702 subtests: on 126ed1dc 35 cases fail, 15 of them outright (one of those also with
+  13 failing subtests) and 20
   only through 623 subtests, 636 failing subtests in all; on 053c7800 23 fail, 7 outright and 16
   through 564 subtests; on 8cf49247 11 fail, 2 outright and 9 through 297 subtests; on 481a1f26 8
   fail, 1 outright and 7 through 429 subtests, and these 8 are the cases of the third lens run
@@ -91,8 +92,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   buffer as one byte string refused `np.array([key])` and the same array with `dtype=object` as a
   single key, exit 2 where main 20e91c8e gives exit 0: numpy exports them with the formats `64w` and
   `O`. The list reader now goes by the format of the buffer. References (`O`, `P`, `Z`, `z`) and
-  text items of more than one character are a collection, walked as main walked it, and as an entry
-  they name no key; single bytes in one dimension, fixed-width byte strings and single characters
+  text items of more than one character are a collection, walked as main walked it (as an entry
+  they refuse the list since the fourth lens run below); single bytes in one dimension,
+  fixed-width byte strings and single characters
   stay one key; numbers and records are walked too, after their bytes were judged as the one key
   they spell; and a buffer of more than one dimension is refused whole, as 481a1f26 refused it (main
   raised `TypeError` on it). Reading only a one-dimensional buffer of `B`, `b` or `c` as a byte
@@ -118,6 +120,63 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   12672-case weak-key sweep (the lens's 9504 and 3168 more with numpy text, numpy object and ctypes
   `py_object` arrays) gives exit 2 in every case, and `KeyboardInterrupt` and `SystemExit` still
   propagate.
+
+  A fourth lens run at d461b41a measured two more classes, both on main 20e91c8e as well. Text held
+  in a buffer was never read as text: the identity point as hex text W inside `np.array(W)`,
+  `np.array(W, dtype=object)`, `ctypes.c_wchar_p(W)`, `ctypes.create_unicode_buffer(W)`,
+  `array('u', W)` or `np.array(list(W))`, next to the real key, gave exit 0 for a receipt without an
+  authorization, for the authorized one and for the chain, with the detail "1 of which name no key",
+  where the plain str W gives exit 2 (main: exit 0 for the first, `TypeError` for the others). The
+  lens swept 15 such text forms at 8 positions over 48 weak encodings, 5760 values, and the raw key
+  as `ctypes.c_char_p(key)`, 384 more. A buffer of references or of multi-character text at no
+  dimension was taken for a collection, and single characters were handed on as their UCS-4 code
+  units, 256 or 260 bytes that name no key. Decided: such an entry is not read as the text it holds,
+  it refuses the list (exit 2, naming its position, its type and its buffer format). Reading it would
+  run code of the caller's object (numpy's `item()`, ctypes' `.value`) or follow a pointer, and
+  `ctypes.c_char_p(12345).value` ends the process with SIGSEGV, measured; decoding the code units by
+  hand would be a second reading with conventions of its own, since numpy drops trailing NUL
+  characters from an item, ctypes stops at the first NUL and `array('u')` keeps them. The same rule
+  covers every reference or pointer entry (`c_char_p`, `c_wchar_p`, `c_void_p`, `py_object`, a
+  ctypes pointer) and every record entry, so the structured array that `np.genfromtxt(names=True)`
+  returns for a key column, which gave exit 0 for a receipt without an authorization, is refused
+  too: a record's fields may hold text or references, and a ctypes field name containing `:` makes
+  its format ambiguous. This changes one sentence above: a one-dimensional numpy text or object
+  array as an entry no longer names no key, it refuses the list; as the whole list it is still
+  walked, and a nested list, which exports no buffer, still names no key. Every entry that exports a
+  buffer is now either judged by its bytes or refuses the list. The second class: an instant beyond
+  the float range still met a comparison that converts to float. `authorization_expires_at` as a
+  310-digit JSON integer, judged at `now=np.float64(time.time())`, raised `OverflowError` out of both
+  verifiers, because `np.float64` passed the `isinstance` test for float and its own `__le__`
+  converts the int; a `now` that is an int or float subclass whose `__le__` raises gave
+  `RuntimeError` (exit 0 at 481a1f26 and on main, which converted with `float()` first). Every value
+  the verifier compares or tests is now read as its plain value first, through `type()` and
+  `float.__float__`, `int.__index__` or `str.__str__`, and compared exactly. The sweep of the module
+  found the same class at the claim `assurance_level` and at `parent_receipt_hash` (an int whose
+  `__eq__` raises escaped; one whose `__eq__` answers True passed the `chain-link` check for any
+  parent), at every text field given as a `str` subclass (`not signatur` ran its `__bool__`, the
+  decision lookup its `__hash__`), and at every `isinstance` test on a receipt value, on the receipt
+  and on the chain (a `__class__` property that raises escaped); all of them are read the same way
+  now. The exact comparison also corrects a rounding that no sentence above names: an expiry of
+  2**53 judged at 2**53 + 1 is expired, where 481a1f26 and main converted the instant to 2**53 and
+  called it unexpired; 2**53, 2**53 - 1 and `float(2**53)` stay unexpired everywhere.
+  `[real key, closed mmap]` is exit 2 where main gives exit 0, and that follows from the rule of the
+  second lens run: a closed mmap refuses its buffer with `ValueError`, as a released `memoryview`
+  does, and an entry that cannot be read refuses the list. Kept, measured on the final tree: the
+  366-key regression set is byte-identical (sha256 `5374a6a4…`), the 1794-key form sweep is
+  byte-identical to d461b41a, the 12672-case weak-key sweep gives exit 2 in every case, the real key
+  as hex text in 35 container forms by 4 lists keeps all 288 accepts main gives the authorized
+  receipt and the two chains, and every `BaseException` that is not an `Exception` still propagates.
+  Of the lens's sweeps, the text one has no value left below exit 2 (7920 values) and the raw one 94
+  of 50208: the raw key bytes as a numpy `<U8` or `>U4` array passed as the whole list, whose items
+  are read as the texts they are and spell no key. For 8 of those 140 lists (the real key inside
+  `np.array(key)` or `c_wchar_p(key)` as an entry) the receipt without an authorization gets exit 2
+  where d461b41a gave exit 0; main raised `TypeError` there for the authorized one. Not fixed, and
+  named: the receipt mapping and the chain sequence are still read through their own methods (a
+  `dict` subclass whose `get` raises escapes from both verifiers, on main too), and so is the truth
+  value of `require_external_authorization` (a numpy array of two booleans raises `ValueError`).
+  Contract: 53 cases and 1159 subtests; at d461b41a 6 cases fail, none outright and all 6 through
+  454 subtests, the five new cases and the one whose entry assertion changed, and pytest reports
+  those 6 as passed next to 454 failed subtests.
 
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a

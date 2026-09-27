@@ -39,6 +39,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -320,7 +321,7 @@ class AgtAuthorizerList(unittest.TestCase):
                 raise RuntimeError("no walk")
 
         class ClassRaises:
-            @property
+            @property  # type: ignore[misc]  # the hostile override is the point
             def __class__(self):
                 raise RuntimeError("no type")
 
@@ -492,8 +493,10 @@ class AgtAuthorizerList(unittest.TestCase):
         read the key and authorised it (exit 0): numpy exports a text array with the format `64w` and
         an object array with `O`. A buffer of references or of multi-character text is a collection and
         is walked as main walked it; `np.array([])`, a float array, is an empty list again. As an ENTRY
-        such an array is a nested collection and names no key, as a nested list does: its bytes are
-        addresses, and four references are 32 of them, which 481a1f26 judged as a key."""
+        such an array refuses the list (lens run 4 at d461b41a, K4-1): its bytes are addresses or code
+        points, four references are 32 of them, which 481a1f26 judged as a key, and d461b41a let it
+        pass as naming no key although the texts it holds may be keys. A nested list, which exports no
+        buffer, still names no key."""
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
         r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
         real = r3["authorizer_public_key"]
@@ -507,9 +510,12 @@ class AgtAuthorizerList(unittest.TestCase):
                 self.assertEqual(exit_code(verify_agt_receipt(r3, trusted_authorizer_keys=make([real.upper()]))),
                                  3, "compared as text, as the entries of a list are")
                 e = verify_agt_receipt(r3, trusted_authorizer_keys=[make([real] * 4), real])
-                self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
-                trusted = [c for c in e.checks if c.name == "external-authorization-trusted"]
-                self.assertIn("1 of which name no key", trusted[0].detail, "an array as an entry names no key")
+                self.assertEqual((exit_code(e), [c.name for c in e.checks]), (2, ["trusted-authorizer-keys"]),
+                                 "an array of texts or references as an entry refuses the list")
+                self.assertIn("trusted_authorizer_keys[0] is a ", e.checks[0].detail)
+                self.assertIn("whose buffer holds", e.checks[0].detail)
+                e = verify_agt_receipt(r3, trusted_authorizer_keys=[[real] * 4, real])
+                self.assertEqual((e.ok, exit_code(e)), (True, 0), "a nested list still names no key")
         np = _numpy()
         if np is None:
             self._numpy_not_measured()
@@ -690,12 +696,170 @@ class AgtAuthorizerList(unittest.TestCase):
                 self.assertEqual(exit_code(e), 2)
                 self.assertTrue(any(text in c.detail for c in e.checks), [c.detail for c in e.checks])
 
+    # ── lens run 4 at d461b41a: an entry that holds text or a reference in a buffer ──
+
+    def _assert_entry_refused(self, make, pos: int, holds: str):
+        """`make()` builds a fresh list; its entry at `pos` must refuse the list for a receipt without
+        an authorization, for the authorized one and for the chain, and the reason names the entry."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        for receipt in (r1, r3):
+            e = verify_agt_receipt(receipt, trusted_authorizer_keys=make())
+            self.assertEqual((exit_code(e), [c.name for c in e.checks]), (2, ["trusted-authorizer-keys"]),
+                             [c.detail for c in e.checks])
+            self.assertIn(f"trusted_authorizer_keys[{pos}] is a ", e.checks[0].detail)
+            self.assertIn(f"whose buffer holds {holds}", e.checks[0].detail)
+            self.assertIn("format", e.checks[0].detail)
+        e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=make())
+        self.assertEqual(exit_code(e), 2)
+        self.assertEqual(sum(1 for c in e.checks if c.name.endswith("trusted-authorizer-keys")), 3)
+
+    def test_an_entry_holding_text_in_a_buffer_refuses_the_list(self):
+        """K4-1 of lens run 4 at d461b41a. The identity point as hex text W inside `np.array(W)`,
+        `np.array(W, dtype=object)`, `ctypes.c_wchar_p(W)`, `ctypes.create_unicode_buffer(W)`,
+        `array('u', W)` or `np.array(list(W))`, next to the real key, gave exit 0 for receipt 01, for
+        receipt 03 and for the chain, "1 of which name no key", where the plain str W gives exit 2.
+        The text was never read as text: a buffer of references or of multi-character text at no
+        dimension was taken for a collection, and single characters were handed on as their UCS-4 code
+        units. DECIDED: such an entry refuses the list, naming its position, its type and its format.
+        Reading the text would run code of the caller's or follow a pointer, and decoding the code
+        units by hand would be a second reading. The real key held that way is refused as well: the
+        entry is refused for what it is, not for the key inside."""
+        import array
+        import ctypes
+        forms = {
+            "ctypes.c_wchar_p": (ctypes.c_wchar_p, "references"),
+            "ctypes.py_object": (ctypes.py_object, "references"),
+            "ctypes.create_unicode_buffer": (ctypes.create_unicode_buffer, "text"),
+            "ctypes c_wchar array": (lambda h: (ctypes.c_wchar * len(h))(*h), "text"),
+            "array('u')": (lambda h: array.array("u", h), "text"),
+        }
+        np = _numpy()
+        if np is not None:
+            forms.update({
+                "numpy text, no dimension": (np.array, "text"),
+                "numpy big-endian text, no dimension": (lambda h: np.array(h, dtype=">U64"), "text"),
+                "numpy object, no dimension": (lambda h: np.array(h, dtype=object), "references"),
+                "numpy one-character texts": (lambda h: np.array(list(h)), "text"),
+                "numpy text array of one": (lambda h: np.array([h]), "text"),
+                "numpy object array of one": (lambda h: np.array([h], dtype=object), "references"),
+            })
+        real = _agt("03_extern_autorisiert")["authorizer_public_key"]
+        keys = [(k.hex(), k.hex()) for k, _reason in WEAK] + [("the real key", real)]
+        for name, (spell, holds) in forms.items():
+            for label, h in keys:
+                for pos in (0, 1):
+                    with self.subTest(form=name, key=label, position=pos):
+                        def make(spell=spell, h=h, pos=pos):
+                            return [spell(h), real] if pos == 0 else [real, spell(h)]
+                        self._assert_entry_refused(make, pos, holds)
+        if np is None:
+            self._numpy_not_measured()
+
+    def test_a_pointer_entry_refuses_the_list_and_is_never_followed(self):
+        """The same class for a pointer: `ctypes.c_char_p(key)` holds the raw key behind an address, and
+        at d461b41a it named no key, so every weak key given that way next to the real key passed (384
+        values in the lens's sweep). Following the pointer is no option: `c_char_p(12345).value` reads
+        the address 12345 and ends the process with SIGSEGV. So a pointer entry refuses the list, a
+        valid one and a bogus one alike, and the reader never dereferences it."""
+        import ctypes
+        real = _agt("03_extern_autorisiert")["authorizer_public_key"]
+        keep = []                                      # the buffers the pointers below point into
+
+        def buffer_of(k):
+            buf = ctypes.create_string_buffer(k, len(k))
+            keep.append(buf)
+            return buf
+
+        forms = {
+            "ctypes.c_char_p": (lambda k: ctypes.c_char_p(k), "references"),
+            "ctypes.c_void_p to the key": (lambda k: ctypes.c_void_p(ctypes.addressof(buffer_of(k))),
+                                           "references"),
+            "ctypes POINTER(c_char) to the key": (lambda k: ctypes.cast(buffer_of(k), ctypes.POINTER(ctypes.c_char)),
+                                                  "records, pointers"),
+        }
+        keys = [(k.hex(), k) for k, _reason in WEAK] + [("the real key", bytes.fromhex(real))]
+        for name, (make_entry, holds) in forms.items():
+            for label, k in keys:
+                for pos in (0, 1):
+                    with self.subTest(form=name, key=label, position=pos):
+                        def make(make_entry=make_entry, k=k, pos=pos):
+                            return [make_entry(k), real] if pos == 0 else [real, make_entry(k)]
+                        self._assert_entry_refused(make, pos, holds)
+        for label, entry in (("c_char_p(12345)", lambda: ctypes.c_char_p(12345)),
+                             ("c_wchar_p(12345)", lambda: ctypes.c_wchar_p(12345))):
+            with self.subTest(form=f"a bogus address, {label}"):
+                self._assert_entry_refused(lambda entry=entry: [real, entry()], 1, "references")
+
+    def test_a_record_entry_refuses_the_list(self):
+        """The record analogue, named by the lens: `np.genfromtxt(..., names=True)` over a CSV with a key
+        column returns a structured array, and walked, its entries are records whose fields hold the
+        key as text; at d461b41a the identity point in such a column gave exit 0 for receipt 01 and
+        exit 3 for 03. A record's fields may be text or references, and its format names them in a
+        syntax that a ctypes field name containing ':' makes ambiguous, so a record entry refuses the
+        list whatever its fields hold. The key column itself, `table["key"]` or its list, is text and is
+        read as text: a weak key in it is refused by its position, and the real key authorises."""
+        import ctypes
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class TextRecord(ctypes.Structure):
+            _fields_ = [("key", ctypes.c_wchar * 64)]
+
+        class ByteRecord(ctypes.Structure):
+            _fields_ = [("key", ctypes.c_ubyte * 32)]
+
+        for key, _reason in WEAK:
+            w = key.hex()
+            with self.subTest(form="ctypes Structure, text field", key=w):
+                self._assert_entry_refused(lambda w=w: [TextRecord(w), real], 0, "records, pointers")
+            with self.subTest(form="ctypes Structure, byte field", key=w):
+                self._assert_entry_refused(lambda key=key: [real, ByteRecord.from_buffer_copy(key)], 1,
+                                           "records, pointers")
+        np = _numpy()
+        if np is None:
+            self._numpy_not_measured()
+            return
+        import io
+        import warnings
+        weak = I1.hex()
+
+        def table(*keys):
+            text = "key,label\n" + "".join(f"{k},row{i}\n" for i, k in enumerate(keys))
+            with warnings.catch_warnings():            # numpy's own type inference warns about itself
+                warnings.simplefilter("ignore", DeprecationWarning)
+                return np.genfromtxt(io.StringIO(text), delimiter=",", names=True, dtype=None,
+                                     encoding="utf-8")
+
+        with self.subTest(form="np.genfromtxt(names=True), a weak row and the real row"):
+            self._assert_entry_refused(lambda: table(weak, real), 0, "records, pointers")
+        with self.subTest(form="np.genfromtxt(names=True), the real row alone"):
+            self._assert_entry_refused(lambda: table(real, "aa" * 32), 0, "records, pointers")
+        structured = lambda: np.array([(weak,), (real,)], dtype=[("k", "U64")])     # noqa: E731
+        with self.subTest(form="numpy structured array"):
+            self._assert_entry_refused(structured, 0, "records, pointers")
+        with self.subTest(form="np.rec.array"):
+            self._assert_entry_refused(lambda: np.rec.array(structured()), 0, "records, pointers")
+        with self.subTest(form="one numpy record as an entry"):
+            self._assert_entry_refused(lambda: [real, structured()[0]], 1, "records, pointers")
+        for label, column in (("the key column", lambda t: t["key"]), ("its list", lambda t: list(t["key"]))):
+            with self.subTest(control=label):
+                e = verify_agt_receipt(r3, trusted_authorizer_keys=column(table(weak, real)))
+                self.assertEqual((exit_code(e), e.checks[0].name), (2, "trusted-authorizer-keys"))
+                self.assertIn("trusted_authorizer_keys[0] (", e.checks[0].detail)
+                self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], e.checks[0].detail)
+                e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=column(table(real, "aa" * 32)))
+                self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+
 
 class AgtVerifySurfacesNeverRaise(unittest.TestCase):
     """The never-raise contract of `verify_agt_receipt` and `verify_agt_receipt_chain` over inputs of the
     wrong shape, the neighbour of lens run 3 at 481a1f26. Swept over the receipt, the chain value, each
     chain element, `now`, and every field of the five vectors replaced by 28 values of the wrong shape:
-    3664 of 16324 calls raised, and main 20e91c8e raised on the same 3664. Four classes, one case each."""
+    3664 of 16324 calls raised, and main 20e91c8e raised on the same 3664. Four classes, one case each.
+    Lens run 4 at d461b41a added two: an instant compared through a method of the caller's number, and
+    the sweep of every other value the verifier compares or tests."""
 
     def test_a_chain_element_that_is_not_an_object_is_a_verdict(self):
         """`[r1, 5]` raised AttributeError from `receipts[i].get`, and so did every other non-object in
@@ -793,6 +957,160 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         e = verify_agt_receipt_chain([r1, r2, dict(r3, timestamp=big)], trusted_authorizer_keys=[real])
         self.assertEqual(exit_code(e), 1)
 
+    # ── lens run 4 at d461b41a: a compared value is read as its plain value first ──
+
+    def test_an_instant_is_read_as_its_plain_number_before_it_is_compared(self):
+        """K4-2 of lens run 4 at d461b41a, on main 20e91c8e too. A receipt file whose
+        `authorization_expires_at` is a JSON integer of 310 digits, judged at `now=np.float64(...)`,
+        raised OverflowError out of both verifiers: `np.float64` is a float subclass, so it passed the
+        `isinstance` test, and its own `__le__` converts the int with `float()`. An int or float
+        subclass whose `__le__` raises escaped as RuntimeError (exit 0 at 481a1f26 and on main, which
+        converted with `float()` first), and so did a `now` whose `__class__` raises, through
+        `isinstance`. Each instant is read as its plain number now and compared exactly. The same
+        exactness corrects a rounding: an expiry of 2**53 judged at 2**53 + 1 is expired, where
+        481a1f26 and main rounded the instant down to 2**53 and called it unexpired."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class IntLeRaises(int):
+            def __le__(self, other):
+                raise RuntimeError("no comparison")
+
+            def __ge__(self, other):
+                raise RuntimeError("no comparison")
+
+        class FloatLeRaises(float):
+            def __le__(self, other):
+                raise RuntimeError("no comparison")
+
+            def __ge__(self, other):
+                raise RuntimeError("no comparison")
+
+        class ClassRaises:
+            @property  # type: ignore[misc]  # the hostile override is the point
+            def __class__(self):
+                raise RuntimeError("no type")
+
+        def unexpired(e):
+            return [c.ok for c in e.checks if c.name.endswith("external-authorization-unexpired")]
+
+        cases = [  # label, receipt, now, the exit code, `external-authorization-unexpired`
+            ("now: an int whose __le__ raises", r3, IntLeRaises(5), 0, [True]),
+            ("now: a float whose __le__ raises", r3, FloatLeRaises(5.0), 0, [True]),
+            ("now: a float whose __le__ raises, after the expiry", r3, FloatLeRaises(10.0 ** 300), 1, [False]),
+            ("now: a value whose __class__ raises", r3, ClassRaises(), 1, [False]),
+            ("the receipt's timestamp as a float whose __le__ raises",
+             dict(r3, timestamp=FloatLeRaises(r3["timestamp"])), None, 0, [True]),
+        ]
+        np = _numpy()
+        if np is not None:
+            hostile = json.loads(json.dumps(dict(r3, authorization_expires_at="@@")).replace('"@@"', "1" + "0" * 309))
+            self.assertEqual(type(hostile["authorization_expires_at"]), int, "precondition: JSON gives an int")
+            cases += [
+                ("the lens's case: a 310-digit expiry at now=np.float64", hostile, np.float64(1.7e9), 1, [True]),
+                ("the receipt's timestamp as np.float64, a 310-digit expiry",
+                 dict(hostile, timestamp=np.float64(r3["timestamp"])), None, 1, [True]),
+            ]
+        for label, receipt, now, code, verdict in cases:
+            with self.subTest(case=label):
+                for keys in (None, [real]):
+                    e = verify_agt_receipt(receipt, trusted_authorizer_keys=keys, now=now)   # must not raise
+                    self.assertEqual(unexpired(e), verdict)
+                    # without a list the authorization is not evaluated: exit 3, unless a check fails
+                    self.assertEqual(exit_code(e), code if keys is not None or code == 1 else 3)
+                e = verify_agt_receipt_chain([r1, r2, receipt], trusted_authorizer_keys=[real], now=now)
+                self.assertEqual((exit_code(e), unexpired(e)), (code, verdict))
+        for label, now, verdict in (("2**53 + 1", 2 ** 53 + 1, [False]), ("2**53", 2 ** 53, [True]),
+                                    ("2**53 - 1", 2 ** 53 - 1, [True]), ("float(2**53)", float(2 ** 53), [True])):
+            with self.subTest(expiry="2**53", now=label):
+                e = verify_agt_receipt(dict(r3, authorization_expires_at=2 ** 53), trusted_authorizer_keys=[real],
+                                       now=now)
+                self.assertEqual(unexpired(e), verdict)
+        if np is None:
+            with self.subTest(numpy="not installed"):
+                self.skipTest("NOT MEASURABLE: numpy is not installed here; the np.float64 cases did NOT run")
+
+    def test_a_value_compared_or_tested_runs_no_method_of_the_callers(self):
+        """The sweep of K4-2 over every comparison and type test on a value read out of a receipt. At
+        d461b41a each of these escaped from both verifiers: `assurance_level` or `parent_receipt_hash`
+        as an int whose `__eq__` raises (the comparison with the claim and with the digest ran it); a
+        text field as a `str` subclass whose methods raise (`not signatur` ran `__bool__`, the set
+        lookup of the decision `__hash__`); a field or the receipt itself whose `__class__` raises (the
+        `isinstance` test asked for it). And an int whose `__eq__` answers True linked any two
+        receipts. Every such value is read as its plain value now, through `type()`: a str subclass
+        as the text it holds, so the verdict is the one the plain text gets, anything else as no text."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class IntEqRaises(int):
+            def __eq__(self, other):
+                raise RuntimeError("no comparison")
+            __hash__ = int.__hash__
+
+        class IntEqTrue(int):
+            def __eq__(self, other):
+                return True
+            __hash__ = int.__hash__
+
+        def boom(*_a, **_k):
+            raise RuntimeError("a method of the caller's ran")
+
+        class StrRaises(str):
+            __eq__ = __ne__ = __hash__ = __len__ = __getitem__ = __bool__ = __repr__ = boom
+            __contains__ = __iter__ = __str__ = __format__ = boom
+
+        class ClassRaises:
+            @property  # type: ignore[misc]  # the hostile override is the point
+            def __class__(self):
+                raise RuntimeError("no type")
+
+        def verdict(call):
+            try:
+                return call()
+            except Exception as escaped:  # noqa: BLE001 — an escape is the finding
+                raise AssertionError(f"the verifier raised {type(escaped).__name__}: {escaped}") from None
+
+        with self.subTest(field="assurance_level", value="an int whose __eq__ raises"):
+            e = verdict(lambda: verify_agt_receipt(dict(r1, assurance_level=IntEqRaises(5))))
+            self.assertEqual((e.ok, exit_code(e)), (True, 0), "a number claims no authorization")
+        with self.subTest(field="assurance_level", value="the claim as a str whose methods raise"):
+            e = verdict(lambda: verify_agt_receipt(dict(r1, assurance_level=StrRaises("externally_authorized"))))
+            self.assertEqual(exit_code(e), 1, "the claim is read as the text it holds and owes an authorization")
+        for value, label, code in ((IntEqRaises(5), "an int whose __eq__ raises", 1),
+                                   (IntEqTrue(5), "an int equal to everything", 1),
+                                   (ClassRaises(), "a value whose __class__ raises, which JSON cannot encode", 2)):
+            with self.subTest(field="parent_receipt_hash", value=label):
+                e = verdict(lambda value=value: verify_agt_receipt_chain([r1, dict(r2, parent_receipt_hash=value)]))
+                self.assertEqual(exit_code(e), code)
+                self.assertEqual([c.ok for c in e.checks if c.name == "[1] chain-link"], [False])
+        for field, receipt in (("signature", r1), ("signer_public_key", r1), ("payload_hash", r1),
+                               ("cedar_decision", r1), ("authorization_signature", r3),
+                               ("authorizer_public_key", r3)):
+            with self.subTest(field=field, value="a str whose methods raise"):
+                plain = verify_agt_receipt(receipt, trusted_authorizer_keys=[real])
+                e = verdict(lambda field=field, receipt=receipt: verify_agt_receipt(
+                    dict(receipt, **{field: StrRaises(receipt[field])}), trusted_authorizer_keys=[real]))
+                self.assertEqual([(c.name, c.ok, c.detail) for c in e.checks],
+                                 [(c.name, c.ok, c.detail) for c in plain.checks])
+        for field, receipt, code in (("signature", r1, 1), ("signer_public_key", r1, 1), ("payload_hash", r1, 0),
+                                     ("authorization_signature", r3, 1), ("authorizer_public_key", r3, 1)):
+            with self.subTest(field=field, value="a value whose __class__ raises"):
+                e = verdict(lambda field=field, receipt=receipt: verify_agt_receipt(
+                    dict(receipt, **{field: ClassRaises()}), trusted_authorizer_keys=[real]))
+                self.assertEqual(exit_code(e), code)
+        with self.subTest(value="a receipt whose __class__ raises"):
+            e = verdict(lambda: verify_agt_receipt(ClassRaises()))
+            self.assertEqual((exit_code(e), e.checks[0].name), (2, "readable"))
+        with self.subTest(value="a chain whose __class__ raises"):
+            self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt_chain(ClassRaises()))), 2)
+        with self.subTest(value="a chain element whose __class__ raises"):
+            e = verdict(lambda: verify_agt_receipt_chain([r1, ClassRaises()]))
+            self.assertEqual(exit_code(e), 2)
+            self.assertIn("receipts[1] is ClassRaises, not an object",
+                          [c.detail for c in e.checks if c.name == "[1] chain-link"][0])
+
 
 # ── 2. the findings register's carrier: `_signatur_lage` and the views ──────────────────────────
 
@@ -814,6 +1132,8 @@ def _signed(doc: dict, key: bytes, sig: bytes) -> dict:
 
 
 class RegisterCarrier(unittest.TestCase):
+    g: Any                   # the generator script, loaded once in setUpClass
+    doc: dict
 
     @classmethod
     def setUpClass(cls):
@@ -976,6 +1296,7 @@ _PRODUCERS = {
 
 def _script_module(name: str):
     spec = importlib.util.spec_from_file_location(f"_t_d3_{name}", REPO / "scripts" / f"{name}.py")
+    assert spec is not None and spec.loader is not None, name
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

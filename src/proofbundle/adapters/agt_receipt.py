@@ -129,11 +129,40 @@ def _typname(wert: Any) -> str:
     return str.__str__(_TYPNAME.__get__(type(wert)))
 
 
+def _als_text(wert: Any) -> "str | None":
+    """A value as plain text, or None when it is no text, read so that no method of the caller's runs
+    (lens run 4 at d461b41a, the sweep of K4-2). By `type()`, not by `isinstance`: `isinstance` asks the
+    value for its `__class__` when the type alone does not answer, and a caller's object can define
+    that as a property that raises. A `str` subclass keeps its own `__eq__`, `__hash__`, `__bool__` and
+    `__getitem__`, and a comparison, a set lookup, a truth test or a slice would run them; the
+    signature field of a receipt as such a subclass escaped from both verifiers through `not signatur`.
+    `str.__str__` makes a plain copy, so what is compared later is the text and nothing else."""
+    return str.__str__(wert) if issubclass(type(wert), str) else None
+
+
+def _als_zeitpunkt(wert: Any) -> "int | float | None":
+    """An instant as its plain number, or None when it is no number (lens run 4 at d461b41a, K4-2).
+    `numpy.float64` is a float subclass, so it passed the `isinstance` test, and its own `__le__`
+    converts an int to a float: a receipt file whose `authorization_expires_at` is a JSON integer of
+    310 digits, judged at `now=np.float64(time.time())`, raised OverflowError out of both verifiers.
+    An int or float subclass whose `__le__` raises escaped the same way. `float.__float__` and
+    `int.__index__` hand back the plain value without running a method of the caller's type (a bool
+    reads as 0 or 1, as it compared before), and Python compares a plain int with a plain float
+    exactly, by value, without converting either and without overflow."""
+    typ = type(wert)
+    if issubclass(typ, float):
+        return float.__float__(wert)
+    if issubclass(typ, int):
+        return int.__index__(wert)
+    return None
+
+
 def _text(receipt: Dict[str, Any], feld: str) -> str:
     wert = receipt.get(feld)
-    if not isinstance(wert, str):
+    text = _als_text(wert)
+    if text is None:
         raise AGTReceiptError(f"{feld} is {_typname(wert)}, expected a string")
-    return wert
+    return text
 
 
 def _kanonisch(daten: Dict[str, Any], was: str) -> bytes:
@@ -160,7 +189,7 @@ def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     NOT RFC 8785, although AGT's docstring says so; see the module docstring for the measurement.
     The signature fields are excluded because they cover this payload.
     """
-    if not isinstance(receipt, dict):
+    if not issubclass(type(receipt), dict):    # by the type, so no `__class__` of the caller's runs
         raise AGTReceiptError(f"receipt is {_typname(receipt)}, expected an object")
     fehlend = [f for f in _PFLICHTFELDER if f not in receipt]
     if fehlend:
@@ -218,24 +247,48 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> boo
     return verify_ed25519_pinned(schluessel, signatur, nutzlast)
 
 
-#: One item code of a buffer format, with the optional byte order and repeat count of the struct
-#: syntax (PEP 3118). A format this does not match, a record `T{...}` or a sub-array, is binary data.
-_POSTEN = re.compile(r"[@=<>!]?(\d*)(\S)")
+#: One item of a buffer format: the optional byte order and repeat count of the struct syntax (PEP
+#: 3118), then one item code, where a complex number (`Zf`, `Zd`, `Zg`) is one code. A format this does
+#: not match holds a compound item: a record `T{...}`, a pointer `&...`, a function pointer `X{}`.
+_POSTEN = re.compile(r"[@=<>!]?(\d*)(Z[fdg]|\S)")
+
+#: The item codes whose bytes ARE the value they hold: bytes, pad bytes, booleans, integers, floats,
+#: complex numbers. Text code units (`u`, `w`), references and pointers (`O`, `P`, `Z`, `z`) hold a
+#: value their bytes do not spell, and so does any code outside this set.
+_WERTBYTES = frozenset(("x", "c", "b", "B", "?", "h", "H", "i", "I", "l", "L", "q", "Q", "n", "N",
+                        "e", "f", "d", "g", "s", "p", "Zf", "Zd", "Zg"))
+
+#: What an entry of each kind holds, for the refusal that names it (see `_vertrauensliste`).
+_NICHT_LESBAR = {"zeichen": "text", "texte": "text", "verweise": "references",
+                 "verbund": "records, pointers or items of an unknown kind"}
 
 
-def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None]":
-    """What a value is by the buffer it exports, its bytes where they can spell a key, and the number
-    of dimensions of the buffer (None when there is none).
+def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None, str | None]":
+    """What a value is by the buffer it exports, its bytes where they are the value it holds, the
+    number of dimensions of the buffer, and its format (None for both when there is no buffer).
 
-    `kein`    it exports no buffer (a TypeError from `memoryview`).
-    `ein`     ONE value: bytes in one dimension (the formats `B`, `b`, `c` of bytes, bytearray,
-              memoryview, array('B'), mmap, ctypes byte arrays, a numpy uint8 vector), fixed-width
-              byte strings (`s`), or text of single characters (`u`, `w`: array('u'), ctypes wide
-              characters).
-    `binaer`  numbers, records, or bytes in more than one dimension: its bytes still spell a key.
-    `werte`   references (`O`, `P`, `Z`, `z`) or text items of more than one character (numpy's
-              `<n>w`): a collection of values, whose bytes are addresses or code points and never the
-              bytes of a key.
+    `kein`      it exports no buffer (a TypeError from `memoryview`).
+    `ein`       ONE byte string: bytes in one dimension (the formats `B`, `b`, `c` of bytes,
+                bytearray, memoryview, array('B'), mmap, ctypes byte arrays, a numpy uint8 vector) or
+                fixed-width byte strings (`s`).
+    `binaer`    numbers, or bytes in more than one dimension: its bytes still spell a key.
+    `zeichen`   text of single characters (`u`, `w`, numpy's `1w`: array('u'), ctypes wide
+                characters, a numpy array of one-character strings): ONE text value, held as code units.
+    `texte`     text items of more than one character (numpy's `<n>w`): a collection of texts, or at
+                no dimension one text.
+    `verweise`  references or pointers (`O`, `P`, `Z`, `z`): a collection of the values they point
+                at, or at no dimension one such value.
+    `verbund`   a compound or unknown item (a record `T{...}`, a pointer `&...`, a function pointer
+                `X{}`, a code outside `_WERTBYTES`). Its bytes are judged as they are, as they were
+                before, but they are not known to be the value it holds.
+
+    `ein`, `binaer` and `verbund` hand on their bytes, and the list reader judges a WHOLE value of the
+    last kind by them, as it did before: a record of numbers can hold a key's bytes. For `zeichen`,
+    `texte`, `verweise` and `verbund` the bytes are code points or addresses, or not known to be the
+    value held, and that value could be read only by running code of the caller's (numpy's `item()`,
+    ctypes' `.value`) or by following a pointer; `ctypes.c_char_p(12345).value` reads the address
+    12345 and ends the process with SIGSEGV. The list reader therefore refuses such an ENTRY (lens run
+    4 at d461b41a, K4-1) and walks such a WHOLE value as the collection it is.
 
     BY THE FORMAT OF THE BUFFER, NOT BY ITS PRESENCE (lens run 3 at 481a1f26, F2). The version before
     read every buffer as one byte string, so `np.array([key])` and the same array with `dtype=object`
@@ -249,29 +302,34 @@ def _puffer(wert: Any) -> "tuple[str, bytes | None, int | None]":
     refuses it.
     """
     if type(wert) is bytes:
-        return "ein", wert, 1
+        return "ein", wert, 1, "B"
     try:
         sicht = memoryview(wert)
     except TypeError:
-        return "kein", None, None
+        return "kein", None, None, None
     with sicht:
-        posten = _POSTEN.fullmatch(sicht.format)
+        form = str.__str__(sicht.format)
+        posten = _POSTEN.fullmatch(form)
         if posten is None:
-            return "binaer", sicht.tobytes(), sicht.ndim
+            return "verbund", sicht.tobytes(), sicht.ndim, form
         anzahl, code = posten.group(1), posten.group(2)
-        if code in "OPZz" or (code in "uw" and int(anzahl or "1") > 1):
-            return "werte", None, sicht.ndim
-        if code in "suw" or (code in "Bbc" and anzahl in ("", "1") and sicht.ndim == 1):
-            return "ein", sicht.tobytes(), sicht.ndim
-        return "binaer", sicht.tobytes(), sicht.ndim
+        if code in ("O", "P", "Z", "z"):
+            return "verweise", None, sicht.ndim, form
+        if code in ("u", "w"):
+            return ("texte" if int(anzahl or "1") > 1 else "zeichen"), None, sicht.ndim, form
+        if not is_member(code, _WERTBYTES):
+            return "verbund", sicht.tobytes(), sicht.ndim, form
+        if code == "s" or (code in ("B", "b", "c") and anzahl in ("", "1") and sicht.ndim == 1):
+            return "ein", sicht.tobytes(), sicht.ndim, form
+        return "binaer", sicht.tobytes(), sicht.ndim, form
 
 
 def _schluesselbytes(eintrag) -> "bytes | None":
     """The 32 key bytes an entry names, or None when it names no key. Hex text is decoded; bytes, the
     form the list reader hands on for every entry whose buffer holds bytes or numbers (see `_puffer`),
     are taken as they are (lens run 1 at 053c7800, K2-01: the identity point given as raw bytes was
-    never judged). Anything else, a number, a nested list, a nested array of objects or of text,
-    names no key."""
+    never judged). Anything else, a number, a nested list, None, names no key. An entry whose buffer
+    holds text, references or records never reaches this point: the list reader refuses it."""
     if isinstance(eintrag, str):
         try:
             roh = bytes.fromhex(eintrag)
@@ -329,6 +387,24 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     job is to name keys cannot authorise anything through a non-key. Something that cannot be walked
     at all is no list of keys, and that is a refusal of the list (exit 2), never a TypeError.
 
+    AN ENTRY THAT HOLDS TEXT OR A REFERENCE IN A BUFFER REFUSES THE LIST (lens run 4 at d461b41a,
+    K4-1). The identity point as hex text inside `np.array(W)`, `np.array(W, dtype=object)`,
+    `ctypes.c_wchar_p(W)`, `ctypes.create_unicode_buffer(W)`, `array('u', W)` or `np.array(list(W))`,
+    next to the real key, gave exit 0 for every receipt and for the chain, with the detail "1 of which
+    name no key", while the plain str W gave exit 2; so did the raw key as `ctypes.c_char_p(key)`. The
+    text was never read as text: a buffer of references or of multi-character text at no dimension was
+    taken for a collection and named no key, and a buffer of single characters was handed on as its
+    UCS-4 code units, 256 or 260 bytes that name no key either. Such an entry is not read as the text
+    it holds, it is refused, naming its position, its type and its buffer format: reading it would run
+    code of the caller's or follow a pointer (`c_char_p(12345).value` reads the address 12345 and ends
+    the process), and decoding the code units by hand would be a second reading with conventions of
+    its own (numpy drops trailing NUL characters from an item, ctypes stops at the first NUL,
+    `array('u')` keeps them). The same holds for a record entry (`T{...}`, a numpy structured array or
+    a ctypes Structure), whose fields may be text or references and whose format names them in a
+    syntax a ctypes field name can make ambiguous. Every entry that exports a buffer is therefore
+    either judged by its bytes, where they are the value it holds, or refuses the list; none passes as
+    naming no key. A plain container (a nested list, a dict) exports no buffer and still names no key.
+
     ONE KEY IS NOT A LIST (lens run 2 at 8cf49247, K2-1-C). A str, or one byte string (bytes,
     bytearray, a memoryview or array of single bytes, see `_puffer`), is ONE spelling; walked, text
     falls apart into characters and bytes into numbers, none of which names a key. The identity point
@@ -369,17 +445,18 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     or cancel the caller's work, they are not a list that failed to read.
     """
     gelesen: "list[str | bytes | None]" = []
+    unlesbar: "dict[int, str]" = {}
     try:
-        art, roh, dimensionen = (("ein", None, 1) if isinstance(schluessel, str)
-                                 else _puffer(schluessel))
-        if art == "ein":
+        art, roh, dimensionen, _ = (("ein", None, 1, None) if isinstance(schluessel, str)
+                                    else _puffer(schluessel))
+        if art in ("ein", "zeichen"):
             return None, (f"trusted_authorizer_keys is one {_typname(schluessel)} value, a single "
                           f"key, not a collection of keys — pass the key inside a list")
         if dimensionen is not None and dimensionen > 1:
             return None, (f"trusted_authorizer_keys is a {_typname(schluessel)} of {dimensionen} "
                           f"dimensions, not a flat collection of keys — its entries are arrays, "
                           f"which name no key, so a key inside them would never be judged")
-        if art == "binaer" and roh is not None:
+        if art in ("binaer", "verbund") and roh is not None:
             grund = _schwaeche(roh)
             if grund is not None:
                 return None, _abgewiesen(
@@ -392,8 +469,17 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
         for eintrag in gang:
             if isinstance(eintrag, str):
                 gelesen.append(str.__str__(eintrag))       # plain text, no subclass method runs later
+                continue
+            art, roh, _, form = _puffer(eintrag)
+            if is_member(art, _NICHT_LESBAR):
+                unlesbar[len(gelesen)] = (
+                    f"trusted_authorizer_keys[{len(gelesen)}] is a {_typname(eintrag)} whose buffer "
+                    f"holds {_NICHT_LESBAR[art]} (format {str(form)[:40]!r}), not the bytes of a key: "
+                    f"the value it holds cannot be read without running code of the caller's or "
+                    f"following a pointer, so a key it carries would never be judged — pass each "
+                    f"key as a str")
+                gelesen.append(None)
             else:
-                art, roh, _ = _puffer(eintrag)
                 gelesen.append(roh if art in ("ein", "binaer") else None)
     except Exception as fehler:  # noqa: BLE001 — never-raise is the promise of this surface
         return None, (f"trusted_authorizer_keys could not be read to the end: after {len(gelesen)} "
@@ -403,6 +489,9 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     eintraege = tuple(gelesen)
     gruende = []
     for i, eintrag in enumerate(eintraege):
+        if i in unlesbar:
+            gruende.append(unlesbar[i])
+            continue
         grund = _schwaeche(eintrag)
         if grund is not None:
             gruende.append(_abgewiesen(f"trusted_authorizer_keys[{i}] ({_kurz(eintrag)}…)", grund))
@@ -463,8 +552,10 @@ def verify_agt_receipt(
 
     WHAT AN ENTRY CAN DO. Every entry that names a 32-byte key is JUDGED by the rule: hex text, and
     anything whose buffer holds bytes or numbers (bytes, bytearray, memoryview, array, a numpy array
-    of numbers). An entry whose buffer holds references or multi-character text (a numpy object or
-    text array) is a nested collection and names no key, as a nested list does. Only hex TEXT can
+    of numbers). An entry whose buffer holds text, references or records (a numpy text, object or
+    structured array, `array('u')`, a ctypes wide-character buffer, `c_char_p`, `c_wchar_p`) refuses
+    the list, exit 2, because the value it holds cannot be read without running the caller's code; a
+    nested list exports no buffer and names no key. Only hex TEXT can
     AUTHORISE: the authorizer key is compared with the entries as text, so a key given as raw bytes is
     refused when it is weak and otherwise matches nothing, not even the authorizer's own key (exit 3,
     a named limit in the CHANGELOG). Raw bytes are judged, and never trusted.
@@ -519,9 +610,14 @@ def _pruefe_mit_gelesener_liste(
         f"cedar_decision={entscheidung!r} is not one of {sorted(_ENTSCHEIDUNGEN)} — note that the "
         f"AGT proposal document says permit/deny while the implementation says allow/deny")
 
-    signatur = receipt.get("signature")
-    pubkey = receipt.get("signer_public_key")
-    if not isinstance(signatur, str) or not isinstance(pubkey, str) or not signatur or not pubkey:
+    # EVERY VALUE THAT IS COMPARED OR TESTED BELOW IS READ AS ITS PLAIN VALUE FIRST (lens run 4 at
+    # d461b41a, K4-2 and its sweep): text through `_als_text`, an instant through `_als_zeitpunkt`. A
+    # method of the caller's value, a `__class__` property asked by `isinstance`, a `str` subclass's
+    # `__bool__` in a truth test or `__eq__` in a comparison, an int subclass's `__eq__` against the
+    # assurance level, a float subclass's `__le__`, escaped from both verifiers before.
+    signatur = _als_text(receipt.get("signature"))
+    pubkey = _als_text(receipt.get("signer_public_key"))
+    if not signatur or not pubkey:
         ergebnis.add("signature", False, "receipt carries no signature or no signer public key")
         return ergebnis
     schwaeche = _schwaeche(pubkey)
@@ -534,12 +630,12 @@ def _pruefe_mit_gelesener_liste(
 
     # The receipt may carry its own payload_hash. If it does and it disagrees, say so: a receipt
     # whose self-reported hash does not match its own bytes is telling two stories.
-    selbst = receipt.get("payload_hash")
-    if isinstance(selbst, str) and selbst:
+    selbst = _als_text(receipt.get("payload_hash"))
+    if selbst:
         ergebnis.add("payload-hash-self-consistent", selbst == payload_hash(receipt),
                      f"receipt states {selbst[:16]}…")
 
-    behauptet_extern = receipt.get("assurance_level") == _EXTERN_BEHAUPTET
+    behauptet_extern = _als_text(receipt.get("assurance_level")) == _EXTERN_BEHAUPTET
     hat_autorisierung = behauptet_extern or any(
         receipt.get(f) is not None for f in _AUTORISIERUNGSFELDER)
     if require_external_authorization and not hat_autorisierung:
@@ -560,9 +656,9 @@ def _pruefe_mit_gelesener_liste(
                      f"{grund}, but these are missing: {', '.join(sorted(fehlend))} — a receipt "
                      f"whose authorization can be stripped field by field must not verify")
         return ergebnis
-    a_sig = receipt.get("authorization_signature")
-    a_key = receipt.get("authorizer_public_key")
-    if not isinstance(a_sig, str) or not isinstance(a_key, str) or not a_sig or not a_key:
+    a_sig = _als_text(receipt.get("authorization_signature"))
+    a_key = _als_text(receipt.get("authorizer_public_key"))
+    if not a_sig or not a_key:
         ergebnis.add("external-authorization-complete", False,
                      "authorization signature or authorizer key is present but not a string")
         return ergebnis
@@ -594,15 +690,18 @@ def _pruefe_mit_gelesener_liste(
                      _ed25519_gueltig(a_key, a_sig, a_nutzlast),
                      f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
 
-    frist = receipt.get("authorization_expires_at")
-    zeitpunkt = receipt.get("timestamp") if now is None else now
+    frist = _als_zeitpunkt(receipt.get("authorization_expires_at"))
+    zeitpunkt = _als_zeitpunkt(receipt.get("timestamp") if now is None else now)
     quelle = "the receipt timestamp (offline reading)" if now is None else "the supplied instant"
-    if isinstance(frist, (int, float)) and isinstance(zeitpunkt, (int, float)):
+    if frist is not None and zeitpunkt is not None:
         # COMPARED EXACTLY, NOT THROUGH `float()`. Python compares an int with a float by value and
         # never overflows, while `float(10**400)` raised OverflowError out of both verifiers, for a
         # `timestamp` or an `authorization_expires_at` of that size and for such a `now` (lens run 3 at
         # 481a1f26; on main 20e91c8e too). Where `float()` converts both values without rounding, the
         # answer is the same; above 2**53 it rounded, and the exact comparison is the correct one.
+        # BOTH ARE PLAIN NUMBERS HERE, and that is the second half (lens run 4 at d461b41a, K4-2): a
+        # `numpy.float64` passed the `isinstance` test, and its own `__le__` converted the int with
+        # `float()` again, OverflowError for a 310-digit JSON integer as the expiry.
         ergebnis.add("external-authorization-unexpired", zeitpunkt <= frist,
                      f"judged at {quelle}")
     else:
@@ -645,7 +744,7 @@ def verify_agt_receipt_chain(
     # `-1` slipped past it and died on `enumerate` with a bare TypeError. Measured by the house
     # type-confusion gate on this very module: "TypeError on payload True: 'bool' object is not
     # iterable". A verifier that raises instead of judging is the defect this gate exists to catch.
-    if not isinstance(receipts, (list, tuple)):
+    if not issubclass(type(receipts), (list, tuple)):  # by the type: no `__class__` of the caller's runs
         ergebnis.add("chain-readable", False,
                      f"receipts is {_typname(receipts)}, expected a list or tuple")
         return ergebnis
@@ -683,13 +782,17 @@ def verify_agt_receipt_chain(
         # `[r1, [1]]` raised, and so does main 20e91c8e). Its own `[i] readable` check already refused
         # it (exit 2); this check says which position and which type broke the link.
         glied = receipts[i]
-        if not isinstance(glied, dict):
+        if not issubclass(type(glied), dict):
             ergebnis.add(f"[{i}] chain-link", False,
                          f"receipts[{i}] is {_typname(glied)}, not an object, so it names no "
                          f"parent_receipt_hash and its link to receipts[{i - 1}] cannot be checked")
             continue
+        # THE PLAIN TEXT, compared with the plain digest (lens run 4 at d461b41a, the sweep of K4-2):
+        # `gefunden == erwartet` ran the `__eq__` of whatever the field held, and an int subclass
+        # whose `__eq__` raises escaped from the chain; one whose `__eq__` answers True passed this
+        # check for any parent. A value that is no text names no parent, and the link fails.
         gefunden = glied.get("parent_receipt_hash")
-        ergebnis.add(f"[{i}] chain-link", gefunden == erwartet,
+        ergebnis.add(f"[{i}] chain-link", _als_text(gefunden) == erwartet,
                      f"parent_receipt_hash={_kurzwert(gefunden)}… expected {erwartet[:16]}…")
     return ergebnis
 
@@ -698,8 +801,9 @@ def _kurzwert(wert: Any) -> str:
     """A short spelling of a field value for a message: text, None and a bool as they read, anything
     else by its type name. `str()` of a nested value recurses (RecursionError for a parent hash nested 5000
     deep, lens run 3 at 481a1f26) and runs the methods of whatever the value holds."""
-    if isinstance(wert, str):
-        return str.__str__(wert)[:16]
+    text = _als_text(wert)
+    if text is not None:
+        return text[:16]
     if wert is None:
         return "None"
     if wert is True or wert is False:
