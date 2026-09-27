@@ -189,6 +189,20 @@ def _cases():
          "malformed", False, "label 259 in the protected"),
         ("PR 279 R2 sibling: recompute_data_hash with an x5chain that is not DER",
          lambda: _dh(_ts(st=_stmt(L33=b"not a certificate"))), "malformed", False, "not DER X.509"),
+        # PR 279 round four, thread 4113553845: vdp is typed in either bucket of every receipt, as vds
+        # is; siblings: the inclusion receipt, and the receipt of another vds. The control, a
+        # well-typed protected vdp, keeps its placement status.
+        ("PR 279 R4 consistency receipt, protected vdp an int", lambda: ("consistency", _cons_prot_vdp(5)),
+         "malformed", False, "label 396 in the protected header is not a map"),
+        ("PR 279 R4 sibling: inclusion receipt, protected vdp an array and no unprotected vdp",
+         lambda: ("transparent", _p().transparent(st, [_receipt_prot_vdp([1])])),
+         "malformed", False, "label 396 in the protected header is not a map"),
+        ("PR 279 R4 sibling: a receipt of another vds, unprotected vdp an array",
+         lambda: ("transparent", _p().transparent(st, [_receipt_vds_vdp(1, [1])])),
+         "malformed", False, "label 396 in the unprotected header is not a map"),
+        ("PR 279 R4 control: consistency receipt, a well-typed protected vdp",
+         lambda: ("consistency", _cons_prot_vdp({-2: [_good_cons_proof()]})),
+         "consistency_proof_missing", False, "no vdp (396) in the unprotected header"),
         # every other rule of the pass, one case each
         ("statement alg a bool", lambda: _ts(st=_stmt(L1=True)), "malformed", False, "label 1 in the protected"),
         ("statement crit empty", lambda: _ts(st=_stmt(L2=[])), "malformed", False, "label 2 in the protected"),
@@ -215,7 +229,7 @@ def _cases():
          "CWT claim 6"),
         ("receipt vds text", lambda: _ts(vds="2"), "malformed", False, "label 395"),
         ("vdp an array", lambda: ("transparent", _p().transparent(st, [_receipt_with_vdp([1])])),
-         "malformed", False, "vdp (396) is not a map"),
+         "malformed", False, "label 396 in the unprotected header is not a map"),
         ("vdp empty", lambda: ("transparent", _p().transparent(st, [_receipt_with_vdp({})])),
          "malformed", False, "neither -1 nor -2"),
         ("-1 not an array", lambda: _ts(proofs_override=b"junk"), "malformed", False,
@@ -281,6 +295,36 @@ def _receipt_with_vdp(vdp):
     return b"\xd2" + cbor2.dumps([prot, {396: vdp}, payload, sig])
 
 
+def _cons_prot_vdp(value):
+    """The consistency control signed with this value under label 396 in its PROTECTED header, and an
+    empty unprotected map (Codex, PR 279 round four)."""
+    C = _c()
+    prot = {1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2, 15: {1: C.ISSUER, 6: 1790000000},
+            "ccf.v1": {"txid": "2.24"}, 396: value}
+    prot_b, sig = C.sign_over(C.TREE.root(24), prot=prot)
+    return b"\xd2" + C._cbor2().dumps([prot_b, {}, None, sig])
+
+
+def _receipt_prot_vdp(value):
+    """The inclusion control signed with this value under label 396 in its protected header, and an
+    empty unprotected map."""
+    P = _p()
+    st = _stmt()
+    import cbor2  # noqa: PLC0415
+    prot, _unprot, payload, sig = cbor2.loads(P.Rcpt(data_hash=P.dh_of(st), extra_prot={396: value}).build()).value
+    return b"\xd2" + cbor2.dumps([prot, {}, payload, sig])
+
+
+def _receipt_vds_vdp(vds, vdp):
+    """The inclusion control signed with this vds, this value under label 396 in its unprotected
+    header."""
+    P = _p()
+    st = _stmt()
+    import cbor2  # noqa: PLC0415
+    prot, _unprot, payload, sig = cbor2.loads(P.Rcpt(data_hash=P.dh_of(st), vds=vds).build()).value
+    return b"\xd2" + cbor2.dumps([prot, {396: vdp}, payload, sig])
+
+
 def _same_root_cons():
     P = _p()
     st = _stmt()
@@ -334,7 +378,7 @@ def _all_rules():
 # ------------------------------------------------------------------------------------------------
 # Regression
 # ------------------------------------------------------------------------------------------------
-N_CASES = 56
+N_CASES = 60
 
 
 def _holds(case) -> tuple:

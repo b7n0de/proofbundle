@@ -492,15 +492,25 @@ readable there only.
   no -2 is `consistency_proof_missing`.
 - What the pass checks: the types of the header labels the reader reads, in either header bucket
   (RFC 9052 alg, crit, content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC
-  8392 issuer and iat of a receipt, in the claims map of either bucket; RFC 9942 vds), the RFC 9995
-  types of 258, 259 and 260, label 394 as one to `MAX_RECEIPTS` receipts, and for a receipt with vds
-  2 the -05 CDDL: alg `int`, `vdp` a map of -1 and -2 only with at least one of them, each an array
-  of one to eight proofs, every proof of either family parsed with its path, leaf or anchor.
+  8392 issuer and iat of a receipt, in the claims map of either bucket; RFC 9942 vds, and vdp as a
+  map, of every receipt), the RFC 9995 types of 258, 259 and 260, label 394 as one to
+  `MAX_RECEIPTS` receipts, and for a receipt with vds 2 the -05 CDDL: alg `int`, a `vdp` of -1 and
+  -2 only with at least one of them, each an array of one to eight proofs, every proof of either
+  family parsed with its path, leaf or anchor.
 - Every rule is one named entry of a table in `proofbundle.scitt_ccf` (`_STATEMENT_RULES`,
   `_TRANSPARENT_RULES`, `_RECEIPT_BYTES_RULES`, `_RECEIPT_RULES`, `_CCF_RULES`, `_PROOF_RULES`,
   `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 40
   rules in turn: some regression case must then fail, its status, readable value or refusal no
   longer the expected one, and a positive control shows that a rule no case holds would be named.
+- Codex on pull request 279, round four: vdp was typed only in the unprotected bucket of a vds 2
+  receipt, by the -05 rules. RFC 9942 registers vdp (396) with value type map, as it registers vds
+  with int, so the map type moved to the receipt rules, in either bucket of every receipt, and the -05
+  rule of the same content left `_CCF_RULES`; the count stays 40. Four cases were added, 60 in all,
+  measured against the reader at `a19885e`: a consistency receipt with a protected vdp of `5` was
+  `consistency_proof_missing`, an inclusion receipt with a protected vdp of `[1]` and no unprotected
+  vdp was `outside_profile`, and a receipt of vds 1 with an unprotected vdp of `[1]` was
+  `outside_profile`. All three are now `malformed`. A well-typed protected vdp keeps
+  `consistency_proof_missing` (the control).
 - Statuses this moves, measured with the 56 regression cases against the reader at `257b984`: 26
   cases change, all to `malformed` and not readable. 19 were `outside_profile`: the wrong type of
   258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT

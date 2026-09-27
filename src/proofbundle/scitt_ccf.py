@@ -722,6 +722,10 @@ _RECEIPT_RULES: tuple = _header_rules("receipt") + (
     _Rule("receipt CWT issuer is tstr", _cwt_claim(1, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
     _Rule("receipt CWT iat is int", _cwt_claim(6, _int, "an integer NumericDate (RFC 8392)")),
     _Rule("receipt vds is int", _typed(_VDS, _int, "int (RFC 9942)")),
+    # Codex, PR 279 round four: vdp was typed in the unprotected bucket of a CCF receipt only, so a
+    # present protected vdp, or the vdp of a receipt of another vds, reached the status logic untyped.
+    # RFC 9942 registers vdp (396) with value type map, as it registers vds (395) with int.
+    _Rule("receipt vdp is a map", _typed(_VDP, lambda v: isinstance(v, dict), "a map (RFC 9942)")),
 )
 
 _ABSENT = object()
@@ -755,9 +759,6 @@ _CCF_RULES: tuple = (
     _Rule("-05 alg is int",
           lambda rc: None if _ALG not in rc.protected or _int(rc.protected[_ALG])
           else "label 1 (alg) is not int (-05 CDDL)"),
-    _Rule("vdp is a map",
-          lambda rc: None if _vdp_of(rc) is _ABSENT or isinstance(_vdp_of(rc), dict)
-          else "vdp (396) is not a map"),
     _Rule("vdp holds -1 and -2 only",
           lambda rc: None if not isinstance(_vdp_of(rc), dict)
           or all(k in (_INCLUSION, _CONSISTENCY) for k in _vdp_of(rc))
