@@ -372,10 +372,14 @@
       "notes": "DSSE-signed Run Ledger: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
     },
     "proofbundle.scitt_ccf.verify_statement_signature": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Python-only; tools/pb_verify_rs has no COSE reader. PENDING. An independent Rust reader was run offline on the same bytes (microsoft/scitt-verifier at bd6fb8ba, tools/scitt_ccf_external/rust_crosscheck.json), but that is a foreign tool, not this repository's verifier, so it does not change this status."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-scitt-statement-signature"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-scitt-statement-signature\""
+      ],
+      "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Rust: tools/pb_verify_rs/src/scitt.rs, its own CBOR reader, statement header types, x5chain walk and key checks; ES256, ES384, PS256 and PS384 through the RustCrypto crates p256, p384 and rsa, the certificate through x509-cert. COVERED on the shared vectors tests/fixtures/scitt_statement_signature/vectors.json (real statements of both differential-corpus rounds and synthetic ones for every rule on the path), each run through both verifiers by crosscheck.py and tests/test_scitt_statement_signature_parity.py against the status and verdict it is built to produce. A statement file above the Rust input budget is malformed in both, the Rust exit class 3 included, as for any statement above the 65536 bytes the profile reads (Codex, PR 290). NOT COVERED: an RSA public exponent above 2^33 - 1, which the rsa crate refuses and OpenSSL may take."
     },
     "proofbundle.scitt_ccf.verify_transparent_statement": {
       "status": "PENDING",
