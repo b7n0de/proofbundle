@@ -99,7 +99,7 @@ class TestPreTagReceiptGate:
         (found by reading, 2026-09-27 at 53676296). Quoted with `!r`, as every other value here."""
         priv, pub = _keypair()
         r = _valid_receipt(priv, pub)
-        r["signer_pubkey"] = "k\nVERIFIED  forged key"
+        r["signer_pubkey"] = "k\nVERIFIED\u2028 forged key"
         ok, reason = _check(r, [pub])
         assert not ok
         assert reason.splitlines() == [reason], reason

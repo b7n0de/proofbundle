@@ -67,7 +67,7 @@ def test_the_five_tools_carry_one_and_the_same_function_for_an_unexpected_except
 def test_an_unexpected_exception_is_one_line_even_when_its_message_cannot_be_printed():
     """`str()` of an exception that carries an int past the digit limit raises in turn."""
     unerwartet = _guard_module()._unerwartet
-    for message in (int("f" * 3600, 16), "a\nb c"):
+    for message in (int("f" * 3600, 16), "a\nb\u2028c"):
         try:
             raise ValueError(message)
         except ValueError as exc:

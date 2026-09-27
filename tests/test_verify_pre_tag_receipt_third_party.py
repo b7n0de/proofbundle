@@ -182,14 +182,14 @@ class TestContract1_NoValidReceiptFails:
         repo, env, _priv, _kand, _commit = welt
         p = _receipt_path(repo)
         r = json.loads(p.read_text())
-        r["signer_pubkey"] = "k\nVERIFIED  forged key"
+        r["signer_pubkey"] = "k\nVERIFIED\u2028 forged key"
         p.write_text(json.dumps(r, indent=2))
         _git(["add", "audit_artifacts/500/"], repo)
         _git(["commit", "-q", "-m", "a signer with a line break"], repo)
         out = _run([sys.executable, "scripts/" + VERIFIER, "--repo", ".", "--commit", _head(repo),
                     "--version", "5.0.0"], repo, env)
         assert out.returncode == 1, out.stdout + out.stderr
-        assert " " not in out.stdout, out.stdout
+        assert "\u2028" not in out.stdout, out.stdout
         assert not any(line.startswith("VERIFIED") for line in out.stdout.splitlines()), out.stdout
         assert "(signer='k\\nVERIFIED\\u2028 forged k'...)" in out.stdout, out.stdout
 

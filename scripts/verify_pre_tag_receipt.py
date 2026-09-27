@@ -63,7 +63,7 @@ import sys
 import traceback
 from pathlib import Path
 
-_HEX40 =re.compile(r"\A[0-9a-f]{40}\Z")
+_HEX40 = re.compile(r"\A[0-9a-f]{40}\Z")
 
 #: The limit, in one place, printed with every verdict -- a reader who only sees the last line
 #: must still see it. Keep it in sync with the section in RELEASE.md.
