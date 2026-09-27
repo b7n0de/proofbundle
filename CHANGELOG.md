@@ -72,7 +72,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   eval-result and test-result exports signed the same claim; all three now refuse with
   `BundleFormatError` (exit 2 on `svr` and `intoto`) when the claim's issuer key is one the rule
   refuses, read by the same issuer parser `--expect-issuer` uses, while verifying a receipt keeps the
-  bundle's own key on the §4a profile, as §4b says. Contract
+  bundle's own key on the §4a profile, as §4b says. Every other place under `src/` that signs was
+  swept, and none signs a verdict about a receipt it read; two that the first sweep list left out
+  are not the pattern either: `renewal._sign_ats_content` signs a time authority's own archive
+  time-stamp content, a digest it computed, and `sdjwt_issue.present_with_key_binding` signs the
+  holder's key-binding JWT over the presentation it holds; neither reads an eval receipt. Contract
   `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, 35 cases and 177 subtests: on
   126ed1dc 22 cases fail, 12 of them outright (one of those also with 13 failing subtests) and 10
   only through 112 subtests, 125 failing subtests in all, and the 13 controls and preconditions
