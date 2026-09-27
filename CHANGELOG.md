@@ -275,6 +275,18 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the sweep). With this change the two files have 95 cases and 964 subtests, and all of them pass on
   Python 3.10, 3.11, 3.12, 3.13 and 3.14.
 
+  The sweep also runs in the as-shipped bare install, which has no optional extra. There
+  `inspect_hook` and `_inspect_registry` cannot import (they need `inspect_ai`, extra `inspect`), and
+  the first form of the sweep counted that as a failure, so the hermetic cleanroom went red on
+  c8865652. A module that fails to import is now left out of the sweep only when the failure is a
+  `ModuleNotFoundError` for the top-level module of a package that a declared optional extra
+  installs, that no core dependency installs, and that is absent from the running environment; it
+  is then named in a skip, together with the classified switches that could not be checked there.
+  Every other import failure still fails, and the map from extra to module is held to
+  `[project.optional-dependencies]` of pyproject.toml, so it cannot go stale. This adds 5 cases and
+  11 subtests (100 cases, 975 subtests); they are green against 3a8074fc as well, because they test
+  the sweep itself, and the red case they answer is the cleanroom run of the unchanged file.
+
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
   `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,

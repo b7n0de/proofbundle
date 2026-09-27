@@ -1332,12 +1332,78 @@ def _is_bool_annotation(annotation) -> bool:
     return text in ("bool", "Optional[bool]", "bool|None", "None|bool", "Union[bool,None]", "Union[bool,NoneType]")
 
 
+#: Every package ``[project.optional-dependencies]`` names, by extra: its distribution name (PEP 503
+#: normalised) and the top-level module it installs. ``test_the_extra_map_matches_pyproject`` holds this map to
+#: pyproject.toml, so an extra or a package added there without an entry here fails instead of going stale.
+_OPTIONAL_EXTRAS = {
+    "sdjwt": {}, "adapters": {}, "chia": {}, "experimental": {},
+    "eval": {"rfc8785": "rfc8785"},
+    "anchors": {"rfc3161-client": "rfc3161_client", "opentimestamps": "opentimestamps", "rfc8785": "rfc8785"},
+    "pq": {"cryptography": "cryptography"},
+    "rootcommit": {"ecdsa": "ecdsa"},
+    "formal": {"z3-solver": "z3"},
+    "pytest": {"pytest": "pytest"},
+    "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
+             "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},
+    "inspect": {"inspect-ai": "inspect_ai"},
+    "dev": {"pytest": "pytest", "ruff": "ruff", "jsonschema": "jsonschema", "mypy": "mypy", "build": "build",
+            "hypothesis": "hypothesis", "rfc8785": "rfc8785", "sd-jwt": "sd_jwt", "pyyaml": "yaml",
+            "inspect-ai": "inspect_ai"},
+}
+
+#: The core dependencies (``[project].dependencies``), by the same two names. A missing core dependency is a
+#: broken install, not an absent extra, so its module is never excused, even where an extra names it as well
+#: (``cryptography`` in ``pq``, ``rfc8785`` in four extras).
+_CORE_DEPENDENCIES = {"cryptography": "cryptography", "rfc8785": "rfc8785"}
+
+
+def _is_absent(top: str) -> bool:
+    """True when the top-level module ``top`` cannot be found in the running environment. A finder that raises
+    is not an absence (the failure then stays a failure)."""
+    import importlib.util  # noqa: PLC0415
+    try:
+        return importlib.util.find_spec(top) is None
+    except (ImportError, ValueError):
+        return False
+
+
+def _not_swept_reason(exc: BaseException, *, absent=_is_absent):
+    """Why a module that failed to import is not swept here, or None when the failure must fail the sweep.
+
+    The as-shipped bare install has no optional extra, so a module that imports one at module level cannot be
+    imported there (``inspect_hook`` imports ``inspect_ai``; measured in the hermetic cleanroom at c8865652).
+    Exactly one failure is excused: a ``ModuleNotFoundError`` whose missing top-level module (``exc.name`` up to
+    the first dot) is the import name of a package of a declared optional extra and of no core dependency, when
+    that package is absent from the running environment (``absent``, by default :func:`_is_absent`). Every other
+    failure fails the sweep: an ``ImportError`` for another reason, a missing module no extra declares, a
+    missing core dependency, and a missing submodule of an extra that is installed."""
+    if type(exc) is not ModuleNotFoundError:
+        return None
+    name = exc.name
+    if type(name) is not str or not name:
+        return None
+    top = name.split(".", 1)[0]
+    if top in _CORE_DEPENDENCIES.values():
+        return None
+    extras = sorted(extra for extra, packages in _OPTIONAL_EXTRAS.items() if top in packages.values())
+    if not extras or not absent(top):
+        return None
+    return f"needs {top!r}, which is absent here and comes only with the optional extra(s) {', '.join(extras)}"
+
+
+def _in_modules(module: str, modules) -> bool:
+    """True when ``module`` is one of ``modules`` or lies inside one of them (a subpackage that did not import)."""
+    return any(module == m or module.startswith(m + ".") for m in modules)
+
+
 def _discover_switches():
     """Every bool keyword of every public function under ``src/proofbundle``, found at run time.
 
     Each module of the package is imported; a function counts when its name has no leading underscore and it
     is defined in that module. A parameter counts when its default is a bool or its annotation says bool.
-    Returns ``({(module, function, parameter): default}, {module: import error})``."""
+    Returns ``({(module, function, parameter): default}, {module: import error}, {module: why not swept})``:
+    a module that does not import lands in the second map and fails the sweep, unless
+    :func:`_not_swept_reason` excuses it, and then it is named in the third."""
     import importlib  # noqa: PLC0415
     import inspect  # noqa: PLC0415
     import pkgutil  # noqa: PLC0415
@@ -1346,13 +1412,18 @@ def _discover_switches():
     import proofbundle  # noqa: PLC0415
     found: dict = {}
     failed: dict = {}
+    not_swept: dict = {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for info in pkgutil.walk_packages(proofbundle.__path__, "proofbundle."):
             try:
                 module = importlib.import_module(info.name)
-            except Exception as exc:  # noqa: BLE001 - reported, never skipped silently
-                failed[info.name] = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:  # noqa: BLE001 - classified here, never dropped silently
+                reason = _not_swept_reason(exc)
+                if reason is None:
+                    failed[info.name] = f"{type(exc).__name__}: {exc}"
+                else:
+                    not_swept[info.name] = reason
                 continue
             for name, obj in vars(module).items():
                 if name.startswith("_") or not inspect.isfunction(obj) or obj.__module__ != module.__name__:
@@ -1360,23 +1431,33 @@ def _discover_switches():
                 for param in inspect.signature(obj).parameters.values():
                     if type(param.default) is bool or _is_bool_annotation(param.annotation):
                         found[(module.__name__, name, param.name)] = param.default
-    return found, failed
+    return found, failed, not_swept
 
 
-def _probes():
+def _probes(not_swept=()):
     """For every switch classed relaxing: a call that takes the switch's value. The switch is checked before
     anything else, so a value that is not a bool must be refused whatever the other arguments are; an exact
-    bool must pass the check (the call may then fail for its own reasons, never with SwitchTypeError)."""
-    from proofbundle import anchors_chia_add, assurance, decision, hashalg, hf_evals, outcome, run_ledger  # noqa: PLC0415
-    from proofbundle import trust_pack, verification_summary  # noqa: PLC0415
-    from proofbundle.adapters import _provenance, eee  # noqa: PLC0415
+    bool must pass the check (the call may then fail for its own reasons, never with SwitchTypeError).
+
+    A switch whose module is in ``not_swept`` (an optional extra absent here) gets no probe and its module is
+    not imported; the caller names it."""
+    import importlib  # noqa: PLC0415
+
+    def load(module: str):
+        return None if _in_modules(module, not_swept) else importlib.import_module(module)
+
+    anchors_chia_add, assurance, decision, hashalg, hf_evals, outcome, run_ledger, trust_pack, \
+        verification_summary = (load(f"proofbundle.{m}") for m in (
+            "anchors_chia_add", "assurance", "decision", "hashalg", "hf_evals", "outcome", "run_ledger",
+            "trust_pack", "verification_summary"))
+    _provenance, eee = load("proofbundle.adapters._provenance"), load("proofbundle.adapters.eee")
     signer = generate_signer()
     v01 = _v01_predicate()
     v02 = _v02_predicate()
     deny = json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))
     bundle = _eval_bundle()
     digest = {"sha256": "a" * 64}
-    return {
+    probes = {
         ("proofbundle.adapters._provenance", "bind_reported_version", "bound"):
             lambda v: _provenance.bind_reported_version({}, "harness_version", "1.0", reason="r", bound=v),
         ("proofbundle.adapters.eee", "from_eee_dataset", "validate"):
@@ -1435,23 +1516,79 @@ def _probes():
         ("proofbundle.verification_summary", "emit_verification_summary", "strict"):
             lambda v: verification_summary.emit_verification_summary({}, signer, strict=v),
     }
+    return {key: probe for key, probe in probes.items() if not _in_modules(key[0], not_swept)}
+
+
+def _pyproject():
+    """pyproject.toml of this tree as a dict, or None where it cannot be read: no file (an installed package
+    without its source) or no TOML reader (``tomllib`` from 3.11; on 3.10 pytest itself depends on ``tomli``)."""
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # noqa: PLC0415
+        except ModuleNotFoundError:
+            return None
+    try:
+        text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    return tomllib.loads(text)
+
+
+def _distribution_name(requirement: str) -> str:
+    """The PEP 503 normalised distribution name of a PEP 508 requirement string."""
+    import re  # noqa: PLC0415
+    match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    assert match is not None, f"not a requirement: {requirement!r}"
+    return re.sub(r"[-_.]+", "-", match.group(1)).lower()
 
 
 class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
     """The runtime sweep. A switch whose one side weakens a verdict or a check, or changes what is signed or
     published, counts only as an exact bool; the review of 3a8074fc found three that still read their value by
-    its truth (``applicable``, ``bound``, ``legacy_v01``), and the sweep found the others below."""
+    its truth (``applicable``, ``bound``, ``legacy_v01``), and the sweep found the others below.
+
+    The sweep runs where the shipped suite runs, the as-shipped bare install included, which has no optional
+    extra. There ``inspect_hook`` and ``_inspect_registry`` cannot import (they need ``inspect_ai``), and
+    c8865652 counted that as a failure: the hermetic cleanroom went red. A module that needs an absent extra is
+    now named as not swept here, and nothing else is excused (:func:`_not_swept_reason`); where every extra is
+    installed, nothing is excused at all."""
 
     @classmethod
     def setUpClass(cls):
-        cls.found, cls.failed = _discover_switches()
+        cls.found, cls.failed, cls.not_swept = _discover_switches()
 
     def test_every_module_of_the_package_imports(self):
         self.assertEqual(self.failed, {}, "a module that does not import hides its switches from the sweep")
 
+    def test_a_module_that_needs_an_absent_optional_extra_is_named_as_not_swept(self):
+        """Nothing to assert beyond the classification itself: where every extra is installed this passes with
+        nothing named; where one is absent it is a skip that names each module, the extra it needs, and the
+        classified switches that could therefore not be checked here."""
+        if self.not_swept:
+            unchecked = sorted(".".join(k) for k in _SWITCHES if _in_modules(k[0], self.not_swept))
+            self.skipTest("NOT SWEPT here: " + "; ".join(f"{m} {r}" for m, r in sorted(self.not_swept.items()))
+                          + f"; classified switches not checked here: {unchecked or 'none'}")
+
+    def test_the_extra_map_matches_pyproject(self):
+        data = _pyproject()
+        if data is None:
+            self.skipTest("NOT MEASURABLE: pyproject.toml or a TOML reader is absent here, so the map of optional "
+                          "extras was NOT compared with it")
+        project = data["project"]
+        declared = {extra: {_distribution_name(r) for r in requirements}
+                    for extra, requirements in project["optional-dependencies"].items()}
+        self.assertEqual(declared, {extra: set(packages) for extra, packages in _OPTIONAL_EXTRAS.items()},
+                         "the map of optional extras is stale")
+        self.assertEqual({_distribution_name(r) for r in project["dependencies"]}, set(_CORE_DEPENDENCIES),
+                         "the map of core dependencies is stale")
+
     def test_every_discovered_switch_is_classified_and_every_classified_switch_exists(self):
         self.assertEqual(sorted(set(self.found) - set(_SWITCHES)), [], "a new switch: give it a class")
-        self.assertEqual(sorted(set(_SWITCHES) - set(self.found)), [], "a classified switch no longer exists")
+        not_checked_here = {k for k in _SWITCHES if _in_modules(k[0], self.not_swept)}
+        self.assertEqual(sorted(set(_SWITCHES) - set(self.found) - not_checked_here), [],
+                         "a classified switch no longer exists")
 
     def test_the_premise_of_each_class_holds_for_its_default(self):
         for key, cls in _SWITCHES.items():
@@ -1465,8 +1602,9 @@ class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
 
     def test_every_relaxing_switch_refuses_a_value_that_is_not_a_bool(self):
         import warnings  # noqa: PLC0415
-        probes = _probes()
-        relaxing = sorted(k for k, c in _SWITCHES.items() if c == _RELAXING)
+        probes = _probes(self.not_swept)
+        relaxing = sorted(k for k, c in _SWITCHES.items()
+                          if c == _RELAXING and not _in_modules(k[0], self.not_swept))
         self.assertEqual(sorted(probes), relaxing, "every relaxing switch needs a probe")
         calls: list = []
         for key in relaxing:
@@ -1482,7 +1620,7 @@ class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
 
     def test_control_every_relaxing_switch_lets_an_exact_bool_through(self):
         import warnings  # noqa: PLC0415
-        probes = _probes()
+        probes = _probes(self.not_swept)
         for key, probe in sorted(probes.items()):
             for value in (True, False) + ((None,) if key in _NONE_ALLOWED else ()):
                 with self.subTest(switch=".".join(key), value=value):
@@ -1553,6 +1691,50 @@ class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
                     _membership.require_switch(None, "x", allow_none=value)
                 _assert_refused_as_a_switch(self, cm, "x", None)
                 self.assertEqual(calls, [], "the switch's own methods ran")
+
+
+class TestOnlyAnAbsentOptionalExtraKeepsAModuleOutOfTheSweep(unittest.TestCase):
+    """The excuse of the sweep, on constructed failures, so both directions are measured in every environment:
+    the one failure that is excused, and each neighbour that must still fail. ``absent`` stands in for the
+    environment; the last case asks the real one."""
+
+    _ABSENT = frozenset({"inspect_ai", "opentimestamps", "zz_in_no_extra", "cryptography", "rfc8785"})
+
+    def _reason(self, exc):
+        return _not_swept_reason(exc, absent=lambda top: top in self._ABSENT)
+
+    def test_a_missing_package_of_an_absent_extra_is_named(self):
+        for missing, extra in (("inspect_ai", "inspect"), ("inspect_ai.hooks", "inspect"),
+                               ("opentimestamps.core", "anchors")):
+            with self.subTest(missing=missing):
+                reason = self._reason(ModuleNotFoundError(f"No module named {missing!r}", name=missing))
+                self.assertIsNotNone(reason)
+                self.assertIn(repr(missing.split(".")[0]), reason)
+                self.assertIn(extra, reason)
+
+    def test_every_other_import_failure_fails_the_sweep(self):
+        def missing(name):
+            return ModuleNotFoundError(f"No module named {name!r}", name=name)
+
+        for label, exc in (
+                ("a module no extra declares", missing("zz_in_no_extra")),
+                ("a module of the package itself", missing("proofbundle._zz_planted")),
+                ("a core dependency that an extra names too", missing("cryptography")),
+                ("rfc8785, a core dependency named by four extras", missing("rfc8785.sub")),
+                ("a package of an extra that is installed here", missing("ecdsa")),
+                ("an ImportError for another reason, naming an absent extra", ImportError(
+                    "cannot import name 'Hooks' from 'inspect_ai'", name="inspect_ai")),
+                ("a ModuleNotFoundError without a name", ModuleNotFoundError("No module named 'inspect_ai'")),
+                ("a module whose own code raised", RuntimeError("inspect_ai"))):
+            with self.subTest(failure=label):
+                self.assertIsNone(self._reason(exc))
+
+    def test_the_default_asks_the_running_environment(self):
+        self.assertIs(_is_absent("proofbundle"), False)
+        self.assertIs(_is_absent("cryptography"), False)
+        self.assertIs(_is_absent("zz_no_module_of_this_name_anywhere"), True)
+        self.assertIsNone(_not_swept_reason(ModuleNotFoundError("No module named 'pytest'", name="pytest")),
+                          "pytest runs this test, so its extra is installed and nothing is excused")
 
 
 if __name__ == "__main__":
