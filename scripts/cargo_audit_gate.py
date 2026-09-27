@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,79 @@ def _advisory_id(entry, wo: str):
     if not (isinstance(advisory, dict) and isinstance(advisory.get("id"), str)):
         raise GateError(f"{wo}: an advisory without a string id")
     return advisory["id"]
+
+
+#: The two spellings cargo writes in a lock file for a package from the crates.io registry: the git
+#: index, and the sparse index when the registry is configured with the sparse protocol under its own
+#: name. rustsec 0.33.0 (inside cargo-audit 0.22.2) matches an advisory to a crates.io package only in
+#: the first spelling: smallvec 1.6.0 under the second was reported clean, measured with
+#: RUSTSEC-2021-0003 (lens finding F1 at 5138b4d2).
+CRATES_IO_GIT = "registry+https://github.com/rust-lang/crates.io-index"
+CRATES_IO_SPARSE = "sparse+https://index.crates.io/"
+
+_LOCK_KEY = re.compile(r'(name|version|source|checksum) = "([^"\\]*)"')
+_LOCK_DEPENDENCY = re.compile(r' "[^"\\]*",')
+
+
+def lock_packages(text: str) -> list:
+    """The packages of a Cargo.lock, each a dict with `line`, `name`, `version` and, when the lock names
+    one, `source`. Read in the form cargo writes (comment lines, `version = N`, `[[package]]` blocks with
+    name, version, source, checksum and a `dependencies = [` list, one quoted entry per line); any other
+    line is an error, because a lock this gate cannot read is a lock whose sources it cannot vouch for.
+    Parsed by hand: tomllib is not in the standard library of Python 3.10, the floor of this repository."""
+    pakete: list = []
+    aktuell = None
+    in_liste = False
+    kopf = False
+    for nr, zeile in enumerate(text.split("\n"), 1):
+        if in_liste:
+            if zeile == "]":
+                in_liste = False
+            elif not _LOCK_DEPENDENCY.fullmatch(zeile):
+                raise GateError(f"Cargo.lock line {nr} is not in the form cargo writes: {zeile[:80]!r}")
+            continue
+        if zeile == "" or zeile.startswith("#"):
+            continue
+        if zeile == "[[package]]":
+            aktuell = {"line": nr}
+            pakete.append(aktuell)
+            continue
+        if aktuell is None and not kopf and re.fullmatch(r"version = [0-9]+", zeile):
+            kopf = True
+            continue
+        if aktuell is not None:
+            if zeile == "dependencies = [" and "dependencies" not in aktuell:
+                aktuell["dependencies"] = True
+                in_liste = True
+                continue
+            treffer = _LOCK_KEY.fullmatch(zeile)
+            if treffer and treffer.group(1) not in aktuell:
+                aktuell[treffer.group(1)] = treffer.group(2)
+                continue
+        raise GateError(f"Cargo.lock line {nr} is not in the form cargo writes: {zeile[:80]!r}")
+    if in_liste:
+        raise GateError("Cargo.lock ends inside a dependencies list")
+    for paket in pakete:
+        if "name" not in paket or "version" not in paket:
+            raise GateError(f"Cargo.lock: the package at line {paket['line']} lacks a name or a version")
+    return pakete
+
+
+def foreign_sources(pakete: list) -> list:
+    """Reasons for every package whose source is not the crates.io registry in a spelling cargo writes.
+    A package without a source is a path or workspace member, code of this repository; any other source
+    (a git repository, another registry, another spelling of crates.io) lies outside what the advisory
+    database is matched against, so it fails the gate instead of passing unchecked."""
+    return [f"package {p['name']} {p['version']} (Cargo.lock line {p['line']}) comes from source "
+            f"{p['source']}, which is not the crates.io registry: the audit does not cover it"
+            for p in pakete if "source" in p and p["source"] not in (CRATES_IO_GIT, CRATES_IO_SPARSE)]
+
+
+def crates_io_in_git_spelling(text: str) -> str:
+    """The lock with every crates.io package written in the git-index spelling, the one rustsec matches:
+    the same registry, so the same packages, now checked."""
+    return (text.replace(f'"{CRATES_IO_SPARSE}"', f'"{CRATES_IO_GIT}"')
+            .replace(f"({CRATES_IO_SPARSE})", f"({CRATES_IO_GIT})"))
 
 
 #: The informational kinds cargo-audit 0.22.2 reports by default (`settings.informational_warnings`).
@@ -148,8 +222,19 @@ def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool):
 
 
 def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
-    rc, report = run_audit(directory, lock, cargo, no_fetch)
-    gruende = judge(report)
+    try:
+        text = (directory / lock).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GateError(f"{lock} in {directory} could not be read ({exc})") from exc
+    fremd = foreign_sources(lock_packages(text))
+    geprueft = crates_io_in_git_spelling(text)
+    with tempfile.TemporaryDirectory() as tmp:
+        datei = lock
+        if geprueft != text:
+            datei = str(Path(tmp) / "Cargo.lock")
+            Path(datei).write_text(geprueft, encoding="utf-8")
+        rc, report = run_audit(directory, datei, cargo, no_fetch)
+    gruende = fremd + judge(report)
     listed = listed_ids(report)
     if rc == 1 and not report["vulnerabilities"]["list"]:
         raise GateError("cargo audit exited 1 but reports no vulnerability")
