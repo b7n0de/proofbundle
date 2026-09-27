@@ -33,7 +33,7 @@ from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
-from .sdjwt import verify_sd_jwt
+from .sdjwt import canonical_sd_jwt_compact, verify_sd_jwt
 from ._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64",
@@ -131,6 +131,30 @@ def _sd_jwt_carries_eval_root_commitment(sd_payload) -> bool:
     # commits nothing concrete, but "an eval-shaped commitment present yet evading N1" should not exist. A
     # generic SD-JWT-VC has no receipt object at all, so this never false-refuses one.
     return isinstance(receipt, dict) and isinstance(receipt.get("root_b64"), str)
+
+
+def _canonical_signature_form(bundle):
+    """The form every IDENTITY of ``bundle`` is computed over (finding D1): every signature that has
+    a second valid spelling written in one of them. Today those are the ES256 signatures inside
+    ``sd_jwt_vc.compact``, in the issuer JWT and in a Key Binding JWT
+    (:func:`~proofbundle.sdjwt.canonical_sd_jwt_compact`); :func:`verify_bundle` accepts an issuer
+    signature as ``(r, s)`` and as ``(r, n - s)``. The bundle's own Ed25519 ``signature.sig_b64``
+    has one spelling (S < L is enforced, SPEC §4a, and the strict base64 decoders refuse any other
+    spelling of its bytes).
+
+    Only for computing an identity (the receipt anchor root, the identity of a pb1 token). Nothing
+    proofbundle emits or returns is put into this form: those bytes belong to a foreign issuer, and a
+    Key Binding JWT's ``sd_hash`` covers them as presented (owner decision, 2026-09-26). Returns a
+    shallow copy when something changes and the same object otherwise; never mutates the caller's
+    dict and never raises."""
+    sd = bundle.get("sd_jwt_vc") if isinstance(bundle, dict) else None
+    if not isinstance(sd, dict):
+        return bundle
+    compact = sd.get("compact")
+    canonical = canonical_sd_jwt_compact(compact)
+    if canonical is compact:
+        return bundle
+    return {**bundle, "sd_jwt_vc": {**sd, "compact": canonical}}
 
 
 def _b64d(value: str, field: str) -> bytes:

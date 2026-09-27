@@ -18,6 +18,9 @@ RFC 9901 requirements enforced here (verifier side, §4.3):
     to AND INCLUDING the tilde immediately before the KB-JWT, hashed with the
     SD-JWT's ``_sd_alg`` hash. This binds the KB-JWT to the *presented
     disclosure set*: swapping or dropping a disclosure after signing breaks it.
+    An ES256 issuer signature has two spellings that both verify, ``(r, s)``
+    and ``(r, n - s)``; the hash is accepted over either (finding D1), so the
+    verdict does not depend on which one a relay passed on.
   - the signature is verified with the holder key from the issuer-signed
     payload's ``cnf.jwk`` (RFC 7800; OKP/Ed25519), or an explicitly supplied
     holder key. The cnf key wins when both are available — the issuer's binding
@@ -38,6 +41,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from .sdjwt import _es256_signature_spellings
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
@@ -238,8 +242,17 @@ def verify_key_binding(
         return result
     h.update(_sd_bytes)
     if _b64url_nopad(h.digest()) != sd_hash:
-        result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
-        return result
+        # Finding D1 (owner decision 2026-09-26): an ES256 issuer signature verifies in two spellings,
+        # (r, s) and (r, n - s), and anyone who relays the presentation can turn one into the other.
+        # The holder hashed the spelling it received. The KB-JWT binds the presentation, not the
+        # spelling, so the other spelling is compared too; the two differ in the issuer signature
+        # segment only, never in the payload, a disclosure or the KB-JWT. Measured on 126ed1dc: the
+        # twin of a genuine presentation failed here while verify_sd_jwt accepted it.
+        other_spellings = [s for s in _es256_signature_spellings(sd_part) if s != sd_part]
+        if not any(_b64url_nopad(hashlib.new(_HASH_ALG[sd_alg], s.encode("ascii")).digest()) == sd_hash
+                   for s in other_spellings):
+            result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
+            return result
 
     # Caller policy on aud/nonce values (only enforced when expectations given). `aud` is guaranteed a single
     # non-empty string above (RFC 9901 §4.3), so a direct comparison suffices (no list handling).

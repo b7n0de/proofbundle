@@ -228,6 +228,123 @@ class TestSdjwtVcIssuerSignatureExternalVectors(unittest.TestCase):
         self.assertGreater(found_with_kid, 0, "must not vacuously pass with no kid-bearing example")
 
 
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def _s_of(jws: str) -> int:
+    return int.from_bytes(_b64url_decode(jws.split(".")[2])[32:], "big")
+
+
+def _issuer_s(compact: str) -> int:
+    return _s_of(compact.split("~", 1)[0])
+
+
+def _es256_kb_jwt(compact: str) -> "str | None":
+    """The trailing Key Binding JWT of ``compact`` when it is an ES256 JWS, else None."""
+    last = compact.split("~")[-1]
+    if last.count(".") != 2:
+        return None
+    return last if json.loads(_b64url_decode(last.split(".")[0])).get("alg") == "ES256" else None
+
+
+def _flip(jws: str) -> str:
+    """``jws`` with its signature's s replaced by n - s (the second spelling anyone can write without
+    the key); the header and payload segments are kept byte for byte."""
+    header_b64, payload_b64, sig_b64 = jws.split(".")
+    sig = _b64url_decode(sig_b64)
+    other = sig[:32] + (_P256_N - int.from_bytes(sig[32:], "big")).to_bytes(32, "big")
+    return f"{header_b64}.{payload_b64}.{base64.urlsafe_b64encode(other).rstrip(b'=').decode()}"
+
+
+def _twin(compact: str) -> str:
+    """The issuer-slot twin: everything after the issuer signature segment is kept byte for byte."""
+    parts = compact.split("~")
+    parts[0] = _flip(parts[0])
+    return "~".join(parts)
+
+
+def _kb_twin(compact: str) -> str:
+    """The KB-JWT-slot twin: everything before the KB-JWT signature segment is kept byte for byte."""
+    parts = compact.split("~")
+    parts[-1] = _flip(parts[-1])
+    return "~".join(parts)
+
+
+@unittest.skipUnless(EXAMPLES_PATH.exists() and ISSUER_PUBKEY_PATH.exists(),
+                     "sdjwtvc examples/issuer-key fixtures not vendored")
+class TestSdjwtVcBothSpellingsOneIdentity(unittest.TestCase):
+    """Finding D1 (owner decisions 2026-09-26). Three of these five IETF examples carry a HIGH s in an
+    ES256 signature, which is why verification must keep accepting both spellings. An identity is
+    computed over the low-s form, in the issuer slot and in the Key Binding JWT slot, and the vendored
+    bytes themselves are never rewritten."""
+
+    def setUp(self) -> None:
+        self.examples = _load_examples()
+        self.issuer_pubkey = _load_issuer_pubkey_raw()
+
+    def test_three_of_the_five_examples_carry_a_high_s(self) -> None:
+        # the fixture fact the decision rests on; green before and after the fix. f536af50 stated
+        # "two of the five", counting the issuer slot only.
+        high_issuer = [i for i, c in enumerate(self.examples) if _issuer_s(c) > _P256_N // 2]
+        es256_kb = [i for i, c in enumerate(self.examples) if _es256_kb_jwt(c) is not None]
+        high_kb = [i for i in es256_kb if _s_of(_es256_kb_jwt(self.examples[i])) > _P256_N // 2]
+        self.assertEqual(high_issuer, [3, 4])
+        self.assertEqual(es256_kb, [1, 4])
+        self.assertEqual(high_kb, [1])
+        self.assertEqual(sorted(set(high_issuer) | set(high_kb)), [1, 3, 4])
+
+    def test_every_example_and_its_twins_verify_and_have_one_identity_form(self) -> None:
+        from proofbundle.sdjwt import canonical_sd_jwt_compact  # noqa: PLC0415 - red on 126ed1dc
+        for i, compact in enumerate(self.examples):
+            twins = [_twin(compact)]
+            if _es256_kb_jwt(compact) is not None:
+                twins += [_kb_twin(compact), _kb_twin(_twin(compact))]
+            for spelling in [compact] + twins:
+                res = verify_sd_jwt(spelling, self.issuer_pubkey)
+                self.assertTrue(res["sig_ok"] and res["structure_ok"], f"example {i}: {res['detail']}")
+            form = canonical_sd_jwt_compact(compact)
+            for twin in twins:
+                self.assertNotEqual(twin, compact, f"example {i}")
+                self.assertEqual(canonical_sd_jwt_compact(twin), form, f"example {i}")   # red on f536af50
+            self.assertLessEqual(_issuer_s(form), _P256_N // 2, f"example {i}")
+            if _es256_kb_jwt(form) is not None:
+                self.assertLessEqual(_s_of(_es256_kb_jwt(form)), _P256_N // 2, f"example {i}")
+            self.assertTrue(verify_sd_jwt(form, self.issuer_pubkey)["sig_ok"], f"example {i}")
+            # only signature segments may differ: every header, payload and disclosure stays
+            for mine, theirs in zip(form.split("~"), compact.split("~")):
+                self.assertEqual(mine.split(".")[:2], theirs.split(".")[:2], f"example {i}")
+            if i in (0, 2):
+                self.assertIs(form, compact, f"example {i}: nothing to fold, the same object back")
+
+    def test_the_vendored_bytes_go_out_as_they_came_and_twins_have_one_identity(self) -> None:
+        """Owner decision of 2026-09-26, refined: an emitted bundle, a pb1 token and the bundle
+        ``verify_receipt_token`` returns carry the vendored compact byte for byte; the receipt root
+        and ``receipt_token_identity`` are one for an example and its twins, while the token strings
+        differ. RED on f536af50 (example 3 was the first one rewritten) and on 126ed1dc (example 0
+        and its twin had two receipt roots)."""
+        from proofbundle import emit_bundle, generate_signer  # noqa: PLC0415
+        from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
+        from proofbundle.hf_evals import receipt_token, verify_receipt_token  # noqa: PLC0415
+        pub_b64 = base64.b64encode(self.issuer_pubkey).decode("ascii")
+        bundles = []
+        for i, compact in enumerate(self.examples):
+            bundle = emit_bundle(b'{"x": 1}', generate_signer(),
+                                 sd_jwt_vc={"compact": compact, "issuer_public_key_b64": pub_b64})
+            self.assertEqual(bundle["sd_jwt_vc"]["compact"], compact, f"example {i}: emit_bundle")
+            _result, unpacked = verify_receipt_token(receipt_token(bundle))
+            self.assertEqual(unpacked["sd_jwt_vc"]["compact"], compact, f"example {i}: token")
+            bundles.append(bundle)
+        for i, (compact, bundle) in enumerate(zip(self.examples, bundles)):
+            twins = [_twin(compact)] + ([_kb_twin(compact)] if _es256_kb_jwt(compact) else [])
+            for twin in twins:
+                other = dict(bundle, sd_jwt_vc=dict(bundle["sd_jwt_vc"], compact=twin))
+                self.assertEqual(receipt_canonical_root(other), receipt_canonical_root(bundle), f"example {i}")
+                from proofbundle.hf_evals import receipt_token_identity  # noqa: PLC0415 - new with the fix
+                self.assertNotEqual(receipt_token(other), receipt_token(bundle), f"example {i}: two strings")
+                self.assertEqual(receipt_token_identity(receipt_token(other)),
+                                 receipt_token_identity(receipt_token(bundle)), f"example {i}: one identity")
+
+
 @unittest.skipUnless(EXAMPLES_PATH.exists(), "sdjwtvc examples fixture not vendored")
 class TestSdjwtVcProfileExternalVectors(unittest.TestCase):
     def setUp(self) -> None:

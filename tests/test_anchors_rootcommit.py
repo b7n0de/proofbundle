@@ -33,8 +33,12 @@ def _read(rel: str) -> str:
 
 
 def _has_sig_backend() -> bool:
+    # r = 1, s = 1, v = 27: inside every range eip191 checks before recovery, so the call reaches the
+    # backend import. The earlier probe, 65 zero bytes, stopped reaching it once s = 0 was refused
+    # up front (finding D1), and would then have reported a backend that is not installed.
+    probe = (1).to_bytes(32, "big") + (1).to_bytes(32, "big") + bytes([27])
     try:
-        rc.eip191_recover_address("probe", b"\x00" * 65)   # returns None (bad sig) if a backend exists
+        rc.eip191_recover_address("probe", probe)   # returns an address or None if a backend exists
         return True
     except rc._NoSigLib:
         return False
@@ -169,6 +173,211 @@ class TestRootcommitV2SigSignature(unittest.TestCase):
         self.assertTrue(res["binding"])
         self.assertFalse(res["sig_ok"])
         self.assertTrue(res["reject"])
+
+
+# secp256k1 group order (SEC 2), written out rather than imported from the module under test.
+_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def _twin_text(text: str) -> "tuple[str, bytes, bytes]":
+    """The checkpoint with the v2-sig anchor signature (r, s, v) replaced by (r, n - s, v') where v'
+    flips the recovery id: the second spelling anyone can write without the wallet key. Returns the
+    new text, the original signature and the twin signature."""
+    import base64
+    body, sigs = text.rsplit("\n\n", 1)
+    out, original, twin = [], b"", b""
+    for line in sigs.splitlines():
+        if line.startswith(f"— {rc.KEY_NAME} "):
+            head = line.split(" ", 2)
+            payload = base64.b64decode(head[2])
+            idlen = payload[5]
+            opaque = payload[6 + idlen:]
+            wlen = opaque[1]
+            at = 2 + wlen + 1                                 # 0x02 || wlen || wallet || 0x41 || sig
+            original = opaque[at:at + 65]
+            s, v = int.from_bytes(original[32:64], "big"), original[64]
+            flipped = 55 - v if v in (27, 28) else v ^ 1      # 27 <-> 28, or raw 0 <-> 1
+            twin = original[:32] + (_SECP256K1_N - s).to_bytes(32, "big") + bytes([flipped])
+            opaque = opaque[:at] + twin + opaque[at + 65:]
+            line = f"{head[0]} {head[1]} " + base64.b64encode(payload[:6 + idlen] + opaque).decode()
+        out.append(line)
+    return body + "\n\n" + "\n".join(out) + ("\n" if sigs.endswith("\n") else ""), original, twin
+
+
+@unittest.skipUnless(_HAS_OTS and _HAS_SIG, "needs proofbundle[anchors] + a secp256k1/keccak backend")
+class TestRootcommitV2SigRefusesAHighS(unittest.TestCase):
+    """Finding D1 (owner decision 2026-09-26): eip191 refuses a signature whose s lies in the upper
+    half, as OpenZeppelin's ECDSA.recover does (EIP-2). Measured on 126ed1dc: the twin of the valid
+    vector recovered the same wallet and the whole checkpoint verified with sig_ok True."""
+
+    def test_every_vendored_signature_carries_a_low_s(self):
+        # the fixture fact that makes the refusal free of interop cost; green before and after the fix
+        for name in ("v2sig-01-valid", "v2sig-02-tampered-root", "v2sig-03-tampered-wallet",
+                     "v2sig-04-tampered-sig", "v2sig-05-tampered-proof"):
+            _text, original, _twin = _twin_text(_read(f"vectors_sig/{name}.txt"))
+            self.assertLessEqual(int.from_bytes(original[32:64], "big"), _SECP256K1_N // 2, name)
+
+    def test_the_twin_of_the_valid_signature_is_refused(self):
+        text = _read("vectors_sig/v2sig-01-valid.txt")
+        twin_text, original, twin = _twin_text(text)
+        self.assertNotEqual(twin_text, text)
+        message = f"{rc.V2SIG_MESSAGE_TAG}\n{_COMMITMENT}"
+        self.assertEqual(rc.eip191_recover_address(message, original), _WALLET.lower())
+        self.assertIsNone(rc.eip191_recover_address(message, twin))
+        res = rc.verify_rootcommit_v2sig(twin_text)
+        self.assertTrue(res["binding"])                   # root and wallet are untouched
+        self.assertIs(res["sig_ok"], False)
+        self.assertTrue(res["reject"])
+        self.assertTrue(rc.verify_rootcommit_v2sig(text)["sig_ok"])   # the genuine line still verifies
+
+    def test_the_boundary_is_n_over_two(self):
+        """GREEN on f536af50, RED on 126ed1dc: s = n // 2 still reaches recovery, n // 2 + 1 does not.
+        OpenZeppelin's bound is the same number (0x7FFF...20A0)."""
+        _text, original, _twin = _twin_text(_read("vectors_sig/v2sig-01-valid.txt"))
+        message = f"{rc.V2SIG_MESSAGE_TAG}\n{_COMMITMENT}"
+        self.assertEqual(_SECP256K1_N // 2,
+                         0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0)
+        for v in (27, 28):
+            at_bound = original[:32] + (_SECP256K1_N // 2).to_bytes(32, "big") + bytes([v])
+            above = original[:32] + (_SECP256K1_N // 2 + 1).to_bytes(32, "big") + bytes([v])
+            self.assertIsNotNone(rc.eip191_recover_address(message, at_bound), v)
+            self.assertIsNone(rc.eip191_recover_address(message, above), v)
+
+
+def _with_signature(text: str, make) -> "tuple[str, bytes, bytes]":
+    """The checkpoint with its v2-sig anchor signature replaced by ``make(original)``; every other
+    byte is kept. Returns the new text, the original signature and the new one."""
+    import base64
+    body, sigs = text.rsplit("\n\n", 1)
+    out, original, new = [], b"", b""
+    for line in sigs.splitlines():
+        if line.startswith(f"— {rc.KEY_NAME} "):
+            head = line.split(" ", 2)
+            payload = base64.b64decode(head[2])
+            idlen = payload[5]
+            opaque = payload[6 + idlen:]
+            at = 2 + opaque[1] + 1                            # 0x02 || wlen || wallet || 0x41 || sig
+            original = opaque[at:at + 65]
+            new = make(original)
+            opaque = opaque[:at] + new + opaque[at + 65:]
+            line = f"{head[0]} {head[1]} " + base64.b64encode(payload[:6 + idlen] + opaque).decode()
+        out.append(line)
+    return body + "\n\n" + "\n".join(out) + ("\n" if sigs.endswith("\n") else ""), original, new
+
+
+@unittest.skipUnless(_HAS_OTS and _HAS_SIG, "needs proofbundle[anchors] + a secp256k1/keccak backend")
+class TestEip191OneSignatureTwoTextsOneIdentity(unittest.TestCase):
+    """Finding D1, addendum 11 (owner decision 2026-09-26). Some signers, hardware wallets among them,
+    write ``v`` as the raw recovery id 0/1 instead of 27/28, so eip191 accepts ``v`` in {0, 1, 27, 28}
+    and refuses every other value, EIP-155 values from 35 included (personal_sign has no chain id).
+    ``v = 0`` and ``v = 27`` are one signature in two texts: the checkpoint bytes are never rewritten,
+    and every identity, dedup, replay or log key is computed over ``v`` written as 27/28 and a low s
+    (``eip191_signature_identity``). A high s stays refused. Measured on f536af50 with
+    ``probe_eip191.py``: the v twin of ``v2sig-01-valid`` recovered the same wallet and both
+    checkpoints reported sig_ok True, with different text."""
+
+    def setUp(self):
+        self.text = _read("vectors_sig/v2sig-01-valid.txt")
+        _same, self.original, _new = _with_signature(self.text, lambda sig: sig)
+        self.message = f"{rc.V2SIG_MESSAGE_TAG}\n{_COMMITMENT}"
+
+    def test_the_v_twin_verifies_alike_and_has_one_identity(self):
+        """RED on f536af50 and on 126ed1dc, where ``eip191_signature_identity`` did not exist. The
+        verdicts of the two texts were equal there already."""
+        self.assertEqual(self.original[64], 27)
+        twin_text, _original, twin = _with_signature(self.text, lambda sig: sig[:64] + bytes([0]))
+        self.assertNotEqual(twin_text, self.text, "two texts")
+        genuine, other = rc.verify_rootcommit_v2sig(self.text), rc.verify_rootcommit_v2sig(twin_text)
+        self.assertTrue(genuine["sig_ok"])
+        self.assertFalse(genuine["reject"])
+        self.assertEqual(other, genuine, "one verdict, field for field")
+        self.assertEqual(rc.eip191_recover_address(self.message, twin), _WALLET.lower())
+        identity = rc.eip191_signature_identity(self.original)
+        self.assertEqual(identity, self.original, "v = 27 with a low s is the canonical form")
+        self.assertEqual(rc.eip191_signature_identity(twin), identity, "one identity")
+        self.assertEqual(twin[64], 0, "the caller's bytes are not rewritten")
+        # 28 against 1, the other recovery id: the same rule, and another signature than the one above
+        as28, as1 = self.original[:64] + bytes([28]), self.original[:64] + bytes([1])
+        self.assertEqual(rc.eip191_signature_identity(as1), as28)
+        self.assertEqual(rc.eip191_signature_identity(as28), as28)
+        self.assertIsNotNone(rc.eip191_recover_address(self.message, as28))
+        self.assertEqual(rc.eip191_recover_address(self.message, as1),
+                         rc.eip191_recover_address(self.message, as28))
+        self.assertNotEqual(as28, identity)
+
+    def test_v_outside_the_personal_sign_set_is_refused(self):
+        """GREEN on f536af50 and on 126ed1dc: the accepted set was {0, 1, 27, 28} there already
+        (measured over all 256 values). A guard that it stays so."""
+        for v in (2, 3, 26, 29, 35, 36, 37, 38, 255):
+            self.assertIsNone(rc.eip191_recover_address(self.message, self.original[:64] + bytes([v])), v)
+        for v in (2, 35):
+            text, _original, _new = _with_signature(self.text, lambda sig, v=v: sig[:64] + bytes([v]))
+            res = rc.verify_rootcommit_v2sig(text)
+            self.assertIs(res["sig_ok"], False, v)
+            self.assertTrue(res["reject"], v)
+
+    def test_a_signature_eip191_refuses_has_no_identity(self):
+        """RED on f536af50 and on 126ed1dc, where ``eip191_signature_identity`` did not exist. A high
+        s, s = 0, r outside (0, n), v outside {0, 1, 27, 28} and anything that is not 65 bytes get
+        None, so no key can be formed over a signature that never verifies here."""
+        r, s = self.original[:32], int.from_bytes(self.original[32:64], "big")
+        refused = [self.original[:64] + bytes([v]) for v in (2, 3, 26, 29, 35, 36, 255)]
+        refused += [r + (_SECP256K1_N - s).to_bytes(32, "big") + bytes([v]) for v in (27, 28, 0, 1)]
+        refused += [r + bytes(32) + bytes([27]), bytes(32) + self.original[32:],
+                    _SECP256K1_N.to_bytes(32, "big") + self.original[32:],
+                    self.original[:64], self.original + b"\x00", None, 65, "x" * 65, [0] * 65]
+        for sig in refused:
+            self.assertIsNone(rc.eip191_signature_identity(sig), repr(sig)[:40])
+        self.assertEqual(rc.eip191_signature_identity(bytearray(self.original)), self.original)
+
+
+class TestEip191RefusesWhatEcrecoverRefuses(unittest.TestCase):
+    """Finding D1, lens P3 on f536af50. No ECDSA signature has s = 0 or r outside (0, n) (SEC 1
+    requires both in [1, n - 1]), and ``ecrecover`` gives the zero address for them, so refusing them
+    costs no interop. The owner's reference to OpenZeppelin's ``ECDSA.recover`` is for the high s
+    (addendum 11). These refusals happen before any recovery, so no backend is needed to see them.
+    The ``v`` rule is in ``TestEip191OneSignatureTwoTextsOneIdentity``."""
+
+    def setUp(self):
+        _text, self.original, _twin = _twin_text(_read("vectors_sig/v2sig-01-valid.txt"))
+        self.message = f"{rc.V2SIG_MESSAGE_TAG}\n{_COMMITMENT}"
+
+    def test_s_zero_is_refused(self):
+        """RED on f536af50: s = 0 recovered an address, the same one for every v."""
+        for v in (27, 28, 0, 1):
+            sig = self.original[:32] + bytes(32) + bytes([v])
+            self.assertIsNone(rc.eip191_recover_address(self.message, sig), v)
+
+    def test_r_outside_the_group_is_refused(self):
+        """RED on f536af50: the ``ecdsa`` backend recovered an address from r >= n whenever r (reduced
+        mod p) was the x-coordinate of a curve point, as for r = 2**256 - 1; only r = 0 and the r that
+        lift to no point gave None."""
+        for r in [0, 2 ** 256 - 1] + [_SECP256K1_N + k for k in range(40)]:
+            for v in (27, 28):
+                sig = r.to_bytes(32, "big") + self.original[32:64] + bytes([v])
+                self.assertIsNone(rc.eip191_recover_address(self.message, sig), (r, v))
+
+    def test_a_non_bytes_signature_or_a_non_str_message_is_refused_without_raising(self):
+        """RED on f536af50: None and an int raised a raw TypeError from ``len()``, because the new
+        ``isinstance`` check sat after it; a non-str message raised a raw AttributeError."""
+        for bad in (None, 65, 1.5, True, "x" * 65, [0] * 65, {"s": 1}):
+            self.assertIsNone(rc.eip191_recover_address(self.message, bad), repr(bad)[:20])
+        for bad in (None, b"message", 5, ["m"]):
+            self.assertIsNone(rc.eip191_recover_address(bad, self.original), repr(bad)[:20])
+        self.assertIsNone(rc.eip191_recover_address(self.message, bytearray(self.original[:64])))
+
+    def test_a_message_with_no_utf8_form_is_refused_without_raising(self):
+        """Lens run 2 at accd932c, E2-3. RED on accd932c, f536af50 and 126ed1dc: a str with a lone
+        surrogate has no UTF-8 form, and ``message.encode("utf-8")`` raised UnicodeEncodeError out of
+        a function whose docstring promises None on malformed input."""
+        for bad in ("\ud800", "\udfff", f"{rc.V2SIG_MESSAGE_TAG}\n\ud83d"):
+            self.assertIsNone(rc.eip191_recover_address(bad, self.original), repr(bad))
+        # a message that does have a UTF-8 form, non-ASCII included, still reaches recovery
+        try:
+            recovered = rc.eip191_recover_address("é" * 10, self.original)
+        except rc._NoSigLib:   # pragma: no cover - no backend installed
+            return
+        self.assertIsNotNone(recovered)
 
 
 if __name__ == "__main__":
