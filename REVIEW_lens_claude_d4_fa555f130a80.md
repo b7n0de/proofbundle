@@ -123,7 +123,13 @@ Bewertung (getrennt von der Messung):
 - Rust-Differenz fuer L1 bis L12: NICHT ANWENDBAR, der Rust-Verifier liest Dateien und beurteilt weder
   Claim-Inhalt noch Trust-Pack-Muster; nur `content-root` wurde verglichen.
 - Die Geschwister in Klasse A ausserhalb von `evalclaim` und `intoto`: NICHT GEMESSEN.
-- Volle Suite auf dem Linsenbranch: zum Zeitpunkt dieses Berichts nicht gelaufen; wird nachgereicht.
+- Volle Suite auf dem Linsenbranch, nachgereicht: an 78455de3 (pytest tests/, CPython 3.11.15, uid 0,
+  15:42:01Z bis 16:18:20Z) 26 failed, 5936 passed, 156 skipped, 9151 subtests passed, 2177,4 s. Die 26
+  sind die 23 roten Faelle dieses Laufs, die zwei nur-als-root-Faelle von
+  `test_sammelabbruch_vor_dem_import.py` (an main ebenso) und ein Fehler meiner Testdatei:
+  `test_sdist_ohne_signierwerkzeug.py` erlaubt `from_private_bytes` in einem ausgelieferten Test nur ueber
+  einen ausgeschriebenen Seed, und L8 baute drei Seeds aus einer Schleifenvariablen. Behoben in d6c12c73
+  (dort 20 passed fuer diese Datei); die volle Suite wurde an d6c12c73 nicht erneut gefahren.
 - Ob L1 bis L6 im Register gefuehrt sind: gesucht in `RESTRISIKO_6*.md`, `THREAT_MODEL.md`, `CHANGELOG.md`
   nach Doppellesung und TOCTOU im Objekt, kein Eintrag gefunden; Issues auf GitHub NICHT GEPRUEFT.
 - Keine Aussage ueber Vollstaendigkeit. Die Sonden liegen nicht im Repo; jeder Fund ist durch seinen
