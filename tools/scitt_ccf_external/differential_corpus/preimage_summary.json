@@ -329,6 +329,50 @@
   "protected_content_is_core_deterministic": 29,
   "returned_statement_tagged": 29
  },
+ "per_class": {
+  "control": {
+   "vectors": 2,
+   "accepted": 2,
+   "refused": 0,
+   "preimage_rule_holds": 2
+  },
+  "a": {
+   "vectors": 13,
+   "accepted": 13,
+   "refused": 0,
+   "preimage_rule_holds": 13
+  },
+  "e": {
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0,
+   "preimage_rule_holds": 3
+  },
+  "b": {
+   "vectors": 4,
+   "accepted": 2,
+   "refused": 2,
+   "preimage_rule_holds": 2
+  },
+  "c": {
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2,
+   "preimage_rule_holds": 3
+  },
+  "d": {
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2,
+   "preimage_rule_holds": 3
+  },
+  "f": {
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0,
+   "preimage_rule_holds": 3
+  }
+ },
  "service_source": [
   {
    "what": "registration: the unprotected header is replaced by an empty map, and the SHA-256 of the result is bound as the claims digest, the receipt's data-hash",

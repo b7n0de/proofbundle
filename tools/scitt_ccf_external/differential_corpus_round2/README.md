@@ -155,7 +155,43 @@ not judged SCITT-invalid here. Every one came with HTTP 400 and `InvalidInput`.
 - derived by `python3 ../preimage_candidates.py --corpus differential_corpus_round2 --write`:
   `vectors/<id>/candidate_hashes.json`, `preimage_summary.json`
 
-- Stored: 123 text files, 365459 bytes; the largest is `summary.json`, 20427 bytes.
+- Stored: 123 text files, 368105 bytes; the largest is `summary.json`, 20427 bytes.
+
+## ROUND 3 (NACHTRAG 9 ITEM 1): THE CLASSES ASKED FOR, AND WHERE THEY STAND
+
+Nachtrag 9 item 1 asks for a third round with four class groups. This round already registered
+each group, so no class is repeated and no new vector was registered.
+- Duplicate map keys, equal and conflicting, in the protected and in the unprotected map: h01 to h04.
+- Labels in both buckets, equal and conflicting: h05 to h09 here, and a09 and a10 in the first round.
+- crit with known parameters: i01 to i03. crit with unknown parameters: i04 and i06. crit naming a
+  label that is absent: i05.
+- The control's bytes after a configuration change (j01) and after a restart (j02). A plain restart
+  of the node was refused in this round (PID file exists, exit 103), so the service came back
+  through a recovery from its ledger.
+
+What stays out, with the reason:
+- crit naming a known parameter that is absent: NOT MEASURABLE on this service as a one-variable
+  mutation. The only parameters crit may name for a did:x509 issuer are 15 and 33
+  (scitt-ccf-ledger `00101f769d872711356e080fbb089ac48589c60a`, `app/src/verifier.h` lines 75 to
+  111). The same file requires both before the crit check runs (lines 426 to 438): the CWT issuer to
+  enter the did:x509 path, and the x5chain by an explicit check. Removing either one fails the
+  statement before crit is read.
+- crit for a did:attestedsvc issuer: NOT MEASURABLE here. That path needs SEV-SNP attestation
+  material, and the node runs in virtual mode.
+- A software-version boundary: NOT MEASURABLE. No second CCF image is available. The container of
+  this session has no image and no running container daemon at all.
+
+Per class (`per_class` in `preimage_summary.json`). The preimage rule holds when candidates
+3-tagged and 4-tagged both equal the receipt's data-hash. The third oracle
+(`../vendored_encoder_result.json`) rebuilds the hashed bytes of every accepted vector of every class.
+
+| class | vectors | accepted | refused | preimage rule holds |
+|---|---|---|---|---|
+| control | 1 | 1 | 0 | 1 of 1 |
+| g | 9 | 8 | 1 | 8 of 8 |
+| h | 9 | 5 | 4 | 5 of 5 |
+| i | 8 | 3 | 5 | 3 of 3 |
+| j | 2 | 2 | 0 | 2 of 2 |
 
 ## NOT MEASURED, NOT MEASURABLE
 

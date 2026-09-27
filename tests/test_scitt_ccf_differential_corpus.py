@@ -88,6 +88,8 @@ def test_one_byte_string_is_the_data_hash_preimage_of_every_accepted_vector():
     assert summary["same_bytes_in_every_accepted_vector"]["4-tagged"] == full
     assert matches["1"] == 5 and matches["5-sorted-tagged"] == 14 and matches["6"] == 0
     assert matches["11"] == 21
+    assert all(v["preimage_rule_holds"] == v["accepted"] for v in summary["per_class"].values())
+    assert sum(v["vectors"] for v in summary["per_class"].values()) == 35
     assert sorted(v for v in per if not per[v]["candidates"]["11"]["equals_data_hash"]) == [
         "b01-width4", "b02-width8", "c01-width2", "c02-width4", "c03-width8", "d01-width2", "d02-width4", "d03-width8"]
     stored = json.loads((CORPUS / "preimage_summary.json").read_text(encoding="utf-8"))

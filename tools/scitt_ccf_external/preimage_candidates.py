@@ -403,10 +403,11 @@ def _hex(path: Path) -> bytes:
 def derive(corpus: Path) -> tuple:
     """({vector id: candidate_hashes.json object}, preimage_summary.json object)."""
     man = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    per, byte_sets = {}, {}
+    per, byte_sets, classes = {}, {}, {}
     for vid in man["vectors"]:
         d = corpus / "vectors" / vid
         rec = json.loads((d / "record.json").read_text(encoding="utf-8"))
+        classes.setdefault(rec["class"], []).append((vid, rec["service"]["accepted"]))
         if not rec["service"]["accepted"]:
             continue
         raw = {name: _hex(d / name) for name in ("request.hex", "statement.hex", "receipt.hex")}
@@ -479,6 +480,12 @@ def derive(corpus: Path) -> tuple:
             key: sum(1 for v in per.values() if v["facts"][key])
             for key in ("returned_contents_equal_request_contents", "protected_content_is_core_deterministic",
                         "returned_statement_tagged")},
+        "per_class": {
+            cls: {"vectors": len(vs), "accepted": sum(1 for _v, a in vs if a),
+                  "refused": sum(1 for _v, a in vs if not a),
+                  "preimage_rule_holds": sum(1 for v, a in vs if a and per[v]["candidates"]["3-tagged"]["equals_data_hash"]
+                                             and per[v]["candidates"]["4-tagged"]["equals_data_hash"])}
+            for cls, vs in classes.items()},
         "service_source": SOURCE,
     }
     return per, summary

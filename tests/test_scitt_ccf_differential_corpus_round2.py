@@ -87,6 +87,8 @@ def test_one_byte_string_is_the_data_hash_preimage_of_every_accepted_vector_of_t
     assert not_deterministic == sorted(v for v in per if v.startswith("g"))
     assert len(not_deterministic) == 8
     assert matches["4-deep-tagged"] == 11
+    per_class = {k: (v["vectors"], v["accepted"], v["refused"], v["preimage_rule_holds"]) for k, v in summary["per_class"].items()}
+    assert per_class == {"control": (1, 1, 0, 1), "g": (9, 8, 1, 8), "h": (9, 5, 4, 5), "i": (8, 3, 5, 3), "j": (2, 2, 0, 2)}
     assert sorted(v for v in per if not per[v]["candidates"]["4-deep-tagged"]["equals_data_hash"]) == not_deterministic
 
 

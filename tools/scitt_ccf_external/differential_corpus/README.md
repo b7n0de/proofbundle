@@ -158,6 +158,19 @@ No other candidate or variant matches all 29.
 | `10-element` | protected, payload and signature as preferred-head bstrs, concatenated | 0 of 29 | not encoded by cbor2 |
 | `11` | request with its unprotected map replaced by `a0`, every other byte as submitted | 21 of 29 | not encoded by cbor2 |
 
+Per class (`per_class` in `preimage_summary.json`). The preimage rule holds when candidates
+3-tagged and 4-tagged both equal the receipt's data-hash:
+
+| class | vectors | accepted | refused | preimage rule holds |
+|---|---|---|---|---|
+| control | 2 | 2 | 0 | 2 of 2 |
+| a | 13 | 13 | 0 | 13 of 13 |
+| b | 4 | 2 | 2 | 2 of 2 |
+| c | 5 | 3 | 2 | 3 of 3 |
+| d | 5 | 3 | 2 | 3 of 3 |
+| e | 3 | 3 | 0 | 3 of 3 |
+| f | 3 | 3 | 0 | 3 of 3 |
+
 What the partial matches show:
 
 - Candidate 1 matches in 5 vectors: control, control-resubmitted, f01, f02 and f03. There, the
@@ -272,7 +285,7 @@ regression fixtures:
 
 - One service commit, one node, virtual mode; a production service is NOT MEASURED.
 - One signer and one payload; other algorithms and payload sizes are NOT MEASURED.
-- Stored: 163 text files, 485691 bytes; the largest is `README.md`, 20372 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
+- Stored: 163 text files, 486813 bytes; the largest is `README.md`, 20808 bytes. Before the preimage candidates: 133 files, 312103 bytes. Before C1 b: 38 files, 627944 bytes.
 - No further mutation classes in this directory (owner answer C2 c). The four classes of the owner order of 2026-09-26 are in `../differential_corpus_round2/`.
 - Written by `../differential_corpus.py run`; rerunning it replaces `vectors/` with new signatures and new transaction ids.
 
