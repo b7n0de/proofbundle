@@ -38,7 +38,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   not in a presentation from `present_with_key_binding`, with or without a KB-JWT. (4) A low s is
   required only of signatures proofbundle makes itself. It makes no ES256 signature today; its own
   signatures on these paths are Ed25519, which has one spelling by the S bound, and a test keeps an
-  inventory of the ECDSA code in the package so a new signing path is noticed.
+  inventory of the ECDSA code in the package so a new signing path is noticed. proofbundle also
+  signs with ML-DSA (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal layer);
+  whether an ML-DSA signature has a second spelling was not measured in this change.
 
   Why (3), for an external reviewer: a Key Binding JWT's `sd_hash` covers the issuer JWT exactly as
   presented (RFC 9901 §4.3). A first version of this change on the same branch (f536af50) wrote the
@@ -64,7 +66,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   also refuses s = 0 and r outside (0, n), which no ECDSA signature has (SEC 1) and for which
   `ecrecover` gives the zero address. Measured on f536af50: s = 0 recovered an address for every v,
   and r = n + k recovered one for 21 of the 40 values k < 40. A signature that is not bytes, or a
-  message that is not a str, now gives None instead of a raw TypeError or AttributeError.
+  message that is not a str, now gives None instead of a raw TypeError or AttributeError, and so
+  does a message with no UTF-8 form (a lone surrogate), which raised UnicodeEncodeError on 126ed1dc,
+  on f536af50 and on accd932c (lens run 2).
 
   The same class in a second form, decided by the owner on 2026-09-26 as addendum 11 (the reference
   to `ECDSA.recover` above holds for the high s only): `v` is accepted as 27/28 or as the raw
@@ -85,14 +89,20 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   matches its root. None of the 618 JSON files tracked in this repository (616 of them parse)
   carries an ES256 `sd_jwt_vc`. SPEC §6 and §7i state the rules. Before the change, the places where
   signature bytes enter an identity were mapped for ES256, secp256k1, Ed25519 and ML-DSA; the
-  Ed25519 and ML-DSA rows have no such twin, because the S bound and the strict base64 decoders
-  leave one spelling. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
+  Ed25519 row has no such twin, because the S bound and the strict base64 decoders leave one
+  spelling, and the ML-DSA row is the one named above as not measured. The receipt-root steps in
+  `docs/ANCHORS.md` state the exact domain the code folds: strict unpadded base64url, a header
+  read by the strict JSON reader (a duplicate key refused), `alg` ES256, a 64-byte signature with
+  n/2 < S < n. An earlier text of this change folded any header that decodes to ES256, wider than
+  the code, and a padded or duplicate-key header then got one root by the text and two in code
+  (lens run 2 at accd932c); both forms fail verification. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
   `tests/test_signature.py`, `tests/test_sdjwtvc_external_vectors.py` and
-  `tests/test_anchors_rootcommit.py`: 34 cases. Against f536af50, the first version of this
-  change, 19 are red; the 15 green there are cases carried over from it and guards. Against
-  126ed1dc, 21 are red; the 13 green there are guards and the rules 126ed1dc already kept (it never
-  rewrote a foreign issuer's bytes, and it accepted the same four values of v). Each case says which
-  in its docstring.
+  `tests/test_anchors_rootcommit.py`: 37 cases. Against f536af50, the first version of this
+  change, 20 are red; the 17 green there are cases carried over from it and guards. Against
+  126ed1dc, 22 are red; the 15 green there are guards and the rules 126ed1dc already kept (it never
+  rewrote a foreign issuer's bytes, and it accepted the same four values of v). Against accd932c,
+  the second version, 1 is red (the lone surrogate); the case that checks the text of
+  `docs/ANCHORS.md` fails on that commit's text. Each case says which in its docstring.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

@@ -366,6 +366,19 @@ class TestEip191RefusesWhatEcrecoverRefuses(unittest.TestCase):
             self.assertIsNone(rc.eip191_recover_address(bad, self.original), repr(bad)[:20])
         self.assertIsNone(rc.eip191_recover_address(self.message, bytearray(self.original[:64])))
 
+    def test_a_message_with_no_utf8_form_is_refused_without_raising(self):
+        """Lens run 2 at accd932c, E2-3. RED on accd932c, f536af50 and 126ed1dc: a str with a lone
+        surrogate has no UTF-8 form, and ``message.encode("utf-8")`` raised UnicodeEncodeError out of
+        a function whose docstring promises None on malformed input."""
+        for bad in ("\ud800", "\udfff", f"{rc.V2SIG_MESSAGE_TAG}\n\ud83d"):
+            self.assertIsNone(rc.eip191_recover_address(bad, self.original), repr(bad))
+        # a message that does have a UTF-8 form, non-ASCII included, still reaches recovery
+        try:
+            recovered = rc.eip191_recover_address("é" * 10, self.original)
+        except rc._NoSigLib:   # pragma: no cover - no backend installed
+            return
+        self.assertIsNotNone(recovered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -223,8 +223,11 @@ both spellings, and the rules are these:
   rewritten issuer signature would fail that check at every verifier that hashes
   the bytes it gets.
 - **A low `s` is required only of signatures the implementation makes itself.**
-  This implementation makes no ES256 signature today; its own signatures are
-  Ed25519, which has one spelling (§4a).
+  This implementation makes no ES256 signature today. Its own signatures on these
+  paths (the bundle signature, an SD-JWT it issues, a Key Binding JWT it
+  presents) are Ed25519, which has one spelling (§4a). It also signs with ML-DSA
+  (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal
+  layer); whether an ML-DSA signature has a second spelling was not measured.
 
 The cost is that a receipt and its twin are two different `pb1.` token strings;
 they have one identity. The **sd-jwt-key-binding** check below accepts an

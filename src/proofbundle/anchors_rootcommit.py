@@ -271,7 +271,8 @@ def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
     and so did ``r >= n`` whenever ``r`` (reduced mod p) happened to be the x-coordinate of a curve
     point, 21 of the 40 values ``r = n + k`` for ``k < 40``; ``r = 0`` gave None. A ``sig65`` that is
     not bytes, or a ``message`` that is not a str, is malformed input and gives None; both raised a
-    raw TypeError or AttributeError on f536af50.
+    raw TypeError or AttributeError on f536af50. So does a ``message`` with no UTF-8 form (a lone
+    surrogate), which raised UnicodeEncodeError on 126ed1dc, f536af50 and accd932c.
 
     ``v`` is accepted as 27/28 or as the raw recovery id 0/1, and every other value is refused,
     EIP-155 values from 35 included (see :func:`_eip191_signature_parts`). ``v = 0`` and ``v = 27``
@@ -284,7 +285,12 @@ def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
     if parts is None:
         return None
     rs, rec_id = parts
-    body = message.encode("utf-8")
+    try:
+        body = message.encode("utf-8")
+    except UnicodeEncodeError:
+        # A str with a lone surrogate has no UTF-8 form, so no wallet signed it: malformed input,
+        # None as the docstring says. Measured on accd932c: `"\ud800"` raised UnicodeEncodeError here.
+        return None
     digest = _keccak256(b"\x19Ethereum Signed Message:\n" + str(len(body)).encode() + body)
     try:
         from ecdsa import SECP256k1, VerifyingKey  # noqa: PLC0415

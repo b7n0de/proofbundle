@@ -38,11 +38,25 @@ receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload
 both (SPEC §6). So that one receipt has one root, the root is computed over one spelling:
 
 1. Take the receipt bundle and drop its `anchors` field.
-2. If it carries `sd_jwt_vc.compact`, split the compact on `~`. The ES256 slots are the first part
-   (the issuer JWT) and, when the last part is a compact JWS (two dots), the last part (the Key
-   Binding JWT). For each slot whose JWS header has `"alg": "ES256"` and whose signature decodes to
-   64 bytes `R‖S` (big-endian) with `⌊n / 2⌋ < S < n`, replace the signature segment with the
-   base64url, unpadded, of `R‖(n − S)`. Every other byte of the compact stays as it is.
+2. If it carries `sd_jwt_vc.compact`, split the compact on `~`. The candidate slots are the first
+   part (the issuer JWT) and, when the last part contains exactly two dots, the last part (the Key
+   Binding JWT). A slot is folded when all of the following hold, and only then:
+   - it has exactly three dot-separated segments;
+   - its header segment is strict base64url: the URL-safe alphabet only, no `=` padding, and pad
+     bits zero (RFC 4648 §5 and §3.5);
+   - the header decodes to a JSON object as proofbundle's strict JSON reader reads it
+     (`_strict_json.loads_strict`, the reader verification uses): a duplicate key or a lone
+     surrogate in a string is refused, and so is anything over its size, depth or node limits;
+   - that object has `"alg": "ES256"`;
+   - its signature segment is strict base64url in the same sense and decodes to 64 bytes `R‖S`
+     (big-endian) with `⌊n / 2⌋ < S < n`.
+
+   A folded slot gets its signature segment replaced with the base64url, unpadded, of `R‖(n − S)`.
+   Every other slot, and every other byte of the compact, stays as it is. So a slot whose header
+   segment is padded, or whose header carries a duplicate key, is not folded, and its two spellings
+   keep two roots. A bundle that carries such a slot fails verification too, because verification
+   reads the header with the same strict rules; this step folds no wider domain than verification
+   accepts.
 3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
 
 This form exists only to compute the root. The bundle itself is never rewritten: a Key Binding

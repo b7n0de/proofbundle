@@ -180,11 +180,60 @@ def _compact_in_token(token: str) -> str:
     return json.loads(zlib.decompress(_unb64u(token[len("pb1."):])))["sd_jwt_vc"]["compact"]
 
 
+_B64URL_ALPHABET = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+
+def _strict_b64url(segment: str) -> "bytes | None":
+    """docs/ANCHORS.md, step 2: the URL-safe alphabet only, no ``=`` padding, pad bits zero. The
+    last condition holds exactly when re-encoding the decoded bytes gives the segment back."""
+    if not segment or not set(segment) <= _B64URL_ALPHABET or len(segment) % 4 == 1:
+        return None
+    raw = _unb64u(segment)
+    return raw if _b64u(raw) == segment else None
+
+
+def _strict_json_object(raw: bytes) -> "dict | None":
+    """docs/ANCHORS.md, step 2: a JSON object, a duplicate key or a lone surrogate refused."""
+    def no_duplicates(pairs):
+        keys = [k for k, _ in pairs]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate key")
+        return dict(pairs)
+    try:
+        obj = json.loads(raw, object_pairs_hook=no_duplicates)
+    except ValueError:
+        return None
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, str) and any(0xD800 <= ord(ch) <= 0xDFFF for ch in cur):
+            return None
+        if isinstance(cur, dict):
+            stack.extend(cur.keys())
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return obj if isinstance(obj, dict) else None
+
+
+def _docs_name_the_fold_domain(text: str) -> list:
+    """The conditions of step 2 that the receipt-root section of ``docs/ANCHORS.md`` does not name.
+    Empty when the text states the domain the code folds."""
+    start = text.index("**The receipt root, step by step**")
+    section = " ".join(text[start:text.index("## Schema", start)].split())   # line breaks do not count
+    wanted = {"strict base64url": "strict base64url", "no padding": "no `=` padding",
+              "pad bits zero": "pad bits zero", "duplicate key refused": "duplicate key",
+              "lone surrogate refused": "lone surrogate", "the strict reader": "loads_strict",
+              "the signature segment strict too": "signature segment is strict base64url"}
+    return [name for name, phrase in wanted.items() if phrase not in section]
+
+
 def _root_per_docs(bundle: dict) -> bytes:
     """The receipt root as ``docs/ANCHORS.md`` defines it in three steps, written from that text
-    rather than from the module: drop ``anchors``; in ``sd_jwt_vc.compact`` write each ES256 signature
-    (the issuer JWT's, and a trailing KB-JWT's) of 64 bytes with n // 2 < s < n as (r, n - s),
-    base64url without padding, every other byte kept; sha256 of the RFC 8785 serialization."""
+    rather than from the module: drop ``anchors``; in ``sd_jwt_vc.compact`` fold each candidate slot
+    (the first part, and a last part with two dots) that meets every condition of step 2, and keep
+    every other byte; sha256 of the RFC 8785 serialization. The size limits of the strict reader are
+    not modelled; no input here comes near them."""
     import rfc8785  # noqa: PLC0415 - a core dependency since 3.6.1
     receipt = {k: v for k, v in bundle.items() if k != "anchors"}
     sd = receipt.get("sd_jwt_vc")
@@ -192,10 +241,13 @@ def _root_per_docs(bundle: dict) -> bytes:
         parts = sd["compact"].split("~")
         slots = [0] + ([len(parts) - 1] if len(parts) > 1 and parts[-1].count(".") == 2 else [])
         for i in slots:
-            header = json.loads(_unb64u(parts[i].split(".")[0]))
-            signature = _unb64u(parts[i].split(".")[2])
-            if (header.get("alg") == "ES256" and len(signature) == 64
-                    and N // 2 < int.from_bytes(signature[32:], "big") < N):
+            segments = parts[i].split(".")
+            if len(segments) != 3:
+                continue
+            header_raw, signature = _strict_b64url(segments[0]), _strict_b64url(segments[2])
+            header = _strict_json_object(header_raw) if header_raw is not None else None
+            if (header is not None and header.get("alg") == "ES256" and signature is not None
+                    and len(signature) == 64 and N // 2 < int.from_bytes(signature[32:], "big") < N):
                 parts[i] = _flip_jws(parts[i])
         receipt = dict(receipt, sd_jwt_vc=dict(sd, compact="~".join(parts)))
     return hashlib.sha256(rfc8785.dumps(receipt)).digest()
@@ -372,6 +424,43 @@ class TwinsHaveOneIdentity(unittest.TestCase):
                                               "canonicalRoot": "AAAA", "proof": "AAAA"}])
             self.assertEqual(receipt_token_identity(receipt_token(anchored)), _root_per_docs(bundle),
                              f"{label}: anchors are detached evidence and do not enter the identity")
+
+    def test_the_docs_fold_no_wider_domain_than_the_code(self):
+        """Lens run 2 at accd932c, E2-2: the docs recipe of that commit folded any header that decodes
+        to ``"alg": "ES256"``, the code only what its strict decoders accept. For an issuer JWT with a
+        padded header segment or a duplicate key, the twins got one root by the docs and two in code.
+        Both forms fail verification, and no issuer emits them; the fix narrows the TEXT to the
+        code's domain and leaves the code's fold as it was. So this case is GREEN on accd932c (the
+        code already behaved) and pins that code and text now agree on both edge forms; the text
+        itself is checked by ``test_the_docs_name_the_domain_of_the_fold``."""
+        from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
+
+        def signed(header_segment: str) -> str:
+            body = _b64u(json.dumps({"vct": VCT}).encode())
+            r, s = decode_dss_signature(self.key.sign(f"{header_segment}.{body}".encode(),
+                                                      ec.ECDSA(hashes.SHA256())))
+            s = s if s > N // 2 else N - s
+            return f"{header_segment}.{body}.{_b64u(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))}~"
+
+        padded = base64.urlsafe_b64encode(b'{"alg":"ES256" }').decode("ascii")
+        self.assertTrue(padded.endswith("=="))
+        edge_forms = {"padded header segment": signed(padded),
+                      "duplicate key in the header": signed(_b64u(b'{"alg":"ES256","alg":"ES256"}'))}
+        for label, compact in edge_forms.items():
+            bundle = _carrying(compact, self.pub_b64)
+            twin = _with_compact(bundle, _twin(compact))
+            self.assertFalse(verify_bundle(bundle).ok, label)
+            self.assertFalse(verify_bundle(twin).ok, label)
+            for spelling in (bundle, twin):
+                self.assertEqual(receipt_canonical_root(spelling), _root_per_docs(spelling), label)
+            self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
+                                f"{label}: not folded, by the code and by the text")
+
+    def test_the_docs_name_the_domain_of_the_fold(self):
+        """RED on the docs/ANCHORS.md of accd932c, which named neither condition (measured by running
+        ``_docs_name_the_fold_domain`` on that text)."""
+        text = (SRC.parents[1] / "docs" / "ANCHORS.md").read_text(encoding="utf-8")
+        self.assertEqual(_docs_name_the_fold_domain(text), [])
 
     def test_an_anchor_stamped_per_the_docs_covers_both_spellings(self):
         """F4, end to end: an anchor whose canonicalRoot a third party computed from docs/ANCHORS.md
