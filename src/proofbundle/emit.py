@@ -114,7 +114,12 @@ def emit_bundle(
     accepted by :func:`proofbundle.verify_bundle`.
 
     ``sd_jwt_vc`` is passed through verbatim if given (for example
-    ``{"compact": "...", "issuer_public_key_b64": "..."}``).
+    ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
+    are never rewritten, an ES256 signature with a high s included: a Key Binding JWT's ``sd_hash``
+    covers the issuer JWT exactly as presented (RFC 9901 §4.3), and rewriting it broke that binding
+    for every verifier that hashes the bytes it gets (finding D1, measured on f536af50). An identity
+    of the bundle is computed over the canonical low-s form instead
+    (:func:`proofbundle.anchors.receipt_canonical_root`).
     """
     leaves = list(prior_leaves) + [payload]
     index = len(leaves) - 1

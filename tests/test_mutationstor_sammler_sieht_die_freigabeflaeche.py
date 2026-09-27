@@ -406,7 +406,8 @@ def test_das_kommando_des_tors_traegt_die_drei_riegel(monkeypatch, tmp_path):
              "schreibt `1 error` — bei Basislinie 0 verbucht `red > baseline` das als KILL, "
              "obwohl kein Test lief")):
         assert flag in argv, f"{flag} fehlt im Aufruf des Tors: {warum}. Gemessen: {argv}"
-    assert kw.get("timeout") == 1800, (
+    # 3600 since Z230: the whole suite took 2168 s in CI, and a selection can be almost all of it.
+    assert kw.get("timeout") == 3600, (
         f"Der Lauf hat keinen Timeout ({kw.get('timeout')!r}). Ausgerechnet der Operator, der die "
         f"Ressourcendecke entfernt, kann haengen; ein Tor, dessen Unterprozess haengt, meldet "
         f"nichts und haelt den ganzen Lauf an (K5).")
