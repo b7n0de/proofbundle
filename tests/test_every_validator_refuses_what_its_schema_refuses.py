@@ -49,6 +49,7 @@ import tempfile
 import unicodedata
 import unittest
 import unittest.mock
+import warnings
 
 try:
     import jsonschema
@@ -246,9 +247,13 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # not (`\A\d+\Z()`, `(?:\A\d+){1}\Z`); an alternation, the top-level one included, is a set of
 # branches (`\A\d+\Z|none`, `(?:^|/)x$`); a group matched zero times or more anchors nothing; and a
 # lookaround is read as an anchor in the forms `(?=\Z)`, `(?=$)`, `(?=\n?\Z)` (the `$` of re), `(?!.)`
-# under DOTALL and a negative lookahead of a class of every character. An anchor in a lookaround or a
-# conditional group in another form, inline flags past the start, a group that is not closed, and more
-# than `_ANCHOR_WORK` steps for one call leave it undecided, and the call is an unfolded site.
+# under DOTALL and a negative lookahead of a class of every character, and in any other form Python's own
+# parse of it shows to be one (`_umschau_einordnung`: a negative lookaround of parts that match every
+# character, `(?!.|\n)`, `(?![^\n]|\n)`, `(?!(?s:.))`; lens on a7c9674d). A lookaround that parse shows
+# to be no anchor is off the path. One it cannot place, and an anchor in a lookaround or a conditional
+# group in another form, leave the branch undecided, a possible anchor at that side and never none: where
+# the branch's other anchor could complete it, the call is an unfolded site. Inline flags past the start,
+# a group that is not closed, and more than `_ANCHOR_WORK` steps for one call make it an unfolded site.
 #
 # A CALLEE is resolved through the bindings of the scope it is read in, the machinery of the fold
 # (`_Module.funktionen`): an import from `re`, an assignment (chained, annotated, a literal tuple, an
@@ -264,9 +269,14 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # only through another module's caller is not followed. A compiled pattern is read as a scan and as the
 # `match` or `fullmatch` its module takes of the name or attribute it is bound to, or of another name that
 # name is bound to, as `R.match`, `re.Pattern.match(R, ...)`, `type(R).match(R, ...)`,
-# `R.__class__.match(R, ...)` or `getattr(R, "match")` (a `getattr` by a name the sweep cannot read makes
-# it an unfolded site); one that reaches `.match` or `.fullmatch` through a parameter, a container, a loop
-# variable, a return value or a pattern type bound to another name is judged by its own anchors.
+# `R.__class__.match(R, ...)`, `getattr(R, "match")`, `R.__getattribute__("match")`,
+# `attrgetter("match")(R)` or `methodcaller("match", s)(R)` (lens on a7c9674d: the last three were silent;
+# `attrgetter` and `methodcaller` are known by that name as an attribute or through `from operator import
+# ... as`, not when bound to a name otherwise, and a name the sweep cannot read makes the call an unfolded
+# site); one that reaches `.match` or `.fullmatch` through a
+# parameter, a container, a loop variable, a return value, a pattern type bound to another name or
+# another reflective route (`vars(type(R))["match"]`, `type(R).__dict__["match"]`,
+# `functools.partial(getattr, R)`, `attrgetter("x.match")`) is judged by its own anchors.
 #
 # WHERE IT SWEEPS. Under src/proofbundle, scripts/ and tools/, both readings. The release tools carried
 # their own RFC3339 copies with `\d` (audit_candidate_matrix, findings_register, the one of them behind
@@ -399,6 +409,15 @@ def _partial_names(tree) -> tuple:
         elif isinstance(node, ast.ImportFrom) and node.module == "functools" and not node.level:
             partials |= {a.asname or a.name for a in node.names if a.name == "partial"}
     return modules, partials
+
+
+def _operator_names(tree) -> dict:
+    """The names `from operator import attrgetter as ag` (or `methodcaller`) binds, to the function's name."""
+    names: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "operator" and not node.level:
+            names.update({a.asname or a.name: a.name for a in node.names if a.name in ("attrgetter", "methodcaller")})
+    return names
 
 
 def _is_partial(func, modules, partials) -> bool:
@@ -655,6 +674,16 @@ def _receiver_key(node):
     return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
 
 
+def _genommen(receiver, names) -> tuple | None:
+    """(receiver, the attributes among `names` that are `match` or `fullmatch`) when the call takes an
+    attribute of `receiver` by these names; (receiver, None) when one of them is not a literal text, which
+    may be `match`; None when every name is a literal and none is `match` or `fullmatch`."""
+    if not all(isinstance(n, ast.Constant) and isinstance(n.value, str) for n in names):
+        return receiver, None
+    taken = frozenset(n.value for n in names) & {"match", "fullmatch"}
+    return (receiver, taken) if taken else None
+
+
 class _Module:
     """What the sweep reads of one module before it folds anything: the names of `re` and of its
     attributes, the scopes and bindings (`_scopes`), the definition around each node, and the names a
@@ -668,6 +697,13 @@ class _Module:
          self.function_entries) = _scopes(self.tree)
         self.re_names, self.star = _re_names(self.tree)
         self.where = _definitions(self.tree)
+        # WHAT A CALLEE AND A CLASS ATTRIBUTE RESOLVE TO, ONCE PER MODULE (lens on a7c9674d, F7-2b): both
+        # depend only on the name and the scopes it is read in, and resolving them anew for every call made
+        # a class chain of 2000 with 2000 calls take 12.8 s, and a name bound 4000 times with 4000 calls
+        # 22.1 s, since each call walked the whole chain or every binding again.
+        self._funktionen_memo: dict = {}
+        self._klassen_memo: dict = {}
+        self.operator_names = _operator_names(self.tree)
         self.receivers: dict = {}
         self.unread_receivers: set = set()
         for node in ast.walk(self.tree):
@@ -677,19 +713,26 @@ class _Module:
                     self.receivers.setdefault(key, set()).add(node.attr)
             elif isinstance(node, ast.Call) and node.args:
                 taken = self.takes_match(node)
-                key = _receiver_key(node.args[0]) if taken else None
+                key = _receiver_key(taken[0]) if taken else None
                 if key and taken[1] is None:
                     self.unread_receivers.add(key)
                 elif key:
-                    self.receivers.setdefault(key, set()).add(taken[1])
+                    self.receivers.setdefault(key, set()).update(taken[1])
         self._aliases()
 
     def _aliases(self):
         """A compiled pattern bound to a second name is matched through that one too: the way the second
         name is matched counts for the first, along every assignment of one name or attribute to another
         (both branches of a conditional, each operand of `or` and `and`), until nothing changes. Lens on
-        fb6eda0d: `S = R` and `S.match(s)` read `R = re.compile(r"\\d+\\Z")` as a scan."""
-        kanten = []
+        fb6eda0d: `S = R` and `S.match(s)` read `R = re.compile(r"\\d+\\Z")` as a scan.
+
+        A WORK LIST, NOT A PASS PER STEP (lens on a7c9674d, F7-2b): the first form went over every edge
+        until a pass changed nothing, and a chain written in the order `A1 = A0`, ..., `A5000 = A4999`
+        moves one step per pass, so 5000 lines took 17.9 s and 8000 took 39.5 s (on fb6eda0d, which read
+        no alias, 0.40 s and 0.70 s). A name is taken up again only when what is known of it grew, and it
+        can grow three times at most (`match`, `fullmatch`, a name not read), so the cost is linear in the
+        edges. The closure is the same."""
+        kanten: dict = {}
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Assign):
                 ziele, wert = node.targets, node.value
@@ -698,18 +741,21 @@ class _Module:
             else:
                 continue
             for ziel in ziele:
-                kanten += _alias_paare(ziel, wert)
-        geaendert = bool(kanten)
-        while geaendert:
-            geaendert = False
-            for ziel, quelle in kanten:
-                neu = self.receivers.get(ziel, set()) - self.receivers.get(quelle, set())
+                for z, q in _alias_paare(ziel, wert):
+                    kanten.setdefault(z, []).append(q)
+        todo = [k for k in kanten if k in self.receivers or k in self.unread_receivers]
+        while todo:
+            ziel = todo.pop()
+            hat, ungelesen = self.receivers.get(ziel, set()), ziel in self.unread_receivers
+            for quelle in kanten[ziel]:
+                neu = hat - self.receivers.get(quelle, set())
                 if neu:
                     self.receivers.setdefault(quelle, set()).update(neu)
-                    geaendert = True
-                if ziel in self.unread_receivers and quelle not in self.unread_receivers:
+                if ungelesen and quelle not in self.unread_receivers:
                     self.unread_receivers.add(quelle)
-                    geaendert = True
+                    neu = True
+                if neu and quelle in kanten:
+                    todo.append(quelle)
 
     def mustertyp(self, expr) -> bool:
         """Is `expr` the type of a compiled pattern: `re.Pattern` by a name the sweep resolves, `type(R)` or
@@ -722,24 +768,31 @@ class _Module:
         return "Pattern" in self.funktionen(expr)[0]
 
     def takes_match(self, call):
-        """(receiver, attribute) when a call takes `match` or `fullmatch` of its first argument: for
-        `re.Pattern.match(R, ...)`, `type(R).match(R, ...)`, `getattr(R, "match")` and
-        `getattr(type(R), "match")(R, ...)` that attribute, for a `getattr` by a name the sweep cannot
-        read None; None when the call takes neither."""
+        """(receiver, attributes) when a call takes `match` or `fullmatch` of a compiled pattern, the
+        receiver being the node that pattern is: for `re.Pattern.match(R, ...)`, `type(R).match(R, ...)`,
+        `getattr(R, "match")`, `getattr(type(R), "match")(R, ...)`, `R.__getattribute__("match")`,
+        `object.__getattribute__(R, "match")`, `attrgetter("match")(R)` and
+        `methodcaller("match", ...)(R)` the set of those attributes, for a name the sweep cannot read
+        None; None when the call takes neither. `attrgetter` and `methodcaller` are known by their name as
+        an attribute (`operator.attrgetter`) or as the name `from operator import ... as` binds (lens on
+        a7c9674d: the last four forms were silent)."""
         func = call.func
         if isinstance(func, ast.Name) and func.id == "getattr" and len(call.args) >= 2:
-            name = call.args[1]
-            if isinstance(name, ast.Constant) and isinstance(name.value, str):
-                return (call.args[0], name.value) if name.value in ("match", "fullmatch") else None
-            return call.args[0], None
+            return _genommen(call.args[0], call.args[1:2])
+        if isinstance(func, ast.Attribute) and func.attr == "__getattribute__" and call.args:
+            return (_genommen(func.value, call.args[:1]) if len(call.args) == 1
+                    else _genommen(call.args[0], call.args[1:2]))
         if isinstance(func, ast.Attribute) and func.attr in ("match", "fullmatch") and self.mustertyp(func.value):
-            return call.args[0], func.attr
-        if (isinstance(func, ast.Call) and isinstance(func.func, ast.Name) and func.func.id == "getattr"
-                and len(func.args) >= 2 and self.mustertyp(func.args[0])):
-            name = func.args[1]
-            if isinstance(name, ast.Constant) and isinstance(name.value, str):
-                return (call.args[0], name.value) if name.value in ("match", "fullmatch") else None
-            return call.args[0], None
+            return call.args[0], frozenset({func.attr})
+        if isinstance(func, ast.Call) and call.args and func.args:
+            name = self.operator_names.get(func.func.id, func.func.id) if isinstance(func.func, ast.Name) else (
+                func.func.attr if isinstance(func.func, ast.Attribute) else None)
+            if name == "getattr" and len(func.args) >= 2 and self.mustertyp(func.args[0]):
+                return _genommen(call.args[0], func.args[1:2])
+            if name == "attrgetter":
+                return _genommen(call.args[0], func.args)
+            if name == "methodcaller":
+                return _genommen(call.args[0], func.args[:1])
         return None
 
     def bindungen(self, ident, chain) -> tuple:
@@ -775,7 +828,23 @@ class _Module:
         module-level class. Lens on ac05d85d: `c = d = re.compile`, `c: object = re.compile`,
         `d = c` after `c = re.compile`, and `c = re.compile if X else re.match` each passed the sweep
         without a reading and without a gap. Any other binding of such a name is a reason; with no
-        attribute of `re` found, the callee is not a function of `re`."""
+        attribute of `re` found, the callee is not a function of `re`. A name, or an attribute of a name, is
+        resolved once per module and scope (`_funktionen_memo`)."""
+        memo = None
+        if isinstance(callee, ast.Name):
+            memo = ("name", callee.id, tuple(map(id, self.scope_of.get(id(callee), ()))))
+        elif isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name):
+            memo = ("attr", callee.value.id, callee.attr, tuple(map(id, self.scope_of.get(id(callee.value), ()))))
+        if memo in self._funktionen_memo:
+            functions, reasons = self._funktionen_memo[memo]
+            return set(functions), list(reasons)
+        functions, reasons = self._funktionen(callee)
+        if memo is not None:
+            self._funktionen_memo[memo] = (frozenset(functions), tuple(reasons))
+        return functions, reasons
+
+    def _funktionen(self, callee) -> tuple:
+        """`funktionen`, computed."""
         functions, reasons, seen, todo = set(), [], set(), [callee]
         while todo:
             expr = todo.pop()
@@ -837,7 +906,14 @@ class _Module:
         """Where `klasse.attr` is bound: in the class body, else in its bases in turn, as far as each base
         is a class the sweep reads. ((key, bindings, label) per class that binds it, why a base was not
         followed). Lens on fb6eda0d: `L.j(...)` with `class L(K)` and `j = re.compile` in `K` passed the
-        sweep, since only the body of `L` was read."""
+        sweep, since only the body of `L` was read. Read once per class and attribute (`_klassen_memo`)."""
+        memo = self._klassen_memo.get((id(klasse), attr))
+        if memo is None:
+            memo = self._klassen_memo[(id(klasse), attr)] = tuple(map(tuple, self._klassen_attribut(klasse, attr)))
+        return list(memo[0]), list(memo[1])
+
+    def _klassen_attribut(self, klasse, attr) -> tuple:
+        """`klassen_attribut`, computed."""
         gefunden, warum, gesehen, todo = [], [], set(), [klasse]
         while todo:
             k = todo.pop(0)
@@ -1442,7 +1518,8 @@ def _modes(module, node, function) -> tuple:
     """(how a call's pattern is matched, why that is not decided): `match` anchors it at the start and
     `fullmatch` at both ends (review 5 on e176414c: `re.match(r"\\d+\\Z", s)` judges a whole value and was
     not read), the rest scan. A compiled pattern is read as a scan and as every one of the two its module
-    takes of it, directly, as `re.Pattern.match(R, ...)` or as `getattr(R, "match")`, on the pattern
+    takes of it, directly, as `re.Pattern.match(R, ...)`, as `getattr(R, "match")` or through
+    `__getattribute__`, `attrgetter` or `methodcaller` (`_Module.takes_match`), on the pattern
     itself or on the name or attribute it is bound to (`_Module`). Where the module takes an attribute of
     that name by a name the sweep cannot read, which may be `match`, it is not decided."""
     if function in ("match", "fullmatch"):
@@ -1450,11 +1527,17 @@ def _modes(module, node, function) -> tuple:
     if function not in ("compile", "_compile"):
         return {"search"}, None
     up = module.parent.get(id(node))
+    taken = None
     if isinstance(up, ast.Attribute) and up.value is node:
-        return {"search"} | ({up.attr} & {"match", "fullmatch"}), None
-    taken = module.takes_match(up) if isinstance(up, ast.Call) and up.args and up.args[0] is node else None
+        oben = module.parent.get(id(up))
+        taken = module.takes_match(oben) if isinstance(oben, ast.Call) and oben.func is up else None
+        if not (taken and taken[0] is node):
+            return {"search"} | ({up.attr} & {"match", "fullmatch"}), None
+    elif isinstance(up, ast.Call) and up.args and up.args[0] is node:
+        taken = module.takes_match(up)
+        taken = taken if taken and taken[0] is node else None
     if taken:
-        return ({"search", taken[1]}, None) if taken[1] else ({"search"}, _UNREAD_RECEIVER)
+        return ({"search"} | taken[1], None) if taken[1] else ({"search"}, _UNREAD_RECEIVER)
     targets = (up.targets if isinstance(up, ast.Assign) and up.value is node
                else [up.target] if isinstance(up, (ast.AnnAssign, ast.NamedExpr)) and up.value is node else [])
     keys = {t.id if isinstance(t, ast.Name) else t.attr for t in targets if isinstance(t, (ast.Name, ast.Attribute))}
@@ -1475,7 +1558,8 @@ _NAMED_GROUP = re.compile(r"\(\?P<[^>]*>")
 _ANY_CHARACTER = frozenset({r"[\s\S]", r"[\S\s]", r"[\d\D]", r"[\D\d]", r"[\w\W]", r"[\W\w]"})
 #: How many characters and set steps the anchor reader may spend on the patterns of one call. Past it,
 #: the call is an unfolded site (lens on fb6eda0d: a pattern of 4257 characters with 100 nested groups
-#: and 64 end branches took 51.5 s, since the first reader walked each chain once per branch and level).
+#: and 64 end branches took 45.6 s in one run of fb6eda0d's sweep here, measured 2026-09-27 at a load
+#: average near 23; timings vary with load. The first reader walked each chain once per branch and level).
 _ANCHOR_WORK = 500_000
 
 
@@ -1725,22 +1809,195 @@ def _umschau_anker(art, innen, flags):
     return None
 
 
-def _umschau_lesung(rahmen, menge, anker, innen) -> frozenset:
+#: Python's own parser of a pattern (`sre_parse` up to 3.10, `re._parser` from 3.11 on).
+_PARSER = getattr(re, "_parser", None) or re.sre_parse
+#: The parts of a pattern whose match at a position depends only on the text from there on.
+_KONTEXTFREI = frozenset({"LITERAL", "NOT_LITERAL", "ANY", "IN", "BRANCH", "SUBPATTERN", "MAX_REPEAT",
+                          "MIN_REPEAT", "POSSESSIVE_REPEAT", "ATOMIC_GROUP"})
+#: The characters a lookaround one character wide is tried on, beside the ones its own literals and
+#: ranges border: controls, ASCII letters, digits and signs, the edges of Latin-1, three letters case
+#: folding joins to ASCII, an Arabic-Indic digit, a line separator, a surrogate and the ends of the planes.
+_PROBEN = (0, 9, 10, 13, 32, 45, 46, 48, 57, 65, 90, 95, 97, 122, 127, 128, 160, 255, 0x130, 0x17F, 0x212A,
+           0x661, 0x2028, 0xD800, 0xFFFF, 0x10000, 0x10FFFF)
+_KATEGORIEPAARE = (("CATEGORY_DIGIT", "CATEGORY_NOT_DIGIT"), ("CATEGORY_SPACE", "CATEGORY_NOT_SPACE"),
+                   ("CATEGORY_WORD", "CATEGORY_NOT_WORD"))
+
+
+def _teile(teil, flags):
+    """(name, argument, flags in force) of every part of a parsed pattern, and of the parts of its groups,
+    alternations, repetitions and lookarounds, in a loop. A condition is a part, not entered."""
+    stapel = [(teil, flags)]
+    while stapel:
+        sub, fl = stapel.pop()
+        for op, av in getattr(sub, "data", sub):
+            name = getattr(op, "name", str(op))
+            yield name, av, fl
+            if name == "BRANCH":
+                stapel += [(p, fl) for p in av[1]]
+            elif name == "SUBPATTERN":
+                stapel.append((av[3], (fl | av[1]) & ~av[2]))
+            elif name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
+                stapel.append((av[2], fl))
+            elif name == "ATOMIC_GROUP":
+                stapel.append((av, fl))
+            elif name in ("ASSERT", "ASSERT_NOT"):
+                stapel.append((av[1], fl))
+
+
+def _deckt_alles(teil, flags, hoechstes) -> bool:
+    """Does a part that depends only on the text after it match at every position a character follows,
+    as a class of every character does? Read from its parts: one character wide, or repeated at least once,
+    alternatives joined; `.` under DOTALL, a class of complementary categories (`\\d` and `\\D` under one
+    ASCII flag), ranges and literals that cover every code point, `.` or a negated class of a few
+    characters beside the characters it leaves out. A part it cannot read adds nothing, so the answer
+    can only err towards no, never towards yes."""
+    ausser, positiv, kategorien, stapel = None, [], set(), [(teil, flags)]
+    while stapel:
+        sub, fl = stapel.pop()
+        daten = getattr(sub, "data", sub)
+        if len(daten) != 1:
+            continue
+        op, av = daten[0]
+        name = getattr(op, "name", str(op))
+        if name == "ANY":
+            if fl & re.S:
+                return True
+            ausser = {10} if ausser is None else ausser & {10}
+        elif name == "LITERAL":
+            positiv.append((av, av))
+        elif name == "NOT_LITERAL" and not fl & re.I:
+            ausser = {av} if ausser is None else ausser & {av}
+        elif name == "IN":
+            teile = [(getattr(o, "name", str(o)), a) for o, a in av]
+            if any(n == "NEGATE" for n, _a in teile):
+                klein = set()
+                for n, a in teile:
+                    if n == "LITERAL":
+                        klein.add(a)
+                    elif n == "RANGE" and a[1] - a[0] < 4096:
+                        klein.update(range(a[0], a[1] + 1))
+                    elif n != "NEGATE":
+                        klein = None
+                        break
+                if klein is not None and not fl & re.I:
+                    ausser = klein if ausser is None else ausser & klein
+                continue
+            for n, a in teile:
+                if n == "LITERAL":
+                    positiv.append((a, a))
+                elif n == "RANGE":
+                    positiv.append(a)
+                elif n == "CATEGORY":
+                    kategorien.add((getattr(a, "name", str(a)), fl & (re.A | re.L)))
+        elif name == "BRANCH":
+            stapel += [(p, fl) for p in av[1]]
+        elif name == "SUBPATTERN":
+            stapel.append((av[3], (fl | av[1]) & ~av[2]))
+        elif name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT") and av[0] == 1:
+            stapel.append((av[2], fl))
+        elif name == "ATOMIC_GROUP":
+            stapel.append((av, fl))
+    if any((a, m) in kategorien and (b, m) in kategorien for a, b in _KATEGORIEPAARE for _k, m in kategorien):
+        return True
+    if ausser is not None:
+        return all(any(lo <= c <= hi for lo, hi in positiv) for c in ausser)
+    frei = 0
+    for lo, hi in sorted(positiv):
+        if lo > frei:
+            return False
+        frei = max(frei, hi + 1)
+    return frei > hoechstes
+
+
+def _umschau_einordnung(art, innen, flags, is_bytes, budget):
+    """How a lookaround without an anchor in it, and not in one of the forms `_umschau_anker` reads, reads:
+    its readings when it is an anchor, "abseits" when it is surely none, None when that is not decided.
+
+    Lens on a7c9674d (F7-2a): `\\A\\d+(?!.|\\n)`, `(?<!.|\\n)\\d+\\Z`, `\\A\\d+(?![^\\n]|\\n)`,
+    `\\A\\d+(?!(?s:.))`, `\\A\\d+(?![\\x00-\\U0010FFFF])` and `(?s)\\A\\d+(?!.{1})` each judge a whole value
+    with a Unicode `\\d`, and passed without a word: a lookaround whose spelling the reader did not know
+    counted as no anchor. It is read from Python's own parse of it now. A positive lookaround X made only
+    of parts that depend on the text after it (`_KONTEXTFREI`), of `\\b` and `\\B`, and of `^` and `$`
+    under MULTILINE is no anchor of the value: wherever it holds at an end, it holds before a `\\n` too
+    (or, for a lookbehind, after one). A negative lookaround of such parts only holds at the end (at the
+    start) exactly when X matches wherever a character follows (precedes); it is read as an anchor when
+    `_deckt_alles` shows that, and as none when X misses one of the probe characters, or needs a second
+    one to fit. A negative lookahead whose parts look only to their right (lookaheads, `$`, `\\Z`) is
+    read as none when X misses a probe character that is the last one of the value, since X then sees
+    exactly that one character. Anything else, a reference, a lookbehind or a condition inside, a text
+    Python does not parse on its own, is not decided."""
+    budget.charge(4 * len(innen) + len(_PROBEN))
+    fl = flags & (re.I | re.S | re.M | re.A | (re.L if is_bytes else re.U))
+    quelle = innen.encode("latin-1") if is_bytes else innen
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            teil = _PARSER.parse(quelle, fl)
+            lo, hi = teil.getwidth()
+            muster = re.compile(quelle, fl)
+    except Exception:  # noqa: BLE001 - a text the parser refuses on its own (an outer group named) is not decided
+        return None
+    kontextfrei, rechts, grenzen, proben = True, True, True, set(_PROBEN)
+    for name, av, f in _teile(teil, fl):
+        if name in _KONTEXTFREI:
+            for n, a in ([(getattr(o, "name", str(o)), x) for o, x in av] if name == "IN" else [(name, av)]):
+                if n in ("LITERAL", "NOT_LITERAL"):
+                    proben.update((a - 1, a, a + 1))
+                elif n == "RANGE":
+                    proben.update((a[0] - 1, a[1] + 1))
+            continue
+        kontextfrei, ziel = False, getattr(av, "name", "") if name == "AT" else ""
+        grenzen = grenzen and (ziel in ("AT_BOUNDARY", "AT_NON_BOUNDARY")
+                               or (ziel in ("AT_BEGINNING", "AT_END") and bool(f & re.M)))
+        rechts = rechts and (ziel in ("AT_END", "AT_END_STRING")
+                             or (name in ("ASSERT", "ASSERT_NOT") and av[0] == 1))
+    if art in ("=", "<="):
+        return "abseits" if grenzen else None
+    if kontextfrei and lo == 0:
+        return "abseits"            # a negative one that matches the empty text never holds: a dead branch
+    if art == "<!" and lo > 1:
+        return "abseits"            # one character in, the lookbehind has no room, so it holds there
+    hoechstes = 0xFF if is_bytes else 0x10FFFF
+    if kontextfrei and (art == "!" or hi == 1) and _deckt_alles(teil, fl, hoechstes):
+        return _ENDE_Z if art == "!" else _START
+    if kontextfrei or (art == "!" and rechts):
+        for c in sorted(p for p in proben if 0 <= p <= hoechstes)[:256]:
+            if muster.match(bytes([c]) if is_bytes else chr(c)) is None:
+                return "abseits"
+    return None
+
+
+def _verborgene_anker(menge) -> int:
+    """The anchors the readings of a lookaround's or a condition's inside carry (1 start, 2 end, and what
+    they leave undecided): a lookaround read as an anchor inside another one is such an anchor."""
+    return functools.reduce(operator.or_, ((1 if s else 0) | (2 if e else 0) | x for s, e, _u, x in menge), 0)
+
+
+def _umschau_lesung(rahmen, menge, anker, innen, is_bytes, budget) -> frozenset:
     """The readings of one lookaround alternative: its anchor when it is one, not decided when an anchor
-    stands in it in another form, and off the path otherwise."""
+    stands in it in another form, and otherwise as `_umschau_einordnung` reads it; what that does not
+    decide stays undecided as a possible anchor at its side, never off the path."""
     if rahmen.verbose:
         innen = _stripped(innen, True)
     erkannt = _umschau_anker(rahmen.art, innen, rahmen.flags)
     if erkannt is not None:
         return erkannt
-    if anker:
-        return frozenset({(False, 0, any(u for _s, _e, u, _x in menge), anker)})
-    return _abseits(menge)
+    unicode = any(u for _s, _e, u, _x in menge)
+    verborgen = anker | _verborgene_anker(menge)
+    if verborgen:
+        return frozenset({(False, 0, unicode, verborgen)})
+    einordnung = _umschau_einordnung(rahmen.art, innen, rahmen.flags, is_bytes, budget)
+    if einordnung == "abseits":
+        return _abseits(menge)
+    if einordnung is not None:
+        return einordnung
+    return frozenset({(False, 0, unicode, 1 if rahmen.art in ("<=", "<!") else 2)})
 
 
-def _schliessen(rahmen, i, text, budget) -> frozenset:
+def _schliessen(rahmen, i, text, is_bytes, budget) -> frozenset:
     """The readings of the group closed at `i`. A positive lookaround is read per alternative (one of
-    `(?=\\s|$)` ends the value like `$`); a negative one and a conditional group as a whole."""
+    `(?=\\s|$)` ends the value like `$`); a negative one and a conditional group as a whole. A condition
+    holding an anchor, a lookaround read as one included, is not decided."""
     alternativen = rahmen.alternativen(i)
     koerper = frozenset().union(*(m for m, _a, _b, _e in alternativen))
     budget.charge(len(koerper) + len(alternativen))
@@ -1748,10 +2005,12 @@ def _schliessen(rahmen, i, text, budget) -> frozenset:
         return koerper
     anker = functools.reduce(operator.or_, (a for _m, a, _b, _e in alternativen), 0)
     if rahmen.art in ("=", "<="):
-        return frozenset().union(*(_umschau_lesung(rahmen, m, a, text[b:e]) for m, a, b, e in alternativen))
+        return frozenset().union(*(_umschau_lesung(rahmen, m, a, text[b:e], is_bytes, budget)
+                                   for m, a, b, e in alternativen))
     if rahmen.art in ("!", "<!"):
-        return _umschau_lesung(rahmen, koerper, anker, text[alternativen[0][2]:i])
-    return frozenset({(False, 0, any(u for _s, _e, u, _x in koerper), anker)}) if anker else _abseits(koerper)
+        return _umschau_lesung(rahmen, koerper, anker, text[alternativen[0][2]:i], is_bytes, budget)
+    verborgen = anker | _verborgene_anker(koerper)
+    return frozenset({(False, 0, any(u for _s, _e, u, _x in koerper), verborgen)}) if verborgen else _abseits(koerper)
 
 
 def _lesung(text, is_bytes, flags, budget) -> frozenset:
@@ -1813,7 +2072,7 @@ def _lesung(text, is_bytes, flags, budget) -> frozenset:
             gruppe = stapel.pop()
             for _m, anker, _b, _e in gruppe.alternativen(i):
                 stapel[-1].anker |= anker
-            i = _anhaengen(stapel[-1], _schliessen(gruppe, i, text, budget), text, i + 1, budget)
+            i = _anhaengen(stapel[-1], _schliessen(gruppe, i, text, is_bytes, budget), text, i + 1, budget)
         elif c == "|":
             rahmen.strich(i)
             i += 1
@@ -2518,7 +2777,8 @@ class TheSweepReadsTheFormsOfTheLensOnFb6eda0d(unittest.TestCase):
 
     def test_the_lens_inputs_stay_bounded(self):
         """H and I in the bounded child. A pattern of 4257 characters with 100 nested groups and 64 end
-        branches took 51.5 s on fb6eda0d, since the chain walk cost depth times length per branch; read in
+        branches took 45.6 s in one run of fb6eda0d's sweep here (2026-09-27, at a load average near 23;
+        timings vary with load), since the chain walk cost depth times length per branch; read in
         one pass it keeps its two readings. Sixty-four texts of about 9000 characters for one call spend
         more than `_ANCHOR_WORK`, and the call is an unfolded site. The two results of I, with four values
         of the text, took the process to a peak of 541 MiB there; they are gaps judged before anything is
@@ -2553,6 +2813,83 @@ class TheSweepReadsTheFormsOfTheLensOnFb6eda0d(unittest.TestCase):
         for name in ("a format of 3333 fields, four values", "a mapping named 2000 times"):
             with self.subTest(input=name):
                 self.assertIn(_LARGE, result[name]["gaps"])
+        self.assertLess(result["_peak_bytes"], 200 * 10**6)
+
+
+class TheSweepReadsTheFormsOfTheLensOnA7c9674d(unittest.TestCase):
+    """A lens on a7c9674d (F7-2a, F7-2b) planted lookarounds and receivers past the sweep and measured three
+    inputs past ten seconds; none was live in the tree. Each case fails on a7c9674d's sweep."""
+
+    _lines = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._lines)
+    _sites = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._sites)
+
+    def test_a_lookaround_python_parses_as_an_anchor_is_read_as_one(self):
+        """F7-2a. Six negative lookarounds match no character after (before) the value, each spelled in a
+        form the reader did not know, and each branch judges a whole value with a Unicode `\\d`; all six
+        passed without a word. Read from Python's parse of the lookaround now. A lookaround that is surely
+        no anchor stays off the path (`(?!.)` without DOTALL ends a line, `(?!\\d)` and `(?!ab)` hold before
+        other characters); one the reader cannot place is an unfolded site, never none: `(?!\\b)`, a
+        lookahead holding a lookahead read as an anchor, and a condition holding one."""
+        planted = ('import re\nA = re.compile(r"\\A\\d+(?!.|\\n)")\nB = re.search(r"(?<!.|\\n)\\d+\\Z", s)\n'
+                   'C = re.compile(r"\\A\\d+(?![^\\n]|\\n)")\nD = re.compile(r"\\A\\d+(?!(?s:.))")\n'
+                   'E = re.compile(r"\\A\\d+(?![\\x00-\\U0010FFFF])")\nF = re.compile(r"(?s)\\A\\d+(?!.{1})")\n'
+                   'G = re.compile(r"\\A\\d+(?!\\D|\\d)")\nH = re.compile(r"\\A\\d+(?![\\s\\S]+)")\n'
+                   'I = re.compile(r"\\A\\d+(?!.)")\nJ = re.compile(r"\\A\\d+(?!\\d)")\nK = re.compile(r"\\A\\d+(?!ab)")\n'
+                   'L = re.compile(r"\\A[0-9]+(?!.|\\n)")\n'
+                   'M = re.compile(r"\\A\\d+(?!\\b)")\nN = re.compile(r"(?s)\\A\\d+(?=(?!.))")\n'
+                   'O = re.compile(r"(?s)\\A(x)?\\d+(?(1)(?!.)|(?!.))")\n')
+        self.assertEqual(self._lines(planted), [2, 3, 4, 5, 6, 7, 8, 9])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 3)])
+
+    def test_match_taken_by_getattribute_attrgetter_or_methodcaller_is_read(self):
+        """F7-2a. `R.__getattribute__("match")(s)`, `operator.attrgetter("match")(T)(s)` and
+        `operator.methodcaller("fullmatch", s)(U)` judge a whole value with `\\d+\\Z` and were read as a scan;
+        so were the unbound form and a pattern taken directly. A name the sweep cannot read is an unfolded
+        site, and `search` taken so is still a scan."""
+        planted = ('import re, operator\nfrom operator import attrgetter as ag\n'
+                   'R = re.compile(r"\\d+\\Z")\nA = R.__getattribute__("match")(s)\n'
+                   'T = re.compile(r"\\d+\\Z")\nB = operator.attrgetter("match")(T)(s)\n'
+                   'U = re.compile(r"\\d+\\Z")\nC = operator.methodcaller("fullmatch", s)(U)\n'
+                   'V = re.compile(r"\\d+\\Z")\nD = object.__getattribute__(V, "match")(s)\n'
+                   'E = re.compile(r"\\d{2}\\Z").__getattribute__("fullmatch")(s)\n'
+                   'W = re.compile(r"\\d+\\Z")\nF = ag("match")(W)(s)\n'
+                   'X = re.compile(r"\\d+\\Z")\nG = X.__getattribute__(name)(s)\n'
+                   'Y = re.compile(r"\\d+\\Z")\nH = Y.__getattribute__("search")(s)\n')
+        self.assertEqual(self._lines(planted), [3, 5, 7, 9, 11, 12])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 1)])
+
+    def test_the_lens_inputs_on_a7c9674d_stay_bounded(self):
+        """F7-2b in the bounded child. An alias chain of 5000 and 8000 names took 17.9 s and 39.5 s on
+        a7c9674d, one propagation step per pass over every edge; a chain of 2000 classes with 2000 calls
+        through the last one 12.8 s, and one name bound 4000 times with 4000 calls 22.1 s, since each
+        call resolved its callee anew (measured by the lens, 2026-09-27; timings vary with load). The
+        propagation is a work list and a callee is resolved once per module now, and each keeps its
+        reading. Measured after the fix, 2026-09-27, one input per child: each under 2 s, a peak under
+        60 MiB."""
+        def alias(n):
+            return ('import re\nA0 = re.compile(r"\\d+\\Z")\n' + "".join(f"A{i} = A{i - 1}\n" for i in range(1, n + 1))
+                    + f"M = A{n}.match(s)\n")
+        inputs = {
+            "an alias chain of 5000 names": alias(5000),
+            "an alias chain of 8000 names": alias(8000),
+            "2000 classes and 2000 calls": ("import re\nclass K0:\n    j = re.compile\n"
+                                            + "".join(f"class K{i}(K{i - 1}):\n    pass\n" for i in range(1, 2001))
+                                            + "".join(f'X{c} = K2000.j(r"\\A[0-9]+\\Z")\n' for c in range(2000))),
+            "one name bound 4000 times and 4000 calls": ("import re\n" + "c = re.compile\n" * 4000
+                                                         + "".join(f'X{c} = c(r"\\A[0-9]+\\Z")\n'
+                                                                   for c in range(4000))),
+        }
+        lesungen = {"an alias chain of 5000 names": 1, "an alias chain of 8000 names": 1,
+                    "2000 classes and 2000 calls": 0, "one name bound 4000 times and 4000 calls": 0}
+        run = subprocess.run([sys.executable, "-c", _BOUNDED_CHILD, __file__], input=json.dumps(inputs),
+                             capture_output=True, text=True, timeout=900)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        for name in inputs:
+            with self.subTest(input=name):
+                self.assertNotIn("raised", result[name])
+                self.assertLess(result[name]["seconds"], 10)
+                self.assertEqual((result[name]["readings"], result[name]["gaps"]), (lesungen[name], []))
         self.assertLess(result["_peak_bytes"], 200 * 10**6)
 
 

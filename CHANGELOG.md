@@ -284,12 +284,44 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   through `global` (a regression), through `or` or by inheritance, a compiled pattern matched through
   a second name or its type, a top-level alternation, and an anchor that is not the first or the last
   item. The anchor reader now reads a pattern in one pass. A pattern of 4257 characters with 100
-  nested groups took 35 s and 44 s in two runs of fb6eda0d's sweep here, and takes 0.015 s now. A
+  nested groups took 45.6 s in one run of fb6eda0d's sweep here and 0.008 s in one run now (both
+  2026-09-27, at a load average near 23; timings vary with load). A
   `format` or `%` result is sized before it is built: `"{0}" * 3333` with four texts of 10,000
   characters peaked at 541 MiB on fb6eda0d's sweep and at 33 MiB now. On this repository's workflows
   the text report is byte-identical to fb6eda0d's and the exit is 0; the JSON report gains the
-  producers of each required context. Twenty-five new or rewritten cases fail on fb6eda0d; three
-  more were rewritten to the source's reading and pass on both.
+  producers of each required context. Twenty-four new or rewritten cases fail on fb6eda0d, seventeen
+  in the gate's contract and seven in the sweep's (counted by case; the twenty-five stated first
+  counted a failing subtest apart); three more were rewritten to the source's reading and pass on both.
+
+  A third lens, on a7c9674d, found an explicit YAML tag read as valid where GitHub's reader rejects
+  it. `on: {pull_request: !!null x}`, `strategy: !!null x`, `[!!bool yes]`, `name: !!int 1_000`,
+  `[!!float 1:30]`, an Arabic-Indic digit under `!!int`, and `!!int` or `!!bool` on a quoted scalar
+  each read as a value PyYAML built, and the context as produced with exit 0. GitHub's reader keeps the
+  text of a `!!str` scalar, reads `!!bool`, `!!float`, `!!int` and `!!null` only in the forms its
+  core-schema matchers accept, and throws for any other text, for any other tag on a quoted scalar and
+  for a tag it does not know; the error empties the whole workflow (read in actions/runner at
+  15231bede4aa, YamlObjectReader.cs and TemplateReader.cs, not measured against GitHub). The gate's
+  loader now reads every explicit tag before PyYAML builds a value, on keys and values alike, and such a
+  file is not read, with the line and the reason; a tag on a sequence or a mapping, which GitHub does
+  not read, is kept only where PyYAML reads it the same way. An integer spelled `-0` is the double -0.0
+  to GitHub, which its number formatting spells `-0` (by the .NET documentation the lens cites, not
+  measured); it named a job `test (0)` here, and it is not measurable now, as a float `-0.0` already
+  was. `if: ${{ }}` read as `success()`, while GitHub refuses
+  an empty expression in any text, so the file is not read. A lone surrogate in a matrix value, from a
+  YAML escape or a `fromJSON` arm, raised out of the survey and is not measurable now. In the regex
+  sweep, six negative lookarounds that hold only at the end or the start of the value, such as
+  `(?!.|\n)` and `(?![^\n]|\n)`, counted as no anchor, so a whole-value pattern with a Unicode `\d`
+  passed: a lookaround the reader does not recognise by its spelling is read from Python's own parse of
+  it now, and one it cannot place leaves its branch undecided, never without an anchor, so the call is
+  an unfolded site where the branch's other anchor could complete it. `R.__getattribute__("match")`,
+  `attrgetter("match")(R)` and `methodcaller("fullmatch", s)(R)` are read as receivers. An alias chain
+  of 5000 names took 17.9 s on a7c9674d in the lens's run, one propagation step per pass; the
+  propagation is a work list now, and a callee is resolved once per module, which also bounds a chain of
+  2000 classes and a name bound 4000 times (12.8 s and 22.1 s in the lens's runs there). Each such input
+  takes under 2 s now (2026-09-27; timings vary with load). The real workflows' text report is
+  byte-identical to a7c9674d's, and the sweep on the tree reads no finding and the same eight unfolded
+  sites under six keys. Seven new cases, four in the gate's contract and three in the sweep's, each fail
+  on a7c9674d.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's

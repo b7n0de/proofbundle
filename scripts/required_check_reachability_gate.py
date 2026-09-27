@@ -60,6 +60,12 @@ whole workflow is empty); a hex integer past Int32; a context produced by severa
 only the first was kept; whitespace beside `${{ }}` in an `if:`, which GitHub formats into a string;
 and a `jobs:` that is not a mapping, which raised out of the survey.
 
+WHAT A THIRD LENS, ON a7c9674d, FOUND READ AS PRODUCED (2026-09-27), read in the same source: an explicit
+YAML tag GitHub's reader refuses (`!!null x`, `!!bool yes`, `!!int 1_000`, `!!float 1:30`, a tag on a
+quoted scalar), which PyYAML read as a value; an integer `-0`, which GitHub holds as the double -0.0; and
+`if: ${{ }}`, an empty expression GitHub refuses, which read as `success()`. A lone surrogate in a matrix
+value raised out of the survey.
+
 Exit 0 when every declared context is produced, either unconditionally or under a named
 condition. Exit 1 when one is unreachable or not measurable.
 """
@@ -234,17 +240,96 @@ class WorkflowNotRead(ValueError):
 _LEERER_WORKFLOW = "GitHub then converts the whole workflow to an empty one (WorkflowTemplateConverter.cs:31-34)"
 
 
-def _ganzzahl(lader, knoten) -> int:
+#: The tag that keeps a scalar's text, whatever its style (YamlObjectReader.cs:42-48).
+_ETIKETT_TEXT = "tag:yaml.org,2002:str"
+_ETIKETT_ZAHL = "tag:yaml.org,2002:int"
+#: The four other scalar tags GitHub's reader knows, each with the only texts it accepts under it:
+#: MatchBoolean, MatchNull, MatchInteger and MatchFloat (actions/runner at 15231bede4aa,
+#: src/Sdk/WorkflowParser/Conversion/YamlObjectReader.cs:474-495, 699-717, 618-697 and 497-616, read
+#: 2026-09-27, not measured). ASCII digits only, no `_`, no `:`, nothing around the value. These are the
+#: implicit resolvers' forms below too, except that a tagged float may be written without a point
+#: (MatchFloat takes `5`).
+_ETIKETT_FORMEN = {
+    "tag:yaml.org,2002:bool": re.compile(r"true|True|TRUE|false|False|FALSE"),
+    "tag:yaml.org,2002:null": re.compile(r"|~|null|Null|NULL"),
+    _ETIKETT_ZAHL: re.compile(r"[0-9]+|[-+][0-9]+|0x[0-9a-fA-F]+|0o[0-7]+"),
+    "tag:yaml.org,2002:float": re.compile(r"[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+                                          r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)"),
+}
+#: What happens once GitHub's YAML reader throws: TemplateReader records the exception as an error
+#: (src/Sdk/WorkflowParser/ObjectTemplating/TemplateReader.cs:53-64), and the workflow is empty.
+_GEWORFEN = f"GitHub's reader throws there, which TemplateReader.cs:53-64 records as an error; {_LEERER_WORKFLOW}"
+
+
+def _etikett_gelesen(ereignis, art: str) -> None:
+    """An explicit tag, read as GitHub's reader reads it before PyYAML builds anything from it. `art` is
+    `scalar`, `sequence` or `mapping`. Raises WorkflowNotRead where GitHub refuses the workflow, or where
+    this gate does not follow what GitHub does.
+
+    A LENS ON a7c9674d (F7-1a) found an explicit tag read as valid that GitHub's reader rejects:
+    `on: {pull_request: !!null x}` and `strategy: !!null x` read as null, `[!!bool yes]` as `true`,
+    `!!int 1_000` as 1000, `[!!float 1:30]` as 90, `[!!int <Arabic-Indic five>]` as 5, and
+    `[!!int "5"]` and `[!!bool "true"]` as 5 and `true`, each produced with exit 0. PyYAML's constructors
+    read YAML 1.1 and Python's `int`. GitHub's reader (YamlObjectReader.cs:39-73) keeps the text of a
+    `!!str` scalar in any style, throws for any other tag on a quoted or block scalar (51-54), reads
+    `!!bool`, `!!float`, `!!int` and `!!null` only in the forms of `_ETIKETT_FORMEN` and throws for any
+    other text (430-472, 719-724), and throws for a tag it does not know (71-72). On a sequence or a
+    mapping it reads no tag at all (114-149), so there only a tag PyYAML reads the same way is kept."""
+    etikett = ereignis.tag
+    if etikett is None:
+        return
+    kurz = "!!" + etikett[len("tag:yaml.org,2002:"):] if etikett.startswith("tag:yaml.org,2002:") else etikett
+    wo = f"line {ereignis.start_mark.line + 1}: the tag {_einzeilig(kurz, 60)}"
+    if art != "scalar":
+        if etikett in ("!", "tag:yaml.org,2002:" + ("seq" if art == "sequence" else "map")):
+            return
+        raise WorkflowNotRead(f"{wo} on a {art}: GitHub's reader reads no tag there (YamlObjectReader.cs:"
+                              f"114-149), PyYAML builds another value from it, and this gate does not follow "
+                              f"that value")
+    if etikett == _ETIKETT_TEXT:
+        return
+    if etikett == "!":
+        raise WorkflowNotRead(f"{wo} on a scalar: whether GitHub's YAML reader passes the non-specific tag on "
+                              f"(and then throws, YamlObjectReader.cs:71-72) or drops it was not read")
+    if ereignis.style is not None:
+        raise WorkflowNotRead(f"{wo} stands on a quoted or block scalar, and every tag but `!!str` is refused "
+                              f"there (YamlObjectReader.cs:50-54); {_GEWORFEN}")
+    form = _ETIKETT_FORMEN.get(etikett)
+    if form is None:
+        raise WorkflowNotRead(f"{wo} is no scalar tag GitHub's reader knows (YamlObjectReader.cs:56-73); "
+                              f"{_GEWORFEN}")
+    if not form.fullmatch(ereignis.value):
+        raise WorkflowNotRead(f"{wo} holds {_einzeilig(repr(ereignis.value), 40)}, a text the reader does not "
+                              f"accept under it (YamlObjectReader.cs:430-472, 474-717); {_GEWORFEN}")
+
+
+def _ganzzahl(lader, knoten) -> int | float:
     """An integer of YAML 1.2's core schema: decimal, `0o` octal or `0x` hexadecimal. PyYAML's own
     reads a leading zero as octal (`010` is 8), which YAML 1.2 reads as ten.
+
+    ONLY THE FORMS GITHUB'S READER ACCEPTS (lens on a7c9674d, F7-1a): Python's `int` also takes `1_000`,
+    digits of any script and whitespace around them, and MatchInteger takes none of these
+    (YamlObjectReader.cs:618-697). A text of another form is refused here too, whichever way the
+    integer tag reached it (`_etikett_gelesen` refuses it first when the tag is explicit).
 
     PAST INT32 IS NOT A NUMBER THIS GATE KNOWS (lens on fb6eda0d): GitHub reads a hex scalar with
     `Int32.TryParse(..., AllowHexSpecifier)` and an octal one with `Convert.ToInt32(..., 8)`
     (src/Sdk/WorkflowParser/Conversion/YamlObjectReader.cs:656-671 and 672-692, read, not measured).
     Past 0x7FFFFFFF such a value is either read as a negative number or refused, and a refusal makes
     the whole workflow fail; `0xFFFFFFFF` named a job `test (4294967295)` here. Which of the two, and
-    for how many leading zeros, was not measured, so the file is not read."""
+    for how many leading zeros, was not measured, so the file is not read.
+
+    A NEGATIVE ZERO STAYS NEGATIVE (lens on a7c9674d, F7-1b): GitHub parses a decimal integer as a double
+    (YamlObjectReader.cs:632 and 647), and `-0` is the double -0.0, which its number formatting
+    (`ToString("G15")`, MatrixBuilder.cs:192-194, NumberExpressionData.cs:55-58) spells `-0` on .NET Core
+    3.0 and later (.NET's documentation as the lens cites it, not measured; whether TryParse keeps the sign
+    was not read either, so the reading stays not measurable). Read as the int 0, `v: [-0]` named a job
+    `test (0)`. The integer is returned as the double GitHub holds, -0.0, which every reader of a number
+    in this gate refuses as not measurable."""
     text = lader.construct_scalar(knoten)
+    if not _ETIKETT_FORMEN[_ETIKETT_ZAHL].fullmatch(text):
+        raise WorkflowNotRead(f"line {knoten.start_mark.line + 1}: the integer {_einzeilig(repr(text), 40)} is "
+                              f"not a form GitHub's reader accepts (YamlObjectReader.cs:618-697); {_GEWORFEN}")
     if text[:2] in ("0o", "0x"):
         ziffern = text[2:]
         wert = int(ziffern, 8 if text[1] == "o" else 16)
@@ -254,15 +339,32 @@ def _ganzzahl(lader, knoten) -> int:
                 f"reader either reads as a negative number or refuses (YamlObjectReader.cs:656-692); "
                 f"which one was not measured")
         return wert
-    return int(text, 10)
+    wert = int(text, 10)
+    return -0.0 if wert == 0 and text[0] == "-" else wert
+
+
+def _ersatzzeichen(text: str) -> list[str]:
+    """The lone surrogates in a text, as U+XXXX. No UTF-8 file holds one; an escape of one (such as U+D800
+    in a YAML double-quoted text or in a JSON string) puts it into a Python text, and `str.encode` then
+    raises on it."""
+    return sorted({f"U+{ord(c):04X}" for c in text if 0xD800 <= ord(c) <= 0xDFFF})
 
 
 def _text_skalar(lader, knoten) -> str:
     """A text scalar, and an expression in it opened with `${{` and not closed is a refusal: GitHub's
     template reader parses EVERY text scalar for `${{ }}` and reports one not closed as an error
     (src/Sdk/WorkflowParser/ObjectTemplating/TemplateReader.cs:486-536), so the whole workflow is empty.
-    The gate saw that only in an `if:`; a `run:` holding it produced its job's context."""
+    The gate saw that only in an `if:`; a `run:` holding it produced its job's context. An expression
+    that holds nothing, `${{ }}`, is an error there too (`_vorlage`).
+
+    A LONE SURROGATE IS NOT READ (lens on a7c9674d): a matrix value escaped as U+D800 in YAML raised
+    UnicodeEncodeError out of the survey when the job name was measured in UTF-16 units. How GitHub's
+    YAML reader reads such an escape was not read, so the file is not read."""
     text = lader.construct_scalar(knoten)
+    if _ersatzzeichen(text):
+        raise WorkflowNotRead(f"line {knoten.start_mark.line + 1}: a text holds the lone surrogate "
+                              f"{', '.join(_ersatzzeichen(text))} (an escape), and how GitHub's YAML reader "
+                              f"reads that escape was not read")
     if "${{" in text:
         try:
             _vorlage(text)
@@ -333,7 +435,8 @@ def _keine_doppelten_schluessel(lader, knoten) -> None:
 #: defaults, which are version 1.2 and its core schema, eemeli/yaml at 528ef30d, src/schema/core).
 #: Under YAML 1.1 `on` is True, `yes` and `off` are booleans, `010` is 8 and `1:20` is 80, so a
 #: matrix value `on` named a job `true`, and the `on:` of a workflow was the key True. This loader
-#: keeps the four implicit types of the core schema and nothing else: no merge key, no timestamp.
+#: keeps the four implicit types of the core schema and nothing else: no merge key, no timestamp. An
+#: explicit tag is read as GitHub's reader reads it, not as PyYAML's constructors do (`_etikett_gelesen`).
 if yaml is not None:
     class _GitHubLader(yaml.SafeLoader):
         yaml_implicit_resolvers: dict = {}
@@ -342,6 +445,22 @@ if yaml is not None:
             """A mapping, its keys first compared as GitHub's reader compares them."""
             _keine_doppelten_schluessel(self, node)
             return super().construct_mapping(node, deep=deep)
+
+        # AN EXPLICIT TAG IS READ BEFORE ANY NODE IS BUILT (lens on a7c9674d, F7-1a), on every scalar,
+        # sequence and mapping, and so on every key and value, `on:`, `strategy`, a matrix value and an
+        # `include` or `exclude` entry alike: the event still carries the tag and the style, which the
+        # node no longer tells apart (`!!int 5` and `5` compose to the same node).
+        def compose_scalar_node(self, anchor):
+            _etikett_gelesen(self.peek_event(), "scalar")
+            return super().compose_scalar_node(anchor)
+
+        def compose_sequence_node(self, anchor):
+            _etikett_gelesen(self.peek_event(), "sequence")
+            return super().compose_sequence_node(anchor)
+
+        def compose_mapping_node(self, anchor):
+            _etikett_gelesen(self.peek_event(), "mapping")
+            return super().compose_mapping_node(anchor)
 
     _GitHubLader.add_implicit_resolver(
         "tag:yaml.org,2002:null", re.compile(r"\A(?:~|null|Null|NULL|)\Z"), ["~", "n", "N", ""])
@@ -464,8 +583,8 @@ def _matrix_arme(job: dict) -> tuple[list, list[str], list[str], list[tuple[str,
                            f"allows in no `strategy`")
             continue
         try:
-            wahr = json.loads(t.group("wahr"))
-            sonst = json.loads(t.group("sonst"))
+            wahr = json.loads(t.group("wahr"), parse_int=_json_ganzzahl)
+            sonst = json.loads(t.group("sonst"), parse_int=_json_ganzzahl)
         except json.JSONDecodeError:
             gruende.append(f"an arm of matrix key {k!r} is not JSON")
             continue
@@ -515,6 +634,14 @@ def matrix_lesung(job: dict) -> tuple[dict[str, list], dict[str, list], str | No
             bedingung, wahr, sonst = arm
             sonst_werte[k], wahr_werte[k] = list(sonst), list(wahr)
     return sonst_werte, wahr_werte, bedingung, (hinweise[-1] if hinweise else None), gruende
+
+
+def _json_ganzzahl(text: str) -> int | float:
+    """An integer of a `fromJSON` arm, and `-0` as the double -0.0 rather than the int 0 (lens on a7c9674d,
+    F7-1b): how GitHub's `fromJSON` reads a negative zero was not read, and as -0.0 every reader of a
+    number in this gate refuses it, as it refuses the YAML integer (`_ganzzahl`)."""
+    wert = int(text)
+    return -0.0 if wert == 0 and text.startswith("-") else wert
 
 
 def _ein_operand(text: str) -> bool:
@@ -600,6 +727,7 @@ def _segment(wert, wo: str) -> str | None:
     if isinstance(wert, str):
         if "${{" in wert:
             raise NichtLesbar(f"{wo} holds an expression, which GitHub evaluates before it names the job")
+        _keine_ersatzzeichen(wert, wo)
         return wert or None
     ganz = _ganze_zahl(wert)
     if ganz is not None:
@@ -612,12 +740,23 @@ def _einsetzbar(wert, wo: str) -> str:
     """How a matrix value stands where a job name writes `${{ matrix.<key> }}`: a text as it is, an
     integer in decimal. Any other value is not read, since how GitHub formats it there was not read."""
     if isinstance(wert, str) and "${{" not in wert:
+        _keine_ersatzzeichen(wert, wo)
         return wert
     ganz = _ganze_zahl(wert)
     if ganz is not None and not isinstance(wert, float):
         return str(ganz)
     raise NichtLesbar(f"{wo} holds {_einzeilig(repr(wert), 60)}, whose spelling in a job name this gate "
                       f"does not know")
+
+
+def _keine_ersatzzeichen(wert: str, wo: str) -> None:
+    """A lone surrogate in a value that goes into a job name is not measurable (lens on a7c9674d): from a
+    `fromJSON` arm, an escaped U+D800 raised UnicodeEncodeError out of the survey (`_utf16_laenge`), and
+    how GitHub names a job with one was not read. A YAML text holding one is not read at all
+    (`_text_skalar`)."""
+    if _ersatzzeichen(wert):
+        raise NichtLesbar(f"{wo} holds the lone surrogate {', '.join(_ersatzzeichen(wert))}, and how GitHub "
+                          f"spells it in a job name was not read")
 
 
 #: A text `Double.TryParse` reads as a number with AllowLeadingSign, AllowDecimalPoint and AllowExponent
@@ -857,8 +996,10 @@ _HOECHSTENS_NAME = 100
 
 
 def _utf16_laenge(text: str) -> int:
-    """The length .NET's `String.Length` gives: UTF-16 code units."""
-    return len(text.encode("utf-16-le")) // 2
+    """The length .NET's `String.Length` gives: UTF-16 code units. A lone surrogate is one unit there, and
+    it is counted as one here instead of raising (`surrogatepass`); a name that holds one is refused
+    before it is measured (`_keine_ersatzzeichen`)."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def _gekuerzt(name: str) -> str:
@@ -886,7 +1027,8 @@ def _vorlage(text: str) -> list[tuple[bool, str]]:
     runs from `${{` to the first `}}` outside a single-quoted string, and one that is not closed is an
     error (actions/runner at 15231bede4aa, src/Sdk/DTObjectTemplating/ObjectTemplating/
     TemplateReader.cs, ParseScalar and TemplateStrings.ExpressionNotClosed, read 2026-09-26, not
-    measured). Plain string operations only, no pattern."""
+    measured), and so is one that holds nothing (ParseExpression, TemplateReader.cs:637-644, read
+    2026-09-27). Plain string operations only, no pattern."""
     segmente: list[tuple[bool, str]] = []
     i = 0
     while True:
@@ -908,7 +1050,18 @@ def _vorlage(text: str) -> list[tuple[bool, str]]:
         if ende < 0:
             raise NichtLesbar("an expression opened with `${{` is not closed, which GitHub's template "
                               "reader refuses")
-        segmente.append((True, text[anfang + 3:ende - 1]))
+        innen = text[anfang + 3:ende - 1]
+        if not innen.strip():
+            # `${{ }}` IS NO EXPRESSION (lens on a7c9674d): GitHub trims it and reports an empty one as
+            # ExpectedExpression (TemplateReader.cs:637-644), an error, and the workflow is empty; `if: ${{ }}`
+            # read as `success()` and its job as produced. A character Python strips and .NET does not
+            # (U+001C..U+001F) leaves an expression there that its lexer reads, which was not read.
+            fremd = fremder_leerraum(innen)
+            raise NichtLesbar("an expression `${{ }}` holds " + (
+                f"only {', '.join(fremd)}, which Python reads as whitespace and GitHub's reader does not, "
+                f"and what GitHub makes of it was not read" if fremd else
+                "nothing, which GitHub's template reader refuses (ExpectedExpression, TemplateReader.cs:637-644)"))
+        segmente.append((True, innen))
         i = ende + 1
 
 
@@ -978,6 +1131,11 @@ def kontextnamen(job_id: str, job: dict, werte: dict[str, list]) -> list[str]:
     name past 100 characters is not read either.
     """
     roh = job.get("name")
+    if isinstance(roh, float):
+        # `name: -0` is the double -0.0 GitHub holds (`_ganzzahl`, lens on a7c9674d, F7-1b), and a name
+        # with a fraction is spelled `G15`; neither spelling is followed here
+        raise NichtLesbar(f"the job name is the number {roh!r}, whose spelling as a name this gate does not "
+                          f"follow")
     if roh is not None and (isinstance(roh, bool) or not isinstance(roh, (str, int))):
         raise NichtLesbar(f"the job name is {type(roh).__name__}, not a text")
     name = None if roh is None else str(roh)
@@ -1425,8 +1583,10 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
                 # read RAW (lens on fb6eda0d): whitespace beside `${{ }}` is text too (`_roh_gelesen`).
                 try:
                     if not _roh_gelesen(str(job_if)):
-                        # empty or whitespace only: GitHub reads `success()`, no condition
-                        # (WorkflowTemplateConverter.cs:1813-1816)
+                        # A TEXT that is empty or whitespace only, with no `${{` in it: GitHub reads
+                        # `success()`, no condition (WorkflowTemplateConverter.cs:1813-1816). An empty
+                        # EXPRESSION, `${{ }}`, never reaches here: GitHub's template reader refuses it
+                        # (TemplateReader.cs:637-644), and so does the loader (`_vorlage`).
                         job_if = None
                 except NichtLesbar as exc:
                     unlesbar.append(f"{pfad.name}:{job_id}: `if:` not read: {exc}")

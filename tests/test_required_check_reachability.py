@@ -2910,5 +2910,160 @@ class TestGitHubsOwnReadingOfArmsValuesKeysAndProducers(unittest.TestCase):
                 self.assertEqual(r["produced_contexts"], [])
                 self.assertEqual(len(r["newly_unreadable"]), 1, r["newly_unreadable"])
 
+
+class TestATagANegativeZeroAndAnEmptyExpressionAreReadAsGitHubReadsThem(unittest.TestCase):
+    """A lens on a7c9674d (2026-09-27) found scalars this gate read as valid that GitHub's YAML reader
+    rejects, or reads otherwise. Each rule was read in actions/runner's source at 15231bede4aa
+    (YamlObjectReader.cs, TemplateReader.cs), not measured against GitHub, and each case fails on
+    a7c9674d."""
+
+    KOPF = "name: CI\non:\n  pull_request:\n    branches: [main]\njobs:\n"
+    JOB = "    runs-on: x\n    steps: [{run: 'true'}]\n"
+    PR = staticmethod(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis)
+
+    def _matrix(self, zeilen: str, name: str = "") -> str:
+        return (self.KOPF + "  test:\n" + (f"    name: {name}\n" if name else "") + "    runs-on: x\n"
+                "    strategy:\n      matrix:\n" + zeilen + "    steps: [{run: 'true'}]\n")
+
+    def _urteil(self, workflow: str, verlangt):
+        b = Baum(self, {"ci.yml": workflow}, list(verlangt))
+        return b, b.urteil()
+
+    def _nicht_gelesen(self, workflow: str, verlangt, wort: str):
+        """The file is not read, with the line and the reason; nothing of it is produced, the exit is 1,
+        and live the context is not measurable."""
+        b, r = self._urteil(workflow, verlangt)
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertEqual(len(r["unreadable_files"]), 1, r["unreadable_files"])
+        grund = r["unreadable_files"][0]
+        self.assertIn("WorkflowNotRead: line ", grund)
+        self.assertIn(wort, grund)
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.UNKNOWN)
+
+    def test_a_tag_github_refuses_makes_the_file_not_read(self):
+        """F7-1a (P2). PyYAML read `on: {pull_request: !!null x}` as null, `[!!bool yes]` as `true`,
+        `!!int 1_000` as 1000, `[!!float 1:30]` as 90, `!!null nothing`, an Arabic-Indic digit under
+        `!!int`, `strategy: !!null x`, and `!!int "5"`, `exclude` with `!!int 1_1` and `!!bool "true"`:
+        each context was produced with exit 0. GitHub's reader throws for a tagged text outside the forms
+        of MatchBoolean, MatchFloat, MatchInteger and MatchNull, for any tag but `!!str` on a quoted
+        scalar, and for a tag it does not know (YamlObjectReader.cs:39-73, 430-724), and the thrown error
+        empties the whole workflow (TemplateReader.cs:53-64, WorkflowTemplateConverter.cs:31-34). A tag
+        on a sequence or a mapping GitHub does not read; one PyYAML reads the same way is kept."""
+        faelle = {
+            "!!null x under on": ("name: CI\non:\n  pull_request: !!null x\njobs:\n  guard:\n" + self.JOB,
+                                  ["guard"], "holds 'x'"),
+            "!!bool yes": (self._matrix("        v: [!!bool yes]\n"), ["test (true)"], "holds 'yes'"),
+            "!!int 1_000 as a name": (self.KOPF + "  build:\n    name: !!int 1_000\n" + self.JOB, ["1000"],
+                                      "holds '1_000'"),
+            "!!float 1:30": (self._matrix("        v: [!!float 1:30]\n"), ["test (90)"], "holds '1:30'"),
+            "!!null nothing": (self._matrix("        v: ['3.10', !!null nothing]\n"), ["test (3.10)"],
+                               "holds 'nothing'"),
+            "an Arabic-Indic digit under !!int": (self._matrix(f"        v: [!!int {chr(0x665)}]\n"), ["test (5)"],
+                                                  "the tag !!int holds"),
+            "strategy: !!null x": (self.KOPF + "  guard:\n    runs-on: x\n    strategy: !!null x\n"
+                                   "    steps: [{run: 'true'}]\n", ["guard"], "holds 'x'"),
+            "!!int on a quoted scalar": (self._matrix('        v: [!!int "5"]\n'), ["test (5)"],
+                                         "quoted or block scalar"),
+            "!!int 1_1 in exclude": (self._matrix("        v: [10, 11]\n        exclude:\n          - v: !!int 1_1\n"),
+                                     ["test (10)"], "holds '1_1'"),
+            "!!bool on a quoted scalar": (self._matrix('        v: [!!bool "true"]\n'), ["test (true)"],
+                                          "quoted or block scalar"),
+            "!!int 0b101": (self._matrix("        v: [!!int 0b101, b]\n"), ["test (b)"], "holds '0b101'"),
+            "a key tagged !!null": (self.KOPF + "  guard:\n    runs-on: x\n    env: {!!null x: 1}\n"
+                                    "    steps: [{run: 'true'}]\n", ["guard"], "holds 'x'"),
+            "!!int with a space": (self._matrix("        v: [!!int ' 5']\n"), ["test (5)"], "quoted or block scalar"),
+            "!!timestamp": (self._matrix("        v: [!!timestamp 2001-01-01, b]\n"), ["test (b)"],
+                            "no scalar tag GitHub's reader knows"),
+            "a local tag": (self._matrix("        v: [!x 5, b]\n"), ["test (b)"], "no scalar tag GitHub's reader knows"),
+            "the non-specific tag": (self._matrix("        v: [! 5, b]\n"), ["test (b)"], "non-specific tag"),
+            "!!set on a mapping": (self.KOPF + "  guard:\n    runs-on: x\n    env: !!set {a}\n"
+                                   "    steps: [{run: 'true'}]\n", ["guard"], "on a mapping"),
+            "!!omap on a sequence": (self._matrix("        v: !!omap [{a: 1}]\n"), ["test"], "on a sequence"),
+        }
+        for name, (workflow, verlangt, wort) in faelle.items():
+            with self.subTest(fall=name):
+                self._nicht_gelesen(workflow, verlangt, wort)
+        # counter-direction: a tag GitHub's reader accepts reads as it reads it
+        for zeilen, erzeugt in (("        v: [!!str 5, !!str 'true']\n", ["test (5)", "test (true)"]),
+                                ("        v: [!!int 0x1F, !!int +7, !!bool TRUE]\n", ["test (31)", "test (7)", "test (true)"]),
+                                ("        v: ['3.10', !!null ~, !!null NULL]\n", ["test", "test (3.10)"]),
+                                ("        v: [!!float 2, !!float .5e1]\n", ["test (2)", "test (5)"]),
+                                ("        v: !!seq [a]\n", ["test (a)"]),
+                                ("        v: ! [a]\n", ["test (a)"])):
+            with self.subTest(gelesen=zeilen):
+                _b, r = self._urteil(self._matrix(zeilen), ["x"])
+                self.assertEqual((r["produced_contexts"], r["unreadable_files"]), (erzeugt, []))
+        _b, r = self._urteil(self.KOPF + "  guard:\n    runs-on: x\n    strategy: !!map {matrix: ! {v: [a]}}\n"
+                                         "    steps: [{run: 'true'}]\n", ["x"])
+        self.assertEqual(r["produced_contexts"], ["guard (a)"])
+
+    def test_an_integer_that_reads_as_negative_zero_is_not_measurable(self):
+        """F7-1b. `v: [-0]` read as `test (0)` and `name: -0` as `0`, produced with exit 0. GitHub parses
+        the integer as a double (YamlObjectReader.cs:647), and its `G15` formatting spells negative zero
+        `-0` on .NET Core 3.0 and later (MatrixBuilder.cs:192-194, NumberExpressionData.cs:55-58; .NET's
+        documentation as the lens cites it, not measured). A float `-0.0` was already not measurable; the
+        integer is read as the same double now, in a value, a name, a literal of `exclude` and a
+        `fromJSON` arm. `+0` and `0` are zero."""
+        arm = '${{ fromJSON(github.event_name == \'push\' && \'[-0]\' || \'[-0]\') }}'
+        for name, workflow, verlangt in (
+                ("-0", self._matrix("        v: [-0]\n"), ["test (0)"]),
+                ("-00", self._matrix("        v: [-00]\n"), ["test (0)"]),
+                ("!!int -0", self._matrix("        v: [!!int -0]\n"), ["test (0)"]),
+                ("name: -0", self.KOPF + "  build:\n    name: -0\n" + self.JOB, ["0"]),
+                ("-0 in exclude", self._matrix("        v: [0, 1]\n        exclude:\n          - v: -0\n"),
+                 ["test (1)"]),
+                ("a fromJSON arm", self._matrix(f'        v: "{arm}"\n'), ["test (0)"])):
+            with self.subTest(fall=name):
+                b, r = self._urteil(workflow, verlangt)
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual(len(r["newly_unreadable"]), 1, r["newly_unreadable"])
+                self.assertIn("-0.0", r["newly_unreadable"][0])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        _b, r = self._urteil(self._matrix("        v: [+0, 1]\n"), ["x"])
+        self.assertEqual(r["produced_contexts"], ["test (0)", "test (1)"])
+        _b, r = self._urteil(self.KOPF + "  build:\n    name: 0\n" + self.JOB, ["x"])
+        self.assertEqual(r["produced_contexts"], ["0"])
+
+    def test_a_lone_surrogate_in_a_matrix_value_is_not_measurable(self):
+        """A lone surrogate in a matrix value raised UnicodeEncodeError out of the survey (exit 1 with a
+        traceback, measured by the lens on a7c9674d), from a YAML escape and from a `fromJSON` arm alike.
+        How GitHub reads either was not read: a YAML text holding one is not read, and a `fromJSON` value
+        holding one is not measurable, each with its reason."""
+        flucht = chr(92) + "ud800"                       # the escape, as the workflow file spells it
+        yaml_wf = self._matrix(f'        v: ["{flucht}", b]\n')
+        b, r = self._urteil(yaml_wf, ["test (b)"])
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertTrue(any("lone surrogate U+D800" in u for u in r["unreadable_files"]), r["unreadable_files"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        # a plain scalar, so that YAML keeps the escape and `fromJSON` reads it (the lens's form)
+        arm = ("${{ fromJSON(contains(github.event.pull_request.labels.*.name, 'x') && '[\"" + flucht
+               + "\"]' || '[\"b\"]') }}")
+        b, r = self._urteil(self._matrix(f"        v: {arm}\n"), ["test (b)"])
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertTrue(any("lone surrogate U+D800" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        self.assertEqual(G._utf16_laenge("a" + chr(0xD800) + chr(0x1F600)), 4, "counted, never raised")
+
+    def test_an_empty_expression_is_not_read(self):
+        """`if: ${{ }}` read as `success()` and its job as produced. GitHub trims the expression and reports
+        an empty one as ExpectedExpression (TemplateReader.cs:637-644), an error in any text scalar, and
+        the workflow is empty. An empty or blank TEXT is `success()` (WorkflowTemplateConverter.cs:
+        1813-1816) and still reads so."""
+        for name, zeile in (("if", "    if: ${{ }}\n"), ("if with spaces", "    if: ${{     }}\n"),
+                            ("a name", "    name: ${{ }}\n"), ("an env value", "    env: {A: 'x ${{ }} y'}\n")):
+            with self.subTest(fall=name):
+                self._nicht_gelesen(self.KOPF + "  guard:\n" + zeile + self.JOB, ["guard"], "ExpectedExpression")
+        with self.subTest(fall="U+001C inside"):
+            self._nicht_gelesen(self.KOPF + '  guard:\n    if: "${{ \\x1c }}"\n' + self.JOB, ["guard"],
+                                "holds only U+001C")
+        for zeile in ("    if: ''\n", "    if: '   '\n"):
+            with self.subTest(text=zeile):
+                _b, r = self._urteil(self.KOPF + "  guard:\n" + zeile + self.JOB, ["guard"])
+                self.assertEqual((r["produced_contexts"], r["unreadable"]), (["guard"], []))
+        with self.assertRaises(G.NichtAuswertbar):
+            G.bedingung_am_ereignis("${{ }}", self.PR())
+
+
 if __name__ == "__main__":
     unittest.main()
