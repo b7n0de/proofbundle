@@ -16,16 +16,22 @@ repository:
   so at a check, parse as names and were clean with exit 0, on main too.
 
 Each case below that shows a finding or its absence was red at a435ba32; the controls keep what must not
-change (a real check stays a finding, and a unary operator before a constant stays outside class A).
+change (a real check stays a finding, and a unary operator before a constant stays outside class A). The
+cases of the last section hold how 3.13 and 3.14 read a name spelled as a constant, which a review lens, run
+15 at becdf7d2, measured three findings in; all but their control were red there.
 """
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
+import itertools
 import random
+import re
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -468,6 +474,249 @@ def test_a_commented_out_check_behind_a_constant_spelled_as_a_name_is_a_finding(
 def test_control_a_constant_spelled_as_a_name_elsewhere_is_clean(tmp_path):
     r = _change(tmp_path, BENIGN, BENIGN + f"\nx = {fullwidth('True')}\n", "--staged")
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# -- the rewrite touches only the places of the refusal, one to one, in linear time ------------------------
+#
+# A review lens, run 15 at becdf7d2 (2026-09-27), measured three findings in `_parse_as_before_313`, which
+# rewrote every word NFKC turns into a constant with one pattern over the whole text. It kept a stand-in out
+# of the words as written while the parser stores a name in its NFKC form, so the stand-in spelled in
+# fullwidth letters came back from the tree as `True`; it rewrote the word inside a bytes literal, where the
+# ASCII stand-in is legal and the spelling is not; and it walked the stand-ins from the start once per
+# spelling. Every expectation below is what 3.10 to 3.12 say. Each case but the control was red at becdf7d2 on
+# 3.13 and 3.14, 23 of 24; the ones that call `_parse_as_before_313` directly run the rewrite on every version
+# and were red there on 3.10 to 3.12 as well.
+
+def bold(word: str) -> str:
+    """`word` in mathematical bold letters, four bytes each in UTF-8."""
+    return "".join(chr(0x1D400 + ord(c) - 65) if c.isupper() else chr(0x1D41A + ord(c) - 97) for c in word)
+
+
+COLLISIONS = [
+    ("the stand-in in fullwidth letters, returned by a check",
+     f"y = {fullwidth('True')}\n\n\ndef verify_o(d):\n    return {fullwidth('Qaaaaaaaaaaa')}\n"),
+    ("the stand-in in fullwidth letters, opening a branch",
+     f"y = {fullwidth('True')}\n\n\ndef verify_o(d):\n    if {fullwidth('Qaaaaaaaaaaa')} and d:\n        return 1\n"
+     "    return 0\n"),
+    ("a stand-in of 16 bytes behind a bold Q", f"y = {bold('True')}\n\n\ndef verify_o(d):\n    return {bold('Q')}"
+                                               + "a" * 15 + "\n"),
+    ("the stand-in of a second spelling",
+     f"y = {fullwidth('True')}\nz = {chr(0xFF34)}rue\n\n\ndef verify_o(d):\n    return {fullwidth('Qaaaaa')}\n"),
+]
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("tail", [c[1] for c in COLLISIONS], ids=[c[0] for c in COLLISIONS])
+def test_a_name_that_spells_a_stand_in_is_that_name_as_on_3_10(tmp_path, tail, mode):
+    """3.10 to 3.12 read each such name as the name its NFKC form is, which is no constant: clean. At becdf7d2
+    on 3.13 and 3.14 each was a finding with exit 1, the name read back from the tree as `True`."""
+    r = _change(tmp_path, BENIGN, BENIGN + "\n" + tail, mode)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("prefix", ["b", "rb"])
+def test_a_bytes_literal_that_spells_a_constant_is_refused_as_3_10_refuses_it(tmp_path, prefix, mode):
+    """ASCII is legal in a bytes literal and a fullwidth `True` is not, so 3.10 to 3.12 refuse the file and the
+    run stops with exit 2. At becdf7d2 on 3.13 and 3.14 the stand-in replaced the word inside the literal too,
+    the text parsed, and the file was clean with exit 0."""
+    t = fullwidth("True")
+    r = _change(tmp_path, BENIGN, BENIGN + f"\ny = {t}\nv = {prefix}'{t}'\n", mode)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "Python cannot read this file as source" in r.stderr, r.stderr
+    assert "bytes can only contain ASCII" in r.stderr, r.stderr
+    assert "clean" not in r.stdout
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_commented_out_check_that_holds_such_a_bytes_literal_is_what_3_10_says(tmp_path, mode):
+    """The comment's code does not parse on 3.10 to 3.12, so it holds no statement: clean. At becdf7d2 on 3.13
+    and 3.14 it parsed with the stand-in in the literal and was a finding with exit 1."""
+    t = fullwidth("True")
+    r = _change(tmp_path, BENIGN, planted(f"    # if {t} and verify_thing(b'{t}'):\n    #     return False"), mode)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_control_the_same_check_with_an_ascii_bytes_literal_is_a_finding(tmp_path):
+    t = fullwidth("True")
+    r = _change(tmp_path, BENIGN, planted(f"    # if {t} and verify_thing(b'True'):\n    #     return False"),
+                "--staged")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "src/proofbundle/guarded.py:8: commented-out verification call" in r.stdout, r.stdout
+
+
+def _handed_to_the_parser(monkeypatch, guard, source: str) -> str:
+    """The text `_parse_as_before_313` hands to `ast.parse`, however it builds it."""
+    handed: list[str] = []
+    real = ast.parse
+
+    def recording(text, *args, **kwargs):
+        handed.append(text)
+        return real(text, *args, **kwargs)
+
+    monkeypatch.setattr(ast, "parse", recording)
+    try:
+        with contextlib.suppress(SyntaxError):
+            guard._parse_as_before_313(source)
+    finally:
+        monkeypatch.setattr(ast, "parse", real)
+    assert handed, "nothing was handed to the parser"
+    return handed[-1]
+
+
+def _rewrite_case() -> tuple[str, list[str], list[bool]]:
+    """A source as parts, each marked whether it is an identifier that spells a constant. The spellings stand
+    as identifiers, in a comment's prose, in strings, in the text of an f-string and in its field (a field is
+    a token of its own from 3.12 on; before, the tokenize module reads an f-string as one string), behind text
+    of more than one byte on its line, on lines ended by CR LF and by a lone CR, and beside words that are, or
+    spell, a stand-in the rewrite might have chosen."""
+    t, f, n, cr = fullwidth("True"), fullwidth("False"), fullwidth("None"), chr(13)
+    ue, part = chr(0xFC), chr(0xFF34) + "rue"
+    field = sys.version_info >= (3, 12)
+    marked = [
+        ("y = ", False), (t, True), ("  # ", False), (t, False), (" in prose, and ", False), (n, False), ("\n", False),
+        (f"s = '{ue}{ue}'; z = ", False), (f, True), (".real" + cr + "\n", False),
+        ("w = '", False), (t, False), (" and Qaaaaaaaaaaa'", False), (cr, False),
+        ("v = f'", False), (t, False), (" {{y}} {", False), (t, field), ("}'\n", False),
+        ("import a.", False), (t, True), (" as ", False), (f, True), ("\n", False),
+        ("def ", False), (n, True), ("(", False), (part, True), ("): return ", False), (part, True), ("\n", False),
+        (f"q = {fullwidth('Qaaaaaaaaaaa')} + Qaaaaaaaaaab  # Qaaaaaaaaaac\n", False),
+    ]
+    return "".join(text for text, _ in marked), [text for text, _ in marked], [name for _, name in marked]
+
+
+def test_the_rewrite_changes_only_the_identifiers_that_spell_a_constant(monkeypatch):
+    """The invariant of `_parse_as_before_313`, held against a pattern built from the parts, not against its
+    own tokenizer: every part that is no such identifier reaches the parser as written, and each that is
+    becomes an ASCII name of the same length in UTF-8 which, in NFKC form, is no word of the text before the
+    rewrite and stands, after it, only where a spelling of its one constant stood. At becdf7d2 the comment's
+    prose, the strings and the text of the f-string were rewritten as well."""
+    guard = _guard_module()
+    source, texts, names = _rewrite_case()
+    handed = _handed_to_the_parser(monkeypatch, guard, source)
+    pattern = "".join(f"([0-9A-Za-z_]{{{len(text.encode())}}})" if name else re.escape(text)
+                      for text, name in zip(texts, names))
+    m = re.fullmatch(pattern, handed, re.DOTALL)
+    assert m, (source, handed)
+    spelled = [text for text, name in zip(texts, names) if name]
+    before = {unicodedata.normalize("NFKC", w) for w in re.findall(r"\w+", source)}
+    after = [unicodedata.normalize("NFKC", w) for w in re.findall(r"\w+", handed)]
+    stands_for: dict[str, set[str]] = {}
+    for spelling, stand_in in zip(spelled, m.groups()):
+        assert stand_in not in before, (spelling, stand_in)
+        stands_for.setdefault(stand_in, set()).add(unicodedata.normalize("NFKC", spelling))
+    for stand_in, constants in stands_for.items():
+        assert len(constants) == 1, (stand_in, constants)
+        assert after.count(stand_in) == m.groups().count(stand_in), (stand_in, handed)
+
+
+@pytest.mark.parametrize("prefix", ["b", "rb"])
+def test_the_rewrite_leaves_a_bytes_literal_as_written_and_the_parser_refuses_it(monkeypatch, prefix):
+    guard = _guard_module()
+    t = fullwidth("True")
+    source = f"y = {t}\nv = {prefix}'{t}'\n"
+    assert _handed_to_the_parser(monkeypatch, guard, source).endswith(f"\nv = {prefix}'{t}'\n")
+    with pytest.raises(SyntaxError, match="bytes can only contain ASCII"):
+        guard._parse_as_before_313(source)
+
+
+def test_the_tree_holds_what_the_rewrite_leaves_as_written():
+    """What 3.10 to 3.12 build, on every version: an escape that spells a stand-in is the string it spells (at
+    becdf7d2 it came back as the fullwidth `True`), and the `=` of an f-string field copies its source as
+    written."""
+    guard = _guard_module()
+    t = fullwidth("True")
+    tree = guard._parse_as_before_313(f"s = '{BS}x51aaaaaaaaaaa'; x = {t}\n")
+    assert [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant)] == ["Qaaaaaaaaaaa"]
+    tree = guard._parse_as_before_313(f"s = f'{{{t}=}}'; x = {t}\n")
+    assert [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant)] == [t + "="]
+    assert sorted(n.id for n in ast.walk(tree) if isinstance(n, ast.Name)) == ["True", "True", "s", "x"]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="before 3.12 the tokenize module reads a name as the "
+                    "pattern \\w+, and the rewrite runs there only under a planted refusal")
+def test_a_name_that_holds_a_spelling_and_more_is_no_spelling():
+    """`True` in fullwidth letters followed by U+00B7 is one identifier, `True` and U+00B7 and `a` in NFKC form;
+    at becdf7d2 the pattern `\\w+` rewrote its first four letters, and the tree held the stand-in in it."""
+    guard = _guard_module()
+    t = fullwidth("True")
+    tree = guard._parse_as_before_313(f"x = {t} + {t}{chr(0xB7)}a\n")
+    assert [n.id for n in ast.walk(tree) if isinstance(n, ast.Name)] == ["x", "True", "True" + chr(0xB7) + "a"]
+
+
+def test_a_source_that_cannot_be_read_as_3_10_reads_it_stops_class_b(monkeypatch):
+    """Planted: one stand-in per length, and the text holds it, so no name is left to read `True` as. At becdf7d2
+    that was a ValueError, which class B takes for code that does not parse, and the comment was clean; the
+    reader stops fail-closed now."""
+    guard = _guard_module()
+    monkeypatch.setattr(ast, "parse", _refusing_as_313_does(ast.parse))
+    monkeypatch.setattr(guard, "_STAND_IN_LETTERS", "a")
+    lines = ["def g(d):", f"    # ok = verify_thing({fullwidth('True')}, Qaaaaaaaaaaa)", "    return d"]
+    with pytest.raises(SystemExit, match="cannot be read as 3.10 to 3.12 read it"):
+        guard._commented_out_calls("p.py", lines)
+
+
+def _spellings_of_16_bytes(count: int) -> list[str]:
+    """`count` distinct spellings of `True` and `None` in mathematical letters, 16 bytes each in UTF-8."""
+    letters = {c: [chr(cp) for cp in range(0x1D400, 0x1D800)
+                   if unicodedata.normalize("NFKC", chr(cp)) == c and chr(cp).isidentifier()] for c in "TrueNon"}
+    spellings = ("".join(p) for word in ("True", "None") for p in itertools.product(*(letters[c] for c in word)))
+    words = list(itertools.islice(spellings, count))
+    assert len(set(words)) == count and all(len(w.encode()) == 16 for w in words)
+    return words
+
+
+def _spellings_in_a_docstring(count: int) -> str:
+    """The lens's file: `count` spellings in the module's docstring, 40 a line, the benign file, and one binding
+    of `True` in fullwidth letters, which 3.13 and 3.14 refuse."""
+    words = _spellings_of_16_bytes(count)
+    doc = '"""Spellings:\n' + "\n".join(" ".join(words[i:i + 40]) for i in range(0, len(words), 40)) + '\n"""\n'
+    return doc + BENIGN + "\nFLAG = " + fullwidth("True") + "\n"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_48000_spellings_in_a_docstring_are_read_in_seconds(tmp_path, mode):
+    """The lens's case at full size, 816,302 bytes: 572 s on 3.13 and 569 s on 3.14 at becdf7d2, each spelling a
+    stand-in of its own and each stand-in's walk begun at the start; 0.12 to 0.14 s on 3.10 to 3.12, which never
+    rewrite. The rewrite leaves a string alone now and chooses one stand-in here: the guard's run took 0.25 to
+    0.39 s on 3.13 and 3.14 in both modes at a load average of 32 on 24 cores. The ceiling is 30 s for the whole
+    case, against a bound of 120 s for a change of at most a MiB."""
+    content = _spellings_in_a_docstring(48000)
+    assert len(content.encode()) == 816302
+    started = time.monotonic()
+    r = _change(tmp_path, BENIGN, content, mode, timeout=100)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert time.monotonic() - started < 30
+
+
+def _cpu(work) -> float:
+    """The least CPU time of three runs of `work`."""
+    best = float("inf")
+    for _ in range(3):
+        started = time.process_time()
+        work()
+        best = min(best, time.process_time() - started)
+    return best
+
+
+def test_doubling_the_spellings_about_doubles_the_rewrite():
+    """`_parse_as_before_313` called directly, so the rewrite runs on every version: k spellings as names, and k
+    ASCII names that take the first k stand-ins of 16 bytes, so each walk goes past them. Measured on the five
+    versions at a load average of 27 to 33 on 24 cores: 0.20 to 0.36 s at k = 12000, and a factor of 1.84 to
+    2.34 per doubling up to 48000. At becdf7d2 each spelling began a walk of its own: 6.0 to 6.5 s at k = 4000
+    on 3.10 and 3.13, a factor of 3.0 to 4.3 per doubling. The ceiling on the first size ends such a run."""
+    guard = _guard_module()
+
+    def text(k: int) -> str:
+        blockers = ("Q" + "".join(p) for p in itertools.product(guard._STAND_IN_LETTERS, repeat=15))
+        return ("y = [" + ", ".join(_spellings_of_16_bytes(k)) + "]\nz = ["
+                + ", ".join(itertools.islice(blockers, k)) + "]\n")
+    small, large = text(12000), text(24000)
+    started = time.process_time()
+    guard._parse_as_before_313(small)
+    assert time.process_time() - started < 20
+    first, second = _cpu(lambda: guard._parse_as_before_313(small)), _cpu(lambda: guard._parse_as_before_313(large))
+    assert second / first < 3, (first, second)
 
 
 if __name__ == "__main__":

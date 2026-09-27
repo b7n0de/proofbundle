@@ -46,7 +46,8 @@ function unreported with exit 0 while only the added lines were judged (a review
 a sibling measured beside it, 2026-09-26). A changed file there that Python itself cannot decode or
 parse is not judged; the run stops fail-closed with the reason. One refusal differs between the
 versions the package runs on: 3.13 and later refuse a name spelled as `True`, `False` or `None`, which
-3.10 to 3.12 read, and the guard reads such a source as 3.10 to 3.12 do on every version (`_parse`).
+3.10 to 3.12 read, and the guard reads such a source as 3.10 to 3.12 do on every version (`_parse`),
+rewriting only those names. Where the versions' grammars differ, the running one decides.
 Legitimate exceptions are possible but must be VISIBLE in the diff: put a `# mutant-guard: allow`
 comment on the flagged line or the line directly above it.
 
@@ -67,6 +68,7 @@ import argparse
 import ast
 import codecs
 import contextlib
+import functools
 import io
 import itertools
 import os
@@ -80,7 +82,7 @@ import tokenize
 import traceback
 import unicodedata
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 
@@ -374,6 +376,12 @@ _WORD = re.compile(r"\w+")
 _STAND_IN_LETTERS = string.ascii_letters + string.digits
 
 
+class _NotReadAsBefore313(Exception):
+    """A source the running Python refuses for a name spelled as a constant, and `_parse_as_before_313` cannot
+    read as 3.10 to 3.12 do. No ValueError, so that no caller takes it for a text that does not parse: each
+    stops fail-closed on it."""
+
+
 def _parse(source: str | bytes) -> ast.Module:
     """The tree `ast.parse` builds, and where a later Python refuses one for a name alone, the tree Python
     3.10 to 3.12 build.
@@ -386,7 +394,9 @@ def _parse(source: str | bytes) -> ast.Module:
     3.14; a comment holding `if` such a `True` `and` a check was a finding on 3.10 to 3.12 and clean with
     exit 0 on 3.13 and 3.14; and a file that binds such a name elsewhere was clean on 3.10 to 3.12 and
     stopped the run on 3.13 and 3.14. Where the running Python refuses a source for that reason, it is read
-    as 3.10 to 3.12 read it (`_parse_as_before_313`); every other refusal stays the caller's to judge."""
+    as 3.10 to 3.12 read it (`_parse_as_before_313`); every other refusal stays the caller's to judge. That
+    holds for a source the versions parse alike; where their grammars differ, the running one decides, here
+    as everywhere in the guard (an f-string that nests quotes, a t-string, a letter Unicode added later)."""
     try:
         return ast.parse(source)
     except ValueError as exc:
@@ -398,43 +408,121 @@ def _parse(source: str | bytes) -> ast.Module:
 
 
 def _parse_as_before_313(text: str) -> ast.Module:
-    """`text` as Python 3.10 to 3.12 parse it, on every version. Each word that NFKC turns into `True`,
-    `False` or `None` is read as an ASCII name of the same length in UTF-8 that no word of the text is, so
-    every position stays; in the tree, an identifier that is such a name gets the NFKC form back, as 3.10 to
-    3.12 store it, and a string gets the word as written."""
-    taken = set(_WORD.findall(text))
-    stand_in: dict[str, str] = {}                  # a word as written -> the name read in its place
+    """`text` as Python 3.10 to 3.12 parse it, on every version where `_parse` reads a source this way.
 
-    def replace(match: re.Match[str]) -> str:
-        word = match.group(0)
-        if word.isascii() or unicodedata.normalize("NFKC", word) not in _CONSTANT_NAMES:
-            return word
-        if word not in stand_in:
-            for letters in itertools.product(_STAND_IN_LETTERS, repeat=len(word.encode()) - 1):
-                if (name := "Q" + "".join(letters)) not in taken:
-                    break
-            else:                                  # every name of that length is a word of the text
-                raise ValueError(f"no name of {len(word.encode())} bytes is left to read {word!r} as")
+    THE REWRITE TOUCHES ONLY THE PLACES OF THE REFUSAL: the identifier tokens whose NFKC form is `True`,
+    `False` or `None`, spelled otherwise, and never the inside of a string or bytes literal, the text of an
+    f-string or a comment. Each becomes an ASCII name of the same length in UTF-8, so every position in the
+    tree stays, and the name is the NFKC form of no word and no identifier of the text. The parser stores an
+    identifier in its NFKC form, so after the rewrite a stand-in stands exactly where a spelling of its one
+    constant stood, and the step back from it is unique. The tree then gets the NFKC form back where it holds
+    a stand-in as an identifier, as 3.10 to 3.12 store it, and the text as written where it copies a stretch
+    of the source into a string (the `=` of an f-string field).
+
+    The first reading, `_WORD.sub` over the whole text, broke both halves (a review lens, run 15, measured
+    2026-09-27 at becdf7d2 on 3.13 and 3.14). It kept a stand-in out of the words as written, so `Q` and 11
+    `a` in fullwidth letters, which the parser stores as the stand-in `Qaaaaaaaaaaa`, came back from the tree
+    as `True`: `return` such a name, opening a check, was a finding with exit 1 on 3.13 and 3.14 and clean
+    on 3.10 to 3.12. And it rewrote the word inside a bytes literal too, where ASCII is legal and a fullwidth
+    `True` is not, so a file 3.10 to 3.12 refuse with exit 2 was clean with exit 0 on 3.13 and 3.14, and a
+    comment holding such a literal beside a check was a finding there and clean on 3.10 to 3.12.
+
+    THE TOKENIZER FINDS THE TOKENS. From 3.12 on, `tokenize` runs the parser's own tokenizer, so its NAME
+    tokens are the identifiers the parser reads, those in the fields of an f-string included, and no text
+    of a literal or a comment. Measured on 3.13 and 3.14 for ten spellings in 19 places: every identifier
+    was a NAME token, at the line and column where the text holds it; the text of a string, a bytes literal,
+    a comment, an f-string and its format spec held none, and nor did `True` in fullwidth letters followed by
+    U+00B7, which is one identifier with it. A pattern such as `\\w+` knows none of these boundaries. Before
+    3.12 the module reads a name as `\\w+` and an f-string as one string; the rewrite runs there only where
+    a test plants the refusal. Where the tokenizer stops at an error, the names before it are rewritten and
+    the parser names the error. A source that still refuses a name after the rewrite, or a length whose
+    every name is taken, stops fail-closed (`_NotReadAsBefore313`).
+
+    THE WORK IS LINEAR IN THE TEXT, and bounded before it starts: one tokenization, one NFKC form per word
+    and per name, and one stand-in per constant and length in UTF-8, at most three per length, each taken
+    from one walk over the names of that length that goes on where the last one stopped, so the walks pass
+    each taken name at most once. The first reading chose a stand-in per spelling and began each walk at the
+    start: 48000 spellings of 16 bytes in a docstring, 816,302 bytes staged, ran 572 s on 3.13 and 569 s on
+    3.14 (the same lens). In class B the rewrite runs once per reading the running Python refuses, on the
+    reading the parsing bound has already counted."""
+    starts: list[int] = []
+    lines: list[str] = []
+    for line in _SEGMENT_LINE.finditer(text):        # a line ends where the parser ends it: CR LF, CR or LF
+        starts.append(line.start())
+        body = line.group().rstrip("\r\n")
+        lines.append(body + "\n" if body != line.group() else body)
+    names: list[tuple[int, str]] = []                  # (where in `text` a name starts, the name as written)
+    with contextlib.suppress(tokenize.TokenError, SyntaxError):
+        for token in tokenize.generate_tokens(functools.partial(next, iter(lines), "")):
+            if token.type == tokenize.NAME:
+                names.append((starts[token.start[0] - 1] + token.start[1], token.string))
+    taken = {word if word.isascii() else unicodedata.normalize("NFKC", word) for word in set(_WORD.findall(text))}
+    refused: list[tuple[int, str, str]] = []           # (where, the name as written, the constant it spells)
+    for where, name in names:
+        if name.isascii():                             # its own NFKC form, and no spelling of a constant
             taken.add(name)
-            stand_in[word] = name
-        return stand_in[word]
-
-    tree = ast.parse(_WORD.sub(replace, text))
-    written = {name: word for word, name in stand_in.items()}
+            continue
+        normal = unicodedata.normalize("NFKC", name)
+        taken.add(normal)
+        if normal in _CONSTANT_NAMES:
+            refused.append((where, name, normal))
+    fresh: dict[int, Iterator[str]] = {}               # per length in UTF-8: the names not yet walked past
+    stand_in: dict[tuple[str, int], str] = {}          # (constant, length in UTF-8) -> the name read in place
+    pieces: list[str] = []
+    done = 0
+    for where, name, normal in refused:
+        if text[where:where + len(name)] != name:
+            raise _NotReadAsBefore313(f"the tokenizer placed {name!r} where the text does not hold it")
+        size = len(name.encode())
+        if (normal, size) not in stand_in:
+            walk = fresh.setdefault(size, ("Q" + "".join(letters) for letters in
+                                           itertools.product(_STAND_IN_LETTERS, repeat=size - 1)))
+            chosen = next((candidate for candidate in walk if candidate not in taken), None)
+            if chosen is None:
+                raise _NotReadAsBefore313(f"no name of {size} bytes is left to read {name!r} as")
+            taken.add(chosen)
+            stand_in[normal, size] = chosen
+        pieces += [text[done:where], stand_in[normal, size]]
+        done = where + len(name)
+    rewritten = "".join(pieces) + text[done:]
+    try:
+        tree = ast.parse(rewritten)
+    except ValueError as exc:
+        if _REFUSED_NAME.search(str(exc)):
+            raise _NotReadAsBefore313(f"a name spelled as a constant is left after the rewrite: {exc}") from None
+        raise
+    constant_of = {chosen: normal for (normal, _), chosen in stand_in.items()}
+    in_rewritten, in_text = _Segments(rewritten), _Segments(text)
 
     def identifier(value: str) -> str:
-        return ".".join(unicodedata.normalize("NFKC", written[part]) if part in written else part
-                        for part in value.split("."))
+        if "." not in value:                           # a dotted name is an import's: `a.True` in parts
+            return constant_of.get(value, value)
+        return ".".join(constant_of.get(part, part) for part in value.split("."))
 
-    for node in ast.walk(tree):
-        for field, value in ast.iter_fields(node):
-            if isinstance(node, ast.Constant) and field == "value":
-                if isinstance(value, str):
-                    node.value = _WORD.sub(lambda m: written.get(m.group(0), m.group(0)), value)
+    # Every node once, each field read once: `ast.walk` reads a node's fields to find its children and the
+    # restore read them again, which was half the time of the rewrite of a comment's reading on 3.13.
+    todo: list[ast.AST] = [tree]
+    while todo:
+        node = todo.pop()
+        if isinstance(node, ast.Constant):
+            # A string is the text of a literal, which the rewrite leaves as written, or a stretch of the source
+            # the parser copies (the `=` of an f-string field): that one is the text as written, and it is the
+            # only kind whose value is the source at its own position.
+            if isinstance(node.value, str) and any(chosen in node.value for chosen in constant_of) \
+                    and in_rewritten(node) == node.value:
+                node.value = in_text(node)
+            continue
+        for field in node._fields:
+            value = getattr(node, field, None)
+            if isinstance(value, ast.AST):
+                todo.append(value)
             elif isinstance(value, str):
                 setattr(node, field, identifier(value))
-            elif isinstance(value, list) and value and isinstance(value[0], str):
-                setattr(node, field, [identifier(v) for v in value])
+            elif isinstance(value, list):
+                if value and isinstance(value[0], str):
+                    setattr(node, field, [identifier(v) for v in value])
+                else:
+                    todo.extend(v for v in value if isinstance(v, ast.AST))
     return tree
 
 
@@ -733,6 +821,11 @@ def _commented_out_calls(path: str, lines: list[str]) -> list[tuple[int, int]]:
             raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{first}: a comment nests deeper "
                              "than the parser reads, so the guard cannot say whether it is "
                              "commented-out code (fail closed)") from None
+        except _NotReadAsBefore313 as exc:
+            raise SystemExit(f"mutant_signature_guard: {_pfad(path)}:{first}: this Python refuses a comment's "
+                             "code for a name spelled as a constant, and it cannot be read as 3.10 to 3.12 "
+                             f"read it, so the guard cannot say whether it is commented-out code (fail closed): "
+                             f"{_pfad(str(exc)[:200])}") from None
         if statement is None:
             unparsed.add((first, last, level))
         return statement
@@ -961,7 +1054,7 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
         tree = _parse(raw)
         encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
         whole = raw.decode(encoding)
-    except (SyntaxError, ValueError, LookupError, RecursionError, MemoryError) as exc:
+    except (SyntaxError, ValueError, LookupError, RecursionError, MemoryError, _NotReadAsBefore313) as exc:
         raise stop(f"{type(exc).__name__}: {exc}") from None
     decoder = codecs.getincrementaldecoder(encoding)()
     git_lines = raw.split(b"\n")
@@ -984,7 +1077,7 @@ def _read_as_python(path: str, raw: bytes) -> tuple[ast.Module, list[str], list[
         lines.extend(pieces)
     try:
         again = _parse(whole)
-    except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+    except (SyntaxError, ValueError, RecursionError, MemoryError, _NotReadAsBefore313) as exc:
         raise stop(f"the text decoded here as {encoding} does not parse again: "
                    f"{type(exc).__name__}: {exc}") from None
     if "".join(parts) != whole or _tree_shape(again) != _tree_shape(tree):
@@ -1327,6 +1420,10 @@ _CASES: list[tuple[str, str | bytes, bool]] = [
      _BENIGN.replace('    return bool(data.get("ok"))',
                      f'    # if {_fullwidth("True")} and verify_thing(data):\n    #     return False\n'
                      '    return True'), True),
+    # The name 3.13 and later read such a constant as is no name of the file in its NFKC form: this one was read
+    # back as `True` there (a review lens, run 15, 2026-09-27).
+    ("negative: a name that spells the stand-in for a constant",
+     _BENIGN + f"\ny = {_fullwidth('True')}\n\n\ndef verify_o(d):\n    return {_fullwidth('Qaaaaaaaaaaa')}\n", False),
 ]
 
 
