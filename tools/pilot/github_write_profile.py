@@ -38,9 +38,10 @@ import re
 import sys
 from pathlib import Path
 
-import rfc8785
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from proofbundle._wire_b64 import decode_b64_either
+from proofbundle.canonical import canonicalize_statement
 from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
 
@@ -62,16 +63,18 @@ def scope_descriptor(surface: str, target: str, object_id: str) -> dict:
 
 
 def scope_digest(descriptor: dict) -> str:
-    return sha256_hex(rfc8785.dumps(descriptor))
+    return sha256_hex(canonicalize_statement(descriptor))
 
 
 def content_root(envelope: dict) -> str:
-    """SHA-256 over the exact signed payload bytes: the content root a decisionRef names."""
-    return sha256_hex(base64.b64decode(envelope["payload"], validate=True))
+    """SHA-256 over the exact signed payload bytes: the content root a decisionRef names. The payload is
+    decoded by the house's one strict DSSE decoder (either alphabet, canonical, padded), so one signed
+    decision has one content root."""
+    return sha256_hex(decode_b64_either(envelope["payload"]))
 
 
 def _statement(envelope: dict) -> dict:
-    return json.loads(base64.b64decode(envelope["payload"], validate=True))
+    return json.loads(decode_b64_either(envelope["payload"]))
 
 
 def decision_predicate(*, action_id: str, attempt: int, decided_at: str, expires_at: str | None, surface: str,
@@ -316,7 +319,7 @@ def build_vectors() -> dict:
     d_rev = decision(revision="2")
     fall("another revision of the profile", UNKNOWN, d_rev, *outcome(d_rev))
     manipuliert = dict(d0)
-    roh = bytearray(base64.b64decode(d0["payload"]))
+    roh = bytearray(decode_b64_either(d0["payload"]))
     roh[roh.index(b"ALLOW")] = ord("B")
     manipuliert["payload"] = base64.b64encode(bytes(roh)).decode("ascii")
     fall("tampered decision payload", NOT_ACCEPTED, manipuliert, o0, s0)
@@ -345,7 +348,7 @@ def main(argv=None) -> int:
     for name, erwartet, bekommen, gruende in check_vectors(daten):
         fehler += erwartet != bekommen
         print(f"{'OK  ' if erwartet == bekommen else 'FAIL'} {name}: {bekommen} (expected {erwartet})"
-              + (f" — {gruende[0]}" if gruende else ""))
+              + (f": {gruende[0]}" if gruende else ""))
     return 1 if fehler else 0
 
 
