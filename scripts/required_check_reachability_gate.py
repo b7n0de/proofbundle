@@ -24,8 +24,9 @@ as NOT_MEASURABLE with the reason, and NOT_MEASURABLE is a failure, never a pass
 must not read as fine; a condition it cannot evaluate is named as undecided in the report. In
 particular it understands exactly one conditional matrix
 shape, `${{ fromJSON( <condition> && '<json>' || '<json>' ) }}` as the whole value with one operand
-before the `&&`, because that is the shape this repository uses; it takes the second literal as
-the ordinary case and names the condition.
+before the `&&`, because that is the shape this repository uses. Each arm exists only under its
+condition: a context of the first literal is named under the condition, one of the second under
+its negation, and only a context both arms produce is produced either way.
 
 KNOWN TRAPS, from the survey of prior art on 2026-09-16, each guarded below:
   * A job skipped by `if:` reports Success, so a required check on a conditional job never blocks.
@@ -33,8 +34,13 @@ KNOWN TRAPS, from the survey of prior art on 2026-09-16, each guarded below:
   * A reusable workflow reports as `<caller job id> / <called job name>`, not as the called job's
     own name. Reading only the called file yields the wrong context name.
   * A job `name:` may interpolate matrix values, so the context name exists only after expansion.
-  * `cond && A || B` falls through to B whenever A is falsy, regardless of cond. Empty or `[]` in
-    the true arm silently disables the whole condition.
+  * `cond && A || B` is A when cond is truthy and B otherwise, and only because A is truthy.
+    GitHub's `&&` returns its first falsy operand, else its last, and `||` its first truthy one,
+    else its last (actions/runner at 15231bede4aa, src/Sdk/Expressions/Sdk/Operators/And.cs:39-50
+    and Or.cs:39-50, read 2026-09-27, not measured). A string is falsy only when it is empty
+    (src/Sdk/Expressions/EvaluationResult.cs:51-72), so the literal `'[]'` is truthy. The survey
+    said an empty true arm falls through to B for every cond; the source says it does not: when
+    cond holds, the matrix vector is empty, and GitHub refuses that (see `_matrix_arme`).
 
 WHAT IT READS BEFORE IT CALLS A CONTEXT PRODUCED (lens on ac05d85d, 2026-09-26: five forms read as
 produced with exit 0 that GitHub never produces). A workflow is read with YAML 1.2's core schema,
@@ -45,6 +51,15 @@ is expanded as GitHub documents it: every combination of its keys, `exclude`, th
 the name carries every value of a combination. An `if:` is read the way GitHub's template reader
 splits `${{ }}`. A form it does not read is NOT MEASURABLE with its reason, never produced.
 
+WHAT A SECOND LENS ON fb6eda0d FOUND READ AS PRODUCED (2026-09-27), each now read from GitHub's source
+(actions/runner at 15231bede4aa, read, not measured against GitHub): the false arm of a matrix
+ternary (it exists only when the condition does not hold); `include` and `exclude` matched by the
+displayed text (GitHub builds `matrix[key] == literal` and its `==` coerces a string to a number);
+a key written twice in one mapping (GitHub's reader refuses that, case-insensitively, and then the
+whole workflow is empty); a hex integer past Int32; a context produced by several jobs, of which
+only the first was kept; whitespace beside `${{ }}` in an `if:`, which GitHub formats into a string;
+and a `jobs:` that is not a mapping, which raised out of the survey.
+
 Exit 0 when every declared context is produced, either unconditionally or under a named
 condition. Exit 1 when one is unreachable or not measurable.
 """
@@ -54,6 +69,7 @@ import argparse
 import hashlib
 import itertools
 import json
+import math
 import os
 import re
 import string
@@ -74,7 +90,9 @@ GATED = "produced-only-if"
 ABSENT = "never-produced"
 UNKNOWN = "not-measurable"
 
-#: `fromJSON( <condition> && '<true arm>' || '<false arm>' )`. The false arm is the ordinary case.
+#: `fromJSON( <condition> && '<true arm>' || '<false arm>' )`. Each arm is taken under its condition,
+#: the false arm under the negation (lens on fb6eda0d: it read as the ordinary case, produced on every
+#: event, while on a pull request that makes the condition true GitHub builds only the true arm).
 #: Matched against the WHOLE expression inside the value's one `${{ }}` (lens on ac05d85d, F5): a
 #: search found the shape inside `true || X && '[..]' || '[..]'`, which GitHub reads as
 #: `true || (X && '[..]') || '[..]'`, the bare `true`, since its `||` binds looser than `&&`. The
@@ -176,14 +194,19 @@ def ohne_wache_trotz_needs(job: dict) -> bool:
 
     A condition holding a character Python reads as whitespace and GitHub does not is checked
     before any pattern reads it: no guard is claimed for it. A condition the evaluator cannot read
-    is read by its spelling (`_wache_nach_schreibweise`), and erhebe names it as undecided.
+    is read by its spelling (`_wache_nach_schreibweise`), and erhebe names it as undecided. A condition
+    GitHub does not read as written (text beside `${{ }}`, whitespace included, see `_roh_gelesen`)
+    claims no guard either.
     """
     if not job.get("needs"):
         return False
     roh = str(job.get("if") or "")
     if fremder_leerraum(roh):
         return True
-    bed = " ".join(roh.split())
+    try:
+        bed = _roh_gelesen(roh)
+    except NichtLesbar:
+        return True
     if not bed:
         return True
     try:
@@ -199,13 +222,107 @@ def _wache_nach_schreibweise(bed: str) -> bool:
     return not _VERNEINTE_GRUPPE.search(ohne) and bool(_TRAEGT_WACHE.search(ohne))
 
 
+class WorkflowNotRead(ValueError):
+    """A workflow GitHub's reader refuses as a whole, or reads in a way this gate does not follow. Its
+    message is the reason (it goes into the report, so the name of this class is English); the file is
+    reported as not read, and nothing of it is produced."""
+
+
+#: Where a workflow is refused as a whole (actions/runner at 15231bede4aa, read 2026-09-27, not
+#: measured): an error while it is read is collected, and `ConvertToWorkflow` then returns an empty
+#: workflow (src/Sdk/WorkflowParser/Conversion/WorkflowTemplateConverter.cs:31-34).
+_LEERER_WORKFLOW = "GitHub then converts the whole workflow to an empty one (WorkflowTemplateConverter.cs:31-34)"
+
+
 def _ganzzahl(lader, knoten) -> int:
     """An integer of YAML 1.2's core schema: decimal, `0o` octal or `0x` hexadecimal. PyYAML's own
-    reads a leading zero as octal (`010` is 8), which YAML 1.2 reads as ten."""
+    reads a leading zero as octal (`010` is 8), which YAML 1.2 reads as ten.
+
+    PAST INT32 IS NOT A NUMBER THIS GATE KNOWS (lens on fb6eda0d): GitHub reads a hex scalar with
+    `Int32.TryParse(..., AllowHexSpecifier)` and an octal one with `Convert.ToInt32(..., 8)`
+    (src/Sdk/WorkflowParser/Conversion/YamlObjectReader.cs:656-671 and 672-692, read, not measured).
+    Past 0x7FFFFFFF such a value is either read as a negative number or refused, and a refusal makes
+    the whole workflow fail; `0xFFFFFFFF` named a job `test (4294967295)` here. Which of the two, and
+    for how many leading zeros, was not measured, so the file is not read."""
     text = lader.construct_scalar(knoten)
     if text[:2] in ("0o", "0x"):
-        return int(text[2:], 8 if text[1] == "o" else 16)
+        ziffern = text[2:]
+        wert = int(ziffern, 8 if text[1] == "o" else 16)
+        if wert > 0x7FFFFFFF or len(ziffern) > (8 if text[1] == "x" else 11):
+            raise WorkflowNotRead(
+                f"line {knoten.start_mark.line + 1}: the integer {text} is past Int32, which GitHub's "
+                f"reader either reads as a negative number or refuses (YamlObjectReader.cs:656-692); "
+                f"which one was not measured")
+        return wert
     return int(text, 10)
+
+
+def _text_skalar(lader, knoten) -> str:
+    """A text scalar, and an expression in it opened with `${{` and not closed is a refusal: GitHub's
+    template reader parses EVERY text scalar for `${{ }}` and reports one not closed as an error
+    (src/Sdk/WorkflowParser/ObjectTemplating/TemplateReader.cs:486-536), so the whole workflow is empty.
+    The gate saw that only in an `if:`; a `run:` holding it produced its job's context."""
+    text = lader.construct_scalar(knoten)
+    if "${{" in text:
+        try:
+            _vorlage(text)
+        except NichtLesbar as exc:
+            raise WorkflowNotRead(f"line {knoten.start_mark.line + 1}: {exc}; {_LEERER_WORKFLOW}") from None
+    return text
+
+
+def _schluessel_wie_github(schluessel, knoten) -> str | None:
+    """A mapping key as GitHub's reader compares it with the other keys, or None for one it does not
+    compare. A key holding one `${{ }}` that is only a string literal is that literal
+    (TemplateReader.cs:584-589 and 746-778); any other expression key is not compared (188-207). A key
+    that is not a text is converted with its own spelling (209-213), which was not read, so it is not
+    read here either."""
+    if not isinstance(schluessel, str):
+        raise WorkflowNotRead(f"line {knoten.start_mark.line + 1}: the key {_einzeilig(repr(schluessel), 40)} "
+                              f"is not a text, and how GitHub's reader spells it to compare keys was not read")
+    if "${{" not in schluessel:
+        return schluessel
+    segmente = _vorlage(schluessel)
+    if len(segmente) == 1 and segmente[0][0]:
+        innen = segmente[0][1].strip()
+        if len(innen) >= 2 and innen[0] == innen[-1] == "'" and "'" not in innen[1:-1].replace("''", ""):
+            return innen[1:-1].replace("''", "'")
+    return None
+
+
+def _keine_doppelten_schluessel(lader, knoten) -> None:
+    """A key written twice in one mapping, compared as GitHub compares them, is a refusal.
+
+    Lens on fb6eda0d: PyYAML keeps the last of two equal keys without a word, so `if: false` followed
+    by `if: always()` in one job, the jobs `guard` and `Guard`, and `on:` written twice each read as
+    produced. GitHub's template reader keeps the keys of every mapping in a set that ignores case
+    (`StringComparer.OrdinalIgnoreCase`) and reports a second one as an error
+    (src/Sdk/WorkflowParser/ObjectTemplating/TemplateReader.cs:182 and 215-221 for a mapping with
+    known properties, 309 and 341-347 for one with loose keys), and then the whole workflow is empty.
+    ASCII case is folded here; two keys equal only under a case mapping outside ASCII are not read,
+    since how .NET maps those letters was not read."""
+    gesehen: dict[str, str] = {}
+    faltungen: dict[str, str] = {}
+    for schluessel_knoten, _wert_knoten in knoten.value:
+        text = _schluessel_wie_github(lader.construct_object(schluessel_knoten, deep=True), schluessel_knoten)
+        if text is None:
+            continue
+        zeile = schluessel_knoten.start_mark.line + 1
+        klein = _ascii_klein(text)
+        if klein in gesehen:
+            raise WorkflowNotRead(
+                f"line {zeile}: the key {_einzeilig(repr(text), 40)} repeats {_einzeilig(repr(gesehen[klein]), 40)} "
+                f"in one mapping; GitHub's reader refuses a repeated key, ignoring case "
+                f"(TemplateReader.cs:215-221), and {_LEERER_WORKFLOW}")
+        gleich = next((faltungen[f] for f in _faltungen(text) if f in faltungen), None)
+        if gleich is not None:
+            raise WorkflowNotRead(
+                f"line {zeile}: the keys {_einzeilig(repr(gleich), 40)} and {_einzeilig(repr(text), 40)} are "
+                f"equal only under a case mapping of letters outside ASCII, and whether GitHub's reader "
+                f"refuses them as one key repeated was not read")
+        gesehen[klein] = text
+        for f in _faltungen(text):
+            faltungen.setdefault(f, text)
 
 
 #: PyYAML reads YAML 1.1, and GitHub does not. Both of GitHub's workflow readers use YAML 1.2's core
@@ -221,6 +338,11 @@ if yaml is not None:
     class _GitHubLader(yaml.SafeLoader):
         yaml_implicit_resolvers: dict = {}
 
+        def construct_mapping(self, node, deep=False):
+            """A mapping, its keys first compared as GitHub's reader compares them."""
+            _keine_doppelten_schluessel(self, node)
+            return super().construct_mapping(node, deep=deep)
+
     _GitHubLader.add_implicit_resolver(
         "tag:yaml.org,2002:null", re.compile(r"\A(?:~|null|Null|NULL|)\Z"), ["~", "n", "N", ""])
     _GitHubLader.add_implicit_resolver(
@@ -234,6 +356,7 @@ if yaml is not None:
                    r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))\Z"),
         list("-+.0123456789"))
     _GitHubLader.add_constructor("tag:yaml.org,2002:int", _ganzzahl)
+    _GitHubLader.add_constructor("tag:yaml.org,2002:str", _text_skalar)
 else:                                                  # pragma: no cover - `_lade` refuses first
     _GitHubLader = None
 
@@ -270,101 +393,128 @@ def _ascii_klein(text: str) -> str:
 _HOECHSTENS_JOBS = 256
 
 
-def matrix_lesung(job: dict) -> tuple[dict[str, list], dict[str, list], str | None, str | None, list[str]]:
-    """`matrix_werte`, and why a matrix is not read: (ordinary values, gated values, condition, note,
-    reasons). Each reason makes the matrix not measurable; a key that is not read has empty value
-    lists. A `strategy` or a matrix that is not a mapping is such a reason too (a `strategy` written
-    as an expression made the first form raise AttributeError out of the whole survey)."""
+#: How many matrix keys may be conditional at once; their arms combine to 2**n choices.
+_HOECHSTENS_BEDINGTE = 4
+
+
+def _matrix_arme(job: dict) -> tuple[list, list[str], list[str], list[tuple[str, str]]]:
+    """The keys of a job's matrix in the order they are declared, and what is read of them: (keys,
+    notes, reasons, conditions not decided). A key is (key, values, None) for a literal list or for a
+    condition with one value on every event, and (key, None, (condition, true arm, false arm)) for a
+    live conditional one. Each reason makes the matrix not measurable, and a key that is not read has
+    no values. A `strategy` or a matrix that is not a mapping is such a reason too (a `strategy`
+    written as an expression made the first form raise AttributeError out of the whole survey).
+
+    AN ARM EXISTS ONLY UNDER ITS CONDITION (lens on fb6eda0d): the first form took the false arm as the
+    ordinary case, produced on every event, also for a condition the evaluator could not decide.
+    `fromJSON(contains(github.event.pull_request.labels.*.name, 'landung') && '["3.10"]' || '["3.12"]')`
+    read `test (3.12)` as produced with exit 0, although on a pull request carrying the label the
+    matrix is `["3.10"]`. The value of `cond && A || B` is A when cond is truthy and B otherwise (see
+    the traps above: A is a non-empty string literal, so it is truthy), so here the true arm is taken
+    under the condition and the false arm under its negation, and the caller names each (`erhebe`).
+    An EMPTY arm is `'[]'`, a truthy string, not a fallthrough: under its condition the matrix vector
+    is empty, which GitHub refuses (src/Sdk/WorkflowParser/Conversion/WorkflowTemplateConverter.cs:
+    970-974, read 2026-09-27, not measured), so the matrix is not measurable. A condition with one
+    value on every event takes one arm always, and the note says the other is dead code."""
     strategie = job.get("strategy")
     if strategie is None:
-        return {}, {}, None, None, []
+        return [], [], [], []
     if not isinstance(strategie, dict):
-        return {}, {}, None, None, [f"`strategy` is {type(strategie).__name__}, not a mapping"]
+        return [], [], [f"`strategy` is {type(strategie).__name__}, not a mapping"], []
     m = strategie.get("matrix")
     if m is None:
-        return {}, {}, None, None, []
+        return [], [], [], []
     if not isinstance(m, dict):
-        return {}, {}, None, None, [f"the matrix is {type(m).__name__}, not a mapping of keys to values"]
-    gewoehnlich: dict[str, list] = {}
-    gegated: dict[str, list] = {}
-    bedingung: str | None = None
-    hinweis: str | None = None
+        return [], [], [f"the matrix is {type(m).__name__}, not a mapping of keys to values"], []
+    schluessel: list = []
+    hinweise: list[str] = []
     gruende: list[str] = []
-    for schluessel, wert in m.items():
-        if schluessel in ("include", "exclude"):
+    offen: list[tuple[str, str]] = []
+    for k, wert in m.items():
+        if k in ("include", "exclude"):
             continue
         if isinstance(wert, list):
-            gewoehnlich[schluessel] = list(wert)
-            gegated[schluessel] = list(wert)
+            schluessel.append((k, list(wert), None))
             if not wert:
-                gruende.append(f"matrix key {schluessel!r} has no values, which GitHub refuses")
+                gruende.append(f"matrix key {k!r} has no values, which GitHub refuses")
             continue
-        gewoehnlich[schluessel] = []
-        gegated[schluessel] = []
+        schluessel.append((k, [], None))              # replaced below once the key is read
         if isinstance(wert, str) and fremder_leerraum(wert):
-            gruende.append(f"matrix key {schluessel!r} carries {', '.join(fremder_leerraum(wert))}")
+            gruende.append(f"matrix key {k!r} carries {', '.join(fremder_leerraum(wert))}")
             continue
         if not (isinstance(wert, str) and "fromJSON" in wert):
-            gruende.append(f"matrix key {schluessel!r} is {type(wert).__name__}, not a list")
+            gruende.append(f"matrix key {k!r} is {type(wert).__name__}, not a list")
             continue
         try:
             segmente = _vorlage(wert)
         except NichtLesbar as exc:
-            gruende.append(f"matrix key {schluessel!r}: {exc}")
+            gruende.append(f"matrix key {k!r}: {exc}")
             continue
         t = (_TERNARY.fullmatch(segmente[0][1].strip())
              if len(segmente) == 1 and segmente[0][0] else None)
         if not t:
-            gruende.append(f"matrix key {schluessel!r} is not the one conditional shape this gate reads")
+            gruende.append(f"matrix key {k!r} is not the one conditional shape this gate reads")
             continue
         if not _ein_operand(t.group("cond")):
-            gruende.append(f"matrix key {schluessel!r}: the text before `&&` is not one operand, and GitHub's "
+            gruende.append(f"matrix key {k!r}: the text before `&&` is not one operand, and GitHub's "
                            f"`||` binds looser than `&&`, so the value is not `cond && A || B`")
             continue
         if _STATUSAUFRUF.search(ohne_literale(t.group("cond"))):
-            gruende.append(f"matrix key {schluessel!r}: its condition calls a status function, which GitHub "
+            gruende.append(f"matrix key {k!r}: its condition calls a status function, which GitHub "
                            f"allows in no `strategy`")
             continue
         try:
             wahr = json.loads(t.group("wahr"))
             sonst = json.loads(t.group("sonst"))
         except json.JSONDecodeError:
-            gruende.append(f"an arm of matrix key {schluessel!r} is not JSON")
+            gruende.append(f"an arm of matrix key {k!r} is not JSON")
             continue
-        # cond && A || B falls through to B whenever A is falsy, condition or not.
-        if not wahr:
-            # `cond && '[]' || B` is B for every cond. The condition is dead, and the value
-            # sets look exactly as they would without it -- only this note says so.
-            gewoehnlich[schluessel] = list(sonst)
-            gegated[schluessel] = list(sonst)
-            hinweis = (f"matrix key {schluessel!r}: the true arm of the condition is empty, so "
-                       f"`cond && '[]' || ...` falls through for every value of the condition. "
-                       f"The condition is dead code and produces nothing.")
-            if not sonst:
-                gruende.append(f"matrix key {schluessel!r} has no values in either arm")
+        try:
+            bed = _roh_gelesen(t.group("cond"))
+        except NichtLesbar as exc:
+            gruende.append(f"matrix key {k!r}: {exc}")
             continue
-        bed = " ".join(t.group("cond").split())
         try:
             werte = wahrheitswerte(bed)
-        except NichtAuswertbar:
-            werte = set()                # not decided; erhebe names the condition as undecided
+        except NichtAuswertbar as exc:
+            werte = set()                   # not decided: both arms are named, erhebe says so
+            offen.append((bed, str(exc)))
         if len(werte) == 1:
             immer = True in werte
-            gewoehnlich[schluessel] = list(wahr if immer else sonst)
-            gegated[schluessel] = list(wahr if immer else sonst)
-            hinweis = (f"matrix key {schluessel!r}: the condition `{bed}` is "
-                       f"{'true' if immer else 'false'} on every event, so `cond && A || B` "
-                       f"always yields {'A' if immer else 'B'}. The condition is dead code, and "
-                       f"the other arm produces nothing.")
-            if not gewoehnlich[schluessel]:
-                gruende.append(f"matrix key {schluessel!r} has no values in the arm it always takes")
+            arm = list(wahr if immer else sonst)
+            schluessel[-1] = (k, arm, None)
+            hinweise.append(f"matrix key {k!r}: the condition `{bed}` is "
+                            f"{'true' if immer else 'false'} on every event, so `cond && A || B` "
+                            f"always yields {'A' if immer else 'B'}. The condition is dead code, and "
+                            f"the other arm produces nothing.")
+            if not arm:
+                gruende.append(f"matrix key {k!r} has no values in the arm it always takes")
             continue
-        gewoehnlich[schluessel] = list(sonst)
-        gegated[schluessel] = list(wahr)
-        bedingung = bed
-        if not sonst:
-            gruende.append(f"matrix key {schluessel!r} has no values in its ordinary arm")
-    return gewoehnlich, gegated, bedingung, hinweis, gruende
+        for leer, arm_name in ((not wahr, "true arm, taken when the condition holds,"),
+                               (not sonst, "false arm, taken when the condition does not hold,")):
+            if leer:
+                gruende.append(f"matrix key {k!r}: its {arm_name} is empty, and GitHub refuses a matrix "
+                               f"vector without values (WorkflowTemplateConverter.cs:970-974), so the job "
+                               f"does not run then")
+        schluessel[-1] = (k, None, (bed, list(wahr), list(sonst)))
+    return schluessel, hinweise, gruende, offen
+
+
+def matrix_lesung(job: dict) -> tuple[dict[str, list], dict[str, list], str | None, str | None, list[str]]:
+    """`matrix_werte`, and why a matrix is not read: (the false arms' values, the true arms' values,
+    the last live condition, the last note, reasons), read from `_matrix_arme`. A key with a literal
+    list has it in both; a key that is not read has empty value lists."""
+    schluessel, hinweise, gruende, _offen = _matrix_arme(job)
+    sonst_werte: dict[str, list] = {}
+    wahr_werte: dict[str, list] = {}
+    bedingung = None
+    for k, werte, arm in schluessel:
+        if arm is None:
+            sonst_werte[k], wahr_werte[k] = list(werte), list(werte)
+        else:
+            bedingung, wahr, sonst = arm
+            sonst_werte[k], wahr_werte[k] = list(sonst), list(wahr)
+    return sonst_werte, wahr_werte, bedingung, (hinweise[-1] if hinweise else None), gruende
 
 
 def _ein_operand(text: str) -> bool:
@@ -389,24 +539,23 @@ def _ein_operand(text: str) -> bool:
 
 
 def matrix_werte(job: dict, roh: str) -> tuple[dict[str, list], dict[str, list], str | None, str | None]:
-    """Return (ordinary values, gated values, condition, note) per matrix key.
+    """Return (false arm values, true arm values, condition, note) per matrix key.
 
-    The NOTE carries a defect the value sets alone cannot express. An empty true arm makes the
-    whole condition dead: `cond && '[]' || B` yields B for every value of cond. The resulting
-    context set is the same as if the condition had been deleted, so counting values would never
-    reveal it -- the reader has to be told in words, or the dead condition sits there looking
-    live. Measured as a surviving mutant against this gate's own contracts on 2026-09-16.
+    The NOTE carries a defect the value sets alone cannot express: a condition with the same value on
+    every event takes one arm always (review of follow-up 236, the constant-false job condition, and
+    its sibling here): `false && A || B` is B and `true && A || B` is A, so the other arm is dead code,
+    and the NOTE says so. Before, the dead arm of a constant-true condition read as the ordinary case,
+    and its contexts as produced.
 
-    Three shapes are understood. A literal list is both ordinary and gated. The one conditional
-    shape this repository uses splits into the two arms. Anything else yields an empty ordinary
-    set, which the caller turns into NOT_MEASURABLE rather than into a pass. A value holding a
-    character Python reads as whitespace and GitHub does not is such a value, and it is recognised
-    before any pattern reads it. Why a key was not read is in `matrix_lesung`, which erhebe asks.
+    Three shapes are understood. A literal list is in both. The one conditional shape this
+    repository uses splits into the two arms, each taken only under its condition (`_matrix_arme`).
+    Anything else yields empty sets, which the caller turns into NOT_MEASURABLE rather than into a
+    pass. A value holding a character Python reads as whitespace and GitHub does not is such a value,
+    and it is recognised before any pattern reads it. Why a key was not read is in `matrix_lesung`.
 
-    A condition with the same value on every event takes one arm always (review of follow-up 236,
-    the constant-false job condition, and its sibling here): `false && A || B` is B and
-    `true && A || B` is A, so the other arm is dead code, and the NOTE says so. Before, the dead arm
-    of a constant-true condition read as the ordinary case, and its contexts as produced.
+    An EMPTY TRUE ARM IS NOT A FALLTHROUGH (lens on fb6eda0d, read in GitHub's source): the first form
+    read `cond && '[]' || B` as B for every cond and called the condition dead, but `'[]'` is a
+    non-empty string and truthy, so under the condition the matrix is empty, which GitHub refuses.
     """
     return matrix_lesung(job)[:4]
 
@@ -421,97 +570,309 @@ def _matrix_schluessel(schluessel) -> str:
     return _ascii_klein(schluessel)
 
 
-def _anzeige(wert, wo: str) -> str:
-    """How a matrix value stands in a job name: a text as it is, an integer in decimal. A number with a
-    fraction, a boolean, null, a list or a mapping is not read, since how GitHub spells it in a name was
-    not read, and neither is a text holding an expression, which GitHub evaluates first."""
+def _ganze_zahl(wert) -> int | None:
+    """A number without a fraction below 10**15 as an int, else None. GitHub keeps every number as a
+    double, and `G15` spells such a one in decimal digits (`10.0` is `10`)."""
+    if isinstance(wert, bool):
+        return None
+    if isinstance(wert, int):
+        return wert if abs(wert) < 10 ** 15 else None
+    if (isinstance(wert, float) and math.isfinite(wert) and wert.is_integer() and abs(wert) < 1e15
+            and not (wert == 0 and math.copysign(1.0, wert) < 0)):
+        return int(wert)
+    return None
+
+
+def _segment(wert, wo: str) -> str | None:
+    """How a matrix value stands in the DEFAULT name of its job, or None when it adds nothing.
+
+    GitHub adds a segment for a boolean, a number and a text only, and skips an empty one
+    (actions/runner at 15231bede4aa, src/Sdk/WorkflowParser/Conversion/MatrixBuilder.cs:189-205), so a
+    null value and an empty text add nothing; a boolean is `true` or `false`
+    (src/Sdk/Expressions/Data/BooleanExpressionData.cs:35-38) and a number is formatted `G15`
+    (NumberExpressionData.cs:55-58). Read 2026-09-27, not measured. A number with a fraction, which
+    `G15` spells in a way this gate does not reproduce, a list, a mapping, and a text holding an
+    expression, which GitHub evaluates first, are not read."""
+    if wert is None:
+        return None
+    if isinstance(wert, bool):
+        return "true" if wert else "false"
+    if isinstance(wert, str):
+        if "${{" in wert:
+            raise NichtLesbar(f"{wo} holds an expression, which GitHub evaluates before it names the job")
+        return wert or None
+    ganz = _ganze_zahl(wert)
+    if ganz is not None:
+        return str(ganz)
+    raise NichtLesbar(f"{wo} holds {_einzeilig(repr(wert), 60)}, whose spelling in a job name this gate "
+                      f"does not follow")
+
+
+def _einsetzbar(wert, wo: str) -> str:
+    """How a matrix value stands where a job name writes `${{ matrix.<key> }}`: a text as it is, an
+    integer in decimal. Any other value is not read, since how GitHub formats it there was not read."""
     if isinstance(wert, str) and "${{" not in wert:
         return wert
-    if isinstance(wert, int) and not isinstance(wert, bool) and abs(wert) < 10 ** 15:
-        return str(wert)
+    ganz = _ganze_zahl(wert)
+    if ganz is not None and not isinstance(wert, float):
+        return str(ganz)
     raise NichtLesbar(f"{wo} holds {_einzeilig(repr(wert), 60)}, whose spelling in a job name this gate "
                       f"does not know")
 
 
-def _gleich(a: str, b: str, wo: str) -> bool:
-    """Do two matrix values match, for `exclude` and `include`? Equal texts do, different ones do not;
-    two that differ only in case are not decided, since whether GitHub compares values with case was
-    not read."""
-    if a == b:
-        return True
-    if a.casefold() == b.casefold():
-        raise NichtLesbar(f"{wo}: {a!r} and {b!r} differ only in case, and whether GitHub matches them "
+#: A text `Double.TryParse` reads as a number with AllowLeadingSign, AllowDecimalPoint and AllowExponent
+#: in the invariant culture (src/Sdk/Expressions/Sdk/ExpressionUtility.cs:234), in ASCII digits.
+_ZAHLFORM = re.compile(r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?")
+
+
+def _zahl_aus_text(text: str, wo: str) -> float:
+    """A text as GitHub's `==` makes it a number, `ExpressionUtility.ParseNumber`
+    (src/Sdk/Expressions/Sdk/ExpressionUtility.cs:223-288, read 2026-09-27, not measured): trimmed; empty
+    is 0; a decimal number with a sign, a point and an exponent; `0x` hex and `0o` octal within Int32;
+    `Infinity` and `-Infinity`; NaN for anything else. Where what .NET does was not read, it is not
+    measurable: a character Python reads as whitespace and .NET does not, a number past the range of
+    a double, hex or octal past Int32, and another spelling of infinity or NaN."""
+    if fremder_leerraum(text):
+        raise NichtLesbar(f"{wo}: {_einzeilig(repr(text), 40)} carries {', '.join(fremder_leerraum(text))}")
+    t = text.strip()
+    if not t:
+        return 0.0
+    if _ZAHLFORM.fullmatch(t):
+        zahl = float(t)
+        if math.isinf(zahl):
+            raise NichtLesbar(f"{wo}: {_einzeilig(repr(t), 40)} is past the range of a double, and how .NET "
+                              f"parses that was not read")
+        return zahl
+    for vorsilbe, basis, ziffern, hoechstens in (("0x", 16, string.hexdigits, 8), ("0o", 8, "01234567", 11)):
+        if t.startswith(vorsilbe) and len(t) > 2 and all(z in ziffern for z in t[2:]):
+            if len(t) - 2 > hoechstens or int(t[2:], basis) > 0x7FFFFFFF:
+                raise NichtLesbar(f"{wo}: {_einzeilig(repr(t), 40)} is past Int32, and what .NET makes of "
+                                  f"it here was not read")
+            return float(int(t[2:], basis))
+    if t == "Infinity":
+        return math.inf
+    if t == "-Infinity":
+        return -math.inf
+    if _ascii_klein(t.lstrip("+-")) in ("infinity", "nan") or "\u221e" in t:
+        raise NichtLesbar(f"{wo}: whether .NET's Double.TryParse reads {_einzeilig(repr(t), 40)} as a number "
                           f"was not read")
+    return math.nan
+
+
+def _art(wert, wo: str) -> str:
+    """The kind of a value in GitHub's `==`: null, boolean, number or string. A list or a mapping is
+    compared by reference there and matched leaf by leaf in a filter, which this gate does not follow."""
+    if wert is None:
+        return "null"
+    if isinstance(wert, bool):
+        return "boolean"
+    if isinstance(wert, (int, float)):
+        return "number"
+    if isinstance(wert, str):
+        return "string"
+    raise NichtLesbar(f"{wo} holds {_einzeilig(repr(wert), 40)}, a list or a mapping, which this gate does "
+                      f"not compare")
+
+
+def _als_double(wert, wo: str) -> float:
+    """A number as the double GitHub holds; an integer a double does not hold exactly is not read."""
+    if isinstance(wert, int) and abs(wert) > 2 ** 53:
+        raise NichtLesbar(f"{wo}: {wert} is not exact as a double, and GitHub compares doubles")
+    return float(wert)
+
+
+def _text_gleich(a: str, b: str, wo: str) -> bool:
+    """`==` of two texts: OrdinalIgnoreCase (EvaluationResult.cs:258-262). Equal in ASCII case: equal;
+    equal only under a case mapping of letters outside ASCII: not measurable, since .NET's was not
+    read; otherwise not equal."""
+    if _ascii_klein(a) == _ascii_klein(b):
+        return True
+    if _faltungen(a) & _faltungen(b):
+        raise NichtLesbar(f"{wo}: {_einzeilig(repr(a), 40)} and {_einzeilig(repr(b), 40)} are equal only "
+                          f"under a case mapping of letters outside ASCII, which GitHub's was not read")
     return False
 
 
-def _eintraege(roh, wo: str) -> list[dict[str, str]]:
-    """The entries of `include` or `exclude`, each a mapping of folded key to displayed value."""
-    if not isinstance(roh, list) or not roh:
+def _abstrakt_gleich(a, ka: str, b, kb: str, wo: str) -> bool:
+    """`EvaluationResult.AbstractEqual` and `CoerceTypes` (EvaluationResult.cs:233-278 and 366-403)."""
+    if ka == kb:
+        if ka == "null":
+            return True
+        if ka == "boolean":
+            return a == b
+        if ka == "number":
+            x, y = _als_double(a, wo), _als_double(b, wo)
+            return not (math.isnan(x) or math.isnan(y)) and x == y
+        return _text_gleich(a, b, wo)
+    if ka == "number" and kb == "string":
+        return _abstrakt_gleich(a, ka, _zahl_aus_text(b, wo), "number", wo)
+    if ka == "string" and kb == "number":
+        return _abstrakt_gleich(_zahl_aus_text(a, wo), "number", b, kb, wo)
+    if ka in ("boolean", "null"):
+        return _abstrakt_gleich(1.0 if a is True else 0.0, "number", b, kb, wo)
+    if kb in ("boolean", "null"):
+        return _abstrakt_gleich(a, ka, 1.0 if b is True else 0.0, "number", wo)
+    return False
+
+
+def _github_gleich(a, b, wo: str) -> bool:
+    """GitHub's `==` of a matrix value `a` and a literal `b` of an `include` or `exclude` entry.
+
+    GitHub matches an entry by building `matrix[<key>] == <literal>` for each key the entry names
+    (actions/runner at 15231bede4aa, src/Sdk/WorkflowParser/Conversion/MatrixBuilder.cs:559-612, the
+    text at 609) and evaluating it with the expression `==` (src/Sdk/Expressions/EvaluationResult.cs:
+    233-278): values of one kind compare as they are, texts ignoring case; a number and a text compare
+    as numbers, the text parsed (`_zahl_aus_text`); a boolean or null is first made a number (true 1,
+    false and null 0; 366-424). Read 2026-09-27, not measured. The first form compared the displayed
+    texts (lens on fb6eda0d): `v: ['10.0', '11.0']` with `exclude: [{v: 10}]` kept `10.0`, and
+    `include: [{v: 10, extra: x}]` made a combination of its own. The literal reaches GitHub's parser
+    as a text formatted `G15` (ExpressionUtility.ConvertToParseToken, ExpressionConstants.cs:36), so a
+    number that does not come through that unchanged is not measurable, like any pair this gate
+    cannot compare exactly."""
+    if isinstance(b, (int, float)) and not isinstance(b, bool):
+        zahl = _als_double(b, wo)
+        negative_null = zahl == 0 and math.copysign(1.0, zahl) < 0
+        durch_g15 = (math.isfinite(zahl) and (zahl == 0 or 1e-5 <= abs(zahl) < 1e15)
+                     and float(format(zahl, ".15g")) == zahl)
+        if negative_null or not durch_g15:
+            raise NichtLesbar(f"{wo}: the literal {_einzeilig(repr(b), 40)} does not come through GitHub's "
+                              f"G15 format unchanged, or its spelling there was not read")
+    return _abstrakt_gleich(a, _art(a, wo), b, _art(b, wo), wo)
+
+
+def _passt(kombination: dict, eintrag: dict, wo: str) -> bool:
+    """Does a combination match an entry on every key it names (MatrixBuilder.cs:559-576)? A definite
+    mismatch decides even where another key is not measurable."""
+    offen = None
+    for k, v in eintrag.items():
+        try:
+            if not _github_gleich(kombination[k], v, wo):
+                return False
+        except NichtLesbar as exc:
+            offen = offen or exc
+    if offen is not None:
+        raise offen
+    return True
+
+
+def _eintraege(roh, wo: str) -> list[dict]:
+    """The entries of `include` or `exclude`, each a mapping of folded key to value. GitHub reads an
+    empty list as none (MatrixBuilder.cs:240, 428). A value is judged where it is used: compared
+    (`_github_gleich`) or named (`_segment`); a value an entry only adds to a combination is neither."""
+    if not isinstance(roh, list):
         raise NichtLesbar(f"`{wo}` is not a list of combinations")
     aus = []
     for eintrag in roh:
         if not isinstance(eintrag, dict) or not eintrag:
             raise NichtLesbar(f"an entry of `{wo}` is not a mapping of keys to values")
-        gelesen: dict[str, str] = {}
+        gelesen: dict = {}
         for k, v in eintrag.items():
             kl = _matrix_schluessel(k)
             if kl in gelesen:
                 raise NichtLesbar(f"an entry of `{wo}` names the key {k!r} twice")
-            gelesen[kl] = _anzeige(v, f"`{wo}`")
+            if isinstance(v, str) and "${{" in v:
+                raise NichtLesbar(f"`{wo}` holds an expression, which GitHub evaluates first")
+            gelesen[kl] = v
         aus.append(gelesen)
     return aus
 
 
-def _kombinationen(m: dict, werte: dict[str, list]) -> list[dict[str, str]]:
-    """Every combination a matrix runs, as GitHub documents it (docs.github.com, "Running variations of
-    jobs in a workflow" and the workflow syntax of `include` and `exclude`, read 2026-09-26): every
-    combination of the values of its keys, in the order the keys are declared; then `exclude`, which
-    removes a combination that matches an entry on every key the entry names ("only has to be a partial
-    match"); then `include`, whose entry is added to every ORIGINAL combination it overwrites no original
-    value of (a value an earlier entry added may be overwritten), and becomes a combination of its own
-    when it fits none. An entry never adds to a combination another entry created. With no keys, every
-    `include` entry is a combination. `werte` are the values of the keys, the chosen arm of a
-    conditional one. Each combination maps a folded key to the value's text, keys in order."""
-    schluessel: dict[str, list[str]] = {}
+def _kombinationen(m: dict, werte: dict[str, list]) -> list[tuple[dict, list]]:
+    """Every combination a matrix runs, as GitHub builds it (actions/runner at 15231bede4aa,
+    src/Sdk/WorkflowParser/Conversion/MatrixBuilder.cs, `Build` at 116-176, read 2026-09-27, not
+    measured): every combination of the values of its keys, in the order the keys are declared;
+    `exclude` removes one that matches an entry on every key the entry names; then each `include`
+    entry whose matrix keys match an ORIGINAL combination adds its other keys to it (a later entry
+    overwrites an earlier one's; 312-337), and an entry that matches none becomes a combination of its
+    own (353-377). An entry never adds to a combination another entry created. With no keys, every
+    `include` entry is a combination. A match is GitHub's `==` (`_github_gleich`).
+
+    Each combination is (its matrix context, the (key, value) pairs its DEFAULT name carries). For an
+    original combination those are the values of its keys only: GitHub builds the display name
+    (`CreateConfiguration`, 188-212) BEFORE it adds an entry's values to the matrix context (216-219).
+    The first form of this change named `include`'s values too (`test (3.10, yes)`); the source says
+    `test (3.10)`. For an entry of its own they are its matrix keys, then its other keys, each in the
+    entry's order (365-373). `werte` are the values of the keys, the chosen arm of a conditional one."""
+    schluessel: dict[str, list] = {}
     for k, vs in werte.items():
         kl = _matrix_schluessel(k)
         if kl in ("include", "exclude") or kl in schluessel:
             raise NichtLesbar(f"the matrix key {k!r} is another spelling of a key GitHub reads as the same")
-        texte = [_anzeige(v, f"matrix key {k!r}") for v in vs]
-        if not texte:
+        if not vs:
             raise NichtLesbar(f"matrix key {k!r} has no values, which GitHub refuses")
-        schluessel[kl] = texte
+        schluessel[kl] = list(vs)
     anzahl = 1
-    for texte in schluessel.values():
-        anzahl *= len(texte)
+    for vs in schluessel.values():
+        anzahl *= len(vs)
         if anzahl > _HOECHSTENS_JOBS:
             raise NichtLesbar(f"the matrix has more than {_HOECHSTENS_JOBS} combinations, which GitHub refuses")
     kombinationen = ([dict(zip(schluessel, werte_))
                       for werte_ in itertools.product(*schluessel.values())] if schluessel else [])
     if "exclude" in m:
-        for eintrag in _eintraege(m["exclude"], "exclude"):
+        eintraege = _eintraege(m["exclude"], "exclude")
+        for eintrag in eintraege:
             fremd = [k for k in eintrag if k not in schluessel]
             if fremd:
                 raise NichtLesbar(f"`exclude` names {fremd[0]!r}, which is no key of the matrix")
-            kombinationen = [c for c in kombinationen
-                             if not all(_gleich(c[k], v, "exclude") for k, v in eintrag.items())]
+        bleiben = []
+        for c in kombinationen:
+            offen, weg = None, False
+            for eintrag in eintraege:
+                try:
+                    if _passt(c, eintrag, "exclude"):
+                        weg = True
+                        break
+                except NichtLesbar as exc:
+                    offen = offen or exc
+            if not weg and offen is not None:
+                raise offen
+            if not weg:
+                bleiben.append(c)
+        kombinationen = bleiben
+    aus = [(c, list(c.items())) for c in kombinationen]
     if "include" in m:
-        original, neu = kombinationen, []
-        for eintrag in _eintraege(m["include"], "include"):
-            passt = False
-            for c in original:
-                if all(_gleich(c[k], v, "include") for k, v in eintrag.items() if k in schluessel):
-                    c.update({k: v for k, v in eintrag.items() if k not in schluessel})
-                    passt = True
-            if not passt:
-                neu.append(dict(eintrag))
-        kombinationen = original + neu
-    if not kombinationen:
+        eintraege = _eintraege(m["include"], "include")
+        getroffen = [False] * len(eintraege)
+        for c, _namenswerte in aus:
+            dazu: dict = {}
+            for i, eintrag in enumerate(eintraege):
+                if _passt(c, {k: v for k, v in eintrag.items() if k in schluessel}, "include"):
+                    getroffen[i] = True
+                    dazu.update({k: v for k, v in eintrag.items() if k not in schluessel})
+            c.update(dazu)
+        for i, eintrag in enumerate(eintraege):
+            if not getroffen[i]:
+                neu = {k: v for k, v in eintrag.items() if k in schluessel}
+                neu.update({k: v for k, v in eintrag.items() if k not in schluessel})
+                aus.append((neu, list(neu.items())))
+    if not aus:
         raise NichtLesbar("the matrix yields no combination")
-    if len(kombinationen) > _HOECHSTENS_JOBS:
+    if len(aus) > _HOECHSTENS_JOBS:
         raise NichtLesbar(f"the matrix has more than {_HOECHSTENS_JOBS} combinations, which GitHub refuses")
-    return kombinationen
+    return aus
+
+
+#: GitHub shortens a default matrix job name past this many characters (JobNameBuilder.cs:51-55).
+_HOECHSTENS_NAME = 100
+
+
+def _utf16_laenge(text: str) -> int:
+    """The length .NET's `String.Length` gives: UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _gekuerzt(name: str) -> str:
+    """A default matrix job name as GitHub shortens it: past 100 characters, its first 97 and `...`
+    (actions/runner at 15231bede4aa, src/Sdk/WorkflowParser/Conversion/JobNameBuilder.cs:51-55, read
+    2026-09-27, not measured). .NET counts UTF-16 code units, so a long name holding a character
+    outside the Basic Multilingual Plane, where the two counts part, is not read."""
+    if _utf16_laenge(name) <= _HOECHSTENS_NAME:
+        return name
+    if any(ord(z) > 0xFFFF for z in name):
+        raise NichtLesbar(f"the job name `{_einzeilig(name, 80)}` is longer than {_HOECHSTENS_NAME} UTF-16 "
+                          f"units and holds a character outside the Basic Multilingual Plane, where GitHub's "
+                          f"cut was not followed")
+    return name[:_HOECHSTENS_NAME - 3] + "..."
 
 
 #: `matrix.<key>` inside `${{ }}` of a job name; `matrix` in any ASCII case, as GitHub looks up a context
@@ -551,21 +912,35 @@ def _vorlage(text: str) -> list[tuple[bool, str]]:
         i = ende + 1
 
 
-def _ein_ausdruck(text: str) -> str:
-    """The expression of an `if:` text as GitHub reads it: the text itself when it holds no `${{`, the
-    inside when one `${{ }}` spans all of it. Anything else raises NichtLesbar: an expression not
-    closed, or text beside an expression, which GitHub formats into one string (`format(...)`) that is
-    true whenever it is not empty."""
+def _roh_gelesen(text: str) -> str:
+    """The expression of a condition, read from its RAW text as GitHub's template reader reads it, and
+    only then with its whitespace folded, where folding changes nothing GitHub reads. Raises NichtLesbar.
+
+    Lens on fb6eda0d: the whitespace was folded FIRST, so `if: |` with `${{ false }}` on the next line
+    (a value that ends in a newline) and `' ${{ false }}'` read as the dead `false`. GitHub keeps text
+    beside `${{ }}`, whitespace included, as a text segment and formats both into one string
+    (actions/runner at 15231bede4aa, src/Sdk/WorkflowParser/ObjectTemplating/TemplateReader.cs:566-579
+    and 597-627, read, not measured). That string is not empty, so it is true, and the job runs
+    (Conversion/WorkflowTemplateConverter.cs:1868 puts `success() &&` before it). Such a text is not
+    measurable here, never dead. The same fold would also change a string literal (`'a  b'` would be
+    compared as `'a b'`), so a literal holding whitespace other than single spaces is not measurable
+    either."""
     segmente = _vorlage(text)
-    if not any(ist for ist, _t in segmente):
-        return text
-    if len(segmente) == 1:
-        return segmente[0][1].strip()
-    raise NichtLesbar("text stands beside a `${{ }}` expression, and GitHub formats the two into one "
-                      "string, not the condition written")
+    ausdruck = text
+    if any(ist for ist, _t in segmente):
+        if len(segmente) != 1:
+            raise NichtLesbar("text stands beside a `${{ }}` expression (whitespace counts as text), and "
+                              "GitHub formats the two into one string, which is true, not the condition "
+                              "written")
+        ausdruck = segmente[0][1]
+    for literal in _GITHUB_LITERAL.findall(ausdruck):
+        if "  " in literal or any(z.isspace() and z != " " for z in literal):
+            raise NichtLesbar(f"the string literal {_einzeilig(repr(literal), 40)} holds whitespace that "
+                              f"folding would change, and GitHub compares the literal as written")
+    return " ".join(ausdruck.split())
 
 
-def _name_einsetzen(name: str, kombination: dict[str, str]) -> str:
+def _name_einsetzen(name: str, kombination: dict) -> str:
     """A job name with every `${{ matrix.<key> }}` replaced by the value of the combination."""
     teile = []
     for ist_ausdruck, text in _vorlage(name):
@@ -576,7 +951,7 @@ def _name_einsetzen(name: str, kombination: dict[str, str]) -> str:
         if not m or _ascii_klein(m.group(1)) not in kombination:
             raise NichtLesbar(f"the job name `{_einzeilig(name, 80)}` holds `${{{{{_einzeilig(text, 40)}}}}}`, "
                               f"which is no `matrix.<key>` of every combination")
-        teile.append(kombination[_ascii_klein(m.group(1))])
+        teile.append(_einsetzbar(kombination[_ascii_klein(m.group(1))], f"matrix key {m.group(1)!r}"))
     return "".join(teile)
 
 
@@ -584,18 +959,23 @@ def kontextnamen(job_id: str, job: dict, werte: dict[str, list]) -> list[str]:
     """The context names this job reports, after matrix expansion. Raises NichtLesbar for a form it does
     not read.
 
-    Without a matrix the context is the job's `name:` or, lacking one, its id. With a matrix there is
-    one name per combination (`_kombinationen`): a `name:` with its `${{ matrix.<key> }}` replaced, or
-    the name or the id followed, in parentheses and comma-separated, by every value of the combination.
+    Without a matrix the context is the job's `name:` or, lacking one or with an empty one, its id
+    (WorkflowTemplateConverter.cs:1549-1552). With a matrix there is one name per combination
+    (`_kombinationen`): a `name:` with its `${{ matrix.<key> }}` replaced, or the name or the id
+    followed, in parentheses and comma-separated, by the segments of the combination.
 
     EVERY VALUE, ONE NAME PER COMBINATION (lens on ac05d85d): the first form made one name per key and
     value and never read `include` or `exclude`, so `python: ['3.10']` beside `os: [ubuntu-latest]`, a
     `3.10` removed by `exclude`, and a `3.10` that `include` gave a second value each read as producing
-    `test (3.10)`, with exit 0. The comma-separated form for several keys is the one that lens states;
-    the docs read on 2026-09-26 do not document the default name of a matrix job (troubleshooting
-    required status checks says `<job name>`), so for several keys it is neither read there nor
-    measured here. For one key it is the form this repository's required contexts had (`test (3.10)`,
-    measured 2026-09-16).
+    `test (3.10)`, with exit 0. THE FORM IS READ IN GITHUB'S SOURCE since 2026-09-27 (actions/runner at
+    15231bede4aa, not measured): `"{0} ({1})"` with the segments joined by `", "`, and past 100
+    characters the first 97 and `...` (src/Sdk/WorkflowParser/Conversion/JobNameBuilder.cs:33-59). A
+    segment is a value of the combination's keys, not a value an `include` entry adds, and a null or
+    empty value adds none (`_segment`, `_kombinationen`); with no segment the name is the job's name
+    alone. What GitHub passes as the job's name there is not in the files read; this gate takes the
+    `name:` or the id, the form this repository's required contexts had (`test (3.10)`, measured
+    2026-09-16). Whether GitHub shortens a name built from `${{ matrix.<key> }}` was not read, so such a
+    name past 100 characters is not read either.
     """
     roh = job.get("name")
     if roh is not None and (isinstance(roh, bool) or not isinstance(roh, (str, int))):
@@ -611,11 +991,18 @@ def kontextnamen(job_id: str, job: dict, werte: dict[str, list]) -> list[str]:
     if not isinstance(m, dict):
         raise NichtLesbar("the matrix is not a mapping of keys to values")
     namen = []
-    for kombination in _kombinationen(m, werte):
+    for kombination, namenswerte in _kombinationen(m, werte):
         if name is not None and "${{" in name:
-            namen.append(_name_einsetzen(name, kombination))
-        else:
-            namen.append(f"{name or job_id} ({', '.join(kombination.values())})")
+            eingesetzt = _name_einsetzen(name, kombination)
+            if _utf16_laenge(eingesetzt) > _HOECHSTENS_NAME:
+                raise NichtLesbar(f"the job name `{_einzeilig(eingesetzt, 80)}` is longer than "
+                                  f"{_HOECHSTENS_NAME} characters, and whether GitHub shortens a name built "
+                                  f"from an expression was not read")
+            namen.append(eingesetzt)
+            continue
+        segmente = [s for s in (_segment(v, f"matrix key {k!r}") for k, v in namenswerte) if s is not None]
+        basis = name or job_id
+        namen.append(_gekuerzt(f"{basis} ({', '.join(segmente)})" if segmente else basis))
     return namen
 
 
@@ -820,7 +1207,7 @@ def laeuft_am_ereignis(ereignisse: dict, ereignis: dict, zweig: str | None) -> b
                 return False
             return _laesst_zu(f, "branches", zweig, "on.merge_group", "the branch the declaration protects")
         if "types" in f:
-            aktion = (ereignis.get("payload") or {}).get("action")
+            aktion = _feld(ereignis, "payload", "action")
             if not isinstance(aktion, str):
                 raise NichtAuswertbar(f"`on.{name}.types` filters the activity, and the event names none")
             return aktion in _liste(f, "types", f"on.{name}")
@@ -838,14 +1225,137 @@ def _json_wert(wert):
     return wert if wert is None or isinstance(wert, (str, int, float, bool)) else str(wert)
 
 
+def _ist_ausdruck(wert) -> bool:
+    """A value GitHub's early validation leaves to later: a text holding `${{` (the value is an
+    expression), where it asserts a shape only for a literal (WorkflowTemplateConverter.cs:864-866,
+    915-919, 940-944, 964-967)."""
+    return isinstance(wert, str) and "${{" in wert
+
+
+def _jobs_gelesen(doc: dict) -> tuple[dict, str | None]:
+    """The jobs of a workflow, or why GitHub refuses the whole workflow for their shape.
+
+    Lens on fb6eda0d: `jobs:` written as a list raised AttributeError out of `erhebe`, the sibling of
+    the `strategy` crash fixed the round before, and a job that is not a mapping was skipped while the
+    other jobs of its file read as produced. GitHub asserts the shapes this gate reads, and an
+    assertion that fails is an error, after which the whole workflow is empty (actions/runner at
+    15231bede4aa, src/Sdk/WorkflowParser/Conversion/WorkflowTemplateConverter.cs, read 2026-09-27, not
+    measured): `jobs` a mapping (1251), each job a mapping (1259), `needs` a text or a list of texts
+    (1390-1403), `name` a scalar (1386), `if` a text (1809), `uses` a text (1477), `strategy` and its
+    matrix mappings (869, 921), a matrix vector, `include` and `exclude` lists (946, 957, 970), each
+    unless it is an expression. A job id that is not a text is converted and checked by rules this
+    gate did not read."""
+    jobs = doc.get("jobs")
+    if jobs is None:
+        return {}, None
+    if not isinstance(jobs, dict):
+        return {}, f"`jobs` is {type(jobs).__name__}, not a mapping of job ids to jobs; {_LEERER_WORKFLOW}"
+    for job_id, job in jobs.items():
+        wo = f"job {_einzeilig(repr(job_id), 40)}"
+        if not isinstance(job_id, str):
+            return {}, f"{wo}: its id is not a text, and how GitHub converts and checks it was not read"
+        if not isinstance(job, dict):
+            return {}, f"{wo} is {type(job).__name__}, not a mapping; {_LEERER_WORKFLOW}"
+        needs = job.get("needs")
+        if needs is not None and not (isinstance(needs, str)
+                                      or (isinstance(needs, list) and all(isinstance(n, str) for n in needs))):
+            return {}, f"{wo}: `needs` is not a text or a list of texts; {_LEERER_WORKFLOW}"
+        for feld in ("name", "if"):
+            if isinstance(job.get(feld), (list, dict)):
+                return {}, f"{wo}: `{feld}` is {type(job[feld]).__name__}, not a scalar; {_LEERER_WORKFLOW}"
+        if "uses" in job and not isinstance(job["uses"], str):
+            return {}, f"{wo}: `uses` is {type(job['uses']).__name__}, not a text; {_LEERER_WORKFLOW}"
+        strategie = job.get("strategy")
+        if strategie is None or _ist_ausdruck(strategie):
+            continue
+        if not isinstance(strategie, dict):
+            return {}, f"{wo}: `strategy` is {type(strategie).__name__}, not a mapping; {_LEERER_WORKFLOW}"
+        matrix = strategie.get("matrix")
+        if matrix is None or _ist_ausdruck(matrix):
+            continue
+        if not isinstance(matrix, dict):
+            return {}, f"{wo}: the matrix is {type(matrix).__name__}, not a mapping; {_LEERER_WORKFLOW}"
+        for k, v in matrix.items():
+            if not (isinstance(v, list) or _ist_ausdruck(v)):
+                return {}, (f"{wo}: matrix key {_einzeilig(repr(k), 40)} is {type(v).__name__}, not a list; "
+                            f"{_LEERER_WORKFLOW}")
+    return jobs, None
+
+
+def _wahl_text(teile: list) -> str:
+    """The condition under which one choice of arms is taken: `cond` for a true arm, `!(cond)` for a
+    false one, joined with `&&` for several keys. One key's true arm keeps the condition's own text, the
+    form a declared acceptance binds to."""
+    if len(teile) == 1:
+        bed, wahr = teile[0]
+        return bed if wahr else f"!({bed})"
+    return " && ".join(f"({bed})" if wahr else f"!({bed})" for bed, wahr in teile)
+
+
+def _matrix_wahlen(job_id: str, job: dict, schluessel: list) -> list[tuple[list, list[str]]]:
+    """The context names of a job under each choice of arm of its conditional matrix keys: (the choice
+    as (condition, true arm taken) pairs, the names). A choice whose conditions cannot hold together
+    is left out. Raises NichtLesbar."""
+    bedingte = [arm for _k, _werte, arm in schluessel if arm is not None]
+    if len(bedingte) > _HOECHSTENS_BEDINGTE:
+        raise NichtLesbar(f"the matrix has {len(bedingte)} conditional keys, more than the "
+                          f"{_HOECHSTENS_BEDINGTE} whose arms this gate combines")
+    wahlen = []
+    for wahl in itertools.product((True, False), repeat=len(bedingte)):
+        werte: dict = {}
+        teile: list = []
+        for k, liste, arm in schluessel:
+            if arm is None:
+                werte[k] = liste
+                continue
+            bed, wahr, sonst = arm
+            genommen = wahl[len(teile)]
+            werte[k] = wahr if genommen else sonst
+            teile.append((bed, genommen))
+        if len(teile) > 1:
+            try:
+                if wahrheitswerte(_wahl_text(teile)) == {False}:
+                    continue
+            except NichtAuswertbar:
+                pass                       # not decided: the choice stays, under its named condition
+        wahlen.append((teile, kontextnamen(job_id, job, werte)))
+    return wahlen
+
+
+def _namen_je_bedingung(wahlen: list) -> list[tuple[str, str | None]]:
+    """Each context name of a job with the matrix condition it needs: None when every choice of arms
+    produces it, else the conditions of the choices that do, joined with `||`."""
+    je_name: dict[str, list] = {}
+    for teile, namen in wahlen:
+        for name in dict.fromkeys(namen):
+            je_name.setdefault(name, []).append(teile)
+    return [(name, None if len(liste) == len(wahlen) else " || ".join(_wahl_text(t) for t in liste))
+            for name, liste in je_name.items()]
+
+
+def _erzeuger_text(nur_wenn: str | None, bedingungen: tuple) -> str:
+    """The condition of one producer as the report names it: its trigger condition, then the job and
+    matrix conditions it needs, each joined with `; and `."""
+    bed = "; and ".join(bedingungen)
+    if not bedingungen:
+        return nur_wenn or ""
+    return bed if nur_wenn is None else f"{nur_wenn}; and {bed}"
+
+
 def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
     """Every context the workflows can report, with how it arises. `zweig` is the branch the declaration
     protects, against which a pull request trigger's branch filter is read; without it such a filter is
-    not measurable."""
+    not measurable.
+
+    EVERY PRODUCER OF A CONTEXT IS KEPT (lens on fb6eda0d): the first form kept the first file, job and
+    condition that named a context, so two workflows on pull_request with opposite `if:` read as the
+    false one, one on workflow_dispatch hid one on pull_request, and on a push to main a workflow that
+    runs there was never asked. A producer is (file, the condition its `on:` puts on a pull request or
+    None, the job and matrix conditions it needs). A context is produced when one producer needs no
+    condition; otherwise it is named under the conditions of all of them, and the live step asks each.
+    """
     wf = verzeichnis or WORKFLOWS
-    gewoehnlich: dict[str, str] = {}
-    quellen: dict[str, list[str]] = {}
-    gegated: dict[str, tuple[str, str, str | None]] = {}
+    erzeuger: dict[str, list[tuple[str, str | None, tuple[str, ...]]]] = {}
     unlesbar: list[str] = []
     dateien_unlesbar: list[str] = []
     hinweise: list[str] = []
@@ -880,25 +1390,21 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
             unlesbar.append(grund)
             dateien_unlesbar.append(grund)
             continue
+        jobs, grund = _jobs_gelesen(doc)
+        if grund:
+            unlesbar.append(f"{pfad.name}: {grund}")
+            dateien_unlesbar.append(f"{pfad.name}: {grund}")
+            continue
         ausloeser_je_datei[pfad.name] = _json_wert(ereignisse)
 
-        def unbedingt(name: str, datei: str = pfad.name, nur_wenn: str | None = nur_wenn) -> None:
-            """A context the job produces whenever it runs: produced, or named under the trigger."""
-            if nur_wenn is None:
-                gewoehnlich.setdefault(name, datei)
-                if datei not in quellen.setdefault(name, []):
-                    quellen[name].append(datei)
-            elif name not in gewoehnlich:
-                gegated.setdefault(name, (datei, nur_wenn, None))
+        def erzeuge(name: str, bedingungen: list, datei: str = pfad.name, nur_wenn: str | None = nur_wenn) -> None:
+            """One more producer of a context; the same one twice is kept once."""
+            eintrag = (datei, nur_wenn, tuple(bedingungen))
+            liste = erzeuger.setdefault(name, [])
+            if eintrag not in liste:
+                liste.append(eintrag)
 
-        def bedingt(name: str, bed: str, datei: str = pfad.name, nur_wenn: str | None = nur_wenn) -> None:
-            """A context the job produces under a condition of its own, and of the trigger if any."""
-            if name not in gewoehnlich:
-                gegated.setdefault(name, (datei, bed if nur_wenn is None else f"{nur_wenn}; and {bed}", bed))
-
-        for job_id, job in (doc.get("jobs") or {}).items():
-            if not isinstance(job, dict):
-                continue
+        for job_id, job in jobs.items():
             if job.get("uses"):
                 # A reusable workflow reports as "<caller job id> / <called job name>". Reading the
                 # called file would give the wrong name on its own, so the caller id is carried.
@@ -915,34 +1421,33 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
             if job_if is not None:
                 # `${{ always()` IS NOT A CONDITION (lens on ac05d85d): GitHub's template reader refuses
                 # an expression that is not closed, and formats text beside one into a string. The
-                # first form read the first as a status function and its job as produced.
+                # first form read the first as a status function and its job as produced. The text is
+                # read RAW (lens on fb6eda0d): whitespace beside `${{ }}` is text too (`_roh_gelesen`).
                 try:
-                    _ein_ausdruck(" ".join(str(job_if).split()))
+                    if not _roh_gelesen(str(job_if)):
+                        # empty or whitespace only: GitHub reads `success()`, no condition
+                        # (WorkflowTemplateConverter.cs:1813-1816)
+                        job_if = None
                 except NichtLesbar as exc:
                     unlesbar.append(f"{pfad.name}:{job_id}: `if:` not read: {exc}")
                     continue
-            gew, geg, bedingung, hinweis, gruende = matrix_lesung(job)
-            if hinweis:
-                hinweise.append(f"{pfad.name}:{job_id}: {hinweis}")
+            schluessel, notizen, gruende, offen = _matrix_arme(job)
+            for notiz in notizen:
+                hinweise.append(f"{pfad.name}:{job_id}: {notiz}")
             if gruende:
                 unlesbar.append(f"{pfad.name}:{job_id}: matrix values not readable literally "
                                 f"({'; '.join(gruende)})")
                 continue
             try:
-                namen = kontextnamen(job_id, job, gew)
-                namen_gegated = kontextnamen(job_id, job, geg) if bedingung else []
+                wahlen = _matrix_wahlen(job_id, job, schluessel)
             except NichtLesbar as exc:
                 unlesbar.append(f"{pfad.name}:{job_id}: {exc}")
                 continue
-            if bedingung:
-                try:
-                    wahrheitswerte(bedingung)
-                except NichtAuswertbar as exc:
-                    unentschieden.append(
-                        f"{pfad.name}:{job_id}: whether its matrix condition has the same value on "
-                        f"every event is not decided, so its false arm is read as the ordinary case "
-                        f"and its true arm as produced under it. The evaluator did not read it "
-                        f"({exc}): `{bedingung}`")
+            for bed, grund in offen:
+                unentschieden.append(
+                    f"{pfad.name}:{job_id}: whether its matrix condition has the same value on every event "
+                    f"is not decided, so the contexts of each arm are named under the condition that takes "
+                    f"it, the false arm under its negation. The evaluator did not read it ({grund}): `{bed}`")
             # DIE `if:`-BEDINGUNG DES JOBS, und sie war bis 2026-09-16 ein blinder Fleck. Ein Job
             # hinter einem `if:` laeuft nicht immer, seine Kontexte sind also nicht unbedingt
             # erzeugt. Gefunden von einer fremden Modellfamilie in der Gegenlesung: ein
@@ -959,6 +1464,7 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
                     f"{pfad.name}:{job_id}: `if: {' '.join(str(job_if).split())}` is a status "
                     f"function only; the job runs whenever the workflow runs")
                 job_if = None
+            namen = list(dict.fromkeys(name for _teile, namen_ in wahlen for name in namen_))
             if job.get("needs") and ohne_wache_trotz_needs(job):
                 # EXPANDED like the produced path (lens A, 2026-09-17): with `{}` a matrix job
                 # reported its bare id, the required context "test (3.10)" never matched, and
@@ -969,6 +1475,7 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
                               f"without a guard that runs it when a needed job failed (such as "
                               f"always(), !cancelled() or failure()) -- skipped when a needed job "
                               f"fails, and a skipped required check reads as passed")
+            job_teil = None
             if job_if is not None:
                 als_text = " ".join(str(job_if).split())
                 # LITERAL `false` AND EVERY CONDITION THAT IS FALSE ON EVERY RUN (review of follow-up
@@ -991,17 +1498,35 @@ def erhebe(verzeichnis: Path | None = None, zweig: str | None = None) -> dict:
                         f"{pfad.name}:{job_id}: `if: {als_text}` is false on every run — this job "
                         f"never runs, so its contexts arise under no condition")
                     continue
-                for name in namen:
-                    bedingt(name, f"job `if: {als_text}`")
-                continue
-            for name in namen:
-                unbedingt(name)
-            for name in namen_gegated:
-                bedingt(name, bedingung)
+                job_teil = f"job `if: {als_text}`"
+            # EACH ARM UNDER ITS CONDITION (lens on fb6eda0d): a context of one arm only is named under
+            # that arm's condition, beside the job's own `if:`; the first form produced the false arm
+            # on every event and dropped the true arm's contexts of a job with an `if:`.
+            for name, matrix_teil in _namen_je_bedingung(wahlen):
+                erzeuge(name, [t for t in (job_teil, matrix_teil) if t])
+    gewoehnlich: dict[str, str] = {}
+    quellen: dict[str, list[str]] = {}
+    gegated: dict[str, tuple[str, str, str | None]] = {}
+    for name, liste in erzeuger.items():
+        frei = [datei for datei, nur_wenn, bedingungen in liste if nur_wenn is None and not bedingungen]
+        if frei:
+            gewoehnlich[name] = frei[0]
+            quellen[name] = list(dict.fromkeys(frei))
+            continue
+        texte = [_erzeuger_text(nur_wenn, bedingungen) for _datei, nur_wenn, bedingungen in liste]
+        if len(liste) == 1:
+            bedingungen = liste[0][2]
+            gegated[name] = (liste[0][0], texte[0], "; and ".join(bedingungen) if bedingungen else None)
+        else:
+            gesamt = " | ".join(f"{datei}: {text}" for (datei, _nw, _b), text in zip(liste, texte))
+            gegated[name] = (liste[0][0], gesamt, gesamt)
     return {"gewoehnlich": gewoehnlich, "gegated": gegated, "unlesbar": unlesbar,
             "dateien_unlesbar": dateien_unlesbar, "hinweise": hinweise,
             "statusfunktion": hinweise_status, "needs_ohne_wache": needs_ohne_wache,
-            "unentschieden": unentschieden, "quellen": quellen, "ausloeser": ausloeser_je_datei}
+            "unentschieden": unentschieden, "quellen": quellen, "ausloeser": ausloeser_je_datei,
+            "erzeuger": {name: [{"from": datei, "trigger": nur_wenn, "conditions": list(bedingungen)}
+                                for datei, nur_wenn, bedingungen in liste]
+                         for name, liste in erzeuger.items()}}
 
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -1034,6 +1559,10 @@ def _zusagen(roh, feld: str = "condition_sha256") -> tuple[dict[str, str], list[
     """
     bindend: dict[str, str] = {}
     lose: list[str] = []
+    if roh is not None and not isinstance(roh, list):
+        # A list of another shape is not a list of acceptances: fail closed, and say what stood there
+        # (the sweep for shape assumptions after the lens on fb6eda0d; an int raised TypeError here).
+        return bindend, [f"{type(roh).__name__} in place of the list of acceptances"]
     for eintrag in roh or []:
         if isinstance(eintrag, str):
             lose.append(eintrag)
@@ -1042,23 +1571,43 @@ def _zusagen(roh, feld: str = "condition_sha256") -> tuple[dict[str, str], list[
             lose.append(repr(eintrag))
             continue
         name, digest = eintrag.get("context"), eintrag.get(feld)
-        if not name or not isinstance(digest, str) or not _HEX64.fullmatch(digest):
-            lose.append(str(name or eintrag))
+        if not isinstance(name, str) or not name or not isinstance(digest, str) or not _HEX64.fullmatch(digest):
+            lose.append(name if isinstance(name, str) and name else str(eintrag))
             continue
         bindend[name] = digest
     return bindend, lose
+
+
+def _erklaerung_gelesen(d: Path) -> tuple[dict, str | None]:
+    """The declaration, or why it is not read. It is a file like any other input: a declaration that is
+    not JSON, not a mapping, or whose `required_contexts` is not a list of names raised out of the gate
+    or was read as a list of characters (the sweep for shape assumptions after the lens on fb6eda0d)."""
+    try:
+        erklaert = json.loads(d.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {}, f"{d.name} is not readable as JSON ({_einzeilig(exc, 120)})"
+    if not isinstance(erklaert, dict):
+        return {}, f"{d.name} is {type(erklaert).__name__}, not a mapping"
+    verlangt = erklaert.get("required_contexts")
+    if verlangt is not None and not (isinstance(verlangt, list)
+                                     and all(isinstance(k, str) and k for k in verlangt)):
+        return {}, f"{d.name}: required_contexts is not a list of names"
+    return erklaert, None
 
 
 def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> dict:
     d = declaration or DECLARATION
     if not d.is_file():
         return {"verdict": UNKNOWN, "reason": f"{d} is missing; nothing declares what is required"}
-    erklaert = json.loads(d.read_text(encoding="utf-8"))
+    erklaert, grund = _erklaerung_gelesen(d)
+    if grund:
+        return {"verdict": UNKNOWN, "reason": grund}
     verlangt = list(erklaert.get("required_contexts") or [])
     if not verlangt:
         return {"verdict": UNKNOWN, "reason": f"{d.name} declares no required context"}
     zweig = erklaert.get("branch") if isinstance(erklaert.get("branch"), str) else None
     erhoben = erhebe(verzeichnis, zweig)
+    erzeuger = erhoben.get("erzeuger", {})
     je: list[dict] = []
     for k in verlangt:
         if k in erhoben["gewoehnlich"]:
@@ -1066,6 +1615,9 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
             quellen = erhoben.get("quellen", {}).get(k) or []
             if len(quellen) > 1:
                 e["sources"] = quellen
+            # every producer, the conditional ones too: on an event the unconditional one does not
+            # run on, another may deliver the context (lens on fb6eda0d, E)
+            e["producers"] = erzeuger.get(k, [])
             je.append(e)
         elif k in erhoben["gegated"]:
             datei, bed, ausdruck = erhoben["gegated"][k]
@@ -1074,6 +1626,7 @@ def pruefe(declaration: Path | None = None, verzeichnis: Path | None = None) -> 
                 # The condition names the trigger too; the live step evaluates the trigger from the
                 # workflow's `on:` and only this part as an expression (None: the trigger alone).
                 e["expression"] = ausdruck
+            e["producers"] = erzeuger.get(k, [])
             je.append(e)
         else:
             je.append({"context": k, "state": ABSENT, "from": None})
@@ -1162,7 +1715,9 @@ def erklaerung_gegen_regelsatz(declaration: Path | None = None, repo: str | None
     d = declaration or DECLARATION
     if not d.is_file():
         return {"verdict": UNKNOWN, "reason": f"{d} is missing; there is nothing to compare"}
-    erklaert = json.loads(d.read_text(encoding="utf-8"))
+    erklaert, grund = _erklaerung_gelesen(d)
+    if grund:
+        return {"verdict": UNKNOWN, "reason": grund}
     rs_id = erklaert.get("ruleset_id")
     ziel = repo or erklaert.get("repo") or "b7n0de/proofbundle"
     if not rs_id:
@@ -1180,11 +1735,22 @@ def erklaerung_gegen_regelsatz(declaration: Path | None = None, repo: str | None
         doc = json.loads(r.stdout)
     except json.JSONDecodeError as e:
         return {"verdict": UNKNOWN, "reason": f"the ruleset did not parse as JSON ({e})"}
+    # EVERY LEVEL OF THE ANSWER IS CHECKED FOR ITS SHAPE (the sweep after the lens on fb6eda0d): a rule,
+    # its parameters or a check of another shape raised AttributeError here, and a check without a
+    # context put None beside the names, which `sorted` then refused.
+    regeln = doc.get("rules") if isinstance(doc, dict) else None
+    if not isinstance(doc, dict) or not isinstance(regeln or [], list):
+        return {"verdict": UNKNOWN, "reason": "the ruleset is not a mapping with a list of rules"}
     echt: list[str] = []
-    for regel in doc.get("rules") or []:
-        if regel.get("type") == "required_status_checks":
-            echt = [c.get("context") for c
-                    in (regel.get("parameters") or {}).get("required_status_checks") or []]
+    for regel in regeln or []:
+        if isinstance(regel, dict) and regel.get("type") == "required_status_checks":
+            parameter = regel.get("parameters")
+            checks = (parameter.get("required_status_checks") if isinstance(parameter, dict) else None) or []
+            if not (isinstance(checks, list) and all(isinstance(c, dict) and isinstance(c.get("context"), str)
+                                                     for c in checks)):
+                return {"verdict": UNKNOWN,
+                        "reason": "the ruleset's required status checks are not a list of named contexts"}
+            echt = [c["context"] for c in checks]
     erklaert_menge = set(erklaert.get("required_contexts") or [])
     echt_menge = set(echt)
     return {
@@ -1388,18 +1954,27 @@ def ereignis_aus_umgebung(env=None) -> dict | None:
     return ereignis
 
 
+def _feld(wert, *schluessel):
+    """`wert[k1][k2]...`, or None as soon as a level is not a mapping. The event payload is a file like
+    any other input, and a level of another shape raised AttributeError in the readers below (the sweep
+    for shape assumptions after the lens on fb6eda0d)."""
+    for k in schluessel:
+        if not isinstance(wert, dict):
+            return None
+        wert = wert.get(k)
+    return wert
+
+
 def _labels(ereignis: dict) -> list[str]:
-    pr = ((ereignis.get("payload") or {}).get("pull_request")) or {}
-    aus = []
-    for e in pr.get("labels") or []:
-        if isinstance(e, dict) and isinstance(e.get("name"), str):
-            aus.append(e["name"])
-    return aus
+    labels = _feld(ereignis, "payload", "pull_request", "labels")
+    if not isinstance(labels, list):
+        return []
+    return [e["name"] for e in labels if isinstance(e, dict) and isinstance(e.get("name"), str)]
 
 
 def _head_repo(ereignis: dict) -> str:
-    pr = ((ereignis.get("payload") or {}).get("pull_request")) or {}
-    return str((((pr.get("head") or {}).get("repo")) or {}).get("full_name") or "")
+    name = _feld(ereignis, "payload", "pull_request", "head", "repo", "full_name")
+    return name if isinstance(name, str) else ""
 
 
 def _faltungen(text: str) -> set:
@@ -1488,9 +2063,10 @@ _ZEICHEN = re.compile(r"\s*(\(|\)|&&|\|\||!(?!=))")
 def _ausdruck(text: str) -> str:
     """The expression of a condition as the evaluator reads it: a character Python reads as
     whitespace and GitHub does not is refused FIRST, before anything is folded or any pattern reads
-    the text; then the whitespace is folded, `job \\`if: ...\\`` around it is taken off, and `${{ }}`
-    is read as GitHub's template reader reads it (`_ein_ausdruck`): one expression around the whole
-    is taken off, one not closed or text beside one is not measurable."""
+    the text; then `job \\`if: ...\\`` around it is taken off, and the RAW text is read as GitHub's
+    template reader reads it (`_roh_gelesen`): one expression around the whole is taken off, and one
+    not closed, text beside one (whitespace included), or a string literal the fold would change is
+    not measurable. Only then is the whitespace folded (lens on fb6eda0d: it was folded first)."""
     text = text or ""
     fremd = fremder_leerraum(text)
     if fremd:
@@ -1499,7 +2075,7 @@ def _ausdruck(text: str) -> str:
     if text.startswith("job `if: ") and text.endswith("`"):
         text = text[len("job `if: "):-1]
     try:
-        return _ein_ausdruck(" ".join(text.split()))
+        return _roh_gelesen(text)
     except NichtLesbar as exc:
         raise NichtAuswertbar(str(exc)) from None
 
@@ -1665,6 +2241,58 @@ def bedingung_am_ereignis(text: str, ereignis: dict) -> bool:
     return _werte(t, lambda tok: _ATOME[tok[0]][3](tok[1], ereignis))
 
 
+def _erzeuger_am_ereignis(z: dict, erzeuger: list, lauf, ereignis: dict, ereignis_name: str) -> None:
+    """Does ANY producer of a context deliver it on this event? Its workflow must run on the event and
+    each condition it needs must hold. The context arrives when one does; it is not measurable when
+    none does and one is not decided; it will not arrive when every one is decided and none does.
+
+    Lens on fb6eda0d (E): the first form asked only the first producer of a context. Two workflows on
+    pull_request with opposite `if:` read as the false one, a workflow on workflow_dispatch only hid a
+    second one on pull_request, and on a push to main a workflow on push that also produces the
+    context was never asked."""
+    if not erzeuger:
+        z["live"], z["why"] = UNKNOWN, "no producer of it was recorded"
+        return
+    offen: list[str] = []
+    falsch: list[str] = []
+    still: list[str] = []
+    for p in erzeuger:
+        datei = p.get("from")
+        try:
+            if not lauf(datei):
+                still.append(str(datei))
+                continue
+        except NichtAuswertbar as exc:
+            offen.append(f"{datei}: {exc}")
+            continue
+        unklar, gescheitert = None, None
+        for bedingung in p.get("conditions") or []:
+            try:
+                if not bedingung_am_ereignis(bedingung, ereignis):
+                    gescheitert = bedingung
+                    break
+            except NichtAuswertbar as exc:
+                unklar = unklar or str(exc)
+        if gescheitert is not None:
+            falsch.append(gescheitert)
+        elif unklar is not None:
+            offen.append(unklar)
+        else:
+            z["live"] = ARRIVES
+            if p.get("conditions"):
+                z["condition"] = "; and ".join(p["conditions"])
+            return
+    if offen:
+        z["live"], z["why"] = UNKNOWN, "; ".join(offen)
+    elif falsch:
+        z["live"], z["condition"] = WILL_NOT_ARRIVE, " | ".join(dict.fromkeys(falsch))
+    else:
+        dateien = list(dict.fromkeys(still))
+        z["live"], z["why"] = WILL_NOT_ARRIVE, (f"{', '.join(dateien)} {'does' if len(dateien) == 1 else 'do'} "
+                                                f"not run on a {ereignis_name} event")
+        z["not_triggered"] = True
+
+
 def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: Path | None = None) -> dict:
     """Will every required context ARRIVE on this event? Three states per context, never two."""
     if not ereignis:
@@ -1692,40 +2320,10 @@ def lebend(ereignis: dict | None, declaration: Path | None = None, verzeichnis: 
     for e in r["per_context"]:
         z = {"context": e["context"], "structure": e["state"]}
         if e["state"] in (ALWAYS, GATED):
-            dateien = e.get("sources") or [e.get("from")]
-            laeuft, offen = False, []
-            for datei in dateien:
-                try:
-                    laeuft = lauf(datei)
-                except NichtAuswertbar as exc:
-                    offen.append(f"{datei}: {exc}")
-                if laeuft:
-                    break
-            if not laeuft:
-                if offen:
-                    z["live"], z["why"] = UNKNOWN, "; ".join(offen)
-                else:
-                    z["live"], z["why"] = WILL_NOT_ARRIVE, (f"{', '.join(map(str, dateien))} does not run on "
-                                                            f"a {ereignis_name} event")
-                    z["not_triggered"] = True
-                je.append(z)
-                continue
-        if e["state"] == ALWAYS:
-            z["live"] = ARRIVES
-        elif e["state"] == GATED:
-            ausdruck = e["expression"] if "expression" in e else e.get("condition")
-            if ausdruck is None:
-                z["live"] = ARRIVES                    # the trigger was the whole condition, and it holds
-                je.append(z)
-                continue
-            try:
-                wahr = bedingung_am_ereignis(ausdruck or "", ereignis)
-            except NichtAuswertbar as exc:
-                z["live"], z["why"] = UNKNOWN, str(exc)
-            else:
-                z["live"] = ARRIVES if wahr else WILL_NOT_ARRIVE
-                z["condition"] = ausdruck
-        elif unlesbare_dateien or r.get("unreadable"):
+            _erzeuger_am_ereignis(z, e.get("producers") or [], lauf, ereignis, ereignis_name)
+            je.append(z)
+            continue
+        if unlesbare_dateien or r.get("unreadable"):
             # "Absent" is only a verdict when every workflow file was READ. With a file that did
             # not parse, the context may well be produced there, and this run cannot tell.
             # THE SAME FOR A JOB (lens on ac05d85d): a job whose matrix, name or `if:` was not read

@@ -238,28 +238,35 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 # named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived: every
 # call of a function of `re` that takes a pattern, the pattern folded from the source (`_Fold`), read under
 # every flag value the call can pass and in every way it is matched (`_readings`). A pattern judges a whole
-# value when it is matched with fullmatch, or is anchored at the start (`\A`, `^` outside MULTILINE, or
-# `match`, which anchors there by itself) and at the end (`\Z`, `$` outside MULTILINE, or a lookahead
-# `(?=\Z)`), read after its inline flags, its comments, VERBOSE whitespace and a group around the whole of
-# it, and through a chain of groups at its start or its end (`(?:\A\d+)\Z`). An alternation on such a
-# chain that holds an anchor is read branch by branch (`(?:^|/)x$` is `^x$` or `/x$`); past 64 branches, or
-# in a group on the chain that turns VERBOSE on, it is not decided, and the call is an unfolded site.
+# value when it is matched with fullmatch, or when one of its branches is anchored at the start (`\A`, `^`
+# outside MULTILINE, or `match`, which anchors there by itself) and at the end (`\Z`, `$` outside
+# MULTILINE, or a lookahead that is one of these). The pattern is read in one pass after its leading inline
+# flags, its comments and VERBOSE whitespace (`_lesung`): an anchor counts wherever it stands on the
+# pattern's own path, at its top level or in a group there that is matched at least once, quantified or
+# not (`\A\d+\Z()`, `(?:\A\d+){1}\Z`); an alternation, the top-level one included, is a set of
+# branches (`\A\d+\Z|none`, `(?:^|/)x$`); a group matched zero times or more anchors nothing; and a
+# lookaround is read as an anchor in the forms `(?=\Z)`, `(?=$)`, `(?=\n?\Z)` (the `$` of re), `(?!.)`
+# under DOTALL and a negative lookahead of a class of every character. An anchor in a lookaround or a
+# conditional group in another form, inline flags past the start, a group that is not closed, and more
+# than `_ANCHOR_WORK` steps for one call leave it undecided, and the call is an unfolded site.
 #
 # A CALLEE is resolved through the bindings of the scope it is read in, the machinery of the fold
 # (`_Module.funktionen`): an import from `re`, an assignment (chained, annotated, a literal tuple, an
-# assignment expression), a name bound to such a name, both branches of a conditional, an attribute of a
-# module-level class. A name bound to a function of `re` and, in the same scope, to anything else makes the
-# call an unfolded site (lens on ac05d85d).
+# assignment expression), a name bound to such a name, both branches of a conditional, each operand of `or`
+# and `and`, a binding through `global` in a function, an attribute of a module-level class or of a class
+# it inherits from. A name bound to a function of `re` and, in the same scope, to anything else makes the
+# call an unfolded site (lens on ac05d85d; the lens on fb6eda0d planted `global`, `or` and inheritance).
 #
 # WHAT IT DOES NOT SEE (named limits). `vars(re)[...]`, `importlib.import_module("re")`,
 # `re.compile.__call__`, `re` bound to another name by assignment, an instance attribute or a parameter
-# bound to a function of `re`, and a function of `re` passed on as a value such as `map(re.compile, ...)`:
-# none is resolved, and a call through one is not seen. A pattern that reaches `re` only through another
-# module's caller is not followed. A compiled pattern is read as a scan and as the `match` or `fullmatch` its
-# module takes of the name or attribute it is bound to, as `R.match`, `re.Pattern.match(R, ...)` or
-# `getattr(R, "match")` (a `getattr` by a name the sweep cannot read makes it an unfolded site); one that
-# reaches `.match` or `.fullmatch` through a parameter, a container, a loop variable or a return value is
-# judged by its own anchors.
+# bound to a function of `re`, and a function of `re` passed on as a value such as `map(re.compile, ...)`
+# or held in a container: none is resolved, and a call through one is not seen. A pattern that reaches `re`
+# only through another module's caller is not followed. A compiled pattern is read as a scan and as the
+# `match` or `fullmatch` its module takes of the name or attribute it is bound to, or of another name that
+# name is bound to, as `R.match`, `re.Pattern.match(R, ...)`, `type(R).match(R, ...)`,
+# `R.__class__.match(R, ...)` or `getattr(R, "match")` (a `getattr` by a name the sweep cannot read makes
+# it an unfolded site); one that reaches `.match` or `.fullmatch` through a parameter, a container, a loop
+# variable, a return value or a pattern type bound to another name is judged by its own anchors.
 #
 # WHERE IT SWEEPS. Under src/proofbundle, scripts/ and tools/, both readings. The release tools carried
 # their own RFC3339 copies with `\d` (audit_candidate_matrix, findings_register, the one of them behind
@@ -509,6 +516,19 @@ def _binding(node, up, parent):
     return f"a name bound by {_BOUND_BY.get(type(up), type(up).__name__)}"
 
 
+class _Global:
+    """A module-level name bound through `global` in a function or class body. To the fold it is a
+    run-time value (`grund` is the gap); a callee is still followed to what it binds (`eintrag`, as
+    `_binding` reads it), since the name reaches that once the function ran. Lens on fb6eda0d: with
+    `global c; c = re.compile` in a function and `c(r"\\A\\d+\\Z")` at module level the call was
+    not seen at all, a regression against ac05d85d, where such an alias was read."""
+
+    __slots__ = ("grund", "eintrag")
+
+    def __init__(self, grund, eintrag):
+        self.grund, self.eintrag = grund, eintrag
+
+
 def _scopes(tree) -> tuple:
     """One pass over a module, a loop and not recursion (a planted 3000-deep chain is valid source):
     for every node the scopes around it (innermost first) and its parent; for every scope the names it
@@ -559,7 +579,8 @@ def _scopes(tree) -> tuple:
                                                                 getattr(e[2], "col_offset", 0))):
         if owner is not tree and name in of(owner)["global"]:
             if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Del)):
-                module.setdefault(name, []).append(f"`{name}` is rebound through `global` in {_scope_name(owner)}")
+                module.setdefault(name, []).append(_Global(
+                    f"`{name}` is rebound through `global` in {_scope_name(owner)}", _binding(node, up, parent)))
             continue
         if owner is tree:
             target = module
@@ -595,6 +616,40 @@ def _definitions(tree) -> dict:
     return where
 
 
+def _wert_schluessel(wert) -> list:
+    """The names and attributes a value may be: itself, both branches of a conditional, each operand of
+    `or` and `and`, and both sides of an assignment expression. A loop, not recursion: a planted chain of
+    conditionals thousands deep is valid source."""
+    aus, todo = [], [wert]
+    while todo:
+        w = todo.pop()
+        if isinstance(w, (ast.Name, ast.Attribute)):
+            aus.append(_receiver_key(w))
+        elif isinstance(w, ast.IfExp):
+            todo += [w.body, w.orelse]
+        elif isinstance(w, ast.BoolOp):
+            todo += w.values
+        elif isinstance(w, ast.NamedExpr):
+            todo.append(w.value)
+            aus.append(_receiver_key(w.target))
+    return aus
+
+
+def _alias_paare(ziel, wert) -> list:
+    """(target, source) pairs of names or attributes an assignment binds to one another, literal tuples
+    element by element, in a loop."""
+    aus, todo = [], [(ziel, wert)]
+    while todo:
+        z, w = todo.pop()
+        if isinstance(z, (ast.Tuple, ast.List)) and isinstance(w, (ast.Tuple, ast.List)) \
+                and len(z.elts) == len(w.elts):
+            todo += list(zip(z.elts, w.elts))
+            continue
+        key = _receiver_key(z) if isinstance(z, (ast.Name, ast.Attribute)) else None
+        aus += [(key, q) for q in _wert_schluessel(w) if key and q and q != key]
+    return aus
+
+
 def _receiver_key(node):
     """The name or attribute a compiled pattern is read through: `R` for `R`, `rx` for `self.rx`."""
     return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
@@ -627,20 +682,64 @@ class _Module:
                     self.unread_receivers.add(key)
                 elif key:
                     self.receivers.setdefault(key, set()).add(taken[1])
+        self._aliases()
+
+    def _aliases(self):
+        """A compiled pattern bound to a second name is matched through that one too: the way the second
+        name is matched counts for the first, along every assignment of one name or attribute to another
+        (both branches of a conditional, each operand of `or` and `and`), until nothing changes. Lens on
+        fb6eda0d: `S = R` and `S.match(s)` read `R = re.compile(r"\\d+\\Z")` as a scan."""
+        kanten = []
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Assign):
+                ziele, wert = node.targets, node.value
+            elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+                ziele, wert = [node.target], node.value
+            else:
+                continue
+            for ziel in ziele:
+                kanten += _alias_paare(ziel, wert)
+        geaendert = bool(kanten)
+        while geaendert:
+            geaendert = False
+            for ziel, quelle in kanten:
+                neu = self.receivers.get(ziel, set()) - self.receivers.get(quelle, set())
+                if neu:
+                    self.receivers.setdefault(quelle, set()).update(neu)
+                    geaendert = True
+                if ziel in self.unread_receivers and quelle not in self.unread_receivers:
+                    self.unread_receivers.add(quelle)
+                    geaendert = True
+
+    def mustertyp(self, expr) -> bool:
+        """Is `expr` the type of a compiled pattern: `re.Pattern` by a name the sweep resolves, `type(R)` or
+        `R.__class__`? Lens on fb6eda0d: `type(R).match(R, s)` was read as a scan."""
+        if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "type"
+                and len(expr.args) == 1):
+            return True
+        if isinstance(expr, ast.Attribute) and expr.attr == "__class__":
+            return True
+        return "Pattern" in self.funktionen(expr)[0]
 
     def takes_match(self, call):
         """(receiver, attribute) when a call takes `match` or `fullmatch` of its first argument: for
-        `re.Pattern.match(R, ...)` and `getattr(R, "match")` that attribute, for `getattr(R, <a name the
-        sweep cannot read>)` None; None when the call takes neither."""
+        `re.Pattern.match(R, ...)`, `type(R).match(R, ...)`, `getattr(R, "match")` and
+        `getattr(type(R), "match")(R, ...)` that attribute, for a `getattr` by a name the sweep cannot
+        read None; None when the call takes neither."""
         func = call.func
         if isinstance(func, ast.Name) and func.id == "getattr" and len(call.args) >= 2:
             name = call.args[1]
             if isinstance(name, ast.Constant) and isinstance(name.value, str):
                 return (call.args[0], name.value) if name.value in ("match", "fullmatch") else None
             return call.args[0], None
-        if (isinstance(func, ast.Attribute) and func.attr in ("match", "fullmatch")
-                and "Pattern" in self.funktionen(func.value)[0]):
+        if isinstance(func, ast.Attribute) and func.attr in ("match", "fullmatch") and self.mustertyp(func.value):
             return call.args[0], func.attr
+        if (isinstance(func, ast.Call) and isinstance(func.func, ast.Name) and func.func.id == "getattr"
+                and len(func.args) >= 2 and self.mustertyp(func.args[0])):
+            name = func.args[1]
+            if isinstance(name, ast.Constant) and isinstance(name.value, str):
+                return (call.args[0], name.value) if name.value in ("match", "fullmatch") else None
+            return call.args[0], None
         return None
 
     def bindungen(self, ident, chain) -> tuple:
@@ -689,6 +788,10 @@ class _Module:
                               else "getattr(re, ...)")
             elif isinstance(expr, ast.IfExp):
                 todo += [expr.body, expr.orelse]
+            elif isinstance(expr, ast.BoolOp):
+                todo += expr.values                     # `re.compile or None` is one of its operands
+            elif isinstance(expr, ast.NamedExpr):
+                todo.append(expr.value)
             elif isinstance(expr, (ast.Name, ast.Attribute)):
                 if isinstance(expr, ast.Name):
                     key, bindings = self.bindungen(expr.id, self.scope_of.get(id(expr), ()))
@@ -696,8 +799,13 @@ class _Module:
                 elif isinstance(expr.value, ast.Name):
                     _key, owners = self.bindungen(expr.value.id, self.scope_of.get(id(expr.value), ()))
                     classes = [b for b in owners if isinstance(b, ast.ClassDef)]
-                    keys = [(("class", id(c), expr.attr), self.class_entries.get(id(c), {}).get(expr.attr, []),
-                             f"{c.name}.{expr.attr}") for c in classes]
+                    keys = []
+                    for c in classes:
+                        gefunden, warum = self.klassen_attribut(c, expr.attr)
+                        keys += gefunden
+                        reasons += warum
+                        if not gefunden and not warum:
+                            reasons.append(f"`{c.name}.{expr.attr}` is not bound where it is read")
                     if not classes:
                         reasons.append(f"`{_describe(expr)}` is no attribute of a class the sweep reads")
                 else:
@@ -708,6 +816,10 @@ class _Module:
                         continue
                     seen.add(key)
                     for b in bindings:
+                        if isinstance(b, _Global):
+                            b = b.eintrag
+                            if b is None:
+                                continue
                         if isinstance(b, tuple):
                             functions.add(b[1])
                         elif isinstance(b, ast.expr):
@@ -720,6 +832,32 @@ class _Module:
                 reasons.append(f"`{_describe(expr)}`")
         return functions, [f"the callee may be bound to something other than a function of re: {r}"
                            for r in dict.fromkeys(reasons)] if functions else []
+
+    def klassen_attribut(self, klasse, attr) -> tuple:
+        """Where `klasse.attr` is bound: in the class body, else in its bases in turn, as far as each base
+        is a class the sweep reads. ((key, bindings, label) per class that binds it, why a base was not
+        followed). Lens on fb6eda0d: `L.j(...)` with `class L(K)` and `j = re.compile` in `K` passed the
+        sweep, since only the body of `L` was read."""
+        gefunden, warum, gesehen, todo = [], [], set(), [klasse]
+        while todo:
+            k = todo.pop(0)
+            if id(k) in gesehen:
+                continue
+            gesehen.add(id(k))
+            eigene = self.class_entries.get(id(k), {}).get(attr)
+            if eigene:
+                gefunden.append((("class", id(k), attr), eigene, f"{k.name}.{attr}"))
+                continue
+            for base in k.bases:
+                if not isinstance(base, ast.Name):
+                    warum.append(f"`{k.name}` inherits from `{_describe(base)}`, which is no class the sweep reads")
+                    continue
+                _key, owners = self.bindungen(base.id, self.scope_of.get(id(base), ()))
+                klassen = [b for b in owners if isinstance(b, ast.ClassDef)]
+                todo += klassen
+                if not owners or len(klassen) < len(owners):
+                    warum.append(f"`{k.name}` inherits from `{base.id}`, which is no class the sweep reads")
+        return gefunden, warum
 
     def resolve(self, ident, chain) -> tuple:
         """(key, bindings) for a name read inside `chain`, as Python resolves it: a parameter or a name bound
@@ -865,16 +1003,128 @@ def _too_large(op, a, b):
         text = _text(a)
         if _WIDE_FIELD.search(text) or (_STAR_FIELD.search(text) and _wide_argument(b)):
             return _WIDE
+        return _prozent_zu_gross(a, b)
     return None
 
 
 def _too_large_call(attr, head, positional, keywords):
-    """The same for `head.join(parts)` and `head.format(...)` (`_format_zu_breit`)."""
+    """The same for `head.join(parts)` and `head.format(...)` (`_format_zu_breit`, `_format_zu_gross`)."""
     if attr == "join":
         parts = positional[0] if positional else ()
         count = len(parts) if isinstance(parts, (str, bytes, list, tuple, dict)) else 0
         return _LARGE if _size(parts) + len(head) * count > _FOLD_SIZE else None
-    return _format_zu_breit(head)
+    return _format_zu_breit(head) or _format_zu_gross(head, positional, keywords)
+
+
+def _format_zu_gross(head, positional, keywords):
+    """`_LARGE` when `head.format(...)` would build a text past `_FOLD_SIZE`, judged field by field before
+    the whole is built; None when it would not, or when `format` raises on it anyway (then the fold step
+    raises, and that is a gap). Each field is formatted alone, which `_format_zu_breit` bounds, and the
+    sizes are summed until they pass the bound. Lens on fb6eda0d: only widths were judged, so
+    `"{0}" * 3333` formatted with a text of 10000 characters, once per value of four, built 33 million
+    characters per value and took the process to a peak of 541 MiB."""
+    try:
+        felder = list(string.Formatter().parse(head))
+    except ValueError:
+        return None
+    gesamt, automatisch = 0, 0
+    for literal, name, spec, konversion in felder:
+        gesamt += len(literal)
+        if name is not None:
+            if name == "" or name[0] in ".[":
+                name, automatisch = f"{automatisch}{name}", automatisch + 1
+            feld = "{" + name + ("!" + konversion if konversion else "") + (":" + spec if spec else "") + "}"
+            try:
+                gesamt += len(feld.format(*positional, **keywords))
+            except _FOLD_ERRORS:
+                return None
+        if gesamt > _FOLD_SIZE:
+            return _LARGE
+    return None
+
+
+def _prozent_felder(text):
+    """(literal characters, key or None, flags, width, precision or None, conversion) per conversion of a
+    `%` format, as `str.__mod__` reads them, and the literal characters after the last; raises
+    ValueError where `%` would (an incomplete format or key)."""
+    felder, i, n, literal = [], 0, len(text), 0
+    while True:
+        j = text.find("%", i)
+        if j < 0:
+            return felder, literal + n - i
+        literal += j - i
+        i = j + 1
+        key = None
+        if i < n and text[i] == "(":
+            tiefe, k = 1, i + 1
+            while k < n and tiefe:
+                tiefe += {"(": 1, ")": -1}.get(text[k], 0)
+                k += 1
+            if tiefe:
+                raise ValueError("incomplete format key")
+            key, i = text[i + 1:k - 1], k
+        start = i
+        while i < n and text[i] in "-+ #0":
+            i += 1
+        flags = text[start:i]
+        start = i
+        if i < n and text[i] == "*":
+            i += 1
+        else:
+            while i < n and text[i] in "0123456789":
+                i += 1
+        width = text[start:i]
+        precision = None
+        if i < n and text[i] == ".":
+            start = i = i + 1
+            if i < n and text[i] == "*":
+                i += 1
+            else:
+                while i < n and text[i] in "0123456789":
+                    i += 1
+            precision = text[start:i]
+        while i < n and text[i] in "hlL":
+            i += 1
+        if i >= n:
+            raise ValueError("incomplete format")
+        konversion, i = text[i], i + 1
+        if konversion == "%" and key is None and not flags and not width and precision is None:
+            literal += 1
+            continue
+        felder.append((literal, key, flags, width, precision, konversion))
+        literal = 0
+
+
+def _prozent_zu_gross(head, arg):
+    """`_LARGE` when `head % arg` would build a value past `_FOLD_SIZE`, judged conversion by conversion
+    before the whole is built; None when it would not, or when `%` raises on it anyway. A mapping on
+    the right repeats a value as often as the format names its key (`"%(a)s" * 2000 % {"a": W}`), the
+    same class as the `format` above."""
+    try:
+        felder, rest = _prozent_felder(_text(head))
+    except ValueError:
+        return None
+    werte = list(arg) if isinstance(arg, tuple) else [arg]
+    zuordnung = arg if isinstance(arg, dict) else None
+    gesamt, k = rest, 0
+    try:
+        for literal, key, flags, width, precision, konversion in felder:
+            gesamt += literal
+            if width == "*":
+                width, k = str(int(werte[k])), k + 1
+            if precision == "*":
+                precision, k = str(int(werte[k])), k + 1
+            if key is not None:
+                wert = zuordnung[key]
+            else:
+                wert, k = werte[k], k + 1
+            spec = "%" + flags + width + ("." + precision if precision is not None else "") + konversion
+            gesamt += len((spec.encode("latin-1") if isinstance(head, bytes) else spec) % (wert,))
+            if gesamt > _FOLD_SIZE:
+                return _LARGE
+    except _FOLD_ERRORS:
+        return None
+    return None
 
 
 def _describe(node) -> str:
@@ -893,9 +1143,10 @@ class _Fold:
     argument, as ints. One instance folds one call, with its own memo, work budget and gaps.
 
     Read: literals; an f-string whose placeholders fold to a str or an int (no conversion, no format
-    spec); `+`, `%` and `*` between folded values; both branches of a conditional; a name through the
-    scopes around it to every value it is bound to at module level or in a class body; an attribute of
-    a class defined at module level, through its class body; an index or a slice of a folded list, tuple
+    spec); `+`, `%` and `*` between folded values; both branches of a conditional, and every operand of
+    `or` and `and`; a name through the scopes around it to every value it is bound to at module level or
+    in a class body; an attribute of a class defined at module level, through its class body or the
+    bodies of the classes it inherits from; an index or a slice of a folded list, tuple
     or string; `str.join` and `str.format` on folded values, keywords included; for flags, the flags of
     `re` by attribute or imported name, ints made only of flag bits, and `|` and `+` of them. The 228bc
     stack delta planted a conditional, a partial, a name bound twice, bytes, an f-string and `+` (run 1),
@@ -905,9 +1156,10 @@ class _Fold:
 
     DENY BY DEFAULT: every part the fold cannot state is a gap (`self.gaps`), and the values of the other
     parts are still returned. A parameter, a loop variable, a local or a rebound name, a call other than
-    `str.join` or `str.format`, an inherited or instance attribute, a placeholder of another type, flags
-    the sweep does not read, an error a step raises, a fold past `_FOLD_CAP` values, `_FOLD_SIZE` or
-    `_FOLD_WORK` steps: each is a gap, and a call with a gap is reported by `_unfolded_pattern_sites`,
+    `str.join` or `str.format`, an instance attribute or one inherited from a class the sweep does not
+    read, a placeholder of another type, flags the sweep does not read, an error a step raises, a fold
+    past `_FOLD_CAP` values, a value past `_FOLD_SIZE` (judged before it is built, the result of `%` and
+    `str.format` included), or `_FOLD_WORK` steps: each is a gap, and a call with a gap is reported by `_unfolded_pattern_sites`,
     so a form nobody listed turns the sweep red instead of passing it. A name or an attribute is folded
     once per call (a chain of names each doubling the one before took longer than a minute)."""
 
@@ -1006,6 +1258,11 @@ class _Fold:
             return self._each(expr, pairs, lambda ab: fold(*ab), lambda ab: _too_large(op, *ab))
         elif isinstance(expr, ast.IfExp):
             return self.capped(self.values(expr.body, seen) + self.values(expr.orelse, seen))
+        elif isinstance(expr, ast.BoolOp):
+            # `a or b` and `a and b` are one of their operands: every operand's values (lens on fb6eda0d)
+            return self.capped([v for operand in expr.values for v in self.values(operand, seen)])
+        elif isinstance(expr, ast.NamedExpr):
+            return self.values(expr.value, seen)
         elif isinstance(expr, ast.Name):
             return self._through(*self.m.resolve(expr.id, self.m.scope_of.get(id(expr), ())), seen)
         elif isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
@@ -1087,11 +1344,15 @@ class _Fold:
         out = []
         for b in bindings:
             if isinstance(b, ast.ClassDef):
-                attrs = self.m.class_entries.get(id(b), {})
-                if expr.attr in attrs:
-                    out += self._through(("class", id(b), expr.attr), attrs[expr.attr], seen)
-                else:
+                gefunden, warum = self.m.klassen_attribut(b, expr.attr)
+                for key, eintraege, _label in gefunden:
+                    out += self._through(key, eintraege, seen)
+                for grund in warum:
+                    self.gap(grund)
+                if not gefunden and not warum:
                     self.gap(f"`{b.name}.{expr.attr}` is not bound in the class body")
+            elif isinstance(b, _Global):
+                self.gap(b.grund)
             else:
                 self.gap(b if isinstance(b, str) else f"`{_describe(expr)}` is not a class attribute")
         return self.capped(out)
@@ -1110,6 +1371,8 @@ class _Fold:
         for b in bindings:
             if isinstance(b, str):
                 self.gap(b)
+            elif isinstance(b, _Global):
+                self.gap(b.grund)
             elif isinstance(b, ast.expr):
                 out += self.values(b, seen)
             else:
@@ -1138,6 +1401,10 @@ class _Fold:
             return {v for v in out if not v & ~_ALL_FLAGS}
         if isinstance(expr, ast.IfExp):
             return self.flags(expr.body, seen) | self.flags(expr.orelse, seen)
+        if isinstance(expr, ast.BoolOp):
+            return set().union(*(self.flags(v, seen) for v in expr.values))
+        if isinstance(expr, ast.NamedExpr):
+            return self.flags(expr.value, seen)
         if isinstance(expr, ast.Name):
             key, bindings = self.m.resolve(expr.id, self.m.scope_of.get(id(expr), ()))
             if key is not None:
@@ -1152,6 +1419,8 @@ class _Fold:
             for b in bindings:
                 if isinstance(b, str):
                     self.gap(b)
+                elif isinstance(b, _Global):
+                    self.gap(b.grund)
                 elif isinstance(b, tuple) and b[1] in _RE_FLAGS:
                     out.add(_RE_FLAGS[b[1]])
                 elif isinstance(b, ast.expr):
@@ -1200,7 +1469,14 @@ _UNREAD_RECEIVER = ("the module takes an attribute of the compiled pattern by a 
 # ── How `re` reads a pattern's anchors ────────────────────────────────────────────────────────────
 
 _GLOBAL_FLAGS = re.compile(r"\(\?([aiLmsux]+)\)")
-_TRANSPARENT = re.compile(r"\(\?(?::|>|P<\w+>|([aiLmsux]*)(?:-([imsx]+))?:)")
+_SCOPED_FLAGS = re.compile(r"\(\?([aiLmsux]*)(?:-([imsx]+))?:")
+_NAMED_GROUP = re.compile(r"\(\?P<[^>]*>")
+#: A class that holds every character, in Python's reading and in ECMA-262's.
+_ANY_CHARACTER = frozenset({r"[\s\S]", r"[\S\s]", r"[\d\D]", r"[\D\d]", r"[\w\W]", r"[\W\w]"})
+#: How many characters and set steps the anchor reader may spend on the patterns of one call. Past it,
+#: the call is an unfolded site (lens on fb6eda0d: a pattern of 4257 characters with 100 nested groups
+#: and 64 end branches took 51.5 s, since the first reader walked each chain once per branch and level).
+_ANCHOR_WORK = 500_000
 
 
 def _flag_bits(letters) -> int:
@@ -1239,285 +1515,368 @@ def _stripped(text, verbose) -> str:
     return "".join(out)
 
 
-def _closing(text) -> dict:
-    """Position of each `(` -> position of the `)` that closes it, escapes and classes skipped."""
-    close, opened, i, in_class, first = {}, [], 0, False, 0
-    while i < len(text):
-        c = text[i]
-        if c == "\\":
-            i += 2
-            continue
-        if in_class:
-            in_class = not (c == "]" and i > first)
-        elif c == "[":
-            in_class, first = True, i + 1 + (text[i + 1:i + 2] == "^")
-        elif c == "(":
-            opened.append(i)
-        elif c == ")" and opened:
-            close[opened.pop()] = i
-        i += 1
-    return close
-
-
 def _as_read(pattern, flags) -> tuple:
-    """(text, flags) as `re` reads a pattern's anchors: comments removed, the leading inline flags
-    `(?aiLmsux)` applied, VERBOSE whitespace and comments removed, and every group that spans the whole
-    pattern looked through (`(?:..)`, a capturing, named or atomic group, `(?a-x:..)` with its flags).
-    Review 5 on e176414c: `(?s)\\A\\d+\\Z`, `(?:\\A\\d+\\Z)` and a VERBOSE pattern with a trailing comment
-    were not seen as anchored. A lookaround, a conditional or a back reference is not looked through."""
+    """(text, flags) as `re` reads a pattern before its first item: comments removed, the leading inline
+    flags `(?aiLmsux)` applied, VERBOSE whitespace and comments removed. Review 5 on e176414c: `(?s)`,
+    `(?x)` and a VERBOSE pattern with a trailing comment were not read. A group is read by `_lesung`."""
     text = _stripped(pattern, flags & re.X)
     while (m := _GLOBAL_FLAGS.match(text)):
         flags |= _flag_bits(m.group(1))
         text = text[m.end():]
-    verbose_read = bool(flags & re.X)
-    if verbose_read:
+    if flags & re.X:
         text = _stripped(text, True)
-    close, lo, hi = _closing(text), 0, len(text)
-    while lo < hi and close.get(lo) == hi - 1:
-        inner = lo + 1
-        if text.startswith("(?", lo):
-            group = _TRANSPARENT.match(text, lo)
-            if not group:
-                break
-            inner = group.end()
-            flags = (flags | _flag_bits(group.group(1) or "")) & ~_flag_bits(group.group(2) or "")
-        lo, hi = inner, hi - 1
-        if flags & re.X and not verbose_read:
-            text, verbose_read = _stripped(text[lo:hi], True), True
-            close, lo, hi = _closing(text), 0, len(text)
-    return text[lo:hi], flags
-
-
-def _ends_in(text, anchor) -> bool:
-    """The text ends in `anchor` (`$` or `\\Z`) as an anchor, not as an escaped character."""
-    if not text.endswith(anchor):
-        return False
-    k = len(text) - len(anchor)
-    return (k - len(text[:k].rstrip("\\"))) % 2 == 0
+    return text, flags
 
 
 class _Unentschieden(Exception):
-    """An anchor the sweep cannot place: more alternatives on a pattern's chains than `_MOST_BRANCHES`,
-    or an alternation holding an anchor in a group that turns VERBOSE on. The call becomes an unfolded
-    site (deny by default)."""
+    """An anchor the sweep cannot place: one in a lookaround or a conditional group in a form it does not
+    read, inline flags past the start of a pattern, a group or class that is not closed, or more than
+    `_ANCHOR_WORK` steps for one call. The call becomes an unfolded site (deny by default)."""
 
 
-def _alternatives(text) -> list:
-    """The alternatives of `text` at its top level: split at `|` outside groups, classes and escapes."""
-    parts, depth, i, in_class, first, start = [], 0, 0, False, 0, 0
-    while i < len(text):
-        c = text[i]
-        if c == "\\":
-            i += 2
-            continue
-        if in_class:
-            in_class = not (c == "]" and i > first)
-        elif c == "[":
-            in_class, first = True, i + 1 + (text[i + 1:i + 2] == "^")
-        elif c == "(":
-            depth += 1
-        elif c == ")":
-            depth -= 1
-        elif c == "|" and depth == 0:
-            parts.append(text[start:i])
-            start = i + 1
-        i += 1
-    return parts + [text[start:]]
+class _Budget:
+    """The steps the anchor reader may still spend on the patterns of one call."""
+
+    def __init__(self, most=_ANCHOR_WORK):
+        self.left = most
+
+    def charge(self, n=1):
+        self.left -= n
+        if self.left < 0:
+            raise _Unentschieden(f"more than {_ANCHOR_WORK} steps reading the anchors of one call")
 
 
-def _holds_anchor(text) -> bool:
-    """`\\A`, `\\Z`, `^` or `$` somewhere in `text` as an anchor, outside classes and escapes."""
-    i, in_class, first = 0, False, 0
-    while i < len(text):
-        c = text[i]
-        if c == "\\":
-            if text[i + 1:i + 2] in ("A", "Z") and not in_class:
-                return True
-            i += 2
-            continue
-        if in_class:
-            in_class = not (c == "]" and i > first)
-        elif c == "[":
-            in_class, first = True, i + 1 + (text[i + 1:i + 2] == "^")
-        elif c in "^$":
-            return True
-        i += 1
-    return False
+# A branch of a pattern is read as (anchored at the start, its end anchor, a Unicode class in it, what is
+# not decided); the end anchor is 0 for none, 1 for `$` and 2 for `\Z`, and what is not decided is 1 for
+# a start anchor and 2 for an end anchor this reader cannot place. A pattern is read as the set of the
+# readings of its branches, at most 48 of them, however many alternatives it has.
+_NICHTS = frozenset({(False, 0, False, 0)})
+_START = frozenset({(True, 0, False, 0)})
+_ENDE_DOLLAR = frozenset({(False, 1, False, 0)})
+_ENDE_Z = frozenset({(False, 2, False, 0)})
 
 
-def _entered(text, lo, close, flags):
-    """(inside, flags inside) of the group at `lo` when the anchor reader may look into it: a plain,
-    non-capturing, named, atomic or flag-scoped group, VERBOSE applied to it where it turns VERBOSE on;
-    None for a lookaround, a conditional or a comment. Raises _Unentschieden when its alternatives hold an
-    anchor, and gives None when they hold none."""
-    hi = close.get(lo)
-    if hi is None:
-        return None
-    start, on, off = lo + 1, "", ""
-    if text.startswith("(?", lo):
-        group = _TRANSPARENT.match(text, lo)
-        if not group:
-            return None
-        start, on, off = group.end(), group.group(1) or "", group.group(2) or ""
-    inner_flags = (flags | _flag_bits(on)) & ~_flag_bits(off)
-    inside = text[start:hi]
-    if inner_flags & re.X and not flags & re.X:
-        inside = _stripped(inside, True)
-    if len(_alternatives(inside)) > 1:
-        if _holds_anchor(inside):
-            raise _Unentschieden("an anchor inside an alternation at the start or the end of the pattern, "
-                                 "which the sweep does not place")
-        return None
-    return inside, inner_flags
+def _folge(a, b, budget) -> frozenset:
+    """The readings of `a` followed by `b`: an anchor on either holds for the sequence."""
+    if b == _NICHTS:
+        return a
+    if a == _NICHTS:
+        return b
+    budget.charge(len(a) * len(b))
+    return frozenset((s1 or s2, max(e1, e2), u1 or u2, x1 | x2)
+                     for s1, e1, u1, x1 in a for s2, e2, u2, x2 in b)
 
 
-#: How many branches the anchor reader expands the alternations on a pattern's chains into.
-_MOST_BRANCHES = 64
+def _abseits(a) -> frozenset:
+    """The readings of an item off the path: one matched zero times or more, whose anchors need not
+    hold; a Unicode class in it still reads a value."""
+    return frozenset((False, 0, u, 0) for _s, _e, u, _x in a)
 
 
-def _chain_alternation(text, flags, from_end):
-    """(start and end of its inside, alternatives) of the first group with alternatives on the chain at the
-    pattern's start (or end): each group on the chain first (last) in the one around it, not quantified,
-    a lookahead included at the end, and one of the alternatives holding an anchor; None when that chain
-    holds none. A group on the chain that turns VERBOSE on is not decided, since its inside is read
-    stripped and positions would not carry."""
-    lo, hi, close = 0, len(text), _closing(text)
-    while True:
-        if from_end:
-            if not text[lo:hi].endswith(")"):
-                return None
-            start = next((k for k, v in close.items() if v == hi - 1 and k >= lo), None)
+def _wiederholt(a, most, budget) -> frozenset:
+    """The readings of an item repeated one to `most` times (None: without bound): each repetition may
+    take another branch, and the anchors of all of them hold."""
+    out, n = a, 1
+    while most is None or n < most:
+        more = out | _folge(out, a, budget)
+        if more == out:
+            break
+        out, n = more, n + 1
+    return out
+
+
+def _quantifier(text, i) -> tuple:
+    """(least, most or None for no bound, position after it) of the quantifier at `i`, (1, 1, i) for none.
+    `{` begins one only as `re` reads it (ASCII digits, a comma, ASCII digits, `}`), and a lazy `?` or a
+    possessive `+` after it belongs to it."""
+    if i >= len(text):
+        return 1, 1, i
+    c = text[i]
+    if c in "*+?":
+        least, most, j = (1 if c == "+" else 0), (1 if c == "?" else None), i + 1
+    elif c == "{":
+        j = i + 1
+        while j < len(text) and text[j] in "0123456789":
+            j += 1
+        low = text[i + 1:j]
+        if j < len(text) and text[j] == ",":
+            k = j + 1
+            while k < len(text) and text[k] in "0123456789":
+                k += 1
+            high, j = text[j + 1:k], k
         else:
-            start = lo if text.startswith("(", lo) else None
-            if start is not None and (close.get(start, hi) >= hi or text[close[start] + 1:close[start] + 2]
-                                      in ("*", "+", "?", "{")):
-                return None
-        if start is None:
-            return None
-        end = close[start]
-        if from_end and text.startswith("(?=", start):
-            inside = start + 3
-        elif text.startswith("(?", start):
-            group = _TRANSPARENT.match(text, start)
-            if not group:
-                return None
-            if "x" in (group.group(1) or "") and not flags & re.X:
-                raise _Unentschieden("a VERBOSE group on the chain at the start or the end of the pattern, "
-                                     "which the sweep does not place")
-            inside = group.end()
-        else:
-            inside = start + 1
-        alternatives = _alternatives(text[inside:end])
-        if len(alternatives) > 1:
-            # An alternation none of whose alternatives holds an anchor cannot anchor this end.
-            return (inside, end, alternatives) if any(_holds_anchor(a) for a in alternatives) else None
-        lo, hi = inside, end
-
-
-def _branches(text, flags) -> list:
-    """The pattern once per choice of alternative in every alternation on its chains at the start and the
-    end, each alternation replaced by one of its alternatives: `(?:^|/)x$` is `(?:^)x$` and `(?:/)x$`.
-    A pattern then judges a whole value when one branch is anchored at both ends, and each branch is read
-    on its own (lens on ac05d85d: an anchor inside a group was not seen; one inside an alternation is a
-    branch). More than `_MOST_BRANCHES` is not decided."""
-    todo, done = [text], []
-    while todo:
-        branch = todo.pop()
-        found = _chain_alternation(branch, flags, False) or _chain_alternation(branch, flags, True)
-        if found is None:
-            done.append(branch)
-            continue
-        inside, end, alternatives = found
-        todo += [branch[:inside] + a + branch[end:] for a in alternatives]
-        if len(todo) + len(done) > _MOST_BRANCHES:
-            raise _Unentschieden(f"more than {_MOST_BRANCHES} branches of alternations at the start and the "
-                                 f"end of the pattern")
-    return done
-
-
-def _anchored_start(text, flags) -> bool:
-    """Is the pattern anchored at its start: `\\A`, or `^` outside MULTILINE, first in the text or first in
-    a chain of groups each first in the one around it and not quantified (lens on ac05d85d:
-    `(?:\\A\\d+)\\Z` and `(?:^[0-9]+)$` read as not anchored)."""
-    while True:
-        if text.startswith("\\A"):
-            return True
-        if text.startswith("^"):
-            return not flags & re.M
-        if not text.startswith("("):
-            return False
-        close = _closing(text)
-        if close.get(0) is None or text[close[0] + 1:close[0] + 2] in ("*", "+", "?", "{"):
-            return False
-        entered = _entered(text, 0, close, flags)
-        if entered is None:
-            return False
-        text, flags = entered
-
-
-def _anchored_end(text, flags):
-    """The anchor at the pattern's end, "Z" for `\\Z` and "$" for `$` outside MULTILINE, or None: last in
-    the text or last in a chain of groups each last in the one around it; a lookahead `(?=\\Z)` or `(?=$)`
-    at the end is its anchor (lens on ac05d85d: `\\A(?:\\d+\\Z)` and `\\A\\d+(?=\\Z)` read as not
-    anchored)."""
-    while True:
-        if _ends_in(text, "\\Z"):
-            return "Z"
-        if _ends_in(text, "$"):
-            return None if flags & re.M else "$"
-        if not text.endswith(")"):
-            return None
-        close = _closing(text)
-        lo = next((k for k, v in close.items() if v == len(text) - 1), None)
-        if lo is None:
-            return None
-        if text.startswith("(?=", lo):
-            inside = text[lo + 3:-1]
-            return "Z" if inside == "\\Z" else ("$" if inside == "$" and not flags & re.M else None)
-        entered = _entered(text, lo, close, flags)
-        if entered is None:
-            return None
-        text, flags = entered
-
-
-def _readings(pattern, is_bytes, flags, mode) -> list:
-    """How a pattern read with these flags and matched this way (`search`, `match`, `fullmatch`) reads a
-    whole value differently from ECMA-262; empty when it judges no whole value. Under MULTILINE `^` and
-    `$` are line anchors, and `\\A`, `\\Z`, `match` and `fullmatch` still judge the whole value (review 5
-    on e176414c: the sweep left every MULTILINE call out). The anchors are read through the chains of
-    groups at the start and the end, one branch per alternative of an alternation there (`_branches`),
-    and a reading counts from a branch anchored at both ends; raises _Unentschieden where that is not
-    decided."""
-    text, flags = _as_read(pattern, flags)
-    if mode == "fullmatch":
-        branches = [(text, "Z")]                   # the whole text judges the whole value
+            high = low
+        if j >= len(text) or text[j] != "}" or j == i + 1:
+            return 1, 1, i
+        least, most, j = int(low or 0), (int(high) if high else None), j + 1
     else:
-        branches = []
-        for branch in _branches(text, flags):
-            end = _anchored_end(branch, flags)
-            if end and (mode == "match" or _anchored_start(branch, flags)):
-                branches.append((branch, end))
+        return 1, 1, i
+    if j < len(text) and text[j] in "?+":
+        j += 1
+    return least, most, j
+
+
+def _ueberspringen(text, i) -> int:
+    """The position after VERBOSE whitespace and comments at `i`."""
+    while i < len(text):
+        if text[i] in " \t\n\r\f\v":
+            i += 1
+        elif text[i] == "#":
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline + 1
+        else:
+            break
+    return i
+
+
+def _klasse(text, i) -> tuple:
+    """(position after it, whether it holds a Unicode class) of the character class at `i`; a `]` right
+    after `[` or `[^` is a character, and `\\b` inside a class is a backspace, not a boundary."""
+    j = i + 1
+    if text[j:j + 1] == "^":
+        j += 1
+    if text[j:j + 1] == "]":
+        j += 1
+    unicode = False
+    while j < len(text):
+        c = text[j]
+        if c == "\\":
+            unicode = unicode or text[j + 1:j + 2] in ("d", "D", "w", "W", "s", "S")
+            j += 2
+            continue
+        if c == "]":
+            return j + 1, unicode
+        j += 1
+    raise _Unentschieden("a character class that is not closed")
+
+
+def _oeffner(text, i) -> tuple:
+    """(kind, flags turned on, flags turned off, where its inside starts) of the group opened at `i`: a
+    `gruppe` (plain, non-capturing, named, atomic or with scoped flags), a lookaround (`=`, `!`, `<=`,
+    `<!`) or a conditional group (`bedingt`)."""
+    if not text.startswith("(?", i):
+        return "gruppe", "", "", i + 1
+    for anfang, art in (("(?<=", "<="), ("(?<!", "<!"), ("(?=", "="), ("(?!", "!")):
+        if text.startswith(anfang, i):
+            return art, "", "", i + len(anfang)
+    if text.startswith(("(?:", "(?>"), i):
+        return "gruppe", "", "", i + 3
+    if (m := _NAMED_GROUP.match(text, i)):
+        return "gruppe", "", "", m.end()
+    if text.startswith("(?(", i):
+        ende = text.find(")", i + 3)
+        if ende < 0:
+            raise _Unentschieden("a conditional group that is not closed")
+        return "bedingt", "", "", ende + 1
+    if (m := _SCOPED_FLAGS.match(text, i)):
+        return "gruppe", m.group(1) or "", m.group(2) or "", m.end()
+    if _GLOBAL_FLAGS.match(text, i):
+        raise _Unentschieden("inline flags that are not at the start of the pattern")
+    raise _Unentschieden("a group the sweep does not read")
+
+
+class _Rahmen:
+    """One group while a pattern is read: its kind, its flags, whether VERBOSE is read in it, and per
+    alternative its readings, which anchors stand in it (1 a start anchor, 2 an end anchor), and where it
+    starts and ends."""
+
+    __slots__ = ("art", "flags", "verbose", "beginn", "fertig", "laufend", "anker")
+
+    def __init__(self, art, flags, verbose, beginn):
+        self.art, self.flags, self.verbose, self.beginn = art, flags, verbose, beginn
+        self.fertig, self.laufend, self.anker = [], _NICHTS, 0
+
+    def strich(self, i):
+        self.fertig.append((self.laufend, self.anker, self.beginn, i))
+        self.laufend, self.anker, self.beginn = _NICHTS, 0, i + 1
+
+    def alternativen(self, i) -> list:
+        return self.fertig + [(self.laufend, self.anker, self.beginn, i)]
+
+
+def _anhaengen(rahmen, menge, text, i, budget) -> int:
+    """Append one item's readings, under the quantifier after it, to the alternative being read; returns
+    the position after that quantifier. Matched zero times or more, the item is off the path."""
+    if rahmen.verbose:
+        i = _ueberspringen(text, i)
+    least, most, i = _quantifier(text, i)
+    if least == 0:
+        menge = _abseits(menge)
+    elif most is None or most > 1:
+        menge = _wiederholt(menge, most, budget)
+    rahmen.laufend = _folge(rahmen.laufend, menge, budget)
+    return i
+
+
+def _umschau_anker(art, innen, flags):
+    """The readings of a lookaround that is an anchor, or None: `(?=\\Z)` ends the value, `(?=$)` and
+    `(?=\\n?\\Z)` end it as `$` does, `(?!.)` under DOTALL and a negative lookahead of a class holding
+    every character end it, and their mirrors, and `(?=\\A)`, start it."""
+    zeilen = flags & re.M
+    if art == "=":
+        if innen == r"\Z":
+            return _ENDE_Z
+        if innen in (r"\n?\Z", r"(?:\n)?\Z") or (innen == "$" and not zeilen):
+            return _ENDE_DOLLAR
+    if art in ("=", "<=") and (innen == r"\A" or (innen == "^" and not zeilen)):
+        return _START
+    if art in ("!", "<!") and ((innen == "." and flags & re.S) or innen in _ANY_CHARACTER):
+        return _START if art == "<!" else _ENDE_Z
+    return None
+
+
+def _umschau_lesung(rahmen, menge, anker, innen) -> frozenset:
+    """The readings of one lookaround alternative: its anchor when it is one, not decided when an anchor
+    stands in it in another form, and off the path otherwise."""
+    if rahmen.verbose:
+        innen = _stripped(innen, True)
+    erkannt = _umschau_anker(rahmen.art, innen, rahmen.flags)
+    if erkannt is not None:
+        return erkannt
+    if anker:
+        return frozenset({(False, 0, any(u for _s, _e, u, _x in menge), anker)})
+    return _abseits(menge)
+
+
+def _schliessen(rahmen, i, text, budget) -> frozenset:
+    """The readings of the group closed at `i`. A positive lookaround is read per alternative (one of
+    `(?=\\s|$)` ends the value like `$`); a negative one and a conditional group as a whole."""
+    alternativen = rahmen.alternativen(i)
+    koerper = frozenset().union(*(m for m, _a, _b, _e in alternativen))
+    budget.charge(len(koerper) + len(alternativen))
+    if rahmen.art == "gruppe":
+        return koerper
+    anker = functools.reduce(operator.or_, (a for _m, a, _b, _e in alternativen), 0)
+    if rahmen.art in ("=", "<="):
+        return frozenset().union(*(_umschau_lesung(rahmen, m, a, text[b:e]) for m, a, b, e in alternativen))
+    if rahmen.art in ("!", "<!"):
+        return _umschau_lesung(rahmen, koerper, anker, text[alternativen[0][2]:i])
+    return frozenset({(False, 0, any(u for _s, _e, u, _x in koerper), anker)}) if anker else _abseits(koerper)
+
+
+def _lesung(text, is_bytes, flags, budget) -> frozenset:
+    """The readings of the branches of a pattern `_as_read` has read the start of. One pass with a stack
+    of groups, not recursion (a planted pattern nests groups thousands deep), so its cost is linear in
+    the pattern and bounded by `budget`.
+
+    An anchor counts where it stands on the pattern's own path: at its top level, or in a group there
+    that is matched at least once (a plain, non-capturing, named, atomic or flag group, quantified or
+    not). Every item after `\\Z` can only match the empty text at the end, and every item before `\\A`
+    the empty text at the start, so the anchor holds wherever it stands on that path. The first reader
+    looked only at the first and the last item (lens on fb6eda0d: `\\A\\d+\\Z()` and
+    `(?:\\A\\d+){1}\\Z` read as not anchored) and never split an alternation at the top level
+    (`\\A\\d+\\Z|none`, `n/a|^[0-9]+$`). An alternation is a set of branches, a repeated group combines
+    the branches of its repetitions, and a group matched zero times or more, a lookaround and a
+    conditional group are off the path; a lookaround that is an anchor is read as one (`(?=\\n?\\Z)`
+    like `$`, `(?!.)` under DOTALL like `\\Z`), and one holding an anchor in another form leaves its
+    branch undecided. `^` and `$` under MULTILINE are line anchors, never the value's. A Unicode class
+    counts under the flags of the group it stands in, so `(?a:\\d)` reads ASCII."""
+    budget.charge(len(text))
+    stapel = [_Rahmen("gruppe", flags, False, 0)]
+    i, n = 0, len(text)
+    while i < n:
+        budget.charge()
+        rahmen = stapel[-1]
+        c = text[i]
+        if rahmen.verbose and (c in " \t\n\r\f\v" or c == "#"):
+            i = _ueberspringen(text, i)
+            continue
+        if c == "\\":
+            zeichen = text[i + 1:i + 2]
+            if zeichen == "A":
+                rahmen.anker, menge = rahmen.anker | 1, _START
+            elif zeichen == "Z":
+                rahmen.anker, menge = rahmen.anker | 2, _ENDE_Z
+            elif zeichen in ("d", "D", "w", "W", "s", "S", "b", "B"):
+                menge = frozenset({(False, 0, not rahmen.flags & re.A and not is_bytes, False)})
+            else:
+                menge = _NICHTS
+            i = _anhaengen(rahmen, menge, text, i + 2, budget)
+        elif c == "[":
+            j, unicode = _klasse(text, i)
+            budget.charge(j - i)
+            menge = frozenset({(False, 0, unicode and not rahmen.flags & re.A and not is_bytes, False)})
+            i = _anhaengen(rahmen, menge, text, j, budget)
+        elif c == "(" and text.startswith(("(?#", "(?P="), i):
+            ende = text.find(")", i)
+            if ende < 0:
+                raise _Unentschieden("a comment or back reference that is not closed")
+            i = ende + 1 if text.startswith("(?#", i) else _anhaengen(rahmen, _NICHTS, text, ende + 1, budget)
+        elif c == "(":
+            art, an, aus, j = _oeffner(text, i)
+            innen = (rahmen.flags | _flag_bits(an)) & ~_flag_bits(aus)
+            stapel.append(_Rahmen(art, innen, (rahmen.verbose or "x" in an) and "x" not in aus, j))
+            i = j
+        elif c == ")":
+            if len(stapel) == 1:
+                raise _Unentschieden("a `)` that closes no group")
+            gruppe = stapel.pop()
+            for _m, anker, _b, _e in gruppe.alternativen(i):
+                stapel[-1].anker |= anker
+            i = _anhaengen(stapel[-1], _schliessen(gruppe, i, text, budget), text, i + 1, budget)
+        elif c == "|":
+            rahmen.strich(i)
+            i += 1
+        elif c in "^$" and not rahmen.flags & re.M:
+            rahmen.anker |= 1 if c == "^" else 2
+            i = _anhaengen(rahmen, _START if c == "^" else _ENDE_DOLLAR, text, i + 1, budget)
+        else:
+            i = _anhaengen(rahmen, _NICHTS, text, i + 1, budget)
+    if len(stapel) != 1:
+        raise _Unentschieden("a group that is not closed")
+    return frozenset().union(*(m for m, _a, _b, _e in stapel[0].alternativen(n)))
+
+
+def _menge(pattern, is_bytes, flags, budget) -> frozenset:
+    """The readings of a pattern's branches under these flags (`_as_read`, then `_lesung`)."""
+    budget.charge(len(pattern))
+    text, flags = _as_read(pattern, flags)
+    return _lesung(text, is_bytes, flags, budget)
+
+
+def _aus_menge(menge, mode) -> list:
+    """How a pattern whose branches read as `menge`, matched this way (`search`, `match`, `fullmatch`),
+    reads a whole value differently from ECMA-262; empty when it judges no whole value. A branch judges
+    a whole value when it is anchored at the start (`match` anchors it there by itself) and at the end;
+    `fullmatch` judges the whole value in every branch. `$` lets a trailing newline through only where
+    the match may end before it, not under fullmatch; a bytes pattern's `\\d` is ASCII in Python too.
+    Under MULTILINE `^` and `$` are line anchors, and `\\A`, `\\Z`, `match` and `fullmatch` still judge
+    the whole value (review 5 on e176414c). Raises _Unentschieden where a branch is not decided."""
+    if mode == "fullmatch":
+        passend = [(2, u) for _s, _e, u, _x in menge]
+    else:
+        for s, e, _u, x in menge:
+            # an anchor that is not placed decides only a branch the other anchor could complete
+            if x and (s or mode == "match" or x & 1) and (e or x & 2):
+                raise _Unentschieden("an anchor in a lookaround or a conditional group in a form the sweep "
+                                     "does not place")
+        passend = [(e, u) for s, e, u, _x in menge if e and (mode == "match" or s)]
     readings = []
-    for branch, end in branches:
-        # `$` lets a trailing newline through only where the match may end before it: not under fullmatch.
-        if end == "$" and DOLLAR not in readings:
-            readings.append(DOLLAR)
-        # A bytes pattern's `\d` is 0-9 in Python too; its `$` still matches before a newline.
-        if not is_bytes and not flags & re.A and _UNICODE_CLASSES.search(branch) and UNICODE not in readings:
-            readings.append(UNICODE)
+    if any(e == 1 for e, _u in passend):
+        readings.append(DOLLAR)
+    if any(u for _e, u in passend):
+        readings.append(UNICODE)
     return readings
 
 
-_Call = collections.namedtuple("_Call", "mod module node function arg texts flags modes gaps")
+def _readings(pattern, is_bytes, flags, mode, budget=None) -> list:
+    """How a pattern read with these flags and matched this way reads a whole value differently from
+    ECMA-262 (`_menge`, `_aus_menge`); raises _Unentschieden where that is not decided."""
+    return _aus_menge(_menge(pattern, is_bytes, flags, budget or _Budget()), mode)
+
+
+_Call = collections.namedtuple("_Call", "mod module node function arg texts flags modes gaps readings")
 
 
 def _calls(sources):
     """One `_Call` per call of an attribute of `re` that can take a pattern, in (module, source) pairs (the
     source as bytes or as text; `ast.parse` reads bytes as Python reads a file): its pattern texts, flag
-    values and ways of matching, and the gaps of its fold, of its callee (`_Module.funktionen`) and of its
-    anchors (`_Unentschieden`). A call nested deeper than the interpreter recurses is a gap, not an error
-    that ends the sweep (the third delta run on 9aaa79c0 planted 3000 `+` in a row; review 5 on e176414c
-    400 terms of flags)."""
+    values and ways of matching, the gaps of its fold, of its callee (`_Module.funktionen`) and of its
+    anchors (`_Unentschieden`), and its readings, one per pattern, flags and way of matching that is
+    decided. A call nested deeper than the interpreter recurses is a gap, not an error that ends the
+    sweep (the third delta run on 9aaa79c0 planted 3000 `+` in a row; review 5 on e176414c 400 terms of
+    flags). The anchors of all the patterns of one call share one `_Budget`, and each pattern is read
+    once per flags value, whatever the ways of matching."""
     for mod, text in sources:
         tree = ast.parse(text)
         if not _nennt_re(tree):
@@ -1534,14 +1893,24 @@ def _calls(sources):
                 read = (args[0] if args else None), [], {0}, {"search"}
             if read is None:
                 continue
+            budget, mengen, readings = _Budget(), {}, {}
             for pattern, is_bytes in read[1]:
                 for flags in read[2]:
+                    key = (pattern, is_bytes, flags)
+                    if key not in mengen:
+                        try:
+                            mengen[key] = _menge(pattern, is_bytes, flags, budget)
+                        except _Unentschieden as exc:
+                            mengen[key] = None
+                            fold.gap(str(exc))
+                    if mengen[key] is None:
+                        continue
                     for mode in read[3]:
                         try:
-                            _readings(pattern, is_bytes, flags, mode)
+                            readings[key + (mode,)] = _aus_menge(mengen[key], mode)
                         except _Unentschieden as exc:
                             fold.gap(str(exc))
-            yield _Call(mod, module, node, function, *read, fold.gaps)
+            yield _Call(mod, module, node, function, *read, fold.gaps, readings)
 
 
 def _whole_value_regex_readings(sources) -> list:
@@ -1556,9 +1925,8 @@ def _whole_value_regex_readings(sources) -> list:
                 continue
             for flags in sorted(call.flags):
                 for mode in sorted(call.modes):
-                    try:
-                        readings = _readings(pattern, is_bytes, flags, mode)
-                    except _Unentschieden:
+                    readings = call.readings.get((pattern, is_bytes, flags, mode))
+                    if readings is None:
                         continue                        # a gap of the call, listed by `_unfolded_pattern_sites`
                     for reading in readings:
                         if (pattern, reading) not in seen:
@@ -2011,14 +2379,22 @@ class TheSweepReadsAliasesAnchorsReceiversAndSourcesAsPythonDoes(unittest.TestCa
                                   (7, UNICODE), (10, UNICODE)])
         self.assertEqual(self._sites(planted), [])
 
-    def test_an_alternation_the_reader_cannot_expand_is_a_gap(self):
-        """Deny by default: an alternation holding an anchor in a group that turns VERBOSE on, and more
-        than 64 branches, are unfolded sites, not passes."""
+    def test_an_anchor_the_reader_cannot_place_is_a_gap(self):
+        """Deny by default: an anchor in a lookaround or a conditional group in a form the reader does not
+        read, inline flags past the start of a pattern, and a group that is not closed are unfolded sites,
+        not passes. The two forms this case planted before are read now (lens on fb6eda0d, H): a group that
+        turns VERBOSE on is read in VERBOSE, and an alternation of any width is read, since the reader keeps
+        a set of at most 48 branch readings instead of expanding the branches; the first reads through its
+        `\\A` branch, the second holds no Unicode class."""
         breit = "(?:" + "|".join(f"^x{i}" for i in range(65)) + ")\\Z"
         planted = ('import re\nA = re.compile(r"(?x: \\A \\d+ | y )\\Z")\n'
-                   f'B = re.compile(r"{breit}")\n')
-        self.assertEqual(self._lines(planted), [])
-        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 2)])
+                   f'B = re.compile(r"{breit}")\n'
+                   'C = re.compile(r"\\A\\d+(?=a\\Z)")\n'
+                   'D = re.compile(r"\\A\\d+(?(1)\\Z|x)")\n'
+                   'E = re.compile(r"\\A\\d+(?i)\\Z")\n'
+                   'F = re.compile(r"\\A(\\d+\\Z")\n')
+        self.assertEqual(self._lines(planted), [2])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 4)])
 
     def test_match_taken_through_the_pattern_type_or_getattr_is_read(self):
         """F2: `re.Pattern.match(R, s)` and `getattr(R, "match")(s)` on `R = re.compile(r"\\d+\\Z")` judge a
@@ -2059,6 +2435,125 @@ class TheSweepReadsAliasesAnchorsReceiversAndSourcesAsPythonDoes(unittest.TestCa
             with unittest.mock.patch.object(sys.modules[__name__], "REPO", pathlib.Path(d)):
                 found = _whole_value_regex_readings(list(_modules("scripts")))
         self.assertEqual(sorted((mod, line) for mod, line, _p, _r in found), [("scripts.bom", 2), ("scripts.latin", 4)])
+
+
+class TheSweepReadsTheFormsOfTheLensOnFb6eda0d(unittest.TestCase):
+    """The lens on fb6eda0d planted eleven forms past the sweep (G), none live in the tree, and measured two
+    unbounded runs (H, I). Each form is read now or is an unfolded site, each run is bounded, and each case
+    fails on fb6eda0d's sweep."""
+
+    _lines = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._lines)
+    _sites = staticmethod(TheSweepResolvesScopesFlagsAndStaysBounded._sites)
+
+    def test_an_alias_is_read_through_global_or_and_an_inherited_attribute(self):
+        """`global c; c = re.compile` in a function, a regression against ac05d85d; `d = re.compile or None`,
+        read and an unfolded site, since the callee may be None; and `L.j` with `class L(K)` and
+        `j = re.compile` in `K`. The clean pattern through the inherited attribute is no finding."""
+        planted = ('import re\n'
+                   'def setup():\n    global c\n    c = re.compile\n'
+                   'setup()\nA = c(r"\\A\\d+\\Z")\n'
+                   'd = re.compile or None\nB = d(r"\\A\\d+\\Z")\n'
+                   'class K:\n    j = re.compile\nclass L(K):\n    pass\n'
+                   'C = L.j(r"\\A\\d+\\Z")\nD = L.j(r"\\A[0-9]+\\Z")\n')
+        self.assertEqual(self._lines(planted), [6, 8, 13])
+        self.assertEqual(self._sites(planted), [("<module>", "compile", "Constant", 1)])
+
+    def test_a_compiled_pattern_is_matched_through_another_name_or_its_type(self):
+        """`S = R` then `S.match(s)`, `type(R).match(R, s)`, `R.__class__.fullmatch(R, s)` and
+        `getattr(type(R), "match")(R, s)` judge a whole value with `R = re.compile(r"\\d+\\Z")`; the first
+        two were read as a scan. A search through a second name still judges none."""
+        planted = ('import re\nR = re.compile(r"\\d+\\Z")\nS = R\nA = S.match(s)\n'
+                   'T = re.compile(r"\\d+\\Z")\nB = type(T).match(T, s)\n'
+                   'U = re.compile(r"\\d+\\Z")\nC = U.__class__.fullmatch(U, s)\n'
+                   'V = re.compile(r"\\d+\\Z")\nD = getattr(type(V), "match")(V, s)\n'
+                   'W = re.compile(r"\\d+\\Z")\nX = W\nE = X.search(s)\n')
+        self.assertEqual(self._lines(planted), [2, 5, 7, 9])
+        self.assertEqual(self._sites(planted), [])
+
+    def test_an_alternation_at_the_top_level_is_read_branch_by_branch(self):
+        """`\\A\\d+\\Z|none` and `n/a|^[0-9]+$` judge a whole value through one branch; the first reader
+        split an alternation only inside a group. One without an anchored branch judges none."""
+        planted = ('import re\nA = re.compile(r"\\A\\d+\\Z|none")\nB = re.search(r"n/a|^[0-9]+$", s)\n'
+                   'C = re.compile(r"\\d+|none")\nD = re.compile(r"\\A[0-9]+\\Z|none")\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted((line, reading) for _m, line, _p, reading in found), [(2, UNICODE), (3, DOLLAR)])
+        self.assertEqual(self._sites(planted), [])
+
+    def test_an_anchor_is_read_wherever_it_stands_on_the_path(self):
+        """`\\A\\d+\\Z()`, `(?s)\\A\\d+(?!.)`, `\\A\\d+(?=\\n?\\Z)` (the `$` of re) and `(?:\\A\\d+){1}\\Z`
+        judge a whole value, and so do `()\\A\\d+\\Z` and `\\A\\d+\\Z\\b`; the first reader read an anchor only
+        as the first or the last item of a chain. Without DOTALL `(?!.)` ends a line, not the value, and a
+        group matched zero times or once anchors nothing."""
+        planted = ('import re\nA = re.compile(r"\\A\\d+\\Z()")\nB = re.compile(r"(?s)\\A\\d+(?!.)")\n'
+                   'C = re.compile(r"\\A\\d+(?=\\n?\\Z)")\nD = re.compile(r"(?:\\A\\d+){1}\\Z")\n'
+                   'E = re.compile(r"\\A\\d+(?!.)")\nF = re.compile(r"(?:\\A\\d+){0,1}\\Z")\n'
+                   'G = re.compile(r"()\\A\\d+\\Z")\nH = re.compile(r"\\A\\d+\\Z\\b")\n')
+        found = _whole_value_regex_readings([("scripts.planted", planted)])
+        self.assertEqual(sorted((line, reading) for _m, line, _p, reading in found),
+                         [(2, UNICODE), (3, UNICODE), (4, DOLLAR), (4, UNICODE), (5, UNICODE), (8, UNICODE),
+                          (9, UNICODE)])
+        self.assertEqual(self._sites(planted), [])
+
+    def test_a_format_or_percent_result_is_judged_by_its_size_before_it_is_built(self):
+        """I: `"{0}" * 3333` formatted with a text of 10000 characters is 33 million characters; only the
+        widths of its fields were judged. Each field is sized alone now and the sizes are summed, for
+        `str.format` and for `%` with a mapping, whose key a format may name 2000 times; a small result is
+        still folded to its reading."""
+        planted = ('import re\nH = "{0}" * 3333\nW = "\\U0001F600" * 10000\nA = re.compile(H.format(W))\n'
+                   'M = "%(a)s" * 2000\nV = "a" * 9990\nB = re.compile(M % {"a": V})\n'
+                   'C = re.compile("{0}{0}".format(r"\\A\\d+\\Z"))\n'
+                   'D = re.compile("%(p)s|%(p)s" % {"p": r"\\A\\d+\\Z"})\n')
+        self.assertEqual(self._lines(planted), [8, 9])
+        # judged BEFORE the text is built: fb6eda0d built the 33 million characters and dropped them after
+        self.assertEqual(_too_large_call("format", "{0}" * 3333, ["\U0001F600" * 10000], {}), _LARGE)
+        self.assertEqual(_too_large(ast.Mod, "%(a)s" * 2000, {"a": "a" * 9990}), _LARGE)
+        self.assertIsNone(_too_large_call("format", "{0}{0}", [r"\A\d+\Z"], {}))
+        self.assertIsNone(_too_large(ast.Mod, "%(p)s|%(p)s", {"p": r"\A\d+\Z"}))
+        sites = _unfolded_pattern_sites([("scripts.planted", planted)])
+        self.assertEqual(sorted(sites), [("scripts.planted", "<module>", "compile", "BinOp"),
+                                         ("scripts.planted", "<module>", "compile", "Call")])
+        for key, calls in sites.items():
+            with self.subTest(site=key):
+                self.assertEqual(calls, [[_LARGE]])
+
+    def test_the_lens_inputs_stay_bounded(self):
+        """H and I in the bounded child. A pattern of 4257 characters with 100 nested groups and 64 end
+        branches took 51.5 s on fb6eda0d, since the chain walk cost depth times length per branch; read in
+        one pass it keeps its two readings. Sixty-four texts of about 9000 characters for one call spend
+        more than `_ANCHOR_WORK`, and the call is an unfolded site. The two results of I, with four values
+        of the text, took the process to a peak of 541 MiB there; they are gaps judged before anything is
+        built. Measured after the fix, 2026-09-27: each input under 0.5 s, a peak of 34 MB."""
+        anfang = "(?:" + "|".join(f"^{c}" for c in "abcdefgh") + ")"
+        ende = "(?:" + "|".join(f"{c}$" for c in "abcdefgh") + ")"
+        tief = "(" * 100 + anfang + "\\d+" + "x" * 4000 + ")" * 100 + ende
+        re.compile(tief)                                          # a real pattern
+        wahl = "".join(f' + ("a" if X{i} else "b")' for i in range(6))
+        vier = " if X else ".join(f'"\\U0001F60{i}"' for i in range(4))
+        inputs = {
+            "100 nested groups and 64 end branches": f"import re\nA = re.compile({tief!r})\n",
+            "sixty-four texts of 9000 characters": ('import re\nP = "x" * 8990\n'
+                                                    f'A = re.compile(r"\\A\\d" + P{wahl})\n'),
+            "a format of 3333 fields, four values": ('import re\nH = "{0}" * 3333\n'
+                                                     f"W = ({vier}) * 10000\nA = re.compile(H.format(W))\n"),
+            "a mapping named 2000 times": ('import re\nM = "%(a)s" * 2000\nV = "a" * 9990\n'
+                                          'A = re.compile(M % {"a": V})\n'),
+        }
+        run = subprocess.run([sys.executable, "-c", _BOUNDED_CHILD, __file__], input=json.dumps(inputs),
+                             capture_output=True, text=True, timeout=600)
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        result = json.loads(run.stdout)
+        for name in inputs:
+            with self.subTest(input=name):
+                self.assertNotIn("raised", result[name])
+                self.assertLess(result[name]["seconds"], 10)
+        self.assertEqual((result["100 nested groups and 64 end branches"]["readings"],
+                          result["100 nested groups and 64 end branches"]["gaps"]), (2, []))
+        self.assertIn(f"more than {_ANCHOR_WORK} steps reading the anchors of one call",
+                      result["sixty-four texts of 9000 characters"]["gaps"])
+        for name in ("a format of 3333 fields, four values", "a mapping named 2000 times"):
+            with self.subTest(input=name):
+                self.assertIn(_LARGE, result[name]["gaps"])
+        self.assertLess(result["_peak_bytes"], 200 * 10**6)
 
 
 class TheMeasuredConsequencesAreGone(unittest.TestCase):

@@ -136,42 +136,45 @@ class TestConditionalIsNamed(unittest.TestCase):
 
 class TestKnownExpressionTraps(unittest.TestCase):
 
-    def test_an_empty_true_arm_is_named_as_a_dead_condition(self):
-        """`cond && A || B` falls through to B whenever A is falsy. Emptying the true arm disables
-        the condition completely -- and the produced context set then looks EXACTLY as it would
-        without the condition, so counting contexts can never reveal it. Only a note in words can.
-
-        This case was written first as an assertion on the context states alone, and a mutant that
-        deleted the guard survived it: both paths yielded the same states. Measured 2026-09-16.
-        The assertion now binds to the thing the guard actually produces."""
+    def test_an_empty_true_arm_is_not_a_fallthrough(self):
+        """`cond && '[]' || B` was read as B for every cond and the condition as dead code, after the survey
+        of 2026-09-16. GitHub's `&&` returns its first falsy operand, else its last, and a string is falsy
+        only when it is empty (actions/runner at 15231bede4aa, src/Sdk/Expressions/Sdk/Operators/And.cs:
+        39-50, src/Sdk/Expressions/EvaluationResult.cs:51-72, read, not measured): `'[]'` is truthy, so
+        under the condition the matrix vector is empty, which GitHub refuses
+        (WorkflowTemplateConverter.cs:970-974). The job is not measurable, and nothing of it is produced;
+        on fb6eda0d `test (3.12)` read as produced (lens on fb6eda0d, A)."""
         leer = CI.replace("""&& '["3.10","3.11","3.12"]'""", """&& '[]'""")
         b = Baum(self, {"ci.yml": leer}, ["test (3.12)", "test (3.10)"])
         r = b.urteil()
         zustand = {e["context"]: e["state"] for e in r["per_context"]}
-        self.assertEqual(zustand["test (3.12)"], G.ALWAYS)
-        self.assertEqual(zustand["test (3.10)"], G.ABSENT,
-                         "with an empty true arm 3.10 can never be produced, under any condition")
-        self.assertTrue(r["dead_conditions"],
-                        "a condition that can never take effect must be named, not merely implied "
-                        "by the context set it leaves behind")
-        self.assertIn("dead code", r["dead_conditions"][0])
-        self.assertEqual(b.rc(), 1, "a dead condition must not exit 0")
+        self.assertEqual(zustand, {"test (3.12)": G.ABSENT, "test (3.10)": G.ABSENT})
+        self.assertEqual(r["dead_conditions"], [], "the condition is live, it is the arm that GitHub refuses")
+        self.assertTrue(any("true arm" in u and "refuses a matrix vector" in u for u in r["newly_unreadable"]),
+                        r["newly_unreadable"])
+        self.assertEqual(b.rc(), 1)
+
+    #: The CI matrix under a condition false on every event: `false && A || B` is always B.
+    KONSTANT = CI.replace("( github.event_name == 'workflow_dispatch'\n"
+                          "              || contains(github.event.pull_request.labels.*.name, 'landung') )",
+                          "false")
 
     def test_a_dead_condition_alone_fails_even_when_every_context_is_produced(self):
         """The dead-condition branch must be the DECIDING one somewhere, or it is decoration.
 
-        The case above asserts exit 1 for a tree whose true arm is empty -- but that tree also has
-        an absent required context, and the absent one already forces exit 1. A mutant deleting the
-        dead-condition branch therefore survived it: the assertion held for a different reason than
-        the one it names. Measured 2026-09-16, the same class as the finding this whole gate is
-        about. Here only `test (3.12)` is required, it IS produced, the verdict is 'produced', and
-        the exit code can only come from the dead condition."""
-        leer = CI.replace("""&& '["3.10","3.11","3.12"]'""", """&& '[]'""")
-        b = Baum(self, {"ci.yml": leer}, ["coverage", "test (3.12)"])
+        A tree with an absent required context already exits 1, so a mutant deleting the dead-condition
+        branch survived a case built on one: the assertion held for a different reason than the one it
+        names. Measured 2026-09-16, the same class as the finding this whole gate is about. Here only
+        `coverage` and `test (3.12)` are required, both ARE produced, the verdict is 'produced', and the
+        exit code can only come from the dead condition. Since the lens on fb6eda0d the dead condition is
+        a constant one (`false && A || B`), not an empty true arm, which is no fallthrough (see above)."""
+        self.assertNotEqual(self.KONSTANT, CI, "the planted condition is in the tree")
+        b = Baum(self, {"ci.yml": self.KONSTANT}, ["coverage", "test (3.12)"])
         r = b.urteil()
         self.assertEqual(r["verdict"], G.ALWAYS,
                          "every declared context is produced, so the verdict itself is clean")
         self.assertTrue(r["dead_conditions"])
+        self.assertIn("dead code", r["dead_conditions"][0])
         self.assertEqual(b.rc(), 1, "the dead condition alone must fail the gate")
         self.assertEqual(b.rc("--allow-gated"), 1,
                          "--allow-gated softens a NAMED condition, never a dead one")
@@ -2188,7 +2191,10 @@ class TestAConditionFalseOnEveryRunIsDead(unittest.TestCase):
                 self.assertEqual(b.rc("--drift-marker", ""), 1)
         b = Baum(self, {"ci.yml": kopf + matrix("github.actor == 'x'", '["3.10"]')}, ["test (3.12)"])
         r = b.urteil()
-        self.assertEqual(r["per_context"][0]["state"], G.ALWAYS)
+        # A CONDITION NOT DECIDED DOES NOT MAKE ITS FALSE ARM PRODUCED (lens on fb6eda0d, A): the false arm
+        # exists only when the condition does not hold, so it is named under the negation.
+        self.assertEqual((r["per_context"][0]["state"], r["per_context"][0]["condition"]),
+                         (G.GATED, "!(github.actor == 'x')"))
         self.assertTrue(any("matrix condition" in h and "not decided" in h for h in r["undecided_conditions"]),
                         r["undecided_conditions"])
 
@@ -2261,13 +2267,18 @@ class TestAContextIsProducedOnlyFromAFormTheGateReads(unittest.TestCase):
         self.assertIn("test (macos-latest, 12, staging)", r["produced_contexts"])
 
     def test_include_adds_to_the_original_combinations_or_makes_its_own(self):
-        """(c) An `include` entry that adds a key to `3.10` makes its name `test (3.10, yes)`; the docs'
+        """(c) An `include` entry that adds a key to the ORIGINAL combination `3.10` does not change its
+        name: GitHub builds the display name (MatrixBuilder.cs:188-212) before it adds the entry's values
+        to the matrix context (216-219), read in actions/runner at 15231bede4aa, not measured. The first
+        form of this change named it `test (3.10, yes)`, and a lens on fb6eda0d read the source. The docs'
         example yields exactly its six combinations, `{fruit: banana, animal: cat}` not added to the
-        `{fruit: banana}` another entry made."""
+        `{fruit: banana}` another entry made; the docs list their matrix contexts, and the names follow
+        the source: the values of the original keys only, and for an entry of its own its matrix keys,
+        then its other keys (GetUnmatchedVectors, 365-373)."""
         wf = self._matrix("        python: ['3.10']\n        include:\n          - python: '3.10'\n"
                           "            experimental: 'yes'\n")
         b, r, zustand = self._zustand(wf, ["test (3.10)", "test (3.10, yes)"])
-        self.assertEqual(zustand, {"test (3.10)": G.ABSENT, "test (3.10, yes)": G.ALWAYS})
+        self.assertEqual(zustand, {"test (3.10)": G.ALWAYS, "test (3.10, yes)": G.ABSENT})
         self.assertEqual(b.rc("--drift-marker", ""), 1)
         docs = ("        fruit: [apple, pear]\n        animal: [cat, dog]\n        include:\n"
                 "          - color: green\n          - color: pink\n            animal: cat\n"
@@ -2275,18 +2286,23 @@ class TestAContextIsProducedOnlyFromAFormTheGateReads(unittest.TestCase):
                 "          - fruit: banana\n            animal: cat\n")
         _b, r, _z = self._zustand(self._matrix(docs), ["x"])
         self.assertEqual(r["produced_contexts"], sorted([
-            "test (apple, cat, pink, circle)", "test (apple, dog, green, circle)", "test (pear, cat, pink)",
-            "test (pear, dog, green)", "test (banana)", "test (banana, cat)"]))
+            "test (apple, cat)", "test (apple, dog)", "test (pear, cat)", "test (pear, dog)",
+            "test (banana)", "test (banana, cat)"]))
+        _b, r, _z = self._zustand(self._matrix("        fruit: [apple]\n        include:\n"
+                                               "          - color: green\n            fruit: banana\n"), ["x"])
+        self.assertEqual(r["produced_contexts"], ["test (apple)", "test (banana, green)"],
+                         "an entry of its own names its matrix keys first")
         _b, r, _z = self._zustand(self._matrix("        include:\n          - site: production\n"
                                                "          - site: staging\n"), ["x"])
         self.assertEqual(r["produced_contexts"], ["test (production)", "test (staging)"])
 
     def test_a_value_or_a_key_it_does_not_read_is_not_measurable(self):
-        """A boolean, a fraction and an expression in a value, a key that is another spelling of one,
-        an exclude on no key of the matrix, and `strategy` written as an expression (which raised
-        AttributeError out of the whole survey) are each named, and no context of theirs is produced."""
-        for matrix in ("        python: ['3.10']\n        include:\n          - python: '3.10'\n"
-                       "            experimental: true\n",
+        """A list compared in `exclude`, a fraction and an expression in a value, a key that is another
+        spelling of one (refused as a key written twice, since the lens on fb6eda0d), an exclude on no key
+        of the matrix, and `strategy` written as an expression (which raised AttributeError out of the
+        whole survey) are each named, and no context of theirs is produced. A boolean an `include` entry
+        adds was one of these until the naming was read in GitHub's source: it is in no name now."""
+        for matrix in ("        python: ['3.10']\n        exclude:\n          - python: ['3.10']\n",
                        "        python: [3.10]\n",
                        "        python: ['${{ vars.V }}']\n",
                        "        os: [a]\n        OS: [b]\n",
@@ -2383,14 +2399,17 @@ class TestAContextIsProducedOnlyFromAFormTheGateReads(unittest.TestCase):
 
     def test_an_if_whose_expression_is_not_closed_is_not_measurable(self):
         """(e) `${{ always()` is refused by GitHub's template reader; text beside `${{ }}` is formatted
-        into a string. Neither is a status function, neither job is produced."""
-        for bedingung in ("${{ always()", "${{ always() }} && true", "${{ !cancelled()"):
+        into a string. Neither is a status function, neither job is produced. Since the lens on fb6eda0d a
+        text scalar ANYWHERE whose expression is not closed refuses the whole file, as GitHub's reader
+        parses every text scalar for `${{ }}` (TemplateReader.cs:486-536)."""
+        for bedingung, wort in (("${{ always()", "is not closed"), ("${{ always() }} && true", "`if:` not read"),
+                                ("${{ !cancelled()", "is not closed")):
             with self.subTest(bedingung=bedingung):
                 wf = (self.KOPF + "  test:\n    runs-on: x\n    steps: [{run: 'true'}]\n  all:\n"
                       f"    needs: [test]\n    if: {bedingung}\n    runs-on: x\n    steps: [{{run: 'true'}}]\n")
                 b, r, zustand = self._zustand(wf, ["all"])
                 self.assertEqual(zustand, {"all": G.ABSENT})
-                self.assertTrue(any("`if:` not read" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+                self.assertTrue(any(wort in u for u in r["newly_unreadable"]), r["newly_unreadable"])
                 self.assertEqual(b.rc("--drift-marker", ""), 1)
                 self.assertFalse(G._NUR_STATUSFUNKTION.match(bedingung))
                 with self.assertRaises(G.NichtAuswertbar):
@@ -2485,7 +2504,11 @@ class TestNamesFoldInAsciiAndTheMatrixShapeIsReadWhole(unittest.TestCase):
                 self.assertEqual(b.rc("--drift-marker", ""), 1)
         b, r = self._matrix("${{ fromJSON(( github.event_name == 'push' || github.event_name == 'merge_group' )"
                             " && '[\\\"3.10\\\"]' || '[\\\"3.12\\\"]') }}")
-        self.assertEqual(r["produced_contexts"], ["test (3.12)"], "the parenthesised form is still the ternary")
+        bed = "( github.event_name == 'push' || github.event_name == 'merge_group' )"
+        self.assertEqual({e["context"]: (e["state"], e["condition"]) for e in r["per_context"]},
+                         {"test (3.10)": (G.GATED, bed), "test (3.12)": (G.GATED, f"!({bed})")},
+                         "the parenthesised form is still the ternary, each arm under its condition")
+        self.assertFalse(any("not one operand" in u for u in r["unreadable"]), r["unreadable"])
 
     def test_a_status_function_in_a_matrix_is_not_measurable(self):
         for bedingung in ("always()", "!cancelled()", "Failure()"):
@@ -2589,6 +2612,303 @@ class TestTheCollectorScript(unittest.TestCase):
         im_skript = {s.strip().strip("\"'") for s in m.group(1).split(",") if s.strip()}
         self.assertEqual(im_skript, set(job["needs"]))
 
+
+
+class TestGitHubsOwnReadingOfArmsValuesKeysAndProducers(unittest.TestCase):
+    """A lens on fb6eda0d (2026-09-27) found forms this gate read as produced that GitHub never produces, or
+    reads otherwise. Each rule below was read in actions/runner's source at 15231bede4aa and in GitHub's
+    docs, not measured against GitHub, and each case fails on fb6eda0d."""
+
+    KOPF = "name: CI\non:\n  pull_request:\n    branches: [main]\njobs:\n"
+    JOB = "    runs-on: x\n    steps: [{run: 'true'}]\n"
+    PR = staticmethod(TestTheLivePullRequestIsJudgedNotOnlyTheStructure._ereignis)
+    LABEL = "contains(github.event.pull_request.labels.*.name, 'landung')"
+
+    @staticmethod
+    def _ternary(bedingung: str, wahr: str = '["3.10"]', sonst: str = '["3.12"]') -> str:
+        """The matrix value `${{ fromJSON(<condition> && '<true>' || '<false>') }}`, for a YAML double-quoted
+        scalar."""
+        return ("${{ fromJSON(" + bedingung + " && '" + wahr.replace('"', '\\"') + "' || '"
+                + sonst.replace('"', '\\"') + "') }}")
+
+    def _test_job(self, matrix: str, job_if: str = "", name: str = "") -> str:
+        return (self.KOPF + "  test:\n" + (f"    name: {name}\n" if name else "")
+                + (f"    if: {job_if}\n" if job_if else "") + "    runs-on: x\n    strategy:\n      matrix:\n"
+                + matrix + "    steps: [{run: 'true'}]\n")
+
+    def _urteil(self, workflow: str, verlangt=("x",)):
+        b = Baum(self, {"ci.yml": workflow}, list(verlangt))
+        return b, b.urteil()
+
+    # --- A: each arm of a matrix ternary under its condition -----------------------------------------
+
+    def test_the_false_arm_of_a_matrix_ternary_is_named_under_the_negation(self):
+        """A (P2). `fromJSON(<label> && '["3.10"]' || '["3.12"]')` read `test (3.12)` as produced with exit
+        0; on a pull request carrying the label GitHub builds only `["3.10"]`. `cond && A || B` is A when
+        cond is truthy and B otherwise (And.cs:39-50, Or.cs:39-50), so `test (3.12)` is produced only when
+        the condition does not hold: named, bound by its digest, and false live on the labelled pull
+        request."""
+        b, r = self._urteil(self._test_job(f'        python: "{self._ternary(self.LABEL)}"\n'), ["test (3.12)"])
+        e = r["per_context"][0]
+        self.assertEqual((e["state"], e["condition"]), (G.GATED, f"!({self.LABEL})"))
+        self.assertEqual(b.rc("--drift-marker", ""), 1, "newly gated: red until it is accepted")
+        d = json.loads(b.decl.read_text(encoding="utf-8"))
+        d["accepted_gated"] = [{"context": "test (3.12)",
+                                "condition_sha256": G.bedingungs_digest(f"!({self.LABEL})")}]
+        b.decl.write_text(json.dumps(d), encoding="utf-8")
+        self.assertEqual(b.rc("--drift-marker", ""), 0, "the acceptance binds to the negated condition")
+        mit = G.lebend(self.PR(labels=("landung",)), b.decl, b.wf)
+        self.assertEqual((mit["verdict"], mit["missing"]), (G.ABSENT, ["test (3.12)"]))
+        self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.ALWAYS)
+
+    def test_a_matrix_condition_the_evaluator_cannot_decide_produces_neither_arm(self):
+        """A. `fromJSON(github.run_id && ...)` named the condition as undecided and then `test (3.12)` as
+        produced. Each arm is named under its condition, and live neither is measurable."""
+        b, r = self._urteil(self._test_job(f'        python: "{self._ternary("github.run_id")}"\n'),
+                            ["test (3.10)", "test (3.12)"])
+        self.assertEqual({e["context"]: (e["state"], e["condition"]) for e in r["per_context"]},
+                         {"test (3.10)": (G.GATED, "github.run_id"), "test (3.12)": (G.GATED, "!(github.run_id)")})
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertTrue(any("not decided" in h for h in r["undecided_conditions"]), r["undecided_conditions"])
+        d = G.lebend(self.PR(), b.decl, b.wf)
+        self.assertEqual((d["verdict"], d["not_measurable"]), (G.UNKNOWN, ["test (3.10)", "test (3.12)"]))
+
+    def test_a_job_condition_and_a_matrix_condition_are_both_named(self):
+        """A, the neighbour in the same class: with a job `if:`, the first form named the false arm's
+        contexts under the job's condition alone and dropped the true arm's. Each carries both now."""
+        wf = self._test_job(f'        python: "{self._ternary(self.LABEL)}"\n',
+                            job_if="github.event_name == 'pull_request'")
+        b, r = self._urteil(wf, ["test (3.10)", "test (3.12)"])
+        job = "job `if: github.event_name == 'pull_request'`"
+        self.assertEqual({e["context"]: e["condition"] for e in r["per_context"]},
+                         {"test (3.10)": f"{job}; and {self.LABEL}", "test (3.12)": f"{job}; and !({self.LABEL})"})
+        d = G.lebend(self.PR(labels=("landung",)), b.decl, b.wf)
+        self.assertEqual({z["context"]: z["live"] for z in d["per_context"]},
+                         {"test (3.10)": G.ARRIVES, "test (3.12)": G.WILL_NOT_ARRIVE})
+
+    def test_two_conditional_keys_combine_their_arms(self):
+        """A. With two conditional keys the first form kept one condition and paired true arm with true arm
+        and false with false. Each choice of arms is a combination under its own condition."""
+        push = "github.event_name == 'push'"
+        python, os_ = self._ternary(self.LABEL), self._ternary(push, '["a"]', '["b"]')
+        wf = self._test_job(f'        python: "{python}"\n        os: "{os_}"\n')
+        _b, r = self._urteil(wf, ["test (3.10, b)", "test (3.12, a)"])
+        self.assertEqual({e["context"]: e["condition"] for e in r["per_context"]},
+                         {"test (3.10, b)": f"({self.LABEL}) && !({push})",
+                          "test (3.12, a)": f"!({self.LABEL}) && ({push})"})
+
+    # --- B: include and exclude with GitHub's `==` -----------------------------------------------------
+
+    def test_include_and_exclude_match_with_githubs_equality(self):
+        """B (P2). `exclude` and `include` matched the displayed text. GitHub builds `matrix[key] ==
+        literal` (MatrixBuilder.cs:578-612), and its `==` makes a text a number beside a number, ignores the
+        case of a text, and makes a boolean or null a number (EvaluationResult.cs:233-424,
+        ExpressionUtility.cs:223-288). A pair this gate cannot compare exactly is not measurable."""
+        for matrix, erzeugt in (
+                ("        v: ['10.0', '11.0']\n        exclude:\n          - v: 10\n", ["test (11.0)"]),
+                ("        v: ['10.0']\n        include:\n          - v: 10\n            extra: x\n", ["test (10.0)"]),
+                ("        v: [Linux, mac]\n        exclude:\n          - v: linux\n", ["test (mac)"]),
+                ("        v: [true, false]\n        exclude:\n          - v: 1\n", ["test (false)"]),
+                ("        v: ['', a]\n        exclude:\n          - v: null\n", ["test (a)"]),
+                ("        v: ['0x1A', b]\n        exclude:\n          - v: 26\n", ["test (b)"]),
+                ("        v: ['true', b]\n        exclude:\n          - v: true\n", ["test (b)", "test (true)"])):
+            with self.subTest(matrix=matrix):
+                self.assertEqual(self._urteil(self._test_job(matrix))[1]["produced_contexts"], erzeugt)
+        for matrix in ("        v: ['1e400']\n        exclude:\n          - v: 1\n",
+                       "        v: ['0x80000000']\n        exclude:\n          - v: 1\n",
+                       "        v: ['3.141592653589793']\n        exclude:\n          - v: 3.141592653589793\n",
+                       "        v: [\u212aey]\n        exclude:\n          - v: key\n"):
+            with self.subTest(matrix=matrix):
+                b, r = self._urteil(self._test_job(matrix))
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual(len(r["newly_unreadable"]), 1, r["newly_unreadable"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+
+    # --- C: a key written twice, and a workflow GitHub refuses as a whole ----------------------------------
+
+    def test_a_key_written_twice_refuses_the_whole_workflow(self):
+        """C (P2). PyYAML keeps the last of two equal keys, so `if: false` then `if: always()`, the jobs
+        `guard` and `Guard`, and `on:` twice each read as produced. GitHub's reader refuses a repeated key,
+        ignoring case (TemplateReader.cs:182, 215-221, 309, 341-347), and converts the whole workflow to an
+        empty one (WorkflowTemplateConverter.cs:31-34). The file is not read, with the reason, at every
+        mapping level; live the context is not measurable."""
+        faelle = {
+            "if twice": self.KOPF + "  guard:\n    if: false\n" + self.JOB + "    if: always()\n",
+            "guard and Guard": self.KOPF + "  guard:\n" + self.JOB + "  Guard:\n" + self.JOB,
+            "on twice": "name: CI\non: push\non:\n  pull_request:\n    branches: [main]\njobs:\n  guard:\n" + self.JOB,
+            "an env key twice in a step": (self.KOPF + "  guard:\n    runs-on: x\n    steps:\n"
+                                           "      - run: 'true'\n        env: {A: 1, a: 2}\n"),
+            "a key given as an expression literal": self.KOPF + "  guard:\n" + self.JOB + "    ${{ 'Runs-On' }}: y\n",
+        }
+        for name, wf in faelle.items():
+            with self.subTest(fall=name):
+                b, r = self._urteil(wf, ["guard"])
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertTrue(any("WorkflowNotRead" in u and "repeats" in u for u in r["unreadable_files"]),
+                                r["unreadable_files"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+                self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.UNKNOWN)
+        _b, r = self._urteil(self.KOPF + "  guard:\n    runs-on: x\n    env: {\u212a: 1, k: 2}\n"
+                                         "    steps: [{run: 'true'}]\n", ["guard"])
+        self.assertTrue(any("outside ASCII" in u for u in r["unreadable_files"]), r["unreadable_files"])
+        _b, r = self._urteil(self.KOPF + "  guard:\n    runs-on: x\n    env: {A: 1, B: 2}\n"
+                                         "    steps: [{run: 'true'}]\n", ["guard"])
+        self.assertEqual(r["produced_contexts"], ["guard"], "distinct keys are read as before")
+
+    def test_an_expression_not_closed_anywhere_refuses_the_whole_workflow(self):
+        """C, one step over: GitHub's reader parses every text scalar for `${{ }}`, so a `run:` holding a
+        `${{` that is not closed refuses the whole workflow (TemplateReader.cs:486-536); the gate looked for
+        it in an `if:` only and produced the job."""
+        _b, r = self._urteil(self.KOPF + "  guard:\n    runs-on: x\n    steps: [{run: 'echo ${{ github.sha'}]\n",
+                             ["guard"])
+        self.assertEqual(r["produced_contexts"], [])
+        self.assertTrue(any("is not closed" in u for u in r["unreadable_files"]), r["unreadable_files"])
+        _b, r = self._urteil(self.KOPF + "  guard:\n    runs-on: x\n    steps: [{run: 'echo ${{ github.sha }}'}]\n",
+                             ["guard"])
+        self.assertEqual(r["produced_contexts"], ["guard"])
+
+    # --- D: an integer past Int32 ------------------------------------------------------------------------
+
+    def test_an_integer_past_int32_is_not_read(self):
+        """D (P3). GitHub reads a hex scalar with Int32.TryParse and an octal one with Convert.ToInt32
+        (YamlObjectReader.cs:656-692): past 0x7FFFFFFF the value is read as a negative number or refused,
+        and which one was not measured. `0xFFFFFFFF` named a job `test (4294967295)`; the file is not read
+        now. Within Int32 the value is the number."""
+        for wert in ("0xFFFFFFFF", "0x100000000", "0o20000000000", "0x000000001"):
+            with self.subTest(wert=wert):
+                _b, r = self._urteil(self._test_job(f"        v: [{wert}]\n"))
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertTrue(any("past Int32" in u for u in r["unreadable_files"]), r["unreadable_files"])
+        _b, r = self._urteil(self._test_job("        v: [0x7FFFFFFF, 0o17]\n"))
+        self.assertEqual(r["produced_contexts"], ["test (15)", "test (2147483647)"])
+
+    # --- E: every producer -------------------------------------------------------------------------------
+
+    def test_every_producer_of_a_context_is_asked(self):
+        """E (P3). The live step asked only the first producer of a context. L1: two workflows on
+        pull_request with opposite `if:`, the second true on a pull request; L4: one on workflow_dispatch
+        only beside one on pull_request; L2: one on pull_request beside one on push, judged on a push to
+        main. Each arrives now; offline, L1 names both conditions."""
+        l1 = {"a.yml": "on: pull_request\njobs:\n  guard:\n    if: github.event_name == 'push'\n" + self.JOB,
+              "b.yml": "on: pull_request\njobs:\n  guard:\n    if: github.event_name == 'pull_request'\n" + self.JOB}
+        l4 = {"a.yml": "on: workflow_dispatch\njobs:\n  guard:\n" + self.JOB,
+              "b.yml": "on: pull_request\njobs:\n  guard:\n    if: github.event_name == 'pull_request'\n" + self.JOB}
+        l2 = {"a.yml": "on: pull_request\njobs:\n  guard:\n" + self.JOB,
+              "c.yml": "on: push\njobs:\n  guard:\n" + self.JOB}
+        push = dict(self.PR(event="push", ref_name="main"), ref_type="branch")
+        for name, workflows, ereignis in (("L1", l1, self.PR()), ("L4", l4, self.PR()), ("L2", l2, push)):
+            with self.subTest(fall=name):
+                b = Baum(self, workflows, ["guard"])
+                self.assertEqual(G.lebend(ereignis, b.decl, b.wf)["verdict"], G.ALWAYS)
+        b = Baum(self, l1, ["guard"])
+        e = b.urteil()["per_context"][0]
+        self.assertEqual(e["condition"], "a.yml: job `if: github.event_name == 'push'` | "
+                                         "b.yml: job `if: github.event_name == 'pull_request'`")
+        self.assertEqual([p["from"] for p in e["producers"]], ["a.yml", "b.yml"])
+        d = G.lebend(push, b.decl, b.wf)
+        self.assertEqual((d["verdict"], d["per_context"][0]["why"]), (G.ABSENT, "a.yml, b.yml do not run on a push event"))
+
+    # --- F: whitespace beside `${{ }}` ---------------------------------------------------------------------
+
+    def test_whitespace_beside_the_expression_is_text(self):
+        """F (P3). `if: |` with `${{ false }}` on the next line, and `' ${{ false }}'`, read as the dead
+        `false`: the whitespace was folded before `${{ }}` was split. GitHub keeps it as a text segment and
+        formats both into one string, which is true (TemplateReader.cs:566-579 and 597-627,
+        WorkflowTemplateConverter.cs:1868). Not measurable now, never dead; a string literal the fold would
+        change is not read either; an empty `if:` is no condition (WorkflowTemplateConverter.cs:1813-1816)."""
+        for bedingung in ("|\n      ${{ false }}\n", "' ${{ false }}'\n", "'${{ false }} '\n",
+                          "|\n      ${{ github.event_name == 'push' }}\n"):
+            with self.subTest(bedingung=bedingung):
+                b, r = self._urteil(self.KOPF + f"  guard:\n    if: {bedingung}" + self.JOB, ["guard"])
+                self.assertEqual((r["dead_conditions"], r["produced_contexts"]), ([], []))
+                self.assertTrue(any("whitespace counts as text" in u for u in r["newly_unreadable"]),
+                                r["newly_unreadable"])
+                with self.assertRaises(G.NichtAuswertbar):
+                    G.bedingung_am_ereignis(G._lade(b.wf / "ci.yml")["jobs"]["guard"]["if"], self.PR())
+        for bedingung in ("\"startsWith(github.head_ref, 'a  b')\"", "\"startsWith(github.head_ref, 'a\\tb')\""):
+            with self.subTest(bedingung=bedingung):
+                _b, r = self._urteil(self.KOPF + f"  guard:\n    if: {bedingung}\n" + self.JOB, ["guard"])
+                self.assertTrue(any("folding would change" in u for u in r["newly_unreadable"]), r["newly_unreadable"])
+        self.assertTrue(G.bedingung_am_ereignis("startsWith(github.head_ref, 'a b')", self.PR(head_ref="a b/x")))
+        _b, r = self._urteil(self.KOPF + "  guard:\n    if: ''\n" + self.JOB, ["guard"])
+        self.assertEqual(r["produced_contexts"], ["guard"])
+
+    # --- J: a container of another shape ------------------------------------------------------------------
+
+    def test_a_container_of_another_shape_is_named_not_raised(self):
+        """J (P3). `jobs:` written as a list raised AttributeError out of `erhebe`. GitHub asserts the
+        shapes the gate reads, and the whole workflow is empty when one fails (WorkflowTemplateConverter.cs:
+        1251, 1259, 1386, 1390-1403, 1477, 1809, 869, 921, 970): each is a file not read, with the reason."""
+        faelle = {
+            "jobs a list": "name: CI\non: {pull_request: {branches: [main]}}\njobs:\n  - guard\n",
+            "a job a text": self.KOPF + "  guard: x\n  other:\n" + self.JOB,
+            "needs a mapping": self.KOPF + "  guard:\n    needs: {a: b}\n" + self.JOB,
+            "if a list": self.KOPF + "  guard:\n    if: [a]\n" + self.JOB,
+            "strategy a number": self.KOPF + "  guard:\n    strategy: 5\n" + self.JOB,
+            "a matrix vector a number": self.KOPF + "  guard:\n    strategy: {matrix: {v: 5}}\n" + self.JOB,
+            "a job id a number": self.KOPF + "  1:\n" + self.JOB + "  guard:\n" + self.JOB,
+        }
+        for name, wf in faelle.items():
+            with self.subTest(fall=name):
+                b, r = self._urteil(wf, ["guard"])
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual(len(r["unreadable_files"]), 1, r["unreadable_files"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+                self.assertEqual(G.lebend(self.PR(), b.decl, b.wf)["verdict"], G.UNKNOWN)
+
+    def test_the_other_inputs_of_the_gate_are_read_by_their_shape_too(self):
+        """J, the sweep beyond the workflow: a declaration that is not JSON raised, and one whose
+        `required_contexts` is a text was read as a list of characters; a list of acceptances of another
+        shape raised TypeError; an event payload or a ruleset answer of another shape raised
+        AttributeError. Each is named now."""
+        for inhalt, wort in (("not json", "not readable as JSON"), ("[1]", "not a mapping"),
+                             ('{"required_contexts": "guard"}', "not a list of names")):
+            with self.subTest(declaration=inhalt):
+                b = Baum(self, {"ci.yml": self.KOPF + "  guard:\n" + self.JOB}, ["guard"])
+                b.decl.write_text(inhalt, encoding="utf-8")
+                r = b.urteil()
+                self.assertEqual(r["verdict"], G.UNKNOWN)
+                self.assertIn(wort, r["reason"])
+                self.assertEqual(b.rc("--drift-marker", ""), 1)
+        b = Baum(self, {"ci.yml": self.KOPF + "  guard:\n" + self.JOB}, ["guard"])
+        d = json.loads(b.decl.read_text(encoding="utf-8"))
+        d["accepted_gated"] = 5
+        b.decl.write_text(json.dumps(d), encoding="utf-8")
+        self.assertEqual(b.urteil()["unbound_acceptances"], ["int in place of the list of acceptances"])
+        self.assertEqual(b.rc("--drift-marker", ""), 1)
+        ereignis = self.PR()
+        ereignis["payload"] = {"pull_request": {"labels": "landung", "head": 5}, "action": ["x"]}
+        self.assertEqual((G._labels(ereignis), G._head_repo(ereignis)), ([], ""))
+        ereignis["payload"]["pull_request"] = "x"
+        self.assertEqual((G._labels(ereignis), G._head_repo(ereignis)), ([], ""))
+        for antwort in ("[]", '{"rules": {"a": 1}}',
+                        '{"rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": '
+                        '[{"context": 5}]}}]}'):
+            with self.subTest(ruleset=antwort):
+                TestDeclarationAgainstRuleset._mit_gh(self, antwort)
+                d = G.erklaerung_gegen_regelsatz(TestDeclarationAgainstRuleset._erklaerung(self, ["a"]), "o/r")
+                self.assertEqual(d["verdict"], G.UNKNOWN, d)
+
+    # --- the naming, read in the runner's source -------------------------------------------------------
+
+    def test_the_default_name_follows_githubs_job_name_builder(self):
+        """The default name of a matrix job, read in JobNameBuilder.cs:33-59 and MatrixBuilder.cs:189-205
+        (not measured): a null or empty value adds no segment, a boolean is `true` or `false`, a number
+        without a fraction is spelled without one, and past 100 characters the name is its first 97 and
+        `...`. A name built from `${{ matrix.<key> }}` past 100 characters, and a long default name holding
+        a character outside the Basic Multilingual Plane, are not read."""
+        for matrix, erzeugt in (("        v: ['', b]\n", ["test", "test (b)"]),
+                                ("        v: [null, b]\n", ["test", "test (b)"]),
+                                ("        v: [true, 10.0]\n", ["test (10)", "test (true)"]),
+                                (f"        v: [{'a' * 120}]\n", ["test (" + "a" * 91 + "..."])):
+            with self.subTest(matrix=matrix):
+                self.assertEqual(self._urteil(self._test_job(matrix))[1]["produced_contexts"], erzeugt)
+        for workflow in (self._test_job(f"        v: [{'a' * 120}]\n", name="'py ${{ matrix.v }}'"),
+                         self._test_job(f"        v: ['{chr(0x1F600) * 60}']\n")):
+            with self.subTest(workflow=workflow[-80:]):
+                _b, r = self._urteil(workflow)
+                self.assertEqual(r["produced_contexts"], [])
+                self.assertEqual(len(r["newly_unreadable"]), 1, r["newly_unreadable"])
 
 if __name__ == "__main__":
     unittest.main()

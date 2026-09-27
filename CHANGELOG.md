@@ -143,8 +143,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   branches of a conditional, a class attribute), and a name bound to a function of `re` and to
   anything else makes the call an unfolded site. The anchors are read through the chain of groups at
   each end of a pattern, an alternation there branch by branch (`(?:^|/)x$` judges a whole value
-  through `^`); past 64 branches or in a group that turns VERBOSE on that is not decided, and the call
-  is an unfolded site. Both receiver forms count, and a `getattr` by a name the sweep cannot read is a
+  through `^`); past 64 branches or in a group that turns VERBOSE on that was not decided, and the call
+  was an unfolded site (since the second lens in the follow-up 236 entry below, the reader reads a
+  pattern in one pass and decides both). Both receiver forms count, and a `getattr` by a name the sweep cannot read is a
   gap. And a script saved with a UTF-8 BOM, which Python runs, raised `SyntaxError` out of the sweep:
   sources are read as bytes now, so `ast.parse` reads a BOM and a coding cookie as Python does. The
   branch reading found three whole-value patterns that ended in `$` inside an alternation
@@ -233,7 +234,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   is expanded as GitHub documents it, every combination of its keys, then `exclude`, then `include`,
   and a name carries every value of its combination, comma-separated in the order of the keys (the
   form the lens states; GitHub's docs, read, do not document the default name of a matrix job); a
-  value it cannot spell (a boolean, a fraction, an expression) is not measurable. An `if:` is split
+  value it cannot spell (a boolean, a fraction, an expression) is not measurable. (The second lens
+  below read the naming in the runner's source: the values an `include` entry adds are not in the
+  name, and a boolean is spelled.) An `if:` is split
   as GitHub's template reader splits `${{ }}` (read in actions/runner, not measured against GitHub):
   one not closed, or text beside one, is not measurable. Eleven cases pin these forms, and each
   fails on ac05d85d. On this repository's workflows no verdict moves: both required contexts stay
@@ -259,6 +262,34 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   none in `strategy`, read in its docs) is not measurable. A live verdict of absence now needs
   every job read, too: beside a job whose matrix was not read, the live step said "no workflow
   produces it". Seven cases, each red on ac05d85d; the real workflows' reports are unchanged.
+
+  A second lens, on fb6eda0d, found more forms read as produced. Each rule below was read in GitHub's
+  runner source (actions/runner at 15231bede4aa) or docs, not measured against GitHub. The false arm
+  of a matrix ternary read as produced on every event, although GitHub takes it only when the
+  condition does not hold. Each arm is now named under its own condition, and a condition the gate
+  cannot decide produces neither arm. An empty true arm is `'[]'`, a non-empty string, so it does not
+  fall through: the matrix is empty under the condition, which GitHub refuses, and the job is not
+  measurable. `include` and `exclude` matched the displayed text; they now use GitHub's `==`, which
+  compares a text with a number as numbers, ignores the case of texts, and makes a boolean or null a
+  number, and a pair the gate cannot compare exactly is not measurable. A key written twice in one
+  mapping, compared without case as GitHub's reader compares keys, and a `${{` not closed in any text
+  make the whole file not read, since GitHub then empties the whole workflow. A hex or octal integer
+  past Int32, a `jobs:` or a job of another shape (a list raised out of the gate), and whitespace
+  beside `${{ }}` in an `if:`, which GitHub formats into a string that is true, are not measurable,
+  never produced and never dead. Every job that produces a context is kept now, and the live step
+  asks each. The default name of a matrix job follows the runner's source: values an `include` entry
+  adds are not in it, a null or empty value adds nothing, and past 100 characters the name is cut to
+  97 and `...`. The declaration, the acceptances, the event payload and the ruleset answer are read by
+  their shape too. In the regex sweep, eleven planted forms passed without a reading: an alias bound
+  through `global` (a regression), through `or` or by inheritance, a compiled pattern matched through
+  a second name or its type, a top-level alternation, and an anchor that is not the first or the last
+  item. The anchor reader now reads a pattern in one pass. A pattern of 4257 characters with 100
+  nested groups took 35 s and 44 s in two runs of fb6eda0d's sweep here, and takes 0.015 s now. A
+  `format` or `%` result is sized before it is built: `"{0}" * 3333` with four texts of 10,000
+  characters peaked at 541 MiB on fb6eda0d's sweep and at 33 MiB now. On this repository's workflows
+  the text report is byte-identical to fb6eda0d's and the exit is 0; the JSON report gains the
+  producers of each required context. Twenty-five new or rewritten cases fail on fb6eda0d; three
+  more were rewritten to the source's reading and pass on both.
 
 - **A pre-tag verifier judges a tree, it does not install it into the process that asked**
   (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
