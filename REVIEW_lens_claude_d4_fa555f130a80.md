@@ -11,7 +11,8 @@ Modell laut Harness: `session_context.model` claude-opus-5-5, `external_metadata
 claude-opus-5-5.
 Umgebung: Python 3.11.15, ruff 0.16.9, mypy 2.3.1, pytest mit pytest-subtests, node v22.22.2 (nur als
 Orakel fuer ECMA-262), pb_verify_rs aus `tools/pb_verify_rs` am Kopf (Baum gleich main).
-Rote Tests: `tests/test_lens_claude_d4_fa555f130a80.py`, zwoelf Faelle L1 bis L12.
+Rote Tests: `tests/test_lens_claude_d4_fa555f130a80.py`, zwoelf Faelle L1 bis L12; im Nachtrag (Abschnitt 6)
+dreizehn weitere, L13 bis L25.
 
 ## Behauptete Eigenschaft in einem Satz
 
@@ -22,7 +23,7 @@ Zeichen, `svr_properties` zaehlt nur `ok is True`, `verify_commitment` antwortet
 
 ## 1. Verdikt
 
-FIX_FIRST, hoechste Schwere P0 (Fund L1 bis L6).
+FIX_FIRST, hoechste Schwere P0 (Fund L1 bis L6; im Nachtrag L13 bis L19).
 
 ## 2. Funde
 
@@ -79,12 +80,12 @@ Bewertung (getrennt von der Messung):
   fuenf Funktionen (L1 bis L6). Gleiches Muster `dsse.verify_envelope` gefolgt von `dsse.load_payload(envelope)`
   steht ausserdem in `decision.py:567`, `verification_summary.py:223`, `trust_pack.py:463`,
   `run_ledger.py:275`, `outcome.py:599`, `relation_statement.py:215`, `agent_review.py:2300`, `:2626`,
-  `:3044` (geschaetzt per grep, NICHT GEMESSEN). `cli.py:1842` liest Dateien und ist nicht betroffen
-  (gelesen, nicht ausgefuehrt).
+  `:3044` (hier zuerst per grep geschaetzt; gemessen im Nachtrag, Abschnitt 6.1). `cli.py:1842` liest
+  Dateien und ist nicht betroffen (gelesen, nicht ausgefuehrt).
 - Klasse B, "ein bool-Schluesselwort wird nach Wahrheit gelesen": gemessen an `allow_deprecated` (L7).
   Weitere Schluesselwoerter `strict`, `require_derived_subject`, `require_canonical`, `applicable`,
-  `leaf_witnessed`, `include_token`, `require_signature_line` (grep, NICHT GEMESSEN); bei `strict` und
-  `require_*` wirkt "false" in die strengere Richtung.
+  `leaf_witnessed`, `include_token`, `require_signature_line` (hier per grep; gemessen im Nachtrag,
+  Abschnitt 6.3); bei `strict` und `require_*` wirkt "false" in die strengere Richtung.
 - Klasse C, "ein Muster, das seine Form knapp verfehlt" (`$` vor Zeilenende, `\d` ueber Unicode): in
   `src/` gefunden nur in `trust_pack.py:41-43` und `:98` (grep nach einzeiligem `re.compile`, `re.match`,
   `re.search`, `re.fullmatch` mit `$`-Ende und nach `\d` ueber `src/proofbundle`; mehrzeilige Muster und
@@ -122,7 +123,7 @@ Bewertung (getrennt von der Messung):
 - Mutationsgate (`scripts/mutation_check.py`, von diesem Branch um 13 Zeilen geaendert): NICHT GEMESSEN.
 - Rust-Differenz fuer L1 bis L12: NICHT ANWENDBAR, der Rust-Verifier liest Dateien und beurteilt weder
   Claim-Inhalt noch Trust-Pack-Muster; nur `content-root` wurde verglichen.
-- Die Geschwister in Klasse A ausserhalb von `evalclaim` und `intoto`: NICHT GEMESSEN.
+- Die Geschwister in Klasse A ausserhalb von `evalclaim` und `intoto`: im Nachtrag gemessen (Abschnitt 6).
 - Volle Suite auf dem Linsenbranch, nachgereicht: an 78455de3 (pytest tests/, CPython 3.11.15, uid 0,
   15:42:01Z bis 16:18:20Z) 26 failed, 5936 passed, 156 skipped, 9151 subtests passed, 2177,4 s. Die 26
   sind die 23 roten Faelle dieses Laufs, die zwei nur-als-root-Faelle von
@@ -134,5 +135,116 @@ Bewertung (getrennt von der Messung):
   nach Doppellesung und TOCTOU im Objekt, kein Eintrag gefunden; Issues auf GitHub NICHT GEPRUEFT.
 - Keine Aussage ueber Vollstaendigkeit. Die Sonden liegen nicht im Repo; jeder Fund ist durch seinen
   roten Test reproduzierbar.
+
+## 6. Nachtrag: Owner-Auftrag vom 27.09., 19:3x Berlin (Klasse A an neun Stellen, Klasse B per Sweep)
+
+Gemessen mit dem `src/` von fa555f13 (Linsenzweig, `src/` gleich fa555f13), CPython 3.11.15, pytest 9.1.1,
+17:2xZ bis 17:4xZ. Neue rote Tests L13 bis L25 in derselben Datei. Das Verdikt bleibt FIX_FIRST, hoechste
+Schwere P0. Der Fix-Branch stand beim Messen und beim Push auf fa555f13.
+
+### 6.1 Klasse A, je Stelle
+
+Verfahren: je Stelle ein signiertes Statement S, das der Verifier an einem signierten Feld ablehnt, und F,
+dasselbe Statement mit diesem Feld so geaendert, dass es besteht. F kommt ab einer spaeteren Lesung: eine
+dict-Unterklasse (`__getitem__` und `get`) oder eine `str`-Unterklasse im Feld (`encode`). Kontrollen je
+Fall: S wird abgelehnt, F in S' Umschlag wird abgelehnt, F vom selben Schluessel signiert wird angenommen.
+Orakel: die signierten Bytes des Pakets selbst.
+
+| Stelle | oeffentlich erreichbar ueber | Lesungen von `payload` | Rueckgabe, wenn die Lesungen verschieden antworten | Test | Schwere |
+|---|---|---|---|---|---|
+| `decision.py:562`/`:567` | `verify_decision_receipt` (auch `_or_raise`, gelesen) | 2 | `ok` True, `crypto_ok` True fuer F (Nonce des Verifiers); S allein: `nonce mismatch`, `ok` False. dict und str ab Lesung 2 | L13 | P0 |
+| `verification_summary.py:220`/`:223` | `verify_verification_summary` | 2 | `ok` True fuer F (Ebene VERIFIED mit `receiptRef`); S allein: `levels_consistent` False | L14 | P0 |
+| `trust_pack.py:463` | `verify_trust_pack` | 1 | keine Abweichung moeglich: eine Lesung, die Signaturen werden ueber dieselben Bytes geprueft. Ab Lesung 1 bzw. Aufruf 1 gefaelscht: `ok` False; ab Lesung 2: das Urteil ueber S | keiner | haelt |
+| `run_ledger.py:272`/`:275` | `verify_run_ledger` | 2 | `ok` True fuer F (`runBudget` 5); S allein: 3 Laeufe bei `runBudget` 2, `ok` False | L15 | P0 |
+| `outcome.py:596`/`:599` | `verify_outcome_receipt` (auch `_or_raise`, gelesen) | 2 | `ok` True fuer F (`decisionRef` b...); S allein: an eine andere Entscheidung gebunden | L16 | P0 |
+| `relation_statement.py:211`/`:215` | `verify_relation_statement` | 2 | `ok` True fuer F (`schemaVersion` 0.1.0); S allein (0.2.0): `structure_ok` False | L17 | P0 |
+| `agent_review.py:2296`/`:2300` | `verify_agent_review`; `verify_agent_review_any` (Weg v0.1) | 2; ueber `any` 3 | `ok` True fuer F (anderer `headSha`, erwarteter Subjekt-Digest von F); S allein gehoert zu einem anderen Pull Request. Ueber `any` ab Lesung 3 | L18 | P0 |
+| `agent_review.py:2622`/`:2626` | `verify_agent_review_v02`, `verify_agent_review_v03`; `verify_agent_review_any` (Weg v0.2) | 2; ueber `any` 3 | wie die Zeile davor | L19 | P0 |
+| `agent_review.py:3044` | `verify_agent_review_any` (Weichen-Lesung) | 1 von 3 | weicht nur die Weichen-Lesung ab (v0.1 oder v0.3 statt signiert v0.2), lehnt der gewaehlte Verifier ab: `ok` False, `UNKNOWN_PREDICATE_VERSION`. Kein eigener Fund; hinter ihr liegen die zwei Zeilen davor | keiner | lehnt ab |
+
+Aufruf: `PYTHONPATH=src python -m pytest tests/test_lens_claude_d4_fa555f130a80.py -k "l13 or l14 or l15 or l16 or l17 or l18 or l19"`.
+Ergebnis an fa555f13: 7 Tests, 20 fehlschlagende Faelle, genau dict und str bei Lesung 2 (direkt) und 3
+(ueber `any`); alle Kontrollen gruen.
+
+Bewertung (getrennt von der Messung):
+- Erreichbar nur mit einem vom Aufrufer gebauten Objekt, wie L1 bis L6; aus Bytes, ueber die CLI (liest
+  Dateien in gewoehnliche dicts) und im Rust-Verifier nicht. P0 nach derselben Begruendung wie L4 bis L6:
+  `ok` True ueber ein Statement, das die Signatur nicht deckt, an einem Urteil, das ein signiertes Feld
+  bindet (Nonce, Entscheidung, Pull Request, Laufbudget).
+- Sonde ohne Test: bei gueltigem S und einem F, das nur ein urteilsfreies Feld aendert, ist die Rueckgabe von
+  `verify_verification_summary` und `verify_run_ledger` gleich der fuer S. Das Ergebnis traegt den Inhalt
+  nicht; ein Verbraucher, der danach `load_payload` ruft, liest mit demselben Objekt F. Die Tests messen
+  deshalb das Urteil, nicht den Inhalt.
+
+### 6.2 Geschwister ausserhalb der neun Stellen
+
+- `agent_review.resolve_receipt_chain`: der Digest kommt aus `receipt_digest` (Lesung 1), die
+  `supersession`-Angaben aus `env["payload"]` (Lesung 2). Gemessen mit zwei v0.2-Receipts A und B,
+  `verified={dA, dB}`: gewoehnlich `current` None, `ambiguous` True; dict ab Lesung 2 mit einer Angabe
+  `corrects: dB`, die dA nicht deckt: `current` A, `corrected` [dB]. Die Ordnung haengt an einem Anspruch,
+  den der geprueft gemeldete Digest nicht deckt. P1, Vorbedingung wie Klasse A. Kein Test: der Auftrag
+  begrenzt die Tests auf die neun Stellen.
+- `trust_pack.verify_trust_pack`, Feld `signatures`: zwei Lesungen (Kappe, Schleife). dict mit den drei
+  gueltigen und 600 fremden Eintraegen ab Lesung 2: `ok` True; dieselbe Liste als gewoehnliches dict:
+  `ok` False (`signatures = 603 > limit 512`). Die Kappe gilt nicht der Liste, die die Schleife liest. Das
+  Urteil bleibt eines ueber die signierten Bytes; Wirkung nur auf die DoS-Grenze. P3, kein Test.
+- `intoto.py:808`, `:1058`, `:1273`: L4 bis L6.
+- `cli.py:1842`/`:1845`, `cli.py:2111`, `:2310`, `:2450`: lesen Dateien in gewoehnliche dicts (gelesen,
+  nicht ausgefuehrt), nicht erreichbar.
+
+### 6.3 Klasse B, Sweep
+
+Werkzeug: der Sweep aus Linse 3 (Familie und Samen aus dem Korpus des Branches 234 an b78450ee), jedes
+bool-Schluesselwort jeder oeffentlichen Funktion der Familie mit False, True und `"false"`, `"no"`, `1`,
+`0`, `[0]`, `""`. Ein Treffer: ein Nicht-bool gibt dieselbe Antwort wie das bool seiner Wahrheit, und False
+und True antworten verschieden. Gerufen: 73 Schluesselwoerter. Treffer an fa555f13: 134 an 23
+Schluesselwoertern (an 3a8074fc: 144 an 24).
+
+| Schluesselwort (Funktion) | Vorgabe | Nicht-bool gelesen als | Richtung | Urteil oder signiertes Feld | Test |
+|---|---|---|---|---|---|
+| `allow_pending` (`anchors.verify_anchors`) | False | "false", "no", 1, [0] als True | lockert: ein wartender Anker erfuellt `require` | Urteil, FAIL wird WARN | L20, P1; an 3a8074fc typgeprueft |
+| `allow_value_mismatch` (`hf_evals.to_eval_results_entry`) | False | wie oben als True | lockert: ein Wert, der dem signierten Urteil widerspricht, wird veroeffentlicht | die Ablehnung faellt | L21, P1; an 3a8074fc typgeprueft |
+| `allow_deprecated` (`hashalg.resolve_hash_alg`, `compute_digest`) | False | wie oben als True | lockert | das sha1/md5-Tor | L7 (bestehend) |
+| `legacy_v01` (`agent_review.emit_agent_review`; dazu `require_valid_agent_review_predicate_any` und `render_disclosure_block`, Vorgabe None, ausserhalb des Sweeps) | False | wie oben als True | lockert: v0.1-Regeln statt v0.2 | signiert | L22, P1, wie N3 auf 291 |
+| `bound` (`adapters._provenance.bind_reported_version`) | True | wie oben als True, "" und 0 als False | "false" lockert (Status `reported`); "" und 0 strenger (`not_bound`) | signiertes Feld | L23, P1, wie N2 |
+| `applicable` (`assurance.classify_digest_evidence`, `classify_receiver_corroboration`) | True | "" und 0 als False, "false" als True | "" und 0 (per Test auch None, []) lockern: das schwache Feld faellt aus der Leiter | Urteil (Leiterstufe) | L24, P1, wie N1 |
+| `strict` (`decision.emit_decision_receipt`) | True | "" und 0 als False | lockert: signiert, was die Vorgabe ablehnt (per Test auch None) | signiert | L25, P2 |
+| `leaf_witnessed` (`agent_review.render_disclosure_line`) | False | wie oben als True | lockert: die Zeile laesst ", not yet in a witnessed checkpoint" weg | gerenderter Text, weder Urteil noch signiertes Feld | keiner; P2 |
+| `include_token` (`hf_evals.to_eval_results_entry`) | True | als True bzw. False | "false" nimmt das Token auf (die Vorgabe), "" und 0 lassen es weg | weder | keiner; P3 |
+| `require_derived_subject` (`decision.verify_decision_receipt`, `_or_raise`, `outcome.verify_outcome_receipt`), `strict` (`policy.lint_policy`), `require_pq`, `require_current_hash`, `require_external_token` (`renewal.verify_sequence`) | False | "false" usw. als True | strenger (fail-closed) | ja, in die strengere Richtung | keiner |
+| `strict` (`decision.require_valid_decision_predicate`), `require_verified_prior` (`renewal.renew_hashtree`, `renew_timestamp`) | False | "" und 0 als False (die Vorgabe); "false" nicht als True getroffen | keine Lockerung gegen die Vorgabe | nein | keiner |
+| `_raise_on_malformed` (decision, outcome), `flag` (`_integration.emit_enabled`) | False | "" und 0 als die Vorgabe | private Namen | nein | keiner |
+| `require_signature_line` (`checkpoint._split_signed_note`, `_note_body_and_sigs`, `_note_text_of`) | True | nach Wahrheit (`if not lines and require_signature_line`, gelesen) | aus keiner oeffentlichen Funktion erreichbar: die oeffentlichen Aufrufer reichen die Vorgabe oder ein literales False | nein | kein Fund |
+| `require_canonical` (`_statement_payload.load_statement_strict`) | False | gerufen, kein Treffer | privates Modul; `cli.py:1867` reicht True | nein | kein Fund |
+
+An fa555f13 ohne Treffer, an 3a8074fc getroffen: `require_statement_shape` (`canonicalize_statement`,
+`statement_content_root`), `anchor_verified` und `prereg_verified` (`svr_properties`, `export_svr_dsse`),
+von Runde 9 und 10 geschlossen. Die uebrigen `strict`-Schluesselwoerter der Verify- und
+Validator-Funktionen: gerufen, kein Treffer.
+
+Aufruf: `PYTHONPATH=src python -m pytest tests/test_lens_claude_d4_fa555f130a80.py -k "l20 or l21 or l22 or l23 or l24 or l25"`.
+Ergebnis an fa555f13: 6 Tests, 25 fehlschlagende Faelle, alle Kontrollen gruen.
+
+### 6.4 Die ganze Datei an drei Koepfen
+
+- `src/` von fa555f13: 68 fehlschlagende Faelle (L1 bis L25).
+- main 0ace3039 (eigener Arbeitsbaum, Datei hineinkopiert): 68, dieselbe Menge (Vergleich der sortierten
+  Namen, kein Unterschied). An main ist also keiner der Faelle geschlossen.
+- `src/` von 3a8074fc (Branch 291), zum Vergleich: 56; L7, L20 und L21 sind dort gruen.
+- `ruff check` der Datei: keine Befunde.
+
+### 6.5 Grenzen des Nachtrags
+
+- Klasse A: je Stelle ein signiertes Feld gemessen; die `_or_raise`-Varianten laufen durch dieselbe innere
+  Funktion (gelesen), nicht eigens gemessen. `verify_agent_review_any` auf dem Weg v0.3: NICHT GEMESSEN
+  (L19 misst `any` mit v0.2, `verify_agent_review_v03` direkt).
+- Klasse B: der Sweep erreicht, was die Samen erreichen, und erkennt einen Wahrheitsleser nur, wenn False und
+  True fuer den Samen verschieden antworten. Schluesselwoerter mit einer Vorgabe, die kein bool ist (etwa
+  `legacy_v01: bool | None` an den Renderern), liegen ausserhalb; fuer `legacy_v01` deckt L22 sie ab.
+- Die Richtung "lockert" ist gegen die Vorgabe und gegen die Hausregel (nur das exakte bool zaehlt)
+  beurteilt; eine Aussage ueber die Absicht eines Aufrufers ist das nicht.
+- Rust-Differenz: NICHT ANWENDBAR, Objekte und Schluesselwoerter gibt es nur in der Python-API.
+- Mutationsgate: NICHT GEMESSEN. Volle Suite auf dem Linsenbranch mit L13 bis L25: nicht gelaufen.
+- Keine Aussage ueber Vollstaendigkeit.
 
 Prepared with AI agent involvement, reviewed and submitted under human oversight.
