@@ -1,0 +1,594 @@
+{
+  "tool": "tools/scitt_ccf_external/rust_crosscheck.py",
+  "measured_on": "2026-09-25",
+  "scitt_verifier": {
+    "repository": "https://github.com/microsoft/scitt-verifier",
+    "commit": "bd6fb8ba79dbb521257b7f09682c03c6681dc3d0",
+    "version": "scitt-verifier 0.4.0",
+    "mode": "offline, --scitt-keys"
+  },
+  "environment": {
+    "python": "3.11.15",
+    "cryptography": "50.0.1"
+  },
+  "rows": [
+    {
+      "case": "transparent-statement.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "cbor-header.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "aa715eb972e1f8503014bda2257f61a295bb5936006850d427764d36263fd76a",
+            "leaf_data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+        "receipts": [
+          {
+            "root": "aa715eb972e1f8503014bda2257f61a295bb5936006850d427764d36263fd76a",
+            "leaf_data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "nested-sign1.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "malformed",
+        "statement_status": "malformed",
+        "data_hash": null,
+        "receipts": [],
+        "detail": "malformed: CBOR refused at offset 20: tag 18 is not allowed at ('external-statement',)"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+        "receipts": [
+          {
+            "root": "e36ab9b08b8eec40232d78461bffa871eeaa3d978f22d8b70d4aded2266b92bd",
+            "leaf_data_hash": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [],
+        "differ": [],
+        "not_comparable": [
+          "statement data-hash (value 3)"
+        ]
+      }
+    },
+    {
+      "case": "appended-receipt.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          },
+          {
+            "status": "signature_invalid",
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "signature_valid": false,
+            "bound": true,
+            "kid_bound": null
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          },
+          {
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "root_signature_valid": false,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key",
+          "receipt 1 Merkle root (value 4)",
+          "receipt 1 leaf data-hash",
+          "receipt 1 signature valid",
+          "receipt 1 bound to statement"
+        ],
+        "differ": [],
+        "not_comparable": [
+          "receipt 1 kid bound to key"
+        ]
+      }
+    },
+    {
+      "case": "payload-tampered.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "aab9c1223e2ac88b5ea0dac8ce3a219e9be641ae14ce63250d03437e14329857",
+        "receipts": [
+          {
+            "status": "receipt_not_bound",
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "signature_valid": true,
+            "bound": false,
+            "kid_bound": true
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 1,
+        "verdict": "untrusted",
+        "statement_claim_digest": "aab9c1223e2ac88b5ea0dac8ce3a219e9be641ae14ce63250d03437e14329857",
+        "receipts": [
+          {
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "root_signature_valid": true,
+            "bound": false,
+            "kid_bound": true
+          }
+        ],
+        "problems": [
+          "StatementSignatureInvalid",
+          "NoVerifiedReceipt",
+          "PolicyAssertionUnevaluable"
+        ]
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "tampered-statement.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "status": "signature_invalid",
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "signature_valid": false,
+            "bound": true,
+            "kid_bound": null
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 3,
+        "verdict": "cannot-evaluate",
+        "statement_claim_digest": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+        "receipts": [
+          {
+            "root": "c8dee06dcaa9268cd2910ca78d24a18490789a9d24acba96534dfe8f3b788c14",
+            "leaf_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+            "root_signature_valid": false,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": [
+          "NoVerifiedReceipt",
+          "PolicyAssertionUnevaluable"
+        ]
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement"
+        ],
+        "differ": [],
+        "not_comparable": [
+          "receipt 0 kid bound to key"
+        ]
+      }
+    },
+    {
+      "case": "cts-hashv-cwtclaims-b64url.cose",
+      "source": "fetched",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "malformed",
+        "statement_status": "outside_profile",
+        "data_hash": "a33b22cdda47a6440bc2502d29e0393aae9340c35c5d3495e85ee4fee3be014c",
+        "receipts": [
+          {
+            "status": "malformed",
+            "root": null,
+            "leaf_data_hash": null,
+            "signature_valid": null,
+            "bound": null,
+            "kid_bound": null
+          }
+        ],
+        "detail": "not an RFC 9995 hash envelope: label 258 absent from the protected header"
+      },
+      "scitt_verifier": {
+        "exit_code": 3,
+        "verdict": "cannot-evaluate",
+        "statement_claim_digest": "a33b22cdda47a6440bc2502d29e0393aae9340c35c5d3495e85ee4fee3be014c",
+        "receipts": [],
+        "problems": [
+          "NoReceipt",
+          "PolicyAssertionUnevaluable"
+        ]
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)"
+        ],
+        "differ": [],
+        "not_comparable": [
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ]
+      }
+    },
+    {
+      "case": "uvm_0.2.10.cose",
+      "source": "fetched (production)",
+      "keyset_note": "COSE_KeySet built here from esrp-cts-db.json: EC2 keys, kid = hex(SHA-256(SPKI))",
+      "proofbundle": {
+        "status": "outside_profile",
+        "statement_status": "outside_profile",
+        "data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "9a9b439497b18eed7d5a1f3177c3206cb221e12e46e6f66bac935c62053b0466",
+            "leaf_data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": "label 258 is not -16 (SHA-256)"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+        "receipts": [
+          {
+            "root": "9a9b439497b18eed7d5a1f3177c3206cb221e12e46e6f66bac935c62053b0466",
+            "leaf_data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "local ledger: control",
+      "source": "tests/fixtures/scitt_ccf",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "confirmed",
+        "statement_status": "confirmed",
+        "data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "bc93d42f73c934d9514bf39f093600db0d5661c0b4a211f47eddcb9a4c8c8813",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": ""
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "root": "bc93d42f73c934d9514bf39f093600db0d5661c0b4a211f47eddcb9a4c8c8813",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "local ledger: extra_unprotected",
+      "source": "tests/fixtures/scitt_ccf",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "confirmed",
+        "statement_status": "confirmed",
+        "data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "4d3e22d692c0ddd602ca7872988debf809fda8f7e5875ac9e79f5f8f8688bd73",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": ""
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "root": "4d3e22d692c0ddd602ca7872988debf809fda8f7e5875ac9e79f5f8f8688bd73",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    },
+    {
+      "case": "local ledger: nonshortest_alg",
+      "source": "tests/fixtures/scitt_ccf",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "malformed",
+        "statement_status": "malformed",
+        "data_hash": null,
+        "receipts": [],
+        "detail": "malformed: CBOR refused at offset 2: head not in its shortest form"
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+        "receipts": [
+          {
+            "root": "3a5a9dc65e0408999f9f909535a896c4f334c5112bc2279f9eaad501f90b2d3f",
+            "leaf_data_hash": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [],
+        "differ": [],
+        "not_comparable": [
+          "statement data-hash (value 3)"
+        ]
+      }
+    },
+    {
+      "case": "local ledger: nonshortest_sig_head",
+      "source": "tests/fixtures/scitt_ccf",
+      "keyset_note": null,
+      "proofbundle": {
+        "status": "confirmed",
+        "statement_status": "confirmed",
+        "data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "status": "confirmed",
+            "root": "240d0b8899edfc7dd5822bfae0229adf0b932e3f41f1578d0c5ffe9c2233472d",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "detail": ""
+      },
+      "scitt_verifier": {
+        "exit_code": 0,
+        "verdict": "statement-transparent",
+        "statement_claim_digest": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+        "receipts": [
+          {
+            "root": "240d0b8899edfc7dd5822bfae0229adf0b932e3f41f1578d0c5ffe9c2233472d",
+            "leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+            "root_signature_valid": true,
+            "bound": true,
+            "kid_bound": true
+          }
+        ],
+        "problems": []
+      },
+      "comparison": {
+        "agree": [
+          "statement data-hash (value 3)",
+          "receipt 0 Merkle root (value 4)",
+          "receipt 0 leaf data-hash",
+          "receipt 0 signature valid",
+          "receipt 0 bound to statement",
+          "receipt 0 kid bound to key"
+        ],
+        "differ": [],
+        "not_comparable": []
+      }
+    }
+  ],
+  "totals": {
+    "agree": 58,
+    "differ": 0,
+    "not_comparable": 9
+  }
+}

@@ -223,6 +223,23 @@ IN_BAND_TOOLING = {
                                                         "pycose, under the test key printed in that "
                                                         "vector, and a control message it signs with the "
                                                         "vector's printed seed; it trusts nothing",
+    "tools/scitt_ccf_external/consistency_probe.py": "transcribes the -05 section 4 pseudo-code to "
+                                                     "measure the reader against a local ledger, under "
+                                                     "the service key set that ledger served, and reads "
+                                                     "that ledger's own files with the ccf package; it "
+                                                     "trusts nothing",
+    "tools/scitt_ccf_external/reader_crosscheck.py": "checks the committed third-party statements "
+                                                     "through pycose, under the key set published with "
+                                                     "them, and a control message it signs with a key "
+                                                     "it generates; it trusts nothing",
+    "tools/scitt_ccf_external/leafhash/measure.py": "rebuilds a local ledger's Merkle tree from that "
+                                                    "ledger's own files with the ccf package, whose "
+                                                    "root-signature checks run under the service "
+                                                    "certificate the same ledger records; it trusts "
+                                                    "nothing",
+    "tools/scitt_ccf_external/leafhash/same_digests.py": "reads a local ledger's own files with the ccf "
+                                                         "package to compare its digests with "
+                                                         "measure.py; it trusts nothing",
 }
 
 #: Every library outside the standard library that a file under scripts/ or tools/ imports, and why it
@@ -237,6 +254,7 @@ THIRD_PARTY = {
     "yaml": "a YAML parser; it verifies no signature",
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+    "ccf": "UNMODELLED",
 }
 
 _LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")
