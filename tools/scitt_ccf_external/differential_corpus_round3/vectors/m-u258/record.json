@@ -1,0 +1,176 @@
+{
+ "id": "m-u258",
+ "kind": "mutation",
+ "control": "control",
+ "mutation": "label 258 removed from P and the same value inserted in U",
+ "p_semantics": "as the control without 258",
+ "u_semantics": "258, the control's P value",
+ "signing": "signed with A over its own protected bytes",
+ "signer": "A",
+ "external_aad": "",
+ "predicted": {
+  "outcome": "accepted",
+  "why": "no measured rule of this service requires 258; the unprotected bucket was ignored in every accepted row of rounds 1 and 2"
+ },
+ "cohort": "round 3",
+ "signature_verifies_under": {
+  "A": true,
+  "B": false
+ },
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28",
+   "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+   "configuration_read_at_txid": "2.24"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "accdb0e38f670497e641400eafb68a92d9a3a8e4",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus_round3.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1",
+   "tree_clean_excludes": "tools/scitt_ccf_external/differential_corpus_round3/, this run's own output",
+   "reader_file": {
+    "path": "src/proofbundle/scitt_ccf.py",
+    "git_blob": "87ee8c54d08213901d045700a04c231f8110a918"
+   }
+  }
+ },
+ "outcome": {
+  "state": "registered",
+  "error_stage": null,
+  "txid": "2.25",
+  "api_status": 202,
+  "api_detail": null,
+  "statement_status": 200,
+  "receipt_check_recompute": {
+   "readable": true,
+   "signature_valid": true,
+   "receipt_profile_satisfied": false,
+   "problems": []
+  }
+ },
+ "http": [
+  {
+   "n": 1,
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "headers": {
+    "content-type": "application/cbor",
+    "location": "https://127.0.0.1:8000/operations/2.25",
+    "x-ms-ccf-transaction-id": "2.25"
+   },
+   "body": "http/01-register.hex",
+   "body_sha256": "704ad0e293c9122da749e6f25d3d9d9dff3ba89de19baf707593258ee2d879fe",
+   "body_length": 33
+  },
+  {
+   "n": 2,
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.25",
+   "status": 202,
+   "headers": {
+    "x-ms-ccf-transaction-id": "2.25"
+   },
+   "body": "http/02-operation.hex",
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "body_length": 0
+  },
+  {
+   "n": 3,
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.25",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cbor",
+    "location": "https://127.0.0.1:8000/entries/2.25",
+    "x-ms-ccf-transaction-id": "2.26"
+   },
+   "body": "http/03-operation.hex",
+   "body_sha256": "38db6c69749dc559733aca9460042abd2efdb1954bfedd0c9d5bf3b2c19c516c",
+   "body_length": 48
+  },
+  {
+   "n": 4,
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.25",
+   "status": 503,
+   "headers": {
+    "content-type": "application/concise-problem-details+cbor"
+   },
+   "body": "http/04-receipt.hex",
+   "body_sha256": "3e406e67c5343d6cf134b0ee01ad07395afb99dec9244b75bdd21ecdce221ba2",
+   "body_length": 68
+  },
+  {
+   "n": 5,
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.25",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cose",
+    "x-ms-ccf-transaction-id": "2.26"
+   },
+   "body": "http/05-receipt.hex",
+   "body_sha256": "cd941513651bbbc259654123320ebcb042431cc50433f3c32211b5ce3826affd",
+   "body_length": 508
+  },
+  {
+   "n": 6,
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.25/statement",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cose",
+    "x-ms-ccf-transaction-id": "2.26"
+   },
+   "body": "http/06-statement.hex",
+   "body_sha256": "11ec2b74f70882d97d40e3b6bf14ea56236ebfa54ad6ad8816a3a7339f3944bc",
+   "body_length": 1661
+  }
+ ],
+ "files": {
+  "request.hex": {
+   "sha256": "c3493212d66c51856c6199e6c3e5ce998f1b3f78fa53bc450ebc9ddac98618c4",
+   "length": 1150
+  },
+  "receipt.hex": {
+   "sha256": "cd941513651bbbc259654123320ebcb042431cc50433f3c32211b5ce3826affd",
+   "length": 508
+  },
+  "statement.hex": {
+   "sha256": "11ec2b74f70882d97d40e3b6bf14ea56236ebfa54ad6ad8816a3a7339f3944bc",
+   "length": 1661
+  }
+ }
+}

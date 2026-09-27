@@ -1,0 +1,89 @@
+{
+ "id": "c-g09-map-indefinite",
+ "kind": "implementation-regression control",
+ "control": "control",
+ "mutation": "g09 again: the protected map with an indefinite length (bf ... ff)",
+ "p_semantics": "as the control, map head indefinite",
+ "u_semantics": "empty",
+ "signing": "signed with A over its own protected bytes",
+ "signer": "A",
+ "external_aad": "",
+ "predicted": {
+  "outcome": "refused",
+  "why": "g09 was refused in round 2"
+ },
+ "cohort": "round 3",
+ "signature_verifies_under": {
+  "A": true,
+  "B": false
+ },
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28",
+   "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+   "configuration_read_at_txid": "2.14"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "accdb0e38f670497e641400eafb68a92d9a3a8e4",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus_round3.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1",
+   "tree_clean_excludes": "tools/scitt_ccf_external/differential_corpus_round3/, this run's own output",
+   "reader_file": {
+    "path": "src/proofbundle/scitt_ccf.py",
+    "git_blob": "87ee8c54d08213901d045700a04c231f8110a918"
+   }
+  }
+ },
+ "outcome": {
+  "state": "refused",
+  "error_stage": "POST /entries",
+  "api_status": 400,
+  "api_detail": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+ },
+ "http": [
+  {
+   "n": 1,
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 400,
+   "headers": {
+    "content-type": "application/concise-problem-details+cbor"
+   },
+   "body": "http/01-register.hex",
+   "body_sha256": "622ab1b292d56974e3b6d3d20db044876cc6cfd46801dab262531d9e8bcc429e",
+   "body_length": 47
+  }
+ ],
+ "files": {
+  "request.hex": {
+   "sha256": "7addae98e0d226b6426470981bf7a8b512e9997e5ee640db77790fee8e935200",
+   "length": 1151
+  }
+ }
+}

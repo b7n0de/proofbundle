@@ -1,0 +1,104 @@
+{
+ "tool": "tools/scitt_ccf_external/differential_corpus_round3.py",
+ "started": "2026-09-27T20:10:19+00:00",
+ "measured_on": "2026-09-27",
+ "cohort": "round 3 (new frozen cohort)",
+ "cohort_pins": {
+  "cohort": "round 3, rebuilt 2026-09-27",
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "image_tag": "scitt:r3-00101f76",
+   "image_created": "2026-09-24T17:03:44Z (SOURCE_DATE_EPOCH 1790269424)",
+   "build": "docker/Dockerfile of the commit; one change: the base stage trusts the build sandbox's proxy CA",
+   "build_patch_sha256": "c2667a6837d1a081160c41189e24ccff8c720c7b08a020f3b86545038c062cdd",
+   "build_args": {
+    "SOURCE_DATE_EPOCH": "1790269424",
+    "SCITT_VERSION_OVERRIDE": "00101f7"
+   },
+   "image_build_inputs": {
+    "ccf_version": "7.0.17",
+    "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+    "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+    "tdnf_snapshottime": "1790165199"
+   },
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, docker/run-dev.sh, opened with scitt governance local_development (pyscitt of the commit, Python 3.12.3, ccf 7.0.17 from PyPI)",
+   "started": "2026-09-27T20:03:53Z",
+   "scitt_keys_sha256": "f53baa3f9163ee0106d432b167814a75abe4c952b795dc007c6b95e8d0e28f88",
+   "service_cert_sha256": "fd6938711e21d83ee5311998d334718637e8cea30f8857ca3ff6e47a4641f551"
+  }
+ },
+ "image_build_inputs": {
+  "ccf_version": "7.0.17",
+  "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+  "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+  "tdnf_snapshottime": "1790165199"
+ },
+ "service_keyset": {
+  "file": "scitt-keys.hex",
+  "sha256": "f53baa3f9163ee0106d432b167814a75abe4c952b795dc007c6b95e8d0e28f88"
+ },
+ "governance_proposals": {
+  "status": 200,
+  "body_sha256": "17bc3e112250298894fa2f6b3555be5aa7aa243c1b3284fcca4586168e8aea29",
+  "body": "{\"value\":[{\"ballotCount\":1,\"ballotSubmitters\":[\"0c875f5b2ba031b18dd47449c452a0ab5eee1feef599717fd284e00fbc0c7845\"],\"finalVotes\":{\"0c875f5b2ba031b18dd47449c452a0ab5eee1feef599717fd284e00fbc0c7845\":true},\"proposalId\":\"b676ffa860b46a2aab0877eecfe9f5409dfbdc224005343eab17f51c494018cc\",\"proposalState\":\"Accepted\",\"proposerId\":\"0c875f5b2ba031b18dd47449c452a0ab5eee1feef599717fd284e00fbc0c7845\",\"voteFailures\":{}}]}"
+ },
+ "signer": {
+  "did": "did:x509:0:sha256:ohITt4x_X1aKtlgkxmjB2rGwH-PpLr3NkMnPAWaNDi4::subject:CN:proofbundle-scitt-probe",
+  "ca_sha256": "a21213b78c7f5f568ab65824c668c1dab1b01fe3e92ebdcd90c9cf01668d0e2e",
+  "ca_hex": "308201af30820155a00302010202140804f1a2c3a0ecf66bf59819b6ed56c7ccd9b00c300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265204341301e170d3236303932373230303531395a170d3236303932383230313031395a30253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f62652043413059301306072a8648ce3d020106082a8648ce3d03010703420004637eb1150d8a075beb335ae641f2ed94fd586b5b21ed4ce7bbaab4184031d75d2ebc750756eb773ad38030d15a609ee558d47c36173d010c2e60b9ce5721022ea3633061300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020106301d0603551d0e041604145a28403f44ef610edcef4fc1077297d8ab93ccd4301f0603551d230418301680145a28403f44ef610edcef4fc1077297d8ab93ccd4300a06082a8648ce3d0403020348003045022037e0293fcf9647461c34d9733c0bccebd1ae3cedd52f5d693bd71a224a18dcda0221009fd0d1ec7fd7d9a4d42addfe74169b158e19741c15b0c8812fb67d36b615011e",
+  "keys": {
+   "A": {
+    "leaf_sha256": "a6bdc3830b47a974b7d0e143a34fdafb0ec312315a24b58ac26d69c91bd65b44",
+    "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004a1f74fc6c3b32c63b435c82663f4717c5552987908e4478334551117f4c33007e0300423b1abd7e9aac267ee365db5c92e7f9a9e5646df2c2ecb9cac3b503175"
+   },
+   "B": {
+    "leaf_sha256": "fde8067881580c9b6e3cb8643a3cad87915676c47a6e9589bccadc133feef6d9",
+    "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d0301070342000446c67b3bb15c5c2595c0d2ca82980cd5f1b198b17d53396655739106b41b2725b8b9885a5685cd2325d551e53c7d5e86aca7171dc365b0b45e32eb6603b82f26"
+   }
+  },
+  "alg": "ES256",
+  "note": "one CA, two leaves with one subject; made for this run, private keys discarded"
+ },
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "vectors": [
+  "control",
+  "c-signature-invalid",
+  "c-h01-protected-duplicate-alg-equal",
+  "c-g09-map-indefinite",
+  "c-crit33",
+  "r-a10-cwt-claims-unprotected",
+  "r-h08-cwt-claims-both-buckets-equal",
+  "r-h07-payload-hash-alg-both-buckets-conflicting",
+  "r-h06-alg-both-buckets-conflicting",
+  "m-u15",
+  "m-u258",
+  "m-u259",
+  "b259-conflicting",
+  "m-u2",
+  "x-a-only",
+  "x-b-only",
+  "x-pa-ub-sig-a",
+  "x-pa-ub-sig-b",
+  "x-pb-ua-sig-a",
+  "x-pb-ua-sig-b"
+ ]
+}

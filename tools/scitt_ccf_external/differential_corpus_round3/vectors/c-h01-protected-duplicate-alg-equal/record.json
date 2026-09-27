@@ -1,0 +1,89 @@
+{
+ "id": "c-h01-protected-duplicate-alg-equal",
+ "kind": "rejection control",
+ "control": "control",
+ "mutation": "h01 again: alg (1) twice in the protected map, -7 both times, adjacent",
+ "p_semantics": "as the control, alg twice",
+ "u_semantics": "empty",
+ "signing": "signed with A over its own protected bytes",
+ "signer": "A",
+ "external_aad": "",
+ "predicted": {
+  "outcome": "refused",
+  "why": "h01 was refused in round 2"
+ },
+ "cohort": "round 3",
+ "signature_verifies_under": {
+  "A": true,
+  "B": false
+ },
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28",
+   "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+   "configuration_read_at_txid": "2.14"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "accdb0e38f670497e641400eafb68a92d9a3a8e4",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus_round3.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1",
+   "tree_clean_excludes": "tools/scitt_ccf_external/differential_corpus_round3/, this run's own output",
+   "reader_file": {
+    "path": "src/proofbundle/scitt_ccf.py",
+    "git_blob": "87ee8c54d08213901d045700a04c231f8110a918"
+   }
+  }
+ },
+ "outcome": {
+  "state": "refused",
+  "error_stage": "POST /entries",
+  "api_status": 400,
+  "api_detail": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}"
+ },
+ "http": [
+  {
+   "n": 1,
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 400,
+   "headers": {
+    "content-type": "application/concise-problem-details+cbor"
+   },
+   "body": "http/01-register.hex",
+   "body_sha256": "d46da665aca381f26616c1ad0e1bdb142802ed89e59a110e49bdd098798927df",
+   "body_length": 78
+  }
+ ],
+ "files": {
+  "request.hex": {
+   "sha256": "58a91edc14d31316d249c03c7eb9e47011245bb8c92dd7c59f94fcb88bd03633",
+   "length": 1152
+  }
+ }
+}

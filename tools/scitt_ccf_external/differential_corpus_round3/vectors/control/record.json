@@ -1,0 +1,176 @@
+{
+ "id": "control",
+ "kind": "control",
+ "control": null,
+ "mutation": "the ordinary control, as in rounds 1 and 2",
+ "p_semantics": "alg -7, CWT Claims {iss: did:x509, sub}, x5chain [leaf A, CA], 258 = -16, 259 = application/json",
+ "u_semantics": "empty",
+ "signing": "signed with A over its own protected bytes",
+ "signer": "A",
+ "external_aad": "",
+ "predicted": {
+  "outcome": "accepted",
+  "why": "the v1 shape was accepted in rounds 1 and 2"
+ },
+ "cohort": "round 3",
+ "signature_verifies_under": {
+  "A": true,
+  "B": false
+ },
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28",
+   "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+   "configuration_read_at_txid": "2.12"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "accdb0e38f670497e641400eafb68a92d9a3a8e4",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus_round3.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1",
+   "tree_clean_excludes": "tools/scitt_ccf_external/differential_corpus_round3/, this run's own output",
+   "reader_file": {
+    "path": "src/proofbundle/scitt_ccf.py",
+    "git_blob": "87ee8c54d08213901d045700a04c231f8110a918"
+   }
+  }
+ },
+ "outcome": {
+  "state": "registered",
+  "error_stage": null,
+  "txid": "2.13",
+  "api_status": 202,
+  "api_detail": null,
+  "statement_status": 200,
+  "receipt_check_recompute": {
+   "readable": true,
+   "signature_valid": true,
+   "receipt_profile_satisfied": false,
+   "problems": []
+  }
+ },
+ "http": [
+  {
+   "n": 1,
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "headers": {
+    "content-type": "application/cbor",
+    "location": "https://127.0.0.1:8000/operations/2.13",
+    "x-ms-ccf-transaction-id": "2.13"
+   },
+   "body": "http/01-register.hex",
+   "body_sha256": "8ec4f207f9d65ebbbde8ef20e20e5ba2e316ed511c4300aaeab5b97aea6ee318",
+   "body_length": 33
+  },
+  {
+   "n": 2,
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.13",
+   "status": 202,
+   "headers": {
+    "x-ms-ccf-transaction-id": "2.14"
+   },
+   "body": "http/02-operation.hex",
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "body_length": 0
+  },
+  {
+   "n": 3,
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.13",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cbor",
+    "location": "https://127.0.0.1:8000/entries/2.13",
+    "x-ms-ccf-transaction-id": "2.14"
+   },
+   "body": "http/03-operation.hex",
+   "body_sha256": "21307a71c361c00abe23740ee2e467061afbd6f1e823e1262814d313acb1ce54",
+   "body_length": 48
+  },
+  {
+   "n": 4,
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.13",
+   "status": 503,
+   "headers": {
+    "content-type": "application/concise-problem-details+cbor"
+   },
+   "body": "http/04-receipt.hex",
+   "body_sha256": "96915a3ab48c29823c268035dd8b67c8d10cc006f1159a1152d3af49cbe9728e",
+   "body_length": 68
+  },
+  {
+   "n": 5,
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.13",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cose",
+    "x-ms-ccf-transaction-id": "2.14"
+   },
+   "body": "http/05-receipt.hex",
+   "body_sha256": "848637be064024bee01a8e40592d37fc1c78616905575dab2d3da481923cb6cb",
+   "body_length": 508
+  },
+  {
+   "n": 6,
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.13/statement",
+   "status": 200,
+   "headers": {
+    "content-type": "application/cose",
+    "x-ms-ccf-transaction-id": "2.14"
+   },
+   "body": "http/06-statement.hex",
+   "body_sha256": "61a3284d231722fb32907f6f7e59b861e4f773fa5f57f447db12d816cebc8791",
+   "body_length": 1665
+  }
+ ],
+ "files": {
+  "request.hex": {
+   "sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+   "length": 1150
+  },
+  "receipt.hex": {
+   "sha256": "848637be064024bee01a8e40592d37fc1c78616905575dab2d3da481923cb6cb",
+   "length": 508
+  },
+  "statement.hex": {
+   "sha256": "61a3284d231722fb32907f6f7e59b861e4f773fa5f57f447db12d816cebc8791",
+   "length": 1665
+  }
+ }
+}
