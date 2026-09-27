@@ -1478,8 +1478,8 @@ class TestTheBudgetJudgesWhatIsSerialized(_Basis):
 def _zufallswert(rng, tiefe: int, mit_floats: bool):
     """A plain JSON value, the lens's generator in a bounded form: strings from a small alphabet of
     awkward characters, integers in the safe range, floats at the edges of their formatting."""
-    zeichen = ["a", "B", "é", "é", "\U0001F600", "￿", "\u007f", " ", "\"", "\\",
-               "\x00", "\x1f", "퟿", "", "z"]
+    zeichen = ["a", "B", "\u00e9", "e\u0301", "\U0001F600", "\uffff", "\u007f", " ", "\"", "\\",
+               "\x00", "\x1f", "\ud7ff", "", "z"]
     art = rng.randint(0, 9 if tiefe < 5 else 5)
     if art == 0:
         return rng.choice([True, False, None])
