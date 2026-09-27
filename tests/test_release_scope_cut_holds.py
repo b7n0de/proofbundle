@@ -174,10 +174,10 @@ DECIDED_OPEN = {
 }
 
 #: The one open branch the cut records at a head: pull request 296, frozen at the head its
-#: correction left, one commit on top of the head its review read (`git ls-remote` on 2026-09-27).
+#: correction left, two commits on top of the head its review read (`git ls-remote` on 2026-09-27).
 #: Every other open branch stands without a digest, which is the file's rule.
 DECIDED_HEADS = {
-    "claude/cargo-audit-rust-parity": "47adce3ec47ffd403579e49bfc459c6da1a9d677",
+    "claude/cargo-audit-rust-parity": "5138b4d2db54a3ba67b7d38639913a5f12f57259",
 }
 
 #: The other addition of that day, which landed before the cut was written up: the ECDSA
