@@ -1248,7 +1248,13 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     transparency-log leaf is referenced it states whether that leaf is WITNESSED yet. An entry can be
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
+
+    ``leaf_witnessed`` must be a bool; anything else raises ``AgentReviewError``. It was read by its
+    truth, so ``leaf_witnessed="false"`` dropped the "not yet in a witnessed checkpoint" caveat.
     """
+    if type(leaf_witnessed) is not bool:
+        raise AgentReviewError("leaf_witnessed must be a bool (true/false); only the exact True drops the "
+                               "'not yet in a witnessed checkpoint' caveat")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
@@ -2194,6 +2200,11 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                 "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
     zustand = axes.get(achse, "NOT_EVALUATED")
+    # A state counts only as a plain str: `axes` is the caller's, and an object whose own __eq__ and
+    # __hash__ answered for the membership test below was accepted (measured). Anything else is a state
+    # nobody evaluated.
+    if type(zustand) is not str:
+        zustand = "NOT_EVALUATED"
     if zustand == "CONFLICT":
         return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
                 "reason": "the axis reports CONFLICT — two time statements contradict each other, "

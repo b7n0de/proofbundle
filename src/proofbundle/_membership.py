@@ -114,7 +114,7 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     predicate now so the boundary and the exporters answer one question with one function; a second
     check beside it would have been two promises for one invariant.
 
-    ``isinstance(value, bool)`` is the whole test and it is the right one: ``bool`` subclasses ``int``,
+    A bool test is the whole test and it is the right one: ``bool`` subclasses ``int``,
     so an ``int``-typed check would accept ``True`` while this rejects ``1`` and ``0``, which is what a
     JSON document that meant a number must not be allowed to mean.
 
@@ -129,8 +129,13 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     one, because ``adapters/eee.py`` imports numpy: a harness that hands a numpy scalar straight into a
     claim gets a refusal naming the type. The fix for that is a conversion at the harness boundary,
     where the value is known, not a wider test here.
+
+    ``type(value) is bool`` AND NOT ``isinstance`` (2026-09-27). ``isinstance`` also believes an object's
+    own ``__class__``: an object whose ``__class__`` property said ``bool`` passed this predicate and then
+    decided the verdict with its own ``__bool__``, and one whose ``__class__`` raised escaped every caller.
+    ``bool`` cannot be subclassed, so for every real value the two tests agree.
     """
-    return isinstance(value, bool)
+    return type(value) is bool
 
 
 def as_dict(value: Any) -> dict:

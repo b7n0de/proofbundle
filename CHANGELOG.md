@@ -124,22 +124,77 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   every real bool.
 
   Reach: the Python API only. The CLI loads every policy through `load_policy` and passes exact bools
-  to both summaries. Not closed here, measured on this tree and left to their own change: the flag
-  arguments `anchors.verify_anchors(allow_pending=)`, `renewal.verify_sequence(allow_unauthenticated_anchor=)`,
-  `trust_pack.verify_trust_pack(allow_unverified_rotation=)` and `hashalg.resolve_hash_alg(allow_deprecated=)`
-  still read the string `"false"` as true; `VerificationResult.ok` still folds its checks by their
-  truth (the two gates above no longer rely on it); `_membership.is_bool` still asks `isinstance`; and
-  three str verdicts are still compared with the caller's own `__eq__` (a case's `scope`,
-  `checkpoint_authenticity`, `anchor_status`). Contracts: `tests/test_a_resolver_promotes_only_on_exact_true.py`
-  gains 12 cases with 55 subtests; against 44e12b72 (6d102950 merged with main 31816e08), 47 subtests
-  fail in 8 of them and the four controls are green. The new
-  `tests/test_a_caller_verdict_counts_only_as_a_bool.py` has 21 cases with 268 subtests; against
-  44e12b72, 14 of its cases are red, 250 subtests fail in 11 of them and 4 fail outside a subtest (one
-  of those inside as well), and the seven others are green there: six controls, and the check that the
-  derivation of the boolean fields finds every section. Each red subtest fails on its own defect: a
-  verdict, an escaped exception, a refusal that did not happen, a missing detail, or a recorded call of
-  the caller's own method. With this change all 49 cases and all 410 subtests of the two files pass, on
-  Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+  to both summaries. Contracts: `tests/test_a_resolver_promotes_only_on_exact_true.py` gains 12 cases
+  with 55 subtests; against 44e12b72 (6d102950 merged with main 31816e08), 47 subtests fail in 8 of
+  them and the four controls are green. The new `tests/test_a_caller_verdict_counts_only_as_a_bool.py`
+  had 21 cases with 268 subtests; against 44e12b72, 14 of its cases are red, 250 subtests fail in 11
+  of them and 4 fail outside a subtest (one of those inside as well), and the seven others are green
+  there: six controls, and the check that the derivation of the boolean fields finds every section.
+  Each red subtest fails on its own defect: a verdict, an escaped exception, a refusal that did not
+  happen, a missing detail, or a recorded call of the caller's own method. With the round-2 change all
+  49 cases and all 410 subtests of the two files passed, on Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
+  **Round 3: the flags, type checks and str verdicts the round-2 text left open** (`anchors`,
+  `hashalg`, `renewal`, `trust_pack`, `hf_evals`, `agent_review`, `_membership`, `sdjwt_vc`,
+  `public_transparency`, `errors`, `verifier_block`, `bundle`, `policy`, `relation`). The round-2
+  version of this entry listed them as not closed. Measured at 67bb104e, the round-2 commit:
+
+  A permissive flag relaxed its check on the flag's truth. `anchors.verify_anchors(allow_pending="false")`
+  let a pending anchor meet `require`; `hashalg.resolve_hash_alg("sha1", allow_deprecated="false")`,
+  and `compute_digest` through it, accepted a deprecated hash;
+  `renewal.verify_sequence(allow_unauthenticated_anchor="false")` switched on the structural-only mode
+  and returned ok; and `trust_pack.verify_trust_pack(allow_unverified_rotation="false")` accepted a
+  rotation nobody had verified. A sweep of every permissive keyword flag in `src` found two more:
+  `hf_evals.to_eval_results_entry(allow_value_mismatch="false")` skipped the value-verdict consistency
+  check, and `agent_review.render_disclosure_line(leaf_witnessed="false")` dropped the "not yet in a
+  witnessed checkpoint" caveat. Now only the exact True relaxes. The functions that raise typed errors
+  refuse a flag that is not a bool with their own error (`BundleFormatError`, `HashAlgError`,
+  `AgentReviewError`); the two verifiers that report instead of raising keep the check and say that
+  the flag is not a bool (the `renewal:last_anchor` detail, the trust pack's rotation error). No method
+  of the flag runs. The flags that tighten a check (`strict`, `require_*`) are not in this class: a
+  string `"false"` makes them stricter, not weaker.
+
+  A type check believed the value's `__class__`. `_membership.is_bool` and the boolean field checks of
+  `sdjwt_vc.validate_vc_policy` and `public_transparency.validate_public_transparency_policy` asked
+  `isinstance`: an object whose `__class__` said bool passed and then decided with its own `__bool__`,
+  and one whose `__class__` raised escaped `is_bool`. They ask `type(x) is bool` now; `bool` cannot be
+  subclassed, so the two tests agree for every real bool, and the callers of `is_bool` behave as before
+  for real bools. `VerificationResult.ok` folded its checks by their truth, so a caller-built
+  `Check("x", "false")` made the result ok; it counts a check only when its `ok` is the exact True, and
+  `Check.__str__` marks it the same way.
+
+  A str verdict was compared with the caller's own `__eq__`. A case `scope` whose `__eq__` said it
+  equals `"full"` made the case PASSED instead of WARNED in `build_test_result_statement`; a
+  `checkpoint_authenticity` doing the same gave `root_authenticity_summary` the root trust level
+  CHECKPOINT; an `anchor_status` doing the same met the anchor requirement of
+  `evaluate_decision_policy`. Each is read only as a plain str now; anything else takes the branch that
+  does not pass (WARNED, NOT_EVALUATED, no anchor status) and none of its methods runs. The sweep found
+  the same in two more evaluators. `agent_review.evaluate_time_policy` accepted an axis state whose own
+  `__eq__` and `__hash__` answered its membership test; a state that is not a plain str is now
+  NOT_EVALUATED. `relation.evaluate_relations_policy` compared an edge's relation, resolution and target
+  digest with the caller's methods and read `supersededByAttached` by its truth: a resolution that
+  claimed to be VERIFIED met `require_relation_resolution`, one that claimed not to be skipped the
+  same-key check, a target digest that claimed to be the pinned root passed `require_relation_target`,
+  and a `supersededByAttached` whose `__bool__` said False hid a supersession. It reads plain values
+  now: an edge whose relation is not a plain str fails every rule that is set, a required relation
+  resolves only as the plain str VERIFIED, the same-key check runs unless the resolution is a plain str
+  other than VERIFIED, and only None and `""` mean not superseded. Its flags `reject_superseded` and
+  `reject_retracted` are refused with the loader's `_require_bool` message when they are not bools, as
+  the two other evaluators refuse theirs since round 2.
+
+  Reach: the Python API only; on these paths the CLI and the package's own verifiers pass exact bools
+  and plain strs. Not closed here, measured and left to their own change: `intoto.svr_properties` and
+  `intoto.export_svr_dsse` still read `prereg_verified` and `anchor_verified` by their truth (another
+  change edits that file in this round); and an expectation a caller passes as a str
+  (`known_newest_token_digest` in `verify_sequence`, `prev_version_digest` in `verify_trust_pack`, the
+  `expected_*` arguments of the decision, outcome, key-binding and checkpoint verifiers) is still
+  compared with the caller's own `__eq__`, a neighbouring class in which the caller decides against
+  itself, not for a document. Contract: `tests/test_a_caller_verdict_counts_only_as_a_bool.py` gains
+  22 cases with 48 subtests; against 67bb104e, 18 of them are red (44 subtests fail in 12 cases, and 7
+  cases fail outside a subtest, one of those inside as well) and the four controls are green. Each red
+  case fails on its own defect: a refusal that did not happen, a verdict, a recorded call of the
+  caller's own method, or an escaped exception. With this change the two files have 71 cases and 458
+  subtests, and all of them pass on Python 3.10 and 3.12.
 
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,

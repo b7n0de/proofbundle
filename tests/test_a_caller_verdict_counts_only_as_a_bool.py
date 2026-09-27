@@ -31,6 +31,23 @@ blocks, so a value that is not a bool passed:
   a pin whose ``__class__`` says int and whose ``__eq__`` says equal passed the tree-size check, and one whose
   ``__class__`` raised escaped. The pin is now compared only as a plain int.
 
+Round 3, the siblings the sweep over the whole package found:
+
+- Permissive keyword flags (a truthy value relaxes a check) read by their truth:
+  ``anchors.verify_anchors(allow_pending=)``, ``hashalg.resolve_hash_alg(allow_deprecated=)``,
+  ``renewal.verify_sequence(allow_unauthenticated_anchor=)``, ``trust_pack.verify_trust_pack(
+  allow_unverified_rotation=)``, ``hf_evals.to_eval_results_entry(allow_value_mismatch=)`` and
+  ``agent_review.render_disclosure_line(leaf_witnessed=)``. ``"false"`` relaxed each of them. A function that
+  raises a typed error for a malformed argument now raises it for a flag that is not a bool; the two
+  never-raise verifiers keep the check and say in their detail that the flag is not a bool.
+- ``_membership.is_bool``, ``policy``-style boolean validators in ``sdjwt_vc`` and ``public_transparency``,
+  and ``errors.VerificationResult.ok`` believed ``__class__`` or read ``Check.ok`` by its truth.
+- Str verdicts compared through the caller's own ``__eq__``: a test case's ``scope``,
+  ``root_authenticity_summary(checkpoint_authenticity=)``, ``evaluate_decision_policy(anchor_status=)``,
+  ``agent_review.evaluate_time_policy``'s axis state, and the ``resolution``, ``relation``,
+  ``targetDigest`` and ``supersededByAttached`` of a lineage result in ``relation.evaluate_relations_policy``
+  (which now also refuses a non-bool ``reject_superseded`` / ``reject_retracted`` with the loader's message).
+
 The recording classes show that no method of the caller's value runs. The controls show that exact bools
 and a policy that went through ``load_policy`` behave as before.
 """
@@ -44,7 +61,8 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from proofbundle import anchors, dsse
+from proofbundle import _membership, anchors, dsse, hashalg, public_transparency, relation, sdjwt_vc
+from proofbundle import agent_review as ar
 from proofbundle import policy as policy_module
 from proofbundle.automation_verdict import automation_summary
 from proofbundle.bundle import root_authenticity_summary, verify_bundle
@@ -52,6 +70,7 @@ from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.emit import generate_signer
 from proofbundle.errors import Check, VerificationResult
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
+from proofbundle.hf_evals import to_eval_results_entry
 from proofbundle.policy import (
     PolicyError,
     evaluate_decision_policy,
@@ -60,7 +79,9 @@ from proofbundle.policy import (
     load_policy,
     policy_warnings,
 )
+from proofbundle.renewal import build_initial_sequence, verify_sequence
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
+from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
 from proofbundle.verifier_block import (
     VerifierBlockError,
     build_test_result_statement,
@@ -608,6 +629,396 @@ class TestTheLibraryPathRefusesAPolicyFlagThatIsNotABool(unittest.TestCase):
                                                       "signature": {"require_expected_signer": True},
                                                       "allowed_issuers": [{"public_key_b64": self.tdm[0][
                                                           "public_key_b64"]}]})), [])
+
+
+# ── round 3: permissive keyword flags, the __class__ checks, and str verdicts ─────────────────────
+
+
+class _ClaimsStr:
+    """Not a str, but its ``__class__`` says ``str``; it equals (and hashes like) ``target`` and nothing else."""
+
+    def __init__(self, calls: list, target: str):
+        self._calls, self._target = calls, target
+
+    @property
+    def __class__(self):
+        self._calls.append("__class__")
+        return str
+
+    def __eq__(self, other):
+        self._calls.append("__eq__")
+        return type(other) is str and other == self._target
+
+    def __ne__(self, other):
+        self._calls.append("__ne__")
+        return not (type(other) is str and other == self._target)
+
+    def __hash__(self):
+        self._calls.append("__hash__")
+        return hash(self._target)
+
+
+class _StrSubclass(str):
+    """A real str subclass; its own ``__eq__`` records itself."""
+
+    calls: list = []
+
+    def __eq__(self, other):
+        _StrSubclass.calls.append("__eq__")
+        return str.__eq__(self, other)
+
+    __hash__ = str.__hash__
+
+
+def _flag_values(calls: list):
+    """Flags that are not a bool, each of which relaxed a check at 67bb104e (all but the last are truthy)."""
+    return [("str 'false'", "false"), ("int 1", 1), ("list [0]", [0]),
+            ("__class__ says bool, __bool__ says True", _ClaimsBool(calls, True))]
+
+
+_STATEMENT_ROOT_PENDING = "test-a-caller-verdict-pending-r3/v1"
+
+
+class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
+    """A keyword flag whose truthy value relaxes a check relaxes it only as the exact True."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.signer = generate_signer()
+        env = emit_decision_receipt(copy.deepcopy(json.loads(
+            (EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))), cls.signer, strict=True)
+        cls.root = anchors.statement_content_root(dsse.load_payload(env))
+        cls.bundle = _eval_bundle()
+
+    def setUp(self):
+        anchors.register_anchor_type(_STATEMENT_ROOT_PENDING, lambda proof, root, *, frozen, now: {
+            "ok": False, "warn": True, "status": "pending"})
+
+    def tearDown(self):
+        anchors._VERIFIERS.pop(_STATEMENT_ROOT_PENDING, None)
+
+    def _pending(self, allow_pending):
+        a = {"type": _STATEMENT_ROOT_PENDING, "target": "statement",
+             "canonicalRoot": base64.b64encode(self.root).decode(), "proof": base64.b64encode(b"p").decode()}
+        return anchors.verify_anchors([a], target_roots={"statement": self.root}, require="any",
+                                      allow_pending=allow_pending)
+
+    def test_verify_anchors_refuses_an_allow_pending_that_is_not_a_bool(self):
+        calls: list = []
+        for label, value in _flag_values(calls):
+            with self.subTest(allow_pending=label):
+                calls.clear()
+                with self.assertRaises(anchors.BundleFormatError) as cm:
+                    self._pending(value)
+                self.assertIn("allow_pending must be a bool", str(cm.exception))
+                self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_resolve_hash_alg_refuses_an_allow_deprecated_that_is_not_a_bool(self):
+        calls: list = []
+        for label, value in _flag_values(calls):
+            for name, call in (("resolve_hash_alg", lambda v: hashalg.resolve_hash_alg("sha1", allow_deprecated=v)),
+                               ("compute_digest", lambda v: hashalg.compute_digest(b"x", "sha1",
+                                                                                   allow_deprecated=v))):
+                with self.subTest(surface=name, allow_deprecated=label):
+                    calls.clear()
+                    with self.assertRaises(hashalg.HashAlgError) as cm:
+                        call(value)
+                    self.assertIn("allow_deprecated must be a bool", str(cm.exception))
+                    self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_verify_sequence_keeps_the_anchor_check_for_a_flag_that_is_not_a_bool(self):
+        data = [_sha("a"), _sha("b")]
+        seq = build_initial_sequence(data, hash_alg="sha256", time=1000)
+        calls: list = []
+        for label, value in _flag_values(calls):
+            with self.subTest(allow_unauthenticated_anchor=label):
+                calls.clear()
+                r = verify_sequence(seq, data, allow_unauthenticated_anchor=value)
+                last = next(c for c in r.checks if c.name == "renewal:last_anchor")
+                self.assertIs(last.ok, False)
+                self.assertIs(r.ok, False)
+                self.assertIn("not a bool", last.detail)
+                self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_verify_trust_pack_keeps_the_rotation_check_for_a_flag_that_is_not_a_bool(self):
+        env, now = _rotation_pack()
+        calls: list = []
+        for label, value in _flag_values(calls):
+            with self.subTest(allow_unverified_rotation=label):
+                calls.clear()
+                r = verify_trust_pack(env, strict=True, now=now, allow_unverified_rotation=value)
+                self.assertIs(r["ok"], False)
+                self.assertIs(r["rotation_authorized"], False)
+                self.assertTrue(any("not a bool" in e for e in r["errors"]), r["errors"])
+                self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_to_eval_results_entry_refuses_an_allow_value_mismatch_that_is_not_a_bool(self):
+        calls: list = []
+        for label, value in _flag_values(calls):
+            with self.subTest(allow_value_mismatch=label):
+                calls.clear()
+                with self.assertRaises(anchors.BundleFormatError) as cm:
+                    to_eval_results_entry(self.bundle, dataset_id="d", task_id="t", value=0.1,
+                                          allow_value_mismatch=value)
+                self.assertIn("allow_value_mismatch must be a bool", str(cm.exception))
+                self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_render_disclosure_line_refuses_a_leaf_witnessed_that_is_not_a_bool(self):
+        calls: list = []
+        predicate = _v02_predicate()
+        for label, value in _flag_values(calls):
+            with self.subTest(leaf_witnessed=label):
+                calls.clear()
+                with self.assertRaises(ar.AgentReviewError) as cm:
+                    ar.render_disclosure_line(predicate, receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
+                                              leaf_url="https://x.invalid/leaf", leaf_witnessed=value)
+                self.assertIn("leaf_witnessed must be a bool", str(cm.exception))
+                self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_control_exact_flags_behave_as_before(self):
+        self.assertIs(self._pending(True)["require_met"], True)
+        self.assertIs(self._pending(False)["require_met"], False)
+        self.assertEqual(hashalg.resolve_hash_alg("sha1", allow_deprecated=True).id, "sha1")
+        with self.assertRaises(hashalg.DeprecatedHashAlg):
+            hashalg.resolve_hash_alg("sha1", allow_deprecated=False)
+        self.assertEqual(hashalg.resolve_hash_alg("sha256").id, "sha256")
+        data = [_sha("a"), _sha("b")]
+        seq = build_initial_sequence(data, hash_alg="sha256", time=1000)
+        self.assertIs(verify_sequence(seq, data, allow_unauthenticated_anchor=True).ok, True)
+        r = verify_sequence(seq, data, allow_unauthenticated_anchor=False)
+        self.assertIs(r.ok, False)
+        self.assertNotIn("not a bool", next(c for c in r.checks if c.name == "renewal:last_anchor").detail)
+        env, now = _rotation_pack()
+        r = verify_trust_pack(env, strict=True, now=now, allow_unverified_rotation=True)
+        self.assertIs(r["ok"], True, r["errors"])
+        r = verify_trust_pack(env, strict=True, now=now, allow_unverified_rotation=False)
+        self.assertIs(r["ok"], False)
+        self.assertFalse(any("not a bool" in e for e in r["errors"]))
+        self.assertIn("verifyToken", to_eval_results_entry(self.bundle, dataset_id="d", task_id="t", value=0.1,
+                                                           allow_value_mismatch=True))
+        with self.assertRaises(anchors.BundleFormatError) as cm:
+            to_eval_results_entry(self.bundle, dataset_id="d", task_id="t", value=0.1, allow_value_mismatch=False)
+        self.assertIn("inconsistent", str(cm.exception))
+        line = ar.render_disclosure_line(_v02_predicate(), receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
+                                         leaf_url="https://x.invalid/leaf", leaf_witnessed=False)
+        self.assertIn("not yet in a witnessed checkpoint", line)
+        line = ar.render_disclosure_line(_v02_predicate(), receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
+                                         leaf_url="https://x.invalid/leaf", leaf_witnessed=True)
+        self.assertNotIn("not yet in a witnessed checkpoint", line)
+
+
+def _sha(text: str) -> str:
+    import hashlib  # noqa: PLC0415
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _rotation_pack():
+    """A pack that claims to be a rotation (prevVersionDigest set), signed by its own root only."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+    sk = generate_signer()
+    tp = {"schemaVersion": "0.1.0", "trustPackId": "tp-r3", "version": 4, "expires": "2027-01-01T00:00:00Z",
+          "prevVersionDigest": {"sha256": "a" * 64},
+          "roles": {"root": {"keyIds": ["new-0"], "threshold": 1}},
+          "keys": {"new-0": {"publicKey": base64.b64encode(sk.public_key().public_bytes_raw()).decode(),
+                             "scheme": "ed25519"}},
+          "nonClaims": ["round 3 test pack"]}
+    return sign_trust_pack(tp, {"new-0": sk}), datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _v02_predicate() -> dict:
+    korpus = Path(__file__).resolve().parent.parent / "conformance" / "agent_review"
+    env = json.loads((korpus / "agent-review-v02-positive-control-current-v02-is-marked-current" / "envelope.json")
+                     .read_text(encoding="utf-8"))
+    return json.loads(base64.b64decode(env["payload"], validate=True))["predicate"]
+
+
+class TestATypeCheckDoesNotBelieveTheClass(unittest.TestCase):
+    """``is_bool``, the boolean policy validators and ``VerificationResult.ok`` read a bool only as a bool."""
+
+    def test_is_bool_is_false_for_an_object_that_only_claims_to_be_a_bool(self):
+        calls: list = []
+        for label, value in (("__class__ says bool", _ClaimsBool(calls, True)), ("__class__ raises",
+                                                                                 _ClassRaises(calls))):
+            with self.subTest(value=label):
+                calls.clear()
+                self.assertIs(_membership.is_bool(value), False)
+                self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_the_boolean_policy_validators_refuse_an_object_that_only_claims_to_be_a_bool(self):
+        calls: list = []
+        for name, validate, pol in (
+                ("sdjwt_vc.validate_vc_policy requireKeyBinding", sdjwt_vc.validate_vc_policy,
+                 lambda v: {"vctAllowlist": ["x"], "requireKeyBinding": v}),
+                ("public_transparency requireSignedCheckpoint",
+                 public_transparency.validate_public_transparency_policy,
+                 lambda v: {"requireSignedCheckpoint": v})):
+            with self.subTest(validator=name):
+                calls.clear()
+                errors = validate(pol(_ClaimsBool(calls, False)))
+                self.assertTrue(any("must be a boolean" in e for e in errors), errors)
+                self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_verification_result_ok_counts_a_check_only_as_true(self):
+        calls: list = []
+        for label, value in (("str 'false'", "false"), ("int 1", 1), ("list [0]", [0]),
+                             ("__class__ says bool, __bool__ says True", _ClaimsBool(calls, True))):
+            with self.subTest(ok=label):
+                calls.clear()
+                self.assertIs(VerificationResult([Check("x", True), Check("y", value)]).ok, False)
+                self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_control_real_bools_are_read_as_before(self):
+        self.assertIs(_membership.is_bool(True), True)
+        self.assertIs(_membership.is_bool(False), True)
+        self.assertIs(_membership.is_bool(1), False)
+        self.assertEqual(sdjwt_vc.validate_vc_policy({"vctAllowlist": ["x"], "requireKeyBinding": False}), [])
+        self.assertEqual(public_transparency.validate_public_transparency_policy({"requireSignedCheckpoint": True}),
+                         [])
+        self.assertIs(VerificationResult([Check("x", True), Check("y", True)]).ok, True)
+        self.assertIs(VerificationResult([Check("x", True), Check("y", False)]).ok, False)
+        self.assertIs(VerificationResult([]).ok, False)
+
+
+class TestAStrVerdictIsReadOnlyAsAPlainStr(unittest.TestCase):
+    """A str verdict the caller supplies is compared only as a plain str, never by its own ``__eq__``."""
+
+    _BUILD = {"digest": {"sha256": "1" * 64}, "source": "source-tree"}
+    _VS = {"name": "corpus", "digest": {"sha256": "2" * 64}, "cases": 1}
+
+    def _scope(self, scope):
+        return build_test_result_statement(build=self._BUILD, vector_set=self._VS, version="6.1.0",
+                                           results=[{"caseId": "c1", "ok": True, "scope": scope}])["predicate"]
+
+    def test_a_scope_that_only_claims_to_be_full_is_warned(self):
+        calls: list = []
+        _StrSubclass.calls = []
+        for label, scope in (("__class__ says str, equals 'full'", _ClaimsStr(calls, "full")),
+                             ("str subclass 'full'", _StrSubclass("full"))):
+            with self.subTest(scope=label):
+                calls.clear()
+                pred = self._scope(scope)
+                self.assertEqual(pred["result"], "WARNED")
+                self.assertEqual(pred["warnedTests"], ["c1"])
+                self.assertEqual(calls, [], "the value's own methods ran")
+        self.assertEqual(_StrSubclass.calls, [], "the subclass's own __eq__ ran")
+
+    def test_a_checkpoint_authenticity_that_only_claims_to_be_pass_is_not_evaluated(self):
+        calls: list = []
+        r = _summary(checkpoint_authenticity=_ClaimsStr(calls, "PASS"))
+        self.assertEqual(r["checkpointAuthenticity"], "NOT_EVALUATED")
+        self.assertNotEqual(r["rootTrustLevel"], "CHECKPOINT")
+        self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_an_anchor_status_that_only_claims_to_be_pass_does_not_satisfy_the_requirement(self):
+        signer = generate_signer()
+        pub = signer.public_key().public_bytes_raw()
+        env = emit_decision_receipt(copy.deepcopy(json.loads(
+            (EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))), signer, strict=True)
+        statement = json.loads(dsse.load_payload(env))
+        pol = {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": base64.b64encode(pub).decode()}],
+                                    "require_external_anchor": True, "allow_pending": True}}
+        calls: list = []
+        for label, status in (("__class__ says str, equals 'PASS'", _ClaimsStr(calls, "PASS")),
+                              ("__class__ says str, equals 'WARN'", _ClaimsStr(calls, "WARN"))):
+            with self.subTest(anchor_status=label):
+                calls.clear()
+                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
+                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                                             anchor_status=status)
+                self.assertIs(r["policy_ok"], False)
+                self.assertEqual(calls, [], "the value's own methods ran")
+        for status, want in (("PASS", True), ("WARN", True), ("FAIL", False), (None, False)):
+            with self.subTest(control=status):
+                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
+                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                                             anchor_status=status)
+                self.assertIs(r["policy_ok"], want, r["errors"])
+
+    def test_a_time_axis_state_that_only_claims_to_be_observed_is_not_accepted(self):
+        calls: list = []
+        r = ar.evaluate_time_policy({"event_time_status": _ClaimsStr(calls, "RUNNER_OBSERVED")},
+                                    {"kind": "freshness"})
+        self.assertEqual(r["decision"], "insufficient_evidence")
+        self.assertEqual(calls, [], "the value's own methods ran")
+        self.assertEqual(ar.evaluate_time_policy({"event_time_status": "RUNNER_OBSERVED"}, {"kind": "freshness"})
+                         ["decision"], "accept")
+        self.assertEqual(ar.evaluate_time_policy({"event_time_status": "CONFLICT"}, {"kind": "freshness"})
+                         ["decision"], "reject")
+
+    def test_control_plain_str_verdicts_behave_as_before(self):
+        self.assertEqual(self._scope("full")["result"], "PASSED")
+        self.assertEqual(self._scope("partial")["result"], "WARNED")
+        r = _summary(checkpoint_authenticity="PASS")
+        self.assertEqual((r["checkpointAuthenticity"], r["rootTrustLevel"]), ("PASS", "CHECKPOINT"))
+        self.assertEqual(_summary(checkpoint_authenticity="FAIL")["checkpointAuthenticity"], "FAIL")
+
+
+_KEY = base64.b64encode(b"\x07" * 32).decode()
+
+
+class TestTheRelationsEvaluatorReadsALineageResultOnlyAsPlainValues(unittest.TestCase):
+    """``relation.evaluate_relations_policy`` over a caller-built lineage result."""
+
+    def _viol(self, section, lineage, key=_KEY):
+        return relation.evaluate_relations_policy(section, lineage, successor_key_b64=key)
+
+    def test_a_resolution_that_only_claims_to_be_verified_does_not_meet_a_requirement(self):
+        calls: list = []
+        lineage = {"edges": [{"relation": "supersedes", "resolution": _ClaimsStr(calls, "VERIFIED"),
+                              "targetDigest": "a" * 64}]}
+        v = self._viol({"require_relation_resolution": ["supersedes"]}, lineage)
+        self.assertEqual([x["code"] for x in v], ["LINEAGE_REQUIREMENT_FAILED"])
+        self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_a_same_key_check_is_not_skipped_by_a_resolution_that_only_claims_not_to_be_verified(self):
+        calls: list = []
+        lineage = {"edges": [{"relation": "supersedes", "resolution": _ClaimsStr(calls, "DECLARED_UNRESOLVED"),
+                              "targetDigest": "a" * 64, "verified_under": None}]}
+        v = self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}}, lineage)
+        self.assertEqual([x["code"] for x in v], ["RELATION_SIGNER_UNAUTHORIZED"])
+        self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_a_target_digest_that_only_claims_to_be_the_pinned_root_is_a_mismatch(self):
+        calls: list = []
+        lineage = {"edges": [{"relation": "supersedes", "resolution": "VERIFIED",
+                              "targetDigest": _ClaimsStr(calls, "b" * 64)}]}
+        v = self._viol({"require_relation_target": {"supersedes": "b" * 64}}, lineage)
+        self.assertEqual([x["code"] for x in v], ["RELATION_TARGET_MISMATCH"])
+        self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_a_supersession_whose_own_bool_says_false_is_still_a_supersession(self):
+        calls: list = []
+        v = self._viol({"reject_superseded": True}, {"edges": [], "supersededByAttached": _SaysEmpty(calls)})
+        self.assertEqual([x["code"] for x in v], ["LINEAGE_REQUIREMENT_FAILED"])
+        self.assertEqual(calls, [], "the value's own methods ran")
+
+    def test_a_reject_flag_that_is_not_a_bool_is_refused_with_the_loaders_message(self):
+        for flag in ("reject_superseded", "reject_retracted"):
+            for label, value in (("str 'false'", "false"), ("int 0", 0)):
+                with self.subTest(flag=flag, value=label):
+                    v = self._viol({flag: value}, {"edges": [], "supersededByAttached": None})
+                    self.assertEqual(len(v), 1, v)
+                    self.assertIn(f"relations.{flag} must be a boolean (true/false)", v[0]["message"])
+
+    def test_control_plain_lineage_values_behave_as_before(self):
+        verified = {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "b" * 64,
+                    "verified_under": _KEY}
+        self.assertEqual(self._viol({"require_relation_resolution": ["supersedes"]}, {"edges": [verified]}), [])
+        unresolved = dict(verified, resolution="DECLARED_UNRESOLVED")
+        self.assertEqual([x["code"] for x in self._viol({"require_relation_resolution": ["supersedes"]},
+                                                        {"edges": [unresolved]})], ["LINEAGE_REQUIREMENT_FAILED"])
+        self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
+                                    {"edges": [verified]}), [])
+        self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
+                                    {"edges": [unresolved]}), [])
+        self.assertEqual(self._viol({"require_relation_target": {"supersedes": "b" * 64}}, {"edges": [verified]}),
+                         [])
+        self.assertEqual([x["code"] for x in self._viol({"reject_superseded": True},
+                                                        {"edges": [], "supersededByAttached": "by X"})],
+                         ["LINEAGE_REQUIREMENT_FAILED"])
+        self.assertEqual(self._viol({"reject_superseded": True}, {"edges": [], "supersededByAttached": None}), [])
+        self.assertEqual(self._viol({"reject_superseded": False}, {"edges": [], "supersededByAttached": "by X"}),
+                         [])
 
 
 if __name__ == "__main__":

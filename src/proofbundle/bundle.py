@@ -707,7 +707,10 @@ def root_authenticity_summary(result: VerificationResult, *,
         tree_context = "FAIL"
     else:
         tree_context = "NOT_EVALUATED"
-    cp_auth = checkpoint_authenticity if checkpoint_authenticity in ("PASS", "FAIL") \
+    # A plain str only: `in ("PASS", "FAIL")` and `== "PASS"` below ran the caller's own __eq__, and an
+    # object answering True reached rootTrustLevel CHECKPOINT (measured). Anything else is NOT_EVALUATED.
+    cp_auth = checkpoint_authenticity if (type(checkpoint_authenticity) is str
+                                          and checkpoint_authenticity in ("PASS", "FAIL")) \
         else "NOT_EVALUATED"
     if tree_context == "PASS" and cp_auth == "PASS":
         root_trust_level = "CHECKPOINT"

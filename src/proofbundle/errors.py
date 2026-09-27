@@ -27,7 +27,7 @@ class Check:
     detail: str = ""
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
-        mark = "PASS" if self.ok else "FAIL"
+        mark = "PASS" if self.ok is True else "FAIL"
         return f"[{mark}] {self.name}: {self.detail}".rstrip(": ")
 
 
@@ -39,8 +39,10 @@ class VerificationResult:
 
     @property
     def ok(self) -> bool:
-        """True only if every check that ran passed and at least one ran."""
-        return bool(self.checks) and all(c.ok for c in self.checks)
+        """True only if every check that ran passed and at least one ran. A check passes only as the
+        exact ``True``: ``all(c.ok ...)`` read each check by its truth, so a caller-built
+        ``Check("x", "false")`` made the whole result ok, and the check's own ``__bool__`` ran."""
+        return bool(self.checks) and all(c.ok is True for c in self.checks)
 
     def add(self, name: str, ok: bool, detail: str = "") -> None:
         self.checks.append(Check(name, ok, detail))

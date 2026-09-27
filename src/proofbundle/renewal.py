@@ -756,7 +756,10 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         and when the answer is not a bool at all the ``renewal:last_anchor`` detail says so.
       * ``allow_unauthenticated_anchor=True`` (EXPLICIT opt-in): fall back to the bare ``anchor_status``
         string, which is NOT cryptographically bound (excluded from ``token()``) — a STRUCTURAL check only.
-        A PASS here means "structurally consistent", never "cryptographically anchored".
+        A PASS here means "structurally consistent", never "cryptographically anchored". Only the exact
+        ``True`` opts in: the flag was read by its truth, so ``"false"`` switched this weak mode on
+        (measured: ok true). A value that is not a bool now leaves the newest ATS unanchored, and the
+        ``renewal:last_anchor`` detail says the flag is not a bool.
       * NONE of the above: fail closed — the newest-anchor check is FALSE with a clear message. This makes
         a naive ``verify_sequence(seq, data)`` refuse to certify an unauthenticated anchor (API-safety audit).
 
@@ -829,9 +832,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     elif anchor_verifier is not None:
         verify_anchor = anchor_verifier
         anchor_mode = "caller anchor_verifier"
-    elif allow_unauthenticated_anchor:
+    elif allow_unauthenticated_anchor is True:
         verify_anchor = _default_anchor
         anchor_mode = "structural-only (unauthenticated, opted-in)"
+    elif type(allow_unauthenticated_anchor) is not bool:
+        # Never the weak mode for a flag that is not a bool ("false" is truthy); say why nothing anchors.
+        verify_anchor = _no_anchor
+        anchor_mode = ("none supplied — allow_unauthenticated_anchor is not a bool; only the exact True "
+                       "opts into the structural-only mode")
     else:
         verify_anchor = _no_anchor
         anchor_mode = "none supplied"

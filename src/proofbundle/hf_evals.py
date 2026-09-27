@@ -252,7 +252,13 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     a value that CONTRADICTS the verdict (a "passed" receipt published with a failing value); it does
     NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
     ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
+
+    ``allow_value_mismatch`` must be a bool; anything else raises ``BundleFormatError``. It was read by
+    its truth, so ``allow_value_mismatch="false"`` skipped the consistency check (measured).
     """
+    if type(allow_value_mismatch) is not bool:
+        raise BundleFormatError("allow_value_mismatch must be a bool (true/false); only the exact True "
+                                "skips the value-verdict consistency check")
     if require_verified:
         result = verify_bundle(bundle)
         if not result.ok:

@@ -97,7 +97,12 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
 
     Raises ``MissingHashAlgId`` for an absent/empty id (no implicit default), ``UnknownHashAlg`` for an
     id not in the registry, and ``DeprecatedHashAlg`` for a weak algorithm unless ``allow_deprecated``.
+    ``allow_deprecated`` must be a bool; anything else raises ``HashAlgError``. It was read by its
+    truth, so ``allow_deprecated="false"`` accepted sha1 (measured).
     """
+    if type(allow_deprecated) is not bool:
+        raise HashAlgError("allow_deprecated must be a bool (true/false); only the exact True opts into "
+                           "legacy verification of a deprecated hash")
     if not alg_id or not isinstance(alg_id, str):
         raise MissingHashAlgId(
             "a hash algorithm id is required — proofbundle never defaults a missing hash to SHA-256")

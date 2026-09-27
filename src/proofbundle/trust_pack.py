@@ -449,7 +449,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     keys MUST also have validly signed THIS pack (old root vouches for the new pack). Without this the documented
     two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
-    alone."""
+    alone. ``allow_unverified_rotation`` opts out of that check only as the exact ``True``; a value that is not
+    a bool keeps the check and the error says so."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     try:
@@ -640,7 +641,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # a v2 minting self-owned keys + a real v1 digest would otherwise pass on its own self-signature
         # (the exact footgun this predicate defends against). A caller that deliberately wants only a
         # standalone self-signature check opts out explicitly with allow_unverified_rotation=True.
-        if allow_unverified_rotation:
+        # Only the exact True opts out: the flag was read by its truth, so "false" accepted an unverified
+        # rotation (measured: ok true). A value that is not a bool is the default refusal, named below.
+        if allow_unverified_rotation is True:
             r["warnings"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified (allow_unverified_rotation=True) — this proves only self-signature by the "
@@ -650,7 +653,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             r["errors"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches "
-                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)")
+                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)"
+                + ("" if type(allow_unverified_rotation) is bool else
+                   "; allow_unverified_rotation is not a bool, and only the exact True opts out"))
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

@@ -457,7 +457,8 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     the case and the field, before anything is built or signed: the case ``ok`` used to be read by
     its truth, so ``"false"``, ``"FAIL"``, ``1`` and ``[0]`` each made a case PASSED and the whole
     statement PASSED, which ``sign_test_result_statement`` then signed. The value's own methods
-    (``__bool__``, ``__class__``) never run.
+    (``__bool__``, ``__class__``) never run. A case ran in full only when ``scope`` is the plain str
+    ``"full"``; any other value, one whose own ``__eq__`` says it equals ``"full"`` included, is WARNED.
     """
     if not isinstance(results, list) or not results:
         raise VerifierBlockError("a test-result statement needs at least one case result")
@@ -470,9 +471,12 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
             raise VerifierBlockError(
                 f"case result {r['caseId']!r}: ok is not a bool (true/false); only the exact True "
                 "passes a case, and a value that is not a bool is refused rather than read by its truth")
+        # Only a plain str "full" is a full run: `r.get("scope") == "full"` ran the value's own
+        # __eq__, so an object answering True made the case PASSED instead of WARNED (measured).
+        scope = r.get("scope")
         if ok is not True:
             failed.append(r["caseId"])
-        elif r.get("scope") == "full":
+        elif type(scope) is str and scope == "full":
             passed.append(r["caseId"])
         else:
             warned.append(r["caseId"])

@@ -777,10 +777,13 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
         # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
         # pending is the ABSENCE of a time anchor, not a weaker one). SKIP (no anchors) and FAIL never satisfy.
-        satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
+        # A plain str only: `anchor_status == "PASS"` ran the caller's own __eq__, and an object answering
+        # True satisfied the requirement (measured). Anything else counts as no anchor status at all.
+        _status = anchor_status if type(anchor_status) is str else None
+        satisfied = _status == "PASS" or (allow_pending and _status == "WARN")
         if not satisfied:
             errors.append(
-                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                f"policy requires an external anchor but none satisfies it (anchor status: {_status or 'none'}"
                 + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
 
     policy_ok = (not errors) and (signer_trusted is not False)

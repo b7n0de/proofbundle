@@ -333,7 +333,13 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     count as a verifying anchor, so ``--require-anchor`` demands a full external-time proof. With
     ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
     the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
-    anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
+    anchor into a pass: a hard-failing anchor still aggregates to FAIL. ``allow_pending`` must be a
+    bool: anything else is refused with a ``BundleFormatError``, like every other malformed argument
+    here. It was read by its truth, so ``allow_pending="false"`` let a pending anchor meet the
+    requirement."""
+    if type(allow_pending) is not bool:
+        raise BundleFormatError("allow_pending must be a bool (true/false); only the exact True lets a "
+                                "pending anchor meet a requirement")
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
             f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")
