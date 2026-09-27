@@ -89,8 +89,25 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     always-open values are read from the claim as parsed back from its canonical bytes (see
     ``_verdict.require_eval_claim``). Measured at 62e8bbab: this function signed a claim with
     comparator ``==``, threshold ``inf``, n=-1, commit_alg ``md5-plain`` and schema ``x``.
+
+    The two withheld numbers are judged as well: ``ci95`` by the claim rule's own ``ci95`` check, and
+    ``exact_score`` as a plain decimal string, the form ``build_eval_claim`` requires of ``score``.
+    Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. The openings
+    are not judged: no verifier in this package reads them; a relying party checks a presented pair
+    against the commitment with ``evalclaim.verify_commitment``.
     """
     claim = require_eval_claim(claim, wo="issue_sd_jwt")
+    # THE ISSUER VALUE IS NOT JUDGED HERE, on purpose. The claim rule requires the field and leaves
+    # its value to the issuer binding, which compares it with the key that signed a BUNDLE; this
+    # function holds no bundle, and its signer need not be the claim's issuer as far as issuance
+    # goes. A relying party learns the mismatch where it verifies: `verify_bundle` reports
+    # `sd-jwt-issuer-identity` and `sd-jwt-bundle-binding` as failed (measured at 835df85b with the
+    # SD-JWT issued over another key's fingerprint).
+    from .evalclaim import _decimal_violation, _field_violation  # noqa: PLC0415 - evalclaim imports the bundle core
+    for grund in (None if ci95 is None else _field_violation({"ci95": ci95}),
+                  None if exact_score is None else _decimal_violation("exact_score", exact_score)):
+        if grund is not None:
+            raise BundleFormatError(f"issue_sd_jwt: {grund}")
     always_open = {
         # NOT `claim["passed"]`: the value is SIGNED a few lines below, so its type is established here
         # rather than assumed, and the VALIDATED value is used rather than a second read of the field

@@ -120,9 +120,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   true), `suite`, `evaluatedAt`, `assuranceLevel` and `preRegistration`; in a test-result predicate
   every configuration entry whose digest carries `proofbundleModelCommitV1` or
   `proofbundleDatasetCommitV1`, with that entry's annotations. Kept on purpose, and each has a test
-  that says so: a field the predicate does not carry is not judged (the eval-result predicate `{"threshold": 1.0}` of
-  `tests/test_intoto_content_root_migration.py` C2 still verifies), and a generic test-result entry
-  without a proofbundle digest is not judged (A1 of the same file, digest `{"x": "y"}`). The
+  that says so: a field the predicate does not carry is not judged (the eval-result predicate
+  `{"threshold": 1.0}` of `tests/test_intoto_content_root_migration.py` C2 still verifies), and a
+  generic test-result entry without a proofbundle digest is not judged (A1 of the same file, digest
+  `{"x": "y"}`). The
   verdict is decided by the statement's own `predicateType`, so `scripts/pre_tag_attestation.py`,
   which opts out of the type check, is not judged by this rule. `verify_bundle` and
   `hf-token --verify` stay payload-agnostic; no SD-JWT verifier judges eval-claim fields of its own
@@ -165,6 +166,40 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   well. `scripts/mutation_check.py`: two `evalclaim.py` operators whose target text 62e8bbab had
   removed were repointed; with the salt-leak operator and the builder's `samples.n` operator, all
   four are killed by the targeted files.
+
+  **A present container of the wrong shape is a reason, not "no claim fields"** (second review lens,
+  at 835df85b). Measured there with validly signed, canonically serialized statements changed by
+  hand, each carrying the placeholder commitment `x`: the eval-result predicate wrapped in a list
+  verified ok=True with `predicate_claim_ok` None, and `proofbundle intoto --verify` printed PASS
+  with exit 0; a test-result `configuration` written as an object or as its single entry, and a
+  digest written as a list of pairs, verified ok=True with `predicate_claim_ok` True; the
+  test-result predicate wrapped in a list verified ok=True. For a statement of the verifier's own
+  type, a predicate that is present and not an object, a `configuration` that is present and not
+  an array, an entry that is not an object and a digest that is present and not an object are each
+  a reason now: `ok` False, `predicate_claim_ok` False, the CLI exits 1. An absent predicate,
+  `configuration` or digest still makes no claim. Siblings fixed in the same pass, each measured at
+  835df85b: `svr_properties`, public and the builder of what `export_svr_dsse` signs, returned
+  THRESHOLD_MET and SAMPLE_ROOT_VALID for a claim decode refuses and now holds the rule through
+  `require_eval_claim`; a lone surrogate in a `provenance` key made the emitter and every producer
+  raise a raw `UnicodeEncodeError` (rfc8785 sorts keys by encoding them) and is now their typed
+  refusal; `issue_sd_jwt` signed its separate `ci95` and `exact_score` disclosures unjudged
+  (`["inf", "nan"]`, `"1e400"`) and now judges them with the rule's `ci95` check and the decimal
+  check `threshold` uses; a `str` subclass whose `__ne__` always answers False got a decomposed
+  `suite` signed, and the emit profile now runs on the claim read back from the canonical bytes as
+  well; a test-result `result` that contradicts the `passed` annotation of a commitment entry
+  (PASSED with false, FAILED or WARNED with true) verified, and is a reason now. The annotations of
+  the dataset entry are judged like the model entry's. Still not judged, and stated where it is
+  decided: the issuer value in `issue_sd_jwt`, which a relying party checks through
+  `verify_bundle`'s `sd-jwt-issuer-identity`, and the commitment openings, which no verifier of the
+  package reads.
+
+  The contract file grew to 39 cases, 4651 subtests. Against the source of 835df85b, 13 of its 13
+  new catch-proof cases are red, and its 21 earlier cases and 5 new controls pass (pytest: 25
+  failed); against 62e8bbab,
+  28 of 28 catch-proof cases are red and all 11 controls pass. `tests/test_intoto_svr.py` built
+  `svr_properties` claims of the form `{"passed": True}` with a samples block that decode refuses;
+  it now uses a whole claim and a samples block the rule accepts, and asserts that the old block is
+  refused.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

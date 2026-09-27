@@ -23,9 +23,10 @@ is decided below with a regular expression and a walk written here, not with `_C
 The agreement property uses `decode_eval_claim` as the reference, because agreeing with the verifier
 is the property.
 
-WHICH CASES ARE CATCH PROOFS. Run against the source of 62e8bbab, every case in this file whose name
-does not start with `test_control` fails; the controls pass there and here. The counts are in the
-commit message.
+WHICH CASES ARE CATCH PROOFS. The classes above the "round 3" marker were written against 62e8bbab,
+the ones below it against 835df85b, where a second review lens found the shape class and five siblings.
+Run against its reference commit, every case whose name does not start with `test_control` fails; the
+controls pass there and here. The counts are in the commit messages.
 """
 import base64
 import json
@@ -34,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -495,6 +497,215 @@ class TestEveryProducerAgreesWithDecode(_Basis):
         self.assertGreater(erzeugt_gesamt, 0)
         self.assertGreater(abgewiesen_gesamt, 0)
         self.assertEqual(strenger_gesehen, self.STRENGER, "a listed stricter case no longer occurs")
+
+
+# ---- round 3: lens run 2 at 835df85b ------------------------------------------------------------------
+
+class TestAMisshapenContainerIsAReason(_Basis):
+    """THE CLASS: a walk over claim fields that reads a PRESENT container of the wrong shape as "no
+    claim fields" and leaves `ok` alone. Measured at 835df85b: each envelope below, validly signed and
+    canonically serialized, verified ok=True with a placeholder commitment; for (b) and (d) the verdict
+    even said predicate_claim_ok=True. Absent containers stay unjudged (the controls)."""
+
+    def _signiert(self, stmt, payload_type):
+        return dsse.sign_envelope(canonical.canonicalize_statement(stmt), self.signer,
+                                  payload_type=payload_type)
+
+    def _eval_result(self, veraendere):
+        stmt = intoto.to_eval_result_statement(
+            self.basis, subject=intoto.resolve_subject("receipt", self.basis, root_b64=ROOT_B64),
+            root_b64=ROOT_B64)
+        stmt["predicate"]["commitments"]["model"]["value"] = "x"
+        veraendere(stmt)
+        env = self._signiert(stmt, intoto.INTOTO_STATEMENT_PAYLOAD_TYPE)
+        return env, intoto.verify_eval_result_dsse(env, self.pub)
+
+    def _test_result(self, veraendere, platzhalter=True):
+        stmt = intoto.to_test_result_statement(self.basis, subject_digest={"sha256": "0" * 64})
+        if platzhalter:
+            stmt["predicate"]["configuration"][0]["digest"][intoto.MODEL_COMMIT_DIGEST_KEY] = "x"
+        veraendere(stmt)
+        return intoto.verify_intoto_dsse(self._signiert(stmt, intoto.TEST_RESULT_PAYLOAD_TYPE), self.pub)
+
+    def _abgewiesen(self, res, text):
+        self.assertIs(res["ok"], False, res["content_root_detail"])
+        self.assertTrue(res["content_root_ok"], "the binding holds; the shape is what refuses")
+        self.assertIs(res["predicate_claim_ok"], False)
+        self.assertIn(text, res["content_root_detail"])
+
+    def test_a_eval_result_predicate_wrapped_in_a_list(self):
+        _, res = self._eval_result(lambda st: st.update(predicate=[st["predicate"]]))
+        self._abgewiesen(res, "predicate must be an object")
+
+    def test_a_the_shipped_cli_fails_it(self):
+        env, _ = self._eval_result(lambda st: st.update(predicate=[st["predicate"]]))
+        with tempfile.TemporaryDirectory() as d:
+            pfad = os.path.join(d, "att.json")
+            Path(pfad).write_text(json.dumps(env), encoding="utf-8")
+            r = subprocess.run(
+                [sys.executable, "-B", "-m", "proofbundle.cli", "intoto", pfad, "--verify",
+                 "--pub", base64.b64encode(self.pub).decode("ascii")],
+                capture_output=True, text=True, cwd=REPO,
+                env={"PYTHONPATH": str(PAKET_SRC), "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("=> FAILED", r.stdout)
+        self.assertNotIn("[PASS]", r.stdout)
+
+    def test_b_test_result_configuration_as_an_object(self):
+        def umbau(st):
+            cfg = st["predicate"]["configuration"]
+            st["predicate"]["configuration"] = {str(i): e for i, e in enumerate(cfg)}
+        self._abgewiesen(self._test_result(umbau), "configuration: must be an array")
+
+    def test_b_test_result_configuration_as_the_single_entry(self):
+        def umbau(st):
+            st["predicate"]["configuration"] = st["predicate"]["configuration"][0]
+        self._abgewiesen(self._test_result(umbau), "configuration: must be an array")
+
+    def test_c_test_result_predicate_wrapped_in_a_list(self):
+        self._abgewiesen(self._test_result(lambda st: st.update(predicate=[st["predicate"]])),
+                         "predicate must be an object")
+
+    def test_d_test_result_digest_as_a_list_of_pairs(self):
+        def umbau(st):
+            st["predicate"]["configuration"][0]["digest"] = [[intoto.MODEL_COMMIT_DIGEST_KEY, "x"]]
+        self._abgewiesen(self._test_result(umbau), "configuration[0].digest: must be an object")
+
+    def test_an_entry_that_is_not_an_object(self):
+        def umbau(st):
+            st["predicate"]["configuration"][0] = "model-id-commitment"
+        self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[0]: must be an object")
+
+    def test_the_annotations_of_the_dataset_entry_are_judged_too(self):
+        def umbau(st):
+            st["predicate"]["configuration"][1]["annotations"] = {"comparator": "=="}
+        self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[1]")
+
+    def test_control_absent_containers_make_no_claim(self):
+        """An absent `configuration`, an entry without `digest`, and an absent predicate verify."""
+        for name, umbau in (
+                ("no configuration", lambda st: st["predicate"].pop("configuration")),
+                ("entry without digest", lambda st: st["predicate"]["configuration"][0].pop("digest")),
+                ("no predicate", lambda st: st.pop("predicate"))):
+            with self.subTest(fall=name):
+                res = self._test_result(umbau, platzhalter=False)
+                self.assertTrue(res["ok"], res["content_root_detail"])
+
+
+class TestResultAndPassedAgree(_Basis):
+    """Item 5: `result` is what a generic in-toto verifier reads; `passed` is the signed verdict beside
+    it. When both are present they must agree. At 835df85b a contradiction verified ok=True."""
+
+    def _test_result(self, result, passed):
+        stmt = intoto.to_test_result_statement(self.basis, subject_digest={"sha256": "0" * 64})
+        stmt["predicate"]["result"] = result
+        stmt["predicate"]["configuration"][0]["annotations"]["passed"] = passed
+        env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), self.signer,
+                                 payload_type=intoto.TEST_RESULT_PAYLOAD_TYPE)
+        return intoto.verify_intoto_dsse(env, self.pub)
+
+    def test_a_contradiction_is_refused(self):
+        for result, passed in (("PASSED", False), ("FAILED", True), ("WARNED", True), ("WARNED", False)):
+            with self.subTest(result=result, passed=passed):
+                res = self._test_result(result, passed)
+                self.assertIs(res["ok"], False, res["content_root_detail"])
+                self.assertIn("predicate result", res["content_root_detail"])
+
+    def test_control_agreement_verifies(self):
+        for result, passed in (("PASSED", True), ("FAILED", False)):
+            with self.subTest(result=result, passed=passed):
+                self.assertTrue(self._test_result(result, passed)["ok"])
+
+
+class TestSvrPropertiesHoldsTheRule(_Basis):
+    """Item 1: `svr_properties` is public and builds the list `export_svr_dsse` signs. At 835df85b it
+    returned THRESHOLD_MET and SAMPLE_ROOT_VALID for a claim decode refuses."""
+
+    def _ergebnis(self):
+        from proofbundle.errors import VerificationResult  # noqa: PLC0415
+        res = VerificationResult()
+        res.add("ed25519-signature", True, "")
+        res.add("merkle-inclusion", True, "")
+        return res
+
+    def test_a_claim_decode_refuses_gets_no_properties(self):
+        schlecht = dict(self.basis, comparator="==", threshold="inf", model_id_commit="sha256:x",
+                        samples={"root_b64": "x", "n": -1, "leaf_alg": "md5"})
+        self.assertIsNone(decode_eval_claim(self._hand_signed(schlecht)))
+        faelle = [("whole", schlecht)] + [(k, dict(self.basis, **{k: v})) for k, v in (
+            ("comparator", "=="), ("threshold", "inf"), ("model_id_commit", "sha256:x"),
+            ("samples", {"root_b64": "x", "n": 500, "leaf_alg": "md5"}))]
+        for name, claim in faelle:
+            with self.subTest(fall=name):
+                with self.assertRaises(BundleFormatError):
+                    intoto.svr_properties(self._ergebnis(), claim)
+
+    def test_control_a_valid_claim_still_earns_its_properties(self):
+        props = intoto.svr_properties(self._ergebnis(), self.basis)
+        self.assertEqual(props, ["PROOFBUNDLE_SIGNATURE_VALID", "PROOFBUNDLE_RECEIPT_UNCHANGED",
+                                 "PROOFBUNDLE_THRESHOLD_MET"])
+
+
+class TestAStringThatCannotBeEncodedIsATypedRefusal(_Basis):
+    """Item 2: a lone surrogate in a provenance KEY. rfc8785 sorts keys by encoding them as UTF-16 and
+    raised a raw UnicodeEncodeError out of the emitter and every producer at 835df85b."""
+
+    def test_emit_and_every_producer_refuse_with_their_typed_error(self):
+        claim = dict(self.basis, provenance={chr(0xD800): 1})
+        self.assertIsNone(decode_eval_claim(emit_bundle(
+            json.dumps(claim, sort_keys=True, separators=(",", ":")).encode("ascii"), self.signer)))
+        with self.assertRaises(EvalClaimError):
+            emit_eval_receipt(claim, self.signer)
+        self._alle_weisen_ab(claim)
+
+
+class TestTheWithheldNumbersOfAnSdJwtAreJudged(_Basis):
+    """Item 3: `issue_sd_jwt` signs `ci95` and `exact_score` as disclosures. At 835df85b `["inf",
+    "nan"]` and `"1e400"` were signed."""
+
+    def test_a_bad_ci95_or_exact_score_is_refused(self):
+        for name, kwargs in (("ci95 inf nan", {"ci95": ["inf", "nan"]}),
+                             ("ci95 one value", {"ci95": ["0.9"]}),
+                             ("ci95 floats", {"ci95": [0.9, 0.95]}),
+                             ("exact_score 1e400", {"exact_score": "1e400"}),
+                             ("exact_score float", {"exact_score": 0.92}),
+                             ("exact_score nan", {"exact_score": "nan"})):
+            with self.subTest(fall=name):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, **kwargs)
+                self.assertIn(next(iter(kwargs)), str(ctx.exception))
+
+    def test_control_decimal_strings_are_issued(self):
+        compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, exact_score="0.92",
+                               ci95=["0.90", "0.94"])
+        self.assertEqual(len(compact.rstrip("~").split("~")), 3)   # the JWT and two disclosures
+
+
+class TestTheEmitProfileIsJudgedOnTheBytes(_Basis):
+    """Item 4: a `str` subclass whose `__ne__` always answers False passed the NFC test on the object,
+    and a decomposed `suite` was signed at 835df85b."""
+
+    class _UngleichLuegt(str):
+        def __ne__(self, other):
+            return False
+
+        def __eq__(self, other):
+            return str.__eq__(self, other)
+
+        __hash__ = str.__hash__
+
+    def test_a_decomposed_string_is_refused_however_it_compares(self):
+        zerlegt = unicodedata.normalize("NFD", "café")
+        self.assertNotEqual(unicodedata.normalize("NFC", zerlegt), zerlegt)
+        for name, wert in (("plain", zerlegt), ("lying subclass", self._UngleichLuegt(zerlegt))):
+            with self.subTest(fall=name):
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(dict(self.basis, suite=wert), self.signer)
+                self.assertIn("NFC", str(ctx.exception))
+
+    def test_control_a_composed_string_is_signed(self):
+        claim = dict(self.basis, suite=unicodedata.normalize("NFC", "café"))
+        self.assertIsInstance(decode_eval_claim(emit_eval_receipt(claim, self.signer)), dict)
 
 
 if __name__ == "__main__":

@@ -435,27 +435,48 @@ def _eval_result_claim_fields(predicate: dict) -> list:
 
 def _test_result_claim_fields(predicate: dict) -> list:
     """(label, claim fields or a reason) for each configuration entry that carries a proofbundle
-    commitment.
+    commitment, and for every container on the way to one that has the wrong shape.
 
-    The inverse of `to_test_result_statement`, and only there: a descriptor is ours when its digest
-    carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`. Any other test-result
-    descriptor is not an eval claim and is not judged (test A1 of
-    tests/test_intoto_content_root_migration.py verifies one with digest {"x": "y"}).
+    The inverse of `to_test_result_statement`. A descriptor is ours when its digest carries
+    `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule judges its commitment
+    and its annotations. A descriptor that is an object with an object digest carrying neither key is
+    a generic test result and is not judged (test A1 of tests/test_intoto_content_root_migration.py
+    verifies one with digest {"x": "y"}); an ABSENT `configuration` or `digest` makes no claim.
+
+    A PRESENT container of the wrong shape is a reason of its own, the rule
+    `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
+    single entry in place of the list, or a digest written as a list of pairs, the walk found no
+    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
+
+    `result` and `passed`: when both are present they must agree, PASSED exactly when `passed` is
+    true, which is how `to_test_result_statement` writes them. A generic verifier reads `result`;
+    a statement whose `result` contradicts the signed verdict beside it is not one this export
+    produces.
     """
     teile: list = []
-    configuration = predicate.get("configuration")
-    if not isinstance(configuration, list):
+    if "configuration" not in predicate:
         return teile
+    configuration = predicate["configuration"]
+    if not isinstance(configuration, list):
+        return [("configuration", f"must be an array of resource descriptors, got "
+                                  f"{type(configuration).__name__}")]
+    urteile = []
     for i, eintrag in enumerate(configuration):
-        digest = eintrag.get("digest") if isinstance(eintrag, dict) else None
+        if not isinstance(eintrag, dict):
+            teile.append((f"configuration[{i}]", f"must be an object, got {type(eintrag).__name__}"))
+            continue
+        if "digest" not in eintrag:
+            continue
+        digest = eintrag["digest"]
         if not isinstance(digest, dict):
+            teile.append((f"configuration[{i}].digest", f"must be an object, got {type(digest).__name__}"))
             continue
         felder = {}
         for schluessel, feld in ((MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
                                  (DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
             if schluessel in digest:
                 felder[feld] = _commit_field(digest[schluessel])
-        if MODEL_COMMIT_DIGEST_KEY in digest and "annotations" in eintrag:
+        if felder and "annotations" in eintrag:
             notizen = eintrag["annotations"]
             if not isinstance(notizen, dict):
                 teile.append((f"configuration[{i}].annotations",
@@ -466,8 +487,17 @@ def _test_result_claim_fields(predicate: dict) -> list:
                          ("provenance", "provenance")):
                 if q in notizen:
                     felder[k] = notizen[q]
+            if isinstance(notizen.get("passed"), bool):
+                urteile.append(notizen["passed"])
         if felder:
             teile.append((f"configuration[{i}]", felder))
+    if "result" in predicate:
+        for urteil in urteile:
+            erwartet = _RESULT_ENUM[urteil]
+            if predicate["result"] != erwartet:
+                teile.append(("result", f"must be {erwartet!r} when passed is {urteil}, "
+                                        f"got {render_safe(predicate['result'])}"))
+                break
     return teile
 
 
@@ -475,9 +505,10 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
     """Fold the claim rule over a verified statement's predicate into the verdict. Never raises.
 
     ``predicate_claim_ok`` is True when the statement has this verifier's own predicate type and
-    every claim field it carries passes `evalclaim._field_violation`, False when one does not (then
-    ``ok`` is False and the reason is appended to ``content_root_detail``), and None when the
-    statement is of another type or not an object, so there is nothing this rule knows to judge.
+    every claim field it carries passes `evalclaim._field_violation`, False when one does not or
+    when a container on the way to one has the wrong shape (then ``ok`` is False and the reason is
+    appended to ``content_root_detail``), and None when the statement is of another type or not an
+    object, so there is nothing this rule knows to judge.
     The predicate type of the STATEMENT decides, not ``expected_predicate_type``: with the type
     check opted out (scripts/pre_tag_attestation.py does), a foreign predicate is still not judged
     by the eval-claim rule.
@@ -486,15 +517,22 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
     `not-a-commitment` or 64 upper-case hex digits verified ok=True through both verifiers.
     """
     statement = res.get("statement")
-    predicate = statement.get("predicate") if isinstance(statement, dict) else None
-    if not (isinstance(statement, dict) and statement.get("predicateType") == eigener_typ
-            and isinstance(predicate, dict)):
+    if not (isinstance(statement, dict) and statement.get("predicateType") == eigener_typ):
         res["predicate_claim_ok"] = None
         return res
     from .evalclaim import _field_violation  # noqa: PLC0415 - evalclaim imports the bundle core
     grund = None
+    # A statement of this verifier's own type whose predicate is PRESENT and not an object is a
+    # reason, not "nothing to judge". Measured at 835df85b: the eval-result predicate or the
+    # test-result predicate wrapped in a list verified ok=True with a placeholder commitment, and
+    # `proofbundle intoto --verify` printed PASS. An absent predicate is the empty one (in-toto
+    # Statement v1: unset is treated the same as set-but-empty), so it carries no claim fields.
+    predicate = statement.get("predicate", {})
+    if not isinstance(predicate, dict):
+        grund = f"predicate must be an object, got {type(predicate).__name__}"
+        predicate = {}
     try:
-        for bezeichnung, felder in felder_von(predicate):
+        for bezeichnung, felder in ([] if grund else felder_von(predicate)):
             fehler = felder if isinstance(felder, str) else _field_violation(felder)
             if fehler is not None:
                 grund = f"predicate {bezeichnung}: {fehler}"
@@ -786,6 +824,14 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
     # empty property list. This function is public, so the check belongs here and not only at
     # `export_svr_dsse`, whose `decode_eval_claim` now refuses a non-boolean one layer earlier. R-B4.
+    #
+    # AND THE WHOLE CLAIM, not only `passed` (6.2.0). Measured at 835df85b: for a claim with
+    # comparator `==`, threshold `inf`, `sha256:x` and a samples block of root "x", n -1, leaf_alg
+    # "md5", which decode refuses, this function returned THRESHOLD_MET and SAMPLE_ROOT_VALID. The
+    # first call keeps its message, which names field and type; the verdict used below is read from
+    # the claim as the rule read it back.
+    require_bool_verdict(claim, wo="svr_properties")
+    claim = require_eval_claim(claim, wo="svr_properties")
     verdikt = require_bool_verdict(claim, wo="svr_properties")
     checks = {c.name: c.ok for c in result.checks}
     props = []

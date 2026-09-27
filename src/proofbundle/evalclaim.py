@@ -196,6 +196,13 @@ def _jcs_bytes(claim) -> bytes:
         raise EvalClaimError(f"canonicalization failed: {e}") from e
     except RecursionError as e:
         raise EvalClaimError("canonicalization failed: the claim nests too deep to serialize") from e
+    except (UnicodeEncodeError, UnicodeDecodeError) as e:
+        # rfc8785 turns a lone surrogate in a string VALUE into CanonicalizationError, but it sorts
+        # object KEYS by encoding them as UTF-16, and that step raises a raw UnicodeEncodeError.
+        # Measured at 835df85b with `provenance={"\ud800": 1}`: decode refused the claim, while
+        # `emit_eval_receipt` and every exporter raised UnicodeEncodeError instead of their typed
+        # refusal. A string that cannot be encoded is the same defect wherever it sits.
+        raise EvalClaimError(f"canonicalization failed: a string cannot be encoded ({e.reason})") from e
 
 
 def load_claim_text(text: str) -> dict:
@@ -395,6 +402,14 @@ def _claim_violation(claim: dict) -> Optional[str]:
     return _field_violation(claim)
 
 
+def _decimal_violation(name: str, value) -> Optional[str]:
+    """Why `value` is not a plain decimal string, or None. The one check behind `threshold` in the
+    claim rule and behind the disclosed `exact_score` of `sdjwt_issue.issue_sd_jwt`."""
+    if isinstance(value, str) and _DECIMAL_RE.match(value):
+        return None
+    return f"{name} must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), got {render_safe(value)}"
+
+
 def _field_violation(claim: dict) -> Optional[str]:
     """Every check of `_claim_violation` that reads a field, applied to the fields PRESENT in `claim`.
 
@@ -410,10 +425,10 @@ def _field_violation(claim: dict) -> Optional[str]:
     if "comparator" in claim and not is_member(claim.get("comparator"), _COMPARATORS):
         return (f"comparator must be one of {sorted(_COMPARATORS)}, "
                 f"got {render_safe(claim.get('comparator'))}")
-    threshold = claim.get("threshold")
-    if "threshold" in claim and not (isinstance(threshold, str) and _DECIMAL_RE.match(threshold)):
-        return ("threshold must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), "
-                f"got {render_safe(threshold)}")
+    if "threshold" in claim:
+        grund = _decimal_violation("threshold", claim.get("threshold"))
+        if grund is not None:
+            return grund
     if "assurance_level" in claim and claim.get("assurance_level") not in ASSURANCE_LEVELS:
         return f"assurance_level must be one of {list(ASSURANCE_LEVELS)}"
     if "passed" in claim and not is_bool(claim.get("passed")):
@@ -518,6 +533,14 @@ def _claim_read_back(claim, *, profile: bool) -> tuple:
     if reason is not None:
         raise EvalClaimError(f"{reason} (in the canonical bytes; the object handed in did not "
                              "serialize to what it compared as)")
+    if profile:
+        # The emit profile on the bytes too, for the same reason as the rule: measured at 835df85b,
+        # a `str` subclass whose `__ne__` always answers False passed the NFC test on the object
+        # (`normalize(...) != value`) and a decomposed `suite` was signed.
+        try:
+            _reject_non_jcs(read_back)
+        except EvalClaimError as exc:
+            raise EvalClaimError(f"{exc} (in the canonical bytes)") from exc
     return read_back, payload
 
 

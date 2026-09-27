@@ -101,12 +101,23 @@ class TestSVRShape(unittest.TestCase):
         result = VerificationResult()
         result.add("ed25519-signature", True, "")
         result.add("merkle-inclusion", True, "")
-        base = {"passed": True}
+        # Whole claims since 6.2.0: svr_properties holds the claim rule like every other producer, so
+        # a partial claim such as {"passed": True} is refused. The samples block used to be
+        # {"root_b64": "x", "n": 5, "leaf_alg": "sha256"}, which decode refuses; SAMPLE_ROOT_VALID is
+        # now earned by a block the rule accepts, and a garbage block is refused (next case).
+        base, _ = build_eval_claim(
+            suite="safety-refusals", suite_version="1.2.0", metric="refusal_rate", comparator=">=",
+            threshold="0.98", score="0.99", n=5, model_id="acme/secret-model", dataset_id="acme/secret-set",
+            issuer="ed25519:AAAA", timestamp="2026-07-05T12:00:00Z", model_salt=_FIXED_SALT,
+            dataset_salt=_FIXED_SALT)
         self.assertNotIn("PROOFBUNDLE_SAMPLE_ROOT_VALID", svr_properties(result, base))
-        with_samples = {"passed": True, "samples": {"root_b64": "x", "n": 5, "leaf_alg": "sha256"}}
+        with_samples = dict(base, samples={"root_b64": base64.b64encode(bytes(32)).decode(), "n": 5,
+                                           "leaf_alg": "sha256-rfc6962-sdjwt-v1"})
         self.assertIn("PROOFBUNDLE_SAMPLE_ROOT_VALID", svr_properties(result, with_samples))
+        with self.assertRaises(BundleFormatError):
+            svr_properties(result, dict(base, samples={"root_b64": "x", "n": 5, "leaf_alg": "sha256"}))
         # prereg/anchor only when the caller confirms a real offline verification happened
-        with_prereg = {"passed": True, "prereg_sha256": "e5" * 32}
+        with_prereg = dict(base, prereg_sha256="e5" * 32)
         self.assertNotIn("PROOFBUNDLE_PREREG_BOUND", svr_properties(result, with_prereg))
         self.assertIn("PROOFBUNDLE_PREREG_BOUND",
                       svr_properties(result, with_prereg, prereg_verified=True))
