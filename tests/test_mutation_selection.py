@@ -2,7 +2,8 @@
 the baseline and fails again when it runs by itself kills (owner decisions C, Z230 and Z231,
 2026-09-26, and Z230 round 2).
 
-WHY. Measured on main in run 36253567619: the full suite took 1226-1661 s for a baseline and
+WHY. Measured in run 36253567619 (a manual dispatch of CI on the branch of PR 279 at 57184964, not
+main): the full suite took 1226-1661 s for a baseline and
 1174-1610 s per mutant under a 60-minute job limit; the three shards that got a baseline judged one
 mutant each before they were cancelled, and no other operator was judged. A mutant now runs the test
 files that reach the mutated file (`mutation_check._auswahl`), and its baseline runs over the same

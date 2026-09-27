@@ -1316,7 +1316,8 @@ def _indizes_des_laufs(shard: tuple[int, int] | None,
 
 # ── THE SELECTION PER MUTANT (owner decision C, Z230, 2026-09-26) ─────────────────────────────────
 #
-# WHY. Measured on main in run 36253567619: a baseline of 1226-1661 s over the whole suite (seven
+# WHY. Measured in run 36253567619 (a manual dispatch of CI on the branch of PR 279 at 57184964, not
+# main): a baseline of 1226-1661 s over the whole suite (seven
 # shards stopped at the 1800 s limit before it ended), 1174-1610 s per mutant, ten operators per
 # shard, and a job limit of 60 minutes. The three shards that got a baseline judged one mutant each
 # before they were cancelled (relation cycle detection KILLED, red=41, 1190.1 s; origin comparison

@@ -537,15 +537,18 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         # Recht durch. Gebraucht wird eine ECHTE Ueberlappung, die eine Luecke ausgleicht: Shard 3
         # nimmt fuenf Indizes von Shard 7 DAZU, waehrend Shard 7 sie BEHAELT (Ueberlappung), und
         # dafuer fallen Shard 7s andere fuenf ganz weg (Luecke). Summe bleibt 100.
-        # Generic in K since Z230: shard 3 takes half of shard 7's indices as well, shard 7 keeps
-        # that half and drops the other (an overlap of m and a gap of m, the sum unchanged).
+        # Generic in K since Z230: shard 3 takes the first m of shard 7's indices as well, shard 7
+        # keeps them and drops the next m (an overlap of m and a gap of m, the sum unchanged). An odd
+        # remainder stays in shard 7. The first generic form required an even shard 7 and asserted
+        # it; at K=36 shard 7 holds three of the 100 indices, and the precondition, not the gate,
+        # turned the case red.
         idx = self._indizes()
         s7 = idx[7]
         m = len(s7) // 2
-        self.assertEqual(len(s7), 2 * m, "the construction needs an even shard 7")
+        self.assertGreaterEqual(m, 1, "the construction needs at least two indices in shard 7")
         shards = self._gut()
         idx3 = idx[3] + s7[:m]
-        idx7 = s7[:m]
+        idx7 = s7[:m] + s7[2 * m:]
         shards[3] = f"shard=3 operators={len(idx3)} total=100 indizes={','.join(idx3)}\n"
         shards[7] = f"shard=7 operators={len(idx7)} total=100 indizes={','.join(idx7)}\n"
         r = self._fahre(shards)

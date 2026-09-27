@@ -12,7 +12,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - **The mutation gate judges each mutant by the test files that reach it, and only a test that
   passed in the baseline and fails again when it runs by itself kills**
-  (`scripts/mutation_check.py`). On main, run 36253567619 measured a baseline of 1226 to 1661 s over
+  (`scripts/mutation_check.py`). Run 36253567619, a manual dispatch of CI on the branch of pull request 279 at 57184964 (not
+  main), measured a baseline of 1226 to 1661 s over
   the whole suite (seven of ten shards stopped at the 1800 s limit before it ended) and 1174 to 1610
   s per mutant under a job limit of 60 minutes; the three shards that got a baseline judged one
   mutant each before they were cancelled (relation cycle detection, the case-insensitive origin
@@ -80,8 +81,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   The selection saves less time than hoped in this repository: the heaviest test files import nearly
   every module. For the first version's selections, local per-file durations scaled by the measured
   CI/local ratio of the whole suite gave about 2000 to 2200 s per selection in CI and 4.8 h for the
-  longest of 28 shards; the selections are larger now, so that estimate is low. The limit of one
-  suite run rises from 1800 to 3600 s, the CI job runs 28 shards instead of 10 under GitHub's
+  longest of 28 shards; with this version's selections the same estimate gives 4.9 h for the longest
+  of 28 and 3.7 h for the longest of 36, which keeps about two hours below the step limit. The limit
+  of one suite run rises from 1800 to 3600 s, the CI job runs 36 shards instead of 10 under GitHub's
   six-hour job limit, and the mutation step's limit is 15 minutes below the job's, so the steps
   after it still run: a shard cut at the limit records how many verdicts it wrote (`judged=`), and
   the summary job still fails it. These numbers are provisional and are set again from the first
