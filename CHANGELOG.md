@@ -219,9 +219,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   3.12; the class B reader goes over its 72 files in 0.35 s, against 0.81 s at a435ba32 on the same
   machine. Before 3.12 an f-string ends as any string does; from 3.12 on, where
   its fields may hold quotes, the lexer follows one only where every version ends it alike, and parses
-  every prefix after it otherwise. That branch ran on 3.10 with its switch forced, since 3.12 is not
-  installed here. Checked against the parser, the lexer ruled out 50086 of 150083 windows of up to six
-  lines of the tree, and Python parses none of them. Its first fuzz run found one false claim, `else:\\`
+  every prefix after it otherwise. That branch first ran on 3.10 with its switch forced; it runs as
+  shipped on 3.12, 3.13 and 3.14. Checked against the parser on 3.10 and on each of those three, the
+  lexer ruled out 50086 of 150083 windows of up to six lines of the tree, and Python parses none of
+  them. Its first fuzz run found one false claim, `else:\\`
   (the reader drops one backslash that ends a last line), which is fixed; after it, none in 3.6 million
   random windows, 2.6 million of them ruled out. With each tracked file commented out whole in four
   comment styles (`# `, `#`, `## ` and `# # `), the old and the new reader flag 1140 ranges each, on
@@ -229,7 +230,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   identical, and 100, 25 per style in 14 files, begin at the statement's own first line, where the old
   reader began at the comment lines above it (`agent_review.py` 508-510 against 503-510), so an allow
   marker for such a range goes directly above the statement. In 60000 random comment blocks built from
-  the tree's lines the new reader flags every range the old one does, and 24 more. `return` with `True`
+  the tree's lines the new reader flags every range the old one does, and 24 more, each continued over
+  a backslash (20000 of the blocks read on 3.12 as well, with the same result). `return` with `True`
   written in fullwidth letters opening
   `verify_thing`, and `if` with `False` written so at a check, parse as names that load the constants,
   and were clean with exit 0, on main too; a name whose NFKC form is `True` or `False` is that constant
