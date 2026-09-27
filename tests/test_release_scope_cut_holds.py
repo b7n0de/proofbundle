@@ -34,9 +34,23 @@ them.
 
 A second owner decision of 2026-09-27, recorded at 20:16 UTC, moved three of the frozen fixes, on
 six branches, to 6.3.0; a later word froze pull request 296 at the head its last correction left.
-Section 1 holds the cut to both in both directions: a moved branch is not counted among the frozen
-fixes, a staying one does not stand under Out, each moved branch stands with the head it moved at,
-and 296 stands with its frozen head and as not landed.
+Section 1 holds the cut to both in both directions: a moved branch is named nowhere but in the
+section of the moved fixes and is not counted among the frozen fixes, a staying one does not stand
+under Out, each moved branch stands with the head it moved at, and 296 stands with its frozen head
+and as not landed.
+
+A review of 989b582c reported three more blind spots of these readers, each P1, and section 6
+has a case for each that fails at 989b582c and passes on the commit that fixed it:
+
+7. THE UNIT SPLITTER DROPPED EVERY LINE THAT STARTS WITH `#`. Headings, and prose lines such as
+   "#296 stood at ...", were never read, so a commit that does not resolve or a wrong `path:line`
+   on such a line passed. Every line outside a fenced block now belongs to exactly one unit, and a
+   fence that never closes is refused.
+8. A `path:line` WHOSE PATH STARTS WITH `.` OR HAS NO EXTENSION was neither read nor refused
+   (`.github/...:9999`, `./RESTRISIKO_610.md:1-5`, `Makefile:12`). Both are read now.
+9. A BRANCH NAME WITHOUT BACKTICKS WAS NOT READ in the sections that decide what is in and out, so a
+   moved branch written plainly among the frozen fixes, or a staying one under Out, passed. Branch
+   names are read in every spelling, and a moved branch may stand nowhere but under Out.
 
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
@@ -89,39 +103,54 @@ def _full_history_or_skip() -> None:
         pytest.skip(f"NOT MEASURED: no full git history here ({(r.stdout + r.stderr).strip()!r})")
 
 
+_HEADING = re.compile(r"^#{1,6}(?:[ \t]|$)")
+
+
+class UnreadableText(AssertionError):
+    """Text the unit splitter would have to drop without reading it."""
+
+
 def _units(text: str) -> list[str]:
-    """Table rows one by one, list items with their continuation lines, and paragraphs.
+    """Table rows and headings one by one, list items with their continuation lines, paragraphs.
 
     A row or an item is the unit a citation belongs to: a tag named in the same row as a commit is
-    the tag that commit is cited as. Fenced blocks are left out, because they quote measurements
-    (artefact digests among them), not citations.
+    the tag that commit is cited as. EVERY LINE OUTSIDE A FENCED BLOCK BELONGS TO EXACTLY ONE UNIT,
+    because every reader of this file reads units and nothing else: a line this function drops is
+    a line no check sees. A Markdown heading (one to six `#` and a space) is a unit of its own; a
+    line that starts with `#` and is no heading, as in "#296 stood at ...", is prose and stays in
+    its paragraph. Fenced blocks are left out, because they quote measurements (artefact digests
+    among them), not citations; a fence that is opened and never closed would drop the rest of the
+    file, so it raises with the line it was opened on.
     """
     units: list[str] = []
     current: list[str] = []
-    fence = False
+    fence = 0
 
     def flush() -> None:
         if current:
             units.append("\n".join(current))
             current.clear()
 
-    for line in text.splitlines():
+    for number, line in enumerate(text.splitlines(), 1):
         if line.strip().startswith("```"):
             flush()
-            fence = not fence
+            fence = 0 if fence else number
             continue
         if fence:
             continue
-        if not line.strip() or line.startswith("#"):
+        if not line.strip():
             flush()
             continue
-        if line.startswith("|"):
+        if line.startswith("|") or _HEADING.match(line):
             flush()
             units.append(line)
             continue
         if line.startswith("- "):
             flush()
         current.append(line)
+    if fence:
+        raise UnreadableText(f"the fenced block opened at line {fence} is never closed, so every "
+                             f"line after it would go unread")
     flush()
     return units
 
@@ -272,18 +301,42 @@ _FILE_SUFFIX = re.compile(r"\.(?:py|md|json|toml|ya?ml|txt|cff|rs|html)$")
 _HEAD_STATE = ("frozen at", "has not landed")
 
 
+def _names_branch(unit: str, branch: str) -> bool:
+    """Whether a unit names a branch, in any spelling: backticked or plain, in bold, inside a link,
+    before a full stop. The name has to stand whole, with no name character on either side."""
+    return re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(branch)}(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_-])",
+                     unit) is not None
+
+
+def _branches(unit: str) -> list[str]:
+    """Every branch a unit names, once each: the branches of the decisions in any spelling, and
+    every other token, backticked or plain, that has the form of a branch and is no file path.
+
+    The first form of these readers took branch names from backticked spans only, so a moved branch
+    written plainly among the frozen fixes, or a staying one written plainly under Out, was never
+    read and the cut passed. A spelling does not decide whether a branch is named.
+    """
+    found = [t for t, _ in _tokens(unit) if _BRANCH.match(t) and not _FILE_SUFFIX.search(t)]
+    found += [b for b in (*DECIDED_OPEN, *MOVED_HEADS) if _names_branch(unit, b)]
+    return list(dict.fromkeys(found))
+
+
+def _sections(text: str) -> list[tuple[str, str]]:
+    """(heading line, text under it) for the text before the first `## ` heading, whose heading is
+    empty, and for every `## ` section."""
+    parts = re.split(r"(?m)^(## [^\n]*)\n", text)
+    return [("", parts[0])] + [(parts[i], parts[i + 1]) for i in range(1, len(parts) - 1, 2)]
+
+
 def _frozen_fixes(text: str) -> tuple[list[str], list[list[str]], list[str]]:
     """(branches of the table rows, branches per list item, the units) of the frozen section."""
     units = _units(_section(text, "frozen fix"))
     rows, items = [], []
     for unit in units:
         if unit.startswith("|"):
-            last = _cells(unit)[-1]
-            if last.startswith("`") and last.endswith("`") and _BRANCH.match(last.strip("`")):
-                rows.append(last.strip("`"))
+            rows += _branches(_cells(unit)[-1])
         elif unit.startswith("- "):
-            branches = [t for t in re.findall(r"`([^`]+)`", unit)
-                        if _BRANCH.match(t) and not _FILE_SUFFIX.search(t)]
+            branches = _branches(unit)
             if branches:
                 items.append(branches)
     return rows, items, units
@@ -293,15 +346,16 @@ def frozen_fix_findings(text: str) -> list[str]:
     """Every way the frozen section disagrees with the decision or with its own counts."""
     rows, items, units = _frozen_fixes(text)
     findings = []
-    named = set(rows) | {b for item in items for b in item}
+    named = (set(rows) | {b for item in items for b in item}
+             | {b for u in units for b in _branches(u)})
     for branch, number in DECIDED_OPEN.items():
         if branch not in named:
             findings.append(f"the decision puts {branch} into 6.2.0 and the cut does not name it")
-        elif number is not None and not any(f"`{branch}`" in u and f"pull request {number}" in u
-                                            for u in units):
+        elif number is not None and not any(_names_branch(u, branch) and f"pull request {number}"
+                                            in u for u in units):
             findings.append(f"{branch} stands without its pull request {number} beside it")
     for branch, head in DECIDED_HEADS.items():
-        unit = next((u for u in units if f"`{branch}`" in u), "")
+        unit = next((u for u in units if _names_branch(u, branch)), "")
         if not any(len(h) >= 8 and head.startswith(h) for h in _cited_commits(unit)):
             findings.append(f"{branch} is frozen at {head} and the cut does not record that head")
         missing = [w for w in _HEAD_STATE if w not in _flat(unit)]
@@ -311,7 +365,7 @@ def frozen_fix_findings(text: str) -> list[str]:
         if branch in named:
             findings.append(f"{branch} moved to 6.3.0 and is still counted among the frozen fixes")
     for unit in units:
-        heads = [DECIDED_HEADS[b] for b in DECIDED_HEADS if f"`{b}`" in unit]
+        heads = [DECIDED_HEADS[b] for b in DECIDED_HEADS if _names_branch(unit, b)]
         for h in _cited_commits(unit):
             if not any(head.startswith(h) for head in heads):
                 findings.append(f"an open frozen branch carries a digest ({h}) that is not a head "
@@ -342,33 +396,40 @@ def frozen_fix_findings(text: str) -> list[str]:
 def moved_findings(text: str) -> list[str]:
     """Every way the section of the moved fixes disagrees with the decision or with its counts.
 
-    A moved branch must stand there with the head it moved at, beside its own name; a branch that
-    stays in 6.2.0 must not stand there; and no digest may stand there that is not a moved head, so
-    the head of a staying branch cannot be filed under Out either.
+    A moved branch must stand there with the head it moved at, beside its own name, and nowhere
+    else in the file; a branch that stays in 6.2.0 must not stand under any Out section; and no
+    digest may stand there that is not a moved head, so the head of a staying branch cannot be
+    filed under Out either. Branch names are read in every spelling (`_branches`).
     """
     units = _units(_section(text, _MOVED))
-    items = [u for u in units if u.startswith("- ") and any(
-        _BRANCH.match(t) and not _FILE_SUFFIX.search(t) for t in re.findall(r"`([^`]+)`", u))]
+    items = [u for u in units if u.startswith("- ") and _branches(u)]
     findings = []
     for branch, head in MOVED_HEADS.items():
-        unit = next((u for u in items if f"`{branch}`" in u), None)
+        unit = next((u for u in items if _names_branch(u, branch)), None)
         if unit is None:
             findings.append(f"the decision moved {branch} to 6.3.0 and the section does not "
                             f"name it")
             continue
-        beside = re.search(rf"`{re.escape(branch)}` at\s+`([0-9A-Fa-f]{{7,40}})`", unit)
+        beside = re.search(rf"(?<![A-Za-z0-9_.-])`?{re.escape(branch)}`?\s+at\s+`?"
+                           rf"([0-9A-Fa-f]{{7,40}})(?![0-9A-Za-z])", unit)
         if not beside or len(beside[1]) < 8 or not head.startswith(beside[1].lower()):
             findings.append(f"{branch} moved at {head} and the section does not record that head "
                             f"beside it ({beside[1] if beside else 'none'})")
-    for branch in DECIDED_OPEN:
-        if any(f"`{branch}`" in u for u in units):
-            findings.append(f"{branch} stays in 6.2.0 and stands under Out")
+    for heading, body in _sections(text):
+        where = heading or "the text before the first section"
+        for unit in _units(f"{heading}\n{body}" if heading else body):
+            for branch in _branches(unit):
+                if branch in MOVED_HEADS and _MOVED not in heading:
+                    findings.append(f"{branch} moved to 6.3.0 and stands outside the section of "
+                                    f"the moved fixes, in {where!r}")
+                if branch in DECIDED_OPEN and heading.startswith("## Out"):
+                    findings.append(f"{branch} stays in 6.2.0 and stands under Out, in {where!r}")
     moved = set(MOVED_HEADS.values())
     for unit in units:
         for h in _cited_commits(unit):
             if not any(m.startswith(h) for m in moved):
                 findings.append(f"a digest under Out ({h}) is no head the decision moved")
-    branches = sum(len([b for b in MOVED_HEADS if f"`{b}`" in u]) for u in items)
+    branches = sum(len(_branches(u)) for u in items)
     m = re.search(r"(?m)^\| Frozen fixes moved to 6\.3\.0 \| (\d+) subjects on (\d+) branches",
                   text)
     if not m or (int(m[1]), int(m[2])) != (len(items), branches):
@@ -614,13 +675,19 @@ def test_catch_proof_an_old_commit_is_found_and_a_named_tag_is_not():
 
 # -- 3. every path:line reference points at the symbol it names, in the tree it names --------------
 
-_PATH = r"[A-Za-z0-9_][A-Za-z0-9_./-]*"
-_REF = re.compile(rf"^(?P<path>{_PATH}\.[A-Za-z0-9]+):(?P<a>[0-9]+)(?:-(?P<b>[0-9]+))?$")
+#: A path as a reference writes it: it may start with `.` (`.github/...`, `./RESTRISIKO_610.md`)
+#: and need not carry an extension (`Makefile`). A reference's path must hold a letter, so a time
+#: of day (`20:16`) is no reference.
+_PATH = r"[A-Za-z0-9_.][A-Za-z0-9_./-]*"
+_REF = re.compile(rf"^(?P<path>{_PATH}):(?P<a>[0-9]+)(?:-(?P<b>[0-9]+))?$")
 _CONT = re.compile(r"^:(?P<a>[0-9]+)(?:-(?P<b>[0-9]+))?$")
 _FILE = re.compile(rf"^{_PATH}\.[A-Za-z0-9]+$")
-#: What begins a reference anywhere in a token: a path with an extension, or the token's start,
-#: then a colon and a digit. A token holding it that is no whole reference is refused by name.
-_REF_LIKE = re.compile(rf"(?:(?<![A-Za-z0-9_./-]){_PATH}\.[A-Za-z0-9]+|^):[0-9]")
+#: What begins a reference anywhere in a token: a run of path characters holding a letter, at the
+#: token's start or after a character that is no path character, then a colon and a digit; or the
+#: token's start, a colon and a digit. A token holding it that is no whole reference is refused by
+#: name.
+_REF_LIKE = re.compile(r"(?:^|[^A-Za-z0-9_./-])(?=[A-Za-z0-9_./-]*[A-Za-z])[A-Za-z0-9_./-]+:[0-9]"
+                       r"|^:[0-9]")
 _OPEN, _CLOSE = "`([{<\"'*", "`)]}>\"',.;:!?*"
 
 
@@ -654,17 +721,21 @@ def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[
 
     A reference is `path:N` or `path:N-M`, and a bare `:N` continues the last path named before it,
     as in "`src/proofbundle/intoto.py` (`:246`, `:424`)". It is read in one grammar with or without
-    backticks, and a plain path with an extension counts as the last path named. A token that
-    begins like a reference and is none of these forms, or a `:N` with no path before it, is
-    refused with its name. A needle is every other backticked name in the unit, split at " / ",
-    that is neither a path nor a tree: what the unit says stands there. The trees are the working
-    tree and every tag or commit the unit names.
+    backticks, and a plain path with an extension counts as the last path named. A path may start
+    with `.` and need not have an extension; one that climbs out of the repository with `..` is
+    refused. A token that begins like a reference and is none of these forms, or a `:N` with no path
+    before it, is refused with its name. A needle is every other backticked name in the unit, split
+    at " / ", that is neither a path nor a tree: what the unit says stands there. The trees are the
+    working tree and every tag or commit the unit names.
     """
     refs, needles, trees, refused = [], [], [], []
     last_path = None
     for token, ticked in _tokens(unit):
         m = _REF.match(token)
-        if m:
+        if m and re.search(r"[A-Za-z]", m["path"]):
+            if ".." in m["path"].split("/"):
+                refused.append(f"{token!r} names a path outside the repository")
+                continue
             last_path = m["path"]
             refs.append((m["path"], int(m["a"]), int(m["b"] or m["a"])))
             continue
@@ -697,10 +768,13 @@ def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[
 
 
 def _lines_at(tree: str | None, path: str) -> list[str] | None:
+    """The lines of a file in the working tree or in a commit's tree; None when it is no file
+    there. A leading `./` names the repository root, as it does for git."""
+    rel = path[2:] if path.startswith("./") else path
     if tree is None:
-        p = REPO / path
+        p = REPO / rel
         return p.read_text(encoding="utf-8").splitlines() if p.is_file() else None
-    r = _git("show", f"{tree}:{path}")
+    r = _git("cat-file", "blob", f"{tree}:{rel}")
     return r.stdout.splitlines() if r.returncode == 0 else None
 
 
@@ -718,9 +792,10 @@ def reference_findings(text: str) -> tuple[list[str], list[str]]:
             if not needles:
                 findings.append(f"{path}:{a}-{b} stands in a unit that names nothing to find there")
                 continue
-            hit = False
+            hit, a_file = False, False
             for tree in resolved:
                 lines = _lines_at(tree, path)
+                a_file = a_file or lines is not None
                 span = "\n".join(lines[a - 1:b]) if lines and b <= len(lines) else None
                 if span is not None and any(n in span for n in needles):
                     hit = True
@@ -730,6 +805,9 @@ def reference_findings(text: str) -> tuple[list[str], list[str]]:
             where = f"{path}:{a}-{b}"
             if missing:
                 unmeasured.append(f"{where} (trees not in this clone: {missing})")
+            elif not a_file:
+                findings.append(f"{where} names no file in the working tree or in "
+                                f"{trees or 'no named tree'}")
             else:
                 findings.append(f"{where} holds none of {needles[:6]} in the working tree or in "
                                 f"{trees or 'no named tree'}")
@@ -995,3 +1073,134 @@ def test_a_token_that_begins_like_a_reference_and_is_none_is_refused_by_name():
             findings, _ = reference_findings(_planted(
                 text, f"`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01` stands at {written}."))
             assert any(repr(token) in f for f in findings), (written, findings)
+
+
+# -- 6. the review of 989b582c: lines starting with `#`, dotted and bare paths, plain branches -----
+#
+# Like section 5, these cases call only readers and checks that 989b582c already had, so they run
+# against its readers unchanged, and there every one of them fails. Every catch proof carries its
+# control: the same form written correctly must stay green, so a reader that refused everything
+# would fail here too.
+
+_SIGNATURE_ENTRY = "`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`"
+
+#: Line forms a writer can use, each once, several starting with `#` and none a table row.
+_ODD_LINES = ("# A title", "#296 stood at `0ace3040`.", "### N18, measured at `0ace3040`",
+              "## Out, a section", "> quoted `0ace3040`", "* a star item", "1. a numbered item",
+              "<!-- 0ace3040 -->", "\tindented", "   ## an indented heading", "#", "###### six")
+
+
+def _lines_outside_fences(text: str) -> list[str]:
+    """The oracle: every line that is not blank, not a fence and not inside a fenced block."""
+    out, fence = [], False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            fence = not fence
+        elif not fence and line.strip():
+            out.append(line)
+    return out
+
+
+def _paragraph(text: str, paragraph: str) -> str:
+    return text.rstrip("\n") + "\n\n" + paragraph + "\n"
+
+
+def test_every_line_outside_a_fence_is_in_exactly_one_unit():
+    """THE CLASS OF THE FIRST FINDING: the splitter decides what every reader of this file reads,
+    so a line it drops is a line no check sees. Measured at 989b582c: every line starting with `#`
+    was dropped, headings and prose alike."""
+    texts = [p.read_text(encoding="utf-8") for p in SCOPE_FILES]
+    texts += ["\n".join(_ODD_LINES) + "\n",
+              "A paragraph\n#296 continues it\n\n- an item\n#297 too\n"]
+    for text in texts:
+        read = [line for unit in _units(text) for line in unit.split("\n")]
+        assert read == _lines_outside_fences(text), text[:80]
+
+
+def test_a_fence_that_never_closes_is_named():
+    with pytest.raises(AssertionError, match="never closed"):
+        _units("A paragraph.\n\n```\nthe rest of the file, 0ace3040\n")
+
+
+def test_catch_proof_a_commit_on_a_line_that_starts_with_a_hash_is_checked(tmp_path, monkeypatch):
+    """Planted at the end of a copy of the cut: a prose line starting `#296` that carries a commit
+    which resolves to nothing, plain and backticked, and the same commit in a heading. The resolve
+    check must name each. The control, a heading citing a commit that resolves, must hold."""
+    _full_history_or_skip()
+    assert _commit(_NOWHERE) is None, f"{_NOWHERE} resolves here, so the plant would prove nothing"
+    text = CUT.read_text(encoding="utf-8")
+    planted = tmp_path / CUT.name
+    monkeypatch.setitem(globals(), "SCOPE_FILES", (planted,))
+    for written, plant in (
+            (_NOWHERE.upper(),
+             f"The planted head of pull request\n#296 stood at {_NOWHERE.upper()}."),
+            (_NOWHERE, f"The planted head of pull request\n#296 stood at `{_NOWHERE}`."),
+            (_NOWHERE, f"### A planted heading at `{_NOWHERE}`")):
+        planted.write_text(_paragraph(text, plant), encoding="utf-8")
+        with pytest.raises(AssertionError, match=written):
+            test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head()
+    planted.write_text(_paragraph(text, "### A planted heading at `0ace3039`"), encoding="utf-8")
+    test_every_cited_commit_resolves_and_is_an_ancestor_of_the_cut_head()
+
+
+def test_catch_proof_a_reference_on_a_line_that_starts_with_a_hash_is_checked():
+    text = CUT.read_text(encoding="utf-8")
+    for lines, bad in (("1-5", True), ("116-141", False)):
+        findings, _ = reference_findings(_paragraph(
+            text, f"The register entry {_SIGNATURE_ENTRY} of pull request\n#293 stands at "
+                  f"RESTRISIKO_610.md:{lines}."))
+        assert any(f.startswith(f"RESTRISIKO_610.md:{lines} ") for f in findings) == bad, findings
+
+
+def test_catch_proof_a_path_that_starts_with_a_dot_or_has_no_extension_is_checked():
+    """Measured at 989b582c: none of the wrong forms was read or refused, the backticked ones were
+    read as names to look for. Each control points at the lines that hold what it names."""
+    text = CUT.read_text(encoding="utf-8")
+    workflow = ".github/workflows/published-artifact-gate.yml"
+    wrong = ((f"{_SIGNATURE_ENTRY} is checked at `{workflow}:9999`.", f"{workflow}:9999-9999 "),
+             (f"{_SIGNATURE_ENTRY} is checked at {workflow}:9999.", f"{workflow}:9999-9999 "),
+             (f"{_SIGNATURE_ENTRY} stands at ./RESTRISIKO_610.md:1-5.", "./RESTRISIKO_610.md:1-5 "),
+             ("`PYTHON ?= python3` is set at Makefile:12.", "Makefile:12-12 "),
+             ("`PYTHON ?= python3` is set at `Makefile:12`.", "Makefile:12-12 "),
+             ("`PYTHON ?= python3` is set at NOFILE:3.", "NOFILE:3-3 names no file"),
+             (f"{_SIGNATURE_ENTRY} stands at ../RESTRISIKO_610.md:116-141.",
+              "outside the repository"))
+    for bullet, finding in wrong:
+        findings, _ = reference_findings(_planted(text, bullet))
+        assert any(finding in f for f in findings), (bullet, findings)
+    right = (f"The workflow `published-artifact-gate` is named at {workflow}:1.",
+             f"{_SIGNATURE_ENTRY} stands at ./RESTRISIKO_610.md:116-141.",
+             "`PYTHON ?= python3` is set at `Makefile:3`.")
+    for bullet in right:
+        assert len(_references(bullet)[0]) == 1, bullet
+        findings, _ = reference_findings(_planted(text, bullet))
+        assert not findings, (bullet, findings)
+
+
+def test_catch_proof_a_branch_name_is_read_in_every_spelling():
+    """Measured at 989b582c: a moved branch written plainly among the frozen fixes, a staying one
+    written plainly under Out, and a moved one named in the decision's own sentence, plain or in
+    backticks, all passed. The control is the cut as it stands: no finding from either reader."""
+    text = CUT.read_text(encoding="utf-8")
+    moved, stays = "fix/a-diff-is-read-in-gits-grammar", "fix/a70-clean-tree-before-binding"
+    assert moved in MOVED_HEADS and stays in DECIDED_OPEN
+
+    def planted(old: str, new: str) -> str:
+        assert text.count(old) == 1, f"{old!r} is not once in the cut, so nothing to plant on"
+        return text.replace(old, new)
+
+    back_in = planted(f"  `{stays}`.\n", f"  `{stays}`.\n- The release-tooling stack: {moved}.\n")
+    assert any(f"{moved} moved to 6.3.0 and is still counted" in f
+               for f in frozen_fix_findings(back_in)), frozen_fix_findings(back_in)
+    under_out = planted("both ancestors of it.\n",
+                        f"both ancestors of it.\n- The pre-tag cleanliness gate: {stays}.\n")
+    assert any(f"{stays} stays in 6.2.0 and stands under Out" in f
+               for f in moved_findings(under_out)), moved_findings(under_out)
+    for written in (moved, f"`{moved}`", f"**{moved}**"):
+        in_sentence = planted("291, 296 and 249, and then pull request 294",
+                              f"291, 296 and 249, the release-tooling stack {written}, and then "
+                              f"pull request 294")
+        assert any(moved in f for f in moved_findings(in_sentence)), (written,
+                                                                     moved_findings(in_sentence))
+    assert not frozen_fix_findings(text), frozen_fix_findings(text)
+    assert not moved_findings(text), moved_findings(text)
