@@ -263,7 +263,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   main the emitter, `canonicalize_statement` and `status` raised such errors too. The copy now
   reads what a container holds, through the base type's own methods, and
   judges each value by its real type. A circular or too deeply nested value is the caller's typed
-  refusal: ValueError for `status`, EvalClaimError or BundleFormatError for a claim.
+  refusal: ValueError for `status`, EvalClaimError or BundleFormatError for a claim. Corrected in
+  round 8: the copy still asked `isinstance`, which runs `__class__`, about every value that is
+  not a JSON type, and the claim rule read the emitter's claim before the copy. So an object whose
+  `__class__` claims str or int still escaped as a raw TypeError from `emit_eval_receipt`'s
+  `threshold`, `model_id_commit` and `n` and from `issue_sd_jwt`'s `exact_score` and `ci95` items,
+  and the commit message of that round, which calls such objects typed refusals, was wrong for
+  those five. They are typed refusals at every entry since round 8 (below).
 
   Three checks had the same gap. `canonicalize_statement` applies its structural budget before the
   copy, and the budget read a dict through `items()`. A dict subclass whose `items`, `values` and
@@ -288,6 +294,79 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   bound is not changed. The contract file has 76 cases, 5153 subtests. Against the source of
   93b3c6f5 its 9 new catch-proof cases are red, and its 64 earlier cases and 3 new controls pass
   (pytest: 21 failed).
+
+  A sixth lens at c8205c18 found the class still open, because code of the caller still ran inside
+  the plain copy and after it, and round 8 closes it at every entry. The copy asked `isinstance`,
+  which runs `__class__`, about every value that is not a JSON type and passed it on; rfc8785 then
+  read it through `isinstance`, `int()`, `float()` and `list()`, json through its own `items()`, and
+  the claim rule, the exporters and `issue_sd_jwt` read the caller's object before any copy existed.
+  Measured at c8205c18: an empty frozenset subclass whose `__class__` says `list` after its first six
+  reads made `canonicalize_statement` write 1035 bytes for 500 nested lists and raise a raw
+  RecursionError for 3000, a regression of round 7 (93b3c6f5 and main 20e91c8e refused it with
+  BundleFormatError); a `__class__` that raised RecursionError was reported as "the value nests too
+  deep"; a `__class__` read inside the copy put 500 nested lists into a sibling after the budget had
+  passed the statement, and 1074 bytes were written past the depth bound of 64; an int holding 5
+  whose `__int__` returns -1 was written, and signed by the emitter, as -1; a `status` holding a
+  dict whose metaclass leaves `dict` out of its MRO, stored {"a": 1}, was signed as {"fremd": 99},
+  and such a `status` holding no `status_list` was signed with the one its `items()` showed;
+  `abs`, `int()`, `len`, iteration, comparisons, `__bool__`, `__eq__` and `__class__` of the
+  caller's objects escaped as raw exceptions, and so did json's TypeError for a `vct` or `root_b64`
+  of another type (the lens's battery: 479 raw exceptions in 4320 runs). Now every public entry
+  takes one plain copy of every JSON-shaped argument first and judges, serializes and signs only
+  that copy: `canonicalize`, `emit_eval_receipt`, the eight producers and `svr_properties`, the
+  in-toto exporters' other arguments (`harness`, `anchors`, `subject`, `subject_digest`,
+  `root_b64`, `url`, `keyid`, the profile names, `content_root_alg`, and `policy` and
+  `time_created` of `export_svr_dsse`), and `issue_sd_jwt`'s `status`, `ci95`, `exact_score`,
+  openings, `vct` and `root_b64`, the last two as strings. The copy reads each value by its own
+  type, asks `issubclass` against one base type at a time (an identity walk of the MRO that calls
+  no metaclass hook), reads containers with the base types' methods and a `str`, `int` or `float`
+  subclass as the value it stores, keeps `bool` and None, and refuses every other type with the
+  caller's typed error, naming where the value sits. A type that hides `dict` from its MRO is
+  refused rather than read as json reads it: `dict.items` refuses it too, and the only other
+  reading is its own `items()`. `canonicalize_statement` keeps its order; its shape guard, which now
+  compares the stored keys by their characters, and its budget read the statement before the copy
+  and run no code of the caller either. `_is_unsafe_int` reads the magnitude with `int.bit_length`,
+  and every refusal message reads a type's name through `type`'s own getter, because a metaclass
+  can define `__name__`. The comment on the copy's `except RecursionError` is true now: the contract
+  plants recording `__class__`, `__getattribute__`, `__iter__`, `__len__`, `__index__`, `__int__`,
+  `__float__`, `__eq__`, `__hash__`, `__bool__`, `items`, `get` and `encode`, and a recording
+  metaclass, into every entry and argument, and not one is called; the battery counts 0 raw
+  exceptions in 4320 runs. What a caller sees differently, each measured at c8205c18: a subclass of
+  `str`, `int` or `float` is written as the value it stores, so the round-2 case of an int holding
+  500 whose `__int__` returns -1 is signed as 500, where the read-back refused it; the emitter
+  refuses a claim given as a `UserDict` or a `MappingProxyType`, which `dict()` read through their
+  own methods (a list of pairs is read as before); `issue_sd_jwt` refuses an opening that is no JSON
+  value (bytes, bytearray, memoryview, a set, a frozenset, a range, a deque, an array, a dict view,
+  a `UserDict`, a `UserList`, a `MappingProxyType`, a generator), which `list()` accepted, and a
+  `vct` or `root_b64` that is None, a number or a list, which was signed; the statement builders
+  refuse a `harness`, `anchors` or `subject` that is no JSON value, which they returned inside the
+  statement, and return a tuple as the list it is written as; the legacy serializer no longer turns
+  a non-string key into a string (`{1: "a"}` in `harness` was signed as `{"1":"a"}`), and under the
+  default algorithm such a key is the exporter's BundleFormatError, not rfc8785's
+  CanonicalizationError; `statement_content_root` and the shape guard refuse a `Mapping` that is not
+  a dict with ProofBundleError, one step before the budget refused it; a plain opening that is not
+  iterable is a ValueError (a raw TypeError before), and a `release-gate` `subject_sha256` that is
+  not a string a BundleFormatError (a raw AttributeError before). Plain input is unchanged: over
+  20000 generated plain values, 3542 of them holding a tuple, in 480000 runs through
+  `canonicalize`, `_jcs_bytes`, `canonicalize_statement` with and without the shape guard,
+  `statement_content_root`, a signed `status`, `ci95`, `exact_score` and an opening of
+  `issue_sd_jwt`, both in-toto serializers, and the emitter, the eight producers and
+  `svr_properties` on a claim with one field replaced, none of the 195340 outputs written at
+  c8205c18 differs, no verdict differs except the 4404 non-iterable openings above, and all 32353
+  changed messages name a value that holds a tuple, which a refusal now shows as the list it is
+  written as. The deepest nesting written is unchanged (from one caller: rfc8785 991 lists and 989
+  dicts, `canonicalize` 989 and 987, the deepest signed `status` 989), and the standard library's
+  own subclasses (Counter, OrderedDict, defaultdict, IntEnum, a str Enum, a namedtuple) keep their
+  bytes on every path. Not covered: `build_eval_claim`, which signs nothing and whose output the
+  emitter copies, still reads its own arguments; the emitter hands `prior_leaves` and `sd_jwt` to
+  `emit_bundle`, which reads the leaves with `list()` and stores `sd_jwt` as given, outside the
+  signed payload; `issue_sd_jwt` reads `holder_public_key` through the buffer protocol, which
+  a `bytes` subclass can implement in Python from 3.12 on; `svr_properties`'s `result`,
+  `export_svr_dsse`'s `bundle` (the verify path) and the signer are objects by design; and a
+  finalizer or trace hook of the caller can run at any allocation, which no reader excludes. The
+  contract file has 96 cases, 5462 subtests. Against the source of c8205c18 its 17 new
+  catch-proof cases and the changed round-2 case are red, and its 75 other earlier cases and 3 new
+  controls pass (pytest: 241 failed).
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

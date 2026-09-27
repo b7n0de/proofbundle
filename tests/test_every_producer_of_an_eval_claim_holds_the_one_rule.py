@@ -33,12 +33,19 @@ except its recursion-limit case (round 6, written against 5a21b199, where only i
 half fails; its emit half guards main 1e95b197). The ones below the "round 7" marker were written
 against 93b3c6f5, where a fifth lens found a copy and a budget that read a caller's container through
 methods the caller can override while the serializer wrote something else, and a circular or deep
-container that escaped as a raw exception. Run against its reference commit, every case whose name
-does not start with `test_control` fails; the controls pass there and here. One round-3 control
-changed in round 4 (`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring).
-The counts are in the commit messages.
+container that escaped as a raw exception. The ones below the "round 8" marker were written against
+c8205c18, where a sixth lens found that caller code still ran inside the copy and after it; one
+round-2 case changed its expectation in round 8
+(`TestThePlantedObjectIsJudgedAsItSerializes.test_an_int_that_serializes_differently_is_written_as_what_it_holds`).
+Run against its reference commit, every case whose name does not start with `test_control` fails;
+the controls pass there and here. One round-3 control changed in round 4
+(`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in
+the commit messages.
 """
 import base64
+import collections
+import ctypes
+import enum
 import json
 import os
 import re
@@ -160,14 +167,19 @@ class _Basis(unittest.TestCase):
         return dict(claim)
 
     def _alle_weisen_ab(self, claim, feld=None):
-        """Every producer raises BundleFormatError, and the reason names `feld` right after the site."""
+        """Every producer raises BundleFormatError, and the reason names `feld` right after the site.
+
+        Round 8: the eval-result producers' own presence-and-type check (`_require_export_fields`)
+        names a field in backticks ("`passed` is str 'false'"). It answered first for a plain claim
+        before round 8 too; it now reads the plain copy of every claim, so it answers first for a
+        dict subclass whose `get` lies as well."""
         for name, erzeuge in _produzenten().items():
             with self.subTest(produzent=name):
                 with self.assertRaises(BundleFormatError) as ctx:
                     erzeuge(claim, self.signer)
                 if feld is not None:
                     grund = str(ctx.exception).split(": ", 1)[-1]
-                    self.assertTrue(grund.startswith(feld), str(ctx.exception))
+                    self.assertTrue(grund.lstrip("`").startswith(feld), str(ctx.exception))
 
 
 class TestEachProducerRefusesWhatTheRuleRefuses(_Basis):
@@ -323,7 +335,8 @@ class TestEachVerifierRefusesAHandMadeEnvelope(_Basis):
 
 
 class _ZahlMitAndererInt(int):
-    """Holds 500, and `int()` of it is -1. rfc8785 calls `int()`, so its bytes say -1."""
+    """Holds 500, and `int()` of it is -1. rfc8785 calls `int()`, so its bytes said -1 until the plain
+    copy read it by its stored value (round 8)."""
 
     def __int__(self):
         return -1
@@ -352,11 +365,20 @@ class _ZweiZugriffe(dict):
 
 class TestThePlantedObjectIsJudgedAsItSerializes(_Basis):
 
-    def test_an_int_that_serializes_differently_is_refused_by_every_producer(self):
+    def test_an_int_that_serializes_differently_is_written_as_what_it_holds(self):
+        """Round 2 against 62e8bbab: this int was serialized as -1 there and signed. Rounds 2 to 7
+        refused it, because the read-back found -1 where 500 had been checked. Round 8 (lens run 6,
+        F4) reads an int subclass by the value it stores, so it is judged as 500 and written as 500:
+        the emitter and every producer accept it, and nothing carries -1. Red at 62e8bbab (-1 signed)
+        and at c8205c18 (refused)."""
         claim = dict(self.basis, n=_ZahlMitAndererInt(500))
-        with self.assertRaises(EvalClaimError):
-            emit_eval_receipt(claim, self.signer)
-        self._alle_weisen_ab(claim, "n")
+        gelesen = decode_eval_claim(emit_eval_receipt(claim, self.signer))
+        self.assertEqual(gelesen["n"], 500)
+        for name, erzeuge in _produzenten().items():
+            with self.subTest(produzent=name):
+                self.assertIsNotNone(erzeuge(claim, self.signer))
+        stichprobe = intoto.to_eval_result_predicate(claim)["sampleSize"]
+        self.assertEqual((stichprobe, type(stichprobe)), (500, int))
 
     def test_a_str_equal_to_everything_is_refused_by_every_producer(self):
         claim = dict(self.basis, schema=_GleichAllem("x"), commit_alg=_GleichAllem("md5-plain"))
@@ -1557,6 +1579,736 @@ class TestPlainInputIsWrittenAsBefore(_Basis):
                 self.assertGreater(kanonisch, 64)
                 self.assertIn(serialisierer - kanonisch, (0, 1, 2))
                 self.assertEqual(danach, "EvalClaimError")
+
+
+# ---- round 8: lens run 6 at c8205c18 ------------------------------------------------------------------
+
+_AUFRUFE: list = []
+
+
+def _merke(name: str) -> None:
+    _AUFRUFE.append(name)
+
+
+class _MetaProtokoll(type):
+    """A metaclass whose hooks record a call: the type's name, its equality with another type, and the
+    two checks a metaclass can take over. `issubclass(typ, dict)` must not run any of them."""
+
+    @property
+    def __name__(cls):  # type: ignore[override]
+        _merke("metaclass __name__")
+        return type.__dict__["__name__"].__get__(cls)
+
+    def __eq__(cls, other):
+        _merke("metaclass __eq__")
+        return type.__eq__(cls, other)
+
+    __hash__ = type.__hash__
+
+    def __instancecheck__(cls, obj):
+        _merke("metaclass __instancecheck__")
+        return type.__instancecheck__(cls, obj)
+
+    def __subclasscheck__(cls, sub):
+        _merke("metaclass __subclasscheck__")
+        return type.__subclasscheck__(cls, sub)
+
+
+#: Every method a reader could call on a caller's object. The recording classes below answer each as
+#: their base type does, so an honest reading is undisturbed, and record it, so any reading is seen.
+_LESEWEGE = ("__iter__", "__len__", "__contains__", "__getitem__", "__eq__", "__ne__", "__lt__",
+             "__le__", "__gt__", "__ge__", "__hash__", "__bool__", "__repr__", "__str__",
+             "__format__", "__int__", "__index__", "__float__", "__abs__", "__reversed__",
+             "__length_hint__", "__copy__", "__deepcopy__", "__reduce_ex__", "__round__", "__trunc__",
+             "__neg__", "__add__", "__mul__", "__mod__", "items", "keys", "values", "get", "encode",
+             "lower", "upper", "strip", "split", "startswith", "copy", "bit_length", "to_bytes",
+             "count", "index", "decode", "hex")
+
+
+def _protokolliert(basis: type) -> type:
+    """A subclass of `basis` that records every reading (its methods, `__getattribute__`, a
+    `__class__` property, and the metaclass hooks) and otherwise behaves as `basis`."""
+    ns: dict = {}
+    for methode in _LESEWEGE:
+        echt = getattr(basis, methode, None)
+        if echt is None:
+            continue
+
+        def aufzeichnen(self, *args, _methode=methode, _echt=echt, **kwargs):
+            _merke(_methode)
+            return _echt(self, *args, **kwargs)
+        ns[methode] = aufzeichnen
+    if basis is bytes:
+        # `bytes()` of a bytes subclass calls its `__bytes__`; bytes itself has none on 3.10.
+        ns["__bytes__"] = lambda self: (_merke("__bytes__"), bytes.__getitem__(self, slice(None)))[1]
+
+    def attribut(self, name, _basis=basis):
+        _merke("attribute " + name)
+        return _basis.__getattribute__(self, name)
+    ns["__getattribute__"] = attribut
+    ns["__class__"] = property(lambda self: (_merke("__class__"), type(self))[1])
+    return _MetaProtokoll("Protokoll" + basis.__qualname__.title(), (basis,), ns)
+
+
+P = {basis: _protokolliert(basis) for basis in (dict, list, tuple, str, int, float, frozenset, bytes)}
+
+
+class _BehauptetDict(metaclass=_MetaProtokoll):
+    """No JSON type, but its `__class__` says dict, and every reading of it is recorded."""
+
+    @property
+    def __class__(self):  # type: ignore[override]
+        _merke("__class__")
+        return dict
+
+    def keys(self):
+        _merke("keys")
+        return ["idx"]
+
+    def __getitem__(self, schluessel):
+        _merke("__getitem__")
+        return 5
+
+    def __iter__(self):
+        _merke("__iter__")
+        return iter(["idx"])
+
+    def __len__(self):
+        _merke("__len__")
+        return 1
+
+
+class _BehauptetStr(metaclass=_MetaProtokoll):
+    @property
+    def __class__(self):  # type: ignore[override]
+        _merke("__class__")
+        return str
+
+    def __str__(self):
+        _merke("__str__")
+        return "0.80"
+
+
+class _BehauptetInt(metaclass=_MetaProtokoll):
+    @property
+    def __class__(self):  # type: ignore[override]
+        _merke("__class__")
+        return int
+
+    def __int__(self):
+        _merke("__int__")
+        return 500
+
+    __index__ = __int__
+
+
+class _VersteckMeta(_MetaProtokoll):
+    """`mro()` leaves the base out, so `issubclass(cls, dict)` is False, while the type keeps the C
+    layout and flags of a dict, which `json.dumps` tests (PyDict_Check)."""
+
+    def mro(cls):
+        return [cls, object]
+
+
+_VersteckterDict = _VersteckMeta("_VersteckterDict", (dict,), {
+    "items": lambda self: (_merke("items"), [("fremd", 99)])[1],
+    "keys": lambda self: (_merke("keys"), ["fremd"])[1],
+    "__iter__": lambda self: (_merke("__iter__"), iter(["fremd"]))[1],
+    "__contains__": lambda self, k: (_merke("__contains__"), True)[1],
+})
+
+
+def _versteckt(inhalt: dict):
+    """A `_VersteckterDict` that stores `inhalt`. `dict.__setitem__` refuses the type (its own type
+    check walks the MRO), so the items are stored through the C API, as the lens did."""
+    wert = _VersteckterDict()
+    setze = ctypes.pythonapi.PyDict_SetItem
+    setze.argtypes = [ctypes.py_object, ctypes.py_object, ctypes.py_object]
+    setze.restype = ctypes.c_int
+    for schluessel, eintrag in inhalt.items():
+        if setze(wert, schluessel, eintrag) != 0:
+            raise AssertionError("PyDict_SetItem failed")
+    return wert
+
+
+def _gespeichert(wert) -> list:
+    """What a `_VersteckterDict` stores, read through the C API (the premise of the F5 cases)."""
+    lies = ctypes.pythonapi.PyDict_Items
+    lies.argtypes = [ctypes.py_object]
+    lies.restype = ctypes.py_object
+    return lies(wert)
+
+
+class _Ergebnis:
+    checks = ()
+
+
+class TestTheCopyRunsNoCodeOfTheCaller(_Basis):
+    """THE PROOF of round 8. Lens run 6 at c8205c18 found caller code running inside the plain copy
+    (its `isinstance` read `__class__`) and after it (rfc8785's `int()`, `float()` and `list()`,
+    json's `items()`, the claim rule's `len`, `<=`, `set()`, `abs` and truthiness, the exporters'
+    `get`, `==` and `__contains__`). Every public entry now takes one plain copy of every JSON-shaped
+    argument first. Here each entry gets values whose every reading is recorded: subclasses of each
+    JSON type holding honest values, the non-JSON types the copy refuses, objects whose `__class__`
+    claims a JSON type, and a dict whose metaclass hides `dict` from its MRO. Every call must return
+    or raise the entry's typed refusal, and not one recorded method may have run. Red at c8205c18."""
+
+    def _pruefe(self, name, aufbau, aufruf, erlaubt):
+        with self.subTest(weg=name):
+            argumente = aufbau()
+            _AUFRUFE.clear()
+            try:
+                aufruf(argumente)
+            except erlaubt:
+                pass
+            finally:
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+            self.assertEqual(gesehen, [], f"{name}: the caller's code ran")
+
+    def _anspruchs_wege(self):
+        from proofbundle.errors import VerificationResult  # noqa: PLC0415
+        from proofbundle.evalclaim import _jcs_bytes, canonicalize  # noqa: PLC0415
+        ergebnis = VerificationResult()
+        ergebnis.add("ed25519-signature", True, "")
+        s = self.signer
+        wege = {"canonicalize": (canonicalize, (EvalClaimError,)),
+                "_jcs_bytes": (_jcs_bytes, (EvalClaimError,)),
+                "emit_eval_receipt": (lambda c: emit_eval_receipt(c, s), (EvalClaimError,)),
+                "svr_properties": (lambda c: intoto.svr_properties(ergebnis, c), (BundleFormatError,))}
+        for name, erzeuge in _produzenten().items():
+            wege[name] = (lambda c, e=erzeuge: e(c, s), (BundleFormatError,))
+        return wege
+
+    def _anspruchs_werte(self):
+        b = self.basis
+        return {
+            "provenance of recording values": lambda: dict(b, provenance=P[dict]({
+                "k": P[int](5), "s": P[str]("x"), "l": P[list]([P[int](1), P[tuple]((P[str]("a"),))]),
+                "f": P[float](1.5), "d": P[dict]({"e": None, "t": True})})),
+            "n": lambda: dict(b, n=P[int](500)),
+            "suite": lambda: dict(b, suite=P[str]("safety-refusal")),
+            "threshold": lambda: dict(b, threshold=P[str]("0.80")),
+            "model_id_commit": lambda: dict(b, model_id_commit=P[str](b["model_id_commit"])),
+            "passed as a recording int": lambda: dict(b, passed=P[int](1)),
+            "ci95 list": lambda: dict(b, ci95=P[list]([P[str]("0.90"), P[str]("0.94")])),
+            "ci95 tuple": lambda: dict(b, ci95=P[tuple]((P[str]("0.90"), P[str]("0.94")))),
+            "the whole claim": lambda: P[dict](b),
+            "a key": lambda: dict(b, provenance={P[str]("k"): 1}),
+            "a frozenset": lambda: dict(b, provenance={"k": P[frozenset]({"a"})}),
+            "bytes": lambda: dict(b, provenance={"k": P[bytes](b"x")}),
+            "claims dict": lambda: dict(b, provenance={"k": _BehauptetDict()}),
+            "threshold claims str": lambda: dict(b, threshold=_BehauptetStr()),
+            "n claims int": lambda: dict(b, n=_BehauptetInt()),
+            "hides dict": lambda: dict(b, provenance={"k": _versteckt({"a": 1})}),
+            "the whole claim claims dict": lambda: _BehauptetDict(),
+            "the whole claim hides dict": lambda: _versteckt(dict(b)),
+        }
+
+    def test_no_entry_that_takes_a_claim_runs_the_callers_code(self):
+        for weg, (aufruf, erlaubt) in self._anspruchs_wege().items():
+            for wert, aufbau in self._anspruchs_werte().items():
+                self._pruefe(f"{weg}, {wert}", aufbau, aufruf, erlaubt)
+
+    def test_no_statement_entry_runs_the_callers_code(self):
+        erlaubt = (ProofBundleError, ValueError)
+        voll = {"_type": "t", "subject": [], "predicateType": "p"}
+        werte = {
+            "predicate of recording values": lambda: dict(voll, predicate=P[dict]({
+                "k": P[int](5), "f": P[float](1.5), "l": P[list]([P[tuple]((P[str]("a"),))])})),
+            "the whole statement": lambda: P[dict](dict(voll, predicate={})),
+            "a frozenset": lambda: dict(voll, predicate={"k": P[frozenset]({"a"})}),
+            "claims dict": lambda: dict(voll, predicate=_BehauptetDict()),
+            "hides dict": lambda: dict(voll, predicate=_versteckt({"a": 1})),
+            "the whole statement claims dict": lambda: _BehauptetDict(),
+            "recording bytes": lambda: P[bytes](b"{}"),
+        }
+        wege = {"canonicalize_statement": canonical.canonicalize_statement,
+                "canonicalize_statement, shape guard":
+                    lambda st: canonical.canonicalize_statement(st, require_statement_shape=True),
+                "statement_content_root": canonical.statement_content_root}
+        for weg, aufruf in wege.items():
+            for wert, aufbau in werte.items():
+                self._pruefe(f"{weg}, {wert}", aufbau, aufruf, erlaubt)
+
+    def test_no_argument_of_issue_sd_jwt_runs_the_callers_code(self):
+        werte = {
+            "status": lambda: {"status": P[dict]({"status_list": P[dict]({
+                "idx": P[int](7), "uri": P[str]("u")}), "x": P[list]([P[float](1.5)])})},
+            "status hides dict": lambda: {"status": {"status_list": {"idx": 7}, "x": _versteckt({"a": 1})}},
+            "status claims dict": lambda: {"status": _BehauptetDict()},
+            "ci95": lambda: {"ci95": P[list]([P[str]("0.90"), P[str]("0.94")])},
+            "ci95 tuple": lambda: {"ci95": P[tuple]((P[str]("0.90"), P[str]("0.94")))},
+            "ci95 item claims str": lambda: {"ci95": [_BehauptetStr(), "0.94"]},
+            "exact_score": lambda: {"exact_score": P[str]("0.92")},
+            "exact_score claims str": lambda: {"exact_score": _BehauptetStr()},
+            "vct": lambda: {"vct": P[str]("https://example.org/vct")},
+            "root_b64": lambda: {"root_b64": P[str](ROOT_B64)},
+            "root_b64 claims str": lambda: {"root_b64": _BehauptetStr()},
+            "openings": lambda: {"model_id_opening": P[tuple]((P[str]("m"), P[str]("00"))),
+                                 "dataset_id_opening": P[list]([P[str]("d"), P[str]("00")])},
+            "an opening that is a frozenset": lambda: {"model_id_opening": P[frozenset]({"a"})},
+        }
+        for wert, aufbau in werte.items():
+            self._pruefe(f"issue_sd_jwt, {wert}", aufbau,
+                         lambda kw: issue_sd_jwt(self.basis, self.signer, **dict({"root_b64": ROOT_B64}, **kw)),
+                         (BundleFormatError, ValueError))
+
+    def test_no_other_argument_of_the_exporters_runs_the_callers_code(self):
+        b, s = self.basis, self.signer
+        jcs, alt = intoto.CONTENT_ROOT_ALG, intoto.LEGACY_CONTENT_ROOT_ALG
+
+        def harness():
+            return P[dict]({"name": P[str]("h"), "v": P[list]([P[int](1)])})
+        faelle = {
+            "to_intoto_statement": (lambda: dict(root_b64=P[str](ROOT_B64), harness=harness()),
+                                    lambda kw: intoto.to_intoto_statement(b, **kw)),
+            "to_test_result_statement": (
+                lambda: dict(subject_digest=P[dict]({"sha256": P[str]("0" * 64)}), root_b64=P[str](ROOT_B64),
+                             harness=harness(), url=P[str]("https://x"), content_root_alg=P[str](jcs)),
+                lambda kw: intoto.to_test_result_statement(b, **kw)),
+            "to_eval_result_predicate": (
+                lambda: dict(root_b64=P[str](ROOT_B64), harness=harness(),
+                             anchors=P[list]([P[dict]({"a": P[int](1)})]), subject_profile=P[str]("receipt")),
+                lambda kw: intoto.to_eval_result_predicate(b, **kw)),
+            "to_eval_result_statement": (
+                lambda: dict(subject=P[list]([P[dict]({"name": P[str]("n"), "digest": P[dict](
+                    {"sha256": P[str]("0" * 64)})})]), content_root_alg=P[str](jcs), harness=harness()),
+                lambda kw: intoto.to_eval_result_statement(b, **kw)),
+            "resolve_subject receipt": (
+                lambda: dict(profil=P[str]("receipt"), root_b64=P[str](ROOT_B64)),
+                lambda kw: intoto.resolve_subject(kw.pop("profil"), b, **kw)),
+            "resolve_subject release-gate": (
+                lambda: dict(profil=P[str]("release-gate"), subject_name=P[str]("m"),
+                             subject_sha256=P[str]("AB" * 32)),
+                lambda kw: intoto.resolve_subject(kw.pop("profil"), b, **kw)),
+            "svr_properties flags": (
+                lambda: dict(prereg_verified=P[int](1), anchor_verified=P[int](0)),
+                lambda kw: intoto.svr_properties(_Ergebnis(), b, **kw)),
+            "harness claims dict": (lambda: dict(harness=_BehauptetDict()),
+                                    lambda kw: intoto.to_intoto_statement(b, **kw)),
+            "harness hides dict": (lambda: dict(harness=_versteckt({"a": 1}), content_root_alg=alt),
+                                   lambda kw: intoto.export_intoto_dsse(b, s, **kw)),
+        }
+        for alg in (jcs, alt):
+            faelle[f"export_intoto_dsse {alg}"] = (
+                lambda alg=alg: dict(root_b64=P[str](ROOT_B64), harness=harness(), url=P[str]("https://x"),
+                                     keyid=P[str]("k"), content_root_alg=P[str](alg)),
+                lambda kw: intoto.export_intoto_dsse(b, s, **kw))
+            faelle[f"export_eval_result_dsse receipt {alg}"] = (
+                lambda alg=alg: dict(subject_profile=P[str]("receipt"), root_b64=P[str](ROOT_B64),
+                                     harness=harness(), anchors=P[list]([P[str]("a")]), keyid=P[str]("k"),
+                                     content_root_alg=P[str](alg)),
+                lambda kw: intoto.export_eval_result_dsse(b, s, **kw))
+            faelle[f"export_eval_result_dsse release-gate {alg}"] = (
+                lambda alg=alg: dict(subject_profile=P[str]("release-gate"), subject_name=P[str]("m"),
+                                     subject_sha256=P[str]("ab" * 32), content_root_alg=P[str](alg)),
+                lambda kw: intoto.export_eval_result_dsse(b, s, **kw))
+            faelle[f"export_svr_dsse {alg}"] = (
+                lambda alg=alg: dict(buendel=emit_eval_receipt(b, s), time_created=P[str]("2026-01-01T00:00:00Z"),
+                                     policy=P[dict]({"uri": P[str]("u")}), prereg_verified=P[int](0),
+                                     anchor_verified=P[int](0), keyid=P[str]("k"), content_root_alg=P[str](alg)),
+                lambda kw: intoto.export_svr_dsse(kw.pop("buendel"), s, **kw))
+        for name, (aufbau, aufruf) in faelle.items():
+            self._pruefe(name, aufbau, aufruf, (BundleFormatError,))
+
+    def test_control_a_recording_subclass_is_written_as_the_plain_value(self):
+        """Green at c8205c18 too: the recording classes answer honestly, so every entry writes for them
+        the bytes it writes for the plain values they hold. This keeps the proof above from passing
+        over entries that refuse everything."""
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        b, s = self.basis, self.signer
+        roh = {"k": 5, "s": "x", "l": [1, ["a"]], "d": {"e": None, "t": True}}
+        aufgezeichnet = P[dict]({"k": P[int](5), "s": P[str]("x"),
+                                 "l": P[list]([P[int](1), P[tuple]((P[str]("a"),))]),
+                                 "d": P[dict]({"e": None, "t": True})})
+        self.assertEqual(canonicalize(dict(b, provenance=aufgezeichnet)), canonicalize(dict(b, provenance=roh)))
+        self.assertEqual(emit_eval_receipt(dict(b, provenance=aufgezeichnet, n=P[int](500)), s),
+                         emit_eval_receipt(dict(b, provenance=roh), s))
+        self.assertEqual(intoto.export_intoto_dsse(b, s, harness=aufgezeichnet),
+                         intoto.export_intoto_dsse(b, s, harness=roh))
+        status = {"status_list": {"idx": 7, "uri": "u"}, "x": roh}
+        self.assertEqual(_immer_offen(issue_sd_jwt(b, s, root_b64=ROOT_B64, status=P[dict](
+            {"status_list": P[dict]({"idx": P[int](7), "uri": P[str]("u")}), "x": aufgezeichnet})))["status"],
+            status)
+        self.assertEqual(canonical.canonicalize_statement({"predicate": aufgezeichnet}),
+                         canonical.canonicalize_statement({"predicate": roh}))
+
+
+def _menge_die_spaeter_liste_sagt(tiefe: int) -> type:
+    """F1 of lens run 6: an empty frozenset subclass whose first six `__class__` reads (the copy's at
+    c8205c18) name its own type and every later one says `list`, and whose `__iter__` shows nested
+    lists. rfc8785 reads `isinstance` and then `list()` of it."""
+    class Menge(frozenset):
+        gelesen = 0
+
+        @property
+        def __class__(self):  # type: ignore[override]
+            Menge.gelesen += 1
+            return Menge if Menge.gelesen <= 6 else list
+
+        def __iter__(self):
+            return iter([_geschachtelt(tiefe)])
+    return Menge
+
+
+class TestAValueOfNoJsonTypeIsRefusedNotPassedOn(_Basis):
+    """F1 and F2 of lens run 6 at c8205c18. The copy passed every value that is not a JSON type
+    through unchanged, after asking `isinstance` about it, which runs the value's `__class__`."""
+
+    def test_f1_an_empty_frozenset_that_later_claims_list_is_refused(self):
+        """At c8205c18 `canonicalize_statement` wrote 1035 bytes for 500 levels and raised a raw
+        RecursionError for 3000; at 93b3c6f5 and on main it was a BundleFormatError."""
+        for tiefe in (500, 3000):
+            with self.subTest(tiefe=tiefe):
+                Menge = _menge_die_spaeter_liste_sagt(tiefe)
+                with self.assertRaises((ProofBundleError, ValueError)):
+                    canonical.canonicalize_statement({"_type": "t", "predicate": {"m": Menge()}})
+                self.assertEqual(Menge.gelesen, 0, "the value's __class__ ran")
+
+    def test_f2_a_class_read_cannot_deepen_a_sibling_after_the_budget(self):
+        """At c8205c18 the budget judged the statement, then the copy read `__class__`, which put 500
+        nested lists into a sibling the copy had not reached, and the serializer wrote them past the
+        depth bound of 64 (1074 bytes)."""
+        ziel: list = []
+
+        class Umbau(bytes):
+            gelesen = 0
+
+            @property
+            def __class__(self):  # type: ignore[override]
+                Umbau.gelesen += 1
+                if not ziel:
+                    ziel.append(_geschachtelt(500))
+                return int if sys._getframe(1).f_code.co_name == "dump" else Umbau
+
+        with self.assertRaises((ProofBundleError, ValueError)):
+            canonical.canonicalize_statement({"_type": "t", "predicate": {"a": Umbau(b"5"), "z": ziel}})
+        self.assertEqual((Umbau.gelesen, ziel), (0, []))
+
+    def test_f2_a_recursion_error_of_the_caller_is_not_called_nesting(self):
+        """The comment on the copy's `except RecursionError` said the copy runs no code of the
+        caller. At c8205c18 a `__class__` that raised RecursionError was reported by `issue_sd_jwt`
+        and by every producer as "the value nests too deep to serialize"."""
+        class KlasseRekursion:
+            gelesen = 0
+
+            @property
+            def __class__(self):  # type: ignore[override]
+                KlasseRekursion.gelesen += 1
+                raise RecursionError("raised by the caller's __class__")
+
+        with self.assertRaises(ValueError) as ctx:
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                         status={"status_list": {"idx": 7, "uri": "u"}, "x": KlasseRekursion()})
+        self.assertNotIn("nests too deep", str(ctx.exception))
+        for name, erzeuge in _produzenten().items():
+            with self.subTest(produzent=name):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    erzeuge(dict(self.basis, provenance={"x": KlasseRekursion()}), self.signer)
+                self.assertNotIn("nests too deep", str(ctx.exception))
+        self.assertEqual(KlasseRekursion.gelesen, 0)
+
+
+class _AbsWirft(int):
+    def __abs__(self):
+        raise KeyError("abs")
+
+
+class _IntWirft(int):
+    def __int__(self):
+        raise KeyError("int")
+
+
+class _VergleichWirft(int):
+    def __le__(self, other):
+        raise KeyError("le")
+
+    def __ge__(self, other):
+        raise KeyError("ge")
+
+    def __lt__(self, other):
+        raise KeyError("lt")
+
+    def __gt__(self, other):
+        raise KeyError("gt")
+
+
+class _LaengeWirft(list):
+    def __len__(self):
+        raise KeyError("len")
+
+    def __iter__(self):
+        raise KeyError("iter")
+
+
+class _IterWirft(dict):
+    def __iter__(self):
+        raise KeyError("iter")
+
+
+class _WahrheitWirft(str):
+    def __bool__(self):
+        raise KeyError("bool")
+
+
+class _GleichWirft(str):
+    def __eq__(self, other):
+        raise KeyError("eq")
+
+    def __ne__(self, other):
+        raise KeyError("ne")
+
+    __hash__ = str.__hash__
+
+
+class _KlasseWirft:
+    @property
+    def __class__(self):  # type: ignore[override]
+        raise KeyError("__class__")
+
+
+class TestNoMethodOfTheCallerRaisesThroughAnEntry(_Basis):
+    """F3 of lens run 6 at c8205c18: raw exceptions from methods the caller overrides. Each value
+    below holds an honest JSON value, or is no JSON value; each is written as what it holds or is
+    the entry's typed refusal now."""
+
+    def test_f3_the_claim_rule_and_the_serializer_read_the_stored_value(self):
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        s = self.signer
+
+        def gelesen(claim):
+            return decode_eval_claim(emit_eval_receipt(claim, s))
+        faelle = (
+            ("canonicalize, provenance abs raises", lambda: json.loads(canonicalize(
+                dict(self.basis, provenance={"k": _AbsWirft(5)})))["provenance"], {"k": 5}),
+            ("emit, n abs raises", lambda: gelesen(dict(self.basis, n=_AbsWirft(5)))["n"], 5),
+            ("canonicalize_statement, int() raises", lambda: canonical.canonicalize_statement(
+                {"_type": "t", "predicate": {"k": _IntWirft(5)}}), b'{"_type":"t","predicate":{"k":5}}'),
+            ("emit, ci95 len and iter raise", lambda: gelesen(dict(
+                self.basis, ci95=_LaengeWirft(["0.1", "0.2"])))["ci95"], ["0.1", "0.2"]),
+            ("issue_sd_jwt, ci95 len and iter raise", lambda: _offenlegungen(issue_sd_jwt(
+                self.basis, s, root_b64=ROOT_B64, ci95=_LaengeWirft(["0.1", "0.2"])))["ci95"], ["0.1", "0.2"]),
+            ("emit, n comparisons raise", lambda: gelesen(dict(self.basis, n=_VergleichWirft(500)))["n"], 500),
+            ("emit, samples iteration raises", lambda: gelesen(dict(self.basis, samples=_IterWirft(
+                root_b64=ROOT_B64, n=500, leaf_alg="sha256-rfc6962-sdjwt-v1")))["samples"]["n"], 500),
+            ("emit, suite truthiness raises", lambda: gelesen(dict(
+                self.basis, suite=_WahrheitWirft("safety-refusal")))["suite"], "safety-refusal"),
+            ("to_eval_result_predicate, == raises", lambda: intoto.to_eval_result_predicate(dict(
+                self.basis, suite=_GleichWirft("safety-refusal")))["suite"]["name"], "safety-refusal"),
+        )
+        for name, lauf, erwartet in faelle:
+            with self.subTest(fall=name):
+                self.assertEqual(lauf(), erwartet)
+
+    def test_f3_issue_sd_jwt_refuses_its_arguments_by_type(self):
+        """At c8205c18: a status holding an object whose `__class__` raises gave that KeyError, and a
+        `vct` or `root_b64` that is no JSON value went into `json.dumps` and gave its TypeError."""
+        for name, kwargs in (("status holds a raising __class__",
+                              {"status": {"status_list": {"idx": 7, "uri": "u"}, "x": _KlasseWirft()}}),
+                             ("vct is an object", {"vct": object()}),
+                             ("root_b64 is an object", {"root_b64": object()})):
+            with self.subTest(fall=name):
+                with self.assertRaises(ValueError):
+                    issue_sd_jwt(self.basis, self.signer, **dict({"root_b64": ROOT_B64}, **kwargs))
+
+
+class _IntAnders(int):
+    def __int__(self):
+        return -1
+
+
+class _FloatAnders(float):
+    def __float__(self):
+        return 2.0
+
+
+class TestANumberIsWrittenAsWhatItHolds(_Basis):
+    """F4 of lens run 6 at c8205c18: int and float subclasses passed the copy unchanged, the walks
+    judged the stored value, and rfc8785 wrote the value of `int()` and `float()`."""
+
+    def test_f4_the_stored_number_is_written(self):
+        from proofbundle.evalclaim import _jcs_bytes, canonicalize  # noqa: PLC0415
+        faelle = (
+            ("canonicalize", lambda: canonicalize(dict(self.basis, provenance={"k": _IntAnders(5)})),
+             lambda: canonicalize(dict(self.basis, provenance={"k": 5}))),
+            ("_jcs_bytes, float", lambda: _jcs_bytes(dict(self.basis, provenance={"k": _FloatAnders(1.5)})),
+             lambda: _jcs_bytes(dict(self.basis, provenance={"k": 1.5}))),
+            ("canonicalize_statement", lambda: canonical.canonicalize_statement(
+                {"i": _IntAnders(5), "f": _FloatAnders(1.5)}),
+             lambda: canonical.canonicalize_statement({"i": 5, "f": 1.5})),
+            ("emit_eval_receipt", lambda: emit_eval_receipt(
+                dict(self.basis, provenance={"k": _IntAnders(5)}), self.signer),
+             lambda: emit_eval_receipt(dict(self.basis, provenance={"k": 5}), self.signer)),
+        )
+        for name, geschrieben, erwartet in faelle:
+            with self.subTest(weg=name):
+                self.assertEqual(geschrieben(), erwartet())
+
+
+class TestATypeThatHidesItsBaseIsRefused(_Basis):
+    """F5 of lens run 6 at c8205c18. A metaclass whose `mro()` returns `[cls, object]` makes
+    `issubclass(cls, dict)` False while `json.dumps` treats the object as a dict through its C
+    flags, and writes it through its own `items()`."""
+
+    def test_f5_a_nested_status_value_is_refused(self):
+        """At c8205c18 a status holding such a dict, stored {"a": 1}, was signed as {"fremd": 99}."""
+        wert = _versteckt({"a": 1})
+        self.assertEqual(_gespeichert(wert), [("a", 1)])                    # the premise
+        self.assertFalse(issubclass(type(wert), dict))
+        _AUFRUFE.clear()
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                         status={"status_list": {"idx": 7, "uri": "u"}, "x": wert})
+        self.assertEqual(_AUFRUFE, [])
+
+    def test_f5_a_status_that_is_such_a_dict_is_refused(self):
+        """At c8205c18 such a status, which holds no `status_list` and whose `__class__` said dict
+        to `isinstance`, was signed with the `status_list` its `items()` showed."""
+        class Status(dict, metaclass=_VersteckMeta):
+            @property
+            def __class__(self):  # type: ignore[override]
+                return Status if sys._getframe(1).f_code.co_name in ("_plain_value", "_plain_for_jcs") else dict
+
+            def __contains__(self, schluessel):
+                return True
+
+            def items(self):
+                return [("status_list", {"idx": 99, "uri": "https://example.org/other"})]
+        status = Status()
+        setze = ctypes.pythonapi.PyDict_SetItem
+        setze.argtypes = [ctypes.py_object, ctypes.py_object, ctypes.py_object]
+        setze.restype = ctypes.c_int
+        self.assertEqual(setze(status, "x", 1), 0)
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
+
+
+class TestAClaimedClassIsATypedRefusalEverywhere(_Basis):
+    """The wording finding of lens run 6: the round-7 message said objects whose `__class__` claims
+    dict, str or int are typed refusals now. At c8205c18 that did not hold for `emit_eval_receipt`'s
+    `threshold`,
+    `model_id_commit` and `n` (the claim rule read them before the copy, and the decimal pattern or
+    `<=` raised a raw TypeError) or for `issue_sd_jwt`'s `exact_score` and `ci95` items
+    (`str.__str__` raised a raw TypeError)."""
+
+    def test_emit_refuses_a_claimed_class_in_every_field(self):
+        for feld, wert in (("threshold", _UnechterStr()), ("model_id_commit", _UnechterStr()),
+                           ("n", _UnechteZahl())):
+            with self.subTest(feld=feld):
+                with self.assertRaises(EvalClaimError) as ctx:
+                    emit_eval_receipt(dict(self.basis, **{feld: wert}), self.signer)
+                self.assertIn(feld, str(ctx.exception))
+
+    def test_issue_sd_jwt_refuses_a_claimed_class_in_the_withheld_numbers(self):
+        for name, kwargs in (("exact_score", {"exact_score": _UnechterStr()}),
+                             ("ci95", {"ci95": [_UnechterStr(), "0.2"]})):
+            with self.subTest(argument=name):
+                with self.assertRaises(BundleFormatError) as ctx:
+                    issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, **kwargs)
+                self.assertIn(name, str(ctx.exception))
+
+
+class _ItemsZeigtFremdes(dict):
+    def items(self):
+        return [("fremd", 99)]
+
+
+class _KleinZeigtAnderes(str):
+    def lower(self):
+        return "ab" * 32
+
+
+class _BehauptetBytes:
+    @property
+    def __class__(self):  # type: ignore[override]
+        return bytes
+
+    def __bytes__(self):
+        return b"x"
+
+
+class _BytesZeigtAnderes(bytes):
+    def __bytes__(self):
+        return b"x"
+
+
+class TestTheExportersReadTheirOtherArgumentsOnce(_Basis):
+    """Siblings found in the sweep of round 8, beside the claim: arguments of the exporters that go
+    into a signed statement or a digest, read at c8205c18 through methods the caller controls."""
+
+    def test_the_legacy_serializer_writes_the_stored_harness(self):
+        """At c8205c18 the legacy serializer (json.dumps) wrote a harness dict subclass through its
+        own `items()`: the signed statement carried {"fremd": 99}."""
+        env = intoto.export_intoto_dsse(self.basis, self.signer, harness=_ItemsZeigtFremdes(a=1),
+                                        content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG)
+        annotationen = _nutzlast(env)["predicate"]["configuration"][0]["annotations"]
+        self.assertEqual(annotationen["harness"], {"a": 1})
+
+    def test_a_release_gate_digest_is_its_stored_characters(self):
+        """At c8205c18 `resolve_subject` built the subject digest from `subject_sha256.lower()`, the
+        caller's method, and accepted a value whose stored characters are no sha256."""
+        with self.assertRaises(BundleFormatError):
+            intoto.resolve_subject("release-gate", self.basis, subject_name="m",
+                                   subject_sha256=_KleinZeigtAnderes("not-a-digest"))
+
+    def test_statement_content_root_chooses_its_path_by_the_type(self):
+        """At c8205c18 `isinstance` read `__class__` and `bytes()` called `__bytes__`: an object that
+        claims bytes was hashed as b"x", and so was a bytes subclass holding b"{}"."""
+        import hashlib  # noqa: PLC0415
+        with self.assertRaises(ProofBundleError):
+            canonical.statement_content_root(_BehauptetBytes())
+        self.assertEqual(canonical.statement_content_root(_BytesZeigtAnderes(b"{}")),
+                         hashlib.sha256(b"{}").digest())
+
+
+class _Zahl(enum.IntEnum):
+    EINS = 1
+
+
+class _Wort(str, enum.Enum):
+    A = "a"
+
+
+_Paar = collections.namedtuple("_Paar", "a b")
+
+
+class TestPlainArgumentsKeepTheirBytes(_Basis):
+    """Controls of round 8, green at c8205c18 as well. A value the copy reads as a JSON type is
+    written as before: the subclasses the standard library ships (Counter, OrderedDict, defaultdict,
+    IntEnum, a str Enum, a namedtuple), a tuple, a claim given to the emitter as a list of pairs,
+    and the openings of an SD-JWT as a tuple, a list, a string or a JSON object."""
+
+    def test_control_standard_library_subclasses_keep_their_bytes(self):
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        paare = (
+            (collections.Counter(a=1), {"a": 1}), (collections.OrderedDict(b=2, a=1), {"a": 1, "b": 2}),
+            (collections.defaultdict(int, a=1), {"a": 1}), (_Zahl.EINS, 1), (_Wort.A, "a"),
+            (_Paar(1, "x"), [1, "x"]), ((1, "x"), [1, "x"]))
+        for wert, roh in paare:
+            with self.subTest(wert=type(wert).__name__):
+                self.assertEqual(canonicalize(dict(self.basis, provenance={"k": wert})),
+                                 canonicalize(dict(self.basis, provenance={"k": roh})))
+                self.assertEqual(canonical.canonicalize_statement({"k": wert}),
+                                 canonical.canonicalize_statement({"k": roh}))
+                self.assertEqual(intoto.export_intoto_dsse(self.basis, self.signer, harness={"k": wert},
+                                                           content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG),
+                                 intoto.export_intoto_dsse(self.basis, self.signer, harness={"k": roh},
+                                                           content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG))
+                status = {"status_list": {"idx": 7}, "k": wert}
+                self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                                                           status=status))["status"],
+                                 {"status_list": {"idx": 7}, "k": roh})
+
+    def test_control_plain_shapes_the_readers_accepted_are_read_as_before(self):
+        paare = list(self.basis.items())
+        self.assertEqual(emit_eval_receipt([list(p) for p in paare], self.signer),
+                         emit_eval_receipt(self.basis, self.signer))
+        for name, oeffnung, erwartet in (("tuple", ("m", "00"), ["m", "00"]), ("list", ["m", "00"], ["m", "00"]),
+                                         ("string", "ab", ["a", "b"]), ("object", {"m": 1}, ["m"])):
+            with self.subTest(oeffnung=name):
+                compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, model_id_opening=oeffnung)
+                self.assertEqual(_offenlegungen(compact)["model_id_opening"], erwartet)
 
 
 if __name__ == "__main__":

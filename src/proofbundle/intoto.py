@@ -20,7 +20,8 @@ from typing import Any, Optional
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
+from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs,
+                        canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -85,6 +86,23 @@ def _commit_hex(commit: str) -> str:
     return commit.split(":", 1)[1] if ":" in commit else commit
 
 
+def _eigen(wert: Any, wo: str, name: str = "") -> Any:
+    """The one reading of a caller's argument: its plain copy (`canonical._plain_for_jcs`), or this
+    module's BundleFormatError naming the site and where the value sits.
+
+    THE CLASS OF ROUND 8, at the exporters. Each producer below takes one copy of every JSON-shaped
+    argument first, and judges, builds, serializes and signs only that copy: the claim, and
+    ``harness``, ``anchors``, ``subject``, ``subject_digest``, ``root_b64``, ``url``, ``keyid``, the
+    profile names and ``content_root_alg``. Measured at c8205c18: `_require_export_fields` and the
+    plaintext guard read the claim through its own ``get``, ``==`` and ``__contains__`` before the
+    claim rule's copy existed (a str subclass whose ``__eq__`` raised escaped as that exception), the
+    legacy serializer (json.dumps) wrote a ``harness`` dict subclass through its own ``items()``, and
+    ``resolve_subject`` built a ``release-gate`` subject digest from ``subject_sha256.lower()``, the
+    caller's own method. A statement builder returns the copy, so a tuple comes back as the list it is
+    written as."""
+    return _plain_for_jcs(wert, lambda text: BundleFormatError(f"{wo}: {text}"), name)
+
+
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -95,6 +113,8 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     """
     claim = require_eval_claim(claim, wo="to_intoto_statement")
     verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
+    root_b64 = _eigen(root_b64, "to_intoto_statement", "root_b64")
+    harness = _eigen(harness, "to_intoto_statement", "harness")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -263,8 +283,14 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
-    claim = require_eval_claim(claim, wo="to_test_result_statement")
-    verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
+    wo = "to_test_result_statement"
+    claim = require_eval_claim(claim, wo=wo)
+    verdikt = require_bool_verdict(claim, wo=wo)
+    subject_digest = _eigen(subject_digest, wo, "subject_digest")
+    root_b64 = _eigen(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    url = _eigen(url, wo, "url")
+    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -327,7 +353,13 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     The signed Statement declares its content-root algorithm (default `jcs-sha256-v1`, ADR 0002). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (json.dumps root,
     no field)."""
-    claim = require_eval_claim(claim, wo="export_intoto_dsse")
+    wo = "export_intoto_dsse"
+    claim = require_eval_claim(claim, wo=wo)
+    root_b64 = _eigen(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    url = _eigen(url, wo, "url")
+    keyid = _eigen(keyid, wo, "keyid")
+    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
@@ -739,9 +771,16 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
       attestation to the receipt WITHOUT revealing the model.
     * ``public-model`` / ``release-gate``: the subject is a disclosed artifact; the caller supplies its real
       lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
+
+    Every argument is read once, as its plain copy (`_eigen`), before it is compared or used. A
+    ``subject_sha256`` that is not a string is refused as not a sha256, where ``.lower()`` of it
+    raised a raw AttributeError.
     """
+    wo = "resolve_subject"
+    profile = _eigen(profile, wo, "profile")
     if profile == "receipt":
-        claim = require_eval_claim(claim, wo="resolve_subject")
+        claim = require_eval_claim(claim, wo=wo)
+        root_b64 = _eigen(root_b64, wo, "root_b64")
         if not claim.get("model_id_commit") or not claim.get("timestamp"):
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
@@ -752,7 +791,9 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return [{"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(binder).hexdigest()}}]
     if profile in ("public-model", "release-gate"):
-        sha = (subject_sha256 or "").lower()
+        subject_name = _eigen(subject_name, wo, "subject_name")
+        subject_sha256 = _eigen(subject_sha256, wo, "subject_sha256")
+        sha = subject_sha256.lower() if type(subject_sha256) is str else ""
         if not subject_name or not _is_sha256_hex(sha):
             raise BundleFormatError(
                 f"subject profile '{profile}' requires --subject-name and a 64-char hex --subject-sha256")
@@ -766,13 +807,20 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    # Twice on purpose: first on the object, so the plaintext guard answers before the claim rule
-    # (which would refuse a plaintext key only as an unknown field); then on the claim read back,
-    # so the verdict written below is the value in the canonical bytes.
+    # Twice on purpose: first on the plain copy of the claim handed in, so the plaintext guard
+    # answers before the claim rule (which would refuse a plaintext key only as an unknown field);
+    # then on the claim read back, so the verdict written below is the value in the canonical bytes.
+    # The first pass read the caller's object until round 8 (its `get`, `==` and `__contains__`).
+    wo = "to_eval_result_predicate"
+    claim = _eigen(claim, wo)
     _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
-    claim = require_eval_claim(claim, wo="to_eval_result_predicate")
+    claim = require_eval_claim(claim, wo=wo)
     verdikt = _require_export_fields(claim)
+    root_b64 = _eigen(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    anchors = _eigen(anchors, wo, "anchors")
+    subject_profile = _eigen(subject_profile, wo, "subject_profile")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -820,12 +868,15 @@ def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[s
                              content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """A STANDARD in-toto Statement v1 carrying the eval-result predicate. Declares its content-root
     algorithm (default `jcs-sha256-v1`, ADR 0002); legacy adds no `contentRootAlg` field."""
+    predicate = to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
+                                         anchors=anchors, subject_profile=subject_profile)
+    subject = _eigen(subject, "to_eval_result_statement", "subject")
+    content_root_alg = _eigen(content_root_alg, "to_eval_result_statement", "content_root_alg")
     return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": subject,
         "predicateType": EVAL_RESULT_PREDICATE_TYPE,
-        "predicate": to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
-                                              anchors=anchors, subject_profile=subject_profile),
+        "predicate": predicate,
     }, content_root_alg)
 
 
@@ -841,9 +892,19 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     json.dumps root, no field)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
+    wo = "export_eval_result_dsse"
+    claim = _eigen(claim, wo)              # the one reading of the caller's claim (round 8)
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
-    claim = require_eval_claim(claim, wo="export_eval_result_dsse")
+    claim = require_eval_claim(claim, wo=wo)
+    subject_profile = _eigen(subject_profile, wo, "subject_profile")
+    subject_name = _eigen(subject_name, wo, "subject_name")
+    subject_sha256 = _eigen(subject_sha256, wo, "subject_sha256")
+    root_b64 = _eigen(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    anchors = _eigen(anchors, wo, "anchors")
+    keyid = _eigen(keyid, wo, "keyid")
+    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
@@ -928,7 +989,12 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # comparator `==`, threshold `inf`, `sha256:x` and a samples block of root "x", n -1, leaf_alg
     # "md5", which decode refuses, this function returned THRESHOLD_MET and SAMPLE_ROOT_VALID. The
     # first call keeps its message, which names field and type; the verdict used below is read from
-    # the claim as the rule read it back.
+    # the claim as the rule read it back. The first call reads the plain copy of the claim since
+    # round 8; on the caller's object it asked the object's own `get("passed")`. The two flags are
+    # read as their plain copies too, so their truth is the stored value's.
+    claim = _eigen(claim, "svr_properties")
+    prereg_verified = _eigen(prereg_verified, "svr_properties", "prereg_verified")
+    anchor_verified = _eigen(anchor_verified, "svr_properties", "anchor_verified")
     require_bool_verdict(claim, wo="svr_properties")
     claim = require_eval_claim(claim, wo="svr_properties")
     verdikt = require_bool_verdict(claim, wo="svr_properties")
@@ -976,6 +1042,16 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
         raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
     if claim is None:
         raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
+    # The claim is the one decode parsed. The caller's other arguments go into the signed statement,
+    # so each is read once, as its plain copy, like the other exporters' (round 8): `policy` was
+    # written by the legacy serializer through a dict subclass's own `items()`.
+    wo = "export_svr_dsse"
+    time_created = _eigen(time_created, wo, "time_created")
+    policy = _eigen(policy, wo, "policy")
+    prereg_verified = _eigen(prereg_verified, wo, "prereg_verified")
+    anchor_verified = _eigen(anchor_verified, wo, "anchor_verified")
+    keyid = _eigen(keyid, wo, "keyid")
+    content_root_alg = _eigen(content_root_alg, wo, "content_root_alg")
     result = verify_bundle(bundle)
     if not result.ok:
         raise BundleFormatError(

@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe, render_safe
-from .canonical import _plain_for_jcs
+from .canonical import _plain_for_jcs, _type_name
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
@@ -40,6 +40,8 @@ EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
 _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
+# 2**53 - 1 is the largest magnitude with 53 bits, so |v| > 2**53 - 1 exactly when v has more bits.
+_SAFE_INT_BITS = 53
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
 _DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
 _COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")   # schema: model_id_commit / dataset_id_commit  # \A..\Z (not ^..$): $ matches before a trailing newline
@@ -117,9 +119,15 @@ def _is_unsafe_int(value) -> bool:
     The type asked is the object's own, not ``__class__``: an object whose ``__class__`` claims
     int raised a raw TypeError from ``abs`` here (measured at 93b3c6f5; on main 1e95b197 from the
     same test inside the profile walk).
+
+    The magnitude is read with ``int.bit_length``, the base method, and not with ``abs()``, which
+    calls the subclass's own ``__abs__`` (round 8, lens run 6 at c8205c18: an int subclass whose
+    ``__abs__`` raised KeyError escaped ``canonicalize`` and ``emit_eval_receipt`` as that KeyError).
+    ``bit_length`` counts the bits of the magnitude, so the test is the same range.
     """
     typ = type(value)
-    return issubclass(typ, int) and not issubclass(typ, bool) and abs(value) > _MAX_SAFE_INT
+    return (issubclass(typ, int) and not issubclass(typ, bool)
+            and int.bit_length(value) > _SAFE_INT_BITS)
 
 
 def _first_unsafe_integer(value) -> Optional[int]:
@@ -200,7 +208,7 @@ def _reject_non_jcs_walk(value) -> None:
         for v in list(list.__iter__(value) if issubclass(typ, list) else tuple.__iter__(value)):
             _reject_non_jcs_walk(v)
         return
-    raise EvalClaimError(f"unsupported value type {typ.__name__}")
+    raise EvalClaimError(f"unsupported value type {_type_name(typ)}")
 
 
 def canonicalize(claim: dict) -> bytes:
@@ -210,7 +218,14 @@ def canonicalize(claim: dict) -> bytes:
     Duplicate keys cannot exist in a Python dict; when parsing claim JSON from text, use
     `load_claim_text` which rejects duplicate keys. Uses the rfc8785 library (lazy import)
     for the UTF-16 code-unit key sort + compact UTF-8 serialization.
+
+    The claim is read once, into the plain copy (`canonical._plain_for_jcs`), and the profile and
+    the serializer read only that copy (round 8). A value that is not a JSON type is refused there,
+    and a ``str``, ``int`` or ``float`` subclass is written as the value it holds. Measured at
+    c8205c18: an int subclass whose ``__int__`` returns -1 and which holds 5 was written as -1, and
+    one whose ``__abs__`` raised escaped as that exception.
     """
+    claim = _plain_for_jcs(claim, EvalClaimError)
     _reject_non_jcs(claim)
     return _jcs_bytes(claim)
 
@@ -568,10 +583,21 @@ def _claim_read_back(claim, *, profile: bool) -> tuple:
     judges what a verifier will read, and the caller of this function builds its output from the
     parsed claim, so the value checked and the value used are one value.
 
-    The first check stays, on the object, so a refusal names the field before the serializer meets
-    a float or an unsafe integer and names that instead.
+    The first check stays, before the serializer, so a refusal names the field before the serializer
+    meets a float or an unsafe integer and names that instead.
+
+    THE OBJECT HANDED IN IS READ ONCE, into the plain copy (`canonical._plain_for_jcs`), and every
+    check, the serializer and the caller of this function see only that copy (round 8). Measured at
+    c8205c18, when the first check read the caller's object: an int subclass whose ``__abs__`` or
+    comparisons raised, a list subclass whose ``__len__`` raised, a dict subclass whose
+    ``__iter__`` raised in ``samples`` and a str subclass whose ``__bool__`` raised each escaped as
+    that exception, and an object whose ``__class__`` claims str raised a raw TypeError from the
+    decimal pattern in ``threshold``. The copy refuses what is not a JSON type, names where it sits,
+    and reads a subclass of ``str``, ``int`` or ``float`` as the value it holds, so the read-back
+    below no longer meets an object that serializes as something else.
     """
-    if not isinstance(claim, dict):
+    claim = _plain_for_jcs(claim, EvalClaimError)
+    if type(claim) is not dict:
         raise EvalClaimError(f"claim must be a JSON object, got {type(claim).__name__}")
     reason = _claim_violation(claim)
     if reason is not None:
@@ -616,8 +642,20 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     canonicalization profile (section 4 of EVAL_CLAIM.md) that the verify path does not re-check
     because it never canonicalizes: NFC strings and no floats. The third part, safe-range integers,
     is part of the claim rule since 6.2.0 and holds at both boundaries.
+
+    The claim is read once, into the plain copy (`canonical._plain_for_jcs`), before the two
+    normalizations; nothing after reads the caller's object (round 8). ``dict()`` of the caller's
+    object read a dict subclass through its own ``keys()`` and ``__getitem__`` and any other mapping
+    or iterable through its own methods. ``dict()`` now runs on the copy, so a claim given as a list
+    of ``[key, value]`` pairs is read as before, and a mapping that is not a JSON object (a
+    ``UserDict``, a ``MappingProxyType``) is refused as not a JSON value. A shape ``dict()`` cannot
+    read is ``EvalClaimError`` now, where it was a raw TypeError or ValueError.
     """
-    claim = dict(claim)
+    claim = _plain_for_jcs(claim, EvalClaimError)
+    try:
+        claim = dict(claim)
+    except (TypeError, ValueError) as exc:
+        raise EvalClaimError(f"claim must be a JSON object, got {type(claim).__name__}") from exc
     claim["issuer"] = issuer_fingerprint(signer)
     # A claim without an explicit assurance_level is self_attested — the weakest, safest default; never
     # silently elevate. (v1.1: keeps pre-1.1 claim JSONs emittable while binding the honest level.)

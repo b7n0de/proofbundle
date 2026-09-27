@@ -189,8 +189,12 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             # Ab hier ist der Lauf GESCHLOSSEN statt aufgezaehlt: ein Wert, der auf keinen Zweig passt,
             # wird abgewiesen, nicht uebersprungen. Das faengt auch den Typ, den morgen jemand einfuehrt,
             # und es ist die einzige Form, in der diese Zusicherung ueber die Zeit traegt.
+            #
+            # The name is read through `type`'s own getter (round 8): `type(cur).__name__` runs a
+            # metaclass that defines `__name__` as a property, and this walk runs no code of the caller.
+            from .canonical import _type_name  # noqa: PLC0415 - local import avoids an import cycle
             raise BundleFormatError(
-                f"value of type {type(cur).__name__!r} is not a JSON value — the structural budget "
+                f"value of type {_type_name(typ)!r} is not a JSON value — the structural budget "
                 "cannot bound it, so it is rejected fail-closed (never silently skipped)")
 
 

@@ -106,8 +106,34 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     A disclosed ``exact_score`` must earn the always-open verdict: the claim's comparator and
     threshold map it to the claim's ``passed``. Measured at 6893586f: ``exact_score`` "0.10" was
     signed beside passed=true for ``>=`` 0.80.
+
+    EVERY JSON-SHAPED ARGUMENT IS READ ONCE, into the plain copy (`canonical._plain_for_jcs`), and
+    only the copy is judged, serialized and signed (round 8): the claim (inside
+    ``require_eval_claim``), ``root_b64``, ``vct``, ``ci95``, ``exact_score``, ``status`` and the two
+    openings. A value that is not a JSON type is refused, naming where it sits. ``root_b64`` and
+    ``vct`` must be strings. Measured at c8205c18: ``list(ci95)`` called a list subclass's own
+    ``__iter__``; ``str.__str__`` raised a raw TypeError for an ``exact_score`` or ``ci95`` item whose
+    ``__class__`` claims str; ``isinstance(status, dict)`` ran a ``__class__`` property of the status;
+    a ``status`` holding a dict whose metaclass hides ``dict`` from its MRO was signed through that
+    dict's own ``items()``; and ``root_b64`` and ``vct`` went unjudged into ``json.dumps``, so None, a
+    number or a list was signed and any other object raised json's TypeError.
     """
     claim = require_eval_claim(claim, wo="issue_sd_jwt")
+    from .canonical import _plain_for_jcs  # noqa: PLC0415
+
+    def _fehler(art: type):
+        """The refusal of the copy, with this function's name in front. Called only on a refusal, so
+        the copy below starts at the same stack depth as before (the deepest `status` that signs
+        depends on it)."""
+        return lambda text: art(f"issue_sd_jwt: {text}")
+
+    zeichen = {}
+    for name, wert in (("root_b64", root_b64), ("vct", vct)):
+        kopie = _plain_for_jcs(wert, _fehler(ValueError), name)
+        if type(kopie) is not str:
+            raise ValueError(f"issue_sd_jwt: {name} must be a string, got {type(kopie).__name__}")
+        zeichen[name] = kopie
+    root_b64, vct = zeichen["root_b64"], zeichen["vct"]
     # THE ISSUER VALUE IS NOT JUDGED HERE, on purpose. The claim rule requires the field and leaves
     # its value to the issuer binding, which compares it with the key that signed a BUNDLE; this
     # function holds no bundle, and its signer need not be the claim's issuer as far as issuance
@@ -117,14 +143,13 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     from .evalclaim import (  # noqa: PLC0415 - evalclaim imports the bundle core
         _decimal_violation, _field_violation, _passed_by,
     )
-    # One read each, then only the plain value: `list()` of the caller's object is the one
-    # iteration, and `str.__str__` gives a string's characters as a plain `str`, which the rule, the
-    # verdict comparison and the disclosure all read. A value of another type stays as it is and is
-    # refused.
-    if isinstance(ci95, (list, tuple)):
-        ci95 = [str.__str__(x) if isinstance(x, str) else x for x in list(ci95)]
-    if isinstance(exact_score, str):
-        exact_score = str.__str__(exact_score)
+    # One read each, then only the plain value, which the rule, the verdict comparison and the
+    # disclosure all read. A tuple is read as the list it is written as; a value that is not a JSON
+    # type is refused by the copy, with the argument's name.
+    if ci95 is not None:
+        ci95 = _plain_for_jcs(ci95, _fehler(BundleFormatError), "ci95")
+    if exact_score is not None:
+        exact_score = _plain_for_jcs(exact_score, _fehler(BundleFormatError), "exact_score")
     for grund in (None if ci95 is None else _field_violation({"ci95": ci95}),
                   None if exact_score is None else _decimal_violation("exact_score", exact_score)):
         if grund is not None:
@@ -185,11 +210,10 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         # status carried another key; a non-string key or two keys equal as characters are refused.
         # The copy reads each container by its stored contents, and a circular or too deeply nested
         # status is this ValueError too (lens run 5 at 5a21b199: a raw KeyError and a raw
-        # RecursionError; see `_plain_for_jcs`).
-        if isinstance(status, dict):
-            from .canonical import _plain_for_jcs  # noqa: PLC0415
-            status = _plain_for_jcs(status, ValueError)
-        if not isinstance(status, dict) or "status_list" not in status:
+        # RecursionError; see `_plain_for_jcs`). Every status is copied now, not only one that
+        # `isinstance` calls a dict: that test read `__class__` (round 8).
+        status = _plain_for_jcs(status, _fehler(ValueError), "status")
+        if type(status) is not dict or "status_list" not in status:
             raise ValueError("status must be a dict with a status_list member "
                              "(use proofbundle.statuslist.status_claim)")
         always_open["status"] = status
@@ -217,10 +241,19 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         _add("exact_score", exact_score)
     if ci95 is not None:
         _add("ci95", ci95)            # the plain list judged above, not a second read
-    if model_id_opening is not None:
-        _add("model_id_opening", list(model_id_opening))
-    if dataset_id_opening is not None:
-        _add("dataset_id_opening", list(dataset_id_opening))
+    for name, oeffnung in (("model_id_opening", model_id_opening),
+                           ("dataset_id_opening", dataset_id_opening)):
+        if oeffnung is None:
+            continue
+        # The opening is not judged (see above), but it is read once, as a JSON value, and written
+        # as that copy. `list()` then runs on the copy, so a list, a tuple, a string and a JSON object
+        # give the list they gave before. `list()` of the caller's object ran its own `__iter__` and
+        # accepted any iterable (bytes, a set, a generator); those are refused as not JSON values.
+        kopie = _plain_for_jcs(oeffnung, _fehler(ValueError), name)
+        if type(kopie) is not list and type(kopie) is not str and type(kopie) is not dict:
+            raise ValueError(f"issue_sd_jwt: {name} must be a sequence such as "
+                             f"(identifier, salt_hex), got {type(kopie).__name__}")
+        _add(name, list(kopie))
 
     payload = dict(always_open)
     if sd_digests:
