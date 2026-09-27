@@ -115,13 +115,42 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the title form keeps `\S` for the subject's first character, where an ASCII class would accept
   U+00A0; they are listed by module and pattern, and the lists are exact in both directions. Named
   limits: an alias the sweep does not resolve (`vars(re)[...]`, `importlib.import_module("re")`,
-  `re.compile.__call__`, a function of `re` bound by tuple unpacking, by an assignment expression or
-  as a class attribute, or passed on as a value) is reported only where it reaches a call the sweep
-  recognises; a pattern that reaches `re` only through another module's caller is not followed; and
-  a compiled pattern that reaches `match` or `fullmatch` through a parameter, a container, a loop
-  variable or a return value is judged by its own anchors (measured over the tree: what is reached
+  `re.compile.__call__`, `re` bound to another name, a function of `re` bound by unpacking anything
+  but a literal tuple, as a parameter or an instance attribute, or passed on as a value; since the
+  review below, a chained, annotated or conditional assignment, an assignment expression and a class
+  attribute are resolved) is reported only where it reaches a call the sweep recognises; a pattern
+  that reaches `re` only through another module's caller is not followed; and a compiled pattern that
+  reaches `match` or `fullmatch` through a parameter, a container, a loop variable or a return value
+  is judged by its own anchors (measured over the tree: what is reached
   that way is the matrix's `\A[0-9a-f]{n}\Z` forms, an identifier form anchored at both ends, and
   tokenizer atoms matched at a position, so none is a whole value the sweep misses).
+
+  A review of this change (a lens on ac05d85d) planted three more kinds of form past the sweep, none
+  of them live in the tree. The width bound was bypassed: `"{0:{1}{2}{2}{2}}".format(P, "4", "000")`
+  joins a width of 4000000000 from nested fields, and `str.format` reads a width in any decimal digit,
+  so 4000000000 in Arabic-Indic digits, in the format string or passed as an argument, did the same;
+  each took the process to a peak of about 3840 MiB, since the check looked for five ASCII digits in
+  the format string alone. A field whose spec holds another field is a gap now, and every other spec
+  is judged by its runs of digits in any script before anything is built (`%` refuses a non-ASCII
+  digit, measured, and keeps its check); the bounded run of the review inputs, these three included,
+  stays under 0.4 s per input and a peak of 63 MB. Aliases, anchors and receivers were not read:
+  `c = d = re.compile`, `c: object = re.compile`, `d = c` after `c = re.compile`, a conditional
+  alias, `(?:\A\d+)\Z`, `\A(?:\d+\Z)`, `\A\d+(?=\Z)`, `(?:^[0-9]+)$`, and `re.Pattern.match(R, s)` or
+  `getattr(R, "match")(s)` on a compiled pattern. A callee is now resolved through the bindings of the
+  scope it is read in, the machinery of the fold (every binding form it reads, chains of names, both
+  branches of a conditional, a class attribute), and a name bound to a function of `re` and to
+  anything else makes the call an unfolded site. The anchors are read through the chain of groups at
+  each end of a pattern, an alternation there branch by branch (`(?:^|/)x$` judges a whole value
+  through `^`); past 64 branches or in a group that turns VERBOSE on that is not decided, and the call
+  is an unfolded site. Both receiver forms count, and a `getattr` by a name the sweep cannot read is a
+  gap. And a script saved with a UTF-8 BOM, which Python runs, raised `SyntaxError` out of the sweep:
+  sources are read as bytes now, so `ast.parse` reads a BOM and a coding cookie as Python does. The
+  branch reading found three whole-value patterns that ended in `$` inside an alternation
+  (`_ANFORDERUNGSDATEI` in `scripts/check_version_and_changelog.py`, the blank-line and setext forms
+  of `scripts/claims_hygiene_check.py`). Their inputs are a `git ls-files` line and lines split at
+  `\n`, they end in `\Z` now, and both scripts print byte-identical output over this tree before and
+  after. Seven new cases and three new inputs of the bounded run pin these forms, and each fails on
+  ac05d85d's sweep.
 
 - **Four script patterns end at the value, and the sweep reads `scripts/` and `tools/` whole**
   (`scripts/check_version_and_changelog.py`, `scripts/codex_threads_check.py`,

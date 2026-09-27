@@ -387,8 +387,9 @@ _CLAIM_SHAPES = [
 #: Round fourteen: pip reads `-r <file>` under any name, so the house reads what the ecosystem names
 #: that way: a file whose name carries `requirements` or `constraints` (`dev-requirements.txt`), and
 #: any `.txt`/`.in` below a `requirements/` or `constraints/` directory, at any depth.
+#: `\Z`, not `$`: its `^` branch judges a whole path (a `git ls-files` line, so no verdict moves).
 _ANFORDERUNGSDATEI = re.compile(r"(?:^|/)(?:[^/]*(?:requirements|constraints)[^/]*|"
-                                r"(?:requirements|constraints)/(?:[^/]+/)*[^/]+)\.(?:txt|in)$")
+                                r"(?:requirements|constraints)/(?:[^/]+/)*[^/]+)\.(?:txt|in)\Z")
 _ANFORDERUNGS_FORMEN = [
     ("project pin", re.compile(r"^\s*" + _PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE), True,
      _PIN_BESCHREIBUNG),

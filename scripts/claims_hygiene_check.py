@@ -198,12 +198,16 @@ def _strip_code(text: str) -> str:
 
 # A line whose START opens a new block: blank, heading, list item, quote, table row, numbered
 # item, code fence. The newline BEFORE such a line is always a real boundary.
-_NEXT_STARTS_BLOCK_RE = re.compile(r"[ \t]*(?:$|[#\-\*\+>|]|\d+\.|```)")
+# The blank-line branch and the setext branches below judge a whole line, so they end in `\Z`, which
+# `$` also means on a line `_soft_unwrap` split at its newlines; the regex sweep of
+# tests/test_every_validator_refuses_what_its_schema_refuses.py reads an anchor inside an alternation
+# since 2026-09-26 and asks every whole-value pattern to end there.
+_NEXT_STARTS_BLOCK_RE = re.compile(r"[ \t]*(?:\Z|[#\-\*\+>|]|\d+\.|```)")
 # A line that can never CONTINUE into following prose: blank, heading, table row, fence, setext
 # underline — CommonMark forbids a paragraph lazily continuing any of them, so merging one forward
 # would let a negation inside a heading/table cell exonerate the NEXT paragraph (six-lens review,
 # 2026-07-11). List items and quotes DO wrap (their continuation lines are why _soft_unwrap exists).
-_LINE_NEVER_WRAPS_RE = re.compile(r"[ \t]*(?:$|#|\||```|={3,}[ \t]*$|-{3,}[ \t]*$)")
+_LINE_NEVER_WRAPS_RE = re.compile(r"[ \t]*(?:\Z|#|\||```|={3,}[ \t]*\Z|-{3,}[ \t]*\Z)")
 
 
 def _soft_unwrap(text: str) -> str:
