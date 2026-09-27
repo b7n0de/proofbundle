@@ -107,7 +107,11 @@ Bewertung (getrennt von der Messung):
   base64-verpackten signierten Nutzlasten erreicht die Typwechsel-Suche nicht (daher nur 181 Aufrufe).
 - D4-Lauf L1 bis L7, L9, L10, L12 sind an diesem Kopf weiter rot; sie gehoeren nicht zur Klasse dieses
   Branches und sind hier nicht erneut bewertet.
-- Volle Suite auf dem Linsenbranch: zum Zeitpunkt dieses Berichts nicht gelaufen.
+- Volle Suite auf dem Linsenbranch, nachgereicht: an 8a3c8e69 (pytest tests/, CPython 3.11.15, uid 0,
+  16:22:28Z bis 17:23:36Z) 18 failed, 6432 passed, 163 skipped, 2361 subtests passed, 3666,8 s. Die 18
+  sind die 14 roten Faelle dieses Laufs (M1 bis M4), die zwei Faelle von M5 (fehlendes `anchors`-Extra
+  und keccak-Backend in dieser Umgebung) und die zwei nur-als-root-Faelle von
+  `test_sammelabbruch_vor_dem_import.py` (an main ebenso). Kein weiterer Test faellt.
 - Keine Aussage ueber Vollstaendigkeit.
 
 Prepared with AI agent involvement, reviewed and submitted under human oversight.
