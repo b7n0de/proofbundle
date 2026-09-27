@@ -48,10 +48,7 @@
           "sha256": "b947318ee7f3e5cad5d5299002415a2e33f77e63caccf4b28aea5269bc1a7502"
         },
         "mediaType": "application/json",
-        "uri": "https://example.com/receipts/eval-receipt.json",
-        "annotations": {
-          "merkleRootB64": "n6nwO23cwUfKjRK90YeUvTNjsbH6uUn7wuIQ7keWZx0="
-        }
+        "uri": "https://example.com/receipts/eval-receipt.json"
       }
     ]
   },
