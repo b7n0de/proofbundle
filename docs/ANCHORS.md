@@ -26,10 +26,31 @@ not control.
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
 (JCS) sha256 of the receipt bundle **excluding its own `anchors` field** (the anchors are detached
 evidence; an anchor cannot attest a root that already contains itself, so a verifier recomputing the
-receipt root MUST strip `anchors`), for `preRegistration` the sha256 of the raw protocol bytes (the
+receipt root MUST strip `anchors`), **with every ES256 signature in `sd_jwt_vc.compact` in its low-`s`
+spelling** (see below), for `preRegistration` the sha256 of the raw protocol bytes (the
 receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload bytes (the
 `statement_content_root`). A `preRegistration` anchor can therefore never validate a `receipt` or
 `statement` target, and vice versa: the roots differ, and a mismatch is a FAIL.
+
+**The receipt root, step by step** (finding D1, 2026-09-26). An ES256 signature verifies both as
+`(r, s)` and as `(r, n − s)`, where `n` is the order of the P-256 group
+(`0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551`), and the verifier accepts
+both (SPEC §6). So that one receipt has one root, the root is computed over one spelling:
+
+1. Take the receipt bundle and drop its `anchors` field.
+2. If it carries `sd_jwt_vc.compact`, split the compact on `~`. The ES256 slots are the first part
+   (the issuer JWT) and, when the last part is a compact JWS (two dots), the last part (the Key
+   Binding JWT). For each slot whose JWS header has `"alg": "ES256"` and whose signature decodes to
+   64 bytes `R‖S` (big-endian) with `⌊n / 2⌋ < S < n`, replace the signature segment with the
+   base64url, unpadded, of `R‖(n − S)`. Every other byte of the compact stays as it is.
+3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
+
+This form exists only to compute the root. The bundle itself is never rewritten: a Key Binding
+JWT's `sd_hash` covers the issuer JWT exactly as presented, so the foreign issuer's bytes travel as
+they came. A `receipt` anchor that an earlier proofbundle version stamped over a bundle with a high
+`s` in one of those signatures does not match this root. The identity of a `pb1.` token
+(`hf_evals.receipt_token_identity`) is this root of the bundle it carries.
+`tests/test_es256_signature_has_one_identity.py` follows these three steps with its own code.
 
 ## Schema
 

@@ -27,7 +27,8 @@ Scope, stated honestly (see README security notes):
     expectation changes ``header_b64`` and breaks the original signature.
     An ES256 signature verifies in both of its spellings, ``(r, s)`` and
     ``(r, n - s)``; :func:`canonical_sd_jwt_compact` is the one form of a
-    compact that identities are formed over (finding D1).
+    compact that identities are computed over (finding D1). The compact
+    itself is never rewritten.
   - Key Binding JWT verification lives in :mod:`proofbundle.kbjwt` (since
     v1.2, EdDSA-only — holder-binding is a separate, narrower scope than
     issuer-signature interop and is not extended by Finding 20); this module
@@ -277,15 +278,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     return result
 
 
-def _es256_issuer_signature(compact):
-    """``(head, signature, tail)`` when ``compact`` starts with an issuer JWT whose header ``alg`` is
-    ``ES256`` and whose signature segment decodes to 64 bytes: ``head`` is ``header_b64.payload_b64.``
-    and ``tail`` is everything after the signature segment, the ``~`` included. None for anything
-    else. Never raises."""
-    if not isinstance(compact, str):
+def _es256_jws_signature(jws):
+    """``(head, signature)`` when ``jws`` is one compact JWS ``header_b64.payload_b64.signature_b64``
+    whose header ``alg`` is ``ES256`` and whose signature segment decodes to 64 bytes: ``head`` is
+    ``header_b64.payload_b64.`` as it came. None for anything else. Never raises."""
+    if not isinstance(jws, str):
         return None
-    jwt, sep, rest = compact.partition("~")
-    segments = jwt.split(".")
+    segments = jws.split(".")
     if len(segments) != 3:
         return None
     try:
@@ -295,40 +294,65 @@ def _es256_issuer_signature(compact):
         return None
     if not isinstance(header, dict) or header.get("alg") != "ES256" or len(signature) != 64:
         return None
-    return f"{segments[0]}.{segments[1]}.", signature, sep + rest
+    return f"{segments[0]}.{segments[1]}.", signature
+
+
+def _canonical_es256_jws(jws):
+    """``jws`` with an ES256 signature in its low-s spelling; anything else, and a signature that is
+    already low, comes back as the same object. Never raises."""
+    found = _es256_jws_signature(jws)
+    if found is None:
+        return jws
+    head, signature = found
+    canonical = canonical_es256_signature(signature)
+    if canonical == signature:
+        return jws
+    return head + _b64url_nopad(canonical)
 
 
 def canonical_sd_jwt_compact(compact):
-    """``compact`` with its ES256 issuer signature in the spelling identities are formed over, ``s <=
-    n / 2`` (:func:`~proofbundle.signature.canonical_es256_signature`); every other byte, disclosures
-    and a Key Binding JWT included, is unchanged. A compact whose issuer JWT is not ES256, or whose
-    signature segment does not decode to 64 bytes, comes back as it is, and so does a non-str. Never
-    raises.
+    """The form an IDENTITY of ``compact`` is computed over: every ES256 signature in it written with
+    ``s <= n / 2`` (:func:`~proofbundle.signature.canonical_es256_signature`). A compact has two such
+    slots, the issuer JWT and a trailing Key Binding JWT; both are folded, and every other byte
+    (headers, payloads, disclosures, an EdDSA signature) is unchanged. A compact with no ES256
+    signature to fold, or one whose ES256 signatures are already low, comes back as the same object,
+    and so does a non-str. Never raises.
 
-    :func:`verify_sd_jwt` accepts both spellings of an ES256 issuer signature, so two compacts that
-    differ only there are one credential. This is the form to compare, digest or deduplicate them by,
-    and the form proofbundle passes on when it emits a compact (finding D1)."""
-    found = _es256_issuer_signature(compact)
-    if found is None:
+    :func:`verify_sd_jwt` accepts both spellings of an ES256 signature, so two compacts that differ
+    only there are one credential. This is the form to compare, digest, deduplicate or replay-check
+    them by (finding D1). It is NOT a form to emit or pass on: a Key Binding JWT's ``sd_hash`` covers
+    the issuer JWT exactly as presented (RFC 9901 §4.3), so rewriting a foreign issuer's signature
+    breaks that binding for every verifier that hashes the bytes it gets. proofbundle never rewrites
+    them; it computes identities over this form instead (owner decision, 2026-09-26)."""
+    if not isinstance(compact, str):
         return compact
-    head, signature, tail = found
-    canonical = canonical_es256_signature(signature)
-    if canonical == signature:
+    parts = compact.split("~")
+    folded = [_canonical_es256_jws(parts[0])]
+    if len(parts) > 1:
+        middle, last = parts[1:-1], parts[-1]
+        # The Key Binding JWT is the last part when that part is a JWS, the rule
+        # `kbjwt.split_key_binding` applies; a compact ending in "~" carries none (RFC 9901 §4.1).
+        folded += middle + [_canonical_es256_jws(last) if last.count(".") == 2 else last]
+    if all(new is old for new, old in zip(folded, parts)):
         return compact
-    return head + _b64url_nopad(canonical) + tail
+    return "~".join(folded)
 
 
 def _es256_signature_spellings(compact) -> tuple:
-    """Every spelling of ``compact`` that verifies alike: for an ES256 issuer JWT the ``(r, s)`` and
-    the ``(r, n - s)`` form, the canonical low-s one first; for anything else ``(compact,)``. The two
-    differ in the issuer signature segment only, never in the header, the payload, a disclosure or a
-    Key Binding JWT. Never raises."""
-    found = _es256_issuer_signature(compact)
+    """Every spelling of the issuer JWT in ``compact`` that verifies alike: for an ES256 issuer JWT
+    the ``(r, s)`` and the ``(r, n - s)`` form, the canonical low-s one first; for anything else
+    ``(compact,)``. The two differ in the issuer signature segment only, never in the header, the
+    payload, a disclosure or anything after the first ``~``. Never raises."""
+    if not isinstance(compact, str):
+        return (compact,)
+    jwt, sep, rest = compact.partition("~")
+    found = _es256_jws_signature(jwt)
     if found is None:
         return (compact,)
-    head, signature, tail = found
+    head, signature = found
     canonical = canonical_es256_signature(signature)
     other = _es256_other_spelling(canonical)
     if other is None:
         return (compact,)
+    tail = sep + rest
     return (head + _b64url_nopad(canonical) + tail, head + _b64url_nopad(other) + tail)

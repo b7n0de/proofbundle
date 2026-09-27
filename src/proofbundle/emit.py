@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from . import merkle
-from .bundle import SCHEMA, _canonical_signature_form
+from .bundle import SCHEMA
 
 __all__ = [
     "generate_signer",
@@ -113,11 +113,13 @@ def emit_bundle(
     RFC 6962 Merkle tree over ``prior_leaves + [payload]``. The returned dict is
     accepted by :func:`proofbundle.verify_bundle`.
 
-    ``sd_jwt_vc`` is passed through as given (for example
-    ``{"compact": "...", "issuer_public_key_b64": "..."}``), with one exception: an ES256 issuer
-    signature is written in its low-s spelling (finding D1). Both spellings verify, and what
-    proofbundle emits carries one of them; the caller's dict is not modified. Measured on 126ed1dc: a
-    compact with a high s went into the emitted bundle as it came.
+    ``sd_jwt_vc`` is passed through verbatim if given (for example
+    ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
+    are never rewritten, an ES256 signature with a high s included: a Key Binding JWT's ``sd_hash``
+    covers the issuer JWT exactly as presented (RFC 9901 §4.3), and rewriting it broke that binding
+    for every verifier that hashes the bytes it gets (finding D1, measured on f536af50). An identity
+    of the bundle is computed over the canonical low-s form instead
+    (:func:`proofbundle.anchors.receipt_canonical_root`).
     """
     leaves = list(prior_leaves) + [payload]
     index = len(leaves) - 1
@@ -143,4 +145,4 @@ def emit_bundle(
     }
     if sd_jwt_vc is not None:
         bundle["sd_jwt_vc"] = sd_jwt_vc
-    return _canonical_signature_form(bundle)
+    return bundle

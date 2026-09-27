@@ -134,15 +134,19 @@ def _sd_jwt_carries_eval_root_commitment(sd_payload) -> bool:
 
 
 def _canonical_signature_form(bundle):
-    """``bundle`` with every signature that has a second valid spelling written in the one its
-    identity is formed over (finding D1). Today that is the ES256 issuer signature inside
-    ``sd_jwt_vc.compact``, which :func:`verify_bundle` accepts as ``(r, s)`` and as ``(r, n - s)``.
-    The bundle's own Ed25519 ``signature.sig_b64`` has one spelling (S < L is enforced, SPEC §4a,
-    and the strict base64 decoders refuse any other spelling of its bytes).
+    """The form every IDENTITY of ``bundle`` is computed over (finding D1): every signature that has
+    a second valid spelling written in one of them. Today those are the ES256 signatures inside
+    ``sd_jwt_vc.compact``, in the issuer JWT and in a Key Binding JWT
+    (:func:`~proofbundle.sdjwt.canonical_sd_jwt_compact`); :func:`verify_bundle` accepts an issuer
+    signature as ``(r, s)`` and as ``(r, n - s)``. The bundle's own Ed25519 ``signature.sig_b64``
+    has one spelling (S < L is enforced, SPEC §4a, and the strict base64 decoders refuse any other
+    spelling of its bytes).
 
-    Returns a shallow copy when something changes and the same object otherwise; never mutates the
-    caller's dict and never raises. Both forms verify alike, so this changes an identity (the pb1
-    token, the receipt anchor root), never a verdict."""
+    Only for computing an identity (the receipt anchor root, the identity of a pb1 token). Nothing
+    proofbundle emits or returns is put into this form: those bytes belong to a foreign issuer, and a
+    Key Binding JWT's ``sd_hash`` covers them as presented (owner decision, 2026-09-26). Returns a
+    shallow copy when something changes and the same object otherwise; never mutates the caller's
+    dict and never raises."""
     sd = bundle.get("sd_jwt_vc") if isinstance(bundle, dict) else None
     if not isinstance(sd, dict):
         return bundle

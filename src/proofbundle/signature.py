@@ -199,12 +199,16 @@ def canonical_es256_signature(signature):
     the negated point, which has the same x-coordinate. So whoever sees a valid ``(r, s)`` can write
     ``(r, n - s)`` without the key, and :func:`verify_ecdsa_p256` accepts it as well. It keeps accepting
     both, by the owner's decision on finding D1 (2026-09-26): RFC 7518 §3.4 does not require the low
-    half, OpenSSL (which ``cryptography`` wraps) signs with either half and accepts both, and two of
-    the five IETF SD-JWT VC examples vendored in ``tests/fixtures/sdjwtvc`` (the fourth and the fifth)
-    carry a high ``s``.
-    What must not follow from it is a second identity. Every digest, token, dedup or replay key that
-    proofbundle forms from bytes carrying an ES256 signature is formed over this function's output, the
-    spelling with ``s <= n / 2``, and every ES256 signature proofbundle emits is in that spelling.
+    half, OpenSSL (which ``cryptography`` wraps) signs with either half and accepts both, and three of
+    the five IETF SD-JWT VC examples vendored in ``tests/fixtures/sdjwtvc`` carry a high ``s`` (the
+    fourth and the fifth in the issuer signature, the second in its Key Binding JWT).
+    What must not follow from it is a second identity. Every identity, receipt root, dedup, replay or
+    log key that proofbundle computes from bytes carrying an ES256 signature is computed over this
+    function's output, the spelling with ``s <= n / 2``, so ``(r, s)`` and ``(r, n - s)`` have one
+    identity. The bytes themselves are never rewritten: a signature made by someone else is passed
+    on and returned as it came, because another signature can cover it (a Key Binding JWT's
+    ``sd_hash`` covers the issuer JWT). Only a signature proofbundle makes itself carries the low
+    ``s``; today proofbundle makes no ES256 signature, and its own signatures are Ed25519.
 
     Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value
     verifies, so it has no second spelling to fold. Never raises.
