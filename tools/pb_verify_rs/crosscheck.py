@@ -615,6 +615,24 @@ def main() -> int:
             failures.append(f"scitt statement signature {v['id']}: built for {want}, "
                             f"Python {py}, Rust {out}/exit{code}")
         scitt_n += 1
+    # A statement file over the Rust input budget (Codex, PR 290): Python reads the bytes as malformed,
+    # and Rust must too, exit 3, where it used to end in `fatal`, exit 2. A confirmed real statement,
+    # padded with zeros at run time to one byte past the budget the binary reports; never checked in.
+    scitt_budget = json.loads(subprocess.run([str(BIN), "budget"], capture_output=True, text=True,
+                                             check=True).stdout)["input_bytes"]
+    scitt_real = next(v for v in scitt_doc["vectors"]
+                      if v["origin"] != "synthetic" and v["want"]["status"] == "confirmed")
+    scitt_keys = [_scitt_bytes(k) for k in scitt_real["keys"]]
+    with (tmp / "scitt_over_budget.cbor").open("wb") as f:
+        f.write(_scitt_bytes(scitt_real["statement"]))
+        f.truncate(scitt_budget + 1)
+    py = verify_statement_signature((tmp / "scitt_over_budget.cbor").read_bytes(), statement_keys=scitt_keys)
+    code, out = _run("verify-scitt-statement-signature", str(tmp / "scitt_over_budget.cbor"),
+                     *(k.hex() for k in scitt_keys))
+    if py != ("malformed", None) or out.split() != ["malformed", "none"] or code != 3:
+        failures.append(f"scitt statement signature over the input budget ({scitt_budget + 1} bytes): "
+                        f"Python {py}, Rust {out}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_over_budget.cbor").unlink()
 
     # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
@@ -803,7 +821,8 @@ def main() -> int:
           f"{', '.join(budget_nur_python)}), "
           "trust-pack root-threshold (met+unmet) agree; "
           f"scitt-ccf/v1 statement signature: {scitt_n} shared vector(s), Python == Rust == the built "
-          "verdict, the Rust exit class included; "
+          "verdict, the Rust exit class included, and a statement file over the input budget malformed "
+          "in both; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "

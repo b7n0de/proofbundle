@@ -88,5 +88,48 @@ class RustGivesEveryBuiltVerdict(unittest.TestCase):
                                      (v["what"], p.stderr))
 
 
+def _rust_input_budget(binary: Path) -> int:
+    """The input budget the binary really uses, read from its `budget` subcommand."""
+    p = subprocess.run([str(binary), "budget"], capture_output=True, text=True, timeout=60, check=True)
+    return json.loads(p.stdout)["input_bytes"]
+
+
+def _confirmed_statement() -> tuple[bytes, list]:
+    """The first real vector (one a scitt-ccf-ledger accepted) built to be confirmed, and its keys."""
+    doc = _doc()
+    v = next(v for v in doc["vectors"] if v["origin"] != "synthetic" and v["want"]["status"] == "confirmed")
+    return _assemble(v["statement"], doc["refs"]), [_assemble(k, doc["refs"]) for k in v["keys"]]
+
+
+@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
+class AStatementFileOverTheRustInputBudget(unittest.TestCase):
+    """Codex on PR 290 (head f0a15203): a statement file over the Rust input budget ended in `fatal`,
+    exit 2, where Python reads the same bytes as `malformed`, which the Rust subcommand maps to exit 3.
+    A confirmed statement is padded with zeros to the budget and to one byte past it; the files are made
+    here at run time and never checked in. Both sizes are `malformed` in both verifiers: the profile
+    reads at most 65536 bytes."""
+
+    def test_both_verifiers_read_it_as_malformed(self):
+        binary = next(b for b in RUST if b.exists())
+        budget = _rust_input_budget(binary)
+        statement, keys = _confirmed_statement()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "statement.cbor"
+            for size in (budget, budget + 1):
+                with self.subTest(size=size):
+                    with path.open("wb") as f:
+                        f.write(statement)
+                        f.truncate(size)
+                    self.assertEqual(path.stat().st_size, size)
+                    if HAS_CBOR2:
+                        from proofbundle.scitt_ccf import verify_statement_signature  # noqa: PLC0415
+                        self.assertEqual(verify_statement_signature(path.read_bytes(), statement_keys=keys),
+                                         ("malformed", None))
+                    p = subprocess.run([str(binary), "verify-scitt-statement-signature", str(path),
+                                        *(k.hex() for k in keys)],
+                                       capture_output=True, text=True, timeout=60)
+                    self.assertEqual((p.stdout.split(), p.returncode), (["malformed", "none"], 3), p.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

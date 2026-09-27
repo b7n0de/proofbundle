@@ -2462,35 +2462,52 @@ fn read_file(path: &str) -> Vec<u8> {
 /// (`cli._open_input`: S_ISREG-Stat-Guard VOR dem Oeffnen, `_read_capped`: der LESEAUFRUF selbst ist
 /// gekappt). Beide stehen jetzt auch hier: keine Nicht-Regulaerdatei, und `take(limit + 1)` — mehr als
 /// die Schranke plus ein Byte wird nie gelesen, egal was die Metadaten sagen.
-fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
+fn read_input(path: &str) -> Result<Vec<u8>, ReadRefusal> {
     use std::io::Read;
-    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let unreadable =
+        |e: std::io::Error| ReadRefusal::Unreadable(format!("cannot read {path}: {e}"));
+    let md = std::fs::metadata(path).map_err(unreadable)?;
     if !md.is_file() {
-        return Err(format!(
+        return Err(ReadRefusal::Unreadable(format!(
             "cannot read {path}: not a regular file (a FIFO, device or directory is refused before \
              any byte is read)"
-        ));
+        )));
     }
     if md.len() as usize > BUDGET_INPUT_BYTES {
-        return Err(budget_ueberschritten(
+        return Err(ReadRefusal::OverBudget(budget_ueberschritten(
             "input_bytes",
             md.len() as usize,
             BUDGET_INPUT_BYTES,
-        ));
+        )));
     }
-    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let f = std::fs::File::open(path).map_err(unreadable)?;
     let mut buf: Vec<u8> = Vec::new();
     f.take(BUDGET_INPUT_BYTES as u64 + 1)
         .read_to_end(&mut buf)
-        .map_err(|e| format!("cannot read {path}: {e}"))?;
+        .map_err(unreadable)?;
     if buf.len() > BUDGET_INPUT_BYTES {
-        return Err(budget_ueberschritten(
+        return Err(ReadRefusal::OverBudget(budget_ueberschritten(
             "input_bytes",
             buf.len(),
             BUDGET_INPUT_BYTES,
-        ));
+        )));
     }
     Ok(buf)
+}
+
+/// Why `read_input` read nothing. Past the input budget is a case of its own: a verdict surface whose
+/// Python counterpart takes the bytes themselves, of any length, gives the verdict that counterpart
+/// gives for bytes that long (Codex, PR 290), where a file that cannot be read at all stays `fatal`.
+enum ReadRefusal {
+    OverBudget(String),
+    Unreadable(String),
+}
+
+/// `read_input` with the reason as text, for every caller that ends in `fatal` either way.
+fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
+    read_input(path).map_err(|refusal| match refusal {
+        ReadRefusal::OverBudget(m) | ReadRefusal::Unreadable(m) => m,
+    })
 }
 
 const POLICY_SCHEMA_V01: &str = "proofbundle/trust-policy/v0.1";
@@ -3177,9 +3194,14 @@ coverage-report> ..."
             let path = args.get(2).unwrap_or_else(|| {
                 fatal("verify-scitt-statement-signature needs a statement file")
             });
-            let data = read_file(path);
             let keys: Vec<&str> = args[3..].iter().map(String::as_str).collect();
-            let (status, valid) = scitt::verify_statement_signature(&data, &keys);
+            // Python reads bytes past the input budget as `malformed` (the profile reads at most
+            // MAX_STATEMENT_BYTES); so does this subcommand, where it used to end in `fatal`, exit 2.
+            let (status, valid) = match read_input(path) {
+                Ok(data) => scitt::verify_statement_signature(&data, &keys),
+                Err(ReadRefusal::OverBudget(_)) => (scitt::MALFORMED, None),
+                Err(ReadRefusal::Unreadable(m)) => fatal(&m),
+            };
             let shown = match valid {
                 Some(true) => "true",
                 Some(false) => "false",

@@ -40,7 +40,7 @@ const RSA_BITS: (usize, usize) = (2048, 8192);
 
 pub const CONFIRMED: &str = "confirmed";
 pub const INVALID: &str = "statement_signature_invalid";
-const MALFORMED: &str = "malformed";
+pub const MALFORMED: &str = "malformed";
 const OUTSIDE: &str = "outside_profile";
 const NEEDS_RP_TRUST: &str = "needs_rp_trust";
 
