@@ -2009,6 +2009,25 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
 # encodings; the policy template and the trust pack refused all 13 already. At the tags v6.0.0 and
 # v6.1.0 the verifiers did not refuse them either: an SD-JWT bound to the identity point and a Key
 # Binding JWT signed by nobody gave "key binding valid", and all 13 weak vkeys parsed.
+#
+# THE SWEEP LIST, every producer under src/ that writes an Ed25519 public key (read at 76c900ea):
+#   sdjwt_issue.issue_sd_jwt              caller's holder key into `cnf.jwk`   rule since this fix
+#   checkpoint.vkey                       caller's key as a log vkey           rule since this fix
+#   checkpoint.cosign_vkey                caller's key as a witness vkey       rule since this fix
+#   policy_profiles.instantiate_template  caller's issuer keys as pins         refused, a control
+#   trust_pack.sign_trust_pack            the predicate's keys                 refused, a control
+#   trust_pack.build_trust_pack_statement the same keys, unsigned              refused (same check)
+#   emit.emit_bundle, its `sd_jwt_vc`     a foreign issuer's key, copied verbatim and outside what
+#                                         the bundle signs; `verify_bundle` checks the SD-JWT under
+#                                         it with the rule (`sdjwt._ISSUER_SIG_VERIFIERS`)
+# Every other writer puts down the key of the private key it signs with (the bundle signature of
+# `emit_bundle`, the issuer of `emit_eval_receipt`), a key ID derived from that key
+# (`sign_checkpoint`, `cosign_checkpoint`), or a key ID the caller names (`dsse.sign_envelope` and
+# the statement emitters that call it); the key of a real private key is never of small order.
+# The exports that sign a verdict over a receipt (`intoto.export_svr_dsse`,
+# `export_eval_result_dsse`, `export_intoto_dsse`) write no key and refuse to vouch for an issuer
+# key the rule refuses: section 5. Under scripts/, the three `assemble` steps that write a key
+# handed in with its signature are section 4; this round did not sweep scripts/ again.
 
 _SRC = REPO / "src" / "proofbundle"
 
@@ -2147,8 +2166,13 @@ class ProducersRefuseAKeyNobodyHolds(unittest.TestCase):
     def test_every_length_check_on_32_under_src_is_read_and_named(self):
         """The search question of the finding: a place that checks a key by its length alone carries the
         class. Every such comparison under src/ is listed in `_LENGTH_32` with the reason it is none,
-        and the scan and the list must agree in both directions. A length compared with a name
-        (`trust_pack`'s `want_len`, followed by the rule there) is not seen by this scan."""
+        and the scan and the list must agree in both directions. This scan does not see a length
+        compared with a name (`trust_pack`'s `want_len`, followed by the rule there;
+        `anchors_chia._hexbytes` with `_HASH_LEN`, a hash) or with 33, a key behind its type
+        byte (`checkpoint._parse_vkey` and `checkpoint._parse_witness_vkey`, each followed by
+        the rule). A wider scan at 76c900ea (the literals 32, 33, 43 and 44, module names bound
+        to them, literal tuples holding them) found those three beside the sites in
+        `_LENGTH_32`, and no other."""
         found = _length_32_sites()
         listed = {where: count for where, (count, _why) in _LENGTH_32.items()}
         self.assertEqual({k: v for k, v in found.items() if listed.get(k) != v},

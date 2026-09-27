@@ -272,16 +272,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `trust_pack.sign_trust_pack` (root keys). The rest write the key of the private key they sign
   with (`emit_bundle`, `emit_eval_receipt`, `sign_checkpoint`, `cosign_checkpoint`, the statement
   emitters, `dsse.sign_envelope`), which is never of small order for a real Ed25519 key, or write a
-  key ID. At the tags v6.0.0 and v6.1.0 `issue_sd_jwt` carries the same lines (98 to 102), and the
-  verifiers did not refuse either: an SD-JWT bound to the identity point and a Key Binding JWT
-  signed by nobody (R = identity, S = 0) gave "key binding valid", and all 13 weak log and witness
-  vkeys were written and parsed back; at a4e2fa5c the verifiers refused them. The case in
+  key ID. `emit_bundle` also copies a caller's `sd_jwt_vc` verbatim, a foreign issuer's key
+  included; the bundle signature does not cover it, and `verify_bundle` checks the SD-JWT under that
+  key with the rule. The contract carries this sweep as a list. At the tags v6.0.0 and v6.1.0
+  `issue_sd_jwt` carries the same lines (98 to 102), and the verifiers did not refuse either: an
+  SD-JWT bound to the identity point and a Key Binding JWT signed by nobody (R = identity, S = 0)
+  gave "key binding valid", and all 13 weak log and witness vkeys were written and parsed back; at
+  a4e2fa5c the verifiers refused them. The case in
   `tests/test_trust_anchor_keys_refused_on_every_surface.py` that bound the identity point as the
   holder and measured only the verifier now demands the refusal at issuance and measures the
   verifier on a `cnf.jwk` a foreign issuer wrote; its checkpoint cases measure the parsers on vkeys
   written without the rule. The search question of the finding, a key checked by its length alone,
   is a case: every comparison of a `len(...)` with 32 under `src/` (26 in 25 functions) is listed
-  with the reason it is no carrier, and a new one turns the contract red until it is named.
+  with the reason it is no carrier, and a new one turns the contract red until it is named. Three
+  more length checks that scan cannot see, found by a wider one (a comparison with a name or with
+  33), are named in the case next to `trust_pack`'s `want_len`: two are the vkey parsers, followed
+  by the rule, and one compares a hash.
   Contract: 66 cases and 1653 subtests with numpy installed, green on 3.10.12, 3.11.15, 3.12.14,
   3.13.15 and 3.14.7, each with the numpy its CI job installs; against the source of a4e2fa5c 93
   subtests fail on 3.10 and 3.11 and 97 on 3.12 to 3.14 (41 or 45 of the depth rule, 52 of the two
