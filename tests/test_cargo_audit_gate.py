@@ -6,7 +6,7 @@ refuses unmaintained, unsound and yanked, and exits 0 on an informational "notic
 rule of the step is "never exit 0 on a lock file that carries a RustSec advisory or warning it does not
 list", so `scripts/cargo_audit_gate.py` judges `cargo audit --json` as well. These cases pin its
 judgement on canned reports (no cargo-audit needed) and its exit codes through a stand-in for cargo; the
-last case runs the script's own two-direction self-test where cargo-audit 0.22.2 and a fetched advisory
+last case runs the script's own self-test (every case, F1 to F3 included) where cargo-audit 0.22.2 and a fetched advisory
 database are present, and skips elsewhere. The rust-parity job runs that self-test on every run.
 
 The lens run on PR 296 at 5138b4d2 found three more ways the whole step exited 0 (F1 to F3 below): a
