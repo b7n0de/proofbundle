@@ -14,8 +14,6 @@ from proofbundle.kbjwt import holder_key_from_cnf, split_key_binding, verify_key
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 
 IAT = 1_780_000_000
-CLAIM = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-         "issuer": "ed25519:placeholder"}
 
 # N1 (audit 2026-07-13): an eval-carrying SD-JWT must BIND to an eval-claim payload — the old fixtures
 # grafted an eval SD-JWT onto a non-eval {"x":1} bundle (the exact substitution hole verify_bundle now
@@ -25,6 +23,10 @@ _EV_CLAIM, _ = build_eval_claim(
     suite="demo-suite", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
     score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
     timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+# The claim the SD-JWT is issued from. Until 6.2.0 this was a dict of the five always-open fields;
+# `issue_sd_jwt` now refuses any claim `decode_eval_claim` refuses, so it is the full eval claim above,
+# whose always-open values (passed, threshold, comparator, suite) are the same.
+CLAIM = dict(_EV_CLAIM)
 
 
 def _bound_root_and_issuer_field(issuer):

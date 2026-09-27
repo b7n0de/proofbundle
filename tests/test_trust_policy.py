@@ -53,8 +53,9 @@ def _sd_jwt_bundle(*, with_issuer_key: bool = True, with_cnf: bool = True,
     plain = emit_eval_receipt(ev_claim, issuer)
     root = plain["merkle"]["root_b64"]
     issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
-    claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-             "issuer": issuer_field}
+    # The SD-JWT is a view of this signed claim; `issue_sd_jwt` refuses a partial one (6.2.0).
+    claim = json.loads(base64.b64decode(plain["payload_b64"]))
+    assert claim["issuer"] == issuer_field
     compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.9",
                            holder_public_key=_raw_pub(holder) if with_cnf else None,
                            **({"vct": vct} if vct is not None else {}))
@@ -585,9 +586,9 @@ class TestExpectedVct(unittest.TestCase):
                      Check("sd-jwt-issuer-signature", False, "unsigned")]
 
         issuer = generate_signer()
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
         compact = issue_sd_jwt(
-            {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "x",
-             "issuer": "placeholder"},
+            full_eval_claim("placeholder", suite="x", threshold="0.8"),
             issuer, root_b64="cm9vdA==", vct="https://attacker.example/vct")
         bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact}}
         policy = load_policy(_base_policy(sd_jwt={"expected_vct": "https://attacker.example/vct"}))

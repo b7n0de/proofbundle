@@ -33,7 +33,7 @@ from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
-from ._verdict import require_bool_verdict
+from ._verdict import require_bool_verdict, require_eval_claim
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -84,7 +84,13 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     type URI (override per profile). `status` (build via
     :func:`proofbundle.statuslist.status_claim`) points the receipt into a Token Status List;
     verifying a bundled list snapshot lives in :mod:`proofbundle.statuslist`.
+
+    The claim goes through the rule ``decode_eval_claim`` applies before anything is signed, and the
+    always-open values are read from the claim as parsed back from its canonical bytes (see
+    ``_verdict.require_eval_claim``). Measured at 62e8bbab: this function signed a claim with
+    comparator ``==``, threshold ``inf``, n=-1, commit_alg ``md5-plain`` and schema ``x``.
     """
+    claim = require_eval_claim(claim, wo="issue_sd_jwt")
     always_open = {
         # NOT `claim["passed"]`: the value is SIGNED a few lines below, so its type is established here
         # rather than assumed, and the VALIDATED value is used rather than a second read of the field

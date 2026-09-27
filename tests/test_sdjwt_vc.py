@@ -42,8 +42,8 @@ def _hand_jwt(typ: str, payload: dict) -> str:
 
 
 def _claim(issuer) -> dict:
-    return {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-            "issuer": "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")}
+    from _full_eval_claim import full_eval_claim  # noqa: PLC0415
+    return full_eval_claim("ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii"))
 
 
 def _real_bound_vc(vct: str = _VCT):

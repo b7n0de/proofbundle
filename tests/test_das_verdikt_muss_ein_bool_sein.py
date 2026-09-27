@@ -261,14 +261,17 @@ class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
     def test_der_export_gibt_den_gepruefte_wert_aus_nicht_ein_zweites_lesen(self):
         c = self._Zweizuengig(self.echt)
         c["passed"] = "false"
-        # The validation sees True (through `get`). What MUST be emitted is exactly that value, not
-        # the stored `"false"` -- otherwise a signed predicate carries a verdict nobody ever
-        # validated.
-        p = to_eval_result_predicate(c)
-        gesehen = p["claims"][0].get("passed")
-        self.assertIs(gesehen, True,
-                      f"das Praedikat traegt {gesehen!r}; geprueft wurde True. Eine Pruefung durch "
-                      f"einen Zugriff und eine Verwendung durch einen anderen sind zwei Werte.")
+        # THE EXPECTED OUTCOME CHANGED IN 6.2.0, and the reason is the same principle one step on.
+        # This case asserted that the predicate carries True, the value `get` returned to the check.
+        # The canonical bytes of this object say "false" (the serializer copies the stored items and
+        # never calls `get`), and those bytes are what `emit_eval_receipt` signs and what a verifier
+        # reads. So the predicate would have vouched for a verdict that no receipt of this claim can
+        # carry. The export now reads the claim back from its canonical bytes and judges that
+        # (`_verdict.require_eval_claim`): the stored string is not a boolean, and the export refuses.
+        # Checked and used are one value because both are the value read back.
+        with self.assertRaises(BundleFormatError) as ctx:
+            to_eval_result_predicate(c)
+        self.assertIn("passed", str(ctx.exception))
 
     def test_beide_echten_booleans_bleiben_unveraendert(self):
         """Without this case the site could turn every value into True and the case above would pass."""

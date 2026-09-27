@@ -16,8 +16,9 @@ import hashlib
 import json
 from typing import Any, Optional
 
-from ._verdict import require_bool_verdict
+from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
 
@@ -91,6 +92,7 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
+    claim = require_eval_claim(claim, wo="to_intoto_statement")
     verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
@@ -260,6 +262,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
+    claim = require_eval_claim(claim, wo="to_test_result_statement")
     verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
@@ -323,6 +326,7 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     The signed Statement declares its content-root algorithm (default `jcs-sha256-v1`, ADR 0002). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (json.dumps root,
     no field)."""
+    claim = require_eval_claim(claim, wo="export_intoto_dsse")
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
@@ -359,6 +363,152 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
             "content_root_ok": binding_ok, "content_root_detail": merged_detail}
 
 
+def _commit_field(value: Any) -> Any:
+    """A predicate's commitment hex in the claim's `sha256:<hex>` spelling, so the claim rule's own
+    pattern judges it. A non-string stays as it is and the rule refuses its type."""
+    return "sha256:" + value if isinstance(value, str) else value
+
+
+def _eval_result_claim_fields(predicate: dict) -> list:
+    """(label, claim fields or a reason) for each part of an eval-result predicate that carries
+    claim fields.
+
+    The mapping is the inverse of `to_eval_result_predicate`. A predicate field that is ABSENT maps
+    to nothing (docs/upstream/eval-result.md: absence makes no claim, and C2 of
+    tests/test_intoto_content_root_migration.py signs a predicate with none of these fields). A
+    PRESENT container of the wrong shape is a reason of its own, because naming a field inside it
+    would describe a structure that is not there.
+    """
+    teile: list = []
+    if "claims" in predicate:
+        claims = predicate["claims"]
+        if not isinstance(claims, list):
+            teile.append(("claims", f"must be an array of claim objects, got {type(claims).__name__}"))
+        else:
+            for i, eintrag in enumerate(claims):
+                if not isinstance(eintrag, dict):
+                    teile.append((f"claims[{i}]", f"must be an object, got {type(eintrag).__name__}"))
+                    continue
+                teile.append((f"claims[{i}]", {k: eintrag[k] for k in (
+                    "metric", "comparator", "threshold", "passed") if k in eintrag}))
+    if "sampleSize" in predicate:
+        teile.append(("sampleSize", {"n": predicate["sampleSize"]}))
+    if "commitments" in predicate:
+        commitments = predicate["commitments"]
+        if not isinstance(commitments, dict):
+            teile.append(("commitments", f"must be an object, got {type(commitments).__name__}"))
+            commitments = {}
+        for rolle, feld in (("model", "model_id_commit"), ("dataset", "dataset_id_commit")):
+            if rolle not in commitments:
+                continue
+            c = commitments[rolle]
+            if not isinstance(c, dict):
+                teile.append((f"commitments.{rolle}", f"must be an object, got {type(c).__name__}"))
+                continue
+            # `salted: true` is what makes `value` a commitment (upstream spec, `commitments`), and
+            # the one algorithm the claim rule knows is a salted one.
+            if c.get("salted") is not True:
+                teile.append((f"commitments.{rolle}", "salted must be true for a sha256-salted-v1 "
+                              f"commitment, got {render_safe(c.get('salted'))}"))
+                continue
+            teile.append((f"commitments.{rolle}",
+                          {"commit_alg": c.get("alg"), feld: _commit_field(c.get("value"))}))
+    if "suite" in predicate:
+        suite = predicate["suite"]
+        if not isinstance(suite, dict):
+            teile.append(("suite", f"must be an object {{name, version}}, got {type(suite).__name__}"))
+        else:
+            teile.append(("suite", {k: suite[q] for q, k in (("name", "suite"),
+                                                              ("version", "suite_version"))
+                                    if q in suite}))
+    for q, k in (("evaluatedAt", "timestamp"), ("assuranceLevel", "assurance_level")):
+        if q in predicate:
+            teile.append((q, {k: predicate[q]}))
+    if "preRegistration" in predicate:
+        pre = predicate["preRegistration"]
+        if not isinstance(pre, dict):
+            teile.append(("preRegistration", f"must be an object, got {type(pre).__name__}"))
+        elif "value" in pre:
+            teile.append(("preRegistration", {"prereg_sha256": pre["value"]}))
+    return teile
+
+
+def _test_result_claim_fields(predicate: dict) -> list:
+    """(label, claim fields or a reason) for each configuration entry that carries a proofbundle
+    commitment.
+
+    The inverse of `to_test_result_statement`, and only there: a descriptor is ours when its digest
+    carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`. Any other test-result
+    descriptor is not an eval claim and is not judged (test A1 of
+    tests/test_intoto_content_root_migration.py verifies one with digest {"x": "y"}).
+    """
+    teile: list = []
+    configuration = predicate.get("configuration")
+    if not isinstance(configuration, list):
+        return teile
+    for i, eintrag in enumerate(configuration):
+        digest = eintrag.get("digest") if isinstance(eintrag, dict) else None
+        if not isinstance(digest, dict):
+            continue
+        felder = {}
+        for schluessel, feld in ((MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
+                                 (DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
+            if schluessel in digest:
+                felder[feld] = _commit_field(digest[schluessel])
+        if MODEL_COMMIT_DIGEST_KEY in digest and "annotations" in eintrag:
+            notizen = eintrag["annotations"]
+            if not isinstance(notizen, dict):
+                teile.append((f"configuration[{i}].annotations",
+                              f"must be an object, got {type(notizen).__name__}"))
+                continue
+            for q, k in (("suite", "suite"), ("metric", "metric"), ("comparator", "comparator"),
+                         ("threshold", "threshold"), ("passed", "passed"), ("evaluatedAt", "timestamp"),
+                         ("provenance", "provenance")):
+                if q in notizen:
+                    felder[k] = notizen[q]
+        if felder:
+            teile.append((f"configuration[{i}]", felder))
+    return teile
+
+
+def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
+    """Fold the claim rule over a verified statement's predicate into the verdict. Never raises.
+
+    ``predicate_claim_ok`` is True when the statement has this verifier's own predicate type and
+    every claim field it carries passes `evalclaim._field_violation`, False when one does not (then
+    ``ok`` is False and the reason is appended to ``content_root_detail``), and None when the
+    statement is of another type or not an object, so there is nothing this rule knows to judge.
+    The predicate type of the STATEMENT decides, not ``expected_predicate_type``: with the type
+    check opted out (scripts/pre_tag_attestation.py does), a foreign predicate is still not judged
+    by the eval-claim rule.
+
+    Measured at 62e8bbab: a validly signed envelope whose commitments were `sha256:x`,
+    `not-a-commitment` or 64 upper-case hex digits verified ok=True through both verifiers.
+    """
+    statement = res.get("statement")
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    if not (isinstance(statement, dict) and statement.get("predicateType") == eigener_typ
+            and isinstance(predicate, dict)):
+        res["predicate_claim_ok"] = None
+        return res
+    from .evalclaim import _field_violation  # noqa: PLC0415 - evalclaim imports the bundle core
+    grund = None
+    try:
+        for bezeichnung, felder in felder_von(predicate):
+            fehler = felder if isinstance(felder, str) else _field_violation(felder)
+            if fehler is not None:
+                grund = f"predicate {bezeichnung}: {fehler}"
+                break
+    except (ProofBundleError, ValueError, TypeError, RecursionError) as exc:
+        grund = f"predicate claim fields could not be judged ({type(exc).__name__})"
+    res["predicate_claim_ok"] = grund is None
+    if grund is not None:
+        res["ok"] = False
+        res["content_root_detail"] = (
+            (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + grund)
+    return res
+
+
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
@@ -368,7 +518,11 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's ``predicateType`` equals
     ``expected_predicate_type`` (WP-I1: the type was previously only RETURNED, so ``ok`` was True for a
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
-    Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before)."""
+    Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
+
+    ``ok`` also requires that every eval-claim field a configuration entry carrying a proofbundle
+    commitment digest holds passes the claim rule (``predicate_claim_ok``, see
+    `_judge_claim_fields`). A generic test-result entry without such a digest is not judged."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -381,11 +535,14 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
         body = dsse.load_payload(envelope)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
-        return _intoto_verify_result(False, False, None, None,
-                                     f"DSSE payload rejected (fail-closed): {exc}",
-                                     expected_predicate_type)
+        return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
+                                                         f"DSSE payload rejected (fail-closed): {exc}",
+                                                         expected_predicate_type),
+                                   TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    return _judge_claim_fields(
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type),
+        TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -448,6 +605,7 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
       lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
     """
     if profile == "receipt":
+        claim = require_eval_claim(claim, wo="resolve_subject")
         if not claim.get("model_id_commit") or not claim.get("timestamp"):
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
@@ -472,8 +630,13 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    verdikt = _require_export_fields(claim)
+    # Twice on purpose: first on the object, so the plaintext guard answers before the claim rule
+    # (which would refuse a plaintext key only as an unknown field); then on the claim read back,
+    # so the verdict written below is the value in the canonical bytes.
+    _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
+    claim = require_eval_claim(claim, wo="to_eval_result_predicate")
+    verdikt = _require_export_fields(claim)
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -544,6 +707,7 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
 
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
+    claim = require_eval_claim(claim, wo="export_eval_result_dsse")
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
@@ -561,7 +725,11 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), AND the
     statement's `predicateType` equals `expected_predicate_type` (WP-I1: predicate-confusion defense —
     the type was previously only returned, so a swapped SVR/test-result envelope was accepted as an
-    eval-result). Pass `expected_predicate_type=None` to opt out."""
+    eval-result). Pass `expected_predicate_type=None` to opt out.
+
+    `ok` also requires that every eval-claim field the predicate carries (claims[], sampleSize,
+    commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule
+    (`predicate_claim_ok`, see `_judge_claim_fields`). An absent field is not judged."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -573,11 +741,14 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         body = dsse.load_payload(envelope)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
-        return _intoto_verify_result(False, False, None, None,
-                                     f"DSSE payload rejected (fail-closed): {exc}",
-                                     expected_predicate_type)
+        return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
+                                                         f"DSSE payload rejected (fail-closed): {exc}",
+                                                         expected_predicate_type),
+                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    return _judge_claim_fields(
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type),
+        EVAL_RESULT_PREDICATE_TYPE, _eval_result_claim_fields)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

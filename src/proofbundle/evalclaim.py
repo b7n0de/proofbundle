@@ -104,6 +104,39 @@ def salted_commit(identifier: str, salt: bytes) -> str:
     return "sha256:" + hashlib.sha256(salt + identifier.encode("utf-8")).hexdigest()
 
 
+def _is_unsafe_int(value) -> bool:
+    """True for an integer outside the IEEE-754 safe range, that is beyond +-(2**53-1).
+
+    THE ONE TEST for that range. The emit profile (`_reject_non_jcs`) and the claim rule
+    (`_claim_violation`, through `_first_unsafe_integer`) both ask this function. Until 6.2.0 only
+    the emit profile asked, so `decode_eval_claim` accepted `provenance={"run_attempts": 2**53}`
+    while `emit_eval_receipt` refused it, although EVAL_CLAIM.md section 4 names the range for the
+    claim and not for one of its two readers.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and abs(value) > _MAX_SAFE_INT
+
+
+def _first_unsafe_integer(value) -> Optional[int]:
+    """The first integer outside the safe range anywhere inside `value`, or None.
+
+    Iterative rather than recursive, and it visits each container once, so a deep or a cyclic
+    Python object handed to the emitter cannot make the claim rule raise. On the verify path the
+    strict parser has already bounded depth and size.
+    """
+    stapel: list = [value]
+    gesehen: set = set()
+    while stapel:
+        wert = stapel.pop()
+        if _is_unsafe_int(wert):
+            return wert
+        if isinstance(wert, (dict, list, tuple)):
+            if id(wert) in gesehen:
+                continue
+            gesehen.add(id(wert))
+            stapel.extend(wert.values() if isinstance(wert, dict) else wert)
+    return None
+
+
 def _reject_non_jcs(value) -> None:
     """Recursively reject values that RFC 8785 / this profile forbids in a claim."""
     if isinstance(value, bool):
@@ -111,8 +144,9 @@ def _reject_non_jcs(value) -> None:
     if isinstance(value, float):
         raise EvalClaimError("float values are forbidden; use a decimal STRING (e.g. \"0.80\")")
     if isinstance(value, int):
-        if abs(value) > _MAX_SAFE_INT:
-            raise EvalClaimError(f"integer {value} exceeds the IEEE-754 safe range (2**53-1)")
+        if _is_unsafe_int(value):
+            raise EvalClaimError(
+                f"integer {render_safe(value)} exceeds the IEEE-754 safe range (2**53-1)")
         return
     if isinstance(value, str):
         if unicodedata.normalize("NFC", value) != value:
@@ -140,6 +174,16 @@ def canonicalize(claim: dict) -> bytes:
     for the UTF-16 code-unit key sort + compact UTF-8 serialization.
     """
     _reject_non_jcs(claim)
+    return _jcs_bytes(claim)
+
+
+def _jcs_bytes(claim) -> bytes:
+    """RFC 8785 bytes of `claim` WITHOUT the emit profile (NFC strings, no floats).
+
+    `canonicalize` is this plus the profile. The exporters in `intoto` and `sdjwt_issue` read a claim
+    back through this function: they export what `decode_eval_claim` accepts, and the verify path
+    does not hold a claim to the emit profile.
+    """
     try:
         import rfc8785  # noqa: PLC0415 — lazy: only the emit path pulls the JCS dependency
     except ImportError as e:
@@ -150,6 +194,8 @@ def canonicalize(claim: dict) -> bytes:
         return rfc8785.dumps(claim)
     except (rfc8785.FloatDomainError, rfc8785.IntegerDomainError, rfc8785.CanonicalizationError) as e:
         raise EvalClaimError(f"canonicalization failed: {e}") from e
+    except RecursionError as e:
+        raise EvalClaimError("canonicalization failed: the claim nests too deep to serialize") from e
 
 
 def load_claim_text(text: str) -> dict:
@@ -238,6 +284,19 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         claim["context_binding"] = context_binding
     if ci95 is not None:
         claim["ci95"] = [str(x) for x in ci95]
+        # The claim rule judges the interval HERE, with its own reason, and the builder does not
+        # reformat a number. Measured on 126ed1dc: `ci95=[1e-05, 0.5]` became ["1e-05", "0.5"] and
+        # `[nan, inf]` became ["nan", "inf"]; the emitter signed both, and since R-B1 it refuses
+        # both. Turning a float into a plain decimal here would be one more float formatter beside
+        # the adapters' own, which already disagree (adapters/lm_eval.py and adapters/inspect_ai.py
+        # always round to 12 places, adapters/eee.py keeps repr() unless it has an exponent), and
+        # the signature types `ci95` as decimal
+        # strings, like `threshold` and `score`, whose floats this builder already refuses. What
+        # built a signable claim before still does: a decimal string, an int, and a float whose
+        # `str()` is a plain decimal (0.81) give the same claim as on 126ed1dc.
+        reason = _field_violation({"ci95": claim["ci95"]})
+        if reason is not None:
+            raise EvalClaimError(reason)
     if multiple_testing is not None:
         claim["multiple_testing"] = multiple_testing
     if prereg_sha256 is not None:
@@ -313,8 +372,18 @@ def _claim_violation(claim: dict) -> Optional[str]:
       ``leaf_alg`` fixed, ``samples.n`` an int equal to the claim's ``n`` and at least 1 (schema
       minimum), and a root that decodes to 32 bytes.
 
+    - The IEEE-754 safe range (6.2.0, follow-up to R-B1): no integer beyond +-(2**53-1) anywhere in
+      the claim, through `_is_unsafe_int`, the same test the emit profile asks. EVAL_CLAIM.md
+      section 4 names the range for the claim; until then only the emitter held it, and decode
+      accepted `provenance={"run_attempts": 2**53}`.
+
     Never raises for a dict: every message goes through the bounded renderer, because the values it
     names are untrusted, and the one decoding step (the samples root) is caught and named.
+
+    The checks on single fields live in `_field_violation`, and this function adds the one check a
+    single field cannot answer: the key set. The verifiers in `intoto` call `_field_violation` on
+    the claim fields a signed predicate carries, so a predicate field is judged by this rule too and
+    not by a copy of it.
     """
     # F3 (v1.9.2): the exact key set is a verify-path invariant as much as an emit-side one.
     missing = _REQUIRED - set(claim)
@@ -323,31 +392,44 @@ def _claim_violation(claim: dict) -> Optional[str]:
     extra = set(claim) - _REQUIRED - _OPTIONAL
     if extra:
         return f"claim has unknown fields: {render_keys_safe(extra)}"
-    if claim.get("schema") != EVAL_CLAIM_SCHEMA:
+    return _field_violation(claim)
+
+
+def _field_violation(claim: dict) -> Optional[str]:
+    """Every check of `_claim_violation` that reads a field, applied to the fields PRESENT in `claim`.
+
+    For a whole claim the key-set check in `_claim_violation` runs first, so every required field is
+    present here and the presence tests below change nothing. They exist for the second kind of
+    caller, which holds only some of a claim's fields: an in-toto predicate carries `claims[]`,
+    `sampleSize` and `commitments`, and no `schema` or `issuer`. Absent means no statement about the
+    field, never a default in its place. A PRESENT field that is null or of the wrong type is still
+    refused, as before.
+    """
+    if "schema" in claim and claim.get("schema") != EVAL_CLAIM_SCHEMA:
         return f"schema must be {EVAL_CLAIM_SCHEMA!r}, got {render_safe(claim.get('schema'))}"
-    if not is_member(claim.get("comparator"), _COMPARATORS):
+    if "comparator" in claim and not is_member(claim.get("comparator"), _COMPARATORS):
         return (f"comparator must be one of {sorted(_COMPARATORS)}, "
                 f"got {render_safe(claim.get('comparator'))}")
     threshold = claim.get("threshold")
-    if not (isinstance(threshold, str) and _DECIMAL_RE.match(threshold)):
+    if "threshold" in claim and not (isinstance(threshold, str) and _DECIMAL_RE.match(threshold)):
         return ("threshold must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), "
                 f"got {render_safe(threshold)}")
-    if claim.get("assurance_level") not in ASSURANCE_LEVELS:
+    if "assurance_level" in claim and claim.get("assurance_level") not in ASSURANCE_LEVELS:
         return f"assurance_level must be one of {list(ASSURANCE_LEVELS)}"
-    if not is_bool(claim.get("passed")):
+    if "passed" in claim and not is_bool(claim.get("passed")):
         return f"passed must be a boolean, got {render_safe(claim.get('passed'))}"
     n = claim.get("n")
-    if isinstance(n, bool) or not isinstance(n, int) or not (0 <= n <= _MAX_SAFE_INT):
+    if "n" in claim and (isinstance(n, bool) or not isinstance(n, int) or not (0 <= n <= _MAX_SAFE_INT)):
         return f"n must be an integer in 0..2**53-1, got {render_safe(n)}"
     for name in ("metric", "suite"):                 # schema: string, minLength 1
         value = claim.get(name)
-        if not (isinstance(value, str) and value):
+        if name in claim and not (isinstance(value, str) and value):
             return f"{name} must be a non-empty string, got {render_safe(value)}"
-    if claim.get("commit_alg") != COMMIT_ALG:          # schema: const sha256-salted-v1
+    if "commit_alg" in claim and claim.get("commit_alg") != COMMIT_ALG:   # schema: const
         return f"commit_alg must be {COMMIT_ALG!r}, got {render_safe(claim.get('commit_alg'))}"
     for name in _COMMITMENT_FIELDS:
         value = claim.get(name)
-        if not (isinstance(value, str) and _COMMIT_RE.match(value)):
+        if name in claim and not (isinstance(value, str) and _COMMIT_RE.match(value)):
             return (f"{name} must be a salted commitment sha256:<64 lowercase hex>, the form "
                     f"salted_commit produces; got {render_safe(value)}")
     for name in _STRING_FIELDS:
@@ -387,7 +469,56 @@ def _claim_violation(claim: dict) -> Optional[str]:
         if not root_ok:
             return ("samples.root_b64 must be standard base64 of a 32-byte root, "
                     f"got {render_safe(samples['root_b64'])}")
+    for name, value in claim.items():
+        unsafe = _first_unsafe_integer(value)
+        if unsafe is not None:
+            return (f"{name} holds integer {render_safe(unsafe)}, which exceeds the IEEE-754 "
+                    "safe range (2**53-1)")
     return None
+
+
+def _claim_read_back(claim, *, profile: bool) -> tuple:
+    """The claim as a verifier will read it: checked, serialized, parsed back from those bytes, checked
+    again. Returns ``(claim_read_back, canonical_bytes)`` or raises ``EvalClaimError``.
+
+    Every producer of signed or digested output from an eval claim goes through here:
+    `emit_eval_receipt` with ``profile=True`` (the canonicalization profile of EVAL_CLAIM.md section
+    4 on top), and the exporters in `intoto` and `sdjwt_issue` through
+    `_verdict.require_eval_claim` with ``profile=False``, because they export what
+    `decode_eval_claim` accepts.
+
+    WHY THE SECOND CHECK, on the parsed bytes and not only on the object. The object is what the
+    caller hands in; the bytes are what gets signed, and the two can differ. Measured at 62e8bbab:
+    an `int` subclass holding 500 whose `__int__` returns -1 passed the check as 500 and was
+    serialized as -1, because rfc8785 calls `int()`; a `str` subclass that compares equal to
+    anything passed `schema` and `commit_alg` and was serialized as "x" and "md5-plain". The emitter
+    signed both claims and `decode_eval_claim` refused both receipts. Checking the parsed bytes
+    judges what a verifier will read, and the caller of this function builds its output from the
+    parsed claim, so the value checked and the value used are one value.
+
+    The first check stays, on the object, so a refusal names the field before the serializer meets
+    a float or an unsafe integer and names that instead.
+    """
+    if not isinstance(claim, dict):
+        raise EvalClaimError(f"claim must be a JSON object, got {type(claim).__name__}")
+    reason = _claim_violation(claim)
+    if reason is not None:
+        raise EvalClaimError(reason)
+    try:
+        payload = canonicalize(claim) if profile else _jcs_bytes(claim)
+    except RecursionError as exc:
+        raise EvalClaimError("canonicalization failed: the claim nests too deep to serialize") from exc
+    # The resource limits exist only once the claim is serialized. `load_claim_text` is the reader
+    # the verify path uses (loads_strict: size, nodes, depth, string length, integer size).
+    try:
+        read_back = load_claim_text(payload.decode("utf-8"))
+    except EvalClaimError as exc:
+        raise EvalClaimError(f"the canonical claim exceeds a limit of the verifier: {exc}") from exc
+    reason = _claim_violation(read_back)
+    if reason is not None:
+        raise EvalClaimError(f"{reason} (in the canonical bytes; the object handed in did not "
+                             "serialize to what it compared as)")
+    return read_back, payload
 
 
 def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: Sequence[bytes] = (),
@@ -399,11 +530,12 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
 
     Refuses, with ``EvalClaimError`` naming the field, every claim that ``decode_eval_claim`` would
     refuse, through the same ``_claim_violation`` the verifier calls, before anything is
-    canonicalized or signed. The two normalizations above come first and are the only ones: the
-    issuer is this signer's, and a missing ``assurance_level`` is ``self_attested``. On top of
-    that the emitter enforces the canonicalization profile (NFC strings, no floats, safe-range
-    integers, section 4 of EVAL_CLAIM.md), which the verify path does not re-check because it never
-    canonicalizes.
+    canonicalized or signed, and again on the canonical bytes it signs. The two normalizations
+    above come first and are the only ones: the issuer is this signer's, and a missing
+    ``assurance_level`` is ``self_attested``. On top of that the emitter enforces two parts of the
+    canonicalization profile (section 4 of EVAL_CLAIM.md) that the verify path does not re-check
+    because it never canonicalizes: NFC strings and no floats. The third part, safe-range integers,
+    is part of the claim rule since 6.2.0 and holds at both boundaries.
     """
     claim = dict(claim)
     claim["issuer"] = issuer_fingerprint(signer)
@@ -413,22 +545,19 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     # Measured at 126ed1dc, this function signed `model_id_commit: "sha256:x"`; at 2290d6c1 it still
     # signed 14 of 15 claims the verifier refuses, because it ran only part of the verifier's checks.
     # Now it runs all of them, as one call, before canonicalization, so the reason names the field
-    # rather than a float or an integer the canonicalizer happens to meet first.
-    reason = _claim_violation(claim)
-    if reason is not None:
-        raise EvalClaimError(reason)
-    payload = canonicalize(claim)
-    # The resource limits exist only once the claim is serialized, so this step sits after
-    # canonicalization and before signing. The verify path reads these exact bytes with
-    # load_claim_text (loads_strict: size, nodes, depth, string length, integer size) and bounds the
-    # bundle's payload_b64 STRING with enforce_structural_budget. Measured at 2290d6c1: this function
-    # signed a claim whose provenance nested 70 deep, one holding 250 000 list items, and one whose
-    # payload_b64 ran past the 1 000 000-character string bound; decode refused all three. The same
-    # two readers run here, so a size the verifier refuses is not signed either.
+    # rather than a float or an integer the canonicalizer happens to meet first; and it runs them
+    # again on the canonical bytes it is about to sign (`_claim_read_back`, measured reason there).
+    #
+    # Resource limits: the verify path reads these exact bytes with load_claim_text (inside
+    # `_claim_read_back`) and bounds the bundle's payload_b64 STRING with enforce_structural_budget.
+    # Measured at 2290d6c1: this function signed a claim whose provenance nested 70 deep, one
+    # holding 250 000 list items, and one whose payload_b64 ran past the 1 000 000-character string
+    # bound; decode refused all three. The same two readers run here, so a size the verifier refuses
+    # is not signed either.
+    _, payload = _claim_read_back(claim, profile=True)
     try:
-        load_claim_text(payload.decode("utf-8"))
         enforce_structural_budget({"payload_b64": base64.b64encode(payload).decode("ascii")})
-    except (ProofBundleError, EvalClaimError) as exc:
+    except ProofBundleError as exc:
         raise EvalClaimError(f"the canonical claim exceeds a limit of the verifier: {exc}") from exc
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
@@ -458,8 +587,9 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     R-B1 (6.2.0): the constraints of ``schemas/eval_claim_v0_1.schema.json`` that the older checks
     did not reach are refused as well: both commitment patterns, six string types, ``ci95``,
     ``provenance`` and ``samples`` as objects, and ``samples.n >= 1``. The boundary stays STRICTER
-    than the schema in two places (``n <= 2**53-1``, a 32-byte samples root), and it is meant to
-    accept nothing the schema rejects. ``tests/test_eval_claim_commitment_pattern_holds.py``
+    than the schema in two places (integers within +-(2**53-1) anywhere in the claim, which covers
+    ``n <= 2**53-1``, and a 32-byte samples root), and it is meant to accept nothing the schema
+    rejects. ``tests/test_eval_claim_commitment_pattern_holds.py``
     measures that with ``jsonschema`` as the oracle over a generated corpus; a measurement over that
     corpus, not a proof over every input.
     """

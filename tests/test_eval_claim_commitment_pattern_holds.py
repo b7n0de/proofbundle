@@ -307,17 +307,19 @@ class TestTheSweptNeighboursHoldAtBothBoundaries(_Basis):
         self.assertIsInstance(decode_eval_claim(self._hand_signed(kontrolle)), dict)
 
     def test_a_nan_interval_from_the_builder_does_not_reach_a_signature(self):
-        # A-19 (P3 of the 2026-09-19 audit): build_eval_claim runs str() over ci95 before its float
-        # ban, so [nan, inf] arrives as ["nan", "inf"]. The builder still does that; what changed
-        # is that the emitter no longer signs the result, because it is not a decimal string.
-        claim, _ = build_eval_claim(
-            suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
-            score="0.92", n=10, model_id="m", dataset_id="d",
-            issuer=issuer_fingerprint(self.signer), timestamp="2026-09-19T12:00:00Z",
-            ci95=[float("nan"), float("inf")])
-        self.assertEqual(claim["ci95"], ["nan", "inf"])
+        # A-19 (P3 of the 2026-09-19 audit): build_eval_claim runs str() over ci95, so [nan, inf]
+        # became ["nan", "inf"], and 126ed1dc signed it. R-B1 made the emitter refuse the result;
+        # since the follow-up the builder refuses it itself, with the claim rule's reason, so no claim
+        # holding it is built. The emitter still refuses the same interval written by hand.
         with self.assertRaises(EvalClaimError) as ctx:
-            emit_eval_receipt(claim, self.signer)
+            build_eval_claim(
+                suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
+                score="0.92", n=10, model_id="m", dataset_id="d",
+                issuer=issuer_fingerprint(self.signer), timestamp="2026-09-19T12:00:00Z",
+                ci95=[float("nan"), float("inf")])
+        self.assertTrue(str(ctx.exception).startswith("ci95"), str(ctx.exception))
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(dict(self.basis, ci95=["nan", "inf"]), self.signer)
         self.assertIn("ci95", str(ctx.exception))
 
 
@@ -460,11 +462,14 @@ class TestTheEmitterSignsExactlyWhatTheVerifierAccepts(_Basis):
         self.assertGreater(beide_lehnen_ab, 0)
 
     def test_outside_the_canonical_profile_the_emitter_is_stricter_never_looser(self):
-        """Where the two may differ, and in which direction. The emitter enforces the canonicalization
-        profile (EVAL_CLAIM.md section 4: NFC strings, no floats), and the verify path never
-        canonicalizes, so it does not re-check it. Measured at this commit: decode ACCEPTS a
-        hand-signed claim with a decomposed `suite` or a float inside `provenance`; the emitter
-        refuses both. That is the one direction a difference is allowed to run.
+        """Where the two may differ, and in which direction. The emitter enforces two parts of the
+        canonicalization profile (EVAL_CLAIM.md section 4) that the verify path does not re-check,
+        because it never canonicalizes: NFC strings and no floats. The third part, safe-range
+        integers, was a third difference at 62e8bbab and is part of the claim rule since the
+        follow-up (tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py). Measured at
+        this commit: decode ACCEPTS a hand-signed claim with a decomposed `suite` or a float inside
+        `provenance`; the emitter refuses both. That is the one direction a difference is allowed
+        to run.
 
         NOT A CATCH PROOF: green before this change and after it. It states the direction so that the
         property above, which excludes these inputs by construction, is not read as covering them."""

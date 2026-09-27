@@ -180,9 +180,11 @@ MUTATIONS = [
     ("src/proofbundle/bundle.py",
      "        elif not sd_res.get(\"sig_checked\"):", "        elif False:",
      "bundle: cnf-without-issuer-key fail-closed removed (P0)", True),
+    # 2026-09-27: target moved with the claim checks into `_field_violation` (62e8bbab removed the old
+    # inline `c_n` spelling, so the operator reported `pattern not found`). Verdict unchanged.
     ("src/proofbundle/evalclaim.py",
-     " or s_n != c_n):",
-     " or False):",
+     " or not isinstance(s_n, int) or s_n != n:",
+     " or not isinstance(s_n, int) or False:",
      "decode: verify-side samples.n==n binding removed", True),
     ("src/proofbundle/evalclaim.py",
      "if expected_context is not None and claim.get(\"context_binding\") != expected_context:",
@@ -217,8 +219,13 @@ MUTATIONS = [
      "if len(payload) != blob_len:", "if len(payload) < blob_len:",
      "cosign: blob length exact -> lax (EQUIVALENT)", False),
     # v1.9.2 — F3: verify-path field-set enforcement (required-presence + unknown-rejection)
+    # 2026-09-27: the one condition became two named checks in `_claim_violation` (62e8bbab), so
+    # the operator was stale; both are disabled together, as the one condition was.
     ("src/proofbundle/evalclaim.py",
-     "if (_REQUIRED - set(claim)) or (set(claim) - _REQUIRED - _OPTIONAL):", "if False:",
+     ("    missing = _REQUIRED - set(claim)\n    if missing:",
+      "    extra = set(claim) - _REQUIRED - _OPTIONAL\n    if extra:"),
+     ("    missing = _REQUIRED - set(claim)\n    if False:",
+      "    extra = set(claim) - _REQUIRED - _OPTIONAL\n    if False:"),
      "evalclaim: verify-path required/unknown-field enforcement (F3) disabled", True),
     # v1.9.2 — F4: expected_aud/nonce with no verifiable KB-JWT must fail closed (downgrade trap)
     ("src/proofbundle/bundle.py",

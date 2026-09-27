@@ -39,7 +39,7 @@ from typing import Any
 from ._membership import is_bool
 from .errors import BundleFormatError
 
-__all__ = ["require_bool_verdict"]
+__all__ = ["require_bool_verdict", "require_eval_claim"]
 
 
 def require_bool_verdict(claim: Any, *, wo: str) -> bool:
@@ -73,3 +73,32 @@ def require_bool_verdict(claim: Any, *, wo: str) -> bool:
             f"than coercing or passing it on, because bool({wert!r}) would read a non-passing verdict "
             "as a PASS (R-B4, CWE-1287)")
     return wert
+
+
+def require_eval_claim(claim: Any, *, wo: str) -> dict:
+    """The claim a verifier would read, for an exporter to build from, or a refusal naming the field.
+
+    THE SAME CLASS AS ``require_bool_verdict``, one level up: that function establishes one field
+    for every exporter, this one establishes the whole claim with the rule ``decode_eval_claim``
+    applies (``evalclaim._claim_violation``). Measured at 62e8bbab: ``emit_eval_receipt`` refused
+    ``model_id_commit="sha256:x"``, while ``export_eval_result_dsse`` and ``export_intoto_dsse``
+    signed it, their verifiers returned ok=True, and ``issue_sd_jwt`` signed a claim with comparator
+    ``==``, threshold ``inf``, n=-1 and schema ``x``. Each producer had checked the claim with its
+    own subset of the rule: presence and the type of ``passed``.
+
+    RETURNS THE CLAIM READ BACK FROM ITS CANONICAL BYTES, and the caller rebinds its name to it:
+    ``claim = require_eval_claim(claim, wo=...)``. The object handed in can compare as one value and
+    serialize as another (an ``int`` subclass whose ``__int__`` differs); the returned dict holds
+    plain JSON values that the rule judged, so what is checked and what is used are one value, the
+    principle ``require_bool_verdict`` states for ``passed``.
+
+    ``BundleFormatError``, like every other refusal of these exporters (R-B4, the plaintext guard,
+    the subject profiles). It is not the emitter's ``EvalClaimError``; see
+    ``tests/test_abweisungsformen_sind_drei.py`` for why the two families stay apart.
+    """
+    from .evalclaim import EvalClaimError, _claim_read_back  # noqa: PLC0415 - evalclaim imports the bundle core
+    try:
+        gelesen, _ = _claim_read_back(claim, profile=False)
+    except EvalClaimError as exc:
+        raise BundleFormatError(f"{wo}: {exc}") from exc
+    return gelesen

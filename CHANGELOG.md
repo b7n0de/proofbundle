@@ -28,8 +28,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `prereg_sha256` and `evaluation_card_sha256`, the object type of `provenance`, `ci95` as exactly
   two decimal strings, `samples.n >= 1`, or null in an optional field, which it read as absent
   while the schema types the field. All of these are refused now, at decode and at emit. One
-  consequence for A-19: `build_eval_claim(ci95=[nan, inf])` still returns `["nan", "inf"]`, but
-  `emit_eval_receipt` no longer signs it.
+  consequence for A-19: `build_eval_claim(ci95=[nan, inf])` returned `["nan", "inf"]` and
+  126ed1dc signed it; the builder now refuses it with the claim rule's reason (next entry).
 
   **The emitter no longer signs a claim the verifier refuses.** Until this change it ran only part
   of the verifier's checks: measured after the pattern fix, it signed 14 of 15 probe claims that
@@ -38,9 +38,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   items, a payload over the 1 000 000-character string bound). Decode's inline checks now live in
   `_claim_violation`, which both call, and the emitter reads its canonical bytes with decode's
   readers before signing. A property test over 480 generated claims finds emit and decode agreeing
-  on every one (87 signed, 393 refused); before, they disagreed on 163. The emitter stays stricter
-  only on the canonicalization profile (NFC strings, no floats), which the verify path does not
-  re-check because it never canonicalizes.
+  on every one (87 signed, 393 refused); at 2290d6c1 they disagreed on 163 (re-measured with the
+  same corpus: 250 signed, 230 refused there). The emitter is stricter than decode on two parts of
+  the canonicalization profile, NFC strings and no floats, which the verify path does not re-check
+  because it never canonicalizes. At 62e8bbab it was stricter on a third part as well: decode
+  accepted `provenance={"run_attempts": 2**53}`, and -2**53 and 2**60, which the emitter refused;
+  the safe-range rule now holds at both boundaries (next entry). Measured after that change with the
+  review lens's generator (three seeds, 9000 generated claims): the emitter refused 29 claims that
+  decode accepts, 28 for a string that is not NFC and 1 for a float, and there was no other
+  disagreement.
 
   **`assurance_level` is required in `schemas/eval_claim_v0_1.schema.json`**, as `EVAL_CLAIM.md`
   already says and as the verifier has required since 1.9.2. The v1.1 review had kept it optional so
@@ -49,13 +55,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   no emitted byte changes. The schema's `$id` URL is not served (measured: HTTP 404), so no published
   copy diverges.
 
-  A stricter check, and under `COMPATIBILITY.md` a fix rather than a break: every claim now refused
-  at decode or at emit was already invalid under `schemas/eval_claim_v0_1.schema.json`, with one
-  kind of exception. A claim over the verifier's resource budget can be schema-valid; the emitter
-  refuses it now because proofbundle's own verifier already refused the receipt it would produce,
-  and `COMPATIBILITY.md` treats those budgets as limits of this verifier, not of the format. From the
-  outside it looks like a break, which is why this says so. Claims that `build_eval_claim` produces
-  from valid inputs pass as before.
+  A stricter check, and under `COMPATIBILITY.md` a fix rather than a break, with the exceptions
+  named here, each measured against 126ed1dc with the schema read by `jsonschema` (the Python
+  validator): every other claim now refused at decode or at emit was already invalid under
+  `schemas/eval_claim_v0_1.schema.json`. Four kinds of schema-valid claim are newly refused.
+  (1) A claim over the verifier's resource budget: the emitter refuses it now, and decode already
+  refused the receipt it would produce; `COMPATIBILITY.md` treats those budgets as limits of this
+  verifier, not of the format. (2) A `samples.root_b64` that is valid base64 but not 32 bytes (31
+  zero bytes, n 500): 126ed1dc signed it, the emitter refuses it now, and decode already refused it
+  there; the verifier is deliberately stricter than the schema here. (3) An integer beyond
+  +-(2**53-1) inside `provenance`: the emitter already refused it, decode refuses it now (next
+  entry). (4) A trailing newline after a commitment, after `threshold`, or after one `ci95` element:
+  valid only for the Python validator, whose `$` matches before a final newline; under the ECMA-262
+  regular expressions JSON Schema specifies for `pattern`, the schema rejects all three (measured
+  with node). 126ed1dc signed all three; decode accepted the commitment and the `ci95` case and
+  refused the `threshold` case; both boundaries refuse all three now. From the outside some of this
+  looks like a break, which is why it is listed. A claim `build_eval_claim` builds from inputs of its
+  documented types is signed as before (the review lens's generator: 1500 of 1500 built, signed and
+  decoded); `ci95` given as floats whose `str()` is not a plain decimal is refused by the builder now
+  (next entry).
 
   Contract `tests/test_eval_claim_commitment_pattern_holds.py`. It also holds the class invariant
   against `jsonschema` as an independent oracle: nothing the boundary accepts may be rejected by the
@@ -76,6 +94,77 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   they expect a refusal and got it from the placeholder, not from the samples defect each one names.
   All ten now carry the commitment form `salted_commit` produces. The two `BEKANNTE_LUECKEN`
   subtests went red as well, which is what that list is built to do.
+
+- **Every producer of signed or digested output from an eval claim holds the verifier's rule, and
+  judges the bytes it serializes, not the object it was handed** (follow-up to R-B1, same class:
+  two copies of one rule). Measured at 62e8bbab, where the emitter already refused them:
+  `intoto.export_eval_result_dsse` and `intoto.export_intoto_dsse` signed a claim whose commitments
+  were `sha256:x`, `not-a-commitment` or `sha256:` followed by 64 upper-case hex digits, and
+  `verify_eval_result_dsse` and `verify_intoto_dsse` returned ok=True for those envelopes;
+  `to_intoto_statement` built a subject digest from the placeholder; the two exporters and
+  `sdjwt_issue.issue_sd_jwt` signed a claim with comparator `==`, threshold `inf`, n=-1, commit_alg
+  `md5-plain` and schema `x`. Their own check (`_require_export_fields`) looked at presence and at
+  the type of `passed`. Now `export_eval_result_dsse`, `to_eval_result_statement`,
+  `to_eval_result_predicate`, `export_intoto_dsse`, `to_test_result_statement`,
+  `to_intoto_statement`, `resolve_subject("receipt")` and `issue_sd_jwt` each call one helper,
+  `_verdict.require_eval_claim`, which runs `evalclaim._claim_violation` and raises
+  `BundleFormatError` naming the field, like every other refusal of these functions. A claim still
+  needs an `issuer` field there; its value is not judged, because the issuer binding compares it
+  with the key of a bundle and an exporter has no bundle. The plaintext guard of the eval-result
+  export still answers first for a plaintext key.
+
+  The two verifiers now judge the claim fields a signed predicate carries with the same rule
+  (`evalclaim._field_violation`, the per-field half of `_claim_violation`) and report
+  `predicate_claim_ok`: in an eval-result predicate `claims[]`, `sampleSize`, `commitments` (a
+  commitment's hex is judged as `sha256:<hex>`, its `alg` as `commit_alg`, and `salted` must be
+  true), `suite`, `evaluatedAt`, `assuranceLevel` and `preRegistration`; in a test-result predicate
+  every configuration entry whose digest carries `proofbundleModelCommitV1` or
+  `proofbundleDatasetCommitV1`, with that entry's annotations. Kept on purpose, and each has a test
+  that says so: a field the predicate does not carry is not judged (the eval-result predicate `{"threshold": 1.0}` of
+  `tests/test_intoto_content_root_migration.py` C2 still verifies), and a generic test-result entry
+  without a proofbundle digest is not judged (A1 of the same file, digest `{"x": "y"}`). The
+  verdict is decided by the statement's own `predicateType`, so `scripts/pre_tag_attestation.py`,
+  which opts out of the type check, is not judged by this rule. `verify_bundle` and
+  `hf-token --verify` stay payload-agnostic; no SD-JWT verifier judges eval-claim fields of its own
+  (`check_binds_bundle` compares the SD-JWT with the bundle's claim, which `decode_eval_claim` judges).
+
+  **What is signed is what was checked.** `_claim_read_back` checks the claim, serializes it,
+  parses those bytes back with the verify path's reader and checks the result again; the emitter
+  signs those bytes and the exporters build their output from the parsed claim. Measured at
+  62e8bbab: an `int` subclass holding 500 whose `__int__` returns -1 was serialized as -1 (rfc8785
+  calls `int()`), and a `str` subclass that compares equal to anything passed `schema` and
+  `commit_alg` as "x" and "md5-plain"; `emit_eval_receipt` signed both and decode refused both. A
+  dict whose `get("passed")` answers True while its stored item is False made
+  `to_eval_result_predicate` write True; it writes False now, the value in the canonical bytes.
+
+  **The safe integer range is part of the claim rule.** `decode_eval_claim` accepted
+  `provenance={"run_attempts": 2**53}`, and -2**53 and 2**60, which the emitter refused
+  (EVAL_CLAIM.md section 4). Both now ask one predicate, `_is_unsafe_int`, and decode refuses an
+  integer beyond +-(2**53-1) anywhere in the claim; +-(2**53-1) itself is accepted.
+
+  **`build_eval_claim` refuses a `ci95` the rule refuses**, with the rule's reason, instead of
+  returning it. On 126ed1dc `ci95=[1e-05, 0.5]` became `["1e-05", "0.5"]` and was signed; at
+  62e8bbab the builder still returned it and the emitter refused it. The builder does not reformat a
+  float: the signature types `ci95` as decimal strings like `threshold` and `score`, whose floats it
+  already refuses, and the adapters' own float formatters already disagree with each other. A
+  decimal string, an int, or a float whose `str()` is a plain decimal builds the same claim as
+  before.
+
+  Contract `tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py`: 21 cases, 4621
+  subtests, each commitment judged by the file's own regular expression and each integer by its own
+  walk. Against the source of 62e8bbab, 15 of its 15 catch-proof cases are red (pytest: 3154
+  failed, 3000 of them in the agreement property, which runs 491 claims through the emitter and the
+  eight producers) and its 6 controls are green. The agreement property found one place where a
+  producer is stricter than decode, listed in the test with its reason: the eval-result exporters
+  and `resolve_subject` refuse `timestamp=""`, which the schema allows and `evaluatedAt` (RFC 3339)
+  does not. Existing tests: `tests/test_das_verdikt_muss_ein_bool_sein.py` (the accessor case now
+  expects the refusal) and the A-19 case of `tests/test_eval_claim_commitment_pattern_holds.py` (the
+  builder refuses) changed their expected outcome and are red at 62e8bbab; eight SD-JWT test files
+  handed `issue_sd_jwt` the five always-open fields alone and now hand it a full claim
+  (`tests/_full_eval_claim.py`, or the bundle's own signed claim), which passes at 62e8bbab as
+  well. `scripts/mutation_check.py`: two `evalclaim.py` operators whose target text 62e8bbab had
+  removed were repointed; with the salt-leak operator and the builder's `samples.n` operator, all
+  four are killed by the targeted files.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
