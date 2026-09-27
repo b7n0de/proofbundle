@@ -22,7 +22,9 @@ CI:     runs in the mutation job (see .github/workflows/ci.yml).
 """
 from __future__ import annotations
 
+import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -30,6 +32,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -281,6 +284,26 @@ MUTATIONS = [
      '"ok": False, "warn": False, "status": "needs_rp_trust"',
      '"ok": True, "warn": False, "status": "needs_rp_trust"',
      "anchors_ots: WP-A1 needs_rp_trust self-trust re-enabled (backdating)", True),
+    # Deep gate Z195 (L2-Z195-OTS-WORK-AMPLIFICATION-01) and the gate on its fix (lens B, 229B-01):
+    # the cap before the library runs, and the binding read by membership instead of by a list of
+    # refusals, through dict.get rather than the object's own get (gate run 3, 229-3-02). Killed by tests/test_an_ots_proof_is_capped_before_it_is_deserialized.py (TheCap and
+    # TheBindingIsReadByMembership; both need the [anchors] extra, which the mutation job installs).
+    ("src/proofbundle/anchors_ots.py",
+     "if laenge > _MAX_OTS_PROOF_BYTES:",
+     "if False:",
+     "anchors_ots: proof-size cap before deserializing removed (work amplification)", True),
+    ("src/proofbundle/anchors_ots.py",
+     "laenge = memoryview(proof).nbytes",
+     "laenge = len(proof) if isinstance(proof, (bytes, bytearray)) else 0",
+     "anchors_ots: the cap measures only bytes and bytearray again (a memoryview goes uncapped)", True),
+    ("src/proofbundle/anchors_ots.py",
+     '    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)',
+     '    return isinstance(result, dict) and not is_member(dict.get(result, "status"), _BINDING_NOT_HELD)',
+     "anchors_ots: binding read by a list of refusals again (an unknown status reads as bound)", True),
+    ("src/proofbundle/anchors_ots.py",
+     'is_member(dict.get(result, "status"), _BINDING_HELD)',
+     'is_member(result.get("status"), _BINDING_HELD)',
+     "anchors_ots: binding read through the object's own get (a dict subclass names the status)", True),
     ("src/proofbundle/anchors_rfc3161.py",
      '"ok": False, "status": "needs_rp_trust"',
      '"ok": True, "status": "needs_rp_trust"',
@@ -664,6 +687,14 @@ _AUSSCHLUSS_JE_MUTANTE: dict[str, str] = {
         "den Baum, die Registry und zwei frisch gebaute sdists befragen. 174,5 s von 223,9 s der "
         "Tor-Suite (78 Prozent), gemessen 2026-09-02. Kein Eintrag darin liest den mutierten "
         "Quelltext, deshalb sagt sie je Mutante nichts."),
+    "test_c12_1_nicht_anwendbar_vor_dem_tag": (
+        "The same kind of check: twelve of its fourteen cases run the whole candidate matrix "
+        "(scripts/audit_candidate_matrix.py) in a subprocess, about 60 s each, and read its C12.1 "
+        "verdict about the tree. 766 s of the 1534 s the gate's baseline took, measured 2026-09-26 in "
+        "the gate's own setup (a copy of the tracked files); eleven of the fourteen were red there "
+        "(the matrix cannot read the tree without git). In the git-backed work tree all fourteen "
+        "pass and take 876 s under load (measured the same day), and a verdict about the whole tree "
+        "says nothing about one mutated line."),
 }
 
 # Der Lauf je Mutante als Programm.
@@ -737,7 +768,8 @@ def _ausschluss_args(work: Path) -> list[str]:
 _AUSSCHLUSS_OHNE_ZIEL_GEMELDET: set[str] = set()
 
 
-def _red_count(work: Path) -> int | None:
+def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
+               aus: list | None = None, gruen: list | None = None) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -755,11 +787,21 @@ def _red_count(work: Path) -> int | None:
     # subprocess-Knotens stehen. Eine Zwischenvariable macht diese Datei fuer den Waechter
     # unsichtbar, obwohl sie die Suite unveraendert startet — beim ersten Versuch am 02.09.2026
     # genau so gemessen: der Waechter meldete den Laeufer als VERSCHWUNDEN.
+    # `auswahl` names the test files of one selection, or test ids (None: the whole suite). `aus`,
+    # when given, receives the red tests of the run by identifier (see `_rote_kennungen`), or None
+    # when the report cannot name them; `gruen` receives the tests that passed (see
+    # `_bestandene_kennungen`), or None. The count stays the return value, as every caller before
+    # expected.
     try:
         with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
             bericht = Path(_b) / "bilanz.xml"
-            proc = _lauf_der_suite(work, bericht)
-            return _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
+            proc = _lauf_der_suite(work, bericht, auswahl)
+            rot = _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
+            if aus is not None:
+                aus.append(_rote_kennungen(bericht) if rot is not None else None)
+            if gruen is not None:
+                gruen.append(_bestandene_kennungen(bericht, proc.stdout) if rot is not None else None)
+            return rot
     except (subprocess.TimeoutExpired, OSError) as fehler:
         # NICHT NUR DER TIMEOUT. Die erste Fassung fing ausschliesslich `TimeoutExpired`; jede
         # andere Stoerung (fehlender Interpreter im schmalen PATH, Ressourcenfehler beim fork)
@@ -770,7 +812,8 @@ def _red_count(work: Path) -> int | None:
         return None
 
 
-def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.CompletedProcess:
+def _lauf_der_suite(work: Path, bericht: Path | None = None,
+                    auswahl: tuple[str, ...] | None = None) -> subprocess.CompletedProcess:
     # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
     # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
     # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
@@ -786,6 +829,10 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.Compl
          # vergleicht es zwei verschieden gefahrene Suiten, und eine ordnungsabhaengige Roete
          # kippt das Urteil, ohne dass am Code etwas anders waere. Gegenlesung K6, nicht Autor.
          "-p", "no:randomly",
+         # `-rfEX` adds the XPASS lines to the short summary (Z230 round 2): pytest writes a test that
+         # passed against its xfail mark into the JUnit report exactly like a passing test, and a
+         # test that was xpassed in a baseline must not count as passed there.
+         "-rfEX",
          # `--continue-on-collection-errors` IST DER FIX GEGEN EIN FALSCHES GRUEN, nicht Bequem-
          # lichkeit. OHNE das Flag bricht pytest die GESAMTE Sitzung ab, sobald irgendwo ein
          # Sammelfehler auftritt ("Interrupted: 1 error during collection"), und schreibt dann
@@ -804,7 +851,9 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.Compl
          # SURVIVED. Die Zahl kommt jetzt aus einer MASCHINENSCHNITTSTELLE statt aus Prosa;
          # der Textpfad bleibt als Rueckfall und ist eigens gehaertet (siehe `_rote_aus_text`).
          *([f"--junitxml={bericht}"] if bericht is not None else []),
-         "--continue-on-collection-errors", "tests", *_ausschluss_args(work)],
+         # A selection names its test files; without one the whole `tests` directory runs.
+         "--continue-on-collection-errors", *(auswahl if auswahl else ("tests",)),
+         *_ausschluss_args(work)],
         # `errors="replace"`: `text=True` dekodiert sonst strikt, und ein Kindprozess, der ein
         # einzelnes Nicht-UTF8-Byte ausgibt, wuerde den Lauf mit UnicodeDecodeError abreissen.
         cwd=work, capture_output=True, text=True, errors="replace",
@@ -814,9 +863,15 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.Compl
         # Unterprozess haengt, meldet gar nichts — es haelt den ganzen Lauf an. Der Ausfall wird
         # zu einem fehlenden Bilanztext und damit zu NICHT MESSBAR, nicht zu einem stillen Halt.
         # Gefunden von der un-Gegenlesung dieses Diffs (K5), nicht vom Autor.
-        timeout=1800,
+        # 3600 s SINCE Z230 (owner word C, 2026-09-26): the whole suite took 2168 s on main in CI
+        # (PR 279, run 36253567619), seven baselines stopped at the former 1800 s, and a selection
+        # that reaches almost every module is almost the whole suite.
+        timeout=3600,
+        # PYTHONHASHSEED IS PINNED (Z230 round 2): the verdict compares test ids between the
+        # baseline and the mutant run, and a parametrised id or an order built from a set changes
+        # with the hash seed from one process to the next.
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
-             "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
+             "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0"})
 
 
 def _rote_aus_bericht(bericht: Path) -> int | None:
@@ -859,6 +914,134 @@ def _rote_aus_bericht(bericht: Path) -> int | None:
         # er ist nicht gelaufen. Dieselbe Unterscheidung wie im Textpfad, an der zweiten Quelle.
         return None
     return rot
+
+
+def _fehlerklasse(knoten) -> str:
+    """The class of one failure or error record in a JUnit report: `<phase>:<exception>`.
+
+    pytest writes no `type` attribute (measured 2026-09-26 with a probe tree: failure and error
+    records carry only `message` and the traceback text). The phase comes from the message
+    (`failed on setup|teardown with "..."`, `collection failure`).
+
+    THE CLASS COMES FROM THE MESSAGE FIRST (Z230 round 2). pytest writes the message of the last
+    exception of the chain there: `ExcType: text` for a raised exception, `assert ...` for an
+    assertion that failed. The first form searched the whole traceback for `E   assert` before it
+    read the message, so a RuntimeError whose message carried "assert digest == expected" read as
+    AssertionError and matched an allowlist entry written for another failure. Only a message that
+    names no class (`collection failure`) falls back to the traceback, and there the LAST
+    `E   <Name>:` line counts: the last exception of the chain. Captured output is not part of the
+    traceback text pytest writes (measured with pytest 9.1.1); a section header cuts it off in case
+    a version does write it.
+    """
+    nachricht = (knoten.get("message") or "").strip()
+    text = re.split(r"(?m)^-+ Captured .* -+$", knoten.text or "", maxsplit=1)[0]
+    phase = "call"
+    if knoten.tag == "error":
+        m = re.match(r'failed on (setup|teardown) with "(.*)"$', nachricht, re.S)
+        if m:
+            phase, nachricht = m.group(1), m.group(2).strip()
+        else:
+            phase = "collection" if nachricht == "collection failure" else "error"
+
+    # An exception name is a dotted identifier whose LAST part starts upper case: `PermissionError`,
+    # `subprocess.TimeoutExpired`, `pre_tag_receipt_lib.BaumNichtLesbar` (the first form required the
+    # first letter upper case and read the last one as `unknown`, and an allowlist entry `unknown`
+    # would have accepted any exception pytest could not name).
+    def ausnahme(name: str) -> bool:
+        return name.rsplit(".", 1)[-1][:1].isupper()
+    m = re.match(r"([A-Za-z_][\w.]*)(?::|$)", nachricht.split("\n", 1)[0])
+    if m and ausnahme(m.group(1)):
+        return f"{phase}:{m.group(1)}"
+    if re.match(r"assert\b", nachricht):
+        return f"{phase}:AssertionError"
+    zeilen = [z for z in re.findall(r"(?m)^E\s+([A-Za-z_][\w.]*)(?::|$)", text) if ausnahme(z)]
+    return f"{phase}:{zeilen[-1] if zeilen else 'unknown'}"
+
+
+def _rote_kennungen(bericht: Path) -> dict[str, str] | None:
+    """The red tests of a run, identifier -> class, from the JUnit report; None when the report
+    cannot name them (missing, unparsable, no testsuite, zero tests), as `_rote_aus_bericht` does.
+
+    WHY IDENTIFIERS AND NOT THE COUNT (owner decision C, Z231, 2026-09-26): a test that is already
+    red in the baseline never counts as the killer of a mutant. `red > baseline` counts records,
+    and pytest writes a failure AND an error for one test that also fails its teardown (measured
+    with a probe tree): a baseline-red test that adds a teardown error under the mutant raised the
+    count by one with no new red test, and the mutant read as KILLED although no test found it.
+    One test that is red several ways appears here once, with its classes joined by `+`.
+    """
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+    if _rote_aus_bericht(bericht) is None:
+        return None
+    try:
+        wurzel = ET.parse(bericht).getroot()
+    except Exception:                                          # noqa: BLE001
+        return None
+    knoten = [wurzel] if wurzel.tag == "testsuite" else [k for k in wurzel if k.tag == "testsuite"]
+    rot: dict[str, set[str]] = {}
+    for suite in knoten:
+        for fall in suite.iter("testcase"):
+            klasse, name = fall.get("classname") or "", fall.get("name") or ""
+            kennung = f"{klasse}::{name}" if klasse else name
+            for kind in fall:
+                if kind.tag in ("failure", "error"):
+                    rot.setdefault(kennung, set()).add(_fehlerklasse(kind))
+    return {k: "+".join(sorted(v)) for k, v in rot.items()}
+
+
+def _kennung_des_knotens(knoten: str) -> str:
+    """The identifier of a test in the JUnit report (`classname::name`), from its pytest node id,
+    mangled the way `_pytest.junitxml.mangle_test_address` does it."""
+    pfad, klammer, parameter = knoten.partition("[")
+    namen = pfad.split("::")
+    namen[0] = re.sub(r"\.py$", "", namen[0].replace("/", "."))
+    namen[-1] += klammer + parameter
+    klasse = ".".join(namen[:-1])
+    return f"{klasse}::{namen[-1]}" if klasse else namen[-1]
+
+
+def _knoten_der_kennung(work: Path, kennung: str) -> str | None:
+    """The pytest node id of a JUnit identifier in this tree, or None when no file of the tree
+    carries it. A module-level record (a collection error, no `::`) is the module's file."""
+    klasse, trenner, name = kennung.rpartition("::")
+    teile = (klasse if trenner else name).split(".")
+    for i in range(len(teile), 0, -1):
+        datei = "/".join(teile[:i]) + ".py"
+        if (work / datei).is_file():
+            return "::".join([datei, *teile[i:], *([name] if trenner else [])])
+    return None
+
+
+def _bestandene_kennungen(bericht: Path, text: str = "") -> set[str] | None:
+    """The tests that PASSED in a run: a testcase in the JUnit report with no failure, error or
+    skipped record under any of its entries, minus the tests the short summary lists as XPASS
+    (pytest writes those into the report like a passing test, measured with pytest 9.1.1). None when
+    the report cannot name them, as `_rote_kennungen`.
+
+    WHY PASSED AND NOT "NOT RED" (Z230 round 2). A test skipped in the baseline that runs and fails
+    under a mutant is not red in the baseline, so the rule "red under the mutant and not red in the
+    baseline" counted it as a killer: an operator documented as equivalent that only switches an
+    optional path on read as KILLED by a test the baseline never ran. Only a test that ran and
+    passed in the baseline says the mutant changed something."""
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+    if _rote_aus_bericht(bericht) is None:
+        return None
+    try:
+        wurzel = ET.parse(bericht).getroot()
+    except Exception:                                          # noqa: BLE001
+        return None
+    knoten = [wurzel] if wurzel.tag == "testsuite" else [k for k in wurzel if k.tag == "testsuite"]
+    gesehen: set[str] = set()
+    nicht_bestanden: set[str] = set()
+    for suite in knoten:
+        for fall in suite.iter("testcase"):
+            klasse, name = fall.get("classname") or "", fall.get("name") or ""
+            kennung = f"{klasse}::{name}" if klasse else name
+            gesehen.add(kennung)
+            if any(kind.tag in ("failure", "error", "skipped") for kind in fall):
+                nicht_bestanden.add(kennung)
+    xpass = {_kennung_des_knotens(m.group(1).strip())
+             for m in re.finditer(r"(?m)^XPASS (\S+?)(?: - .*)?$", text)}
+    return gesehen - nicht_bestanden - xpass
 
 
 def _bilanzzeile(text: str) -> str | None:
@@ -991,7 +1174,25 @@ def _tracked_files(repo: Path) -> list[str]:
 
 
 def _prepare_workdir(repo: Path, work: Path) -> None:
-    """Copy every tracked file into the throwaway work tree (CI runs on exactly this file set)."""
+    """Copy every tracked file into the throwaway work tree (CI runs on exactly this file set).
+
+    THE WORK TREE CARRIES THE REPOSITORY'S HISTORY (owner decision C, Z231, 2026-09-26). A copy of the
+    files alone has no `.git`, and every test that asks git about the tree failed there: measured in
+    the gate's own setup on main 727d161f, the fourteen cases of test_c12_1 stopped at
+    `BaumNichtLesbar: cannot read the tree`, and the rest of the 38 baseline-red tests read commits,
+    tags or anchors. A shared clone without a checkout gives the copy the same commits and tags; its
+    objects are read from the repository and nothing is written there. The tracked files are then
+    copied over it, so uncommitted edits are tested as before. Where the clone is not possible, the
+    copy stays without history and the run says so.
+    """
+    work.parent.mkdir(parents=True, exist_ok=True)
+    klon = subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(repo), str(work)],
+                          capture_output=True, text=True)
+    if klon.returncode == 0:
+        subprocess.run(["git", "-C", str(work), "read-tree", "HEAD"], capture_output=True, text=True)
+    else:
+        print(f"  ! the work tree has no git history (git clone: {klon.stderr.strip()[:200]!r}); "
+              f"tests that ask git about the tree run without it")
     for rel in _tracked_files(repo):
         src_p = repo / rel
         if not src_p.is_file():
@@ -1113,6 +1314,633 @@ def _indizes_des_laufs(shard: tuple[int, int] | None,
             else partition(len(MUTATIONS), i, k))
 
 
+# ── THE SELECTION PER MUTANT (owner decision C, Z230, 2026-09-26) ─────────────────────────────────
+#
+# WHY. Measured in run 36253567619 (a manual dispatch of CI on the branch of PR 279 at 57184964, not
+# main): a baseline of 1226-1661 s over the whole suite (seven
+# shards stopped at the 1800 s limit before it ended), 1174-1610 s per mutant, ten operators per
+# shard, and a job limit of 60 minutes. The three shards that got a baseline judged one mutant each
+# before they were cancelled (relation cycle detection KILLED, red=41, 1190.1 s; origin comparison
+# case-insensitive KILLED, red=42, 1609.7 s; mldsa domain separation label KILLED, red=43, 1174.0 s);
+# no other operator was judged.
+#
+# THE RULE, in the owner's words: every test file that imports the mutated module directly or
+# transitively, plus the gate's own controls; in doubt one file more, never one less. The selection
+# may let a mutant survive wrongly, never kill it wrongly. That second half is carried by the verdict
+# rule, not by the selection: a mutant is KILLED only by a test that PASSED in the baseline over the
+# SAME selection, is red under the mutant (`_getoetet`), and stays so when it runs again: red under
+# the mutant a second time and green on the restored tree (`_bestaetigt`). Such a test is red in the
+# full suite as well as long as tests do not depend on each other, so a selection can only lose kills.
+#
+# WHAT "REACHES" MEANS, statically and on purpose wider than an import. The graph holds every Python
+# file of the tree (git's own list of it, not a list of directories: a hop through `conformance/` or
+# `examples/` broke the chain until Z230 round 2) and every script that is not Python (a shebang,
+# `.sh`, a Makefile). A file reaches: what it imports (absolute, relative, every prefix of a dotted
+# name); a string that names a module or a file (`"proofbundle"`, `"scripts/x.py"`, `"x.py"`, where a
+# bare file name that several files carry names all of them); `__main__` of what runs with `-m` or
+# `runpy.run_module`, wherever the literal stands (in the call, or in a list bound before it); the
+# imports of Python code held in a string (after `-c`, or any string with an import statement); and a
+# script that it names, and through the script what the script runs. A file that can reach ANY module
+# — a non-literal `import_module`/`__import__`/`run_path`/`run_module`, an unreadable value after
+# `-m`/`-c` in a command that starts Python, `exec`/`eval`, a glob over `*.py`, pytest in a subprocess
+# or in process — is selected for every mutant, and so is every test file under a `conftest.py` that
+# reaches the mutant. A file that is neither Python nor a script (MANIFEST.in) is reached by every
+# file that names it, and by every file that reaches one of those.
+#
+# ONE BOUNDARY, decided: the pytest11 entry point `proofbundle.pytest_plugin` loads in every run and
+# reaches modules, but only inside `pytest_terminal_summary`, after the last test report; it cannot
+# turn a test red, and a crash there is an INTERNALERROR, which this gate reads as not measurable.
+
+#: The gate's own controls, in every selection: they run the gate's machinery on fixture trees.
+_TOR_KONTROLLEN = ("tests/test_mutation_isolation.py", "tests/test_mutation_shard_partition.py",
+                   "tests/test_mutation_selection.py")
+_UEBERALL = "*"
+_UNTERPROZESS_AUFRUFE = {"run", "call", "check_call", "check_output", "Popen", "system", "popen"}
+_PYTEST = ("pytest", "py.test")
+#: An import statement inside a string: at its start, or after a `;` or a line break.
+_IMPORT_ANWEISUNG = re.compile(
+    r"(?:^|[;\n])[ \t]*(?:from[ \t]+\.*[A-Za-z_][\w.]*[ \t]+)?import[ \t]+[A-Za-z_(]")
+_PUNKTNAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
+_MODULNAME = re.compile(r"[A-Za-z_][\w.]*")
+
+
+def _dateien_des_baums(work: Path) -> list[str]:
+    """Every file of a tree, relative and sorted. Where the tree is itself the root of a git work
+    tree (the gate's work tree is a clone): git's own list, tracked files plus untracked ones that
+    are not ignored. Elsewhere (a planted tree, an unpacked sdist): every file under it, except in
+    `.git`, `__pycache__` and hidden directories."""
+    try:
+        top = subprocess.run(["git", "-C", str(work), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, errors="replace", timeout=60)
+        if top.returncode == 0 and Path(top.stdout.strip()).resolve() == work.resolve():
+            ls = subprocess.run(["git", "-C", str(work), "ls-files", "-z", "--cached", "--others",
+                                 "--exclude-standard"],
+                                capture_output=True, text=True, errors="replace", timeout=120)
+            if ls.returncode == 0:
+                return sorted({r for r in ls.stdout.split("\0") if r and (work / r).is_file()})
+    except (OSError, subprocess.SubprocessError):
+        pass
+    gefunden: list[str] = []
+    for wurzel, ordner, namen in os.walk(work):
+        ordner[:] = sorted(o for o in ordner if o != "__pycache__" and not o.startswith("."))
+        gefunden += [str((Path(wurzel) / n).relative_to(work)) for n in namen]
+    return sorted(gefunden)
+
+
+def _modulnamen(rel: str) -> set[str]:
+    """Every dotted name under which a Python file of this tree can be imported: a file under `src/`
+    by its package path, any other file by every tail of its path (a test that puts the file's
+    directory, or one above it, on `sys.path` imports it under that tail)."""
+    teile = list(Path(rel).with_suffix("").parts)
+    if teile and teile[-1] == "__init__":
+        teile = teile[:-1]
+    if teile and teile[0] == "src":
+        return {".".join(teile[1:])} if len(teile) > 1 else set()
+    return {".".join(teile[i:]) for i in range(len(teile))}
+
+
+def _relativ(paket: str, name: str) -> str:
+    """`.x` / `..x` against a dotted package, as `from .x import` resolves it."""
+    stufen = len(name) - len(name.lstrip("."))
+    teile = paket.split(".")[:len(paket.split(".")) - stufen + 1]
+    rest = name.lstrip(".")
+    return ".".join([*teile, rest] if rest else teile)
+
+
+def _lazy_tabellen(work: Path, dateien: list[str]) -> dict[str, dict[str, str]]:
+    """package -> {attribute: module} for a package `__init__` that loads modules lazily from a
+    literal table of relative names (`proofbundle._LAZY`: `"verify_bundle": ".bundle"`). An
+    importer reaches the module behind the attribute it names, not every module of the table."""
+    tabellen: dict[str, dict[str, str]] = {}
+    for rel in dateien:
+        teile = Path(rel).parts
+        if not (teile[0] == "src" and teile[-1] == "__init__.py" and len(teile) > 2):
+            continue
+        paket = ".".join(teile[1:-1])
+        try:
+            baum = _parse((work / rel).read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, ValueError):
+            continue
+        for k in ast.walk(baum):
+            if (isinstance(k, ast.Dict) and k.keys
+                    and all(isinstance(x, ast.Constant) and isinstance(x.value, str) for x in k.keys)
+                    and all(isinstance(v, ast.Constant) and isinstance(v.value, str)
+                            and v.value.startswith(".") for v in k.values)):
+                for key, v in zip(k.keys, k.values):
+                    tabellen.setdefault(paket, {})[key.value] = _relativ(paket, v.value)
+    return tabellen
+
+
+def _nur_zur_typpruefung(baum: ast.AST) -> set[int]:
+    """ids of the nodes under `if TYPE_CHECKING:`: imports a type checker reads and Python never runs."""
+    ids: set[int] = set()
+    for k in ast.walk(baum):
+        if (isinstance(k, ast.If) and isinstance(k.test, (ast.Name, ast.Attribute))
+                and (getattr(k.test, "id", None) or getattr(k.test, "attr", None)) == "TYPE_CHECKING"):
+            for teil in k.body:
+                ids.update(id(n) for n in ast.walk(teil))
+    return ids
+
+
+def _parse(text: str) -> ast.AST:
+    """`ast.parse` without the warnings Python gives for an invalid escape in a string it reads (a
+    regular expression in a code string a test holds): the graph reads code, it does not run it."""
+    import warnings  # noqa: PLC0415
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return ast.parse(text)
+
+
+def _worte_einer_befehlszeile(zeile: str) -> list[str]:
+    """The words of a command line held in one string, split as a shell would, or at white space
+    when the quoting does not close."""
+    import shlex  # noqa: PLC0415
+    try:
+        return shlex.split(zeile)
+    except ValueError:
+        return zeile.split()
+
+
+def _verweise(rel: str, text: str, tabellen: dict[str, dict[str, str]] | None = None,
+              skripte: dict[str, str] | None = None, _tiefe: int = 0, *,
+              skriptnamen: set[str] | frozenset[str] = frozenset()) -> set[str]:
+    """The names and file names a file may import or run; `_UEBERALL` when it can reach any module.
+    `skriptnamen` are the file names of the tree's scripts that are not Python: a literal that names
+    one reaches it."""
+    tabellen, skripte = tabellen or {}, skripte or {}
+    try:
+        baum = _parse(text)
+    except (SyntaxError, ValueError):
+        return {_UEBERALL}                    # unreadable: in doubt it reaches everything
+    teile = list(Path(rel).with_suffix("").parts)
+    paket = teile[1:-1] if teile and teile[0] == "src" else teile[:-1]
+    eigenes_paket = ".".join(paket)
+    namen: set[str] = set()
+    gebunden: dict[str, str] = {}             # local name -> the package or module it stands for
+
+    def mit_praefixen(name: str) -> None:
+        stuecke = name.split(".")
+        for i in range(1, len(stuecke) + 1):
+            namen.add(".".join(stuecke[:i]))
+
+    # What each local name is assigned anywhere in the file: a `-m`/`-c` value is often a name bound
+    # before the call (`code = "..."`, `CMD = [sys.executable, "-m", "pkg"]`).
+    zuweisungen: dict[str, list[ast.AST]] = {}
+    for k in ast.walk(baum):
+        if isinstance(k, ast.Assign):
+            for z in k.targets:
+                if isinstance(z, ast.Name):
+                    zuweisungen.setdefault(z.id, []).append(k.value)
+        elif (isinstance(k, (ast.AnnAssign, ast.AugAssign)) and isinstance(k.target, ast.Name)
+              and k.value is not None):
+            zuweisungen.setdefault(k.target.id, []).append(k.value)
+
+    def literale(knoten: ast.AST) -> list[str]:
+        return [a.value for a in ast.walk(knoten) if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+
+    def werte_von(knoten: ast.AST) -> list[str] | None:
+        """The strings an argument can hold: its literals (the literal parts of a formatted string),
+        through a local name the literals of everything assigned to it; None when there is nothing
+        literal to read (a parameter, a call, an attribute)."""
+        if isinstance(knoten, ast.Name):
+            quellen = zuweisungen.get(knoten.id, [])
+            if not quellen or not all(literale(q) for q in quellen):
+                return None
+            return [w for q in quellen for w in literale(q)]
+        return literale(knoten) or None
+
+    def startet_python(folge: list) -> bool:
+        """Does this argument list start a Python interpreter (`sys.executable`, `python3`, ...)?"""
+        for e in folge:
+            if isinstance(e, ast.Attribute) and e.attr == "executable":
+                return True
+            if (isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    and re.search(r"(?:^|/)python[\d.]*$", e.value)):
+                return True
+        return False
+
+    def code_lesen(code: str, sicher_code: bool) -> bool:
+        """Read a string that holds Python code into `namen`; True when the code can reach any module.
+
+        A string that parses is read like a file. One that does not parse: when it is known to be
+        code (it follows `-c` in a command that starts Python), every dotted name in it counts,
+        since in code a name is more likely a module than a word (`"...; from proofbundle.cli import
+        main; ..." % path` does not parse, and it reaches `proofbundle.cli`); otherwise only the
+        names in its import statements count, textually, because the rest of such a string is
+        usually prose around a code line."""
+        try:
+            _parse(code)
+            lesbar = _tiefe < 3
+        except (SyntaxError, ValueError):
+            lesbar = False
+            if not sicher_code:
+                for m in re.finditer(r"(?:^|[;\n])[ \t]*from[ \t]+\.*([\w.]*)[ \t]+import[ \t]+([^\n;]*)",
+                                     code):
+                    if m.group(1):
+                        mit_praefixen(m.group(1))
+                        namen.update(f"{m.group(1)}.{n}" for n in re.findall(r"[A-Za-z_]\w*", m.group(2)))
+                for m in re.finditer(r"(?:^|[;\n])[ \t]*import[ \t]+([^\n;]*)", code):
+                    for n in _PUNKTNAME.findall(m.group(1)):
+                        mit_praefixen(n)
+                return False
+        if not lesbar:
+            for n in _PUNKTNAME.findall(code):
+                mit_praefixen(n)
+            return False
+        innen = _verweise(rel, code, tabellen, skripte, _tiefe + 1, skriptnamen=skriptnamen)
+        if _UEBERALL in innen:
+            return True
+        namen.update(innen)
+        return False
+
+    def ganz_literal(knoten: ast.AST) -> bool:
+        """A literal string, or a local name to which only literal strings are assigned."""
+        if isinstance(knoten, ast.Name):
+            quellen = zuweisungen.get(knoten.id, [])
+            return bool(quellen) and all(isinstance(q, ast.Constant) for q in quellen)
+        return isinstance(knoten, ast.Constant)
+
+    def befehl_lesen(folge: list, python: bool) -> bool:
+        """`-m <module>` and `-c <code>` in one argument list, wherever the list stands; True when the
+        command can reach any module (pytest, or an unreadable value in a command that starts Python).
+        A module name that is built at run time (`f"{pkg}.cli"`) is unreadable. Code after `-c` that
+        is formatted is read by its literal parts; the values put into it are read as data."""
+        for i, e in enumerate(folge[:-1]):
+            if not (isinstance(e, ast.Constant) and e.value in ("-m", "-c")):
+                continue
+            werte = werte_von(folge[i + 1])
+            if e.value == "-m" and not ganz_literal(folge[i + 1]):
+                werte = None
+            if werte is None:
+                if python:
+                    return True
+                continue
+            if e.value == "-m":
+                for w in werte:
+                    if w in _PYTEST:
+                        return True
+                    if _MODULNAME.fullmatch(w):
+                        mit_praefixen(w)
+                        namen.add(f"{w}.__main__")
+            elif any(code_lesen(w, sicher_code=python) for w in werte):
+                return True
+        return False
+
+    typ_nur = _nur_zur_typpruefung(baum)
+    for k in ast.walk(baum):
+        if id(k) in typ_nur:
+            continue
+        folge = (k.elts if isinstance(k, (ast.List, ast.Tuple))
+                 else k.args if isinstance(k, ast.Call) else None)
+        if folge and befehl_lesen(folge, startet_python(folge)):
+            return {_UEBERALL}
+        if (isinstance(k, (ast.List, ast.Tuple)) and folge and isinstance(folge[0], ast.Constant)
+                and folge[0].value in _PYTEST):
+            return {_UEBERALL}                # `["pytest", ...]`: a command line that collects tests
+        if isinstance(k, ast.Import):
+            for a in k.names:
+                mit_praefixen(a.name)
+                if a.asname:
+                    gebunden[a.asname] = a.name
+                else:
+                    gebunden[a.name.split(".")[0]] = a.name.split(".")[0]
+        elif isinstance(k, ast.ImportFrom):
+            basis = paket[:len(paket) - k.level + 1] if k.level else []
+            ziel = ".".join([*basis, *(k.module.split(".") if k.module else [])])
+            if ziel:
+                mit_praefixen(ziel)
+                for a in k.names:
+                    if a.name == "*":
+                        namen.update(tabellen.get(ziel, {}).values())
+                        continue
+                    namen.add(f"{ziel}.{a.name}")
+                    gebunden[a.asname or a.name] = f"{ziel}.{a.name}"
+                    if a.name in tabellen.get(ziel, {}):
+                        namen.add(tabellen[ziel][a.name])
+        elif isinstance(k, ast.Constant) and isinstance(k.value, str):
+            s = k.value.strip()
+            if "*.py" in s:
+                return {_UEBERALL}            # a glob over Python files reads or loads any of them
+            if re.fullmatch(r"[A-Za-z_][\w.]*", s):
+                mit_praefixen(s)
+            for stueck in re.split(r"\s+", s):
+                stueck = stueck.replace("\\", "/")
+                if (stueck.endswith(".py") and len(stueck) > 3) or Path(stueck).name in skriptnamen:
+                    namen.add("datei:" + stueck)
+            # Python code held in a string (a fixture written to a file, a `-c` value bound to a
+            # name): its import statements reach what they import.
+            if _IMPORT_ANWEISUNG.search(k.value) and code_lesen(k.value, sicher_code=False):
+                return {_UEBERALL}
+        elif isinstance(k, ast.Call):
+            f = k.func
+            fname = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+            literal = bool(k.args) and isinstance(k.args[0], ast.Constant)
+            if fname in ("exec", "eval"):
+                return {_UEBERALL}
+            if fname in ("import_module", "__import__", "run_path", "run_module") and not literal:
+                if eigenes_paket in tabellen and rel.endswith("__init__.py"):
+                    continue                  # the package's own lazy loader: its table is read above
+                return {_UEBERALL}
+            if fname in ("walk_packages", "iter_modules"):
+                return {_UEBERALL}
+            if (fname == "main" and isinstance(f, ast.Attribute) and getattr(f.value, "id", None) == "pytest"
+                    and not all(isinstance(a, ast.Name) and a.id == "__file__"
+                                or isinstance(a, ast.Constant) and str(a.value).startswith("-")
+                                for arg in k.args for a in (arg.elts if isinstance(arg, (ast.List, ast.Tuple)) else [arg]))):
+                return {_UEBERALL}            # `pytest.main([...])` collects test files in process;
+                #                               `pytest.main([__file__, "-q"])` only this one
+            if literal and isinstance(k.args[0].value, str):
+                w = k.args[0].value
+                if fname == "run_module" and _MODULNAME.fullmatch(w):
+                    mit_praefixen(w)          # `runpy.run_module("pkg")` runs `pkg.__main__`
+                    namen.add(f"{w}.__main__")
+                elif fname == "run_path":     # a file, or a directory or zip file with `__main__.py`
+                    namen.add("datei:" + (w if w.endswith(".py") else w.rstrip("/") + "/__main__.py"))
+            woerter = literale(k)
+            if fname in _UNTERPROZESS_AUFRUFE and any(w in _PYTEST for w in woerter):
+                return {_UEBERALL}            # a pytest subprocess collects the test files it names
+            if fname in _UNTERPROZESS_AUFRUFE:
+                namen.update(skripte[w] for w in woerter if w in skripte)   # a console script
+                if "make" in woerter:
+                    namen.add("datei:Makefile")
+                # A command line held in one string (`shell=True`, `os.system`): its words.
+                for a in k.args:
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str) and " " in a.value.strip():
+                        worte = [ast.Constant(value=w) for w in _worte_einer_befehlszeile(a.value)]
+                        if (any(w.value in _PYTEST for w in worte)
+                                or befehl_lesen(worte, startet_python(worte))):
+                            return {_UEBERALL}
+    # The lazy tables, read at the importer: `pkg.NAME` reaches the module behind NAME, and a
+    # `getattr(pkg, <not a literal>)` reaches every module of the table.
+    for k in ast.walk(baum):
+        if isinstance(k, ast.Attribute) and isinstance(k.value, ast.Name):
+            ziel = gebunden.get(k.value.id)
+            if ziel in tabellen and k.attr in tabellen[ziel]:
+                namen.add(tabellen[ziel][k.attr])
+        elif (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr"
+              and len(k.args) >= 2 and isinstance(k.args[0], ast.Name)):
+            ziel = gebunden.get(k.args[0].id)
+            if ziel in tabellen:
+                if isinstance(k.args[1], ast.Constant) and k.args[1].value in tabellen[ziel]:
+                    namen.add(tabellen[ziel][k.args[1].value])
+                elif not isinstance(k.args[1], ast.Constant):
+                    namen.update(tabellen[ziel].values())
+    return namen
+
+
+def _ist_skript(work: Path, rel: str) -> bool:
+    """A file that is not Python and runs commands: `.sh`, `.bash`, `.mk`, a Makefile, or a shebang."""
+    p = work / rel
+    if p.suffix in (".sh", ".bash", ".mk") or p.name in ("Makefile", "GNUmakefile", "makefile"):
+        return True
+    try:
+        with p.open("rb") as f:
+            return f.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def _skript_verweise(text: str) -> set[str]:
+    """What a script that is not Python runs, read from the words of its lines (comments skipped): a
+    `.py` file it names, a script it names, `-m <module>` with its `__main__`, the dotted names of
+    `-c` code; `_UEBERALL` when it runs pytest."""
+    namen: set[str] = set()
+
+    def mit_praefixen(name: str) -> None:
+        stuecke = name.split(".")
+        namen.update(".".join(stuecke[:i]) for i in range(1, len(stuecke) + 1))
+
+    for zeile in text.splitlines():
+        if zeile.lstrip().startswith("#"):
+            continue
+        worte = _worte_einer_befehlszeile(zeile)
+        for i, w in enumerate(worte):
+            naechstes = worte[i + 1] if i + 1 < len(worte) else ""
+            if w in _PYTEST or (w == "-m" and naechstes in _PYTEST):
+                return {_UEBERALL}
+            pfad = w.replace("\\", "/")
+            if pfad.endswith((".py", ".sh", ".bash", ".mk")) and len(pfad) > 3:
+                namen.add("datei:" + pfad)
+            if w == "make":
+                namen.add("datei:Makefile")
+            if w == "-m" and _MODULNAME.fullmatch(naechstes):
+                mit_praefixen(naechstes)
+                namen.add(f"{naechstes}.__main__")
+            if w == "-c":
+                for n in _PUNKTNAME.findall(naechstes):
+                    mit_praefixen(n)
+    return namen
+
+
+def _importgraph(work: Path) -> tuple[dict[str, set[str]], set[str], list[str], dict[str, str]]:
+    """(file -> files it reaches, files that reach everything, test files, file -> its text) for a
+    tree. The files are every Python file of the tree and every script that is not Python."""
+    alle = _dateien_des_baums(work)
+    dateien = [r for r in alle if r.endswith(".py")]
+    skriptdateien = [r for r in alle if not r.endswith(".py") and _ist_skript(work, r)]
+    texte = {r: (work / r).read_text(encoding="utf-8", errors="replace")
+             for r in [*dateien, *skriptdateien]}
+    tabellen = _lazy_tabellen(work, dateien)
+    # Console scripts from pyproject.toml, `name = "module:function"`: a subprocess that runs the
+    # name runs that module.
+    pyproject = work / "pyproject.toml"
+    skripte: dict[str, str] = {}
+    if pyproject.is_file():
+        abschnitt = re.search(r"(?ms)^\[project\.scripts\]\s*$(.*?)(?=^\[|\Z)",
+                              pyproject.read_text(encoding="utf-8", errors="replace"))
+        for name, modul in re.findall(r'(?m)^\s*([\w.-]+)\s*=\s*"([\w.]+):[\w.]+"', abschnitt.group(1) if abschnitt else ""):
+            skripte[name] = modul
+    nach_name: dict[str, set[str]] = {}
+    for rel in dateien:
+        for name in _modulnamen(rel):
+            nach_name.setdefault(name, set()).add(rel)
+
+    knoten = [*dateien, *skriptdateien]
+    skriptnamen = {Path(r).name for r in skriptdateien}
+
+    def dateien_zu(angabe: str) -> set[str]:
+        """The files a string names that ends in a file name: a path matches every file whose path
+        ends in it; a bare file name matches EVERY file that carries it. In doubt one more: until
+        Z230 round 2 a bare name that two files carried named none of them."""
+        ende = angabe.lstrip("./")
+        if "/" in ende:
+            return {r for r in knoten if r == ende or r.endswith("/" + ende)}
+        return {r for r in knoten if Path(r).name == ende}
+
+    kanten: dict[str, set[str]] = {}
+    ueberall: set[str] = set()
+    for rel in knoten:
+        verweise = (_verweise(rel, texte[rel], tabellen, skripte, skriptnamen=skriptnamen)
+                    if rel.endswith(".py") else _skript_verweise(texte[rel]))
+        if _UEBERALL in verweise:
+            ueberall.add(rel)
+            kanten[rel] = set(knoten) - {rel}     # it can reach any file, so it reaches every file
+        else:
+            # A NAME IN THE LIBRARY NAMES THE LIBRARY. Nothing under src/ puts a directory of the
+            # repository on sys.path (measured 2026-09-26: no `sys.path` and no `PYTHONPATH` there
+            # but two docstring mentions), so a name in a library module cannot import a script, a
+            # test or a conformance module. Without this, the string "model" in three adapters
+            # reached formal/model.py and through it relation.py, and relation.py, checkpoint.py and
+            # policy.py selected every test file through `tests/conftest.py` (measured). A file path
+            # a library module names still counts.
+            bibliothek = rel.startswith("src/")
+            kanten[rel] = {z for name in verweise
+                           for z in (dateien_zu(name[6:]) if name.startswith("datei:") else nach_name.get(name, ()))
+                           if z != rel and (not bibliothek or name.startswith("datei:") or z.startswith("src/"))}
+    tests = [rel for rel in dateien if rel.startswith("tests/")
+             and (Path(rel).name.startswith("test_") or Path(rel).name.endswith("_test.py"))]
+    return kanten, ueberall, tests, texte
+
+
+_GRAPH_JE_BAUM: dict[str, tuple] = {}
+
+
+def _auswahl(work: Path, rel: str) -> tuple[str, ...]:
+    """The test files of one mutated file, sorted: every test file that reaches it directly or
+    through other files, the files that reach everything, the gate's own controls, and every test
+    file under a `conftest.py` that reaches it. A file that is neither Python nor a script
+    (MANIFEST.in, say) is reached by every file that names it, and so by every file that reaches one
+    of those. The per-mutant exclusions (`_AUSSCHLUSS_JE_MUTANTE`) stay out, as they do for the
+    whole suite."""
+    if str(work) not in _GRAPH_JE_BAUM:
+        _GRAPH_JE_BAUM[str(work)] = _importgraph(work)
+    kanten, ueberall, tests, texte = _GRAPH_JE_BAUM[str(work)]
+    rueckwaerts: dict[str, set[str]] = {}
+    for quelle, ziele in kanten.items():
+        for z in ziele:
+            rueckwaerts.setdefault(z, set()).add(quelle)
+    if rel in kanten or rel.endswith(".py"):
+        erreicht = {rel}
+    else:
+        # Named, not imported: every file whose text carries the name may read it. Until Z230
+        # round 2 the chain ended there, and a test that reads MANIFEST.in through a helper was lost.
+        name = Path(rel).name
+        erreicht = {r for r, text in texte.items() if name in text}
+    offen = list(erreicht)
+    while offen:
+        for q in rueckwaerts.get(offen.pop(), ()):
+            if q not in erreicht:
+                erreicht.add(q)
+                offen.append(q)
+    erreicht |= ueberall
+    for c in [r for r in erreicht if Path(r).name == "conftest.py"]:
+        ordner = Path(c).parent.as_posix()
+        erreicht |= {t for t in tests if ordner == "." or t.startswith(ordner + "/")}
+    erreicht |= {k for k in _TOR_KONTROLLEN if (work / k).is_file()}
+    ausgeschlossen = {f"tests/{name}.py" for name in _AUSSCHLUSS_JE_MUTANTE}
+    return tuple(sorted(t for t in erreicht if t in set(tests) and t not in ausgeschlossen))
+
+
+# ── THE BASELINE ALLOWLIST (owner decision C, Z231, 2026-09-26) ───────────────────────────────────
+#
+# "baseline red (environment-only failures allowed): 38" is no longer waved through. Every test that
+# is red in a baseline must stand on the list in scripts/mutation_baseline_allowlist.json with the
+# class it failed with; a red test that is not listed exactly so stops the baseline. A real defect
+# among them gets a register line and does not go on the list. The list is meant to shrink.
+#
+# FAIL-CLOSED, AND THAT INCLUDES LOAD (measured 2026-09-26 in a local counter-check of shard 1): the
+# selection baseline of tlogproof.py (166 files) had one red test, the cost-curve timing test
+# `test_budget_kostenkurve.TestKostenkurve::test_die_kurve_ist_nicht_ueberlinear[renewal_ats_chain]`
+# red under machine load, while the whole-suite baseline (995 s) had none. Such a test stops the
+# baseline, since it is not on the list; that costs a shard, it never costs a verdict.
+#
+# The sdist ships the list next to scripts/mutation_check.py, which reads it (MANIFEST.in).
+ERLAUBNIS_DATEI = "scripts/mutation_baseline_allowlist.json"
+
+
+def lade_erlaubnisliste(work: Path) -> dict[str, str]:
+    """identifier -> expected class. A tree without the file allows nothing (a foreign tree too)."""
+    q = work / ERLAUBNIS_DATEI
+    if not q.is_file():
+        return {}
+    d = json.loads(q.read_text(encoding="utf-8"))
+    return {e["test"]: e["fehlerklasse"] for e in d.get("eintraege", [])}
+
+
+def _getoetet(bestanden, mutant: dict[str, str]) -> list[str]:
+    """The tests that kill a mutant: red under it and PASSED in the baseline over the same selection
+    (`bestanden`, see `_bestandene_kennungen`). A test that was red there never counts, however else
+    it fails (Z231); nor does one that was skipped, xfailed or xpassed there, or did not run there
+    (Z230 round 2). A module that fails to collect under the mutant (a record without `::`) kills
+    when a test of it passed in the baseline."""
+    bestanden = set(bestanden)
+
+    def unter(modul: str) -> bool:
+        return any(b.startswith((modul + "::", modul + ".")) for b in bestanden)
+    return sorted(k for k in mutant if k in bestanden or ("::" not in k and unter(k)))
+
+
+def _bestaetigt(toeter: list[str], unter_mutant: dict[str, str] | None,
+                rein_rot: dict[str, str] | None, rein_bestanden: set[str] | None
+                ) -> tuple[list[str], list[str]]:
+    """(the killers that hold, the unstable ones) after each killer ran again by itself: once more
+    under the mutant (`unter_mutant`, its red tests) and once on the restored tree (`rein_rot`,
+    `rein_bestanden`). A killer holds when it is red again under the mutant AND passes on the
+    restored tree; one that does not (a timing test red under load, a test that depends on another
+    test) is unstable and does not count, and neither does one whose run left no verdict.
+
+    WHY (owner addendum to Z230 round 2, 2026-09-26): a timing test that passed in the baseline and
+    went red under a mutant only because the machine was loaded read as a kill. The rule is that a
+    selection may let a mutant survive wrongly, never kill it wrongly."""
+    ok: list[str] = []
+    wackelt: list[str] = []
+    for k in toeter:
+        rot_wieder = unter_mutant is not None and k in unter_mutant
+        if "::" in k:
+            gruen_rein = rein_bestanden is not None and k in rein_bestanden
+        else:                                 # a module that failed to collect: it collects now
+            gruen_rein = (rein_bestanden is not None and rein_rot is not None
+                          and not any(r == k or r.startswith((k + "::", k + ".")) for r in rein_rot)
+                          and any(b.startswith((k + "::", k + ".")) for b in rein_bestanden))
+        (ok if rot_wieder and gruen_rein else wackelt).append(k)
+    return ok, wackelt
+
+
+def _kennungen(rot: int | None, aus: list) -> dict[str, str] | None:
+    """The red tests of a finished run, or None when the run cannot name them. A run with zero red
+    needs no report to name them: the empty set is exact."""
+    if rot is None:
+        return None
+    if aus and aus[0] is not None:
+        return aus[0]
+    return {} if rot == 0 else None
+
+
+class Basislinie(NamedTuple):
+    """One baseline: its red tests (identifier -> class) and the tests that passed."""
+    rot: dict[str, str]
+    bestanden: frozenset[str]
+
+
+def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -> Basislinie:
+    """The baseline over one selection, stopped when a red test is not on the allowlist as it
+    failed, or when the run cannot name the tests that passed (the verdict needs them)."""
+    aus: list = []
+    gruen: list = []
+    kennungen = _kennungen(_red_count(work, auswahl=auswahl, aus=aus, gruen=gruen), aus)
+    if kennungen is None:
+        raise SystemExit("mutation_check: the baseline over a selection left no verdict — without a "
+                         "baseline no operator on it can be judged, and a run without a verdict must "
+                         "not look like a run without a finding")
+    fremd = {k: v for k, v in kennungen.items() if erlaubt.get(k) != v}
+    for k, v in sorted(kennungen.items()):
+        print(f"  baseline red: {k} [{v}]{'' if k not in fremd else ' *** NOT ON THE ALLOWLIST AS SO ***'}")
+    if fremd:
+        raise SystemExit(f"mutation_check: {len(fremd)} baseline-red test(s) are not on "
+                         f"{ERLAUBNIS_DATEI} with the class they failed with; the baseline stops "
+                         f"(owner decision C, Z231)")
+    bestanden = gruen[0] if gruen else None
+    if bestanden is None:
+        raise SystemExit("mutation_check: the baseline over a selection cannot name the tests that "
+                         "passed; a killer must be one of them, so no operator on it can be judged")
+    print(f"  baseline passed: {len(bestanden)} tests")
+    return Basislinie(kennungen, frozenset(bestanden))
+
+
+def _baum_abdruck(work: Path, dateien: list[str]) -> dict[str, bytes]:
+    return {rel: (work / rel).read_bytes() for rel in dateien if (work / rel).is_file()}
+
+
 def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     dauern: dict[str, float] = {}
     # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
@@ -1135,13 +1963,11 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # Die Gesundheit des ausgeschlossenen Moduls wird NICHT aufgegeben: sie haengt an den
     # bindenden `test`-Jobs derselben CI, die die volle Suite fahren, und am kanonischen
     # Volllauf vor jedem Tag. Siehe docs/PRE_TAG_AUDIT.md.
-    baseline = _red_count(work)
-    if baseline is None:
-        raise SystemExit("mutation_check: der Baseline-Lauf hat keine Bilanzzeile hinterlassen — "
-                         "ohne Baseline ist KEIN Operator beurteilbar, und ein Lauf ohne Urteil "
-                         "darf nicht wie ein Lauf ohne Befund aussehen")
-    print(f"baseline red (environment-only failures allowed): {baseline}")
+    # SINCE Z230 THE SYMMETRY HOLDS PER SELECTION: the baseline of a mutant runs over exactly the
+    # test files its mutant run uses (cached per selection), with the same exclusions.
     gaps = 0
+    erlaubt = lade_erlaubnisliste(work)
+    basislinien: dict[tuple[str, ...], Basislinie] = {}
     _gewichte, gewicht_grund = lade_gewichte()
     print(f"partition: {gewicht_grund}")
     # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
@@ -1156,9 +1982,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         print(f"shard {i}/{k}: {len(indizes)} von {len(MUTATIONS)} Operatoren")
         for idx in indizes:
             print(f"  shard-item {idx} [{MUTATIONS[idx][3]}]")
+    urspruenglich: dict[str, bytes] = {}
     for idx in indizes:
         rel, old, new, label, expect_killed = MUTATIONS[idx]
         path = work / rel
+        roh = path.read_bytes()
+        urspruenglich.setdefault(rel, roh)
         src = path.read_text(encoding="utf-8")
         # AN OPERATOR MAY NAME SEVERAL SITES, and since 2026-08-17 two of them must.
         #
@@ -1179,57 +2008,110 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             print(f"  GAP  [{label}] pattern not found — operator is stale")
             gaps += 1
             continue
+        auswahl = _auswahl(work, rel)
+        if not auswahl:
+            # No test file reaches the mutated file: no test can kill it, so it survives, and
+            # nothing needs to run to say so.
+            ok = expect_killed is False
+            print(f"  {'ok  ' if ok else 'GAP '} [{label}] SURVIVED (no test file reaches {rel}) "
+                  f"{'expected' if ok else '*** UNEXPECTED ***'}")
+            gaps += 0 if ok else 1
+            continue
+        if auswahl not in basislinien:
+            print(f"  selection for {rel}: {len(auswahl)} test files")
+            basislinien[auswahl] = _basislinie(work, auswahl, erlaubt)
         mutated = src
         for o, n in pairs:
             mutated = mutated.replace(o, n, 1)
+        toeter: list[str] = []
+        laufbar: tuple[str, ...] = ()
+        unter_mutant: dict[str, str] | None = None
+        _bestaetigung = 0.0
         try:
             path.write_text(mutated, encoding="utf-8")
             _t0 = time.monotonic()
-            red = _red_count(work)
+            aus: list = []
+            red = _red_count(work, auswahl=auswahl, aus=aus)
             _dauer = time.monotonic() - _t0
-            dauern[label] = round(_dauer, 1)
-            if red is None:
-                # DER DRITTE ZUSTAND, und N20 in RESTRISIKO_600.md benennt ihn bereits:
-                # "Not measurable is its own state — not a kill, not a survivor." Genau hierher
-                # gehoert `budget: data_digests-Schranke praktisch entfernt`: die Mutation entfernt
-                # die Ressourcendecke, unter der der Lauf steht, und der Prozess wird vom Kernel
-                # beendet (gemessen 2026-09-07: 393,4 s gegen ~65 s, dann Killed). Bis dahin las
-                # sich das als "SURVIVED (red=0)" — ein Ueberlebender, den nie jemand gemessen hat.
-                #
-                # ER ZAEHLT ALS LUECKE, aber er heisst nicht so. "Konnte nicht gemessen werden" ist
-                # nicht "gemessen und in Ordnung"; wer ihn nicht zaehlt, macht aus einer Unbekannten
-                # ein Bestehen. Der Name daneben verhindert, dass ein Leser ihn fuer einen echten
-                # ueberlebenden Defekt haelt.
-                print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
-                      f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
-                gaps += 1
-                continue
-            killed = red > baseline
-            ok = killed == expect_killed
-            verdict = "KILLED" if killed else "SURVIVED"
-            expected = "expected" if ok else "*** UNEXPECTED ***"
-            # Die Dauer steht IN der Verdiktzeile, nicht daneben. Grund, gemessen 2026-09-02: die
-            # Zeitstempel des CI-Logs tragen sie nicht — GitHub Actions puffert stdout und schreibt
-            # alle Operatorzeilen mit DERSELBEN Marke (16:34:04.494…). Wer die Gewichte fuer die
-            # Partition aus dem Log lesen will, findet dort ohne diese Zahl nichts.
-            print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} "
-                  f"(red={red}, {_dauer:.1f}s) {expected}")
-            if not ok:
-                gaps += 1
+            rote = _kennungen(red, aus)
+            if rote is not None:
+                toeter = _getoetet(basislinien[auswahl].bestanden, rote)
+            if toeter:
+                # THE KILLERS RUN AGAIN, by themselves, first under the mutant (the file is still
+                # mutated here) and then on the restored tree below (`_bestaetigt`).
+                _t1 = time.monotonic()
+                laufbar = tuple(sorted({kn for kn in (_knoten_der_kennung(work, t) for t in toeter) if kn}))
+                if laufbar:
+                    aus2: list = []
+                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2), aus2)
+                _bestaetigung += time.monotonic() - _t1
         finally:
-            path.write_text(src, encoding="utf-8")  # restore the pristine bytes held in memory
+            path.write_bytes(roh)  # restore the pristine bytes held in memory
+        if rote is None:
+            # THE THIRD STATE, and N20 in RESTRISIKO_600.md already names it: "Not measurable is
+            # its own state — not a kill, not a survivor." This is where the operator
+            # `budget: data_digests-Schranke praktisch entfernt` belongs: the mutation removes the
+            # resource ceiling the run stands under, and the kernel ends the process (measured
+            # 2026-09-07: 393.4 s against about 65 s, then Killed). Until then it read as
+            # "SURVIVED (red=0)", a survivor nobody had measured.
+            #
+            # IT COUNTS AS A GAP, but it is not called one. "Could not be measured" is not
+            # "measured and fine"; whoever does not count it turns an unknown into a pass. The
+            # name beside it keeps a reader from taking it for a real surviving defect. Since
+            # Z231 a run whose red tests cannot be named is this state too: the verdict needs
+            # the names. (This comment moved out of the `try` block in Z230 round 2 and was
+            # translated on the way; the German original is in the history.)
+            dauern[label] = round(_dauer, 1)
+            print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
+                  f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
+            gaps += 1
+            continue
+        bestaetigt: list[str] = []
+        wackelt: list[str] = []
+        if toeter:
+            _t2 = time.monotonic()
+            rein_rot: dict[str, str] | None = None
+            rein_bestanden: set[str] | None = None
+            if laufbar:
+                aus3: list = []
+                gruen3: list = []
+                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3), aus3)
+                rein_bestanden = gruen3[0] if gruen3 else None
+            _bestaetigung += time.monotonic() - _t2
+            bestaetigt, wackelt = _bestaetigt(toeter, unter_mutant, rein_rot, rein_bestanden)
+        dauern[label] = round(_dauer + _bestaetigung, 1)
+        killed = bool(bestaetigt)
+        ok = killed == expect_killed
+        verdict = "KILLED" if killed else "SURVIVED"
+        expected = "expected" if ok else "*** UNEXPECTED ***"
+        # The duration stands IN the verdict line, not beside it. The reason, measured 2026-09-02:
+        # the timestamps of the CI log do not carry it — GitHub Actions buffers stdout and writes
+        # every operator line with THE SAME stamp (16:34:04.494…). Whoever wants the weights for
+        # the partition from the log finds nothing there without this number. (Moved in Z230
+        # round 2 and translated; the German original is in the history.)
+        print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} "
+              f"(red={red}, new red={len(toeter)}, confirmed={len(bestaetigt)}, {len(auswahl)} files, "
+              f"{_dauer:.1f}s + {_bestaetigung:.1f}s confirming) {expected}")
+        if killed:
+            print(f"      killed by {bestaetigt[0]}"
+                  + (f" and {len(bestaetigt) - 1} more" if len(bestaetigt) > 1 else ""))
+        if wackelt:
+            print(f"      unstable, not counted ({len(wackelt)}): {', '.join(wackelt[:5])}"
+                  + (f" and {len(wackelt) - 5} more" if len(wackelt) > 5 else ""))
+        if not ok:
+            gaps += 1
     # Die Gewichtszeile fuer die naechste Partition. Sie steht als EINE Zeile mit JSON, damit ein
     # Leser sie ohne Parser-Heuristik aus dem Log holen kann.
     if dauern:
         print("MUTATION_DURATIONS " + json.dumps(dauern, sort_keys=True))
-    final = _red_count(work)   # dieselbe Menge wie Baseline und Mutant
-    if final is None:
-        print("GAP: der Schluss-Lauf hinterliess keine Bilanzzeile — die Wiederherstellung des "
-              "Baums ist damit NICHT belegt")
-        gaps += 1
-    elif final != baseline:
-        print(f"GAP: baseline not restored ({final} != {baseline})")
-        gaps += 1
+    # THE RESTORATION IS CHECKED BYTE BY BYTE (Z230). Until 2026-09-26 a last full run compared its
+    # red count with the baseline's; on main that run alone took longer than the job's time limit,
+    # and a count cannot tell a restored file from a different file with the same verdict. Every
+    # file an operator touched must hold exactly the bytes it held before the first mutant.
+    for rel, roh in sorted(urspruenglich.items()):
+        if (work / rel).read_bytes() != roh:
+            print(f"GAP: {rel} is not restored to its bytes before the first mutant")
+            gaps += 1
     return gaps
 
 

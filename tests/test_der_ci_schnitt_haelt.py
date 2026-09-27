@@ -221,12 +221,60 @@ def test_jeder_laufende_job_traegt_ein_zeitbudget():
     assert not ohne, f"Jobs ohne timeout-minutes: {ohne}"
 
 
-def test_ein_mutationsshard_bleibt_unter_einer_stunde():
-    """Der Auftrag woertlich: 'Mutation nicht ueber 60 Minuten je Shard, sonst ist der Shard falsch
-    geschnitten.' Gemessen liefen Shards 151 bis 288 Minuten."""
-    d = _workflows()["ci.yml"]
-    t = d["jobs"]["mutation"]["timeout-minutes"]
-    assert t <= 60, f"Mutations-Shard mit {t} Minuten Budget — ueber der angeordneten Grenze von 60"
+#: GitHub's limit for a job on a hosted runner, in minutes. A budget above it is not a budget: GitHub
+#: stops the job at 360 minutes whatever the workflow says.
+GITHUB_JOB_GRENZE_MIN = 360
+
+
+def _mutationsdeckel_verletzt(d: dict) -> list[str]:
+    """Where the mutation job breaks its cap. Pure, so a built counter-example can make it fail."""
+    job = d["jobs"]["mutation"]
+    t = job.get("timeout-minutes")
+    if not isinstance(t, int):
+        return [f"the job carries no numeric timeout-minutes ({t!r})"]
+    schlecht = []
+    if t > GITHUB_JOB_GRENZE_MIN:
+        schlecht.append(f"job budget {t} minutes, above GitHub's limit of {GITHUB_JOB_GRENZE_MIN}")
+    schritte = [s for s in job.get("steps") or [] if s.get("name") == "Mutation check"]
+    if len(schritte) != 1:
+        return schlecht + [f"{len(schritte)} steps named 'Mutation check', expected one"]
+    s = schritte[0].get("timeout-minutes")
+    if not isinstance(s, int) or s >= t:
+        schlecht.append(f"the step 'Mutation check' has {s!r} minutes and must stop below the job's "
+                        f"{t}, or the steps after it never record how far the shard got")
+    return schlecht
+
+
+def test_ein_mutationsshard_bleibt_in_seinem_deckel():
+    """TWO ORDERS, AND THE YOUNGER ONE HOLDS. The first, from 13.09.2026, in translation: "mutation
+    not above 60 minutes per shard, otherwise the shard is cut wrong." Measured then, shards ran 151
+    to 288 minutes. The second is the owner word on Z230 of 26.09.2026, in translation: "job cap and
+    shard count provisionally such that a shard safely finishes within the upper limit of a GitHub
+    job of 6 hours; you set the final values after the first measured CI run time."
+
+    Since Z230 each mutant runs over a baseline of its own selection, and a selection costs about
+    2000 to 2200 s in CI, so one mutant alone comes close to the old 60 minutes. The contract holds
+    the younger order: the job stays within GitHub's limit, and the gate step stops before the job,
+    so the shard still records how far it got. PROVISIONAL like the values it checks: when the first
+    measured CI run sets the final cap and shard count, this contract follows them.
+    """
+    assert _mutationsdeckel_verletzt(_workflows()["ci.yml"]) == []
+
+
+def test_fangnachweis_ein_deckel_ueber_der_github_grenze_wird_gefunden():
+    def wf(job, schritt):
+        return {"jobs": {"mutation": {"timeout-minutes": job,
+                                      "steps": [{"name": "Mutation check",
+                                                 "timeout-minutes": schritt}]}}}
+    assert _mutationsdeckel_verletzt(wf(361, 345)) == [
+        "job budget 361 minutes, above GitHub's limit of 360"]
+    assert _mutationsdeckel_verletzt(wf(360, 360)) == [
+        "the step 'Mutation check' has 360 minutes and must stop below the job's 360, or the steps "
+        "after it never record how far the shard got"]
+    assert _mutationsdeckel_verletzt(wf(360, None))[0].startswith("the step 'Mutation check' has None")
+    assert _mutationsdeckel_verletzt({"jobs": {"mutation": {"timeout-minutes": 360, "steps": []}}}) == [
+        "0 steps named 'Mutation check', expected one"]
+    assert _mutationsdeckel_verletzt(wf(360, 345)) == [], "the provisional values are reported"
 
 
 def test_mutation_startet_erst_nach_test_und_coverage():
