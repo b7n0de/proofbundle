@@ -452,6 +452,12 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     all is WARNED; PASSED only when every case ran in full and passed. A case that did not run in
     full is listed under ``warnedTests`` by name, so the reduction of scope is in the statement,
     not only in a headline.
+
+    ``ok`` must be a bool. Anything else is refused with a :class:`VerifierBlockError` that names
+    the case and the field, before anything is built or signed: the case ``ok`` used to be read by
+    its truth, so ``"false"``, ``"FAIL"``, ``1`` and ``[0]`` each made a case PASSED and the whole
+    statement PASSED, which ``sign_test_result_statement`` then signed. The value's own methods
+    (``__bool__``, ``__class__``) never run.
     """
     if not isinstance(results, list) or not results:
         raise VerifierBlockError("a test-result statement needs at least one case result")
@@ -459,7 +465,12 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     for r in results:
         if not isinstance(r, dict) or not isinstance(r.get("caseId"), str) or not r["caseId"]:
             raise VerifierBlockError(f"case result without a caseId: {r!r}")
-        if not r.get("ok"):
+        ok = r.get("ok")
+        if type(ok) is not bool:
+            raise VerifierBlockError(
+                f"case result {r['caseId']!r}: ok is not a bool (true/false); only the exact True "
+                "passes a case, and a value that is not a bool is refused rather than read by its truth")
+        if ok is not True:
             failed.append(r["caseId"])
         elif r.get("scope") == "full":
             passed.append(r["caseId"])

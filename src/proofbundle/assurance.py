@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import enum
 import re
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TypeGuard, Union
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
@@ -68,7 +68,28 @@ EFFECT_OBSERVED_NOT_IMPLEMENTED = (
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    # type() and not isinstance(): the digest object here is the caller's, and isinstance believes an object's
+    # own __class__, so one whose __class__ raised escaped classify_digest_evidence, which never raises (measured),
+    # and one that only claimed to be a dict decided the level with its own get(). Read once, as a plain str.
+    if type(obj) is not dict:
+        return False
+    value = obj.get("sha256")
+    return type(value) is str and bool(_SHA256_HEX.match(value))
+
+
+def _is_key_material(value: Any) -> TypeGuard[Union[bytes, bytearray]]:
+    """True only for a plain ``bytes`` or ``bytearray`` object: the one form of key material a resolver or
+    a caller hands in that this package reads.
+
+    ``type()``, never ``isinstance()``: ``isinstance`` also believes an object's own ``__class__``, so an
+    object whose ``__class__`` property says ``bytes`` passed, and was then read with its own ``__len__``
+    and ``__bytes__`` (32 and ``b""`` reached INDEPENDENTLY_ATTESTED with zero bytes of key material; a
+    raising ``__class__`` or ``__len__`` escaped the never-raise verifiers). A real ``bytes`` subclass is
+    refused as well, for the same reason: its ``__len__`` and ``__bytes__`` are the caller's code. Plain
+    ``bytes`` and ``bytearray`` are read with ``len()`` and ``bytes()`` without running any caller code.
+    Shared by :func:`classify_receiver_corroboration` and ``outcome.verify_outcome_receipt``, so the
+    ladder and ``receiver_role_trusted`` judge one answer by one rule."""
+    return type(value) is bytes or type(value) is bytearray
 
 
 def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
@@ -142,10 +163,13 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     Never raises: a raising ``independent_attestation_resolver`` is fail-closed (treated as False, the base
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
     ``evidence_resolver`` contract). The resolver's answer attests only when it is the exact ``True`` or
-    32 bytes of key material (see KEY BINDING below): any other answer, a truthy one included (``1``,
-    ``"true"``, ``"false"``, a non-empty list, an object whose ``__bool__`` says True), keeps the base
-    level, the answer's own ``__bool__`` is never called, and when the answer is not a bool at all the
-    detail says so. The resolver is only ever consulted once the digest has ALREADY reached
+    32 bytes of key material in a plain ``bytes`` or ``bytearray`` object (see KEY BINDING below): any
+    other answer, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list, an object
+    whose ``__bool__`` says True, an object whose ``__class__`` says ``bytes``, a ``bytes`` subclass),
+    keeps the base level, none of the answer's own methods (``__bool__``, ``__class__``, ``__len__``,
+    ``__bytes__``) is called, and when the answer is not a bool the detail says so. The key ids are
+    judged the same way: each must be a plain ``str``, so a key id's own ``__class__`` or ``__eq__`` never
+    decides independence. The resolver is only ever consulted once the digest has ALREADY reached
     at least ``CONTENT_RESOLVED`` — an attacker-choosable digest that was never resolved cannot be promoted
     straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone.
 
@@ -172,7 +196,10 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     # receiver_key_id (e.g. ["kid-exec"]) is `!= "kid-exec"` in Python, so a bare `==` distinctness check
     # would read a wrapped copy of the executor's OWN id as "distinct". An absent/non-str/equal key id is
     # self-corroboration that cannot be shown independent -> fail-closed, no promotion.
-    if not isinstance(executor_key_id, str) or not isinstance(receiver_key_id, str) or receiver_key_id == executor_key_id:
+    # type() and not isinstance(): isinstance believes an object's own __class__, and the == below would then
+    # run that object's __eq__, so a key id that only claims to be a str decided independence (measured:
+    # INDEPENDENTLY_ATTESTED for a receiver key id whose __class__ says str and whose __eq__ says False).
+    if type(executor_key_id) is not str or type(receiver_key_id) is not str or receiver_key_id == executor_key_id:
         return {**base, "detail": base["detail"] + " (independence not provable: executor and receiver key "
                 "ids must both be present and differ; an absent/equal key id is self-corroboration — "
                 "principal-level independence for two distinct keys needs the outcomeReceivers trust role)"}
@@ -187,11 +214,20 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
         res = independent_attestation_resolver(digest_obj)
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
         res = False
-    if isinstance(res, (bytes, bytearray)):
+    # Key material only as a plain bytes/bytearray object (_is_key_material): an object whose __class__ says
+    # bytes, or a bytes subclass, is not read with its own __len__/__bytes__, and so neither promotes on zero
+    # bytes nor raises out of this never-raise function; it falls to the branches below like any other
+    # answer that is neither True nor key material.
+    if _is_key_material(res):
         signer_key = bytes(res) if len(res) == 32 else None
         if signer_key is None:
             return {**base, "detail": base["detail"] + " (attestation resolver returned key material that is "
                     "not a 32-byte Ed25519 key — not attested)"}
+        if expected_receiver_public_key is not None and not _is_key_material(expected_receiver_public_key):
+            # The expectation is the caller's too: bytes() on it ran its __bytes__ and raised a raw TypeError
+            # for a str (measured), out of a function that never raises.
+            return {**base, "detail": base["detail"] + " (expected_receiver_public_key is not a bytes or "
+                    "bytearray object, so the signer key cannot be compared with it — not attested)"}
         if expected_receiver_public_key is not None and signer_key != bytes(expected_receiver_public_key):
             return {**base, "detail": base["detail"] + " (KEY_ID_NOT_BOUND_TO_SIGNER: the referenced statement "
                     "is signed by a key that is not the trust pack's key for receiverKeyId — the label names "
@@ -207,13 +243,26 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
         attested = res is True
         if not attested and type(res) is not bool:
             return {**base, "detail": base["detail"] + " (the attestation resolver answered neither True nor "
-                    "32 bytes of key material; only the exact True promotes)"}
+                    "32 bytes of key material in a plain bytes or bytearray object, and the answer is not a "
+                    "bool; only the exact True promotes)"}
     if not attested:
         return base
     return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,
             "level_name": EvidenceLevel.INDEPENDENTLY_ATTESTED.name,
             "detail": "the referenced content is itself a validly-signed statement from a party distinct "
                       "from the original claimant (receiver/observer corroboration)"}
+
+
+def _has_level(field: Any) -> bool:
+    """A rollup input counts only as a plain ``dict`` whose ``level`` is a plain ``int`` or an
+    :class:`EvidenceLevel`; a bool is not a level. ``type()``, not ``isinstance()``: a level whose own
+    ``__class__`` said ``int`` passed and then decided the rollup with its own ``__lt__``/``__gt__``, and a
+    raising ``__class__`` escaped :func:`evidence_ladder_summary` and :func:`evidence_ladder_best`, which
+    never raise (measured on both)."""
+    if type(field) is not dict:
+        return False
+    level_type = type(field.get("level"))
+    return level_type is int or level_type is EvidenceLevel
 
 
 def evidence_ladder_summary(*fields: dict) -> dict:
@@ -225,8 +274,7 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     never a vacuous strong verdict over an empty set)."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
-    applicable = [f for f in fields
-                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
+    applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     weakest = min(applicable, key=lambda f: f["level"])
@@ -241,8 +289,7 @@ def evidence_ladder_best(*fields: dict) -> dict:
     is applicable, returns ``level=None``."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
-    applicable = [f for f in fields
-                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
+    applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     strongest = max(applicable, key=lambda f: f["level"])

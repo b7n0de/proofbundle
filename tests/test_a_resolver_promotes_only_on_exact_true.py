@@ -19,6 +19,19 @@ registered anchor verifier is caller code, and ``verify_anchor`` read its result
 flags, outside the try, so a result that is not a dict raised a raw AttributeError. It is asked the same
 values, directly, through ``verify_anchors(require=...)`` and through
 ``verify_decision_receipt(anchors=...)``.
+
+Round 2 closes the other half of the same rule: a TYPE CHECK THAT BELIEVES THE ANSWER. The 32-byte branch of
+``classify_receiver_corroboration`` asked ``isinstance(res, (bytes, bytearray))``, which believes an object's
+own ``__class__``, and then read the object with its own ``__len__`` and ``__bytes__``: an answer claiming to
+be bytes, 32 long and ``b""`` reached INDEPENDENTLY_ATTESTED with zero bytes of key material, also through
+``verify_outcome_receipt`` (``ok`` true), and a raising ``__len__`` or ``__class__`` or a ``__bytes__``
+returning a str escaped both never-raise functions. A real ``bytes`` subclass was read the same way. Key
+material now counts only as a plain ``bytes`` or ``bytearray`` object, the key ids only as a plain ``str``,
+the expectation only as plain bytes, the digest object only as a plain ``dict`` holding a plain ``str`` (one
+whose ``__class__`` raised escaped ``classify_digest_evidence``, which never raises), and the rollups
+``evidence_ladder_best`` / ``evidence_ladder_summary`` take a level only as a plain ``int`` or ``EvidenceLevel``. The recording classes below show that none of the
+caller's methods runs. The caller-built results and policy dicts of the same class are in
+``tests/test_a_caller_verdict_counts_only_as_a_bool.py``.
 """
 from __future__ import annotations
 
@@ -30,10 +43,22 @@ import unittest
 from pathlib import Path
 
 from proofbundle import anchors, dsse
-from proofbundle.assurance import EvidenceLevel, classify_digest_evidence, classify_receiver_corroboration
+from proofbundle.assurance import (
+    EvidenceLevel,
+    classify_digest_evidence,
+    classify_receiver_corroboration,
+    evidence_ladder_best,
+    evidence_ladder_summary,
+)
 from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.emit import generate_signer
-from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
+from proofbundle.outcome import (
+    emit_outcome_receipt,
+    executor_trusted_by_role,
+    pack_key_binds_signer,
+    receiver_trusted_by_role,
+    verify_outcome_receipt,
+)
 from proofbundle.renewal import build_initial_sequence, verify_sequence
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -348,6 +373,320 @@ class TestARegisteredAnchorVerifierCountsOnlyOnTrue(unittest.TestCase):
         self.answer = {"ok": False}
         r = verify_decision_receipt(env, pub, strict=True, anchors=[self._anchor(root)])
         self.assertIs(r["anchors_ok"], False)
+
+
+# ── round 2: a type check that believes the answer ────────────────────────────────────────────────
+
+
+class _ClaimsBytes:
+    """Not bytes (``type()`` says so), but its ``__class__`` says ``bytes``. Every method records itself."""
+
+    def __init__(self, calls: list, *, payload=b"", length: int = 32, raise_len: bool = False):
+        self._calls, self._payload, self._length, self._raise_len = calls, payload, length, raise_len
+
+    @property
+    def __class__(self):
+        self._calls.append("__class__")
+        return bytes
+
+    def __len__(self):
+        self._calls.append("__len__")
+        if self._raise_len:
+            raise RuntimeError("the caller's __len__ raised")
+        return self._length
+
+    def __bytes__(self):
+        self._calls.append("__bytes__")
+        return self._payload
+
+    def __bool__(self):
+        self._calls.append("__bool__")
+        return True
+
+
+class _ClaimsStr:
+    """Not a str, but its ``__class__`` says ``str``; its ``__eq__`` answers what it is told."""
+
+    def __init__(self, calls: list, *, eq: bool):
+        self._calls, self._eq = calls, eq
+
+    @property
+    def __class__(self):
+        self._calls.append("__class__")
+        return str
+
+    def __eq__(self, other):
+        self._calls.append("__eq__")
+        return self._eq
+
+    def __ne__(self, other):
+        self._calls.append("__ne__")
+        return not self._eq
+
+    def __hash__(self):
+        self._calls.append("__hash__")
+        return 0
+
+
+class _ClaimsInt:
+    """Not an int, but its ``__class__`` says ``int``; every comparison says it is neither smaller nor larger."""
+
+    def __init__(self, calls: list):
+        self._calls = calls
+
+    @property
+    def __class__(self):
+        self._calls.append("__class__")
+        return int
+
+    def __lt__(self, other):
+        self._calls.append("__lt__")
+        return False
+
+    def __gt__(self, other):
+        self._calls.append("__gt__")
+        return False
+
+
+class _RaisingClass:
+    """An object whose ``__class__`` raises when anyone asks for it."""
+
+    def __init__(self, calls: list):
+        self._calls = calls
+
+    @property
+    def __class__(self):
+        self._calls.append("__class__")
+        raise RuntimeError("the caller's __class__ raised")
+
+
+def _bytes_subclass(calls: list):
+    class _BytesSubclass(bytes):
+        """A real bytes subclass whose own ``__len__`` says 32 whatever it holds."""
+
+        def __len__(self):
+            calls.append("__len__")
+            return 32
+    return _BytesSubclass
+
+
+def _not_key_material(calls: list, *, pack_key: bytes = b"r" * 32):
+    """Answers that are not a plain bytes/bytearray object, each with what it did at 44e12b72."""
+    sub = _bytes_subclass(calls)
+    return [
+        ("__class__ says bytes, 32 long, zero bytes (attested)", _ClaimsBytes(calls, payload=b"")),
+        ("__class__ says bytes, carrying the pack key (attested and bound)", _ClaimsBytes(calls, payload=pack_key)),
+        ("__class__ says bytes, __len__ raises (escaped)", _ClaimsBytes(calls, raise_len=True)),
+        ("__class__ says bytes, __bytes__ returns a str (escaped)", _ClaimsBytes(calls, payload="not bytes")),
+        ("__class__ raises (escaped)", _RaisingClass(calls)),
+        ("bytes subclass whose __len__ says 32 over zero bytes (attested)", sub(b"")),
+        ("bytes subclass carrying the pack key (attested and bound)", sub(pack_key)),
+    ]
+
+
+_RECV_KEY = b"r" * 32
+
+
+class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
+    """An answer attests only as the exact True or as 32 bytes in a plain bytes/bytearray object."""
+
+    _base = dict(executor_key_id="kid-exec", receiver_key_id="kid-recv")
+
+    def _classify(self, answer, **kw):
+        return classify_receiver_corroboration(_DIGEST, evidence_resolver=lambda d: True,
+                                               independent_attestation_resolver=lambda d: answer,
+                                               **self._base, **kw)
+
+    def test_an_answer_that_only_claims_to_be_bytes_attests_nothing_and_runs_nothing(self):
+        calls: list = []
+        for label, answer in _not_key_material(calls):
+            for expected in (None, _RECV_KEY):
+                with self.subTest(answer=label, expectation=expected is not None):
+                    calls.clear()
+                    r = self._classify(answer, expected_receiver_public_key=expected)
+                    self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                    if expected is None:
+                        self.assertIn(_WHY, r["detail"])
+                    self.assertEqual(calls, [], "the answer's own methods ran")
+
+    def test_through_verify_outcome_receipt_nothing_escapes_and_nothing_binds(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_outcome(receiverRefs=[
+            {"relation": "receiverAck", "digest": {"sha256": "d" * 64}, "receiverKeyId": "kid-recv"}]), s)
+        pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
+                "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
+                         "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        calls: list = []
+        for label, answer in _not_key_material(calls):
+            for trust_pack in (None, pack):
+                with self.subTest(answer=label, trust_pack=trust_pack is not None):
+                    calls.clear()
+                    r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                               receiver_attestation_resolver=lambda d, a=answer: a,
+                                               trust_pack=trust_pack)
+                    self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+                    self.assertIsNot(r["receiver_key_bound"], True)
+                    self.assertIs(r["ok"], True, r["errors"])
+                    self.assertEqual(calls, [], "the answer's own methods ran")
+
+    def test_control_plain_key_material_attests_and_binds_as_before(self):
+        for label, answer in (("bytes", _RECV_KEY), ("bytearray", bytearray(_RECV_KEY))):
+            with self.subTest(answer=label):
+                self.assertEqual(self._classify(answer)["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                self.assertEqual(self._classify(answer, expected_receiver_public_key=_RECV_KEY)["level"],
+                                 EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                r = self._classify(answer, expected_receiver_public_key=b"x" * 32)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", r["detail"])
+        r = self._classify(b"k" * 31)
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("not a 32-byte Ed25519 key", r["detail"])
+        s, pub = _keys()
+        env = emit_outcome_receipt(_outcome(receiverRefs=[
+            {"relation": "receiverAck", "digest": {"sha256": "d" * 64}, "receiverKeyId": "kid-recv"}]), s)
+        pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
+                "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
+                         "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertIs(r["receiver_key_bound"], True)
+        self.assertIs(r["receiver_role_trusted"], True)
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack)
+        self.assertIs(r["receiver_key_bound"], False)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+
+    def test_an_expectation_that_is_not_plain_bytes_refuses_and_does_not_raise(self):
+        calls: list = []
+        for label, expected in (("str 'abc' (raised TypeError)", "abc"),
+                                ("__class__ says bytes, __bytes__ gives the answer's key (attested)",
+                                 _ClaimsBytes(calls, payload=_RECV_KEY))):
+            with self.subTest(expectation=label):
+                calls.clear()
+                r = self._classify(_RECV_KEY, expected_receiver_public_key=expected)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("expected_receiver_public_key is not a bytes", r["detail"])
+                self.assertEqual(calls, [], "the expectation's own methods ran")
+
+
+class TestTheKeyIdsCountOnlyAsPlainStr(unittest.TestCase):
+    """Independence and role membership are decided on plain str key ids, never by a key id's own ``__eq__``."""
+
+    def _classify(self, executor_key_id, receiver_key_id):
+        return classify_receiver_corroboration(_DIGEST, evidence_resolver=lambda d: True,
+                                               independent_attestation_resolver=lambda d: True,
+                                               executor_key_id=executor_key_id, receiver_key_id=receiver_key_id)
+
+    def test_a_key_id_that_only_claims_to_be_a_str_proves_no_independence(self):
+        calls: list = []
+        for label, ex, rc in (("receiver key id, __eq__ says False", "kid-exec", _ClaimsStr(calls, eq=False)),
+                              ("executor key id, __eq__ says False", _ClaimsStr(calls, eq=False), "kid-recv"),
+                              ("receiver key id whose __class__ raises", "kid-exec", _RaisingClass(calls))):
+            with self.subTest(key_id=label):
+                calls.clear()
+                r = self._classify(ex, rc)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("independence not provable", r["detail"])
+                self.assertEqual(calls, [], "the key id's own methods ran")
+
+    def test_a_role_member_by_a_key_ids_own_eq_is_no_member(self):
+        calls: list = []
+        pack = {"roles": {"outcomeExecutors": {"keyIds": ["someone-else"]},
+                          "outcomeReceivers": {"keyIds": ["someone-else"]}}}
+        with self.subTest(surface="receiver_trusted_by_role"):
+            calls.clear()
+            self.assertIs(receiver_trusted_by_role(_ClaimsStr(calls, eq=True), pack), False)
+            self.assertEqual(calls, [])
+        with self.subTest(surface="executor_trusted_by_role"):
+            calls.clear()
+            self.assertIs(executor_trusted_by_role({"keyId": _ClaimsStr(calls, eq=True)}, pack), False)
+            self.assertEqual(calls, [])
+
+    def test_pack_key_binds_signer_takes_only_plain_bytes(self):
+        calls: list = []
+        pack = {"keys": {"kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        for label, key in (("__class__ says bytes, __bytes__ returns a str (raised TypeError)",
+                            _ClaimsBytes(calls, payload="not bytes")),
+                           ("__class__ says bytes, __bytes__ gives the pack key (bound)",
+                            _ClaimsBytes(calls, payload=_RECV_KEY))):
+            with self.subTest(public_key=label):
+                calls.clear()
+                self.assertIs(pack_key_binds_signer("kid-recv", pack, key), False)
+                self.assertEqual(calls, [])
+
+    def test_control_plain_key_ids_behave_as_before(self):
+        self.assertEqual(self._classify("kid-exec", "kid-recv")["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertEqual(self._classify("kid-exec", "kid-exec")["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertEqual(self._classify("kid-exec", ["kid-exec"])["level"], EvidenceLevel.CONTENT_RESOLVED)
+        pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
+                "keys": {"kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        self.assertIs(receiver_trusted_by_role("kid-recv", pack), True)
+        self.assertIs(receiver_trusted_by_role("kid-other", pack), False)
+        self.assertIs(executor_trusted_by_role({"keyId": "kid-exec"}, pack), True)
+        self.assertIs(executor_trusted_by_role({"keyId": "kid-other"}, pack), False)
+        self.assertIs(pack_key_binds_signer("kid-recv", pack, _RECV_KEY), True)
+        self.assertIs(pack_key_binds_signer("kid-recv", pack, bytearray(_RECV_KEY)), True)
+        self.assertIs(pack_key_binds_signer("kid-recv", pack, b"x" * 32), False)
+
+
+class TestTheLadderRollupsTakeOnlyPlainLevels(unittest.TestCase):
+    """``evidence_ladder_best`` / ``evidence_ladder_summary`` take a level only as a plain int or EvidenceLevel."""
+
+    def test_a_level_that_only_claims_to_be_an_int_decides_nothing(self):
+        calls: list = []
+        plain = {"level": EvidenceLevel.CONTENT_RESOLVED, "level_name": "CONTENT_RESOLVED"}
+        for name, rollup in (("best", evidence_ladder_best), ("summary", evidence_ladder_summary)):
+            for label, field in (("level whose __class__ says int", {"level": _ClaimsInt(calls), "level_name": "X"}),
+                                 ("level whose __class__ raises", {"level": _RaisingClass(calls), "level_name": "X"}),
+                                 ("field whose __class__ raises", _RaisingClass(calls))):
+                with self.subTest(rollup=name, field=label):
+                    calls.clear()
+                    r = rollup(field, plain)
+                    self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                    self.assertEqual(r["level_name"], "CONTENT_RESOLVED")
+                    self.assertEqual(calls, [], "the field's own methods ran")
+
+    def test_a_digest_object_that_only_claims_to_be_a_dict_is_no_digest(self):
+        calls: list = []
+
+        class _ClaimsDict:
+            @property
+            def __class__(self):
+                calls.append("__class__")
+                return dict
+
+            def get(self, key, default=None):
+                calls.append("get")
+                return "a" * 64
+
+        for label, digest in (("__class__ says dict, get gives 64 hex (was REFERENCE_WELL_FORMED)", _ClaimsDict()),
+                              ("__class__ raises (escaped)", _RaisingClass(calls))):
+            for name, classify in (("classify_digest_evidence", lambda d: classify_digest_evidence(
+                    d, evidence_resolver=lambda x: True)),
+                                   ("classify_receiver_corroboration", lambda d: classify_receiver_corroboration(
+                                       d, evidence_resolver=lambda x: True,
+                                       independent_attestation_resolver=lambda x: True,
+                                       executor_key_id="kid-exec", receiver_key_id="kid-recv"))):
+                with self.subTest(digest=label, surface=name):
+                    calls.clear()
+                    self.assertEqual(classify(digest)["level"], EvidenceLevel.CLAIMED)
+                    self.assertEqual(calls, [], "the digest object's own methods ran")
+
+    def test_control_plain_digest_objects_classify_as_before(self):
+        self.assertEqual(classify_digest_evidence(_DIGEST)["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
+        self.assertEqual(classify_digest_evidence(_DIGEST, evidence_resolver=lambda d: True)["level"],
+                         EvidenceLevel.CONTENT_RESOLVED)
+        for bad in ({"sha256": "A" * 64}, {"sha256": "a" * 63}, {"sha256": 5}, {}, None, "a" * 64):
+            with self.subTest(digest=repr(bad)[:20]):
+                self.assertEqual(classify_digest_evidence(bad)["level"], EvidenceLevel.CLAIMED)
+
+    def test_control_plain_levels_roll_up_as_before(self):
+        a = {"level": EvidenceLevel.REFERENCE_WELL_FORMED, "level_name": "REFERENCE_WELL_FORMED"}
+        b = {"level": 2, "level_name": "CONTENT_RESOLVED"}
+        self.assertEqual(evidence_ladder_best(a, b)["level_name"], "CONTENT_RESOLVED")
+        self.assertEqual(evidence_ladder_summary(a, b)["level_name"], "REFERENCE_WELL_FORMED")
+        self.assertIsNone(evidence_ladder_summary({"level": True}, {"level": None}, 5)["level"])
 
 
 if __name__ == "__main__":

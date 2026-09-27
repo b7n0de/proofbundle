@@ -22,6 +22,7 @@ import re
 from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
+from .assurance import _is_key_material
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member
@@ -249,10 +250,13 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
     have signed an Ed25519 DSSE envelope, so it never binds. A keyId without key material in the pack
     cannot be bound and is False (the pack contract requires every role key id in ``keys``).
 
-    Never raises on malformed input."""
-    if not isinstance(trust_pack, dict) or not isinstance(key_id, str) or not key_id:
+    Never raises on malformed input. The key id must be a plain ``str`` and the key a plain ``bytes`` or
+    ``bytearray`` object (``type()``, not ``isinstance()``, which believes an object's own ``__class__``:
+    an object claiming to be ``bytes`` was read with its own ``__len__`` and ``__bytes__``, and one whose
+    ``__bytes__`` returned a str raised a raw TypeError out of this function)."""
+    if not isinstance(trust_pack, dict) or type(key_id) is not str or not key_id:
         return False
-    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+    if not _is_key_material(public_key) or len(public_key) != 32:
         return False
     keys = trust_pack.get("keys")
     kv = keys.get(key_id) if isinstance(keys, dict) else None
@@ -286,7 +290,9 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     if not isinstance(executor, dict) or not isinstance(trust_pack, dict):
         return False
     key_id = executor.get("keyId")
-    if not isinstance(key_id, str) or not key_id:
+    # type(), not isinstance(): a key id whose __class__ says str passed, and its own __eq__ then decided
+    # membership in the role's keyIds (measured: True for a key id that is not in the role).
+    if type(key_id) is not str or not key_id:
         return False
     roles = trust_pack.get("roles")
     role = roles.get(_OUTCOME_EXECUTOR_ROLE) if isinstance(roles, dict) else None
@@ -324,8 +330,10 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     trust in the pack itself.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
-    False — never a silent pass. Never raises on malformed input."""
-    if not isinstance(receiver_key_id, str) or not receiver_key_id or not isinstance(trust_pack, dict):
+    False — never a silent pass. Never raises on malformed input. The key id must be a plain ``str``
+    (``type()``, not ``isinstance()``): one whose ``__class__`` says str had its own ``__eq__`` decide
+    membership in the role."""
+    if type(receiver_key_id) is not str or not receiver_key_id or not isinstance(trust_pack, dict):
         return False
     roles = trust_pack.get("roles")
     role = roles.get(_OUTCOME_RECEIVER_ROLE) if isinstance(roles, dict) else None
@@ -572,8 +580,11 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
       signed statement from a party DISTINCT from the executor) lets it reach
       ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` only when it answers the exact ``True`` or the
-      32-byte signer key; any other answer, a truthy one included, does not promote (see
-      ``assurance.classify_receiver_corroboration``) — this is the built, self-fixable half of Finding 16;
+      32-byte signer key in a plain ``bytes`` or ``bytearray`` object; any other answer, a truthy one or an
+      object that only claims to be ``bytes`` included, does not promote, none of its methods runs, and
+      nothing it does escapes this function (see ``assurance.classify_receiver_corroboration``; the same
+      rule decides ``receiver_role_trusted`` and ``receiver_key_bound`` below) — this is the built,
+      self-fixable half of Finding 16;
       ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
     - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``
@@ -806,7 +817,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     if not receiver_trusted_by_role(_kid, trust_pack):
                         continue
                     _ans = _recv_answers.get(i)
-                    if isinstance(_ans, (bytes, bytearray)):
+                    # The ladder's rule (assurance._is_key_material): an answer that only claims to be bytes
+                    # is not key material here either, so bytes() never runs its __bytes__ (a str from it
+                    # raised a raw TypeError out of this never-raise function) and it binds nothing.
+                    if _is_key_material(_ans):
                         if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
                             _trusted = True
                             _rbound = True

@@ -35,8 +35,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `verify_anchors` and the never-raise `verify_decision_receipt`, because the result was read outside
   the `try` that guards the verifier call.
 
-  Now only the exact `True` promotes, anchors or counts. Any other answer leaves the level, the anchor
-  check or the flag where it was; the answer's own `__bool__` is never called and the answer is never
+  Now only the exact `True`, or where a key is asked for 32 bytes of key material in a plain `bytes` or
+  `bytearray` object, promotes, anchors or counts. Any other answer leaves the level, the anchor check or
+  the flag where it was (round 2 below: the first version of this sentence did not hold for an answer
+  that only claims to be bytes); none of the answer's own methods is called and the answer is never
   rendered into a detail; and when the answer is not a bool at all, the detail says so and says that
   only the exact True counts. A registered anchor verifier's result is read only when it is a plain
   `dict`; anything else, a dict subclass with its own `get` included, is a failed anchor whose detail
@@ -57,6 +59,87 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   its 16 cases, each on the promotion itself or, for a result that is not a dict, on the raw
   AttributeError; the five control cases are green there. With this change all 16 cases and all 87
   subtests pass.
+
+  **Round 2: a type check that believes the answer, and the verdicts a caller builds** (`assurance`,
+  `outcome`, `verifier_block`, `policy`, `bundle`, `automation_verdict`). The first version of this
+  entry said that any other answer leaves the level where it was. Measured at 6d102950, the first
+  version of this change, and on main 31816e08 alike, that was false on the one branch it did not
+  touch: `classify_receiver_corroboration` asked `isinstance(res, (bytes, bytearray))`, which believes
+  an object's own `__class__`, and then read the object with its own `__len__` and `__bytes__`. An
+  answer whose `__class__` says `bytes`, whose `__len__` says 32 and whose `__bytes__` gives `b""`
+  reached `INDEPENDENTLY_ATTESTED` with zero bytes of key material, also through
+  `verify_outcome_receipt` with `ok` true; a raising `__len__` or `__class__`, or a `__bytes__` that
+  returns a str, escaped both functions, which never raise; and a real `bytes` subclass was read the
+  same way. `verify_outcome_receipt` repeated the check for `receiver_role_trusted`, and
+  `pack_key_binds_signer` for the key it is handed. Key material now counts only as a plain `bytes` or
+  `bytearray` object (`assurance._is_key_material`, one predicate for both modules). A `bytes`
+  subclass is refused as well, because its `__len__` and `__bytes__` are the caller's code; such an
+  answer takes the branch of an answer that is neither True nor key material. The expectation
+  `expected_receiver_public_key` is judged the same way (`"abc"` raised a raw TypeError out of
+  `bytes()`). The key ids that decide independence and role membership count only as a plain `str`
+  (`classify_receiver_corroboration`, `receiver_trusted_by_role`, `executor_trusted_by_role`,
+  `pack_key_binds_signer`): a key id whose `__class__` said str had its own `__eq__` decide, measured
+  as `INDEPENDENTLY_ATTESTED` for a receiver key id whose `__eq__` said False, and as role membership
+  for a key id that is not in the role. `evidence_ladder_best` and `evidence_ladder_summary` take a
+  level only as a plain `int` or `EvidenceLevel` in a plain `dict`: a level whose `__class__` said
+  int decided the rollup with its own comparisons, and a raising `__class__` escaped both. The digest
+  object `classify_digest_evidence` classifies counts only as a plain `dict` holding a plain `str`: one
+  whose `__class__` raised escaped a function that never raises, and one that only claimed to be a dict
+  reached `REFERENCE_WELL_FORMED` through its own `get`. `verify_bundle(expected_tree_size=)` compares
+  the pin only as a plain `int`: a pin whose `__class__` said int and whose `__eq__` said equal passed
+  the tree-size check, and a raising `__class__` escaped `verify_bundle` raw.
+
+  The same rule, one level up, for a verdict or flag the caller builds. `build_test_result_statement`
+  read a case's `ok` with `not r.get("ok")`, so `"false"`, `"FAIL"`, `1` and `[0]` made the case and
+  the statement PASSED, and `sign_test_result_statement` signed it; a case `ok` that is not a bool is
+  now a `VerifierBlockError` naming the case. `evaluate_policy` gated on `result.ok`, which
+  `VerificationResult` folds by the truth of each check, and read `Check.ok` by its truth: a
+  caller-built `Check("root-authenticity", "false")` gave `policy_ok` true under
+  `require_authenticated_root`, and the same string on `sd-jwt-key-binding` or
+  `sd-jwt-issuer-signature` satisfied `require_key_binding_when_cnf_present`, `require_nonce` and
+  `expected_vct` (measured on a real key-bound SD-JWT bundle). Crypto now passes that gate only when
+  every check's `ok` and `result.ok` are the exact True (`bundle._checks_passed`); otherwise the
+  policy is not evaluated and the reason names each value that is not a bool. `root_authenticity_summary`
+  read `Check.ok` by its truth, blocked on `policy_ok`, `anchor_ok`, `public_transparency_ok` and
+  `replay_ok` only when they were the exact False, on `policy_expired` and `policy_not_yet_valid` only
+  when the exact True, and on `requires_identity_overlay` and `policy_warnings` by their truth;
+  `automation_summary` read crypto and structure with `bool(value)` and counted a reference as
+  unresolved only on the exact False. Each left `safeForAutomation` true for a string, and
+  `{"crypto_ok": "false", "structure_ok": "false", "evidence_bound": "false"}` read as `cryptoValid`
+  true. In both summaries a value that is not a bool now never passes, and the summary carries
+  `notBooleanInputs` with the names of those values; the key is absent when every input is a bool, so a
+  caller that passes bools sees the shape it saw before.
+
+  `evaluate_decision_policy` and `evaluate_policy` read the boolean policy fields by their truth or
+  with `is True`. Through `verify_decision_receipt(policy=<dict>)` without `load_policy`,
+  `allow_raw_inputs: "false"` and `allow_pending: "false"` gave `policy_ok`, `ok` and
+  `safeForAutomation` all true, `requiresIdentityOverlay: "true"` let a raw template authorise, and
+  `require_*: 0` switched a requirement off. `load_policy` refuses each of these, and the evaluators
+  left types to it. They now refuse a boolean field that is not a bool with the loader's own checker
+  and message (`_check_bool_fields`, the loader's `_require_bool` over one table of the boolean
+  fields); a contract test derives the boolean fields from `load_policy` itself, so the two paths
+  agree field by field. `lint_policy` reports the same message, and `policy_warnings` counts only the
+  exact True as a signer requirement. `_require_bool` itself asked `isinstance`, so an object whose
+  `__class__` says bool passed `load_policy`; it asks `type()` now, which agrees with `isinstance` for
+  every real bool.
+
+  Reach: the Python API only. The CLI loads every policy through `load_policy` and passes exact bools
+  to both summaries. Not closed here, measured on this tree and left to their own change: the flag
+  arguments `anchors.verify_anchors(allow_pending=)`, `renewal.verify_sequence(allow_unauthenticated_anchor=)`,
+  `trust_pack.verify_trust_pack(allow_unverified_rotation=)` and `hashalg.resolve_hash_alg(allow_deprecated=)`
+  still read the string `"false"` as true; `VerificationResult.ok` still folds its checks by their
+  truth (the two gates above no longer rely on it); `_membership.is_bool` still asks `isinstance`; and
+  three str verdicts are still compared with the caller's own `__eq__` (a case's `scope`,
+  `checkpoint_authenticity`, `anchor_status`). Contracts: `tests/test_a_resolver_promotes_only_on_exact_true.py`
+  gains 12 cases with 55 subtests; against 44e12b72 (6d102950 merged with main 31816e08), 47 subtests
+  fail in 8 of them and the four controls are green. The new
+  `tests/test_a_caller_verdict_counts_only_as_a_bool.py` has 21 cases with 268 subtests; against
+  44e12b72, 14 of its cases are red, 250 subtests fail in 11 of them and 4 fail outside a subtest (one
+  of those inside as well), and the seven others are green there: six controls, and the check that the
+  derivation of the boolean fields finds every section. Each red subtest fails on its own defect: a
+  verdict, an escaped exception, a refusal that did not happen, a missing detail, or a recorded call of
+  the caller's own method. With this change all 49 cases and all 410 subtests of the two files pass, on
+  Python 3.10, 3.11, 3.12, 3.13 and 3.14.
 
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
