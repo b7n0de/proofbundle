@@ -27,49 +27,133 @@ _SIGNED_FIELDS = (
 )
 
 
-#: Environment names through which git answers about ANOTHER repository, index, object store,
-#: ref view or configuration than the one named with `-C <repo>`. ONE list for the receipt chain:
-#: the producer drops these names from its own process at import, and this library passes an
-#: environment without them to every git call it makes itself.
-#:
-#: WHY THE LIBRARY DOES IT TOO, measured 2026-09-27 on the merge of main into PR 249: the release
-#: gate calls `subject_tree_digest` and `load_trusted_pubkeys` from a process nobody cleaned. A
-#: tampered tree carrying a receipt copied from the genuine release was judged `ok=true,
-#: state=verified` by `pre_tag_audit_gate.py --repo <tampered>` with `GIT_DIR` pointing at a clone
-#: of the genuine release, and `ok=false` without the variable: both the digest and the trust
-#: anchor were read from the other repository. The producer was safe only because of what its
-#: caller had done first, which is the shape of the Codex finding this list answers.
-#:
-#: THE CORE IS GIT'S OWN LIST, `git rev-parse --local-env-vars` (git 2.34.1), so a test can hold the
-#: enumeration against git instead of against memory. The producer's first list lacked five of
-#: those names; one of them, `GIT_INTERNAL_SUPER_PREFIX`, made `ls-tree` fail on a clean tree, so
-#: the environment decided the verdict in the refusing direction. The rest: discovery and ref
-#: visibility, and the configuration files the environment selects.
-GIT_UMLEITUNG = frozenset({
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
-    "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE",
-    "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
-    "GIT_PREFIX", "GIT_INTERNAL_SUPER_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
-    "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
-})
-#: `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` carry configuration too; they are numbered, so
-#: they are matched by prefix rather than listed.
-_GIT_UMLEITUNG_PRAEFIXE = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+# ── ONE FUNNEL FOR EVERY GIT CALL OF THE RECEIPT CHAIN ──────────────────────────────────────────
+#
+# The producer (`pre_tag_receipt.py`), this library and the release gate (`pre_tag_audit_gate.py`,
+# through this library) ask git through `git_run` below. The third-party verifier
+# (`verify_pre_tag_receipt.py`) carries a copy of it in its own file, because its first job is to
+# refuse a checkout in which THIS file was modified, and a check that ran through this file could be
+# answered by the modification it looks for. A contract test derives the call sites of all those
+# files, and of everything they import or load by path, from their syntax trees, refuses any git call
+# outside the two funnels, and holds the two equal in allowlist, pinned options and built
+# environment (`tests/test_pre_tag_chain_asks_git_through_one_funnel.py`).
+#
+# WHY AN ALLOWLIST, measured 2026-09-27. The first repair removed a LIST of environment names
+# (`git rev-parse --local-env-vars` plus the configuration selectors) and a lens found names the
+# list did not carry within the hour: `GIT_ICASE_PATHSPECS=1` and `GIT_GLOB_PATHSPECS=1` made a
+# clean tree refuse, `GIT_TRACE=/dev/stdout` wrote timestamped lines into the listing the digest
+# hashes, and the third-party verifier had never used the list at all (with `GIT_WORK_TREE` on a
+# clean clone its cleanliness check came back empty and a modified checkout was VERIFIED). git
+# reads more names than any list here will carry, so the environment of a chain call is BUILT:
+# the names below pass through, a fixed set is pinned, and nothing else reaches git.
+#
+# WHY THE CONFIGURATION IS PINNED ON THE COMMAND LINE. `-c` outranks every file git reads (system,
+# global, repository, worktree, and anything they include), while an environment switch is read
+# BEFORE the configuration and loses to it: measured, `GIT_NO_REPLACE_OBJECTS=1` and
+# `--no-replace-objects` both lost to `core.useReplaceRefs=true` in `.git/config`, and the gate
+# verified a tampered checkout against the replaced commit's digest. System and global files are
+# not read at all; the repository's own file is read, and every key that changes what `ls-tree`,
+# `show`, `rev-parse`, `hash-object`, `check-ignore`, `diff-index` or `status` answer is either
+# pinned below or named in the CHANGELOG with the reason it is not.
+
+#: Environment names passed through to git unchanged. `PATH` finds git (the interpreter and git
+#: are the trusted base, and one `PATH` picks both); `SYSTEMROOT` is needed by processes on
+#: Windows and means nothing elsewhere.
+_GIT_INHERITED = ("PATH", "SYSTEMROOT")
+
+#: Configuration pinned for every call. What each key did when it was not pinned:
+#:   core.useReplaceRefs=false  replacement objects stay off whatever the repository says
+#:   core.quotePath=true        the listing the digest hashes has one text form (git's default)
+#:   core.excludesFile          a configured excludes file hid an untracked file (it named a
+#:                              TRACKED ignore file, and the producer took the rule for the tree's)
+#:   core.attributesFile        attributes from outside the tree stay out of `status`
+#:   core.fsmonitor=            no hook command runs, and none can report a changed file as clean
+#:   core.untrackedCache=false  no cached directory listing stands in for the directory
+#:   core.ignoreCase=false      path equality is byte equality
+#:   core.commitGraph=false     no cache of commit data stands in for the commit object
+#:   core.checkStat=default,    `status` compares the full stat data, so a rewrite that keeps
+#:   core.trustctime=true       size and mtime is still rehashed
+#:   color.ui=false             no escape codes in what is parsed
+GIT_PINNED_OPTIONS = (
+    "--no-replace-objects",
+    "-c", "core.useReplaceRefs=false",
+    "-c", "core.quotePath=true",
+    "-c", f"core.excludesFile={os.devnull}",
+    "-c", f"core.attributesFile={os.devnull}",
+    "-c", "core.fsmonitor=",
+    "-c", "core.untrackedCache=false",
+    "-c", "core.ignoreCase=false",
+    "-c", "core.commitGraph=false",
+    "-c", "core.checkStat=default",
+    "-c", "core.trustctime=true",
+    "-c", "color.ui=false",
+)
 
 
-def ist_git_umleitung(name: str) -> bool:
-    """True iff the environment name `name` can make git answer about something not named."""
-    return name in GIT_UMLEITUNG or name.startswith(_GIT_UMLEITUNG_PRAEFIXE)
+def git_environment(root: Path) -> dict:
+    """The complete environment of a chain git call about the repository whose top level is `root`.
 
-
-def git_umgebung() -> dict:
-    """The environment for a git call of the receipt chain: the process environment without the
-    names above, and with replacement objects switched off, so `ls-tree HEAD` lists the tree the
-    head really names (the producer sets the same switch for its whole process)."""
-    umgebung = {k: v for k, v in os.environ.items() if not ist_git_umleitung(k)}
-    umgebung["GIT_NO_REPLACE_OBJECTS"] = "1"
+    `GIT_WORK_TREE` is pinned to `root`: `core.worktree` in the repository's configuration made
+    `check-ignore` answer from another directory (an untracked file there was hidden by that
+    directory's `.gitignore`), and git lets the environment outrank that key. `GIT_DIR` is NOT
+    pinned: git then discovers the repository from `root`, and discovery is the step that refuses
+    a repository owned by another user (measured: `detected dubious ownership` under discovery,
+    none with an explicit `GIT_DIR`). `GIT_CEILING_DIRECTORIES` stops that discovery at `root`, so
+    a directory without its own repository never borrows the one around it. System and global
+    configuration are not read, so `safe.directory` cannot be supplied from outside either: a
+    repository owned by another user fails closed.
+    """
+    umgebung = {k: os.environ[k] for k in _GIT_INHERITED if k in os.environ}
+    umgebung.update({
+        "LC_ALL": "C", "LANG": "C",
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_WORK_TREE": str(root),
+        "GIT_CEILING_DIRECTORIES": str(root.parent),
+    })
     return umgebung
+
+
+def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float = 120):
+    """Run `git <args>` about the repository whose top level is `repo`; the completed process.
+
+    THE PLACE THE RECEIPT CHAIN STARTS GIT (the verifier's copy aside, see above). It raises
+    `BaumNichtLesbar` when git cannot be started or does not finish, and when git does not answer
+    for `repo` itself: before the call,
+    `rev-parse --show-toplevel --show-prefix` must name `repo` and an empty prefix. A `--repo` that
+    names a subdirectory made `ls-tree -r HEAD` list only that subdirectory while `git show
+    HEAD:<path>` stayed relative to the root, and the gate then took the digest from one tree and
+    the trust anchor from another (measured: `ok=true` for a tampered root). A nonzero exit of the
+    call itself is returned, not raised; what it means is the caller's to decide.
+    """
+    import subprocess  # noqa: PLC0415
+    root = Path(os.fspath(repo)).resolve()
+    umgebung = git_environment(root)
+
+    def starte(argumente: tuple, eingabe: bytes | None):
+        extra = {"input": eingabe} if eingabe is not None else {"stdin": subprocess.DEVNULL}
+        try:
+            return subprocess.run(["git", *GIT_PINNED_OPTIONS, "-C", str(root), *argumente],
+                                  capture_output=True, timeout=timeout, env=umgebung, **extra)
+        except (OSError, subprocess.SubprocessError) as fehler:
+            raise BaumNichtLesbar(
+                f"git could not be asked about {root}: {type(fehler).__name__}: {fehler}") from fehler
+
+    ort = starte(("rev-parse", "--show-toplevel", "--show-prefix"), None)
+    zeilen = ort.stdout.split(b"\n")
+    if ort.returncode != 0:
+        grund = ort.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise BaumNichtLesbar(f"git does not answer for {root} as a repository"
+                              + (f": {grund[0]}" if grund else ""))
+    if len(zeilen) < 2 or os.fsdecode(zeilen[0]) != str(root) or zeilen[1] != b"":
+        raise BaumNichtLesbar(
+            f"git answers for {root} with the top level {os.fsdecode(zeilen[0])!r} and the prefix "
+            f"{os.fsdecode(zeilen[1]) if len(zeilen) > 1 else ''!r}; the chain asks only about the "
+            "top level of the repository it is given, because a listing relative to a subdirectory "
+            "and a path relative to the root describe two different trees")
+    return starte(args, stdin_bytes)
 
 
 #: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
@@ -174,7 +258,6 @@ def subject_tree_digest(repo) -> str:
     wird nur mitgelesen, damit Erzeuger und Tor dieselben Pfade meinen.
     """
     import hashlib  # noqa: PLC0415
-    import subprocess as _sp  # noqa: PLC0415
     # DIE AUSSCHLUSSMENGE KOMMT AUS DEM TORVERZEICHNIS, NICHT VOM ANFANG DES SUCHPFADS
     # (Gegenlesung 07.09.2026, ausgefuehrt). `pre_tag_audit_gate.evaluate` legt `<repo>/src` auf
     # `sys.path[0]`, damit `proofbundle.signature` importierbar ist. Ein schlichtes
@@ -202,21 +285,24 @@ def subject_tree_digest(repo) -> str:
             "the mutable-evidence set is not loadable from the gate's own directory "
             f"({_nachbar}) — the exclusion set would be a guess, and a digest over the wrong set "
             f"is worse than none: {type(e).__name__}: {e}") from e
-    try:
-        # `core.quotePath=true` IS PINNED, not left to the configuration: the digest hashes the TEXT
-        # of the listing, and with `core.quotePath=false` in a user's `~/.gitconfig` a non-ASCII
-        # path is printed raw instead of octal-quoted. Measured 2026-09-27: `caf\303\251.txt` by
-        # default, the two raw UTF-8 bytes under that setting, so two machines would compute two
-        # digests for one tree. Pinned to git's default, which leaves every digest computed so far
-        # unchanged.
-        r = _sp.run(["git", "-C", str(repo), "-c", "core.quotePath=true", "ls-tree", "-r", "HEAD"],
-                    capture_output=True, text=True, timeout=10, env=git_umgebung())
-    except (OSError, _sp.SubprocessError) as e:  # kein git-Binary, Zeitueberschreitung, Signal
-        raise BaumNichtLesbar(f"cannot read the tree in {repo}: {type(e).__name__}: {e}") from e
+    # `core.quotePath=true` IS PINNED (in `GIT_PINNED_OPTIONS`), not left to the configuration: the
+    # digest hashes the TEXT of the listing, and with `core.quotePath=false` in a user's
+    # `~/.gitconfig` a non-ASCII path is printed raw instead of octal-quoted. Measured 2026-09-27:
+    # `caf\303\251.txt` by default, the two raw UTF-8 bytes under that setting, so two machines
+    # would compute two digests for one tree. Pinned to git's default, which leaves every digest
+    # computed so far unchanged, and so does `--full-tree`: `git_run` has already refused any
+    # prefix, and the option makes the listing independent of the prefix as well.
+    r = git_run(repo, "ls-tree", "--full-tree", "-r", "HEAD", timeout=10)
     if r.returncode != 0:
-        raise BaumNichtLesbar(f"cannot read the tree in {repo}: {r.stderr.strip()}")
+        raise BaumNichtLesbar(f"cannot read the tree in {repo}: "
+                              f"{r.stderr.decode('utf-8', 'replace').strip()}")
+    try:
+        # Quoted paths make the listing ASCII; anything else is not the listing this digest means.
+        text = r.stdout.decode("ascii")
+    except UnicodeDecodeError as e:
+        raise BaumNichtLesbar(f"the tree listing of {repo} is not the quoted form: {e}") from e
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
-    lines = [ln for ln in r.stdout.splitlines()
+    lines = [ln for ln in text.splitlines()
              if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
     # DIE STILLE LEERMESSUNG (Gegenlesung 07.09.2026, ausgefuehrt — und sie geht MITTEN durch die
     # Formpruefung hindurch, die derselbe Commit eingezogen hat). `git -C <unterordner> ls-tree -r
@@ -259,20 +345,18 @@ def load_trusted_pubkeys(repo: Path, *, ref: str = "HEAD") -> list[str]:
     committed blob binds it by the same digest, so the guarantee no longer depends on a clean checkout.
     An ABSENT/EMPTY file, a non-git repo, or a dangling ref means no trust anchor -> fail closed, never
     trust-all (one key per line, ``#`` comments). The gate resolves the digest from the same ``HEAD``."""
-    import subprocess  # noqa: PLC0415
     try:
-        # The anchor is read with the same environment as the digest: a gate that isolated one of
+        # The anchor is read through the same funnel as the digest: a gate that isolated one of
         # the two would take the tree from `--repo` and the trusted keys from wherever `GIT_DIR`
         # points, and a receipt signed by a key of that other repository would then verify.
-        r = subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt"],
-            capture_output=True, text=True, timeout=10, env=git_umgebung())
-    except Exception:  # noqa: BLE001 — no git binary / timeout -> no trust anchor, fail closed
-        return []
-    if r.returncode != 0:  # file not committed in this tree, or unknown ref -> fail closed
+        r = git_run(repo, "show", f"{ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt", timeout=10)
+        if r.returncode != 0:  # file not committed in this tree, or unknown ref -> fail closed
+            return []
+        text = r.stdout.decode("utf-8")
+    except Exception:  # noqa: BLE001 — not a repository / no git / timeout / not UTF-8 -> fail closed
         return []
     out = []
-    for line in r.stdout.splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             out.append(line)

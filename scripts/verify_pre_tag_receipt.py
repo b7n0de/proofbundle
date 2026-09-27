@@ -57,7 +57,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -246,9 +245,90 @@ def _gate():
     return mod
 
 
+# ── THIS SCRIPT'S OWN GIT FUNNEL ───────────────────────────────────────────────────────────────
+#
+# The receipt chain asks git through one funnel, `pre_tag_receipt_lib.git_run`, whose environment
+# is built from an allowlist and whose configuration is pinned on git's command line. The verifier
+# carries a copy of that funnel instead of calling it, and that is deliberate: its first job is to
+# refuse a checkout whose `scripts/` or `src/` differ from the commit, and the library is one of
+# the files that check exists to catch. Measured 2026-09-27 against a version that called the
+# library: a library edited so that its funnel returned an empty `status` and its `verify_receipt`
+# returned true hid itself, and a commit with an invalid receipt was `VERIFIED`. Every git call of
+# this script therefore runs on this file's code alone. The two funnels must not drift:
+# `tests/test_pre_tag_chain_asks_git_through_one_funnel.py` holds the allowlist, the pinned options
+# and the built environment of both equal, and counts this function as the second place in the
+# chain that may start git.
+
+#: Environment names passed through to git unchanged (the library's `_GIT_INHERITED`).
+_GIT_INHERITED = ("PATH", "SYSTEMROOT")
+
+#: Configuration pinned for every call (the library's `GIT_PINNED_OPTIONS`; the reasons are there).
+_GIT_PINNED_OPTIONS = (
+    "--no-replace-objects",
+    "-c", "core.useReplaceRefs=false",
+    "-c", "core.quotePath=true",
+    "-c", f"core.excludesFile={os.devnull}",
+    "-c", f"core.attributesFile={os.devnull}",
+    "-c", "core.fsmonitor=",
+    "-c", "core.untrackedCache=false",
+    "-c", "core.ignoreCase=false",
+    "-c", "core.commitGraph=false",
+    "-c", "core.checkStat=default",
+    "-c", "core.trustctime=true",
+    "-c", "color.ui=false",
+)
+
+
+def _git_environment(root: Path) -> dict:
+    """The complete environment of a git call about the repository whose top level is `root` (the
+    library's `git_environment`): the allowlist, the pinned names, the work tree pinned to `root`
+    and discovery stopped there, so a repository owned by another user still fails closed."""
+    umgebung = {k: os.environ[k] for k in _GIT_INHERITED if k in os.environ}
+    umgebung.update({
+        "LC_ALL": "C", "LANG": "C",
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_WORK_TREE": str(root),
+        "GIT_CEILING_DIRECTORIES": str(root.parent),
+    })
+    return umgebung
+
+
 def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
+    """One git call about `repo`, through this script's own funnel. -> (exit code, stdout, stderr)
+
+    MEASURED 2026-09-27 (Codex on PR 249, and re-measured): this ran `git -C <repo>` with the
+    caller's environment. With `GIT_WORK_TREE` pointing at a clean clone of the same commit, the
+    cleanliness check below came back empty for a checkout that carried a modified
+    `verify_receipt`, and a commit with an invalid receipt was `VERIFIED`, exit 0.
+
+    Before the call, git must name `repo` as the top level with an empty prefix, as in the
+    library's funnel. A repository git will not answer for (not a repository, another owner, a
+    subdirectory, no git) is returned as exit 128 with git's reason, which every caller below reads
+    as not measurable.
+    """
+    import subprocess  # noqa: PLC0415
+    root = Path(os.fspath(repo)).resolve()
+    umgebung = _git_environment(root)
+
+    def starte(argumente: tuple):
+        return subprocess.run(["git", *_GIT_PINNED_OPTIONS, "-C", str(root), *argumente],
+                              capture_output=True, timeout=30, env=umgebung,
+                              stdin=subprocess.DEVNULL)
+
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
+        ort = starte(("rev-parse", "--show-toplevel", "--show-prefix"))
+        if ort.returncode != 0:
+            return 128, b"", ("git does not answer for this directory as a repository: "
+                              + ort.stderr.decode("utf-8", "replace").strip())
+        zeilen = ort.stdout.split(b"\n")
+        if len(zeilen) < 2 or os.fsdecode(zeilen[0]) != str(root) or zeilen[1] != b"":
+            return 128, b"", (f"git answers for {root} with the top level "
+                              f"{os.fsdecode(zeilen[0])!r}; only the top level of a repository "
+                              "is measured")
+        r = starte(args)
     except (OSError, subprocess.SubprocessError) as exc:
         return 127, b"", f"{type(exc).__name__}: {exc}"
     return r.returncode, r.stdout, r.stderr.decode("utf-8", "replace").strip()
@@ -304,7 +384,9 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     # to the signature primitive flipped a garbage receipt to VERIFIED with HEAD untouched. A
     # modified or untracked file under scripts/ or src/ therefore refuses the measurement -- the
     # honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
-    rc, schmutz, err = _git(repo, "status", "--porcelain", "--untracked-files=all", "--", *_CODE_PFADE)
+    rc, schmutz, err = _git(repo, "status", "--porcelain", "--untracked-files=all",
+                            "--ignore-submodules=none", "--",
+                            *(f":(literal){p}" for p in _CODE_PFADE))
     if rc != 0:
         out["reason"] = f"the working tree could not be inspected: {err or 'git status failed'}"
         return out
@@ -332,7 +414,8 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     ordner = f"audit_artifacts/{_version_token(version)}/"
     out["receipt_path"] = ordner
     out["receipt_read_from"] = f"git ls-tree/show {commit[:12]}:{ordner}"
-    rc, listing, err = _git(repo, "ls-tree", "-r", "--name-only", commit, "--", ordner)
+    rc, listing, err = _git(repo, "ls-tree", "--full-tree", "-r", "--name-only", commit, "--",
+                            f":(literal){ordner}")
     kandidaten = [ln for ln in listing.decode("utf-8", "replace").splitlines() if ln.endswith(".json")]
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"

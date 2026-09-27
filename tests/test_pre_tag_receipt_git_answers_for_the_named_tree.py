@@ -196,10 +196,10 @@ class TheLibraryAsksAboutTheNamedTree(_Base):
         `GIT_DIR` pointing at a clone of the genuine release at C: `VERIFIED`, exit 0. Without the
         variable it refuses as not at the named commit.
 
-        The verifier's own git calls (head check, status, receipt listing) still follow the
-        variable; they are not part of this repair. What changed is that the tree digest and the
-        anchor are the checkout's, so the receipt no longer binds what is measured, and the verdict
-        is `NOT_VERIFIED` instead of a pass."""
+        When this case was written the verifier's own git calls (head check, status, receipt
+        listing) still followed the variable, and the verdict became `NOT_VERIFIED` because the
+        digest and the anchor were the checkout's. Since round two every one of those calls goes
+        through the chain's funnel as well, and the run is refused as not at the named commit."""
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         key = Ed25519PrivateKey.generate()
         g = self._candidate("genuine")

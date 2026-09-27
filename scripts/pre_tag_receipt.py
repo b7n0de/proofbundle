@@ -116,15 +116,17 @@ def _bytecode_cache_elsewhere() -> None:
 #: first git call, so every git invocation of this run -- the gate's listings, the tree digest and any
 #: git the audit program runs -- answers about the tree given as `--repo`.
 #:
-#: THE LIST LIVES IN `pre_tag_receipt_lib.GIT_UMLEITUNG` since 2026-09-27, one list for the tool
-#: and the library: the library cleans the environment of its own git calls as well, because the
-#: release gate calls it from a process that nobody cleaned. Two typed lists would drift, and the
-#: shorter one would decide wherever it stands. Importing the library runs no git.
+#: SINCE 2026-09-27 THIS TOOL'S OWN GIT CALLS DO NOT DEPEND ON THIS AT ALL: every one of them goes
+#: through `pre_tag_receipt_lib.git_run`, which builds git's environment from an allowlist and pins
+#: the configuration on the command line. What is removed here is what the AUDIT PROGRAM would
+#: otherwise inherit, and it is removed by the prefix of git's whole namespace, `GIT_`, because a
+#: list of names was measured to miss names git reads (`GIT_ICASE_PATHSPECS`, `GIT_TRACE`).
+#: Importing the library runs no git.
 
 
 def _umgebung_ohne_git_umleitung() -> None:
-    """Remove the redirecting GIT_* variables from this process (see `GIT_UMLEITUNG` in the
-    library), and make every git call of this process read the RAW objects.
+    """Remove every `GIT_*` variable from this process, and make any git the audit program runs
+    read the RAW objects.
 
     REPLACEMENT OBJECTS (Codex, fifth round, 2026-09-21): `refs/replace/*` under the root `.git`
     make git substitute one object for another everywhere it reads, `ls-tree HEAD`, `show` and
@@ -133,11 +135,12 @@ def _umgebung_ohne_git_umleitung() -> None:
     `git status` is clean, and `ls-tree HEAD` lists the evil blob, so the computed comparison
     agreed with the bytes on disk while `GIT_NO_REPLACE_OBJECTS=1 git show HEAD:a.txt` still said
     `clean`. The receipt would have bound the head's id to a tree that head does not have.
-    `GIT_NO_REPLACE_OBJECTS=1` is set for this process, so the tool's own calls, the library's tree
-    digest and any git the audit program runs all read the objects the revision really names.
+    `GIT_NO_REPLACE_OBJECTS=1` is set for this process, so any git the audit program runs reads
+    the objects the revision really names; the tool's own calls pin the same on git's command line
+    (`core.useReplaceRefs=false`), where a repository's configuration cannot switch it back on.
     """
     for name in list(os.environ):
-        if ist_git_umleitung(name):
+        if name.startswith("GIT_"):
             os.environ.pop(name, None)
     os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
 
@@ -147,8 +150,9 @@ _bytecode_cache_elsewhere()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pre_tag_receipt_lib import (  # noqa: E402
     RECEIPT_SCHEMA,
+    BaumNichtLesbar,
     canonical_bytes,
-    ist_git_umleitung,
+    git_run,
     subject_tree_digest,
 )
 
@@ -177,7 +181,7 @@ def _gate_source_digest(repo: Path) -> str:
     the tree was measured equal to the head before and after the audit, so those are the bytes on
     disk as well, and they are the bytes the verifier reads.
     """
-    eintraege = _git_z(repo, "ls-tree", "-z", "HEAD", "--", _GATE_REL)
+    eintraege = _git_z(repo, "ls-tree", "--full-tree", "-z", "HEAD", "--", f":(literal){_GATE_REL}")
     kopf = eintraege[0].partition("\t")[0].split() if len(eintraege) == 1 else []
     if len(kopf) != 3 or kopf[1] != "blob" or kopf[0] not in ("100644", "100755"):
         art = "no entry" if not eintraege else f"mode {kopf[0]}" if kopf else "an unreadable entry"
@@ -332,13 +336,15 @@ def _inline_erlaubt_oder_stop() -> None:
 
 
 def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
-               erlaubte_codes: tuple[int, ...] = (0,), umgebung: dict | None = None) -> bytes:
+               erlaubte_codes: tuple[int, ...] = (0,)) -> bytes:
     """One git call in `repo`, its stdout as bytes. Any failure to answer refuses the whole run:
-    not-determinable is not a clearance, and a release receipt is the last place to guess."""
+    not-determinable is not a clearance, and a release receipt is the last place to guess.
+
+    The call goes through `git_run`, the one funnel of the chain; there is no parameter that
+    hands git another environment (the one this function had defaulted to the caller's)."""
     try:
-        lauf = subprocess.run(["git", "-C", str(repo), *args], input=eingabe,
-                              capture_output=True, timeout=120, env=umgebung)
-    except (OSError, subprocess.SubprocessError) as fehler:
+        lauf = git_run(repo, *args, stdin_bytes=eingabe)
+    except BaumNichtLesbar as fehler:
         raise SystemExit(
             f"emit: cannot determine whether {repo} is clean (git {' '.join(args[:2])}: {fehler}) "
             "— refusing to bind a tree digest that may not describe what was measured "
@@ -352,7 +358,7 @@ def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
     return lauf.stdout
 
 
-def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
+def _git_z(repo: Path, *args: str) -> list[str]:
     """A NUL-separated git listing as a list of entries, raw paths, no quoting.
 
     DECODED THE WAY THE FILESYSTEM NAMES ARE, `os.fsdecode`, not UTF-8 with replacement. Measured
@@ -362,8 +368,7 @@ def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
     byte as a surrogate; the same decoding here makes the two spellings of one name compare equal,
     and `os.fsencode` gives git the original bytes back.
     """
-    return [os.fsdecode(e)
-            for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
+    return [os.fsdecode(e) for e in _git_bytes(repo, *args).split(b"\0") if e]
 
 
 def _pfade_auf_platte(repo_abs: Path) -> list[str]:
@@ -409,6 +414,21 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
     — is hidden by state the head does not carry, and refuses. A path no rule hides is untracked
     and refuses. `core.ignorecase` is forced off for the question, so the rule matching does not
     inherit a configured equality either.
+
+    THE SOURCE IS JUDGED BY WHAT IT IS, NOT BY ITS NAME (2026-09-27, measured). `check-ignore -v`
+    reports an excludes file by the string the configuration gives, and `core.excludesFile =
+    logs/.gitignore` names a TRACKED file: the rule then passed as the tree's own, and an untracked
+    `conftest.py` that rewrote every test outcome was hidden while the emit returned 0. The funnel
+    now pins `core.excludesFile` to an empty file, and a source counts only if it is a tracked file
+    named `.gitignore` in a directory that contains the path, which is the only place a per-directory
+    rule can apply.
+
+    EACH NAME IS HANDED OVER AS `./<name>` (2026-09-27, measured): `check-ignore` parses its input
+    as pathspecs, so an untracked `:build/conftest.py` was read as the magic `:build...` and never
+    looked up, and an ignored `:!x.log` made git die with "pathspec magic not supported". A name
+    that begins with `./` carries no magic; git echoes it back as given, and the prefix is removed
+    again below. (`GIT_LITERAL_PATHSPECS` is not the answer here: `check-ignore` rejects every path
+    under it.)
     """
     kandidaten = [p for p in _pfade_auf_platte(repo_abs) if p not in verfolgt]
     if not kandidaten:
@@ -416,7 +436,7 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
     if any("\n" in p or "\0" in p for p in kandidaten):
         raise SystemExit("emit: a path on disk carries a newline or NUL in its name — refusing, such "
                          "a path cannot be named to git without ambiguity")
-    eingabe = b"".join(os.fsencode(p) + b"\0" for p in kandidaten)
+    eingabe = b"".join(b"./" + os.fsencode(p) + b"\0" for p in kandidaten)
     # exit 1 means "none of the given paths is ignored", which is an answer, not an error.
     roh = _git_bytes(repo, "-c", "core.ignorecase=false", "check-ignore", "-v", "-z", "--no-index",
                      "--stdin", eingabe=eingabe, erlaubte_codes=(0, 1))
@@ -424,7 +444,7 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
     for i in range(0, len(felder) - 3, 4):
         quelle, _zeile, muster, pfad = felder[i:i + 4]
-        quelle_je_pfad[pfad] = (quelle, muster)
+        quelle_je_pfad[pfad[2:] if pfad.startswith("./") else pfad] = (quelle, muster)
     raus: list[str] = []
     for p in kandidaten:
         if p not in quelle_je_pfad:
@@ -438,9 +458,19 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
         if muster.startswith("!"):
             raus.append(f"?? {p}")
             continue
-        if quelle not in verfolgt:
+        if not _eine_verfolgte_regel_fuer(quelle, p, verfolgt):
             raus.append(f"!! {p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
     return raus
+
+
+def _eine_verfolgte_regel_fuer(quelle: str, pfad: str, verfolgt: set[str]) -> bool:
+    """True iff `quelle` is a tracked `.gitignore` whose directory contains `pfad`: the only kind of
+    file whose rule is the tree's own word about that path. A tracked file of another name, or a
+    tracked `.gitignore` in an unrelated directory, is a source the configuration pointed at."""
+    if quelle not in verfolgt:
+        return False
+    ordner, _, name = quelle.rpartition("/")
+    return name == ".gitignore" and (not ordner or pfad.startswith(ordner + "/"))
 
 
 def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
@@ -508,8 +538,9 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     repo_abs = repo.resolve()
     schmutzig: list[str] = []
     # ── every committed entry against the bytes on disk ─────────────────────────────────────────
-    felder = _git_z(repo, "ls-tree", "-r", "-z", "HEAD")
+    felder = _git_z(repo, "ls-tree", "--full-tree", "-r", "-z", "HEAD")
     regulaer: list[tuple[str, str]] = []            # (path, expected oid) for the batch hash
+    ordner_befund: dict[str, str | None] = {}       # directory -> why it is not a directory
     for feld in felder:
         kopf, _, pfad = feld.partition("\t")
         try:
@@ -519,6 +550,16 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
         if typ != "blob":
             schmutzig.append(f"?! {pfad} (a {typ} entry; this tool compares files and symbolic "
                              "links only, so it refuses rather than guess)")
+            continue
+        # EVERY LEADING COMPONENT IS A DIRECTORY, read with lstat (2026-09-27, measured). `lstat`
+        # does not follow the LAST component only: with the tracked directory `vendor` replaced by a
+        # symbolic link to an identical copy outside the tree, and `vendor` hidden by a tracked
+        # ignore rule, `lstat("vendor/lib.py")` and `hash-object --stdin-paths` both read the copy
+        # outside, git status said ` D vendor/lib.py`, and the emit returned 0 while the audit read
+        # the outside file. A path is compared only where each directory above it is one.
+        befund = _kein_ordner_darueber(repo_abs, pfad, ordner_befund)
+        if befund is not None:
+            schmutzig.append(befund)
             continue
         ziel = repo_abs / pfad
         try:
@@ -536,7 +577,13 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
             if ist_oid != oid:
                 schmutzig.append(f"M {pfad}")
         elif stat.S_ISREG(st.st_mode):
-            ist_mode = "100755" if st.st_mode & 0o111 else "100644"
+            # THE OWNER'S EXECUTE BIT, as git reads it (2026-09-27, measured). git records 100755
+            # iff `S_IXUSR` is set and ignores the group and other bits; this read `& 0o111`. A
+            # committed 100755 `run.sh` at 0655 on disk (git status: ` M run.sh`, and the audit got
+            # `Permission denied` running it) emitted, and a 100644 file at 0645 (git status clean)
+            # refused. The comparison is the one git makes with `core.fileMode=true`; it is not
+            # left to the configuration, so `core.fileMode=false` still refuses a mode change.
+            ist_mode = "100755" if st.st_mode & stat.S_IXUSR else "100644"
             regulaer.append((pfad, oid))
         else:
             schmutzig.append(f"?! {pfad} (neither a regular file nor a symbolic link)")
@@ -561,7 +608,8 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
                 "comparison over a partial set would clear paths nobody looked at")
         schmutzig.extend(f"M {p}" for (p, soll), oid in zip(regulaer, ist) if oid != soll)
     # ── staged content against the head, on the real index ─────────────────────────────────────
-    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames", "--name-status", "HEAD")
+    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames",
+                      "--ignore-submodules=none", "--name-status", "HEAD")
     schmutzig.extend(f"staged {e}" for e in _paare(gestaged))
     # ── untracked paths, read from the filesystem and judged by the tree's own rules ────────────
     verfolgt = {feld.partition("\t")[2] for feld in felder}
@@ -575,6 +623,34 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
             f"the bytes attested would not be the bytes measured:\n  {gezeigt}{mehr}")
     head = _git_bytes(repo, "rev-parse", "--verify", "HEAD").decode("ascii", "replace").strip()
     return {"head": head, "tree_digest": _tree_digest(repo)}
+
+
+def _kein_ordner_darueber(repo_abs: Path, pfad: str, gesehen: dict[str, str | None]) -> str | None:
+    """The refusal line for `pfad` if a directory above it is not a real directory, else None.
+
+    Each directory is read once with `lstat`, top down, and remembered in `gesehen`, so a tree with
+    many files in one directory costs one call per directory, not one per file."""
+    teile = pfad.split("/")[:-1]
+    for i in range(1, len(teile) + 1):
+        ordner = "/".join(teile[:i])
+        if ordner not in gesehen:
+            try:
+                st = os.lstat(repo_abs / ordner)
+            except FileNotFoundError:
+                gesehen[ordner] = "D"
+            except OSError as fehler:
+                gesehen[ordner] = f"cannot be read: {fehler}"
+            else:
+                gesehen[ordner] = (None if stat.S_ISDIR(st.st_mode) else
+                                   "a symbolic link" if stat.S_ISLNK(st.st_mode) else
+                                   "not a directory")
+        grund = gesehen[ordner]
+        if grund == "D":
+            return f"D {pfad}"
+        if grund is not None:
+            return (f"?! {pfad} (the directory {ordner} above it is {grund} on disk, so the path "
+                    "would be read from somewhere other than the tree)")
+    return None
 
 
 def _paare(eintraege: list[str]) -> list[str]:
@@ -615,7 +691,11 @@ def _audit_ausfuehren(repo: Path, audit_command: str, ausgabe: Path) -> tuple[in
         raise SystemExit(
             f"emit: the audit record {ausgabe} already exists — refusing, because this tool writes "
             "the record of the run it measured and does not bind one produced elsewhere")
-    umgebung = dict(os.environ)
+    # The audit program gets the caller's environment without git's namespace, built here rather
+    # than taken from the process: a caller that imports this module and sets a `GIT_*` name
+    # afterwards would otherwise hand it to the program whose run the receipt records.
+    umgebung = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    umgebung["GIT_NO_REPLACE_OBJECTS"] = "1"
     umgebung["PYTHONDONTWRITEBYTECODE"] = "1"
     umgebung["PYTHONPYCACHEPREFIX"] = str(_CACHE_DIR)
     hasher = hashlib.sha256()
