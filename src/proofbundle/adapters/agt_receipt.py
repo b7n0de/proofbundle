@@ -184,19 +184,40 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> boo
     return verify_ed25519_pinned(schluessel, signatur, nutzlast)
 
 
+def _als_bytes(wert) -> "bytes | None":
+    """The bytes a byte string holds, or None when `wert` exports no buffer.
+
+    BY THE BUFFER PROTOCOL, NOT BY THE PYTHON TYPE (lens run 2 at 8cf49247, K2-1-C). The first version
+    judged `bytes` and `bytearray` only, so the identity point as a `memoryview` or an `array('B', …)`
+    next to the real authorizer key gave exit 0 with the weak key never judged. Whatever exports a
+    buffer is read as `memoryview(...).tobytes()`. Text is not a byte string here: it is a spelling
+    and is decoded as hex by the caller. A TypeError from `memoryview` means "exports no buffer"; any
+    other exception (a released view, say) is left to the reader of the list, which refuses it."""
+    if isinstance(wert, str):
+        return None
+    try:
+        sicht = memoryview(wert)
+    except TypeError:
+        return None
+    with sicht:
+        return sicht.tobytes()
+
+
 def _schluesselbytes(eintrag) -> "bytes | None":
-    """The 32 key bytes an entry names, or None when it names no key. Hex text is decoded; raw
-    `bytes`/`bytearray` are taken as they are (lens run 1 at 053c7800, K2-01: the identity point given
-    as raw bytes was never judged). Anything else, including a nested list, names no key."""
-    if isinstance(eintrag, (bytes, bytearray)):
-        roh = bytes(eintrag)
-    elif isinstance(eintrag, str):
+    """The 32 key bytes an entry names, or None when it names no key. Hex text is decoded; a byte
+    string (anything with a buffer, see `_als_bytes`) is taken as its bytes (lens run 1 at 053c7800,
+    K2-01: the identity point given as raw bytes was never judged). Anything else, a number, a nested
+    list, a list of numbers, names no key."""
+    if isinstance(eintrag, str):
         try:
             roh = bytes.fromhex(eintrag)
         except ValueError:
             return None
     else:
-        return None
+        gelesen = _als_bytes(eintrag)
+        if gelesen is None:
+            return None
+        roh = gelesen
     return roh if len(roh) == 32 else None
 
 
@@ -244,12 +265,47 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     a number, None) is left standing and matches nothing, as `"x"` has since 3c9c98c3: a list whose
     job is to name keys cannot authorise anything through a non-key. Something that cannot be walked
     at all is no list of keys, and that is a refusal of the list (exit 2), never a TypeError.
+
+    ONE KEY IS NOT A LIST (lens run 2 at 8cf49247, K2-1-C). A str, or a value that exports a byte
+    buffer (bytes, bytearray, memoryview, array), is ONE spelling; walked, text falls apart into
+    characters and bytes into numbers, none of which names a key. The identity point as a bare string
+    gave exit 0 for a receipt without an authorization, and the real key as a bare string gave exit 3
+    for the one that has it. Such a value is refused as a single key, exit 2.
+
+    ANY EXCEPTION WHILE READING THE CALLER'S LIST IS A REFUSAL OF THE LIST, NEVER AN ESCAPE (lens run 2
+    at 8cf49247, K2-1-B). The first version caught only TypeError from `tuple(...)`: a generator that
+    yields the real key and then raises ValueError, a closed file, a generator raising KeyError, all
+    escaped from a verifier that promises never to raise, and did so for a receipt that carries no
+    authorization at all. The list is the caller's object, so every call into it happens HERE — the
+    buffer probe, `iter`, each `next`, each entry's type and value — and what leaves this function is
+    plain `str`, plain `bytes` or None (an entry that names no key). Nothing further down calls into
+    a caller's object again: a `str` subclass whose `__eq__` raised escaped from the comparison on
+    8cf49247, and an entry whose `__class__` raised escaped from the type test. A list that fails
+    part-way is refused whole, never read in part, and the reason names the exception type. Only
+    `Exception` is caught: KeyboardInterrupt and SystemExit stop the process, they are not a list
+    that failed to read.
     """
+    gelesen: "list[str | bytes | None]" = []
     try:
-        eintraege = tuple(schluessel)
-    except TypeError:
-        return None, (f"trusted_authorizer_keys is {type(schluessel).__name__}, not a collection of "
-                      f"keys — it cannot be read as a relying party's list")
+        if isinstance(schluessel, str) or _als_bytes(schluessel) is not None:
+            return None, (f"trusted_authorizer_keys is one {type(schluessel).__name__} value, a single "
+                          f"key, not a collection of keys — pass the key inside a list")
+        try:
+            gang = iter(schluessel)
+        except TypeError:
+            return None, (f"trusted_authorizer_keys is {type(schluessel).__name__}, not a collection of "
+                          f"keys — it cannot be read as a relying party's list")
+        for eintrag in gang:
+            if isinstance(eintrag, str):
+                gelesen.append(str.__str__(eintrag))       # plain text, no subclass method runs later
+            else:
+                gelesen.append(_als_bytes(eintrag))
+    except Exception as fehler:  # noqa: BLE001 — never-raise is the promise of this surface
+        return None, (f"trusted_authorizer_keys could not be read to the end: after {len(gelesen)} "
+                      f"entr{'y' if len(gelesen) == 1 else 'ies'} reading it raised "
+                      f"{type(fehler).__name__} — a list that cannot be read whole is refused, never "
+                      f"read in part")
+    eintraege = tuple(gelesen)
     gruende = []
     for i, eintrag in enumerate(eintraege):
         grund = _schwaeche(eintrag)
@@ -307,12 +363,34 @@ def verify_agt_receipt(
     any signature arithmetic, and the check says which key and why. A weak key on the relying
     party's list refuses the list before the receipt is read (`trusted-authorizer-keys`, exit 2, the
     malformed-input code, as a weak pin in a trust policy is). The list may be any iterable; it is
-    read once, and an entry is a key as hex text or as 32 raw bytes (see `_vertrauensliste`).
+    read once, and a list that cannot be read whole, or a single key passed instead of a list, is
+    refused the same way (see `_vertrauensliste`).
+
+    WHAT AN ENTRY CAN DO. Every entry that names a 32-byte key is JUDGED by the rule: hex text, and a
+    byte string (bytes, bytearray, memoryview, array, anything with a buffer). Only hex TEXT can
+    AUTHORISE: the authorizer key is compared with the entries as text, so a key given as raw bytes is
+    refused when it is weak and otherwise matches nothing, not even the authorizer's own key (exit 3,
+    a named limit in the CHANGELOG). Raw bytes are judged, and never trusted.
     """
+    gelesen = None if trusted_authorizer_keys is None else _vertrauensliste(trusted_authorizer_keys)
+    return _pruefe_mit_gelesener_liste(
+        receipt, gelesen, require_external_authorization=require_external_authorization, now=now)
+
+
+def _pruefe_mit_gelesener_liste(
+    receipt: Dict[str, Any],
+    gelesen: "tuple[tuple | None, str | None] | None",
+    *,
+    require_external_authorization: bool = False,
+    now: Optional[float] = None,
+) -> VerificationResult:
+    """The body of :func:`verify_agt_receipt`, over a list `_vertrauensliste` has ALREADY read (None
+    when the caller supplied none). Kept apart so the single call and the chain read the caller's list
+    through the same helper exactly once, and every receipt of a chain gets the same reading."""
     ergebnis = VerificationResult()
     vertraut: "tuple | None" = None
-    if trusted_authorizer_keys is not None:
-        vertraut, abgewiesen = _vertrauensliste(trusted_authorizer_keys)
+    if gelesen is not None:
+        vertraut, abgewiesen = gelesen
         if abgewiesen is not None:
             ergebnis.add("trusted-authorizer-keys", False, abgewiesen)
             return ergebnis
@@ -430,7 +508,9 @@ def verify_agt_receipt(
         # THE MATERIALISED TUPLE, compared as TEXT, and never through `set(...)`: an unhashable
         # entry raised TypeError there (lens run 1 at 053c7800, a nested list; on main too). Text
         # equality is what `a_key in set(...)` computed for every text entry, so the verdict for a
-        # list of hex strings is unchanged, hex case included (a named limit in the CHANGELOG).
+        # list of hex strings is unchanged, hex case included (a named limit in the CHANGELOG). The
+        # tuple holds only plain `str`, plain `bytes` and None, so this comparison runs no method of
+        # the caller's (lens run 2 at 8cf49247: a `str` subclass whose `__eq__` raised escaped here).
         treffer = any(isinstance(e, str) and e == a_key for e in vertraut)
         ohne = sum(1 for e in vertraut if _schluesselbytes(e) is None)
         ergebnis.add("external-authorization-trusted", treffer,
@@ -462,18 +542,19 @@ def verify_agt_receipt_chain(
         ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
         return ergebnis
 
-    # ONE READING OF THE RELYING PARTY'S LIST FOR THE WHOLE CHAIN. Every receipt gets the same
-    # object, and a one-shot iterator read by the first receipt would be empty for the one that
-    # carries the authorization. Something that cannot be walked is passed on as it is, so that each
-    # receipt reports the refusal in its own verdict.
-    if kwargs.get("trusted_authorizer_keys") is not None:
-        try:
-            kwargs = dict(kwargs, trusted_authorizer_keys=tuple(kwargs["trusted_authorizer_keys"]))
-        except TypeError:
-            pass
+    # ONE READING OF THE RELYING PARTY'S LIST FOR THE WHOLE CHAIN, through the same helper a single
+    # call uses, and every receipt gets that one reading: a one-shot iterator read by the first
+    # receipt would be empty for the one that carries the authorization. When the reading is a
+    # refusal (a weak key, a single key instead of a list, a list that cannot be walked or fails
+    # part-way), every receipt reports that same refusal, and the caller's object is NOT read again.
+    # Lens run 2 at 8cf49247 (K2-1-A): the chain caught the TypeError of a list that yields a weak key,
+    # raises once and then yields the real one, and passed the HALF-READ iterator on; the first
+    # receipt then found only the real key, exit 0, where the single call gave exit 2.
+    liste = kwargs.pop("trusted_authorizer_keys", None)
+    gelesen = None if liste is None else _vertrauensliste(liste)
 
     for i, r in enumerate(receipts):
-        teil = verify_agt_receipt(r, **kwargs)
+        teil = _pruefe_mit_gelesener_liste(r, gelesen, **kwargs)
         for c in teil.checks:
             ergebnis.add(f"[{i}] {c.name}", c.ok, c.detail)
 

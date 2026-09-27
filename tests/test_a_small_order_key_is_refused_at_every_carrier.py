@@ -289,6 +289,174 @@ class AgtAuthorizerList(unittest.TestCase):
                                  (False, 2, "trusted-authorizer-keys"))
                 self.assertIn("not a collection", e.checks[0].detail)
 
+    # ── K2-1 (lens run 2 at 8cf49247): reading the caller's list is where the caller's code runs ──
+
+    def test_a_list_that_raises_while_it_is_read_is_refused_and_never_escapes(self):
+        """K2-1-B. On 8cf49247 only a TypeError from `tuple(...)` was caught: a generator that yields
+        the real key and then raises ValueError, a generator raising KeyError, a closed file, an
+        `__iter__` that raises, and an entry whose `__class__` raises all escaped from both verifiers,
+        for a receipt WITHOUT an authorization (01) as well as for 03. On 053c7800 receipt 01 gave exit
+        0 under the first three. Every one is now a refusal of the list, and the reason names the type."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        def then_raise(exc, items):
+            yield from items
+            raise exc("the walk failed part-way")
+
+        class IterRaises:
+            def __iter__(self):
+                raise RuntimeError("no walk")
+
+        class ClassRaises:
+            @property
+            def __class__(self):
+                raise RuntimeError("no type")
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "keys.txt"
+            p.write_text(real + "\n", encoding="utf-8")
+
+            def closed_file():
+                f = open(p, encoding="utf-8")
+                f.close()
+                return f
+
+            def released_view():
+                v = memoryview(I1)
+                v.release()
+                return [v, real]
+
+            cases = {
+                "generator: the real key, then ValueError": (lambda: then_raise(ValueError, [real]), "ValueError"),
+                "generator: KeyError before any entry": (lambda: then_raise(KeyError, []), "KeyError"),
+                "closed file object": (closed_file, "ValueError"),
+                "__iter__ raises": (IterRaises, "RuntimeError"),
+                "an entry whose __class__ raises": (lambda: [ClassRaises(), real], "RuntimeError"),
+                "a released memoryview entry": (released_view, "ValueError"),
+            }
+            for name, (make, typ) in cases.items():
+                for label, receipt in (("01, no authorization", r1), ("03, authorized", r3)):
+                    with self.subTest(case=name, receipt=label):
+                        e = verify_agt_receipt(receipt, trusted_authorizer_keys=make())     # must not raise
+                        self.assertEqual((e.ok, exit_code(e), [c.name for c in e.checks]),
+                                         (False, 2, ["trusted-authorizer-keys"]))
+                        self.assertIn(typ, e.checks[0].detail)
+                        self.assertIn("could not be read to the end", e.checks[0].detail)
+                with self.subTest(case=name, receipt="chain 01, 02, 03"):
+                    e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=make())
+                    self.assertEqual(exit_code(e), 2)
+                    self.assertEqual(sum(1 for c in e.checks if c.name.endswith("trusted-authorizer-keys")), 3)
+
+    def test_a_list_entry_is_read_once_and_no_method_of_it_runs_later(self):
+        """K2-1-B, the comparison half: a `str` subclass whose `__eq__` raises reached `e == a_key` on
+        8cf49247 and escaped. The reader keeps plain `str`, so the entry is the text it holds, and the
+        real key given that way authorises as the same text does."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+
+        class EqRaises(str):
+            def __eq__(self, other):
+                raise RuntimeError("no comparison")
+            __hash__ = str.__hash__
+
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        e = verify_agt_receipt(r3, trusted_authorizer_keys=[EqRaises(r3["authorizer_public_key"])])
+        self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+        e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=[EqRaises(r3["authorizer_public_key"])])
+        self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+
+    def test_the_chain_refuses_a_half_read_list_and_does_not_read_it_again(self):
+        """K2-1-A. On 8cf49247 the chain caught the TypeError of a list that yields the identity point,
+        raises once and then yields the real key, and handed the HALF-READ iterator to the receipts:
+        the first one then found only the real key, exit 0, where the single call gave exit 2. Now the
+        chain reads the list through the same helper once, every receipt reports the same refusal, and
+        the caller's iterator is not touched again after it failed."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+
+        class Resuming:
+            """Yields the identity point, raises TypeError once, then yields the real key."""
+            def __init__(self):
+                self.rest = [I1.hex(), TypeError, real]
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if not self.rest:
+                    raise StopIteration
+                x = self.rest.pop(0)
+                if x is TypeError:
+                    raise TypeError("transient")
+                return x
+
+        single = verify_agt_receipt(r3, trusted_authorizer_keys=Resuming())
+        self.assertEqual(exit_code(single), 2)
+        for chain in ([r3], [r1, r2, r3]):
+            with self.subTest(chain=len(chain)):
+                it = Resuming()
+                e = verify_agt_receipt_chain(chain, trusted_authorizer_keys=it)
+                self.assertEqual(exit_code(e), exit_code(single), [(c.name, c.ok) for c in e.checks])
+                refused = [c for c in e.checks if c.name.endswith("trusted-authorizer-keys")]
+                self.assertEqual(len(refused), len(chain), "every receipt reports the one refusal")
+                self.assertEqual(len({c.detail for c in refused}), 1)
+                self.assertIn("TypeError", refused[0].detail)
+                self.assertEqual(it.rest, [real], "the iterator was read again after it failed")
+        with self.subTest(chain="a normalising generator: identity point, then TypeError"):
+            e = verify_agt_receipt_chain(
+                [r1, r2], trusted_authorizer_keys=(bytes.fromhex(k).hex() for k in [I1.hex(), None, real]))
+            self.assertEqual(exit_code(e), 2, "on 8cf49247 this chain gave exit 0")
+
+    def test_a_byte_string_entry_is_judged_whatever_its_python_type(self):
+        """K2-1-C, entries. Judged by the buffer protocol, not by `bytes`/`bytearray`: on 8cf49247 the
+        identity point as a `memoryview` or an `array('B', …)` next to the real key gave exit 0. A raw
+        entry is judged and never authorises (the comparison is by hex text); numbers and a list of
+        numbers still name no key."""
+        import array
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
+        r = _agt("03_extern_autorisiert")
+        real = r["authorizer_public_key"]
+        for weak, reason in WEAK:
+            for form in (memoryview(weak), array.array("B", weak), memoryview(bytearray(weak))):
+                with self.subTest(key=weak.hex(), form=type(form).__name__):
+                    e = verify_agt_receipt(r, trusted_authorizer_keys=[form, real])
+                    self.assertEqual((exit_code(e), e.checks[0].name), (2, "trusted-authorizer-keys"))
+                    self.assertIn(TRUST_ANCHOR_REFUSAL[reason], e.checks[0].detail)
+        with self.subTest(control="the real key as a memoryview is judged and matches nothing"):
+            self.assertEqual(exit_code(verify_agt_receipt(
+                r, trusted_authorizer_keys=[memoryview(bytes.fromhex(real))])), 3)
+        with self.subTest(control="a number and a list of numbers name no key"):
+            e = verify_agt_receipt(r, trusted_authorizer_keys=[int.from_bytes(I1, "little"), list(I1), real])
+            self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
+            trusted = [c for c in e.checks if c.name == "external-authorization-trusted"]
+            self.assertIn("2 of which name no key", trusted[0].detail)
+
+    def test_one_key_passed_instead_of_a_list_is_refused_as_a_single_key(self):
+        """K2-1-C, the whole value. A str or a byte string passed AS the list was walked character by
+        character or byte by byte, none of which names a key: on 8cf49247 the identity point as a bare
+        string gave exit 0 for receipt 01, and the real key as a bare string exit 3 for receipt 03. It
+        is one key, not a collection of keys, and it is refused as that, exit 2."""
+        import array
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+        values = {"str, identity point": I1.hex(), "str, the real key": real, "bytes": bytes(I1),
+                  "bytearray": bytearray(I1), "memoryview": memoryview(I1), "array('B')": array.array("B", I1),
+                  "bytes, the real key": bytes.fromhex(real), "empty str": ""}
+        for name, value in values.items():
+            for label, receipt in (("01, no authorization", r1), ("03, authorized", r3)):
+                with self.subTest(value=name, receipt=label):
+                    e = verify_agt_receipt(receipt, trusted_authorizer_keys=value)
+                    self.assertEqual((e.ok, exit_code(e), [c.name for c in e.checks]),
+                                     (False, 2, ["trusted-authorizer-keys"]))
+                    self.assertIn("a single key, not a collection of keys", e.checks[0].detail)
+            with self.subTest(value=name, receipt="chain 01, 02, 03"):
+                e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=value)
+                self.assertEqual(exit_code(e), 2)
+                self.assertEqual(sum(1 for c in e.checks if c.name.endswith("trusted-authorizer-keys")), 3)
+
 
 # ── 2. the findings register's carrier: `_signatur_lage` and the views ──────────────────────────
 

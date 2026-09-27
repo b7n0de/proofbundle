@@ -41,7 +41,20 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   entry raised `TypeError` (on main too): the list is now read once, as one tuple that the refusal
   and the comparison share (once per chain), 32 raw bytes are judged as a key, an entry that names
   no key matches nothing and is counted in the check detail, and a value that cannot be walked
-  refuses the list (exit 2). The register exit has a new state `KEY_REFUSED`,
+  refuses the list (exit 2). A second lens run at 8cf49247 measured three more ways past that
+  reading: a list whose walk raised anything but `TypeError` (a generator that yields the real key
+  and then raises `ValueError`, a closed file, a generator raising `KeyError`) escaped from both
+  verifiers, for a receipt without an authorization as well, which exited 0 at 053c7800; the chain
+  caught the `TypeError` of a list that yields the identity point, raises once and then yields the
+  real key, and passed the half-read iterator on, exit 0 where the single call gave exit 2; and an
+  entry was judged by its Python type, so the identity point as a `memoryview` or an `array('B', …)`
+  next to the real key gave exit 0, and one key passed instead of a list was walked character by
+  character (the identity point as a bare string: exit 0). Now any `Exception` raised while the
+  caller's list is read refuses the list and names the exception type (exit 2); the single call
+  and the chain read the list through one helper, once, and when that reading is a refusal every
+  receipt of the chain reports it and the list is not read again; an entry that exports a buffer is
+  judged as its bytes; and a str or byte string passed as the whole list is refused as a single
+  key (exit 2). The register exit has a new state `KEY_REFUSED`,
   which `pruefe_v2` counts as an error and the views print as unauthenticated. SPEC §4b needed no
   change: it already covers every key that is not the bundle's own.
 
@@ -70,8 +83,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
   fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and
   is no Ed25519 did:key. `trusted_authorizer_keys` is compared as text: the real authorizer key
-  listed in capitals gives exit 3, and so does the real key given as 32 raw bytes, which the rule
-  judges but which is not text, so the error falls on the closed side.
+  listed in capitals gives exit 3, and so does the real key given as a byte string (32 raw bytes,
+  a `memoryview`, an `array`), which the rule judges but which is not text, so the error falls on
+  the closed side.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
