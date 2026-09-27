@@ -37,13 +37,26 @@ each measured with cargo-audit 0.22.2, each with the whole step at exit 0 before
   stderr for it, the terminal run named it there. The gate reads stderr of both runs; a line that is not
   progress or a summary is exit 2, and the two runs must agree.
 
+WHAT THE GATE ALONE LET THROUGH (lens verdict on PR 296 at d30f236e, C3): called with --no-fetch against
+an advisory database with no advisories in it, cargo-audit 0.22.2 loads 0 (`Loaded 0 security
+advisories`, `database.advisory-count` 0) and exits 0, and the gate said OK on a lock holding
+curve25519-dalek 4.1.2, which the fetched database fails with RUSTSEC-2024-0344. The step fetches right
+before the gate, so the whole step did not reach this; the gate did. Now the gate establishes the
+database itself before it vouches for a report: $CARGO_HOME/advisory-db (~/.cargo/advisory-db when
+CARGO_HOME is unset), handed to every cargo-audit run as --db, must exist, carry the fetch marker
+cargo-audit writes on every fetch (.git/FETCH_HEAD) no older than one hour and naming HEAD, and have a
+last commit younger than rustsec's own 90 days; and both runs must have loaded more than 0 advisories,
+the same number, from that path. Each is exit 2 with its reason, never 0.
+
 `--self-test` proves each of these with lock files it writes into temporary directories (so the
 repository carries no fixture), through the gate itself: a lock holding personnummer 0.1.0 fails the
 gate although `--deny warnings` exits 0; a lock holding rsa 0.9.10 (RUSTSEC-2023-0071, the one listed
 exception, which PR 290 brings into Cargo.lock) passes next to the checked-in audit.toml with
 vulnerabilities.count 0 and no warning, and fails without it; smallvec 1.6.0 in the sparse spelling
 fails naming RUSTSEC-2021-0003; a git source fails; an audit.toml with a `[target]` table is refused; a
-yanked lookup that fails (a crate the index does not carry) is exit 2. `--lock` judges any other lock
+yanked lookup that fails (a crate the index does not carry) is exit 2; curve25519-dalek 4.1.2 fails
+against the fetched database and ends the gate with 2 against a database with no advisories, a
+database fetched longer ago than the bound and a missing database end it with 2. `--lock` judges any other lock
 file in the same way, which is how the full Cargo.lock of PR 290 was measured.
 
 Exit codes: 0 pass, 1 an unlisted advisory or warning (or a failed self-test case), 2 an error.
@@ -59,6 +72,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -308,6 +322,123 @@ def judge(report) -> list:
     return gruende
 
 
+ADVISORY_DB_URL = "https://github.com/RustSec/advisory-db.git"
+
+#: How long ago the advisory database may have been fetched when the gate reads it: one hour. The
+#: rust-parity step fetches it right before the gate (cargo audit without --no-fetch, the step's third
+#: line); measured on CI run 36343366980, the fetch began at 19:14:05.34Z and the self-test's last line
+#: came at 19:14:10.15Z, under five seconds, and the job's timeout is 30 minutes, so no run of that
+#: job can reach the bound. Any fetch resets it: rustsec 0.33.0 rewrites .git/FETCH_HEAD on every clone
+#: and fetch (src/repository/git/repository.rs), measured twice on ~/.cargo/advisory-db with fetches
+#: that brought no new commit (16:21:48Z run, marker 16:21:50Z; 21:17:12.16Z run, marker 21:17:12.84Z).
+#: The fetch marker, not the last commit, carries the tight bound: the longest gap between two commits
+#: on the database's main branch in the last five years is 24.06 days (measured at e2111519), so a
+#: tight bound on the commit would fail a database fetched a second ago.
+FETCH_AGE_BOUND = 3600
+#: rustsec 0.33.0's own bound on the age of the database's last commit (STALE_AFTER, 90 days,
+#: src/repository/git/commit.rs, the committer time of HEAD): a fetch refuses an older database, but
+#: rustsec writes the fetch marker before that check, and --no-fetch skips it (cargo-audit 0.22.2,
+#: src/auditor.rs). The gate applies it itself. 90 days is 3.7 times the longest measured gap.
+COMMIT_AGE_BOUND = 90 * 86400
+#: How far the fetch marker may lie ahead of this clock: the fetch and the gate run on one machine,
+#: so only a clock adjustment between them puts it ahead, and a minute covers one.
+_CLOCK_LEAD = 60
+_FETCH_HEAD_LINE = re.compile(r"([0-9a-f]{40})\t\t(\S.*)")
+
+
+def advisory_db_path() -> Path:
+    """The advisory database cargo-audit reads when no --db is given: $CARGO_HOME/advisory-db, and
+    ~/.cargo/advisory-db when CARGO_HOME is unset or empty; a relative CARGO_HOME is taken from the
+    working directory (rustsec 0.33.0 Repository::default_path through home 0.5.12 cargo_home). The gate
+    hands this path to every cargo-audit run as --db, so the database it establishes is the one they read."""
+    return (Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "advisory-db").absolute()
+
+
+def _git(db: Path, *args: str) -> str:
+    """stdout of a git plumbing command on the database's repository. GIT_* variables are dropped so
+    that none of them points git at another repository or object store."""
+    umgebung = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        lauf = subprocess.run(["git", "--no-replace-objects", f"--git-dir={db / '.git'}", *args], env=umgebung,
+                              capture_output=True, encoding="utf-8", errors="replace", timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GateError(f"git could not read the advisory database {db} ({exc})") from exc
+    if lauf.returncode != 0:
+        raise GateError(f"git could not read the advisory database {db}: {lauf.stderr.strip()[:300]}")
+    return lauf.stdout
+
+
+def database_state(db: Path) -> str:
+    """What the gate established about the advisory database `db`; a GateError when it cannot vouch for it.
+
+    The database must exist; carry .git/FETCH_HEAD, which rustsec 0.33.0 writes on every clone and fetch
+    (its first line the remote HEAD commit, two tabs and the URL), last written no longer ago than
+    FETCH_AGE_BOUND and not ahead of this clock by more than _CLOCK_LEAD; have HEAD at the commit that
+    fetch brought, so the marker speaks of this content; and have that commit younger than
+    COMMIT_AGE_BOUND by its committer time, the time rustsec judges."""
+    if not db.is_dir():
+        raise GateError(f"the advisory database {db} does not exist (the gate reads $CARGO_HOME/advisory-db, "
+                        "~/.cargo/advisory-db when CARGO_HOME is unset): the audit would check the lock against "
+                        "nothing")
+    marker = db / ".git" / "FETCH_HEAD"
+    try:
+        geschrieben = marker.stat().st_mtime
+        erste = marker.read_text(encoding="utf-8").split("\n", 1)[0]
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GateError(f"the advisory database {db} has no fetch marker (.git/FETCH_HEAD, which cargo-audit "
+                        f"writes on every fetch; {exc}): the gate cannot tell when it was fetched") from exc
+    alter = time.time() - geschrieben
+    if alter > FETCH_AGE_BOUND:
+        raise GateError(f"the advisory database {db} was last fetched {alter / 60:.0f} minutes ago "
+                        f"(.git/FETCH_HEAD), longer than the bound of {FETCH_AGE_BOUND // 60} minutes: fetch it "
+                        "(cargo audit without --no-fetch) and run the gate again")
+    if alter < -_CLOCK_LEAD:
+        raise GateError(f"the fetch marker of the advisory database {db} lies in the future, {-alter:.0f} s "
+                        "ahead of this clock: the gate cannot tell when it was fetched")
+    zeile = _FETCH_HEAD_LINE.fullmatch(erste)
+    if not zeile:
+        raise GateError(f"the fetch marker of the advisory database {db} does not begin with a commit, two tabs "
+                        f"and a URL, the form cargo-audit writes: {erste[:120]!r}")
+    kopf = _git(db, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+    if kopf != zeile.group(1):
+        raise GateError(f"HEAD of the advisory database {db} ({kopf or 'none'}) is not the commit the last fetch "
+                        f"brought ({zeile.group(1)}): the database changed after that fetch, or the fetch did "
+                        "not complete")
+    kopfzeilen = _git(db, "cat-file", "commit", kopf).split("\n\n", 1)[0].split("\n")
+    committer = [z for z in kopfzeilen if z.startswith("committer ")]
+    teile = committer[0].rsplit(" ", 2) if len(committer) == 1 else []
+    if len(teile) != 3 or not re.fullmatch(r"[0-9]+", teile[1]) or not re.fullmatch(r"[+-][0-9]{4}", teile[2]):
+        raise GateError(f"the last commit of the advisory database {db} ({kopf}) has no committer time git "
+                        "writes")
+    tage = (time.time() - int(teile[1])) / 86400
+    if tage * 86400 >= COMMIT_AGE_BOUND:
+        raise GateError(f"the last commit of the advisory database {db} ({kopf[:12]}) is {tage:.0f} days old, "
+                        f"at or past rustsec's own bound of {COMMIT_AGE_BOUND // 86400} days: cargo-audit refuses "
+                        "such a database on a fetch, and --no-fetch skips that rule")
+    return f"database {db} at {kopf[:12]}, fetched {max(alter, 0):.0f} s ago, last commit {tage:.1f} days old"
+
+
+def database_count(report) -> int:
+    """`database.advisory-count` of `cargo audit --json`: how many advisories the run loaded."""
+    database = report.get("database") if isinstance(report, dict) else None
+    anzahl = database.get("advisory-count") if isinstance(database, dict) else None
+    if type(anzahl) is not int or anzahl < 0:
+        raise GateError("cargo audit --json lacks database.advisory-count as a count")
+    return anzahl
+
+
+_LOADED = re.compile(r"\s*Loaded ([0-9]+) security advisories \(from (.+)\)")
+
+
+def loaded_advisories(stderr: str) -> tuple:
+    """(count, database path) of the one `Loaded` line cargo-audit's terminal run writes to stderr."""
+    geladen = [m for m in map(_LOADED.fullmatch, stderr.splitlines()) if m]
+    if len(geladen) != 1:
+        raise GateError(f"cargo audit (terminal) wrote {len(geladen)} Loaded lines, not one: it did not state "
+                        "which database it read")
+    return int(geladen[0].group(1)), geladen[0].group(2)
+
+
 #: What cargo-audit 0.22.2 writes to stderr on a run it completed, read from the rust-parity job's log
 #: and measured locally: its progress, and the two summary lines of the terminal run.
 _STDERR_PROGRESS = (
@@ -355,15 +486,17 @@ def _cargo_audit(directory: Path, befehl: list):
     return lauf
 
 
-def _flags(no_fetch: bool, check_yanked: bool) -> list:
-    return (["--no-fetch"] if no_fetch else []) + ([] if check_yanked else ["--no-yanked"])
+def _flags(no_fetch: bool, check_yanked: bool, database: Path) -> list:
+    return ["--db", str(database)] + (["--no-fetch"] if no_fetch else []) + ([] if check_yanked else ["--no-yanked"])
 
 
-def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True):
-    """(exit code, parsed report) of `cargo audit --json --file <lock>` run in `directory`.
-    `check_yanked=False` is for the self-test's cases that are not about a yanked crate; the gate
-    itself never skips the yanked check."""
-    lauf = _cargo_audit(directory, [cargo, "audit", "--json", "--file", lock] + _flags(no_fetch, check_yanked))
+def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True,
+              database: Path | None = None):
+    """(exit code, parsed report) of `cargo audit --json --file <lock>` run in `directory` against
+    `database` (advisory_db_path() unless given). `check_yanked=False` is for the self-test's cases that
+    are not about a yanked crate; the gate itself never skips the yanked check."""
+    lauf = _cargo_audit(directory, [cargo, "audit", "--json", "--file", lock]
+                        + _flags(no_fetch, check_yanked, database or advisory_db_path()))
     stderr_counts(lauf.stderr, "--json")
     try:
         return lauf.returncode, json.loads(lauf.stdout)
@@ -371,15 +504,17 @@ def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yank
         raise GateError(f"cargo audit --json wrote no JSON ({exc})") from exc
 
 
-def run_terminal(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True) -> tuple:
-    """(exit code, vulnerabilities, warnings) of the same audit in cargo-audit's terminal form, the one
-    that names a failed lookup on stderr."""
+def run_terminal(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True,
+                 database: Path | None = None) -> tuple:
+    """(exit code, vulnerabilities, warnings, (advisories loaded, from where)) of the same audit in
+    cargo-audit's terminal form, the one that names a failed lookup and the database it read on stderr."""
     lauf = _cargo_audit(directory, [cargo, "audit", "--file", lock, "--color", "never"]
-                        + _flags(no_fetch, check_yanked))
-    return (lauf.returncode, *stderr_counts(lauf.stderr, "terminal"))
+                        + _flags(no_fetch, check_yanked, database or advisory_db_path()))
+    return (lauf.returncode, *stderr_counts(lauf.stderr, "terminal"), loaded_advisories(lauf.stderr))
 
 
-def gate(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True) -> int:
+def gate(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: bool = True,
+         database: Path | None = None) -> int:
     toml = audit_toml_path(directory)
     try:
         ids, verweigert = audit_toml_ignore(toml.read_text(encoding="utf-8")) if toml else ([], [])
@@ -396,16 +531,35 @@ def gate(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: b
         raise GateError(f"{lock} in {directory} could not be read ({exc})") from exc
     fremd = foreign_sources(lock_packages(text))
     geprueft = crates_io_in_git_spelling(text)
+    db = database or advisory_db_path()
+    # Under --no-fetch the runs read the database as it stands, so it is established before them; a
+    # run that fetches brings it up to date, so it is established after them.
+    zustand = database_state(db) if no_fetch else None
     with tempfile.TemporaryDirectory() as tmp:
         datei = lock
         if geprueft != text:
             datei = str(Path(tmp) / "Cargo.lock")
             Path(datei).write_text(geprueft, encoding="utf-8")
-        rc, report = run_audit(directory, datei, cargo, no_fetch, check_yanked)
-        terminal = run_terminal(directory, datei, cargo, no_fetch, check_yanked)
+        rc, report = run_audit(directory, datei, cargo, no_fetch, check_yanked, db)
+        terminal = run_terminal(directory, datei, cargo, no_fetch, check_yanked, db)
+    zustand = zustand or database_state(db)
+    anzahl = database_count(report)
+    geladen, quelle = terminal[3]
+    if anzahl == 0:
+        raise GateError(f"cargo audit --json reports database.advisory-count 0: {db} holds no advisory, so the "
+                        "audit checked the lock against nothing")
+    if geladen == 0:
+        raise GateError(f"cargo audit (terminal) wrote Loaded 0 security advisories (from {quelle}): the audit "
+                        "checked the lock against nothing")
+    if quelle != str(db):
+        raise GateError(f"cargo-audit loaded its advisories from {quelle}, not from the database the gate "
+                        f"established ({db})")
+    if geladen != anzahl:
+        raise GateError(f"the terminal run loaded {geladen} advisories and the --json run reports {anzahl}: the "
+                        "two did not read the same database")
     gruende = fremd + judge(report)
     json_zahlen = (rc, report["vulnerabilities"]["count"], sum(len(v) for v in report["warnings"].values()))
-    if terminal != json_zahlen:
+    if terminal[:3] != json_zahlen:
         raise GateError(f"the terminal run (exit, vulnerabilities, warnings) {terminal} and the --json run "
                         f"{json_zahlen} disagree: the two did not see the same lookups")
     listed = listed_ids(report)
@@ -418,7 +572,8 @@ def gate(directory: Path, lock: str, cargo: str, no_fetch: bool, check_yanked: b
         print(f"FAIL {grund}")
     print(f"{'FAIL' if gruende else 'OK  '} cargo audit --json on {lock} in {directory}: "
           f"vulnerabilities.count {report['vulnerabilities']['count']}, warnings "
-          f"{ {k: len(v) for k, v in sorted(report['warnings'].items())} }, listed {sorted(listed)}")
+          f"{ {k: len(v) for k, v in sorted(report['warnings'].items())} }, listed {sorted(listed)}; "
+          f"{zustand}, {anzahl} advisories loaded")
     return 1 if gruende else 0
 
 
@@ -430,16 +585,40 @@ def _lock_with(name: str, version: str, source: str = CRATES_IO_GIT) -> str:
     return _KOPF + f'\n[[package]]\nname = "{name}"\nversion = "{version}"\nsource = "{source}"\n'
 
 
-def _gate_quietly(directory: Path, cargo: str, no_fetch: bool, check_yanked: bool) -> tuple:
+def _gate_quietly(directory: Path, cargo: str, no_fetch: bool, check_yanked: bool,
+                  database: Path | None = None) -> tuple:
     """(exit code, output) of `gate` on `directory`/Cargo.lock, a GateError being exit 2."""
     puffer = io.StringIO()
     with contextlib.redirect_stdout(puffer):
         try:
-            code = gate(directory, "Cargo.lock", cargo, no_fetch, check_yanked)
+            code = gate(directory, "Cargo.lock", cargo, no_fetch, check_yanked, database)
         except GateError as exc:
             print(f"ERROR {exc}")
             code = 2
     return code, puffer.getvalue()
+
+
+def _database_without_advisories(ort: Path, fetched_ago: float) -> Path:
+    """A database in the form cargo-audit leaves one after a fetch, with no advisory in it: a git work tree
+    with an empty crates/, HEAD at one commit made now, and .git/FETCH_HEAD naming that commit, written
+    `fetched_ago` seconds back."""
+    db = ort / "advisory-db"
+    (db / "crates").mkdir(parents=True)
+    umgebung = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    umgebung.update(GIT_AUTHOR_NAME="self-test", GIT_AUTHOR_EMAIL="self-test@example.invalid",
+                    GIT_COMMITTER_NAME="self-test", GIT_COMMITTER_EMAIL="self-test@example.invalid")
+    try:
+        for befehl in (["init", "-q"], ["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m",
+                                        "a database with no advisories"]):
+            subprocess.run(["git", "-C", str(db), *befehl], env=umgebung, capture_output=True, timeout=60,
+                           check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GateError(f"the self-test could not build a database with git ({exc})") from exc
+    kopf = _git(db, "rev-parse", "--verify", "HEAD^{commit}").strip()
+    marker = db / ".git" / "FETCH_HEAD"
+    marker.write_text(f"{kopf}\t\t{ADVISORY_DB_URL}\n", encoding="utf-8")
+    os.utime(marker, (time.time() - fetched_ago,) * 2)
+    return db
 
 
 def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | None) -> int:
@@ -448,30 +627,46 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
     lookup is exit 2 (F3) and the index does not carry personnummer; the gate never skips it."""
     toml = directory / ".cargo" / "audit.toml"
     geliehen = Path(listed_lock).read_text(encoding="utf-8") if listed_lock else _lock_with("rsa", "0.9.10")
+    curve = _lock_with("curve25519-dalek", "4.1.2")
     faelle = [
         # (name, lock, audit.toml text or None, .cargo/config.toml text or None, yanked check,
-        #  exit codes that hold, texts the output must name)
+        #  exit codes that hold, texts the output must name, database: None for the fetched one,
+        #  "empty", "stale" or "missing" for one the case builds, or leaves out, in its directory)
         ("a notice-class advisory fails the gate", _lock_with("personnummer", "0.1.0"), "", None, False,
-         {1}, ["notice RUSTSEC-2020-0166"]),
+         {1}, ["notice RUSTSEC-2020-0166"], None),
         ("the listed exception passes next to audit.toml", geliehen, "", None, False,
-         {0}, ["vulnerabilities.count 0, warnings {}"]),
+         {0}, ["vulnerabilities.count 0, warnings {}"], None),
         ("the same lock without audit.toml fails the gate", geliehen, None, None, False,
-         {1}, ["vulnerability RUSTSEC-2023-0071"]),
+         {1}, ["vulnerability RUSTSEC-2023-0071"], None),
         ("F1: a crates.io package in the sparse spelling is audited",
-         _lock_with("smallvec", "1.6.0", CRATES_IO_SPARSE), "", None, False, {1}, ["RUSTSEC-2021-0003"]),
+         _lock_with("smallvec", "1.6.0", CRATES_IO_SPARSE), "", None, False, {1}, ["RUSTSEC-2021-0003"], None),
         ("F1: a package from a git source fails the gate",
          _lock_with("smallvec", "1.6.0", "git+https://github.com/servo/rust-smallvec?tag=v1.6.0"
-                    "#0123456789abcdef0123456789abcdef01234567"), "", None, False, {1}, ["git+https://"]),
+                    "#0123456789abcdef0123456789abcdef01234567"), "", None, False, {1}, ["git+https://"], None),
         ("F2: audit.toml with a [target] table is refused", _lock_with("grep-cli", "0.1.5"),
-         '\n[target]\nos = ["linux"]\n', None, False, {1}, ["[target]"]),
+         '\n[target]\nos = ["linux"]\n', None, False, {1}, ["[target]"], None),
         ("F3: a yanked lookup that fails ends the gate with 2",
          _lock_with("pb-verify-rs-self-test-no-such-crate", "0.0.1"), "", None, True, {2},
-         ["couldn't check if the package is yanked"]),
+         ["couldn't check if the package is yanked"], None),
+        ("C3: curve25519-dalek 4.1.2 fails against the fetched database", curve, "", None, False, {1},
+         ["vulnerability RUSTSEC-2024-0344"], None),
+        ("C3: the same lock against a database with no advisories ends the gate with 2", curve, "", None, False,
+         {2}, ["advisory-count 0"], "empty"),
+        ("C3: a database fetched longer ago than the bound ends the gate with 2", curve, "", None, False, {2},
+         ["last fetched"], "stale"),
+        ("C3: a missing database ends the gate with 2", curve, "", None, False, {2}, ["does not exist"],
+         "missing"),
     ]
     fehler = 0
-    for name, inhalt, toml_zusatz, config, yanked, erlaubt, muss_nennen in faelle:
+    for name, inhalt, toml_zusatz, config, yanked, erlaubt, muss_nennen, datenbank in faelle:
         with tempfile.TemporaryDirectory() as tmp:
             ort = Path(tmp)
+            # A database the case builds has no remote to fetch from, so it is read as it stands.
+            db, holen_nicht = advisory_db_path(), no_fetch
+            if datenbank is not None:
+                db, holen_nicht = ort / "advisory-db", True
+                if datenbank != "missing":
+                    _database_without_advisories(ort, FETCH_AGE_BOUND + 600 if datenbank == "stale" else 0)
             (ort / "Cargo.lock").write_text(inhalt, encoding="utf-8")
             if toml_zusatz is not None:
                 (ort / ".cargo").mkdir()
@@ -481,9 +676,9 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
                 (ort / ".cargo").mkdir(exist_ok=True)
                 (ort / ".cargo" / "config.toml").write_text(config, encoding="utf-8")
             deny = subprocess.run([cargo, "audit", "--file", "Cargo.lock", "--deny", "warnings"]
-                                  + _flags(no_fetch, yanked),
+                                  + _flags(holen_nicht, yanked, db),
                                   cwd=ort, capture_output=True, text=True, timeout=600)
-            code, ausgabe = _gate_quietly(ort, cargo, no_fetch, yanked)
+            code, ausgabe = _gate_quietly(ort, cargo, holen_nicht, yanked, db)
             ok = code in erlaubt and all(text in ausgabe for text in muss_nennen)
             fehler += not ok
             gruende = "; ".join(z for z in ausgabe.splitlines() if z.startswith(("FAIL", "ERROR")))
