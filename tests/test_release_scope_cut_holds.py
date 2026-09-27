@@ -33,10 +33,10 @@ them.
    reference and is none of its forms is refused with its name.
 
 A second owner decision of 2026-09-27, recorded at 20:16 UTC, moved three of the frozen fixes, on
-six branches, to 6.3.0, and left the head of pull request 296 open. Section 1 holds the cut to it
-in both directions: a moved branch is not counted among the frozen fixes, a staying one does not
-stand under Out, each moved branch stands with the head it moved at, and the head of 296 is marked
-open, not decided.
+six branches, to 6.3.0; a later word froze pull request 296 at the head its last correction left.
+Section 1 holds the cut to both in both directions: a moved branch is not counted among the frozen
+fixes, a staying one does not stand under Out, each moved branch stands with the head it moved at,
+and 296 stands with its frozen head and as not landed.
 
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
@@ -235,12 +235,12 @@ DECIDED_OPEN = {
     "claude/cargo-audit-rust-parity": 296,
 }
 
-#: The one open branch that stays in 6.2.0 and that the cut records at a head: pull request 296, at
-#: the head read with `git ls-remote` when the cut moved the three fixes out. The decision puts the
-#: branch in with a head; the head itself is OPEN, NOT DECIDED (a review of it found a P1), and the
-#: item has to say so. Every other staying branch stands without a digest, which is the file's rule.
+#: The one open branch that stays in 6.2.0 and that the cut records at a head: pull request 296,
+#: FROZEN at the head its last correction left and NOT LANDED (owner word of 2026-09-27), read with
+#: `git ls-remote` when the cut recorded it. The item has to say both (`_HEAD_STATE`). Every other
+#: staying branch stands without a digest, which is the file's rule.
 DECIDED_HEADS = {
-    "claude/cargo-audit-rust-parity": "d30f236e2672c879d245194be33ac9707fe5898e",
+    "claude/cargo-audit-rust-parity": "f97cb2579b964e95bb801044962e851909bb5ea4",
 }
 
 #: THE DECISION OF 2026-09-27, 20:16 UTC: the six branches of three frozen fixes that left 6.2.0
@@ -266,6 +266,10 @@ DECIDED_LANDED = (295,)
 
 _BRANCH = re.compile(r"^[a-z0-9]+/[a-z0-9][a-z0-9._-]*$")
 _FILE_SUFFIX = re.compile(r"\.(?:py|md|json|toml|ya?ml|txt|cff|rs|html)$")
+
+#: The words a staying branch's recorded head has to stand with: the head is final for this
+#: release, and the branch is not yet on main (owner word of 2026-09-27: 296 frozen, not landed).
+_HEAD_STATE = ("frozen at", "has not landed")
 
 
 def _frozen_fixes(text: str) -> tuple[list[str], list[list[str]], list[str]]:
@@ -300,9 +304,9 @@ def frozen_fix_findings(text: str) -> list[str]:
         unit = next((u for u in units if f"`{branch}`" in u), "")
         if not any(len(h) >= 8 and head.startswith(h) for h in _cited_commits(unit)):
             findings.append(f"{branch} is frozen at {head} and the cut does not record that head")
-        if unit and "open, not decided" not in _flat(unit):
-            findings.append(f"{branch} is recorded at a head the cut does not mark as open, not "
-                            f"decided")
+        missing = [w for w in _HEAD_STATE if w not in _flat(unit)]
+        if unit and missing:
+            findings.append(f"{branch} is recorded at a head without the words {missing}")
     for branch in MOVED_HEADS:
         if branch in named:
             findings.append(f"{branch} moved to 6.3.0 and is still counted among the frozen fixes")
@@ -391,9 +395,10 @@ def test_the_moved_fixes_stand_under_out_with_their_heads_and_nowhere_in():
 
 
 def test_catch_proof_in_and_out_cannot_trade_places():
-    """Five plants, each on its own copy of the cut. A moved branch put back among the frozen fixes;
+    """Six plants, each on its own copy of the cut. A moved branch put back among the frozen fixes;
     a staying branch put under Out; the head of 296 put under Out in place of a moved head; a moved
-    item dropped; and the head of 296 no longer marked open. Each must become a finding."""
+    item dropped; and the head of 296 no longer said to be frozen, or said to have landed. Each must
+    become a finding."""
     text = CUT.read_text(encoding="utf-8")
     moved, stays = "fix/the-mutant-guard-reads-a-quoted-path", "fix/a70-clean-tree-before-binding"
     out = _section(text, _MOVED)
@@ -417,9 +422,12 @@ def test_catch_proof_in_and_out_cannot_trade_places():
     found = moved_findings(under_out(item + "\n", ""))
     assert any("does not name it" in f for f in found), found
     assert any("the accounting reads" in f for f in found), found
-    decided = text.replace("open, not decided: a review", "decided: a review")
-    assert decided != text
-    assert any("does not mark as open" in f for f in frozen_fix_findings(decided))
+    for old, new, word in (("It is frozen at", "It stood at", "frozen at"),
+                           ("It has not landed", "It has landed", "has not landed")):
+        changed = text.replace(old, new)
+        assert changed != text, f"{old!r} is not in the cut, so there is nothing to plant on"
+        found = frozen_fix_findings(changed)
+        assert any("without the words" in f and repr(word) in f for f in found), (old, found)
 
 
 def test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts_match():
