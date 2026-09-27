@@ -156,6 +156,200 @@ def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float =
     return starte(args, stdin_bytes)
 
 
+# ── WHAT THE CHAIN READS FROM GIT'S OBJECT STORE IS THE OBJECT ITS ID NAMES ─────────────────────
+#
+# MEASURED 2026-09-27 (review finding on PR 249, P0): the trust anchor was read with `git show
+# HEAD:audit_artifacts/pre_tag_trusted_pubkeys.txt`, and git hands out whatever content lies under
+# an object id without hashing it. The loose object of the keys file, rewritten with another key
+# under the same id, left the tree digest and the checked-out file unchanged, and the release gate
+# answered `ok=true, state=verified` for a receipt signed by a key the committed file does not
+# name (git 2.55.0; git 2.34.1 hashes a blob that `show` parses and refused). `refs/replace` was
+# the first way to that result and is pinned off above; the object store itself is the second (a
+# loose object, an object in a pack whose index names another id, an object in a directory that
+# `.git/objects/info/alternates` adds). A tree below the root is read without a hash on both
+# versions: rewritten under its id, it listed another blob as the anchor, and the gate verified
+# with git 2.34.1 as well. Which object a given git hashes on which path is its own business; the
+# chain does not rely on it and hashes every object it reads.
+#
+# THE FORM: every object is read through one `git cat-file --batch` and its bytes are hashed here,
+# as git defines an id (`<type> <size>NUL<content>`, SHA-1 or SHA-256 by the length of the id), and
+# compared with the id it was asked for. The other form, reading the file from the working tree
+# after the cleanliness check verified it against the id, exists only in the producer; the release
+# gate and the third-party verifier have no such check over the whole tree, and one form for every
+# site is one property to test. Hashing the bytes that were read, in this process, leaves no second
+# read between the check and the use, and it asks git nothing about its own store.
+
+#: The hash of an object id, by the number of hex digits: SHA-1 or SHA-256, the two git uses.
+_ID_ALGORITHMUS = {40: "sha1", 64: "sha256"}
+_IST_OBJEKT_ID = _re.compile(r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+
+
+def git_object_id(typ: str, inhalt: bytes, stellen: int) -> str:
+    """The id git gives an object of `typ` with `inhalt`, in the hash an id of `stellen` hex digits
+    uses: the hash of `<typ> <size>`, a NUL byte, and the content."""
+    try:
+        h = hashlib.new(_ID_ALGORITHMUS[stellen])
+    except KeyError:
+        raise BaumNichtLesbar(f"an object id of {stellen} hex digits names no hash git uses") from None
+    h.update(typ.encode("ascii") + b" " + str(len(inhalt)).encode("ascii") + b"\0")
+    h.update(inhalt)
+    return h.hexdigest()
+
+
+def git_objects(repo, gesucht) -> dict:
+    """{id: content} for `gesucht`, a sequence of `(id, type)`, read through ONE `git cat-file
+    --batch`. Each content is returned only if git reports the type asked for and the bytes hash to
+    the id; a missing object, another type or other bytes raise `BaumNichtLesbar`."""
+    typen: dict = {}
+    for oid, typ in gesucht:
+        if not isinstance(oid, str) or not _IST_OBJEKT_ID.match(oid):
+            raise BaumNichtLesbar(f"{oid!r} is not a full object id; only an id is read by id")
+        if typen.setdefault(oid, typ) != typ:
+            raise BaumNichtLesbar(f"the object {oid} is asked for as two types")
+    if not typen:
+        return {}
+    r = git_run(repo, "cat-file", "--batch",
+                stdin_bytes=b"".join(oid.encode("ascii") + b"\n" for oid in typen))
+    if r.returncode != 0:
+        grund = r.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise BaumNichtLesbar(f"git cat-file --batch failed in {repo}" + (f": {grund[0]}" if grund else ""))
+    aus, pos, raus = r.stdout, 0, {}
+    for oid, typ in typen.items():
+        ende = aus.find(b"\n", pos)
+        kopf = aus[pos:ende].split(b" ") if ende >= 0 else []
+        if len(kopf) != 3 or kopf[0] != oid.encode("ascii") or not kopf[2].isdigit():
+            raise BaumNichtLesbar(f"the object {oid} is not in the object store of {repo} "
+                                  f"(git answered {aus[pos:ende][:80]!r})")
+        gelesen, groesse = kopf[1].decode("ascii", "replace"), int(kopf[2])
+        inhalt = aus[ende + 1:ende + 1 + groesse]
+        if len(inhalt) != groesse or aus[ende + 1 + groesse:ende + 2 + groesse] != b"\n":
+            raise BaumNichtLesbar(f"git's answer for the object {oid} is cut short")
+        pos = ende + 2 + groesse
+        if gelesen != typ:
+            raise BaumNichtLesbar(f"the object {oid} is a {gelesen}, and a {typ} was named")
+        ist = git_object_id(gelesen, inhalt, len(oid))
+        if ist != oid:
+            raise BaumNichtLesbar(
+                f"the {typ} read from {repo} under the id {oid} is not the object its id names: "
+                f"its bytes hash to {ist} (a rewritten loose object, a pack whose index names "
+                "another id, or an alternate object directory) — what git answers under that id "
+                "cannot stand for the tree, and nothing read from it is judged")
+        raus[oid] = inhalt
+    if pos != len(aus):
+        raise BaumNichtLesbar("git cat-file --batch answered more than it was asked")
+    return raus
+
+
+def _modus(roh: bytes) -> tuple[str, str]:
+    """(mode as `ls-tree` prints it, object type) for a raw tree entry mode, the way git's
+    `canon_mode` and `object_type` read it."""
+    if not roh or any(c < 0x30 or c > 0x37 for c in roh):
+        raise BaumNichtLesbar(f"a tree entry carries the mode {roh!r}, which is not octal")
+    m = int(roh, 8)
+    art = m & 0o170000
+    if art == 0o100000:
+        return ("100755" if m & 0o100 else "100644"), "blob"
+    if art == 0o120000:
+        return "120000", "blob"
+    if art == 0o040000:
+        return "040000", "tree"
+    return "160000", "commit"
+
+
+def _baumeintraege(inhalt: bytes, stellen: int) -> list:
+    """[(mode, type, id, name)] of a raw tree object, names as bytes."""
+    breite, raus, pos = stellen // 2, [], 0
+    while pos < len(inhalt):
+        leer = inhalt.find(b" ", pos)
+        nul = inhalt.find(b"\0", leer + 1) if leer >= 0 else -1
+        if leer < 0 or nul < 0 or nul + 1 + breite > len(inhalt) or nul == leer + 1:
+            raise BaumNichtLesbar("a tree object is not in the form git writes")
+        mode, typ = _modus(inhalt[pos:leer])
+        raus.append((mode, typ, inhalt[nul + 1:nul + 1 + breite].hex(), inhalt[leer + 1:nul]))
+        pos = nul + 1 + breite
+    return raus
+
+
+def _commit_und_wurzel(repo, rev: str) -> tuple[str, str]:
+    """(commit id, root tree id) of `rev`, the commit object read and checked against its id."""
+    r = git_run(repo, "rev-parse", "--verify", f"{rev}^{{commit}}")
+    commit = r.stdout.decode("ascii", "replace").strip()
+    if r.returncode != 0 or not _IST_OBJEKT_ID.match(commit):
+        raise BaumNichtLesbar(f"{rev} names no commit in {repo}")
+    erste = git_objects(repo, [(commit, "commit")])[commit].split(b"\n", 1)[0]
+    wurzel = erste[5:].decode("ascii", "replace")
+    if not erste.startswith(b"tree ") or len(wurzel) != len(commit) or not _IST_OBJEKT_ID.match(wurzel):
+        raise BaumNichtLesbar(f"the commit {commit} names no tree")
+    return commit, wurzel
+
+
+def git_tree(repo, rev: str = "HEAD") -> tuple[str, list]:
+    """(commit id, [(mode, type, id, path)]) for every entry below the tree of `rev`, trees
+    included and paths as bytes, read from a commit and from trees that each hash to their id. One
+    `cat-file --batch` per level of the tree."""
+    commit, wurzel = _commit_und_wurzel(repo, rev)
+    eintraege: list = []
+    ebene = [(wurzel, b"")]
+    while ebene:
+        gelesen = git_objects(repo, [(oid, "tree") for oid, _ in ebene])
+        naechste = []
+        for oid, praefix in ebene:
+            for mode, typ, eid, name in _baumeintraege(gelesen[oid], len(oid)):
+                eintraege.append((mode, typ, eid, praefix + name))
+                if typ == "tree":
+                    naechste.append((eid, praefix + name + b"/"))
+        ebene = naechste
+    return commit, eintraege
+
+
+def git_file(repo, rev: str, pfad: str):
+    """(mode, type, id, content) of the entry at `pfad` in the tree of `rev`, or None when there
+    is none. Every object on the way, and the blob, is checked against its id; the content of an
+    entry that is not a blob is None."""
+    _commit, baum = _commit_und_wurzel(repo, rev)
+    teile = os.fsencode(pfad).split(b"/")
+    for i, teil in enumerate(teile):
+        treffer = [e for e in _baumeintraege(git_objects(repo, [(baum, "tree")])[baum], len(baum))
+                   if e[3] == teil]
+        if not treffer:
+            return None
+        mode, typ, oid, _name = treffer[0]
+        if i < len(teile) - 1:
+            if typ != "tree":
+                return None
+            baum = oid
+            continue
+        inhalt = git_objects(repo, [(oid, "blob")])[oid] if typ == "blob" else None
+        return mode, typ, oid, inhalt
+    return None
+
+
+#: The escapes of git's C-style quoting of a path (`quote_c_style`); every other byte that needs
+#: quoting is written as three octal digits.
+_C_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _pfad_aus_listing(text: str) -> bytes:
+    """The bytes of a path as `ls-tree` printed it with `core.quotePath=true`."""
+    if not (len(text) >= 2 and text[0] == '"' and text[-1] == '"'):
+        return text.encode("ascii")
+    innen, raus, i = text[1:-1], bytearray(), 0
+    try:
+        while i < len(innen):
+            if innen[i] != "\\":
+                raus.append(ord(innen[i]))
+                i += 1
+            elif innen[i + 1] in _C_ESCAPES:
+                raus.append(_C_ESCAPES[innen[i + 1]])
+                i += 2
+            else:
+                raus.append(int(innen[i + 1:i + 4], 8))
+                i += 4
+    except (IndexError, ValueError) as fehler:
+        raise BaumNichtLesbar(f"the listed path {text!r} is not in git's quoted form") from fehler
+    return bytes(raus)
+
+
 #: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
 #: in dem Baum, den sie bindet — ohne diesen einen Ausschluss enthielte ihr Digest sich selbst und
 #: waere nicht berechenbar. Ein MUSTER und keine Liste, weil jede Version ihre eigene Quittung
@@ -292,7 +486,15 @@ def subject_tree_digest(repo) -> str:
     # would compute two digests for one tree. Pinned to git's default, which leaves every digest
     # computed so far unchanged, and so does `--full-tree`: `git_run` has already refused any
     # prefix, and the option makes the listing independent of the prefix as well.
-    r = git_run(repo, "ls-tree", "--full-tree", "-r", "HEAD", timeout=10)
+    # THE LISTING IS HELD AGAINST THE OBJECTS IT IS MADE OF (review finding on PR 249, 2026-09-27).
+    # `ls-tree` reads the commit and every tree below it from the object store, and git does not
+    # hash what it reads there: a tree rewritten under its id listed another blob, and a commit
+    # rewritten under its id named another tree, while the head's id stayed the same. The digest
+    # is still taken over the text of `ls-tree`, so no digest computed so far changes; that text
+    # must describe, entry for entry, the tree that `git_tree` read from a commit and from trees
+    # whose bytes each hash to their id, or there is no digest.
+    commit, geprueft = git_tree(repo, "HEAD")
+    r = git_run(repo, "ls-tree", "--full-tree", "-r", commit, timeout=10)
     if r.returncode != 0:
         raise BaumNichtLesbar(f"cannot read the tree in {repo}: "
                               f"{r.stderr.decode('utf-8', 'replace').strip()}")
@@ -301,6 +503,17 @@ def subject_tree_digest(repo) -> str:
         text = r.stdout.decode("ascii")
     except UnicodeDecodeError as e:
         raise BaumNichtLesbar(f"the tree listing of {repo} is not the quoted form: {e}") from e
+    gelistet = []
+    for zeile in text.splitlines():
+        kopf, _tab, pfad = zeile.partition("\t")
+        teile = kopf.split(" ")
+        if len(teile) != 3 or not _tab:
+            raise BaumNichtLesbar(f"the tree listing of {repo} carries the line {zeile[:80]!r}")
+        gelistet.append((*teile, _pfad_aus_listing(pfad)))
+    if sorted(gelistet) != sorted(e for e in geprueft if e[1] != "tree"):
+        raise BaumNichtLesbar(
+            f"the listing git printed for {commit} in {repo} is not the tree its checked objects "
+            "name — the digest would be taken over a tree the commit does not carry")
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
     lines = [ln for ln in text.splitlines()
              if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
@@ -344,17 +557,25 @@ def load_trusted_pubkeys(repo: Path, *, ref: str = "HEAD") -> list[str]:
     verified — the trusted-key set was NOT covered by the digest the receipt commits to. Reading the
     committed blob binds it by the same digest, so the guarantee no longer depends on a clean checkout.
     An ABSENT/EMPTY file, a non-git repo, or a dangling ref means no trust anchor -> fail closed, never
-    trust-all (one key per line, ``#`` comments). The gate resolves the digest from the same ``HEAD``."""
+    trust-all (one key per line, ``#`` comments). The gate resolves the digest from the same ``HEAD``.
+
+    THE BLOB IS THE ONE ITS ID NAMES (review finding on PR 249, P0, measured 2026-09-27). This read
+    was `git show {ref}:<path>`, and git returns whatever lies under the blob's id: the loose object
+    of this file, rewritten with another key under the same id, left the tree digest and the checked-
+    out file as they were, and the gate verified a receipt signed by that other key (git 2.55.0; the
+    tree `audit_artifacts` rewritten to list another blob did the same with git 2.34.1). The commit,
+    each tree on the path and the blob are now read with `git_file`, which hashes what it read;
+    content that is not the object its id names is no anchor, and the gate fails closed."""
     try:
         # The anchor is read through the same funnel as the digest: a gate that isolated one of
         # the two would take the tree from `--repo` and the trusted keys from wherever `GIT_DIR`
         # points, and a receipt signed by a key of that other repository would then verify.
-        r = git_run(repo, "show", f"{ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt", timeout=10)
-        if r.returncode != 0:  # file not committed in this tree, or unknown ref -> fail closed
+        eintrag = git_file(repo, ref, "audit_artifacts/pre_tag_trusted_pubkeys.txt")
+        if eintrag is None or eintrag[1] != "blob":  # not committed in this tree -> fail closed
             return []
-        text = r.stdout.decode("utf-8")
-    except Exception:  # noqa: BLE001 — not a repository / no git / timeout / not UTF-8 -> fail closed
-        return []
+        text = eintrag[3].decode("utf-8")
+    except Exception:  # noqa: BLE001 — not a repository / no git / timeout / not UTF-8 / an object
+        return []      # that is not the one its id names -> fail closed
     out = []
     for line in text.splitlines():
         line = line.strip()
@@ -411,7 +632,8 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
         return False, f"the recorded audit did not succeed (exit {receipt.get('audit_exit_code')!r})"
     if not trusted_pubkeys:
         return False, ("no trusted signing key pinned (audit_artifacts/pre_tag_trusted_pubkeys.txt "
-                       "absent/empty) — the gate has no trust anchor and fails closed")
+                       "absent/empty, or not readable as the object its id names) — the gate has "
+                       "no trust anchor and fails closed")
     signer = receipt.get("signer_pubkey")
     if signer not in trusted_pubkeys:
         return False, f"receipt signer_pubkey is not in the trusted set (signer={str(signer)[:20]}...)"

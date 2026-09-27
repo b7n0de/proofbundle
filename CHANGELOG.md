@@ -418,9 +418,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   - `core.abbrev`, `pager.*`, `alias.*`, `i18n.*`, `log.*` and `trace2.*`. `ls-tree` prints full ids,
     there is no terminal, built-ins cannot be aliased, no commit is shown, and `trace2.*` is read
     only from the system and global files, which are not read.
-  - `extensions.*`, alternates, grafts and a shallow file. They decide which objects are present
-    and which parents a commit shows, not which tree a commit names or which bytes a blob id
-    stands for.
+  - `extensions.*`, grafts and a shallow file. They decide which objects are present and which
+    parents a commit shows, not which tree a commit names or which bytes a blob id stands for.
+    Alternates stood on this line and do not: an alternate object directory can hold other bytes
+    under an id (see the next entry).
   - `safe.directory`. Nothing can supply it any more (no system or global file is read, and git
     ignores it in a repository's own file), so a repository owned by another user fails closed.
 
@@ -443,6 +444,55 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `tests/test_pre_tag_chain_asks_git_through_one_funnel.py`
   (the call-site derivation, the allowlist, and a sweep of 72 environment names and configuration
   keys against a clean baseline).
+
+- **What the pre-tag receipt chain reads from git's object store is the object its id names**
+  (`scripts/pre_tag_receipt_lib.py`, `scripts/pre_tag_receipt.py`,
+  `scripts/verify_pre_tag_receipt.py`). git hands out whatever its object store holds under an id,
+  and it does not hash what it reads on every path. Measured on 2026-09-27 with plain git on a
+  rewritten loose object: 2.34.1 hashes an object it parses from a revision argument and 2.55.0 does
+  not, `cat-file` hashes nothing on either, and a tree below the root is read without a hash on both.
+  On the head before this change:
+  - The loose object of `audit_artifacts/pre_tag_trusted_pubkeys.txt`, rewritten with another key
+    under the same id, made the release gate answer `ok=true, state=verified` for a receipt signed
+    by that key, with the tree digest and the checked-out file unchanged (a review finding, P0; git
+    2.55.0). A pack whose index names that id for other content, and an alternate object directory
+    holding other content under it, did the same.
+  - The tree `audit_artifacts`, rewritten under its id to list another blob as the anchor, did it
+    with git 2.34.1 as well.
+  - The producer hashed the gate source from `cat-file blob`; with the gate's object rewritten, it
+    bound the digest of a gate the head does not carry (both versions).
+  - The third-party verifier read the gate source and the receipts with `show` and the anchor
+    through the library, and said `VERIFIED`, exit 0, for a receipt that binds another gate, for a
+    committed receipt that does not verify whose object held one that does, and for a key the
+    committed anchor does not name (git 2.55.0). With the tree `scripts` rewritten to list a
+    modified library, also added to the index, `git status` was clean and that library verified a
+    receipt nobody trusted signed (both versions).
+
+  Now every object the chain reads is read through `git cat-file --batch`, hashed in the process as
+  git defines an id (SHA-1 or SHA-256 by the length of the id) and compared with the id it was asked
+  for: the commit, every tree below it, the anchor and the gate source (`git_objects`, `git_tree`
+  and `git_file` in the library). The tree digest is still taken over the text of `ls-tree`, so no
+  digest changes, and that text must list exactly the tree read from checked objects. The producer
+  compares the checkout with the checked tree. The verifier carries its own copy of the check, runs
+  it on the commit and every tree before its cleanliness check, and on the gate source, the anchor
+  and each receipt before it uses them; an object that is not the one its id names ends the run as
+  `NOT_MEASURABLE`, exit 2. A genuine store in a pack or behind alternates verifies as before.
+
+  Named limits:
+  - The check shows that the bytes read are the object the id names. That the head is the commit a
+    reader expects stays the job of the tag and the attestation.
+  - The verifier's `git status` still takes the index's stat data on trust (the entry above names
+    the index as state inside the reader's clone).
+  - The verifier's `git status` and its listing of the receipt folder, and the producer's
+    `diff-index`, read the trees again after the check; a writer that changes the store in between
+    is outside the chain, as it is for the tree measurement.
+  - Outside the chain and unchanged: `scripts/sign_readiness_artifact.py` and
+    `scripts/audit_candidate_matrix.py` read the readiness anchor with `git show HEAD:<path>`.
+
+  Contract: `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`
+  (`EachObjectReadIsTheObjectItsIdNames`: the finding, a pack, alternates, a rewritten tree, the
+  producer's and the verifier's reads, a generator that rewrites every object of a head in turn, and
+  a contract that holds the verifier's copy of the check to the library's).
 
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`

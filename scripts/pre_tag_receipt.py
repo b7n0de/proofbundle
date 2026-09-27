@@ -152,7 +152,9 @@ from pre_tag_receipt_lib import (  # noqa: E402
     RECEIPT_SCHEMA,
     BaumNichtLesbar,
     canonical_bytes,
+    git_file,
     git_run,
+    git_tree,
     subject_tree_digest,
 )
 
@@ -160,14 +162,22 @@ _umgebung_ohne_git_umleitung()
 
 
 def _tree_digest(repo: Path) -> str:
-    return subject_tree_digest(repo)
+    """The library's tree digest, or a refusal with its reason: a digest the library cannot take
+    (a commit or a tree that is not the object its id names, among others) ends the run by name,
+    not with a traceback."""
+    try:
+        return subject_tree_digest(repo)
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(f"emit: the tree digest of {repo} cannot be taken ({fehler}) — refusing to "
+                         "bind a tree digest that may not describe what was measured "
+                         "(fail-closed)") from fehler
 
 
 #: The gate whose digest the receipt binds, as a path inside the tree.
 _GATE_REL = "scripts/pre_tag_audit_gate.py"
 
 
-def _gate_source_digest(repo: Path) -> str:
+def _gate_source_digest(repo: Path, kopf: str = "HEAD") -> str:
     """sha256 of the gate source AS THE HEAD STORES IT: a regular file's committed blob.
 
     MEASURED 2026-09-27: the tool read `scripts/pre_tag_audit_gate.py` with `read_bytes()`, which
@@ -180,16 +190,28 @@ def _gate_source_digest(repo: Path) -> str:
     So a gate source that is not a regular file refuses, and a regular one is read from the head:
     the tree was measured equal to the head before and after the audit, so those are the bytes on
     disk as well, and they are the bytes the verifier reads.
+
+    THE BLOB IS THE ONE ITS ID NAMES (review finding on PR 249, 2026-09-27, the sibling of the trust
+    anchor's read). This hashed the output of `git cat-file blob <id>`, which is whatever the object
+    store holds under the id: with the gate's loose object rewritten, the checkout still equal to the
+    head (the cleanliness check hashes the bytes on disk, not the object), the receipt bound the
+    digest of a gate the head does not carry. The entry and its blob are now read with `git_file`,
+    from the head that was measured, each object checked against its id.
     """
-    eintraege = _git_z(repo, "ls-tree", "--full-tree", "-z", "HEAD", "--", f":(literal){_GATE_REL}")
-    kopf = eintraege[0].partition("\t")[0].split() if len(eintraege) == 1 else []
-    if len(kopf) != 3 or kopf[1] != "blob" or kopf[0] not in ("100644", "100755"):
-        art = "no entry" if not eintraege else f"mode {kopf[0]}" if kopf else "an unreadable entry"
+    try:
+        eintrag = git_file(repo, kopf, _GATE_REL)
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(
+            f"emit: {_GATE_REL} cannot be read from the head as the objects its ids name "
+            f"({fehler}) — refusing, because the receipt would bind the digest of bytes the head "
+            "does not carry") from fehler
+    if eintrag is None or eintrag[1] != "blob" or eintrag[0] not in ("100644", "100755"):
+        art = "no entry" if eintrag is None else f"mode {eintrag[0]}"
         raise SystemExit(
             f"emit: the head carries {_GATE_REL} as {art}, not as a regular file — refusing, "
             "because the receipt binds the digest of the gate source, and only a regular file has "
             "one digest for the gate that runs it and for a reader of the commit")
-    return hashlib.sha256(_git_bytes(repo, "cat-file", "blob", kopf[2])).hexdigest()
+    return hashlib.sha256(eintrag[3]).hexdigest()
 
 
 def _version_token(v: str) -> str:
@@ -232,7 +254,7 @@ def build_context(repo: Path, version: str, audit_command: str, runner_identity:
         "schema": RECEIPT_SCHEMA,
         "version": version,
         "subject_tree_digest": vorher["tree_digest"],
-        "gate_source_digest": _gate_source_digest(repo),
+        "gate_source_digest": _gate_source_digest(repo, vorher["head"]),
         "audit_command": audit_command,
         "audit_exit_code": exit_code,
         "audit_output_digest": ausgabe_digest,
@@ -538,7 +560,19 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     repo_abs = repo.resolve()
     schmutzig: list[str] = []
     # ── every committed entry against the bytes on disk ─────────────────────────────────────────
-    felder = _git_z(repo, "ls-tree", "--full-tree", "-r", "-z", "HEAD")
+    # THE ENTRIES COME FROM OBJECTS CHECKED AGAINST THEIR IDS (review finding on PR 249,
+    # 2026-09-27). This was `ls-tree -r -z HEAD`, which reads the commit and its trees as the
+    # object store holds them: a tree rewritten under its id lists other blobs, and the bytes on
+    # disk were then compared with a tree the head does not carry. `git_tree` hashes every object
+    # it reads; the entries are written in the form `ls-tree -r -z` printed, so nothing below
+    # changes.
+    try:
+        kopf_id, baum = git_tree(repo, "HEAD")
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(f"emit: {wann}, cannot determine whether {repo} is clean: its head cannot "
+                         f"be read as the objects its ids name ({fehler}) — refusing to bind a tree "
+                         "digest that may not describe what was measured (fail-closed)") from fehler
+    felder = [f"{m} {t} {o}\t{os.fsdecode(p)}" for m, t, o, p in baum if t != "tree"]
     regulaer: list[tuple[str, str]] = []            # (path, expected oid) for the batch hash
     ordner_befund: dict[str, str | None] = {}       # directory -> why it is not a directory
     for feld in felder:
@@ -621,8 +655,7 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
             f"emit: {wann}, the working tree of {repo} carries {len(schmutzig)} uncommitted "
             f"path(s), and the receipt would bind `git ls-tree -r HEAD` instead — refusing, because "
             f"the bytes attested would not be the bytes measured:\n  {gezeigt}{mehr}")
-    head = _git_bytes(repo, "rev-parse", "--verify", "HEAD").decode("ascii", "replace").strip()
-    return {"head": head, "tree_digest": _tree_digest(repo)}
+    return {"head": kopf_id, "tree_digest": _tree_digest(repo)}
 
 
 def _kein_ordner_darueber(repo_abs: Path, pfad: str, gesehen: dict[str, str | None]) -> str | None:

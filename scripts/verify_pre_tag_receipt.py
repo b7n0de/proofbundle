@@ -16,8 +16,10 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
 
 THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
 THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
-read with ``git show <commit>:<path>``, so a file placed into a dirty checkout cannot stand in for
-a committed one. The verifier code -- this script, ``pre_tag_receipt_lib.py``, the package under
+read from the commit's objects, and each object read (the commit, every tree below it, and those
+blobs) is hashed and compared with the id it was read under, so neither a file placed into a dirty
+checkout nor an object rewritten in the clone's store can stand in for a committed one. The
+verifier code -- this script, ``pre_tag_receipt_lib.py``, the package under
 ``src/`` whose ed25519 primitive it calls -- is NOT read from the commit: Python runs what lies on
 disk. An adversarial lens measured on 2026-09-18 what that means when nothing checks the two
 against each other: one uncommitted edit to ``verify_receipt`` or to ``proofbundle.signature``,
@@ -47,7 +49,8 @@ library it calls are files of the very tree it verifies. The limit is printed wi
 RELEASE.md, "What these commands establish, and what they do not", says the same in prose.
 
 Exit codes: 0 VERIFIED · 1 NOT VERIFIED (absent, rejected, or bound to another tree) ·
-2 not measurable (no git, malformed commit id, checkout not at the named commit).
+2 not measurable (no git, malformed commit id, checkout not at the named commit, or an object of
+the clone that is not the object its id names).
 """
 from __future__ import annotations
 
@@ -296,7 +299,7 @@ def _git_environment(root: Path) -> dict:
     return umgebung
 
 
-def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
+def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, bytes, str]:
     """One git call about `repo`, through this script's own funnel. -> (exit code, stdout, stderr)
 
     MEASURED 2026-09-27 (Codex on PR 249, and re-measured): this ran `git -C <repo>` with the
@@ -313,10 +316,10 @@ def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
     root = Path(os.fspath(repo)).resolve()
     umgebung = _git_environment(root)
 
-    def starte(argumente: tuple):
+    def starte(argumente: tuple, daten: bytes | None = None):
+        extra = {"input": daten} if daten is not None else {"stdin": subprocess.DEVNULL}
         return subprocess.run(["git", *_GIT_PINNED_OPTIONS, "-C", str(root), *argumente],
-                              capture_output=True, timeout=30, env=umgebung,
-                              stdin=subprocess.DEVNULL)
+                              capture_output=True, timeout=30, env=umgebung, **extra)
 
     try:
         ort = starte(("rev-parse", "--show-toplevel", "--show-prefix"))
@@ -328,10 +331,112 @@ def _git(repo: Path, *args: str) -> tuple[int, bytes, str]:
             return 128, b"", (f"git answers for {root} with the top level "
                               f"{os.fsdecode(zeilen[0])!r}; only the top level of a repository "
                               "is measured")
-        r = starte(args)
+        r = starte(args, eingabe)
     except (OSError, subprocess.SubprocessError) as exc:
         return 127, b"", f"{type(exc).__name__}: {exc}"
     return r.returncode, r.stdout, r.stderr.decode("utf-8", "replace").strip()
+
+
+# ── THIS SCRIPT'S OWN CHECK THAT AN OBJECT IS THE ONE ITS ID NAMES ─────────────────────────────
+#
+# Review finding on PR 249, 2026-09-27 (P0 at the release gate, measured): git returns whatever the
+# object store holds under an id and does not hash it. The library now reads every object it uses
+# through `pre_tag_receipt_lib.git_objects`, which does. This script reads the gate source and the
+# receipts from the commit itself, and its cleanliness check asks `git status`, which compares the
+# checkout with the commit's trees; all of that happens here, before or beside the library, so the
+# check is carried here as well, on this file's code alone, for the reason `_git` is: a library whose
+# trees were rewritten to list its modified blob looked clean to `git status` and then judged itself
+# (measured at 995cabdd with git 2.34.1 and 2.55.0: `VERIFIED` for a receipt nobody trusted signed).
+# The library's copy and this one are held to one answer by
+# `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`.
+
+#: The hash of an object id, by the number of hex digits (the library's `_ID_ALGORITHMUS`).
+_ID_ALGORITHMUS = {40: "sha1", 64: "sha256"}
+_IST_OBJEKT_ID = re.compile(r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+
+
+class _NichtDasObjekt(Exception):
+    """An object of the clone is not the object its id names, or cannot be read as one."""
+
+
+def _objekte(repo: Path, gesucht) -> dict:
+    """{id: content} for `gesucht` [(id, type)], one `cat-file --batch`, each content hashed as git
+    defines an id and compared with the id it was asked for (the library's `git_objects`)."""
+    typen: dict = {}
+    for oid, typ in gesucht:
+        if not isinstance(oid, str) or not _IST_OBJEKT_ID.match(oid) or typen.setdefault(oid, typ) != typ:
+            raise _NichtDasObjekt(f"{oid!r} is not a full object id asked for as one type")
+    if not typen:
+        return {}
+    rc, aus, err = _git(repo, "cat-file", "--batch",
+                        eingabe=b"".join(oid.encode("ascii") + b"\n" for oid in typen))
+    if rc != 0:
+        raise _NichtDasObjekt(f"git cat-file --batch failed: {err}")
+    pos, raus = 0, {}
+    for oid, typ in typen.items():
+        ende = aus.find(b"\n", pos)
+        kopf = aus[pos:ende].split(b" ") if ende >= 0 else []
+        if len(kopf) != 3 or kopf[0] != oid.encode("ascii") or not kopf[2].isdigit():
+            raise _NichtDasObjekt(f"the object {oid} is not in this clone's object store")
+        gelesen, groesse = kopf[1].decode("ascii", "replace"), int(kopf[2])
+        inhalt = aus[ende + 1:ende + 1 + groesse]
+        if len(inhalt) != groesse or aus[ende + 1 + groesse:ende + 2 + groesse] != b"\n":
+            raise _NichtDasObjekt(f"git's answer for the object {oid} is cut short")
+        pos = ende + 2 + groesse
+        h = hashlib.new(_ID_ALGORITHMUS[len(oid)])
+        h.update(gelesen.encode("ascii") + b" " + str(len(inhalt)).encode("ascii") + b"\0" + inhalt)
+        if gelesen != typ or h.hexdigest() != oid:
+            raise _NichtDasObjekt(
+                f"the {typ} under the id {oid} in this clone is not the object its id names (git "
+                f"reads a {gelesen} whose bytes hash to {h.hexdigest()})")
+        raus[oid] = inhalt
+    if pos != len(aus):
+        raise _NichtDasObjekt("git cat-file --batch answered more than it was asked")
+    return raus
+
+
+def _baum(repo: Path, commit: str) -> dict:
+    """{path: (type, id)} for every entry below the tree of `commit`, read from the commit and from
+    trees that each hash to their id; one `cat-file --batch` per level (the library's `git_tree`)."""
+    erste = _objekte(repo, [(commit, "commit")])[commit].split(b"\n", 1)[0]
+    wurzel = erste[5:].decode("ascii", "replace")
+    if not erste.startswith(b"tree ") or len(wurzel) != len(commit) or not _IST_OBJEKT_ID.match(wurzel):
+        raise _NichtDasObjekt(f"the commit {commit} names no tree")
+    breite, raus, ebene = len(commit) // 2, {}, [(wurzel, b"")]
+    while ebene:
+        gelesen = _objekte(repo, [(oid, "tree") for oid, _ in ebene])
+        naechste = []
+        for oid, praefix in ebene:
+            inhalt, pos = gelesen[oid], 0
+            while pos < len(inhalt):
+                leer = inhalt.find(b" ", pos)
+                nul = inhalt.find(b"\0", leer + 1) if leer >= 0 else -1
+                modus = inhalt[pos:leer] if leer >= 0 else b""
+                if (nul < 0 or nul + 1 + breite > len(inhalt) or nul == leer + 1 or not modus
+                        or any(c < 0x30 or c > 0x37 for c in modus)):
+                    raise _NichtDasObjekt(f"the tree {oid} is not in the form git writes")
+                art = int(modus, 8) & 0o170000
+                typ = "tree" if art == 0o040000 else "blob" if art in (0o100000, 0o120000) else "commit"
+                pfad, eid = praefix + inhalt[leer + 1:nul], inhalt[nul + 1:nul + 1 + breite].hex()
+                raus[os.fsdecode(pfad)] = (typ, eid)
+                if typ == "tree":
+                    naechste.append((eid, pfad + b"/"))
+                pos = nul + 1 + breite
+        ebene = naechste
+    return raus
+
+
+def _datei(repo: Path, baum: dict, rel: str) -> bytes | None:
+    """The content of the blob at `rel` in `baum`, checked against its id; None if `rel` is no blob."""
+    typ, oid = baum.get(rel, (None, None))
+    return _objekte(repo, [(oid, "blob")])[oid] if typ == "blob" else None
+
+
+def _kein_objekt_grund(exc: Exception) -> str:
+    """The reason given when this clone's object store does not hold what the commit names."""
+    return (f"this clone's object store does not hold the objects the commit names ({exc}); what "
+            "git answers under those ids is not the commit, so nothing is measured -- clone "
+            "afresh and run again")
 
 
 def _version_token(version: str) -> str:
@@ -379,6 +484,14 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                          f"{commit[:12]} -- run `git checkout {commit}` first; this script measures "
                          "the tree that is checked out and refuses to guess about another")
         return out
+    # THE COMMIT AND EVERY TREE BELOW IT ARE THE OBJECTS THEIR IDS NAME, checked before anything is
+    # compared with them or read from them: `git status` below compares the checkout with these
+    # trees, and the gate source and the receipts are looked up in them.
+    try:
+        baum = _baum(repo, commit)
+    except _NichtDasObjekt as exc:
+        out["reason"] = _kein_objekt_grund(exc)
+        return out
     # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the
     # commit says nothing about the files on disk; an uncommitted edit to the receipt library or
     # to the signature primitive flipped a garbage receipt to VERIFIED with HEAD untouched. A
@@ -424,8 +537,20 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                          "tree does not count; only the committed tree is read)")
         return out
 
-    rc, gate_blob, err = _git(repo, "show", f"{commit}:scripts/pre_tag_audit_gate.py")
-    if rc != 0:
+    # THE GATE SOURCE, THE ANCHOR AND THE RECEIPTS ARE THE BLOBS THEIR IDS NAME (review finding on
+    # PR 249, 2026-09-27). They were read with `git show <commit>:<path>`, which returns whatever the
+    # object store holds under the id; a rewritten gate object made the digest match a receipt that
+    # binds another gate, and a rewritten receipt object stood in for the committed one. Each is read
+    # here, on this file's code, and checked against its id; the anchor is checked here and parsed by
+    # the library, whose own read checks it again.
+    try:
+        gate_blob = _datei(repo, baum, "scripts/pre_tag_audit_gate.py")
+        _datei(repo, baum, "audit_artifacts/pre_tag_trusted_pubkeys.txt")
+        blobs = {rel: _datei(repo, baum, rel) for rel in sorted(kandidaten)}
+    except _NichtDasObjekt as exc:
+        out["reason"] = _kein_objekt_grund(exc)
+        return out
+    if gate_blob is None:
         out["verdict"] = "NOT_VERIFIED"
         out["reason"] = ("commit carries no scripts/pre_tag_audit_gate.py -- the receipt binds the "
                          "digest of the gate that judged it, and there is none to compare against")
@@ -444,10 +569,10 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     verified: list[dict] = []
     rejected: list[dict] = []
     foreign: list[str] = []
-    for rel in sorted(kandidaten):
-        rc, blob, err = _git(repo, "show", f"{commit}:{rel}")
-        if rc != 0:
-            rejected.append({"path": rel, "reason": f"not readable from the commit: {err}"})
+    for rel, blob in blobs.items():
+        if blob is None:
+            rejected.append({"path": rel, "reason": "not readable from the commit: no blob at "
+                                                    "that path in the commit's tree"})
             continue
         try:
             receipt = json.loads(blob.decode("utf-8"))
