@@ -22,7 +22,7 @@ import hashlib
 import os
 import re
 import unicodedata
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .bundle import SCHEMA as BUNDLE_SCHEMA, load_bundle, verify_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe, render_safe
-from .canonical import _plain_for_jcs, _type_name
+from .canonical import _plain_for_jcs, _type_name, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_bool, is_member
@@ -320,11 +320,21 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
 
     threshold/score are decimal STRINGS (never floats). Returns:
         (claim: dict, salts: {"model_salt": bytes, "dataset_salt": bytes})
+
+    ``comparator`` and ``assurance_level`` are compared by their characters, and those characters
+    are what the claim carries (round 10, `canonical._zeichen_von`); any other value is refused as
+    before. Measured at 493c2f86: a ``str`` subclass holding "==" whose ``__eq__`` and ``__hash__``
+    claimed ">=" passed the comparator check and built a claim with comparator "==", and one
+    holding "bogus" passed the ``assurance_level`` check.
     """
-    if not is_member(comparator, _COMPARATORS):
+    vergleich = _zeichen_von(comparator)
+    if vergleich is None or not is_member(vergleich, _COMPARATORS):
         raise EvalClaimError(f"comparator must be one of {sorted(_COMPARATORS)}")
-    if assurance_level not in ASSURANCE_LEVELS:
+    comparator = vergleich
+    stufe = _zeichen_von(assurance_level)
+    if stufe is None or stufe not in ASSURANCE_LEVELS:
         raise EvalClaimError(f"assurance_level must be one of {list(ASSURANCE_LEVELS)}")
+    assurance_level = stufe
     # threshold/score must match the PUBLISHED schema's decimal pattern exactly — reject "1e2",
     # "Infinity", "+5", " 5 " etc. that Decimal() would accept but jsonschema rejects (schema-conformance).
     for name, val in (("threshold", threshold), ("score", score)):
@@ -697,7 +707,11 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     ``leaf_alg`` and ``samples.n == n`` are re-validated here — a hand-signed claim that lies
     about the committed tree size is rejected. ``expected_context`` enforces the signed
     ``context_binding`` field (cross-context replay guard): if supplied and the claim's binding
-    is absent or different, the claim is rejected.
+    is absent or different, the claim is rejected. It is compared by its characters (round 10,
+    `canonical._zeichen_von`): a ``str`` subclass is read as the characters it holds, and a value
+    that is no string is a refusal, None. Measured at 493c2f86: a ``str`` subclass whose ``__ne__``
+    answers False, and an object of another type whose ``__ne__`` answers False, returned the claim
+    of a receipt bound to another context and of a receipt with no binding.
 
     Every check on the claim itself lives in ``_claim_violation``, which the emitter calls too, so a
     claim this function refuses is one ``emit_eval_receipt`` will not sign. What stays here is what
@@ -731,8 +745,10 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         want = "ed25519:" + base64.b64encode(decode_b64(sig_pub_b64)).decode("ascii")
         if claim.get("issuer") != want:
             return None
-        if expected_context is not None and claim.get("context_binding") != expected_context:
-            return None
+        if expected_context is not None:
+            erwartet = _zeichen_von(expected_context)
+            if erwartet is None or claim.get("context_binding") != erwartet:
+                return None
         return claim
     except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError, OSError):
         # MJSON-01 (RE-GATE never-raise): the documented contract is "Returns the parsed claim on success,
@@ -901,19 +917,36 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     """Check that a PRESENTED identifier (+ its salt) matches a salted commitment in a claim
     (``model_id_commit`` / ``dataset_id_commit``). Makes a model-swap visible: a claim that silently swapped
     the model cannot produce a matching (identifier, salt). Constant-time compare; the salt stays outside the
-    payload (the holder presents it to a verifier out of band)."""
-    if not isinstance(identifier, str) or not isinstance(salt, (bytes, bytearray)):
+    payload (the holder presents it to a verifier out of band).
+
+    The three inputs of the comparison are read as what they hold (round 10): ``identifier`` and
+    ``commitment`` as their characters (`canonical._zeichen_von`), ``salt`` as its stored bytes, each
+    through the base type and never through a method of the caller; a value of another type is False.
+    Measured at 493c2f86: an ``identifier`` holding "other" whose ``encode`` returned the committed
+    identifier's bytes, and a ``commitment`` object whose ``__str__`` returned the right commitment,
+    each verified True."""
+    kennung = _zeichen_von(identifier)
+    zusage = _zeichen_von(commitment)
+    salz_typ = type(salt)
+    if kennung is None or zusage is None:
         return False   # RE-GATE never-raise: a non-str PRESENTED identifier is a fail-closed False, not a
         # raw AttributeError from identifier.encode() inside salted_commit (untrusted presentation input).
-        # adversarial re-audit round 7: the `salt` is the SAME out-of-band presentation channel — a non-bytes salt
-        # is a raw TypeError from len(salt) in salted_commit; guard it here too (the identifier-only guard was
-        # half-finished).
+    # adversarial re-audit round 7: the `salt` is the SAME out-of-band presentation channel — a non-bytes salt
+    # is a raw TypeError from len(salt) in salted_commit; guard it here too (the identifier-only guard was
+    # half-finished).
+    gespeichert: Any = salt
+    if issubclass(salz_typ, bytes):
+        salz = bytes.__getitem__(gespeichert, slice(None))
+    elif issubclass(salz_typ, bytearray):
+        salz = bytes(bytearray.__getitem__(gespeichert, slice(None)))
+    else:
+        return False
     try:
-        expected = salted_commit(identifier, salt)
+        expected = salted_commit(kennung, salz)
     except EvalClaimError:
         return False
     import hmac  # noqa: PLC0415
-    return hmac.compare_digest(expected, str(commitment))
+    return hmac.compare_digest(expected, zusage)
 
 
 def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None) -> dict:

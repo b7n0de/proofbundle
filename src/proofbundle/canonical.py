@@ -28,11 +28,11 @@ paths converge on. Providing it here does NOT change any released wire format �
 """
 from __future__ import annotations
 
+import gc
 import hashlib
-import types
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import Any, Callable, Union
+from typing import Any, Callable, Optional, Union
 
 from .errors import ProofBundleError
 
@@ -135,7 +135,8 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     type whose metaclass hides ``type`` from its own MRO and for a type whose ``__name__`` is a
     ``str`` subclass that hides ``str``, so that refusal was a raw exception, at the emitter and
     through the structural budget at ``verify_intoto_dsse``, where c8205c18 gave EvalClaimError and
-    ok=False.
+    ok=False. At 493c2f86 this paragraph did not hold for the keys of an OrderedDict, whose own
+    order is read by hashing them (lens run 8, see the next paragraph); it holds since round 10.
 
     A dict is copied in its own order: an ``OrderedDict`` (and a subclass of it) in the order
     ``collections.OrderedDict``'s own ``__iter__`` gives, every other dict in its storage order
@@ -144,9 +145,14 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     ``['identifier', 'salt_hex']`` for an OrderedDict whose own order is the reverse, and
     ``to_test_result_statement`` built another ``subject`` digest. The serializers that sort keys
     are unaffected; ``list()``, ``dict()`` of pairs and ``json.dumps`` without sorting read the
-    order. That ``__iter__`` is C code of the standard library, but it hashes every key to find
-    its node, and the hash of a ``str`` subclass that defines ``__hash__`` is the caller's code; an
-    OrderedDict holding such a key is refused (see `_in_eigener_reihenfolge`).
+    order. That ``__iter__`` is C code of the standard library, but it hashes every key of the
+    OrderedDict's own list to find its node. So an OrderedDict is read in its own order only when
+    every key it stores is of type ``str`` itself and its list can hold nothing else; any other
+    OrderedDict is refused, one with a ``str`` subclass key included (round 10, see
+    `_in_eigener_reihenfolge`). A plain dict with ``str`` subclass keys is copied as before:
+    ``dict.items`` hashes nothing. At 493c2f86 an OrderedDict key was refused only when its type's
+    class dicts held a ``__hash__`` under a key of type ``str``, and a ``__hash__`` bound under a
+    key that merely compares equal to that name ran inside the copy (lens run 8).
 
     What that closed, measured at c8205c18. The copy asked ``isinstance`` about every value that is
     not a JSON type, and ``isinstance`` reads ``__class__``, so the caller's ``__class__`` property
@@ -186,10 +192,11 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
         raise key_error(f"{ort}: {abweisung.grund}" if ort else abweisung.grund) from None
     except RecursionError as exc:
         # Only this copy's own recursion can raise it here: `_plain_value` calls `type`, `id`,
-        # `issubclass` and the base types' own methods on the caller's objects, and none of them runs
-        # code of the caller. tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py plants
-        # recording `__class__`, `__iter__`, `__len__`, `__index__` and the like, and a metaclass,
-        # and asserts that not one of them is called.
+        # `issubclass`, the base types' own methods and `gc.get_referents` on the caller's objects,
+        # and none of them runs code of the caller.
+        # tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py plants recording
+        # `__class__`, `__iter__`, `__len__`, `__index__` and the like, and a metaclass, and asserts
+        # that not one of them is called.
         text = "the value nests too deep to serialize"
         raise key_error(f"{wurzel}: {text}" if wurzel else text) from exc
 
@@ -237,6 +244,39 @@ _EINGEBAUT = {t.__name__: t for t in (bool, int, float, str, list, tuple, dict, 
                                       set, frozenset, type(None), object)}
 
 
+def _zeichen_von(wert: Any) -> Optional[str]:
+    """The characters of a ``str`` as a plain ``str``, or None for a value that is no ``str``.
+
+    For a caller's string that a check compares (round 10): the type is the object's own, asked
+    with ``issubclass`` against ``str`` (an identity walk of its MRO), and a subclass is read with
+    ``str.__str__``, so its ``__eq__``, ``__ne__``, ``__hash__``, ``encode`` and ``__str__`` never
+    decide the comparison made with the result. No code of the caller runs. Measured at 493c2f86:
+    ``evalclaim.decode_eval_claim(expected_context=...)`` returned the claim of a receipt bound to
+    another context for a ``str`` subclass whose ``__ne__`` answers False, and so did an object of
+    another type whose ``__ne__`` answers False."""
+    typ = type(wert)
+    if typ is str:
+        return wert
+    if issubclass(typ, str):
+        return str.__str__(wert)
+    return None
+
+
+def _flagge(wert: Any, wo: str, name: str) -> bool:
+    """A boolean keyword argument as the bool it is, or this module's ProofBundleError naming it.
+
+    R-B4 at ``require_statement_shape`` (round 10, lens run 8 at 493c2f86, and on main): the flag
+    was read by its truth, so a caller object's ``__bool__`` ran, what it raised escaped raw, and
+    the string "false" switched the guard on. ``bool`` cannot be subclassed, so ``type(wert) is
+    bool`` holds exactly for True and False, and nothing of the caller runs. The rule
+    ``intoto._eigene_flagge`` holds for the caller-attested flags: a refusal, not a coercion."""
+    if type(wert) is not bool:
+        raise ProofBundleError(
+            f"{wo}: {name} must be True or False, got {_type_name(type(wert))}; a flag that is not a "
+            "boolean is refused rather than read by its truth")
+    return wert
+
+
 class _Abweisung(Exception):
     """A refusal inside the copy. Each container on the way out adds where the value sat."""
 
@@ -252,69 +292,74 @@ def _pfadteil(schluessel: str) -> str:
     return text if len(text) <= 40 else text[:37] + "..."
 
 
-#: The getters behind ``type.__mro__`` and ``type.__dict__``, and the items of a class's own dict.
-_MRO = type.__dict__["__mro__"]
-_KLASSENDICT = type.__dict__["__dict__"]
-_PROXY_ITEMS = types.MappingProxyType.items
-_STR_HASH = str.__dict__["__hash__"]
-
-
-def _hasht_als_zeichen(typ: type) -> bool:
-    """True when hashing an instance of ``typ``, a ``str`` subclass, runs ``str``'s own hash of its
-    characters and no code of the caller.
-
-    That is the case unless a class before ``str`` in the MRO puts a ``__hash__`` of its own into
-    its dict (``__hash__ = str.__hash__`` is ``str``'s own and counts as none). The class dicts are
-    read through ``type``'s own getters and iterated, not asked with ``in``, because a class dict can
-    hold a key that is not a string, and a lookup compares such a key through its own ``__eq__``. A
-    type whose MRO cannot be read that way, because a metaclass leaves ``type`` out of its own MRO,
-    is answered False."""
-    if typ is str:
-        return True
-    if not issubclass(type(typ), type):
-        return False
-    for klasse in _MRO.__get__(typ):
-        if klasse is str:
-            return True
-        if not issubclass(type(klasse), type):
-            return False
-        for name, eintrag in list(_PROXY_ITEMS(_KLASSENDICT.__get__(klasse))):
-            if type(name) is str and name == "__hash__" and eintrag is not _STR_HASH:
-                return False
-    return False
-
-
 def _in_eigener_reihenfolge(wert: Any, paare: list) -> list:
     """The stored (key, value) pairs of the OrderedDict ``wert`` in its own order.
 
     ``collections.OrderedDict.__iter__``, the base method, walks the OrderedDict's own list of
     keys, which ``move_to_end`` reorders and ``dict.items`` does not see. It is C code of the
-    standard library, and it runs no method a subclass overrides, but it hashes each key to find
-    its node, and it compares two keys whose hashes are equal through their own ``__eq__``. So the
-    keys are judged first, from the stored pairs and without hashing: each must be a ``str`` whose
-    hash is ``str``'s own (`_hasht_als_zeichen`), and no two may have the same characters. Two
-    keys with ``str``'s hash and different characters then share a hash only on a collision of
-    ``str``'s own 64-bit hash, the one case in which a key's ``__eq__`` could still be called; this
-    is a limit of the reading, named here. An OrderedDict whose own order names other keys than it
-    stores (possible only by writing its storage past its own methods) is refused; so is one that
-    holds a key whose hash is its own code, because its order cannot be read without running that
-    code.
+    standard library and runs no method a subclass overrides, but it hashes each key of that list
+    to find its node, and a lookup compares that key with a stored key of equal hash. So before the
+    list is read it is established, in two steps and without hashing, that nothing in it is an
+    object whose hash or comparison is code of the caller (round 10).
+
+    EVERY STORED KEY IS OF TYPE ``str`` ITSELF (``type(key) is str``), read from the stored pairs.
+    The hash of an exact str is the interpreter's own. Any other key, a ``str`` subclass included,
+    is refused with its type named. Round 9 decided instead whether a ``str`` subclass computes its
+    own hash, by reading the class dicts of its MRO for an entry under a key of type ``str`` spelled
+    "__hash__". CPython binds the hash slot by a dict lookup that compares keys by equality, so a
+    class whose ``__hash__`` sits under a ``str`` subclass key spelled so, under a key of other
+    characters whose own ``__eq__`` and ``__hash__`` claim the name, under a key that is no string,
+    set with ``setattr`` over such a key, or inherited from such a base before ``str``, hashed
+    through the caller's function while that reading called its hash ``str``'s own. Measured by lens
+    run 8 at 493c2f86: the caller's hash ran in 28 of 28 entry and argument pairs, what it raised
+    escaped raw, and ``canonicalize_statement`` returned output nested 502 deep against a budget of
+    64, because the hash deepened a sibling the copy had not reached yet.
+
+    THE LIST HOLDS NOTHING ELSE. An OrderedDict whose storage was written past its own methods
+    (``dict.__delitem__``) keeps in its list a key object that the storage no longer holds, and the
+    base method hashes it. Measured at 493c2f86 with every stored key an exact str: such a key's
+    ``__hash__`` and ``__eq__`` ran, and a hash that raised escaped raw. The list cannot be read from
+    Python without hashing, so what it can hold is bounded through the interpreter's own traversal,
+    ``gc.get_referents`` (CPython's ``tp_traverse``: it names every key of the list, every stored
+    value, the instance dict, the slots, and a subclass's own class, and calls no method of any of
+    them; measured on Python 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7). Each object it
+    names must be a ``str``, ``int``, ``float``, ``bool``, ``bytes`` or None (whose hash and
+    comparison are the interpreter's own), a ``dict`` or a ``list`` (which have no hash and so
+    cannot be a key), one of the stored values (as often as it is stored), or, once, the
+    OrderedDict's own class when that is a subclass. Anything left over is refused, because it may
+    be a key of the list. A subclass whose slot holds another object is refused by the same count;
+    no reader here needs one.
+
+    An OrderedDict whose own order names other keys than it stores (possible only by writing its
+    storage past its own methods) is refused.
 
     Values are taken from the stored pairs, by the identity of their key, so the value copied is the
     stored one, as for every other dict."""
-    gesehen: set = set()
     for schluessel, _ in paare:
-        styp = type(schluessel)
-        if not issubclass(styp, str):
-            raise _Abweisung("object keys must be strings")
-        if not _hasht_als_zeichen(styp):
+        if type(schluessel) is not str:
             raise _Abweisung(
-                f"an OrderedDict key of type {_type_name(styp)} computes its own hash, and the "
-                "OrderedDict's order cannot be read without running it")
-        zeichen = str.__str__(schluessel)
-        if zeichen in gesehen:
-            raise _Abweisung(f"object key {zeichen!r} appears twice")
-        gesehen.add(zeichen)
+                f"an OrderedDict key must be of type str, got {_type_name(type(schluessel))}: its own "
+                "order is read by hashing its keys, and the hash of any other type can be code of the "
+                "caller")
+    offen: dict = {}
+    for _, eintrag in paare:
+        offen[id(eintrag)] = offen.get(id(eintrag), 0) + 1
+    typ = type(wert)
+    if typ is not OrderedDict:
+        offen[id(typ)] = offen.get(id(typ), 0) + 1
+    for bezug in gc.get_referents(wert):
+        btyp = type(bezug)
+        # By identity, one type at a time: `in` over a tuple of types would compare through the
+        # metaclass of `btyp`, which can be the caller's.
+        if (btyp is str or btyp is int or btyp is float or btyp is bool or btyp is bytes
+                or bezug is None or btyp is dict or btyp is list):
+            continue
+        if offen.get(id(bezug), 0) > 0:
+            offen[id(bezug)] -= 1
+            continue
+        raise _Abweisung(
+            f"the OrderedDict holds an object of type {_type_name(btyp)} beside its stored items (in "
+            "its own order or a slot), and its order cannot be read without hashing that object")
     nach_id = {id(schluessel): (schluessel, eintrag) for schluessel, eintrag in paare}
     try:
         reihe = list(OrderedDict.__iter__(wert))
@@ -403,15 +448,24 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     ``statement`` is not a full in-toto Statement (the four ``STATEMENT_REQUIRED_KEYS``) — a guard against
     accidentally passing a bare ``predicate`` where the full-Statement scope is required (ADR 0002 §2). It is
     OFF by default because a bare-predicate canonicalization is a legitimate distinct operation (e.g. a
-    subject-commitment digest); turning the check on by default would break those callers.
+    subject-commitment digest); turning the check on by default would break those callers. The flag
+    must be True or False; any other value is ProofBundleError before anything is read (round 10,
+    `_flagge`: at 493c2f86 it was read by its truth).
 
     ORDER, unchanged: the shape guard, the structural budget, the one plain copy, the serializer on the
     copy. The guard and the budget read the statement before the copy, and that is safe because
     neither runs code of the caller (round 8): both read stored contents by the object's own type and
-    the base types' methods, so they judge what the copy then holds, and nothing the caller wrote runs
-    between them and the serializer. The budget stays before the copy because it bounds depth without
-    recursing and gives this function's documented BundleFormatError for a statement nested past 64
-    levels, where a recursive copy would give its own refusal first."""
+    the base types' methods, so they judge what the copy then holds. The copy runs no code of the
+    caller either, so nothing the caller wrote runs between them and the serializer. That last part
+    was false at 493c2f86: the copy read an OrderedDict's own order by hashing its keys, the hash of
+    a ``str`` subclass key could be the caller's, and it deepened a sibling after the budget had
+    judged the statement (lens run 8: output nested 502 deep against a budget of 64). Since round 10
+    the copy refuses such an OrderedDict before it hashes anything (`_in_eigener_reihenfolge`). The
+    budget stays before the copy because it bounds depth without recursing and gives this function's
+    documented BundleFormatError for a statement nested past 64 levels, where a recursive copy would
+    give its own refusal first."""
+    require_statement_shape = _flagge(require_statement_shape, "canonicalize_statement",
+                                      "require_statement_shape")
     if require_statement_shape:
         _require_statement_shape(statement)
     # adversarial re-audit round 5: bound nesting/node count BEFORE rfc8785.dumps recurses — a relying party that
@@ -463,7 +517,13 @@ def statement_content_root(statement: Union[Mapping, list, bytes, bytearray], *,
     its ``__bytes__`` returned, and ``bytes()`` of a ``bytes`` subclass calls its ``__bytes__`` too.
     The stored bytes are read through the base type's own slice now. A ``Mapping`` that is not a dict
     was handed to ``canonicalize_statement``, whose budget refused it as not a JSON value; it is
-    refused here now, with this function's own ProofBundleError."""
+    refused here now, with this function's own ProofBundleError.
+
+    ``require_statement_shape`` must be True or False on both paths, and any other value is
+    ProofBundleError before the path is chosen (round 10, `_flagge`). At 493c2f86 the object path
+    read it by its truth, which ran a caller object's ``__bool__``, and the bytes path ignored it."""
+    require_statement_shape = _flagge(require_statement_shape, "statement_content_root",
+                                      "require_statement_shape")
     typ = type(statement)
     if issubclass(typ, bytes) or issubclass(typ, bytearray):
         # Verifier path: hash the exact transmitted payload bytes; do NOT re-canonicalize (DSSE rule). The

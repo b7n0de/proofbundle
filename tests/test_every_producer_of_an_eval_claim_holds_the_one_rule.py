@@ -43,6 +43,15 @@ raised RecursionError, numbers and a `subject_digest` that reached a serializer 
 OrderedDict copied in its storage order, and caller-attested flags read by their truth. In round 9
 the round-8 proof passes plain booleans as the flags of `export_svr_dsse`, because a recording int is
 refused there now before the rest of the path runs; the recording ints stay as a case of their own.
+The ones below the "round 10" marker were written against 493c2f86, where an eighth lens found that
+the reading which decided whether an OrderedDict key hashes through the caller's code could be
+misled by a `__hash__` bound under a key that only compares equal to the name, a flag read by its
+truth, and a string argument compared through the caller's own methods; a second lens added the `ok`
+of a check that `svr_properties` read by its truth. In round 10 one round-9 case changed its expected
+message
+(`TestAnOrderedDictIsReadInItsOwnOrder.test_a_key_that_computes_its_own_hash_is_refused_without_running_it`),
+and one round-10 case fails at 493c2f86 because its refusal is new there, not because it catches a
+defect (`TestAFlagIsReadAsABoolean.test_the_bytes_path_refuses_a_flag_that_is_no_bool_too`).
 Run against its reference commit, every case whose name does not start with `test_control` fails;
 the controls pass there and here. One round-3 control changed in round 4
 (`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in
@@ -2764,20 +2773,23 @@ class TestAnOrderedDictIsReadInItsOwnOrder(_Basis):
     def test_a_key_that_computes_its_own_hash_is_refused_without_running_it(self):
         """The base method hashes each key to find its node, and this key's hash is its own code. It
         is refused before the order is read, and its hash never runs. At ee489403 the copy read the
-        storage order and signed it."""
+        storage order and signed it. Round 10 refuses every key that is not of type str itself, and
+        the expected message changed with it (it was "computes its own hash")."""
         od = collections.OrderedDict([(_HashProtokoll("a"), 1), ("b", 2)])
         od.move_to_end("a")
         _AUFRUFE.clear()
         with self.assertRaises(EvalClaimError) as ctx:
             emit_eval_receipt(dict(self.basis, provenance={"k": od}), self.signer)
-        self.assertIn("computes its own hash", str(ctx.exception))
+        self.assertIn("an OrderedDict key must be of type str, got _HashProtokoll", str(ctx.exception))
         with self.assertRaises(ValueError):
             issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status={"status_list": {}, "k": od})
         self.assertEqual(_AUFRUFE, [])
 
     def test_control_the_copy_of_an_ordered_dict_runs_no_code_of_the_caller(self):
         """Green at ee489403 too, which read the storage order: a recording OrderedDict subclass, and
-        keys that compare through their own `__eq__` with `str`'s hash, are read without a call."""
+        keys that compare through their own `__eq__` with `str`'s hash, are read without a call.
+        Since round 10 the second form is refused, as a key that is not of type str itself, and
+        still without a call; the case accepts either outcome and asserts only the absence of one."""
         PO = _protokolliert(collections.OrderedDict)
         b, s = self.basis, self.signer
 
@@ -2806,6 +2818,593 @@ class TestAnOrderedDictIsReadInItsOwnOrder(_Basis):
                 self._pruefe(f"{weg}, {form}", bau, aufruf, (ProofBundleError, ValueError))
 
     _pruefe = TestTheCopyRunsNoCodeOfTheCaller._pruefe
+
+
+# ---- round 10: lens run 8 at 493c2f86 -----------------------------------------------------------------
+
+#: Armed only while an entry runs: a caller function that raises or deepens a sibling does so there,
+#: and not while its value is built (building an OrderedDict hashes each key once, in the test).
+_SCHARF = [False]
+
+
+def _alias_hash(self):
+    """A `__hash__` bound under a class-dict key that only compares equal to the name."""
+    _merke("alias __hash__")
+    return str.__hash__(self)
+
+
+def _alias_hash_wirft(self):
+    _merke("alias __hash__")
+    if _SCHARF[0]:
+        raise ZeroDivisionError("the caller's __hash__")
+    return str.__hash__(self)
+
+
+class _NameGleich(str):
+    """A key spelled "__hash__" that is a `str` subclass, so equal to the name and not of type str."""
+
+
+class _NameBehauptet(str):
+    """Other characters, whose `__eq__` and `__hash__` claim to be "__hash__"."""
+
+    def __eq__(self, other):
+        return True
+
+    def __hash__(self):
+        return hash("__hash__")
+
+
+class _NameObjekt:
+    """No string at all, whose `__eq__` and `__hash__` claim to be "__hash__"."""
+
+    def __eq__(self, other):
+        return other == "__hash__"
+
+    def __hash__(self):
+        return hash("__hash__")
+
+
+def _alias_formen() -> dict:
+    """The key types of lens run 8 (its p04, and the form that raises): each binds `__hash__` to the
+    caller's function under a class-dict key that only compares equal to the name, which CPython's
+    slot lookup accepts. Built at call time, so building them records nothing a case counts."""
+    gesetzt = type("MitSetattr", (str,), {_NameGleich("__hash__"): str.__hash__})
+    gesetzt.__hash__ = _alias_hash       # setattr keeps the existing key object
+    basis = type("AliasBasis", (str,), {_NameGleich("__hash__"): _alias_hash})
+    return {
+        "a str subclass key spelled __hash__": type("Gleich", (str,), {_NameGleich("__hash__"): _alias_hash}),
+        "a key of other characters claiming the name": type(
+            "Behauptet", (str,), {_NameBehauptet("zzz"): _alias_hash}),
+        "a key that is no string": type("Objekt", (str,), {_NameObjekt(): _alias_hash}),
+        "setattr over an alias key": gesetzt,
+        "the alias on a base before str": type("VonBasis", (basis,), {}),
+        "an alias whose function raises": type("Wirft", (str,), {_NameGleich("__hash__"): _alias_hash_wirft}),
+    }
+
+
+class _KnotenProtokoll(str):
+    """A key whose hash and comparison are its own code, and record that they ran."""
+
+    def __hash__(self):
+        _merke("node key __hash__")
+        return str.__hash__(self)
+
+    def __eq__(self, other):
+        _merke("node key __eq__")
+        return str.__eq__(self, other)
+
+    __ne__ = str.__ne__
+
+
+class _KnotenWirft(str):
+    def __hash__(self):
+        _merke("node key __hash__")
+        if _SCHARF[0]:
+            raise ZeroDivisionError("the node key's __hash__")
+        return str.__hash__(self)
+
+
+class _MetaHash(type):
+    """A metaclass whose hash and equality record, for an OrderedDict class that is its own key."""
+
+    def __hash__(cls):
+        _merke("metaclass __hash__")
+        return type.__hash__(cls)
+
+    def __eq__(cls, other):
+        _merke("metaclass __eq__")
+        return type.__eq__(cls, other)
+
+
+def _fremder_knoten_formen() -> dict:
+    """OrderedDicts whose storage was written past their own methods (`dict.__delitem__`), so their
+    own list keeps a key object the storage no longer holds. Every stored key is of type str, so the
+    check of the stored keys alone passes them; the list is what the base method hashes."""
+    od_typ = collections.OrderedDict
+
+    def gleich():
+        od = od_typ([(_KnotenProtokoll("a"), "1")])
+        dict.__delitem__(od, "a")
+        dict.__setitem__(od, "a", "1")
+        return od
+
+    def fort():
+        od = od_typ([(_KnotenProtokoll("x"), "1"), ("b", "2")])
+        dict.__delitem__(od, "x")
+        return od
+
+    def auch_als_wert():
+        schluessel = _KnotenProtokoll("x")
+        od = od_typ([(schluessel, "1"), ("b", "2")])
+        dict.__delitem__(od, "x")
+        dict.__setitem__(od, "v", schluessel)
+        return od
+
+    def eigene_klasse():
+        klasse = _MetaHash("OdMitMeta", (od_typ,), {})
+        od = klasse([("b", "2")])
+        od[klasse] = "1"
+        dict.__delitem__(od, klasse)
+        return od
+
+    def wirft():
+        od = od_typ([(_KnotenWirft("x"), "1"), ("b", "2")])
+        dict.__delitem__(od, "x")
+        dict.__setitem__(od, "x", "1")
+        return od
+    return {"the list holds a key object whose characters are stored": gleich,
+            "the list holds a key the storage lost": fort,
+            "the list's key object is also a stored value": auch_als_wert,
+            "the list holds the OrderedDict's own class": eigene_klasse,
+            "the list holds a key whose hash raises": wirft}
+
+
+class _WahrheitProtokoll:
+    """Answers `wert` to a truth test, and records that it was asked."""
+
+    def __init__(self, wert):
+        self.wert = wert
+
+    def __bool__(self):
+        _merke("__bool__")
+        return self.wert
+
+
+class _WahrheitWirftProtokoll:
+    def __bool__(self):
+        _merke("__bool__")
+        raise ZeroDivisionError("the caller's __bool__")
+
+
+class TestAnOrderedDictIsReadOnlyWithKeysOfTypeStr(_Basis):
+    """L8-A of lens run 8 at 493c2f86. `canonical._hasht_als_zeichen` decided whether hashing a `str`
+    subclass key runs the caller's code by reading the class dicts of its MRO for an entry under a
+    key of type str spelled "__hash__". CPython binds the hash slot by a lookup that compares keys by
+    equality, so each form of `_alias_formen` hashed through the caller's function while that
+    reading called it `str`'s own, and `OrderedDict.__iter__` hashed every key: the caller's code ran
+    in 28 of 28 entry and argument pairs and raw exceptions escaped. An OrderedDict is read in its own
+    order now only when every stored key is of type str itself and its own list holds nothing else;
+    the second half is the sibling of `_fremder_knoten_formen`, measured at 493c2f86 and on main."""
+
+    def _eintritte(self) -> dict:
+        """The 28 entry and argument pairs of lens run 8 (its p02), name -> (call, typed refusals)."""
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        b, s = self.basis, self.signer
+        zeit = "2026-01-01T00:00:00Z"
+        buendel = emit_eval_receipt(b, s)
+        tr = intoto.export_intoto_dsse(b, s)
+        er = intoto.export_eval_result_dsse(b, s)
+        svr = intoto.export_svr_dsse(buendel, s, time_created=zeit)
+        kopie = (ProofBundleError, ValueError)
+        bfe = (BundleFormatError,)
+        sd = (BundleFormatError, ValueError)
+        return {
+            "canonicalize_statement": (lambda w: canonical.canonicalize_statement({"k": w}), kopie),
+            "canonicalize_statement, shape guard": (lambda w: canonical.canonicalize_statement(
+                {"_type": "t", "subject": [], "predicateType": "p", "predicate": w},
+                require_statement_shape=True), kopie),
+            "statement_content_root": (lambda w: canonical.statement_content_root({"k": w}), kopie),
+            "canonicalize provenance": (lambda w: canonicalize(dict(b, provenance={"k": w})), (EvalClaimError,)),
+            "emit_eval_receipt provenance": (
+                lambda w: emit_eval_receipt(dict(b, provenance={"k": w}), s), (EvalClaimError,)),
+            "to_intoto_statement harness": (lambda w: intoto.to_intoto_statement(b, harness=w), bfe),
+            "to_intoto_statement root_b64": (lambda w: intoto.to_intoto_statement(b, root_b64=w), bfe),
+            "to_test_result_statement subject_digest": (
+                lambda w: intoto.to_test_result_statement(b, subject_digest=w), bfe),
+            "to_test_result_statement url": (lambda w: intoto.to_test_result_statement(
+                b, subject_digest={"sha256": "0" * 64}, url=w), bfe),
+            "export_intoto_dsse harness": (lambda w: intoto.export_intoto_dsse(b, s, harness=w), bfe),
+            "export_intoto_dsse keyid": (lambda w: intoto.export_intoto_dsse(b, s, keyid=w), bfe),
+            "resolve_subject claim": (
+                lambda w: intoto.resolve_subject("receipt", dict(b, provenance={"k": w})), bfe),
+            "resolve_subject profile": (lambda w: intoto.resolve_subject(w, b), bfe),
+            "to_eval_result_predicate anchors": (lambda w: intoto.to_eval_result_predicate(b, anchors=[w]), bfe),
+            "to_eval_result_statement subject": (lambda w: intoto.to_eval_result_statement(b, subject=[w]), bfe),
+            "export_eval_result_dsse harness": (lambda w: intoto.export_eval_result_dsse(b, s, harness=w), bfe),
+            "export_eval_result_dsse subject_name": (
+                lambda w: intoto.export_eval_result_dsse(b, s, subject_name=w), bfe),
+            "svr_properties claim": (
+                lambda w: intoto.svr_properties(_Ergebnis(), dict(b, provenance={"k": w})), bfe),
+            "svr_properties flag": (lambda w: intoto.svr_properties(_Ergebnis(), b, anchor_verified=w), bfe),
+            "export_svr_dsse policy": (
+                lambda w: intoto.export_svr_dsse(buendel, s, policy=w, time_created=zeit), bfe),
+            "export_svr_dsse anchor_verified": (
+                lambda w: intoto.export_svr_dsse(buendel, s, anchor_verified=w), bfe),
+            "issue_sd_jwt claim": (
+                lambda w: issue_sd_jwt(dict(b, provenance={"k": w}), s, root_b64=ROOT_B64), sd),
+            "issue_sd_jwt status": (lambda w: issue_sd_jwt(
+                b, s, root_b64=ROOT_B64, status={"status_list": {}, "k": w}), sd),
+            "issue_sd_jwt model_id_opening": (
+                lambda w: issue_sd_jwt(b, s, root_b64=ROOT_B64, model_id_opening=w), sd),
+            "issue_sd_jwt vct": (lambda w: issue_sd_jwt(b, s, root_b64=ROOT_B64, vct=w), sd),
+            "verify_intoto_dsse expected_predicate_type": (
+                lambda w: intoto.verify_intoto_dsse(tr, self.pub, expected_predicate_type=w), bfe),
+            "verify_eval_result_dsse expected_predicate_type": (
+                lambda w: intoto.verify_eval_result_dsse(er, self.pub, expected_predicate_type=w), bfe),
+            "verify_svr_dsse expected_predicate_type": (
+                lambda w: intoto.verify_svr_dsse(svr, self.pub, expected_predicate_type=w), bfe),
+        }
+
+    def _weist_ab(self, name, aufbau, aufruf, erlaubt):
+        """The entry's typed refusal, and not one recorded call while the entry runs."""
+        with self.subTest(weg=name):
+            wert = aufbau()
+            _AUFRUFE.clear()
+            _SCHARF[0] = True
+            try:
+                with self.assertRaises(erlaubt):
+                    aufruf(wert)
+            finally:
+                _SCHARF[0] = False
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+            self.assertEqual(gesehen, [], f"{name}: the caller's code ran")
+
+    def test_every_alias_form_is_refused_at_every_entry_without_a_call(self):
+        formen = _alias_formen()
+        for name, typ in formen.items():
+            _AUFRUFE.clear()
+            hash(typ("x"))
+            self.assertIn("alias __hash__", _AUFRUFE, f"the premise: {name} hashes through the caller")
+        _AUFRUFE.clear()
+        eintritte = self._eintritte()
+        self.assertEqual(len(eintritte), 28)
+        for weg, (aufruf, erlaubt) in eintritte.items():
+            for name, typ in formen.items():
+                self._weist_ab(f"{weg}, {name}", lambda typ=typ: collections.OrderedDict(
+                    [(typ("a"), "1"), (typ("b"), "2")]), aufruf, erlaubt)
+
+    def test_every_foreign_key_in_the_own_order_is_refused_at_every_entry_without_a_call(self):
+        """The sibling: with every stored key of type str, the list of an OrderedDict written past its
+        own methods still held a key object whose hash, `__eq__` or metaclass ran at 493c2f86, and a
+        hash that raised escaped raw (on main 31816e08 too, as KeyError or the raised error)."""
+        for weg, (aufruf, erlaubt) in self._eintritte().items():
+            for name, bau in _fremder_knoten_formen().items():
+                self._weist_ab(f"{weg}, {name}", bau, aufruf, erlaubt)
+
+    def test_a_key_cannot_deepen_a_sibling_after_the_budget(self):
+        """p03 of lens run 8: the budget judged the statement, then the copy hashed the OrderedDict's
+        key through the caller's function, which deepened a sibling the copy had not reached yet. At
+        493c2f86 `canonicalize_statement` returned output nested 502 deep for 500 levels against the
+        depth bound of 64, and wrote 300000 list items against the bound of 200000 nodes."""
+        for tiefe, breite in ((64, 0), (500, 0), (2000, 0), (0, 300_000)):
+            with self.subTest(tiefe=tiefe, breite=breite):
+                geschwister: list = []
+
+                def vertiefe(selbst, tiefe=tiefe, breite=breite, geschwister=geschwister):
+                    _merke("alias __hash__")
+                    if _SCHARF[0] and not geschwister:
+                        ende = geschwister
+                        for _ in range(tiefe):
+                            neu: list = []
+                            ende.append(neu)
+                            ende = neu
+                        geschwister.extend(range(breite))
+                    return str.__hash__(selbst)
+                typ = type("Vertieft", (str,), {_NameGleich("__hash__"): vertiefe})
+                od = collections.OrderedDict([(typ("a"), 1)])
+                _AUFRUFE.clear()
+                _SCHARF[0] = True
+                try:
+                    with self.assertRaises((ProofBundleError, ValueError)):
+                        canonical.canonicalize_statement({"a": od, "b": geschwister})
+                finally:
+                    _SCHARF[0] = False
+                    gesehen = list(_AUFRUFE)
+                    _AUFRUFE.clear()
+                self.assertEqual((gesehen, geschwister), ([], []))
+
+    def test_control_an_ordered_dict_of_str_keys_is_read_in_its_own_order(self):
+        """Green at 493c2f86 too: an OrderedDict with keys of type str, a subclass with an attribute
+        or a slot holding a str, and one holding recording values keep their own order, and nothing
+        of theirs runs."""
+        class MitAttribut(collections.OrderedDict):
+            pass
+
+        class MitSlot(collections.OrderedDict):
+            __slots__ = ("z",)
+
+        def verschoben(klasse=collections.OrderedDict, werte=("acme/model-x", "00ff")):
+            od = klasse([("identifier", werte[0]), ("salt_hex", werte[1])])
+            collections.OrderedDict.move_to_end(od, "identifier")
+            return od
+
+        def mit_attribut():
+            od = verschoben(MitAttribut)
+            od.attr = P[str]("x")
+            return od
+
+        def mit_slot():
+            od = verschoben(MitSlot)
+            od.z = "s"
+            return od
+        formen = {"OrderedDict": verschoben, "a subclass with an attribute": mit_attribut,
+                  "a subclass whose slot holds a str": mit_slot,
+                  "recording values": lambda: verschoben(werte=(P[dict]({"k": P[int](1)}),
+                                                                P[list]([P[str]("x")])))}
+        for name, bau in formen.items():
+            with self.subTest(form=name):
+                od = bau()
+                _AUFRUFE.clear()
+                kopie = canonical._plain_for_jcs(od, ValueError)
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+                self.assertEqual(list(kopie), ["salt_hex", "identifier"])
+                self.assertEqual(gesehen, [])
+
+    def test_control_a_plain_dict_with_str_subclass_keys_is_copied_as_before(self):
+        """Green at 493c2f86 too: a plain dict is read through `dict.items`, which hashes nothing, so
+        every alias form, a key with its own hash and a recording key are copied as their characters,
+        in storage order, without a call."""
+        formen = [typ for name, typ in _alias_formen().items() if "raises" not in name]
+        schluessel = [typ(f"k{i}") for i, typ in enumerate(formen)] + [_HashProtokoll("h"), P[str]("p")]
+        wert = {k: i for i, k in enumerate(schluessel)}
+        erwartet = {str.__str__(k): i for i, k in enumerate(schluessel)}
+        _AUFRUFE.clear()
+        _SCHARF[0] = True
+        try:
+            kopie = canonical._plain_for_jcs(wert, ValueError)
+            geschrieben = canonical.canonicalize_statement({"k": wert})
+        finally:
+            _SCHARF[0] = False
+            gesehen = list(_AUFRUFE)
+            _AUFRUFE.clear()
+        self.assertEqual((kopie, list(kopie)), (erwartet, list(erwartet)))
+        self.assertTrue(all(type(k) is str for k in kopie))
+        self.assertEqual(geschrieben, canonical.canonicalize_statement({"k": erwartet}))
+        self.assertEqual(gesehen, [])
+
+
+class TestAFlagIsReadAsABoolean(_Basis):
+    """L8-B of lens run 8 at 493c2f86 (on main too): `require_statement_shape` was read by its truth
+    in `canonicalize_statement` and `statement_content_root`, so a caller object's `__bool__` ran,
+    what it raised escaped raw, and the string "false" switched the guard on. And the sibling found by
+    a second lens in `intoto.svr_properties`: the `ok` of a check of the caller's result was read by
+    its truth, so "false" earned PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_RECEIPT_UNCHANGED."""
+
+    def test_require_statement_shape_must_be_true_or_false(self):
+        bar = {"predicate": {}}
+        wege = {"canonicalize_statement": lambda f: canonical.canonicalize_statement(
+                    bar, require_statement_shape=f),
+                "statement_content_root": lambda f: canonical.statement_content_root(
+                    bar, require_statement_shape=f)}
+        werte = {'"false"': lambda: "false", "0": lambda: 0, "1": lambda: 1, "None": lambda: None,
+                 "a recording __bool__ answering True": lambda: _WahrheitProtokoll(True),
+                 "a recording __bool__ answering False": lambda: _WahrheitProtokoll(False),
+                 "a __bool__ that raises": _WahrheitWirftProtokoll}
+        for weg, aufruf in wege.items():
+            for name, bau in werte.items():
+                with self.subTest(weg=weg, wert=name):
+                    flagge = bau()
+                    _AUFRUFE.clear()
+                    try:
+                        with self.assertRaises(ProofBundleError) as ctx:
+                            aufruf(flagge)
+                    finally:
+                        gesehen = list(_AUFRUFE)
+                        _AUFRUFE.clear()
+                    self.assertIn(f"{weg}: require_statement_shape must be True or False",
+                                  str(ctx.exception))
+                    self.assertEqual(gesehen, [])
+
+    def test_the_bytes_path_refuses_a_flag_that_is_no_bool_too(self):
+        """A change, not a defect of 493c2f86: the bytes path of `statement_content_root` ignored the
+        flag there and ran none of its code. It is red there only because the refusal is new."""
+        for name, flagge in (('"false"', "false"), ("0", 0), ("None", None)):
+            with self.subTest(wert=name):
+                with self.assertRaises(ProofBundleError) as ctx:
+                    canonical.statement_content_root(b"{}", require_statement_shape=flagge)
+                self.assertIn("statement_content_root: require_statement_shape must be True or False",
+                              str(ctx.exception))
+
+    def test_control_true_and_false_select_the_guard_as_before(self):
+        import hashlib  # noqa: PLC0415
+        voll = {"_type": "t", "subject": [], "predicateType": "p", "predicate": {}}
+        bar = {"predicate": {}}
+        for weg, aufruf in (("canonicalize_statement", canonical.canonicalize_statement),
+                            ("statement_content_root", canonical.statement_content_root)):
+            with self.subTest(weg=weg):
+                with self.assertRaises(ProofBundleError) as ctx:
+                    aufruf(bar, require_statement_shape=True)
+                self.assertIn("missing in-toto Statement key", str(ctx.exception))
+                self.assertIsNotNone(aufruf(voll, require_statement_shape=True))
+                self.assertEqual(aufruf(bar, require_statement_shape=False), aufruf(bar))
+        self.assertEqual(canonical.statement_content_root(b"{}", require_statement_shape=True),
+                         hashlib.sha256(b"{}").digest())
+
+    def test_a_check_earns_its_property_only_when_its_ok_is_true(self):
+        from proofbundle.errors import Check, VerificationResult  # noqa: PLC0415
+        for name, bau in (('"false"', lambda: "false"), ("[0]", lambda: [0]), ("1", lambda: 1),
+                          ('"true"', lambda: "true"),
+                          ("a recording __bool__ answering True", lambda: _WahrheitProtokoll(True)),
+                          ("a recording __bool__ answering False", lambda: _WahrheitProtokoll(False))):
+            with self.subTest(ok=name):
+                ok = bau()
+                ergebnis = VerificationResult([Check("ed25519-signature", ok), Check("merkle-inclusion", ok)])
+                _AUFRUFE.clear()
+                props = intoto.svr_properties(ergebnis, self.basis)
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+                self.assertNotIn("PROOFBUNDLE_SIGNATURE_VALID", props)
+                self.assertNotIn("PROOFBUNDLE_RECEIPT_UNCHANGED", props)
+                self.assertEqual(gesehen, [])
+
+    def test_control_true_earns_the_check_properties_and_false_and_zero_do_not(self):
+        from proofbundle.errors import Check, VerificationResult  # noqa: PLC0415
+        for ok, erwartet in ((True, ["PROOFBUNDLE_SIGNATURE_VALID", "PROOFBUNDLE_RECEIPT_UNCHANGED"]),
+                             (False, []), (0, [])):
+            with self.subTest(ok=ok):
+                ergebnis = VerificationResult([Check("ed25519-signature", ok), Check("merkle-inclusion", ok)])
+                props = intoto.svr_properties(ergebnis, self.basis)
+                self.assertEqual([p for p in props if p in ("PROOFBUNDLE_SIGNATURE_VALID",
+                                                            "PROOFBUNDLE_RECEIPT_UNCHANGED")], erwartet)
+
+
+class _SagtUngleichNie(str):
+    """Its `__ne__` answers False and its `__eq__` True, and both record."""
+
+    def __ne__(self, other):
+        _merke("__ne__")
+        return False
+
+    def __eq__(self, other):
+        _merke("__eq__")
+        return True
+
+    def __hash__(self):
+        _merke("__hash__")
+        return hash(">=")
+
+
+class _ObjektSagtUngleichNie:
+    def __ne__(self, other):
+        _merke("__ne__")
+        return False
+
+    def __eq__(self, other):
+        _merke("__eq__")
+        return True
+
+    __hash__ = object.__hash__
+
+
+class _KodiertAlsModell(str):
+    """Holds other characters; its `encode` gives the committed identifier's bytes."""
+
+    def encode(self, *args, **kwargs):
+        _merke("encode")
+        return b"acme/model-x"
+
+
+class _StrGibt:
+    """No string; its `__str__` gives `text`."""
+
+    def __init__(self, text):
+        self.text = text
+
+    def __str__(self):
+        _merke("__str__")
+        return self.text
+
+
+class TestAStringIsComparedByItsCharacters(_Basis):
+    """The sibling lens run 8 named, and the sweep of its class over the entries of this branch: a
+    string argument that a check compares was compared through the caller's own `__eq__`, `__ne__`,
+    `__hash__`, `encode` or `__str__`. Measured at 493c2f86 and on main 31816e08:
+    `decode_eval_claim(expected_context=...)` returned the claim of a receipt bound to another context,
+    `build_eval_claim` passed a comparator and an assurance level that are none of its values,
+    `verify_commitment` verified a wrong identifier and an object that is no commitment, and
+    `check_binds_bundle` bound an SD-JWT to a root it does not carry."""
+
+    def test_expected_context_is_compared_by_its_characters(self):
+        from proofbundle.evalclaim import CLAIM_INVALID, classify_eval_claim  # noqa: PLC0415
+        gebunden = emit_eval_receipt(dict(self.basis, context_binding="ctx-A"), self.signer)
+        ungebunden = emit_eval_receipt(self.basis, self.signer)
+        for name, bau, buendel in (
+                ("a str subclass holding ctx-B", lambda: _SagtUngleichNie("ctx-B"), gebunden),
+                ("an object of another type", _ObjektSagtUngleichNie, gebunden),
+                ("a str subclass holding ctx-A, the receipt has no binding",
+                 lambda: _SagtUngleichNie("ctx-A"), ungebunden)):
+            with self.subTest(fall=name):
+                erwartet = bau()
+                _AUFRUFE.clear()
+                ergebnis = (decode_eval_claim(buendel, expected_context=erwartet),
+                            classify_eval_claim(buendel, expected_context=erwartet))
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+                self.assertEqual(ergebnis, (None, (CLAIM_INVALID, None)))
+                self.assertEqual(gesehen, [])
+
+    def test_the_swept_strings_are_compared_by_their_characters(self):
+        from proofbundle.evalclaim import salted_commit, verify_commitment  # noqa: PLC0415
+        from proofbundle.sdjwt_issue import check_binds_bundle  # noqa: PLC0415
+        b, s = self.basis, self.signer
+        salz = b"0" * 16
+        zusage = salted_commit("acme/model-x", salz)
+        compact = issue_sd_jwt(b, s, root_b64=ROOT_B64)
+        kw = dict(suite="s", suite_version="v1", metric="m", threshold="0.80", score="0.50", n=5,
+                  model_id="m", dataset_id="d", issuer=b["issuer"], timestamp="2026-01-01T00:00:00Z",
+                  model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+
+        def gebaut(**werte):
+            try:
+                build_eval_claim(**dict(kw, **werte))
+                return "built"
+            except EvalClaimError:
+                return "refused"
+        faelle = (
+            ("build_eval_claim comparator holding ==", lambda: gebaut(comparator=_SagtUngleichNie("==")),
+             "refused"),
+            ("build_eval_claim assurance_level holding bogus",
+             lambda: gebaut(comparator=">=", assurance_level=_SagtUngleichNie("bogus")), "refused"),
+            ("verify_commitment identifier holding other",
+             lambda: verify_commitment(_KodiertAlsModell("other"), salz, zusage), False),
+            ("verify_commitment commitment that is no string",
+             lambda: verify_commitment("acme/model-x", salz, _StrGibt(zusage)), False),
+            ("check_binds_bundle root_b64 holding another root",
+             lambda: check_binds_bundle(compact, b, _SagtUngleichNie("d3Jvbmc=")), False),
+            ("check_binds_bundle root_b64 that is no string",
+             lambda: check_binds_bundle(compact, b, _ObjektSagtUngleichNie()), False))
+        for name, lauf, erwartet in faelle:
+            with self.subTest(fall=name):
+                _AUFRUFE.clear()
+                ergebnis = lauf()
+                gesehen = list(_AUFRUFE)
+                _AUFRUFE.clear()
+                self.assertEqual(ergebnis, erwartet)
+                self.assertEqual(gesehen, [])
+
+    def test_control_plain_and_honest_strings_are_compared_as_before(self):
+        """Green at 493c2f86 too: a plain string and a `str` subclass that compares as `str` give the
+        verdict they gave there."""
+        from proofbundle.evalclaim import salted_commit, verify_commitment  # noqa: PLC0415
+        from proofbundle.sdjwt_issue import check_binds_bundle  # noqa: PLC0415
+
+        class Text(str):
+            pass
+        b, s = self.basis, self.signer
+        gebunden = emit_eval_receipt(dict(b, context_binding="ctx-A"), s)
+        for wert, erwartet in (("ctx-A", True), (Text("ctx-A"), True), ("ctx-B", False), ("", False)):
+            with self.subTest(expected_context=wert):
+                self.assertEqual(decode_eval_claim(gebunden, expected_context=wert) is not None, erwartet)
+        claim, _ = build_eval_claim(
+            suite="s", suite_version="v1", metric="m", comparator=Text(">="), threshold="0.80",
+            score="0.90", n=5, model_id="m", dataset_id="d", issuer=b["issuer"],
+            timestamp="2026-01-01T00:00:00Z", assurance_level=Text("reproduced"),
+            model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        self.assertEqual((claim["comparator"], claim["assurance_level"], claim["passed"]),
+                         (">=", "reproduced", True))
+        salz = b"0" * 16
+        zusage = salted_commit("acme/model-x", salz)
+        for ident, salzwert, commit, erwartet in (
+                ("acme/model-x", salz, zusage, True), (Text("acme/model-x"), bytearray(salz), Text(zusage), True),
+                ("other", salz, zusage, False)):
+            with self.subTest(identifier=ident, salt=type(salzwert).__name__):
+                self.assertIs(verify_commitment(ident, salzwert, commit), erwartet)
+        compact = issue_sd_jwt(b, s, root_b64=ROOT_B64)
+        for wurzel, erwartet in ((ROOT_B64, True), (Text(ROOT_B64), True), ("d3Jvbmc=", False)):
+            with self.subTest(root_b64=wurzel):
+                self.assertIs(check_binds_bundle(compact, b, wurzel), erwartet)
 
 
 if __name__ == "__main__":

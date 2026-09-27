@@ -423,8 +423,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   is C code of the standard library, but it hashes each key to find its node, so the keys are judged
   first without hashing: an OrderedDict holding a `str` subclass key that defines its own `__hash__`
   is refused, because its order cannot be read without running that code, and so is one whose own
-  order names other keys than it stores. And the caller-attested flags were read by their truth, the
-  R-B4 class: `export_svr_dsse(env, signer, anchor_verified="false")` signed
+  order names other keys than it stores. Corrected in round 10: whether a key's type defines its own
+  `__hash__` was decided by reading the class dicts of its MRO, and a `__hash__` bound under a key
+  that only compares equal to that name misled the reading, so such a key's hash ran inside the copy;
+  since round 10 every key of an OrderedDict must be a `str` itself (below). And the
+  caller-attested flags were read by their truth, the R-B4 class:
+  `export_svr_dsse(env, signer, anchor_verified="false")` signed
   `PROOFBUNDLE_ANCHOR_VALID`, on main 20e91c8e too. `prereg_verified` and `anchor_verified` must be
   True or False now. What a caller sees differently, measured at ee489403: an int 0 or 1, a string,
   None, a list or an object as a flag is a BundleFormatError, where it was read by its truth; an
@@ -435,7 +439,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   an OrderedDict whose own order is not its storage order is signed and returned in its own order
   (openings, `subject_digest`, the dicts the statement builders return, and `status`, which read the
   storage order at c8205c18 too and now writes main's order), and one holding a key that hashes
-  through its own code is refused, where it was written in storage order; a refusal that names the
+  through its own code is refused, where it was written in storage order (since round 10 one
+  holding any key that is not a `str` itself, below); a refusal that names the
   first bad value of an OrderedDict names it in the OrderedDict's own order; and the refusal of a
   string argument says "must be a string", where it said "unknown contentRootAlg" or "unknown
   subject profile". Measured with the lens's own generator (6000 values, 1350 holding a tuple, 48
@@ -448,7 +453,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   arguments and container kinds, and none of them raises outside its typed errors in the twelve
   levels past it or at 5000. The lens's recording set runs no caller code in 89 of 89 runs, and its
   battery gives 219 of 219 typed refusals. Limits, named: the base method could still call a key's
-  `__eq__` on a collision of `str`'s own 64-bit hash between two keys with different characters; a
+  `__eq__` on a collision of `str`'s own 64-bit hash between two keys with different characters
+  (gone in round 10, where every key is a `str` itself, whose comparison is the interpreter's); a
   type whose metaclass hides `OrderedDict`, but not `dict`, from its MRO is read as the dict its MRO
   names, in storage order; and the structural budget walks an OrderedDict in storage order, which
   decides only which of two violations it names. The contract file has 113 cases, 5693 subtests; in
@@ -456,6 +462,110 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   recording ints are a case of their own. Against the source of ee489403 its 10 new catch-proof
   cases are red, 8 of them with PASSED printed beside their failed subtests, and its 100 earlier
   cases and 3 new controls pass (pytest: 197 failed, 195 of them subtests).
+
+  An eighth lens at 493c2f86 found the OrderedDict reading of round 9 misled, and round 10 closes
+  the class instead of the instance. Whether hashing a `str` subclass key runs code of the caller
+  was decided by reading the class dicts of its MRO for an entry under a key of type `str` spelled
+  "__hash__", while CPython binds the hash slot by a lookup that compares keys by equality. A
+  `__hash__` bound under a `str` subclass key spelled so, under a key of other characters whose own
+  `__eq__` and `__hash__` claim the name, under a key that is no string, set with `setattr` over
+  such a key, or inherited from such a base before `str` hashed through the caller's function, and
+  the reading called it `str`'s own. Measured at 493c2f86 over the lens's 28 entry and argument
+  pairs: the caller's hash ran in 28 of 28, a hash that raised escaped raw in 28 of 28 (from the
+  three `verify_*_dsse` too, through `expected_predicate_type`), and a hash that deepened a sibling
+  the copy had not reached yet made `canonicalize_statement` return output nested 502 deep against
+  the depth bound of 64, and write 300000 list items against the bound of 200000 nodes; on main
+  31816e08 the hash ran in 16 of 28 and escaped raw in 16. An OrderedDict is read in its own order
+  now only when every key it stores is a `str` itself, whose hash is the interpreter's; any other
+  key, a `str` subclass included, is the entry's typed refusal, naming its type, before the order is
+  read. `_hasht_als_zeichen` is removed. A plain dict with `str` subclass keys is copied as before,
+  because `dict.items` hashes nothing.
+
+  A sibling the lens did not name, measured at 493c2f86 and on main: an OrderedDict whose storage
+  was written past its own methods (`dict.__delitem__`) keeps in its own order a key object the
+  storage no longer holds, and the base method hashes that object. With every stored key a `str`,
+  its `__hash__` and `__eq__` ran and a hash that raised escaped raw (on main as KeyError or the
+  raised error). The order cannot be read from Python without hashing, so the copy first bounds
+  what it can hold through the interpreter's own traversal, `gc.get_referents` (CPython's
+  `tp_traverse`, which names each key of the order, each stored value, the instance dict, the slots
+  and a subclass's own class, and calls no method of any of them). Every object it names must be a
+  `str`, `int`, `float`, `bool`, `bytes` or None, a `dict` or a `list` (no hash, so never a key), a
+  stored value as often as it is stored, or once the OrderedDict's own class; anything else is
+  refused. Measured on Python 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7, the versions of the CI
+  matrix: the probes run no caller code and raise nothing raw on each, and the contract file passes
+  on each. The corrupted OrderedDicts of the lens's p09 keep their outcomes: eleven refused as
+  before, and the one refilled with its own keys written.
+
+  The lens also found the R-B4 class at a flag and named a sibling of round 9's
+  `expected_predicate_type` fix, and a sweep of the class (a caller's value decides a check through
+  a method the interpreter dispatches on the caller's class) over the boolean keyword arguments and
+  the compared string arguments of these modules found three more. `require_statement_shape` of
+  `canonicalize_statement` and `statement_content_root` was read by its truth, at 493c2f86 and on
+  main: a caller object's `__bool__` ran, a raising one escaped raw, "false" switched the guard on,
+  and 0 or None switched it off. It must be True or False now, and anything else is
+  ProofBundleError before anything is read, also on the bytes path of `statement_content_root`,
+  which ignored it. `decode_eval_claim(expected_context=...)`, and through it `classify_eval_claim`,
+  compared the caller's value through its own `__ne__`: at 493c2f86 and on main a `str` subclass
+  whose `__ne__` answers False, and an object of another type with that `__ne__`, returned the claim
+  of a receipt bound to another context and of one with no binding. `build_eval_claim` passed a
+  `comparator` holding "==" and an `assurance_level` holding "bogus" whose `__eq__` and `__hash__`
+  claimed membership; `verify_commitment` verified an `identifier` holding "other" whose `encode`
+  gave the committed identifier's bytes, and a `commitment` object whose `__str__` gave the right
+  value; `check_binds_bundle` bound an SD-JWT to a root it does not carry for a `root_b64` whose
+  `__eq__` answers True, a `str` subclass or another object. Each now compares the characters a
+  `str` holds, read with `str.__str__` (`canonical._zeichen_von`), treats a value of another type as
+  its refusal (None, `invalid`, EvalClaimError, False), and `verify_commitment` reads its `salt` as
+  the bytes it stores. A second lens added `svr_properties`: the `ok` of each check of the caller's
+  result was read by its truth, so `Check("ed25519-signature", "false")` and
+  `Check("merkle-inclusion", "false")` earned PROOFBUNDLE_SIGNATURE_VALID and
+  PROOFBUNDLE_RECEIPT_UNCHANGED, as did [0], 1 and "true"; only True itself earns a check's property
+  now, compared by identity.
+
+  What a caller sees differently, measured at 493c2f86: an OrderedDict holding a key that is not a
+  `str` itself (a `str` subclass or a str Enum member included, both read in its own order there),
+  whose own order holds another object, or whose slot holds an object other than a plain scalar or
+  a stored value, is the entry's typed refusal, and a non-string OrderedDict key is named by its type
+  where the refusal said "object keys must be strings"; a `require_statement_shape` that is not True
+  or False is ProofBundleError at both functions and on both paths; a `str` subclass
+  `expected_context`, `comparator`, `assurance_level`, `identifier`, `commitment` or `root_b64` is
+  compared by its characters and a value of another type is refused, and `build_eval_claim` stores
+  the characters of `comparator` and `assurance_level` where it stored the caller's object (a str
+  Enum comparator was stored as the Enum member); a `verify_commitment` salt that is a `bytes` or
+  `bytearray` subclass is read as its stored bytes; and a check of `svr_properties`' result whose
+  `ok` is 1, a string or another truthy value earns no property. Three changes of round 9 that its
+  list left out, measured with the lens's p08 at ee489403 and now: a `str` subclass
+  `expected_predicate_type` whose `__eq__` answers True gave ok True for a foreign predicate at
+  ee489403 and gives ok False, because it is compared by its characters; the verify side renders
+  `predicateType` and `contentRootAlg` in `content_root_detail` with `render_safe` (a 300-character
+  predicate type gave a detail of 414 characters at ee489403 and of 352 now); and the
+  unknown-profile message quotes the profile by repr (`"it's"`, where it printed `'it's'`). Two
+  sentences were false and say what holds now: the round-9 docstring of `to_test_result_statement`
+  said a `subject_digest` other than an object or a list of pairs is refused, while `dict()` reads
+  `["ab"]`, `[{"k": 1, "v": 2}]` and `[[1, "x"]]` (the behaviour is unchanged); and that a key
+  defining its own `__hash__` is refused without running it, that the copy runs no code of the
+  caller, and that nothing the caller wrote runs between the budget and the serializer held at
+  493c2f86 only for the keys the class-dict reading saw (the round-9 commit message says the first;
+  corrected above and in the docstrings).
+
+  Named, not changed, each measured at 493c2f86 and now with the same result: `svr_properties`
+  looks a check up by its `name` in a dict, so a name whose `__hash__` and `__eq__` claim
+  "ed25519-signature" earns PROOFBUNDLE_SIGNATURE_VALID; `check_binds_bundle` reads `claim` through
+  `in` and `get` and compares its values through their own `__ne__` (values that compare equal to
+  anything bind), `issuer_matches` compares the claim's issuer through its own `__eq__`, and
+  `present_with_key_binding` reads `compact` through its own `endswith` and `encode`, the second
+  into `sd_hash`; `loads_strict` and `load_claim_text` measure a `str` subclass `text` for the
+  `input_bytes` cap through its own `__len__`; `build_eval_claim` still reads `n`, `samples`,
+  `threshold` and `score` through the caller's objects, signs nothing, and the emitter and every
+  producer judge its output on the plain copy; `enclave_assurance_proven` reads `eat_jws` by its
+  truth and hands `expected_profile` to `experimental.enclave`; and `verify_commitment` raises a raw
+  TypeError for a `commitment` with a non-ASCII character and a raw UnicodeEncodeError for an
+  `identifier` holding a lone surrogate, a different class, on main 31816e08 too. A limit of the new
+  check: it reads CPython's traversal, so it holds on CPython, the interpreter the CI runs. The
+  contract file has 126 cases, 6056 subtests. Against the source of 493c2f86 its 8 new catch-proof
+  cases are red in all 344 of their subtests, with PASSED printed beside each case, one of them (the
+  bytes path of `statement_content_root`, 3 subtests) only because its refusal is new there; the
+  round-9 case whose expected message changed fails; and its 112 other earlier cases and 5 new
+  controls pass (pytest: 345 failed, 344 of them subtests).
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

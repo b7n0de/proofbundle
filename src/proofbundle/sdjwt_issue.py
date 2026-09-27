@@ -353,8 +353,15 @@ def _jwt_payload(compact: str) -> dict:
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     """No-Fake binding: the SD-JWT's always-open claims MUST match the signed bundle payload bit-exact and
-    bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected."""
-    if not isinstance(compact, str):
+    bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected.
+
+    ``root_b64`` is compared by its characters (round 10, `canonical._zeichen_von`), with the root the
+    SD-JWT carries as a string; a ``root_b64`` that is no string never binds. Measured at 493c2f86: a
+    ``str`` subclass holding another root whose ``__eq__`` answers True, and an object of another type
+    whose ``__eq__`` answers True, each bound an SD-JWT to a root it does not carry."""
+    from .canonical import _zeichen_von  # noqa: PLC0415
+    wurzel = _zeichen_von(root_b64)
+    if not isinstance(compact, str) or wurzel is None:
         # adversarial re-audit round 7: a non-str presented `compact` is a fail-closed False, not a raw
         # AttributeError from compact.split('~') in _jwt_payload — the except tuple below omits AttributeError/
         # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
@@ -380,4 +387,5 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
     # flagship verify_bundle path (deep gate iter9 Linse A). as_dict closes the class.
-    return as_dict(p.get("receipt")).get("root_b64") == root_b64
+    gebunden = as_dict(p.get("receipt")).get("root_b64")
+    return type(gebunden) is str and gebunden == wurzel

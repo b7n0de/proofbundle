@@ -332,10 +332,15 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
 
-    ``subject_digest`` is read as ``dict()`` reads its plain copy, so an object or a list of
-    ``[alg, hex]`` pairs is accepted as before; any other value is this function's BundleFormatError
-    (round 9: at ee489403 None, 5, "ab", [1] and True raised ``dict()``'s raw TypeError or
-    ValueError).
+    ``subject_digest`` is read by ``dict()`` over its plain copy, as before, and ``dict()`` decides
+    what is accepted: an object, and a list each of whose items has exactly two elements, which
+    ``dict()`` reads as a key and a value. That covers a list of ``[alg, hex]`` pairs, and also a
+    two-character string (``["ab"]`` gives {"a": "b"}), an object with two keys, whose keys are
+    read (``[{"k": 1, "v": 2}]`` gives {"k": "v"}), and a pair whose key is no string (``[[1, "x"]]``
+    gives {1: "x"}). What ``dict()`` refuses is this function's BundleFormatError (round 9: at
+    ee489403 None, 5, "ab", [1] and True raised ``dict()``'s raw TypeError or ValueError). The round-9
+    wording said every value other than an object or a list of pairs was refused; lens run 8 showed
+    the three above read, and round 10 corrects the sentence without changing the behaviour.
     """
     wo = "to_test_result_statement"
     claim = require_eval_claim(claim, wo=wo)
@@ -1094,7 +1099,10 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     call `anchors.verify_anchors()` and does not check the anchor itself. They are CALLER-ATTESTED: the
     caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
     asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
-    verified binding."""
+    verified binding.
+
+    A check of `result` earns its property only when its `ok` is True itself; any other value earns
+    none (round 10, R-B4 at the checks: `ok` was read by its truth, and "false" earned it)."""
     # THE MOST LOAD-BEARING OF THE SIX SITES, because what it decides gets SIGNED. Measured 2026-09-24:
     # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
     # empty property list. This function is public, so the check belongs here and not only at
@@ -1118,9 +1126,15 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     verdikt = require_bool_verdict(claim, wo="svr_properties")
     checks = {c.name: c.ok for c in result.checks}
     props = []
-    if checks.get("ed25519-signature"):
+    # A check of `result` counts only when its `ok` is the exact True (round 10), compared by
+    # identity, so neither the value's `__bool__` nor its `__class__` is asked. R-B4 at the checks:
+    # the caller builds `result`, and `ok` was read by its truth. Measured at 493c2f86:
+    # `Check("ed25519-signature", "false")` and `Check("merkle-inclusion", "false")` gave
+    # PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_RECEIPT_UNCHANGED, so did [0], 1 and "true", an
+    # object's own `__bool__` ran, and False gave neither.
+    if checks.get("ed25519-signature") is True:
         props.append("PROOFBUNDLE_SIGNATURE_VALID")
-    if checks.get("merkle-inclusion"):
+    if checks.get("merkle-inclusion") is True:
         props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
     if verdikt:
         props.append("PROOFBUNDLE_THRESHOLD_MET")
