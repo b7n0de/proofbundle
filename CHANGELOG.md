@@ -99,7 +99,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   accepts beyond RFC 8259, because the fold follows it there: `NaN`, a UTF-8 byte order mark, and
   UTF-16 or UTF-32 text. A header in such a form verifies, and a third party that read the text as
   RFC 8259 got two roots where the code gives one (lens run 3 at 15d0b643; the anchor then fails
-  closed). Whether verification should accept these forms at all is a question for every verify
+  closed). The text states how the reader's limits apply to the fold: depth counts a value one level
+  below its container, the digit limit is the interpreter's setting, and the input and string limits
+  never bind there because the receipt's budget refuses a longer compact first (lens run 4 at
+  dce5f9ef; each fails closed). Whether verification should accept these forms at all is a question for every verify
   path, not for this change. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
   `tests/test_signature.py`, `tests/test_sdjwtvc_external_vectors.py` and
   `tests/test_anchors_rootcommit.py`: 38 cases, measured with each tree's own src and docs.

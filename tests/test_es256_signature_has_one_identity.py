@@ -233,7 +233,9 @@ def _docs_name_the_fold_domain(text: str) -> list:
               "the signature segment strict too": "signature segment is strict base64url",
               "NaN accepted": "`NaN`", "byte order mark accepted": "byte order mark",
               "UTF-16 and UTF-32 accepted": "UTF-16 or UTF-32", "the digit limit": "4,300 digits",
-              "the fold ignores the verdict": "whether or not its signature verifies"}
+              "the fold ignores the verdict": "whether or not its signature verifies",
+              "how depth is counted": "one level below the container",
+              "the digit limit is the interpreter's": "get_int_max_str_digits"}
     return [name for name, phrase in wanted.items() if phrase not in section]
 
 
@@ -501,7 +503,9 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
     def test_the_docs_name_the_domain_of_the_fold(self):
         """RED on the docs/ANCHORS.md of accd932c, which named neither condition, and of 15d0b643, which
-        did not name the reader's extensions or say that the fold ignores the verdict (lens run 3);
+        did not name the reader's extensions or say that the fold ignores the verdict (lens run 3),
+        and of dce5f9ef, which did not say how depth is counted or whose setting the digit limit is
+        (lens run 4);
         RED on f536af50 and 126ed1dc too. Measured by running this file against each tree with its own
         docs."""
         text = (SRC.parents[1] / "docs" / "ANCHORS.md").read_text(encoding="utf-8")
