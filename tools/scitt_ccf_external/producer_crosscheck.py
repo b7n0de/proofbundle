@@ -29,6 +29,7 @@ and the pins. The private keys are not written anywhere that outlives the run.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime
 import hashlib
 import json
@@ -116,9 +117,9 @@ def make_statements(tmp: Path) -> dict:
     out["eddsa"] = {"sign": cli("scitt", "sign", str(BUNDLE), "--out", str(ed), "--issuer", did, "--subject",
                                 SUBJECT, "--key", str(seed), "--public-key-out", str(pub_ed)),
                     "path": ed, "pub": pub_ed, "issuer": did}
-    from cryptography.hazmat.primitives.serialization import load_pem_public_key
-    out["eddsa"]["spki"] = load_pem_public_key(pub_ed.read_bytes()).public_bytes(
-        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    # the SPKI is the DER inside the PEM armor; no key object is built from it here
+    pem = pub_ed.read_text(encoding="ascii")
+    out["eddsa"]["spki"] = base64.b64decode("".join(pem.split("-----")[2].split()))
     return out
 
 
