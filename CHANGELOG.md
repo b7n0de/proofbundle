@@ -111,9 +111,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   0.6 s and a peak of 57 MB. Folding a placeholder made one more pattern visible: the release-scope
   title form read its identifier digits with `\d`, so a title whose identifier carried an
   Arabic-Indic digit held the form (`scripts/b7_release_scope_title_gate.py`); it reads `[0-9]` now.
-  Four scripts still end a whole-value pattern in `$`, one reads a GitHub expression with `\s`, and
-  the title form keeps `\S` for the subject's first character, where an ASCII class would accept
-  U+00A0; they are listed by module and pattern, and the lists are exact in both directions. Named
+  The four scripts that ended a whole-value pattern in `$` end in `\Z` since follow-up 236 (the entry
+  below), so no list of `$` patterns is kept. Two patterns stay named exceptions, by module and
+  pattern: the reachability gate reads a GitHub expression with `\s`, and the title form keeps `\S`
+  for the subject's first character, where an ASCII class would accept U+00A0; each exception must
+  still be found in its module, and the list of unfolded sites is exact in both directions. Named
   limits: an alias the sweep does not resolve (`vars(re)[...]`, `importlib.import_module("re")`,
   `re.compile.__call__`, `re` bound to another name, a function of `re` bound by unpacking anything
   but a literal tuple, as a parameter or an instance attribute, or passed on as a value; since the
