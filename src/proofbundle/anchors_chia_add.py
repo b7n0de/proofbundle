@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
+from ._membership import require_switch
 from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
 
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
@@ -181,7 +182,13 @@ def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Opti
 
     ``lock_path`` (or the ``PROOFBUNDLE_ANCHOR_LOCK_PATH`` env) holds an advisory 'anchor in progress' marker
     file AUTOMATICALLY around the wallet-using batch_update + confirmation, so a separate wallet-switch guard
-    never logs the wallet out mid-anchor. No path → unchanged behaviour."""
+    never logs the wallet out mid-anchor. No path → unchanged behaviour.
+
+    ``wait`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before any RPC is made. It was read by its truth, so
+    ``wait=None``, ``0`` or ``""`` exported the anchor without waiting for the on-chain confirmation,
+    where only ``wait=False`` asks for that."""
+    require_switch(wait, "wait")
     canonical_root_hex = canonical_root_hex if canonical_root_hex.startswith(("0x", "0X")) else "0x" + canonical_root_hex
     canonical_root = bytes.fromhex(canonical_root_hex[2:])
     if len(canonical_root) != 32:

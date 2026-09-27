@@ -44,7 +44,8 @@ from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError
-from ._membership import is_member
+from ._membership import is_member, require_switch
+from ._membership import type_name as _type_name  # the parameter of register_anchor_type is type_name
 from ._wire_b64 import decode_b64
 
 ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
@@ -53,6 +54,11 @@ _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "froze
 # type name -> verifier callable:
 #   (proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int]) -> {"ok": bool, "detail": str}
 _VERIFIERS: dict[str, Callable] = {}
+
+#: The keys of a verifier's result that verify_anchor reads, and the marker for a key the result lacks.
+_RESULT_KEYS = ("ok", "warn", "status", "detail", "rp_trusted", "needs_rp_trust", "frozenEvidence",
+                "trustedTime")
+_ABSENT = object()
 
 
 def _as_dict(v):
@@ -67,10 +73,12 @@ def _as_list(v):
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
-    never raise for an ordinary bad proof. The result must be a plain ``dict``, and ``ok``, ``warn``,
-    ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``: any other
-    value, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list), counts as False and
-    the detail says so; a result that is not a dict is a failed anchor."""
+    never raise for an ordinary bad proof. The result must be a ``dict``; a dict subclass (an
+    ``OrderedDict``, a ``defaultdict``) is read by what it stores, never through its own methods. ``ok``,
+    ``warn``, ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``:
+    any other value, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list), counts as
+    False and the detail says so; a result that is not a dict is a failed anchor whose detail names the
+    type returned."""
     if not type_name or not isinstance(type_name, str) or not callable(verifier):
         raise BundleFormatError("register_anchor_type needs a non-empty name and a callable verifier")
     _VERIFIERS[type_name] = verifier
@@ -273,28 +281,41 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
-    # A registered verifier is caller code (register_anchor_type is a public extension point), so its
-    # result is read only as a plain dict, and each verdict and flag counts only as the exact True:
-    # bool(res.get("ok")) made {"ok": "false"} a verified anchor, {"warn": "false"} turned a hard FAIL into
-    # a pending one, and a result that is not a dict raised a raw AttributeError here. Neither the result
-    # nor its values are rendered into the detail (rendering could run caller code as well).
-    if type(res) is not dict:
-        out["detail"] = ("the anchor verifier returned no result object (a dict whose ok is the exact True "
-                         "is required); not verified (fail-closed)")
+    # A registered verifier is caller code (register_anchor_type is a public extension point), so each
+    # verdict and flag of its result counts only as the exact True: bool(res.get("ok")) made {"ok": "false"}
+    # a verified anchor, {"warn": "false"} turned a hard FAIL into a pending one, and a result that is not a
+    # dict raised a raw AttributeError here. The result is a dict when its REAL type is one
+    # (issubclass(type(res), dict), an identity walk of the MRO; isinstance would believe the object's own
+    # __class__), and it is read ONCE, by what it stores (dict.get of the base type): an OrderedDict or a
+    # defaultdict is read as the dict it is, and a subclass whose own get, __getitem__, __contains__ or
+    # __missing__ answers True promotes nothing, because none of them runs. 3a8074fc refused every dict
+    # subclass, so an OrderedDict with ok True, a verified anchor on main 31816e08, was a failed anchor whose
+    # detail said "no result object" (measured). A result that is not a dict names its type in the detail
+    # (read with type_name, which runs no code of the caller); the values are never rendered.
+    if not issubclass(type(res), dict):
+        out["detail"] = (f"the anchor verifier returned a value of type {_type_name(res)}, which is not a dict "
+                         "(a dict whose ok is the exact True is required); not verified (fail-closed)")
         return out
-    out["ok"] = res.get("ok") is True
-    out["warn"] = res.get("warn") is True
-    out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
-    out["detail"] = res.get("detail", "")
+    stored = {k: dict.get(res, k, _ABSENT) for k in _RESULT_KEYS}
+
+    def _is_true(key: str) -> bool:
+        return stored[key] is True
+
+    out["ok"] = _is_true("ok")
+    out["warn"] = _is_true("warn")
+    _status = stored["status"]
+    out["status"] = ((_status if _status is not _ABSENT else None)
+                     or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail")))
+    out["detail"] = stored["detail"] if stored["detail"] is not _ABSENT else ""
     # WP-A1: surface the trust provenance so the relying party can see WHY (and the require gate can only
     # count RP-trusted anchors). `rp_trusted` True → verified against RP-supplied trust material;
     # `needs_rp_trust` True → the proof exists but confirming it needs RP material (frozen is not trust);
     # `frozenEvidence` True → the bundle carried frozen material, reported but never trusted.
     for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
-        if _f in res:
-            out[_f] = res.get(_f) is True
+        if stored[_f] is not _ABSENT:
+            out[_f] = _is_true(_f)
     _not_bool = [k for k in ("ok", "warn", "rp_trusted", "needs_rp_trust", "frozenEvidence")
-                 if k in res and type(res[k]) is not bool]
+                 if stored[k] is not _ABSENT and type(stored[k]) is not bool]
     if _not_bool:
         _d = out["detail"]
         out["detail"] = ((_d + " " if type(_d) is str and _d else "")
@@ -303,7 +324,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # WP-A2: structured trusted time, carried VERBATIM from the type verifier — present only when
     # the proof genuinely carries it (rfc3161 gen_time; a confirmed Bitcoin height). NEVER guessed,
     # NEVER derived from the informative anchoredAt field.
-    tt = res.get("trustedTime")
+    tt = stored["trustedTime"]
     if isinstance(tt, dict) and tt.get("source"):
         out["trustedTime"] = tt
     return out
@@ -334,12 +355,10 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
     the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
     anchor into a pass: a hard-failing anchor still aggregates to FAIL. ``allow_pending`` must be a
-    bool: anything else is refused with a ``BundleFormatError``, like every other malformed argument
-    here. It was read by its truth, so ``allow_pending="false"`` let a pending anchor meet the
-    requirement."""
-    if type(allow_pending) is not bool:
-        raise BundleFormatError("allow_pending must be a bool (true/false); only the exact True lets a "
-                                "pending anchor meet a requirement")
+    bool: anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError`` and a
+    ``ProofBundleError``) naming the parameter and the type. It was read by its truth, so
+    ``allow_pending="false"`` let a pending anchor meet the requirement."""
+    require_switch(allow_pending, "allow_pending")
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
             f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")

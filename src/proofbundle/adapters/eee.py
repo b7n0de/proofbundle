@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union
 
+from .._membership import require_switch
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
 
@@ -165,7 +166,13 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
     `comparator`/`threshold` set the pass/fail assertion (EEE stores the raw score, not a threshold verdict).
     `eval_index` selects which of `evaluation_results` to use; `metric_name` instead selects the first result
     whose metric matches. Returns (claim, salts). Raises EEEAdapterError on a malformed record.
+
+    ``validate`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the record is read. It was read by its truth, so
+    ``validate=None``, ``0`` or ``""`` skipped the record validation, where only ``validate=False`` asks
+    for that.
     """
+    require_switch(validate, "validate")
     record = _load(source)
     if not isinstance(record, dict):
         raise EEEAdapterError("EEE dataset must be a JSON object")

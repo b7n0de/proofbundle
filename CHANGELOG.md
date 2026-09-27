@@ -196,6 +196,85 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   caller's own method, or an escaped exception. With this change the two files have 71 cases and 458
   subtests, and all of them pass on Python 3.10 and 3.12.
 
+  **Round 4: a switch counts only as an exact bool, everywhere, and an honest subclass of the
+  documented type is read as what it stores** (`assurance`, `adapters._provenance`, `adapters.eee`,
+  `agent_review`, `anchors`, `anchors_chia_add`, `decision`, `outcome`, `run_ledger`, `trust_pack`,
+  `verification_summary`, `hashalg`, `hf_evals`, `renewal`, `bundle`, `_integration`, `_membership`,
+  `errors`). A review of 3a8074fc, the round-3 commit, measured three switches that still read their
+  value by its truth, and one regression of round 1:
+
+  - `assurance.classify_digest_evidence(applicable=)`, and `classify_receiver_corroboration`, which
+    passes it on: `None`, `0`, `""` and `[]` made a weak field not applicable, and
+    `evidence_ladder_summary` rose past it (CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED).
+  - `adapters._provenance.bind_reported_version(bound=)`: `"false"`, `"no"`, `1` and `[0]` wrote the
+    version with status `reported` into a provenance block that is signed into the receipt.
+  - `agent_review.emit_agent_review(legacy_v01=)`: `"false"` and `"no"` issued and signed a v0.1
+    predicate under the v0.1 rules, which `False` refuses under the v0.2 rules. The renderers
+    (`render_disclosure_block`, `render_disclosure_line`, `require_valid_agent_review_predicate_any`)
+    read `legacy_v01` the same way and checked a predicate under the v0.1 rules for `"false"`.
+  - `anchors.verify_anchor`: round 1 read a registered verifier's result only as a plain `dict`, so an
+    `OrderedDict` or `defaultdict` with `ok` True, a verified anchor on main 31816e08, was a failed
+    anchor whose detail said "no result object".
+
+  A sweep of every bool keyword of every public function, discovered at run time (89 at 3a8074fc, 90
+  with the helper below), found the rest of the class there: `decision.emit_decision_receipt` with
+  `strict=None`, `0` or `""` signed a predicate the strict rules refuse (one without `notChecked`);
+  `hf_evals.to_eval_results_entry` with `require_verified=None`, `0` or `""` built an entry from a
+  bundle that does not verify (beside `allow_value_mismatch=True`), and with `include_token="false"`
+  published the token; `adapters.eee.from_eee_dataset` with `validate=None`, `0` or `""` built a claim
+  from a record that fails the schema; and `_integration.emit_enabled("false")` opened the gate that
+  decides whether an integration writes a receipt into a host run. `anchors_chia_add.anchor_add` read
+  `wait` by its truth as well, so `None` would skip the on-chain confirmation (read, not run: it needs
+  a node). `v02` of `agent_review` relaxed only on the exact False, and `strict` of `emit_agent_review`,
+  `emit_outcome_receipt`, `emit_run_ledger`, `sign_trust_pack` and `emit_verification_summary` reaches
+  a validator that reads no `strict` today; they are held to the same rule, so no later reader can
+  reopen the class.
+
+  Now one rule, one helper. A switch whose one side weakens a verdict or a check, or changes what is
+  signed or published, goes through `_membership.require_switch`, which reads only an exact bool (and
+  None where the switch means "not given") and otherwise raises the new `errors.SwitchTypeError`,
+  which is both a `TypeError` and a `ProofBundleError`, naming the parameter and the type, before
+  anything is computed or signed. The type is named by `_membership.type_name`, which runs no code of
+  the caller and marks a foreign type that carries a built-in name (`numpy.bool` reads
+  `bool (not the built-in bool)`). The round-3 refusals of `allow_pending`, `allow_deprecated`,
+  `allow_value_mismatch` and `leaf_witnessed` raised each module's own error without the type; they
+  raise `SwitchTypeError` now, still a `ProofBundleError`. Three surfaces refuse without raising and
+  say why: `renewal.verify_sequence(allow_unauthenticated_anchor=)` and
+  `trust_pack.verify_trust_pack(allow_unverified_rotation=)` keep their check and name the type in the
+  detail and the error (a raise inside `verify_sequence` would become a failed check anyway), and
+  `_integration.emit_enabled` opens only for the exact True, because an integration must never fail
+  the host run. The round-3 sentence that the flags that tighten a check (`strict`, `require_*`) are
+  not in this class held only for a default of False: `emit_decision_receipt`'s `strict` defaults to
+  True, so a falsy value relaxed it. Left as they are, each with its reason in the contract test: 44
+  switches that tighten (default False, and True only adds a check or a refusal, so a value read by its
+  truth tightens or equals leaving it out), 11 verdict inputs (default None, exact since round 2), two
+  that only change how something prints (`render_safe(quote=)`, `run_demo(as_json=)`), and the four of
+  `intoto.svr_properties` and `intoto.export_svr_dsse`, which another change closes.
+
+  An honest subclass of the documented type is read by what it stores. A registered verifier's result
+  is a dict when its real type is one (`issubclass(type(res), dict)`, an identity walk of the MRO) and
+  is read once with `dict.get`, so an `OrderedDict` verifies again, while a subclass whose own `get`,
+  `__getitem__`, `__contains__` or `__missing__` answers True promotes nothing, because none of them
+  runs; a result that is not a dict names its type in the detail. The round-2 checks in `assurance`
+  had the same effect: an `OrderedDict` digest object was CLAIMED (main: REFERENCE_WELL_FORMED), and an
+  `OrderedDict` field or a level from the caller's own `IntEnum` was skipped by both rollups, so
+  `evidence_ladder_summary` rose past a CLAIMED field (main: CLAIMED). They read with `dict.get`,
+  `str.__str__` and `int.__int__` of the base types now. `bundle._checks_passed` read only a plain list
+  or tuple of checks, so a duck-typed result whose checks sat in a list subclass passed the crypto gate
+  on its own `ok` with `Check("root-authenticity", "false")` inside; it reads list and tuple
+  subclasses through the base type's iterator now.
+
+  Reach: the Python API only; the CLI passes exact bools and the package's own verifiers return plain
+  dicts. Not closed here: `intoto` (the other change); `evidence_ladder_summary` still skips a field
+  that is not a dict holding an int level, which lets an AND summary rise past it, as on main 31816e08;
+  and the str, bytes and int checks of rounds 2 and 3 still refuse a subclass (a `StrEnum` relation, a
+  bytes subclass key, an int subclass tree-size pin), which fails closed. Contract: the two test files
+  gain 25 cases (one of them replaces the round-1 not-a-dict case) and 6 round-3 cases change to the
+  new form of the refusal. Against 3a8074fc, 24 cases are red, 18 of the new ones and the 6 changed
+  ones, with 375 failing subtests, and 7 new ones are green there (five controls and two premises of
+  the sweep). With this change the two files have 95 cases and 964 subtests, and all of them pass on
+  Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
   `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,

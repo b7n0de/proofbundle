@@ -51,7 +51,7 @@ import re
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from ._membership import is_member
+from ._membership import is_member, require_switch
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -1153,8 +1153,13 @@ def _traegt_verifier_block(predicate: Any) -> bool:
 
 
 def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
-    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide."""
-    if legacy_v01 is not None:
+    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide.
+
+    ``legacy_v01`` is None or an exact bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is read. ``not legacy_v01`` read
+    it by its truth, so ``legacy_v01="false"`` checked the predicate under the v0.1 rules, and one that
+    the v0.2 rules refuse passed (measured at 3a8074fc)."""
+    if require_switch(legacy_v01, "legacy_v01", allow_none=True) is not None:
         return not legacy_v01
     return _traegt_v02_felder(predicate) or _traegt_verifier_block(predicate)
 
@@ -1249,12 +1254,11 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
 
-    ``leaf_witnessed`` must be a bool; anything else raises ``AgentReviewError``. It was read by its
+    ``leaf_witnessed`` must be a bool, and ``legacy_v01`` None or a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``). ``leaf_witnessed`` was read by its
     truth, so ``leaf_witnessed="false"`` dropped the "not yet in a witnessed checkpoint" caveat.
     """
-    if type(leaf_witnessed) is not bool:
-        raise AgentReviewError("leaf_witnessed must be a bool (true/false); only the exact True drops the "
-                               "'not yet in a witnessed checkpoint' caveat")
+    require_switch(leaf_witnessed, "leaf_witnessed")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
@@ -1332,7 +1336,15 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
 
     WIDERSPRUCH IST EIN FEHLER, KEINE RANGFOLGE. ``legacy_v01=True, v02=True`` verlangt beide
     Fassungen zugleich. Eine stille Vorfahrt haette hier eine der beiden Absichten verschluckt.
+
+    ONLY EXACT BOOLS CHOOSE A VERSION. ``legacy_v01`` must be a bool and ``v02`` None or a bool;
+    anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``) before
+    anything is validated, built or signed. ``return not legacy_v01`` read the switch by its truth,
+    so ``legacy_v01="false"`` or ``"no"`` issued a v0.1 predicate under the v0.1 rules, which
+    ``False`` refuses under the v0.2 rules (measured at 3a8074fc through ``emit_agent_review``).
     """
+    require_switch(legacy_v01, "legacy_v01")
+    require_switch(v02, "v02", allow_none=True)
     import warnings  # noqa: PLC0415
     if v02 is not None:
         warnings.warn(
@@ -1403,8 +1415,16 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
     Ohne Argument v0.2, wie beim Statement. ``legacy_v01=True`` stellt die Altfassung aus; ``v02``
     ist der Altweg, warnt und verschwindet in einer spaeteren MAJOR.
+
+    ``legacy_v01`` must be a bool and ``v02`` None or a bool: anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed (see
+    ``_fassung_waehlen``). ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape).
     """
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="emit_agent_review")
     # Dieselbe Regel wie in `build_agent_review_statement`: der Block zieht v0.3.
     _fassung = ("/v0.3" if _ist_v02 and _traegt_verifier_block(predicate)

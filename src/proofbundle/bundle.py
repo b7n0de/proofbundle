@@ -25,7 +25,7 @@ import base64
 import hmac
 import os
 import stat
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
@@ -609,9 +609,20 @@ def _checks_passed(result) -> "tuple[bool, list[str]]":
     by their truth, so a caller-built ``Check("root-authenticity", "false")`` made it True; it is read
     here only after every check is known to be a bool, so the caller's ``__bool__`` never runs. Shared
     by :func:`root_authenticity_summary` and ``policy.evaluate_policy``: the summary and the policy's
-    crypto gate count one crypto result by one rule."""
-    raw = getattr(result, "checks", None)
-    checks = list(raw) if type(raw) is list or type(raw) is tuple else []
+    crypto gate count one crypto result by one rule.
+
+    ``checks`` is read by what it stores: a ``list`` or ``tuple``, a subclass included, through the base
+    type's own iterator (``list.__iter__`` / ``tuple.__iter__``), so a subclass's ``__iter__`` never runs.
+    3a8074fc asked ``type(raw) is list``, so a duck-typed result whose checks sat in a list subclass skipped
+    the per-check test, and ``Check("root-authenticity", "false")`` in it passed the gate on the result's own
+    ``ok`` (measured), while the same check in a plain list did not."""
+    raw: Any = getattr(result, "checks", None)
+    if issubclass(type(raw), list):
+        checks = list(list.__iter__(raw))
+    elif issubclass(type(raw), tuple):
+        checks = list(tuple.__iter__(raw))
+    else:
+        checks = []
     not_bool: list[str] = []
     for c in checks:
         if type(getattr(c, "ok", None)) is not bool:

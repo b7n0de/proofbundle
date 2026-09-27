@@ -27,6 +27,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
+from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
@@ -336,8 +337,14 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
     Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
-    an unknown identity)."""
+    an unknown identity).
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -450,7 +457,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
     alone. ``allow_unverified_rotation`` opts out of that check only as the exact ``True``; a value that is not
-    a bool keeps the check and the error says so."""
+    a bool keeps the check, and the error says so and names the value's type."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     try:
@@ -655,7 +662,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 "was NOT verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches "
                 "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)"
                 + ("" if type(allow_unverified_rotation) is bool else
-                   "; allow_unverified_rotation is not a bool, and only the exact True opts out"))
+                   f"; allow_unverified_rotation is not a bool (a value of type "
+                   f"{type_name(allow_unverified_rotation)}), and only the exact True opts out"))
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

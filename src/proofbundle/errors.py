@@ -18,6 +18,15 @@ class UnsupportedError(ProofBundleError):
     """The bundle uses an algorithm or schema this version does not support."""
 
 
+class SwitchTypeError(ProofBundleError, TypeError):
+    """A switch the caller passes is not an exact bool.
+
+    Raised by ``_membership.require_switch`` for a keyword switch whose one side weakens a verdict or a
+    check, or changes what is signed or published, before anything is computed or signed. It is a
+    ``TypeError`` (the argument has the wrong type) and a ``ProofBundleError`` (every refusal of this
+    package is one), and its message names the parameter and the type it got."""
+
+
 @dataclass
 class Check:
     """Result of a single verification step."""

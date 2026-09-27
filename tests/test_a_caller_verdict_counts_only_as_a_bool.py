@@ -48,6 +48,17 @@ Round 3, the siblings the sweep over the whole package found:
   ``targetDigest`` and ``supersededByAttached`` of a lineage result in ``relation.evaluate_relations_policy``
   (which now also refuses a non-bool ``reject_superseded`` / ``reject_retracted`` with the loader's message).
 
+Round 4, answering a review of 3a8074fc. Three switches still read their value by its truth:
+``assurance.classify_digest_evidence(applicable=)`` (in the resolver contract file),
+``adapters._provenance.bind_reported_version(bound=)`` (``"false"`` wrote a signed ``reported`` status) and
+``agent_review.emit_agent_review(legacy_v01=)`` (``"false"`` issued a v0.1 predicate that ``False`` refuses).
+The class is closed for every switch at once: a switch whose one side weakens a verdict or a check, or changes
+what is signed or published, goes through ``_membership.require_switch``, and a value that is not an exact bool
+is a ``SwitchTypeError``, a ``TypeError`` and a ``ProofBundleError`` whose message names the parameter and the
+type. The round-3 refusals, which raised each module's own error without the type, raise it too. The sweep at
+the end of this file discovers every bool keyword of the public API at run time and holds each one to its
+class, so a new switch cannot enter unclassified.
+
 The recording classes show that no method of the caller's value runs. The controls show that exact bools
 and a policy that went through ``load_policy`` behave as before.
 """
@@ -68,7 +79,7 @@ from proofbundle.automation_verdict import automation_summary
 from proofbundle.bundle import root_authenticity_summary, verify_bundle
 from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.emit import generate_signer
-from proofbundle.errors import Check, VerificationResult
+from proofbundle.errors import Check, ProofBundleError, VerificationResult
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
 from proofbundle.hf_evals import to_eval_results_entry
 from proofbundle.policy import (
@@ -676,6 +687,16 @@ def _flag_values(calls: list):
             ("__class__ says bool, __bool__ says True", _ClaimsBool(calls, True))]
 
 
+def _assert_refused_as_a_switch(test: unittest.TestCase, cm, name: str, value) -> None:
+    """The refusal of a switch (round 4): ``SwitchTypeError``, a TypeError and a ProofBundleError, whose message
+    names the parameter and the type of the value (the test's own ``type(value).__name__``)."""
+    exc = cm.exception
+    test.assertIsInstance(exc, TypeError)
+    test.assertIsInstance(exc, ProofBundleError)
+    test.assertIn(f"{name} must be a bool", str(exc))
+    test.assertIn(f"not a value of type {type(value).__name__}", str(exc))
+
+
 _STATEMENT_ROOT_PENDING = "test-a-caller-verdict-pending-r3/v1"
 
 
@@ -708,9 +729,9 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
         for label, value in _flag_values(calls):
             with self.subTest(allow_pending=label):
                 calls.clear()
-                with self.assertRaises(anchors.BundleFormatError) as cm:
+                with self.assertRaises(TypeError) as cm:
                     self._pending(value)
-                self.assertIn("allow_pending must be a bool", str(cm.exception))
+                _assert_refused_as_a_switch(self, cm, "allow_pending", value)
                 self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_resolve_hash_alg_refuses_an_allow_deprecated_that_is_not_a_bool(self):
@@ -721,9 +742,9 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
                                                                                    allow_deprecated=v))):
                 with self.subTest(surface=name, allow_deprecated=label):
                     calls.clear()
-                    with self.assertRaises(hashalg.HashAlgError) as cm:
+                    with self.assertRaises(TypeError) as cm:
                         call(value)
-                    self.assertIn("allow_deprecated must be a bool", str(cm.exception))
+                    _assert_refused_as_a_switch(self, cm, "allow_deprecated", value)
                     self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_verify_sequence_keeps_the_anchor_check_for_a_flag_that_is_not_a_bool(self):
@@ -737,7 +758,7 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
                 last = next(c for c in r.checks if c.name == "renewal:last_anchor")
                 self.assertIs(last.ok, False)
                 self.assertIs(r.ok, False)
-                self.assertIn("not a bool", last.detail)
+                self.assertIn(f"not a bool (a value of type {type(value).__name__})", last.detail)
                 self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_verify_trust_pack_keeps_the_rotation_check_for_a_flag_that_is_not_a_bool(self):
@@ -749,7 +770,8 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
                 r = verify_trust_pack(env, strict=True, now=now, allow_unverified_rotation=value)
                 self.assertIs(r["ok"], False)
                 self.assertIs(r["rotation_authorized"], False)
-                self.assertTrue(any("not a bool" in e for e in r["errors"]), r["errors"])
+                self.assertTrue(any(f"not a bool (a value of type {type(value).__name__})" in e
+                                    for e in r["errors"]), r["errors"])
                 self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_to_eval_results_entry_refuses_an_allow_value_mismatch_that_is_not_a_bool(self):
@@ -757,10 +779,10 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
         for label, value in _flag_values(calls):
             with self.subTest(allow_value_mismatch=label):
                 calls.clear()
-                with self.assertRaises(anchors.BundleFormatError) as cm:
+                with self.assertRaises(TypeError) as cm:
                     to_eval_results_entry(self.bundle, dataset_id="d", task_id="t", value=0.1,
                                           allow_value_mismatch=value)
-                self.assertIn("allow_value_mismatch must be a bool", str(cm.exception))
+                _assert_refused_as_a_switch(self, cm, "allow_value_mismatch", value)
                 self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_render_disclosure_line_refuses_a_leaf_witnessed_that_is_not_a_bool(self):
@@ -769,10 +791,10 @@ class TestAPermissiveFlagRelaxesOnlyAsTrue(unittest.TestCase):
         for label, value in _flag_values(calls):
             with self.subTest(leaf_witnessed=label):
                 calls.clear()
-                with self.assertRaises(ar.AgentReviewError) as cm:
+                with self.assertRaises(TypeError) as cm:
                     ar.render_disclosure_line(predicate, receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
                                               leaf_url="https://x.invalid/leaf", leaf_witnessed=value)
-                self.assertIn("leaf_witnessed must be a bool", str(cm.exception))
+                _assert_refused_as_a_switch(self, cm, "leaf_witnessed", value)
                 self.assertEqual(calls, [], "the flag's own methods ran")
 
     def test_control_exact_flags_behave_as_before(self):
@@ -1019,6 +1041,518 @@ class TestTheRelationsEvaluatorReadsALineageResultOnlyAsPlainValues(unittest.Tes
         self.assertEqual(self._viol({"reject_superseded": True}, {"edges": [], "supersededByAttached": None}), [])
         self.assertEqual(self._viol({"reject_superseded": False}, {"edges": [], "supersededByAttached": "by X"}),
                          [])
+
+
+# ── round 4: every switch of the public API, by its class ─────────────────────────────────────────
+
+
+def _v01_predicate() -> dict:
+    """A v0.1-shaped agent-review predicate: valid under the v0.1 rules, refused by the v0.2 rules (no
+    ``disclosureCoreDigest``)."""
+    body = "# T\n\nText.\n"
+    findings = [{"id": "F1", "severity": "low", "title": "t", "disposition": "dismissed", "reason": "r"}]
+    return {
+        "schemaVersion": "0.1.0", "reviewId": "r",
+        "subjectContext": {"kind": "githubPullRequest", "forge": "github.com", "repositoryId": "R",
+                           "pullRequestNodeId": "PR", "headSha": "a" * 40, "baseSha": "b" * 40,
+                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": ar.body_core_digest(body)},
+        "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}], "reviewRuns": [],
+                        "findings": findings, "findingsTotal": 1, "findingsRoot": ar.findings_root(findings),
+                        "nonClaims": ["n"]},
+        "coverage": {"status": "UNKNOWN"}, "times": {"declaredAt": "2026-08-31T17:00:00Z"}, "limitations": ["l"],
+    }
+
+
+def _not_bools(calls: list, *, none_allowed: bool = False):
+    """The values a switch is asked with that are not a bool (the review's sweep set, plus None and an object
+    whose ``__class__`` says bool)."""
+    values = [("str 'false'", "false"), ("str 'no'", "no"), ("int 1", 1), ("int 0", 0), ("list [0]", [0]),
+              ("str ''", ""), ("__class__ says bool, __bool__ says True", _ClaimsBool(calls, True)),
+              ("__class__ says bool, __bool__ says False", _ClaimsBool(calls, False))]
+    if not none_allowed:
+        values.append(("None", None))
+    return values
+
+
+class TestABoundVersionIsWrittenOnlyForABool(unittest.TestCase):
+    """N2 (review of 3a8074fc): ``bind_reported_version`` read ``bound`` by its truth, so ``"false"``, ``"no"``,
+    ``1`` and ``[0]`` wrote the version with status ``reported`` into a provenance block that is signed into
+    the receipt, where ``bound=False`` writes ``not_bound`` with its reason."""
+
+    def test_a_bound_that_is_not_a_bool_is_refused_before_the_block_is_touched(self):
+        from proofbundle.adapters._provenance import bind_reported_version  # noqa: PLC0415
+        calls: list = []
+        for label, value in _not_bools(calls):
+            with self.subTest(bound=label):
+                calls.clear()
+                block: dict = {"harness_version": "0.1.0", "harness_version_status": "reported"}
+                with self.assertRaises(TypeError) as cm:
+                    bind_reported_version(block, "harness_version", "0.3.1", reason="r", bound=value)
+                _assert_refused_as_a_switch(self, cm, "bound", value)
+                self.assertEqual(block, {"harness_version": "0.1.0", "harness_version_status": "reported"})
+                self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_control_exact_bools_write_as_before(self):
+        from proofbundle.adapters._provenance import bind_reported_version  # noqa: PLC0415
+        self.assertEqual(bind_reported_version({}, "harness_version", "0.3.1", reason="r", bound=True),
+                         {"harness_version": "0.3.1", "harness_version_status": "reported"})
+        self.assertEqual(bind_reported_version({}, "harness_version", "0.3.1", reason="r", bound=False),
+                         {"harness_version_status": "not_bound", "harness_version_status_reason": "r"})
+        self.assertEqual(bind_reported_version({}, "harness_version", None, reason="r"),
+                         {"harness_version_status": "not_reported", "harness_version_status_reason": "r"})
+
+
+class TestTheLegacyRuleSetIsChosenOnlyByABool(unittest.TestCase):
+    """N3 (review of 3a8074fc): ``_fassung_waehlen`` returned ``not legacy_v01``, so ``legacy_v01="false"`` or
+    ``"no"`` made ``emit_agent_review`` issue and sign a v0.1 predicate under the v0.1 rules, which ``False``
+    refuses under the v0.2 rules. The renderers' ``_fassung_fuer_renderer`` read it the same way, and ``v02``
+    joins the same choice."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.signer = generate_signer()
+        cls.v01 = _v01_predicate()
+
+    def _emitters(self):
+        return (("emit_agent_review", lambda **kw: ar.emit_agent_review(copy.deepcopy(self.v01), self.signer, **kw)),
+                ("build_agent_review_statement", lambda **kw: ar.build_agent_review_statement(
+                    copy.deepcopy(self.v01), **kw)))
+
+    def test_a_legacy_switch_that_is_not_a_bool_issues_nothing(self):
+        calls: list = []
+        for label, value in _not_bools(calls):
+            for name, emit in self._emitters():
+                with self.subTest(surface=name, legacy_v01=label):
+                    calls.clear()
+                    with self.assertRaises(TypeError) as cm:
+                        emit(legacy_v01=value)
+                    _assert_refused_as_a_switch(self, cm, "legacy_v01", value)
+                    self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_a_v02_switch_that_is_neither_none_nor_a_bool_issues_nothing(self):
+        calls: list = []
+        for label, value in _not_bools(calls, none_allowed=True):
+            for name, emit in self._emitters():
+                with self.subTest(surface=name, v02=label):
+                    calls.clear()
+                    with self.assertRaises(TypeError) as cm:
+                        emit(v02=value)
+                    _assert_refused_as_a_switch(self, cm, "v02", value)
+                    self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_the_renderers_refuse_a_legacy_switch_that_is_neither_none_nor_a_bool(self):
+        calls: list = []
+        renderers = (
+            ("require_valid_agent_review_predicate_any",
+             lambda v: ar.require_valid_agent_review_predicate_any(self.v01, legacy_v01=v)),
+            ("render_disclosure_block", lambda v: ar.render_disclosure_block(self.v01, legacy_v01=v)),
+            ("render_disclosure_line", lambda v: ar.render_disclosure_line(
+                self.v01, receipt_digest="0" * 64, receipt_url="https://x.invalid/r", legacy_v01=v)))
+        for label, value in _not_bools(calls, none_allowed=True):
+            for name, render in renderers:
+                with self.subTest(surface=name, legacy_v01=label):
+                    calls.clear()
+                    with self.assertRaises(TypeError) as cm:
+                        render(value)
+                    _assert_refused_as_a_switch(self, cm, "legacy_v01", value)
+                    self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_control_exact_bools_choose_the_rule_set_as_before(self):
+        import warnings  # noqa: PLC0415
+        with self.assertRaises(ar.AgentReviewError) as cm:
+            ar.emit_agent_review(copy.deepcopy(self.v01), self.signer, legacy_v01=False)
+        self.assertIn("disclosureCoreDigest is required", str(cm.exception))
+        env = ar.emit_agent_review(copy.deepcopy(self.v01), self.signer, legacy_v01=True)
+        statement = json.loads(base64.b64decode(env["payload"]))
+        self.assertEqual(statement["predicateType"], ar.AGENT_REVIEW_PREDICATE_TYPE)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self.assertEqual(ar.build_agent_review_statement(copy.deepcopy(self.v01), v02=False)["predicateType"],
+                             ar.AGENT_REVIEW_PREDICATE_TYPE)
+        ar.require_valid_agent_review_predicate_any(self.v01, legacy_v01=True)
+        ar.require_valid_agent_review_predicate_any(self.v01)
+        with self.assertRaises(ar.AgentReviewError):
+            ar.require_valid_agent_review_predicate_any(self.v01, legacy_v01=False)
+
+
+class _ChecksInASubclass(list):
+    """A list subclass whose own ``__iter__`` hides every check."""
+
+    def __iter__(self):
+        return iter([])
+
+
+class TestTheCryptoGateReadsAListSubclassByWhatItHolds(unittest.TestCase):
+    """At 3a8074fc ``bundle._checks_passed`` asked ``type(checks) is list``: a duck-typed result whose checks sat
+    in a list subclass skipped the per-check test, so ``Check("root-authenticity", "false")`` there passed the
+    crypto gate on the result's own ``ok`` while the same check in a plain list did not."""
+
+    class _Result:
+        ok = True
+
+        def __init__(self, checks):
+            self.checks = checks
+
+    def test_a_check_that_is_not_a_bool_fails_the_gate_in_any_list_or_tuple(self):
+        from proofbundle.bundle import _checks_passed  # noqa: PLC0415
+        for label, container in (("list", list), ("tuple", tuple), ("list subclass", _ChecksInASubclass),
+                                 ("tuple subclass", type("_T", (tuple,), {}))):
+            with self.subTest(checks=label):
+                checks = container([Check("ed25519-signature", True), Check("root-authenticity", "false")])
+                self.assertEqual(_checks_passed(self._Result(checks)),
+                                 (False, ["checks['root-authenticity'].ok"]))
+
+    def test_control_exact_checks_pass_in_any_list_or_tuple(self):
+        from proofbundle.bundle import _checks_passed  # noqa: PLC0415
+        for label, container in (("list", list), ("list subclass", _ChecksInASubclass)):
+            with self.subTest(checks=label):
+                self.assertEqual(_checks_passed(self._Result(container([Check("x", True)]))), (True, []))
+
+
+#: Why a switch is left as it is, by class. Every bool keyword of every public function must stand in
+#: ``_SWITCHES`` under one of these, or under "relaxing" (refused with SwitchTypeError) and
+#: "relaxing, refused in the verdict" / "exact True only" (never-raise surfaces).
+_TIGHTENING = ("tightening: default False, and True only adds a check or a refusal, so a value read by its "
+               "truth tightens or equals leaving the switch out")
+_VERDICT_INPUT = ("verdict input, not a switch: a verdict the caller reports, default None, counted only as "
+                  "the exact bool since round 2 (a value that is not a bool blocks and is named)")
+_PRESENTATION = "presentation only: decides how a message or a demo prints, no verdict, check or signed byte"
+_EXCLUDED = ("excluded here: intoto.py is closed on its own branch (the commit pattern at the verify "
+             "boundary), not changed in this one")
+_RELAXING = "relaxing"
+_RELAXING_VERDICT = "relaxing, refused in the verdict"
+_EXACT_TRUE = "exact True only"
+
+_SWITCHES = {
+    # relaxing: refused with SwitchTypeError unless an exact bool (None where the switch allows it)
+    ("proofbundle.adapters._provenance", "bind_reported_version", "bound"): _RELAXING,
+    ("proofbundle.adapters.eee", "from_eee_dataset", "validate"): _RELAXING,
+    ("proofbundle.agent_review", "build_agent_review_statement", "legacy_v01"): _RELAXING,
+    ("proofbundle.agent_review", "build_agent_review_statement", "v02"): _RELAXING,
+    ("proofbundle.agent_review", "emit_agent_review", "legacy_v01"): _RELAXING,
+    ("proofbundle.agent_review", "emit_agent_review", "strict"): _RELAXING,
+    ("proofbundle.agent_review", "emit_agent_review", "v02"): _RELAXING,
+    ("proofbundle.agent_review", "render_disclosure_block", "legacy_v01"): _RELAXING,
+    ("proofbundle.agent_review", "render_disclosure_line", "leaf_witnessed"): _RELAXING,
+    ("proofbundle.agent_review", "render_disclosure_line", "legacy_v01"): _RELAXING,
+    ("proofbundle.agent_review", "require_valid_agent_review_predicate_any", "legacy_v01"): _RELAXING,
+    ("proofbundle.anchors", "verify_anchors", "allow_pending"): _RELAXING,
+    ("proofbundle.anchors_chia_add", "anchor_add", "wait"): _RELAXING,
+    ("proofbundle.assurance", "classify_digest_evidence", "applicable"): _RELAXING,
+    ("proofbundle.assurance", "classify_receiver_corroboration", "applicable"): _RELAXING,
+    ("proofbundle.decision", "emit_decision_receipt", "strict"): _RELAXING,
+    ("proofbundle.hashalg", "compute_digest", "allow_deprecated"): _RELAXING,
+    ("proofbundle.hashalg", "resolve_hash_alg", "allow_deprecated"): _RELAXING,
+    ("proofbundle.hf_evals", "to_eval_results_entry", "allow_value_mismatch"): _RELAXING,
+    ("proofbundle.hf_evals", "to_eval_results_entry", "include_token"): _RELAXING,
+    ("proofbundle.hf_evals", "to_eval_results_entry", "require_verified"): _RELAXING,
+    ("proofbundle.outcome", "emit_outcome_receipt", "strict"): _RELAXING,
+    ("proofbundle.run_ledger", "emit_run_ledger", "strict"): _RELAXING,
+    ("proofbundle.trust_pack", "sign_trust_pack", "strict"): _RELAXING,
+    ("proofbundle.verification_summary", "emit_verification_summary", "strict"): _RELAXING,
+    # relaxing, on a never-raise surface: the refusal is the failed verdict, naming the parameter and type
+    ("proofbundle.renewal", "verify_sequence", "allow_unauthenticated_anchor"): _RELAXING_VERDICT,
+    ("proofbundle.trust_pack", "verify_trust_pack", "allow_unverified_rotation"): _RELAXING_VERDICT,
+    # relaxing, read as the exact True and never raising (a host-run gate; the helper's own switch)
+    ("proofbundle._integration", "emit_enabled", "flag"): _EXACT_TRUE,
+    ("proofbundle._membership", "require_switch", "allow_none"): _EXACT_TRUE,
+    # verdict inputs
+    **{("proofbundle.bundle", "root_authenticity_summary", k): _VERDICT_INPUT for k in (
+        "anchor_ok", "policy_authenticated_root", "policy_expired", "policy_not_yet_valid", "policy_ok",
+        "public_transparency_ok", "replay_ok", "requires_identity_overlay", "signer_trusted",
+        "tree_context_authenticated")},
+    ("proofbundle.public_transparency", "evaluate_public_transparency", "consistency_confirmed"): _VERDICT_INPUT,
+    # presentation
+    ("proofbundle.budget", "render_safe", "quote"): _PRESENTATION,
+    ("proofbundle.demo", "run_demo", "as_json"): _PRESENTATION,
+    # excluded
+    **{("proofbundle.intoto", f, k): _EXCLUDED for f in ("svr_properties", "export_svr_dsse")
+       for k in ("anchor_verified", "prereg_verified")},
+    # tightening
+    **{k: _TIGHTENING for k in (
+        ("proofbundle._statement_payload", "load_statement_strict", "require_canonical"),
+        ("proofbundle.adapters.agt_receipt", "verify_agt_receipt", "require_external_authorization"),
+        ("proofbundle.agent_review", "require_valid_agent_review_predicate", "strict"),
+        ("proofbundle.agent_review", "require_valid_agent_review_predicate_any", "strict"),
+        ("proofbundle.agent_review", "validate_agent_review_predicate", "strict"),
+        ("proofbundle.agent_review", "validate_agent_review_v02_predicate", "strict"),
+        ("proofbundle.agent_review", "validate_agent_review_v03_predicate", "strict"),
+        ("proofbundle.agent_review", "verify_agent_review", "strict"),
+        ("proofbundle.agent_review", "verify_agent_review_v02", "strict"),
+        ("proofbundle.agent_review", "verify_agent_review_v03", "strict"),
+        ("proofbundle.canonical", "canonicalize_statement", "require_statement_shape"),
+        ("proofbundle.canonical", "statement_content_root", "require_statement_shape"),
+        ("proofbundle.decision", "require_valid_decision_predicate", "strict"),
+        ("proofbundle.decision", "validate_decision_predicate", "strict"),
+        ("proofbundle.decision", "verify_decision_receipt", "_raise_on_malformed"),
+        ("proofbundle.decision", "verify_decision_receipt", "require_derived_subject"),
+        ("proofbundle.decision", "verify_decision_receipt", "strict"),
+        ("proofbundle.decision", "verify_decision_receipt_or_raise", "require_derived_subject"),
+        ("proofbundle.decision", "verify_decision_receipt_or_raise", "strict"),
+        ("proofbundle.outcome", "require_valid_outcome_predicate", "strict"),
+        ("proofbundle.outcome", "validate_outcome_predicate", "strict"),
+        ("proofbundle.outcome", "verify_outcome_receipt", "_raise_on_malformed"),
+        ("proofbundle.outcome", "verify_outcome_receipt", "require_derived_subject"),
+        ("proofbundle.outcome", "verify_outcome_receipt", "strict"),
+        ("proofbundle.outcome", "verify_outcome_receipt_or_raise", "require_derived_subject"),
+        ("proofbundle.outcome", "verify_outcome_receipt_or_raise", "strict"),
+        ("proofbundle.policy", "lint_policy", "strict"),
+        ("proofbundle.public_transparency", "evaluate_public_transparency", "strict_consistency"),
+        ("proofbundle.relation_statement", "verify_relation_statement", "require_derived_subject"),
+        ("proofbundle.relation_statement", "verify_relation_statement", "strict"),
+        ("proofbundle.renewal", "renew_hashtree", "require_verified_prior"),
+        ("proofbundle.renewal", "renew_timestamp", "require_verified_prior"),
+        ("proofbundle.renewal", "verify_sequence", "require_current_hash"),
+        ("proofbundle.renewal", "verify_sequence", "require_external_token"),
+        ("proofbundle.renewal", "verify_sequence", "require_pq"),
+        ("proofbundle.run_ledger", "require_valid_run_ledger_predicate", "strict"),
+        ("proofbundle.run_ledger", "validate_run_ledger_predicate", "strict"),
+        ("proofbundle.run_ledger", "verify_run_ledger", "strict"),
+        ("proofbundle.trust_pack", "require_valid_trust_pack_predicate", "strict"),
+        ("proofbundle.trust_pack", "validate_trust_pack_predicate", "strict"),
+        ("proofbundle.trust_pack", "verify_trust_pack", "strict"),
+        ("proofbundle.verification_summary", "require_valid_summary_predicate", "strict"),
+        ("proofbundle.verification_summary", "validate_summary_predicate", "strict"),
+        ("proofbundle.verification_summary", "verify_verification_summary", "strict"))},
+}
+
+#: Switches whose ``None`` means "not given" and is accepted as such.
+_NONE_ALLOWED = {("proofbundle.agent_review", "build_agent_review_statement", "v02"),
+                 ("proofbundle.agent_review", "emit_agent_review", "v02"),
+                 ("proofbundle.agent_review", "render_disclosure_block", "legacy_v01"),
+                 ("proofbundle.agent_review", "render_disclosure_line", "legacy_v01"),
+                 ("proofbundle.agent_review", "require_valid_agent_review_predicate_any", "legacy_v01")}
+
+
+def _is_bool_annotation(annotation) -> bool:
+    if annotation is bool:
+        return True
+    text = annotation if isinstance(annotation, str) else repr(annotation)
+    text = text.replace(" ", "").replace("typing.", "")
+    return text in ("bool", "Optional[bool]", "bool|None", "None|bool", "Union[bool,None]", "Union[bool,NoneType]")
+
+
+def _discover_switches():
+    """Every bool keyword of every public function under ``src/proofbundle``, found at run time.
+
+    Each module of the package is imported; a function counts when its name has no leading underscore and it
+    is defined in that module. A parameter counts when its default is a bool or its annotation says bool.
+    Returns ``({(module, function, parameter): default}, {module: import error})``."""
+    import importlib  # noqa: PLC0415
+    import inspect  # noqa: PLC0415
+    import pkgutil  # noqa: PLC0415
+    import warnings  # noqa: PLC0415
+
+    import proofbundle  # noqa: PLC0415
+    found: dict = {}
+    failed: dict = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for info in pkgutil.walk_packages(proofbundle.__path__, "proofbundle."):
+            try:
+                module = importlib.import_module(info.name)
+            except Exception as exc:  # noqa: BLE001 - reported, never skipped silently
+                failed[info.name] = f"{type(exc).__name__}: {exc}"
+                continue
+            for name, obj in vars(module).items():
+                if name.startswith("_") or not inspect.isfunction(obj) or obj.__module__ != module.__name__:
+                    continue
+                for param in inspect.signature(obj).parameters.values():
+                    if type(param.default) is bool or _is_bool_annotation(param.annotation):
+                        found[(module.__name__, name, param.name)] = param.default
+    return found, failed
+
+
+def _probes():
+    """For every switch classed relaxing: a call that takes the switch's value. The switch is checked before
+    anything else, so a value that is not a bool must be refused whatever the other arguments are; an exact
+    bool must pass the check (the call may then fail for its own reasons, never with SwitchTypeError)."""
+    from proofbundle import anchors_chia_add, assurance, decision, hashalg, hf_evals, outcome, run_ledger  # noqa: PLC0415
+    from proofbundle import trust_pack, verification_summary  # noqa: PLC0415
+    from proofbundle.adapters import _provenance, eee  # noqa: PLC0415
+    signer = generate_signer()
+    v01 = _v01_predicate()
+    v02 = _v02_predicate()
+    deny = json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+    bundle = _eval_bundle()
+    digest = {"sha256": "a" * 64}
+    return {
+        ("proofbundle.adapters._provenance", "bind_reported_version", "bound"):
+            lambda v: _provenance.bind_reported_version({}, "harness_version", "1.0", reason="r", bound=v),
+        ("proofbundle.adapters.eee", "from_eee_dataset", "validate"):
+            lambda v: eee.from_eee_dataset({}, comparator=">=", threshold="0.1", validate=v),
+        ("proofbundle.agent_review", "build_agent_review_statement", "legacy_v01"):
+            lambda v: ar.build_agent_review_statement(copy.deepcopy(v01), legacy_v01=v),
+        ("proofbundle.agent_review", "build_agent_review_statement", "v02"):
+            lambda v: ar.build_agent_review_statement(copy.deepcopy(v02), v02=v),
+        ("proofbundle.agent_review", "emit_agent_review", "legacy_v01"):
+            lambda v: ar.emit_agent_review(copy.deepcopy(v01), signer, legacy_v01=v),
+        ("proofbundle.agent_review", "emit_agent_review", "strict"):
+            lambda v: ar.emit_agent_review(copy.deepcopy(v02), signer, strict=v),
+        ("proofbundle.agent_review", "emit_agent_review", "v02"):
+            lambda v: ar.emit_agent_review(copy.deepcopy(v02), signer, v02=v),
+        ("proofbundle.agent_review", "render_disclosure_block", "legacy_v01"):
+            lambda v: ar.render_disclosure_block(v01, legacy_v01=v),
+        ("proofbundle.agent_review", "render_disclosure_line", "leaf_witnessed"):
+            lambda v: ar.render_disclosure_line(v02, receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
+                                                leaf_url="https://x.invalid/leaf", leaf_witnessed=v),
+        ("proofbundle.agent_review", "render_disclosure_line", "legacy_v01"):
+            lambda v: ar.render_disclosure_line(v01, receipt_digest="0" * 64, receipt_url="https://x.invalid/r",
+                                                legacy_v01=v),
+        ("proofbundle.agent_review", "require_valid_agent_review_predicate_any", "legacy_v01"):
+            lambda v: ar.require_valid_agent_review_predicate_any(v01, legacy_v01=v),
+        ("proofbundle.anchors", "verify_anchors", "allow_pending"):
+            lambda v: anchors.verify_anchors([], target_roots={}, require="any", allow_pending=v),
+        # "zz" is no hex: an exact bool passes the switch check and stops at bytes.fromhex, before any RPC.
+        ("proofbundle.anchors_chia_add", "anchor_add", "wait"):
+            lambda v: anchors_chia_add.anchor_add("zz", store_id="s", wait=v),
+        ("proofbundle.assurance", "classify_digest_evidence", "applicable"):
+            lambda v: assurance.classify_digest_evidence(digest, applicable=v),
+        ("proofbundle.assurance", "classify_receiver_corroboration", "applicable"):
+            lambda v: assurance.classify_receiver_corroboration(
+                digest, applicable=v, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: True,
+                executor_key_id="kid-exec", receiver_key_id="kid-recv"),
+        ("proofbundle.decision", "emit_decision_receipt", "strict"):
+            lambda v: decision.emit_decision_receipt(copy.deepcopy(deny), signer, strict=v),
+        ("proofbundle.hashalg", "compute_digest", "allow_deprecated"):
+            lambda v: hashalg.compute_digest(b"x", "sha1", allow_deprecated=v),
+        ("proofbundle.hashalg", "resolve_hash_alg", "allow_deprecated"):
+            lambda v: hashalg.resolve_hash_alg("sha1", allow_deprecated=v),
+        ("proofbundle.hf_evals", "to_eval_results_entry", "allow_value_mismatch"):
+            lambda v: hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.9,
+                                                     allow_value_mismatch=v),
+        ("proofbundle.hf_evals", "to_eval_results_entry", "include_token"):
+            lambda v: hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.9, include_token=v),
+        ("proofbundle.hf_evals", "to_eval_results_entry", "require_verified"):
+            lambda v: hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.9,
+                                                     require_verified=v),
+        ("proofbundle.outcome", "emit_outcome_receipt", "strict"):
+            lambda v: outcome.emit_outcome_receipt({}, signer, strict=v),
+        ("proofbundle.run_ledger", "emit_run_ledger", "strict"):
+            lambda v: run_ledger.emit_run_ledger({}, signer, strict=v),
+        ("proofbundle.trust_pack", "sign_trust_pack", "strict"):
+            lambda v: trust_pack.sign_trust_pack({}, {}, strict=v),
+        ("proofbundle.verification_summary", "emit_verification_summary", "strict"):
+            lambda v: verification_summary.emit_verification_summary({}, signer, strict=v),
+    }
+
+
+class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
+    """The runtime sweep. A switch whose one side weakens a verdict or a check, or changes what is signed or
+    published, counts only as an exact bool; the review of 3a8074fc found three that still read their value by
+    its truth (``applicable``, ``bound``, ``legacy_v01``), and the sweep found the others below."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.found, cls.failed = _discover_switches()
+
+    def test_every_module_of_the_package_imports(self):
+        self.assertEqual(self.failed, {}, "a module that does not import hides its switches from the sweep")
+
+    def test_every_discovered_switch_is_classified_and_every_classified_switch_exists(self):
+        self.assertEqual(sorted(set(self.found) - set(_SWITCHES)), [], "a new switch: give it a class")
+        self.assertEqual(sorted(set(_SWITCHES) - set(self.found)), [], "a classified switch no longer exists")
+
+    def test_the_premise_of_each_class_holds_for_its_default(self):
+        for key, cls in _SWITCHES.items():
+            if key not in self.found:
+                continue
+            with self.subTest(switch=".".join(key)):
+                if cls == _TIGHTENING:
+                    self.assertIs(self.found[key], False, "a tightening switch must default to False")
+                elif cls == _VERDICT_INPUT:
+                    self.assertIsNone(self.found[key], "a verdict input defaults to None (not evaluated)")
+
+    def test_every_relaxing_switch_refuses_a_value_that_is_not_a_bool(self):
+        import warnings  # noqa: PLC0415
+        probes = _probes()
+        relaxing = sorted(k for k, c in _SWITCHES.items() if c == _RELAXING)
+        self.assertEqual(sorted(probes), relaxing, "every relaxing switch needs a probe")
+        calls: list = []
+        for key in relaxing:
+            for label, value in _not_bools(calls, none_allowed=key in _NONE_ALLOWED):
+                with self.subTest(switch=".".join(key), value=label):
+                    calls.clear()
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        with self.assertRaises(TypeError) as cm:
+                            probes[key](value)
+                    _assert_refused_as_a_switch(self, cm, key[2], value)
+                    self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_control_every_relaxing_switch_lets_an_exact_bool_through(self):
+        import warnings  # noqa: PLC0415
+        probes = _probes()
+        for key, probe in sorted(probes.items()):
+            for value in (True, False) + ((None,) if key in _NONE_ALLOWED else ()):
+                with self.subTest(switch=".".join(key), value=value):
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            probe(value)
+                    except TypeError as exc:
+                        self.assertNotIn("must be a bool", str(exc), f"an exact {value!r} was refused")
+                    except Exception:  # noqa: BLE001 - the probe's other arguments may fail on their own
+                        pass
+
+    def test_the_never_raise_verifiers_refuse_in_their_verdict_and_name_the_type(self):
+        data = [_sha("a"), _sha("b")]
+        seq = build_initial_sequence(data, hash_alg="sha256", time=1000)
+        env, now = _rotation_pack()
+
+        def sequence(v):
+            r = verify_sequence(seq, data, allow_unauthenticated_anchor=v)
+            return r.ok, next(c for c in r.checks if c.name == "renewal:last_anchor").detail
+
+        def rotation(v):
+            r = verify_trust_pack(env, strict=True, now=now, allow_unverified_rotation=v)
+            return r["ok"], "; ".join(r["errors"])
+
+        surfaces = {("proofbundle.renewal", "verify_sequence", "allow_unauthenticated_anchor"): sequence,
+                    ("proofbundle.trust_pack", "verify_trust_pack", "allow_unverified_rotation"): rotation}
+        self.assertEqual(sorted(surfaces), sorted(k for k, c in _SWITCHES.items() if c == _RELAXING_VERDICT))
+        calls: list = []
+        for key, surface in surfaces.items():
+            self.assertEqual(surface(True)[0], True, "control: the exact True relaxes")
+            ok, text = surface(False)
+            self.assertEqual(ok, False, "control: the exact False keeps the check")
+            self.assertNotIn("not a bool", text)
+            for label, value in _not_bools(calls):
+                with self.subTest(switch=".".join(key), value=label):
+                    calls.clear()
+                    ok, text = surface(value)
+                    self.assertIs(ok, False)
+                    self.assertIn(f"{key[2]} is not a bool (a value of type {type(value).__name__})", text)
+                    self.assertEqual(calls, [], "the switch's own methods ran")
+
+    def test_the_emit_gate_opens_only_for_the_exact_true_and_never_raises(self):
+        """``_integration.emit_enabled`` returned ``flag or ...``: ``"false"`` opened the gate that decides whether
+        an integration writes a receipt into a host run, and the value itself came back. It never raises (an
+        integration must never fail the host run), so a value that is not a bool leaves the gate closed."""
+        import os  # noqa: PLC0415
+        from unittest import mock  # noqa: PLC0415
+        from proofbundle import _integration  # noqa: PLC0415
+        calls: list = []
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PROOFBUNDLE_EMIT", None)
+            self.assertIs(_integration.emit_enabled(True), True)
+            self.assertIs(_integration.emit_enabled(False), False)
+            for label, value in _not_bools(calls):
+                with self.subTest(flag=label):
+                    calls.clear()
+                    self.assertIs(_integration.emit_enabled(value), False)
+                    self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_the_helpers_own_switch_admits_none_only_for_the_exact_true(self):
+        calls: list = []
+        self.assertIsNone(_membership.require_switch(None, "x", allow_none=True))
+        for label, value in _not_bools(calls):
+            with self.subTest(allow_none=label):
+                calls.clear()
+                with self.assertRaises(TypeError) as cm:
+                    _membership.require_switch(None, "x", allow_none=value)
+                _assert_refused_as_a_switch(self, cm, "x", None)
+                self.assertEqual(calls, [], "the switch's own methods ran")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
@@ -463,8 +463,14 @@ def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = 
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
     """Sign an Outcome Receipt as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical. Fail-closed:
-    an invalid predicate raises before signing."""
+    an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     errs = validate_outcome_predicate(predicate, strict=strict)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))

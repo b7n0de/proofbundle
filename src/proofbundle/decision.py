@@ -18,7 +18,7 @@ from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -436,8 +436,14 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
     """Sign a Decision Receipt as a DSSE-signed in-toto Statement. EMISSION is RFC-8785 canonical (Addendum
-    §2.2). Fail-closed: an invalid predicate raises before signing."""
+    §2.2). Fail-closed: an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. It was read
+    by its truth, so ``strict=None``, ``0`` or ``""`` validated the predicate under the lenient rules
+    before signing it, where only ``strict=False`` asks for that (measured at 3a8074fc)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     errs = validate_decision_predicate(predicate, strict=strict)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))

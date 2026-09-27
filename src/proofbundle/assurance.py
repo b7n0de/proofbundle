@@ -19,6 +19,8 @@ import enum
 import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
+from ._membership import require_switch
+
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
     "classify_receiver_corroboration",
@@ -68,13 +70,19 @@ EFFECT_OBSERVED_NOT_IMPLEMENTED = (
 
 
 def _is_digest(obj: Any) -> bool:
-    # type() and not isinstance(): the digest object here is the caller's, and isinstance believes an object's
-    # own __class__, so one whose __class__ raised escaped classify_digest_evidence, which never raises (measured),
-    # and one that only claimed to be a dict decided the level with its own get(). Read once, as a plain str.
-    if type(obj) is not dict:
+    # The digest object is the caller's. Its type is asked with issubclass(type(obj), dict), an identity walk
+    # of the real type's MRO: isinstance believes an object's own __class__, so one whose __class__ raised
+    # escaped classify_digest_evidence, which never raises (measured), and one that only claimed to be a dict
+    # decided the level with its own get(). The value is read from what the dict stores (dict.get of the base
+    # type, then str.__str__), so a dict or str subclass (an OrderedDict, say) is read as the dict and the str
+    # it is, and none of its own methods (get, __getitem__, __eq__) runs. 3a8074fc asked type(obj) is dict and
+    # classified an OrderedDict digest as CLAIMED where main 31816e08 said REFERENCE_WELL_FORMED (measured).
+    if not issubclass(type(obj), dict):
         return False
-    value = obj.get("sha256")
-    return type(value) is str and bool(_SHA256_HEX.match(value))
+    value = dict.get(obj, "sha256")
+    if not issubclass(type(value), str):
+        return False
+    return bool(_SHA256_HEX.match(str.__str__(value)))
 
 
 def _is_key_material(value: Any) -> TypeGuard[Union[bytes, bytearray]]:
@@ -100,7 +108,13 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
 
     ``applicable=False`` (e.g. ``status != 'executed'``) -> ``level=None`` (not applicable, mirrors the
     existing ``*_proven=None`` convention: a non-applicable claim is not a WEAK claim, it is not a claim
-    at all).
+    at all). ``applicable`` must be a bool: anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``) before anything is classified. It was
+    read by its truth, so ``applicable=None``, ``0``, ``""`` or ``[]`` made a field not applicable, and
+    :func:`evidence_ladder_summary`, which ignores such a field, rose above the weakest real link
+    (measured at 3a8074fc: CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED). The digest
+    object and the resolver still never make this function raise; the switch is the caller's own
+    argument, not the evidence under classification.
 
     ``evidence_resolver``, when supplied, is called with ``digest_obj`` and must return True iff the
     digest was checked against the ACTUAL resolved bytes (mirrors ``resolve_evidence_ref``'s
@@ -114,7 +128,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     A raising/exception-throwing ``evidence_resolver`` is treated as False (fail-closed: an exception is
     not evidence, never silently promoted).
     """
-    if not applicable:
+    if not require_switch(applicable, "applicable"):
         return {"level": None, "level_name": None, "detail": "not applicable"}
     if not _is_digest(digest_obj):
         return {"level": EvidenceLevel.CLAIMED, "level_name": EvidenceLevel.CLAIMED.name,
@@ -160,9 +174,12 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     INDEPENDENTLY_ATTESTED ≈ RECEIVER_CORROBORATED — "a THIRD PARTY attests the same content" is exactly
     what a receiver/observer corroboration IS).
 
-    Never raises: a raising ``independent_attestation_resolver`` is fail-closed (treated as False, the base
+    Never raises on the digest, the resolvers or the key material: a raising
+    ``independent_attestation_resolver`` is fail-closed (treated as False, the base
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
-    ``evidence_resolver`` contract). The resolver's answer attests only when it is the exact ``True`` or
+    ``evidence_resolver`` contract). ``applicable`` is a switch and must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` from :func:`classify_digest_evidence`, before anything is
+    classified or any resolver is called. The resolver's answer attests only when it is the exact ``True`` or
     32 bytes of key material in a plain ``bytes`` or ``bytearray`` object (see KEY BINDING below): any
     other answer, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list, an object
     whose ``__bool__`` says True, an object whose ``__class__`` says ``bytes``, a ``bytes`` subclass),
@@ -254,15 +271,30 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
 
 
 def _has_level(field: Any) -> bool:
-    """A rollup input counts only as a plain ``dict`` whose ``level`` is a plain ``int`` or an
-    :class:`EvidenceLevel`; a bool is not a level. ``type()``, not ``isinstance()``: a level whose own
-    ``__class__`` said ``int`` passed and then decided the rollup with its own ``__lt__``/``__gt__``, and a
-    raising ``__class__`` escaped :func:`evidence_ladder_summary` and :func:`evidence_ladder_best`, which
-    never raise (measured on both)."""
-    if type(field) is not dict:
+    """A rollup input counts only as a ``dict`` whose stored ``level`` is an ``int`` (an
+    :class:`EvidenceLevel` is one); a bool is not a level. The types are asked with ``issubclass`` on the
+    real type (an identity walk of its MRO), never with ``isinstance``: a level whose own ``__class__`` said
+    ``int`` passed and then decided the rollup with its own ``__lt__``/``__gt__``, and a raising
+    ``__class__`` escaped :func:`evidence_ladder_summary` and :func:`evidence_ladder_best`, which never
+    raise (measured on both). The level is read from what the dict stores (``dict.get`` of the base type)
+    and compared by its value (:func:`_level_value`), so a dict or int subclass (an OrderedDict field, an
+    IntEnum level of the caller's) counts as the dict and the int it is and none of its own methods runs.
+
+    3a8074fc asked ``type(field) is dict`` and ``type(level) in (int, EvidenceLevel)``, so an OrderedDict
+    field and a level from the caller's own IntEnum were skipped as not applicable, and
+    :func:`evidence_ladder_summary`, the AND rollup, rose past them: a CLAIMED OrderedDict field beside a
+    CONTENT_RESOLVED one summarised to CONTENT_RESOLVED, where main 31816e08 said CLAIMED (measured)."""
+    if not issubclass(type(field), dict):
         return False
-    level_type = type(field.get("level"))
-    return level_type is int or level_type is EvidenceLevel
+    level_type = type(dict.get(field, "level"))
+    return level_type is not bool and issubclass(level_type, int)
+
+
+def _level_value(field: dict) -> int:
+    """The stored level of a field that passed :func:`_has_level`, as a plain int (``int.__int__`` of the
+    base type reads the value an int subclass stores and runs none of its methods)."""
+    level: Any = dict.get(field, "level")
+    return int.__int__(level)
 
 
 def evidence_ladder_summary(*fields: dict) -> dict:
@@ -277,8 +309,9 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
-    weakest = min(applicable, key=lambda f: f["level"])
-    return {"level": weakest.get("level"), "level_name": weakest.get("level_name"), "fields": list(fields)}
+    weakest = min(applicable, key=_level_value)
+    return {"level": dict.get(weakest, "level"), "level_name": dict.get(weakest, "level_name"),
+            "fields": list(fields)}
 
 
 def evidence_ladder_best(*fields: dict) -> dict:
@@ -292,5 +325,6 @@ def evidence_ladder_best(*fields: dict) -> dict:
     applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
-    strongest = max(applicable, key=lambda f: f["level"])
-    return {"level": strongest.get("level"), "level_name": strongest.get("level_name"), "fields": list(fields)}
+    strongest = max(applicable, key=_level_value)
+    return {"level": dict.get(strongest, "level"), "level_name": dict.get(strongest, "level_name"),
+            "fields": list(fields)}

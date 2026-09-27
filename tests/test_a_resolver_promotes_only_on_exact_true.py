@@ -32,13 +32,26 @@ whose ``__class__`` raised escaped ``classify_digest_evidence``, which never rai
 ``evidence_ladder_best`` / ``evidence_ladder_summary`` take a level only as a plain ``int`` or ``EvidenceLevel``. The recording classes below show that none of the
 caller's methods runs. The caller-built results and policy dicts of the same class are in
 ``tests/test_a_caller_verdict_counts_only_as_a_bool.py``.
+
+Round 4 answers a review of 3a8074fc. ``classify_digest_evidence(applicable=)`` read its switch by its truth:
+``None``, ``0``, ``""`` and ``[]`` made a weak field not applicable, and ``evidence_ladder_summary`` rose past
+it. The switch now counts only as an exact bool; anything else is a ``SwitchTypeError`` (a ``TypeError`` and a
+``ProofBundleError``) naming the parameter and the type. And the plain-type checks of round 2 refused an
+honest subclass of the documented type: a registered anchor verifier returning an ``OrderedDict`` or a
+``defaultdict`` with ``ok`` True was a failed anchor, an ``OrderedDict`` digest object was CLAIMED, and an
+``OrderedDict`` field or a level from the caller's own ``IntEnum`` left the AND rollup, which then rose. Each
+is now read by what it stores (``dict.get`` and ``int.__int__`` of the base type), so the subclass counts as
+the dict or int it is and none of its own methods runs.
 """
 from __future__ import annotations
 
 import base64
+import collections
 import copy
+import enum
 import hashlib
 import json
+import types
 import unittest
 from pathlib import Path
 
@@ -52,6 +65,7 @@ from proofbundle.assurance import (
 )
 from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.emit import generate_signer
+from proofbundle.errors import ProofBundleError
 from proofbundle.outcome import (
     emit_outcome_receipt,
     executor_trusted_by_role,
@@ -304,17 +318,100 @@ class TestARegisteredAnchorVerifierCountsOnlyOnTrue(unittest.TestCase):
                     if isinstance(value, _Truthy):
                         self.assertEqual(value.asked, 0, "the answer's own __bool__ ran")
 
-    def test_a_result_that_is_not_a_dict_fails_closed_and_does_not_raise(self):
-        for label, value in (("bool True", True), ("None", None), ("list of pairs", [("ok", True)]),
-                             ("str 'ok'", "ok"), ("int 1", 1), ("dict subclass with its own get",
-                                                                 _LyingDict(ok=False))):
+    def test_a_result_that_is_not_a_dict_fails_closed_does_not_raise_and_names_its_type(self):
+        calls: list = []
+
+        class _ClaimsDict:
+            """Not a dict, but its ``__class__`` says ``dict``; its ``get`` answers True for every key."""
+
+            @property
+            def __class__(self):
+                calls.append("__class__")
+                return dict
+
+            def get(self, key, default=None):
+                calls.append("get")
+                return True
+
+        for label, value, name in (("bool True", True, "bool"), ("None", None, "NoneType"),
+                                   ("list of pairs", [("ok", True)], "list"), ("str 'ok'", "ok", "str"),
+                                   ("int 1", 1, "int"),
+                                   ("read-only mapping with ok True", types.MappingProxyType({"ok": True}),
+                                    "mappingproxy"),
+                                   ("__class__ says dict, get says True", _ClaimsDict(), "_ClaimsDict")):
             with self.subTest(result=label):
+                calls.clear()
                 out = self._one(value)
                 self.assertIs(out["ok"], False)
                 self.assertIs(out["warn"], False)
                 self.assertEqual(out["status"], "fail")
-                self.assertIn("no result object", out["detail"])
+                self.assertIn(f"returned a value of type {name}, which is not a dict", out["detail"])
                 self.assertIs(self._required(value, allow_pending=True)["require_met"], False)
+                self.assertEqual(calls, [], "the result's own methods ran")
+
+    def test_a_dict_subclass_is_read_as_the_dict_it_is(self):
+        """N5 (review of 3a8074fc): an OrderedDict or defaultdict with ok True was a failed anchor there,
+        whose detail said the verifier returned no result object; main 31816e08 verified it."""
+
+        class _PlainSubclass(dict):
+            pass
+
+        for label, make in (("OrderedDict", lambda **kw: collections.OrderedDict(**kw)),
+                            ("defaultdict", lambda **kw: collections.defaultdict(str, **kw)),
+                            ("a subclass with no method of its own", lambda **kw: _PlainSubclass(**kw))):
+            with self.subTest(result=label):
+                out = self._one(make(ok=True, status="pass", detail="verified"))
+                self.assertIs(out["ok"], True)
+                self.assertEqual((out["status"], out["detail"]), ("pass", "verified"))
+                self.assertIs(self._required(make(ok=True), allow_pending=False)["require_met"], True)
+                out = self._one(make(ok=False, warn=True, rp_trusted="false"))
+                self.assertIs(out["ok"], False)
+                self.assertIs(out["warn"], True)
+                self.assertIs(out["rp_trusted"], False)
+                self.assertIn(_WHY, out["detail"])
+                self.assertIs(self._required(make(ok=False, warn=True), allow_pending=True)["require_met"], True)
+                self.assertIs(self._required(make(ok=False, warn=True), allow_pending=False)["require_met"], False)
+
+    def test_a_dict_subclasss_own_methods_never_decide(self):
+        """The other direction: what the subclass STORES decides, and none of its own methods runs."""
+        calls: list = []
+
+        class _Lies(dict):
+            def get(self, key, default=None):
+                calls.append("get")
+                return True
+
+            def __getitem__(self, key):
+                calls.append("__getitem__")
+                return True
+
+            def __contains__(self, key):
+                calls.append("__contains__")
+                return True
+
+            def __missing__(self, key):
+                calls.append("__missing__")
+                return True
+
+            def __iter__(self):
+                calls.append("__iter__")
+                return iter(["ok", "warn"])
+
+            def keys(self):
+                calls.append("keys")
+                return ["ok", "warn"]
+
+        for label, stored, verified in (("stores ok False", {"ok": False}, False),
+                                        ("stores nothing", {}, False),
+                                        ("stores ok 'true'", {"ok": "true"}, False),
+                                        ("stores ok True", {"ok": True}, True)):
+            with self.subTest(result=label):
+                calls.clear()
+                out = self._one(_Lies(stored))
+                self.assertIs(out["ok"], verified)
+                self.assertIs(out["warn"], False)
+                self.assertIs(self._required(_Lies(stored), allow_pending=True)["require_met"], verified)
+                self.assertEqual(calls, [], "the subclass's own methods ran")
 
     def test_control_exact_bools_behave_as_before(self):
         out = self._one({"ok": True, "detail": "verified"})
@@ -687,6 +784,150 @@ class TestTheLadderRollupsTakeOnlyPlainLevels(unittest.TestCase):
         self.assertEqual(evidence_ladder_best(a, b)["level_name"], "CONTENT_RESOLVED")
         self.assertEqual(evidence_ladder_summary(a, b)["level_name"], "REFERENCE_WELL_FORMED")
         self.assertIsNone(evidence_ladder_summary({"level": True}, {"level": None}, 5)["level"])
+
+
+# ── round 4: the applicable switch, and an honest subclass of the documented type ─────────────────────
+
+
+def _assert_refused_as_a_switch(test: unittest.TestCase, cm, name: str, type_label: str) -> None:
+    """A switch refusal: a TypeError and a ProofBundleError whose message names the parameter and the type."""
+    exc = cm.exception
+    test.assertIsInstance(exc, TypeError)
+    test.assertIsInstance(exc, ProofBundleError)
+    test.assertIn(f"{name} must be a bool", str(exc))
+    test.assertIn(f"not a value of type {type_label}", str(exc))
+
+
+class TestApplicableCountsOnlyAsABool(unittest.TestCase):
+    """N1 (review of 3a8074fc): ``if not applicable`` read the switch by its truth. ``None``, ``0``, ``""`` and
+    ``[]`` made a weak field not applicable, ``evidence_ladder_summary`` ignored it, and the summary of a CLAIMED
+    and a CONTENT_RESOLVED field rose to CONTENT_RESOLVED. The switch is now refused unless it is a bool."""
+
+    _WEAK = {"sha256": "not-hex"}
+
+    def _surfaces(self):
+        return (("classify_digest_evidence", lambda v: classify_digest_evidence(self._WEAK, applicable=v)),
+                ("classify_receiver_corroboration", lambda v: classify_receiver_corroboration(
+                    self._WEAK, applicable=v, evidence_resolver=lambda d: True,
+                    independent_attestation_resolver=lambda d: True, executor_key_id="kid-exec",
+                    receiver_key_id="kid-recv")))
+
+    def test_a_falsy_value_that_is_not_a_bool_is_refused_and_no_weak_field_drops_out(self):
+        for label, value, type_label in (("None", None, "NoneType"), ("int 0", 0, "int"), ("str ''", "", "str"),
+                                         ("empty list", [], "list")):
+            for name, classify in self._surfaces():
+                with self.subTest(applicable=label, surface=name):
+                    with self.assertRaises(TypeError) as cm:
+                        classify(value)
+                    _assert_refused_as_a_switch(self, cm, "applicable", type_label)
+
+    def test_a_truthy_value_that_is_not_a_bool_is_refused_and_never_asked(self):
+        for label, value in (("str 'false'", "false"), ("str 'no'", "no"), ("int 1", 1), ("list [0]", [0]),
+                             ("object with __bool__", _Truthy())):
+            for name, classify in self._surfaces():
+                with self.subTest(applicable=label, surface=name):
+                    with self.assertRaises(TypeError) as cm:
+                        classify(value)
+                    _assert_refused_as_a_switch(self, cm, "applicable", type(value).__name__)
+                    if isinstance(value, _Truthy):
+                        self.assertEqual(value.asked, 0, "the switch's own __bool__ ran")
+
+    def test_control_exact_bools_classify_and_roll_up_as_before(self):
+        strong = classify_digest_evidence(_DIGEST, evidence_resolver=lambda d: True)
+        weak = classify_digest_evidence(self._WEAK, applicable=True)
+        self.assertEqual(weak["level"], EvidenceLevel.CLAIMED)
+        self.assertEqual(evidence_ladder_summary(weak, strong)["level_name"], "CLAIMED")
+        off = classify_digest_evidence(self._WEAK, applicable=False)
+        self.assertEqual((off["level"], off["detail"]), (None, "not applicable"))
+        self.assertEqual(evidence_ladder_summary(off, strong)["level_name"], "CONTENT_RESOLVED")
+        self.assertIsNone(classify_receiver_corroboration(_DIGEST, applicable=False)["level"])
+        self.assertEqual(classify_digest_evidence(_DIGEST)["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
+
+
+class _CallerLevel(enum.IntEnum):
+    """A caller's own level scale, an int subclass like EvidenceLevel."""
+
+    LOW = 0
+    HIGH = 5
+
+
+class TestTheLadderReadsAnHonestSubclassAsWhatItStores(unittest.TestCase):
+    """At 3a8074fc the rollups and the digest check asked ``type(x) is dict`` and ``type(level) in (int,
+    EvidenceLevel)``. An OrderedDict field and a level from the caller's own IntEnum were skipped as not
+    applicable, so the AND rollup rose past a CLAIMED field (main 31816e08 said CLAIMED), and an OrderedDict
+    digest object was CLAIMED where main said REFERENCE_WELL_FORMED."""
+
+    _STRONG = {"level": EvidenceLevel.CONTENT_RESOLVED, "level_name": "CONTENT_RESOLVED"}
+
+    def test_an_ordered_dict_field_and_a_callers_int_enum_level_count_in_the_rollups(self):
+        for label, field, name in (
+                ("OrderedDict field, CLAIMED", collections.OrderedDict(level=EvidenceLevel.CLAIMED,
+                                                                       level_name="CLAIMED"), "CLAIMED"),
+                ("defaultdict field, CLAIMED", collections.defaultdict(str, level=EvidenceLevel.CLAIMED,
+                                                                       level_name="CLAIMED"), "CLAIMED"),
+                ("level from the caller's IntEnum", {"level": _CallerLevel.LOW, "level_name": "LOW"}, "LOW")):
+            with self.subTest(field=label):
+                self.assertEqual(evidence_ladder_summary(field, self._STRONG)["level_name"], name)
+                self.assertEqual(evidence_ladder_best(field)["level_name"], name)
+                self.assertEqual(evidence_ladder_best(field, self._STRONG)["level_name"], "CONTENT_RESOLVED")
+
+    def test_a_subclasss_own_methods_never_decide_the_rollup(self):
+        calls: list = []
+
+        class _Lies(dict):
+            def get(self, key, default=None):
+                calls.append("get")
+                return EvidenceLevel.EFFECT_OBSERVED if key == "level" else "EFFECT_OBSERVED"
+
+            def __getitem__(self, key):
+                calls.append("__getitem__")
+                return EvidenceLevel.EFFECT_OBSERVED
+
+        class _LyingInt(int):
+            def __lt__(self, other):
+                calls.append("__lt__")
+                return False
+
+            def __gt__(self, other):
+                calls.append("__gt__")
+                return True
+
+            def __int__(self):
+                calls.append("__int__")
+                return 6
+
+        weak = _Lies(level=EvidenceLevel.CLAIMED, level_name="CLAIMED")
+        r = evidence_ladder_summary(weak, self._STRONG)
+        self.assertEqual((r["level"], r["level_name"]), (EvidenceLevel.CLAIMED, "CLAIMED"))
+        low = {"level": _LyingInt(0), "level_name": "ZERO"}
+        self.assertEqual(evidence_ladder_summary(low, self._STRONG)["level_name"], "ZERO")
+        self.assertEqual(evidence_ladder_best(low, self._STRONG)["level_name"], "CONTENT_RESOLVED")
+        self.assertEqual(calls, [], "the subclass's own methods ran")
+
+    def test_an_ordered_dict_digest_object_is_well_formed_and_runs_nothing(self):
+        calls: list = []
+
+        class _Str(str):
+            def __eq__(self, other):
+                calls.append("__eq__")
+                return True
+
+            __hash__ = str.__hash__
+
+        class _LiesAboutTheDigest(dict):
+            def get(self, key, default=None):
+                calls.append("get")
+                return "a" * 64
+
+        for label, digest, level in (
+                ("OrderedDict", collections.OrderedDict(sha256="a" * 64), EvidenceLevel.REFERENCE_WELL_FORMED),
+                ("a str subclass value", {"sha256": _Str("a" * 64)}, EvidenceLevel.REFERENCE_WELL_FORMED),
+                ("a subclass whose get lies over a bad value", _LiesAboutTheDigest(sha256="nope"),
+                 EvidenceLevel.CLAIMED)):
+            with self.subTest(digest=label):
+                calls.clear()
+                self.assertEqual(classify_digest_evidence(digest)["level"], level)
+                self.assertEqual(calls, [], "the digest object's own methods ran")
 
 
 if __name__ == "__main__":
