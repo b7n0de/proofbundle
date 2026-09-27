@@ -62,9 +62,11 @@ class N2BoundIsABool(unittest.TestCase):
 
 
 class N3LegacyIsABool(unittest.TestCase):
-    """PROPERTY (the same rule at a rule-set switch): `legacy_v01` of emit_agent_review is read by its
-    truth (`return not legacy_v01`), so "false" or "no" emits a v0.1 predicate under the legacy v0.1
-    rules that False, 0 and None refuse under the v0.2 rules (the default since 6.0.0). P1."""
+    """PROPERTY (the same rule at a rule-set switch): `legacy_v01` is read by its truth
+    (`_fassung_fuer_renderer`: `return not legacy_v01`), so "false" or "no" judges a v0.1 predicate
+    under the legacy v0.1 rules that False and 0 refuse under the v0.2 rules (the default since
+    6.0.0): emit_agent_review emits it, require_valid_agent_review_predicate_any accepts it and
+    render_disclosure_block renders it. P1."""
 
     def test_n3_legacy_false_as_a_string(self) -> None:
         body = "# T\n\nText.\n"
@@ -81,12 +83,19 @@ class N3LegacyIsABool(unittest.TestCase):
             "limitations": ["l"],
         }
         sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
-        with self.assertRaises(ProofBundleError):
-            AR.emit_agent_review(predicate, sk, legacy_v01=False)
-        for wert in ("false", "no"):
-            with self.subTest(legacy_v01=wert):
-                with self.assertRaises(ProofBundleError):
-                    AR.emit_agent_review(predicate, sk, legacy_v01=wert)
+        stellen = (
+            ("emit_agent_review", lambda v: AR.emit_agent_review(predicate, sk, legacy_v01=v)),
+            ("require_valid_agent_review_predicate_any",
+             lambda v: AR.require_valid_agent_review_predicate_any(predicate, legacy_v01=v)),
+            ("render_disclosure_block", lambda v: AR.render_disclosure_block(predicate, legacy_v01=v)),
+        )
+        for name, ruf in stellen:
+            with self.assertRaises(ProofBundleError):
+                ruf(False)
+            for wert in ("false", "no"):
+                with self.subTest(site=name, legacy_v01=wert):
+                    with self.assertRaises(ProofBundleError):
+                        ruf(wert)
 
 
 class N4TheSignedSvrReadsNoTruth(unittest.TestCase):
