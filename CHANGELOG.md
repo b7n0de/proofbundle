@@ -19,7 +19,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   go-securesystemslib derives (`SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k` for the Z225 test
   key, from its `dsse.SHA256KeyID`). `keyid=""` writes none. The keyid is not signed; no verdict and no
   exit code of either verifier depends on it. The generated agent-review conformance vectors carry the
-  keyid now.
+  keyid now. `docs/IN_TOTO_PROFILE.md` records the four other Z225 findings as what the tools do with a
+  conforming statement: the top-level `contentRootAlg`, the test-result payloadType, GUAC's missing
+  parser for these predicate types, and cosign's image-digest match.
 
 ### Fixed
 
