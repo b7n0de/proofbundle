@@ -1,21 +1,32 @@
-"""eval-result v0.2: the revised shape of the in-toto/attestation#575 draft under its own vendor type.
+"""eval-result v0.2: the revised shape of the in-toto/attestation#575 draft (its second revision) under its own
+vendor type.
 
 The draft changed the predicate in three places, and each is a property here:
 
 1. `evaluator.id` names the party that ran the evaluation. It is required and the emitter has no default
    for it: the tool that records a result is not the party that produced it.
+   The same party MAY hold more than one role, so an evaluator that is also the signer is not refused.
 2. The model and the dataset are each identified exactly once: `commitments.<x>` for a private identity,
-   or a top-level ResourceDescriptor with a `digest` for a public one. Twice or not at all is refused.
+   or a predicate-level ResourceDescriptor with a `digest` for a public one. Both or neither is refused,
+   each present representation must satisfy its own field rules (a commitment MUST set `salted` to
+   `true`, a descriptor MUST carry `digest`), and Statement `subject` entries and `evidence` references
+   never count.
 3. `evidence[]` of ResourceDescriptors replaces the `receipt` block, and an entry without `digest` is
-   refused. The SHOULD fields (`mediaType`, `uri` or `downloadLocation`) are not refusals.
+   refused. The digest identifies the referenced artifact itself (the decoded bytes when `content` is
+   present); an internal Merkle root is not a substitute. The SHOULD fields (`mediaType`, `uri` or
+   `downloadLocation`) are not refusals.
 
 Unknown fields are ignored at every level, as the in-toto parsing rules require, which is why the old
 `receipt` block and an `anchors` array in a v0.2 predicate are ignored rather than refused.
 
 G2, the old contract: `https://b7n0de.com/attestation/eval-result/v0.1` was emitted and signed by
 released versions. Its statements keep verifying under the v0.1 contract, the default verify call keeps
-expecting v0.1, and the v0.1 emitter keeps writing the same bytes. The two envelopes under
-`tests/fixtures/eval_result_v0_1/` were written by the released 6.1.0 wheel.
+expecting v0.1, and the v0.1 emitter keeps writing the same bytes. A valid signature alone does not show
+that, so `tests/fixtures/eval_result_v0_1/corpus.json` carries v0.1 envelopes with a named origin each
+(fixtures from the published 6.1.0 wheel, own reconstructions from the source at the release tags
+v2.0.0 to v6.0.0) and the verdicts the released 6.1.0 verifier gives on them and on negative variants;
+this head must give the same verdicts, and must dispatch on `predicateType` to the old or the revised
+rules.
 
 The verifier vectors below are built by hand from the draft text, not from the emitter, so the verifier
 and the emitter are checked against the text independently. Every vector is signed with a valid key, so
@@ -43,6 +54,7 @@ from proofbundle.errors import BundleFormatError
 REPO = Path(__file__).resolve().parents[1]
 _G2_JCS = REPO / "tests/fixtures/eval_result_v0_1/envelope_jcs.json"
 _G2_LEGACY = REPO / "tests/fixtures/eval_result_v0_1/envelope_legacy.json"
+_G2_CORPUS = REPO / "tests/fixtures/eval_result_v0_1/corpus.json"
 
 V01 = "https://b7n0de.com/attestation/eval-result/v0.1"
 V02 = "https://b7n0de.com/attestation/eval-result/v0.2"
@@ -172,6 +184,10 @@ REFUSED = [
      lambda s, p: p["commitments"]["model"].__setitem__("value", "zz"), "model"),
     ("commitment value empty",
      lambda s, p: p["commitments"]["model"].__setitem__("value", ""), "model"),
+    ("commitment salted false (revision 2: MUST be true)",
+     lambda s, p: p["commitments"]["model"].__setitem__("salted", False), "salted"),
+    ("dataset commitment salted false",
+     lambda s, p: p["commitments"]["dataset"].__setitem__("salted", False), "salted"),
     ("commitment salted not a boolean",
      lambda s, p: p["commitments"]["model"].__setitem__("salted", "true"), "salted"),
     ("commitment without salted", _drop("commitments", "model", "salted"), "salted"),
@@ -186,6 +202,11 @@ REFUSED = [
     ("evidence an object, not an array", _set("evidence", {"digest": {"sha256": "d3" * 32}}), "evidence"),
     ("evidence entry a bare URI", _set("evidence", ["https://example.com/r"]), "evidence"),
     ("evidence null", _set("evidence", None), "evidence"),
+    ("evidence content that is not its digest's bytes",
+     _set("evidence", [{"digest": {"sha256": hashlib.sha256(b"other bytes").hexdigest()},
+                        "content": base64.b64encode(b"receipt bytes").decode()}]), "evidence[0]"),
+    ("evidence content that is not base64",
+     _set("evidence", [{"digest": {"sha256": "d3" * 32}, "content": "not base64!"}]), "evidence[0]"),
     ("claims empty", _set("claims", []), "claims"),
     ("claims absent", _drop("claims"), "claims"),
     ("passed a string", lambda s, p: p["claims"][0].__setitem__("passed", "true"), "passed"),
@@ -253,9 +274,14 @@ ACCEPTED = [
     ("each comparator and a negative threshold",
      _set("claims", [{"metric": m, "comparator": c, "threshold": "-0.5", "passed": False}
                      for m, c in (("a", ">="), ("b", ">"), ("c", "<="), ("d", "<"))])),
-    # THE IMPLEMENTED READING of an unsalted commitment (ambiguity A1 in docs/IN_TOTO_PROFILE.md): the
-    # draft fixes what `salted: true` means and says nothing that refuses `false`, so it is accepted.
-    ("an unsalted commitment", lambda s, p: p["commitments"]["model"].__setitem__("salted", False)),
+    ("an evidence entry whose content is its digest's bytes",
+     _set("evidence", [{"digest": {"sha256": hashlib.sha256(b"receipt bytes").hexdigest()},
+                        "content": base64.b64encode(b"receipt bytes").decode()}])),
+    ("an evidence entry with content under a digest algorithm the verifier cannot compute",
+     _set("evidence", [{"digest": {"gitBlob": "ab" * 20}, "content": base64.b64encode(b"x").decode()}])),
+    # Revision 2 of the draft: the same party MAY hold more than one role. proofbundle's own URI as evaluator, in a
+    # statement proofbundle's key signs, is the self-attested case and is not refused.
+    ("the evaluator is the signing party", lambda s, p: p.__setitem__("evaluator", {"id": I.VERIFIER_ID})),
 ]
 
 
@@ -371,7 +397,7 @@ _DATASET_RD = {"name": "acme/open-set", "digest": {"sha256": "f5" * 32}}
 class TheV02EmitterWritesTheRevisedShape(unittest.TestCase):
     def test_the_revised_fields_and_none_of_the_old(self):
         receipt = b'{"payload_b64": "e30="}\n'
-        pred = _statement_v02(evidence=[I.receipt_evidence(receipt, root_b64=ROOT)])["predicate"]
+        pred = _statement_v02(evidence=[I.receipt_evidence(receipt)])["predicate"]
         self.assertEqual(pred["evaluator"], {"id": EVALUATOR})
         for old in ("verifier", "receipt", "anchors"):
             self.assertNotIn(old, pred)
@@ -425,13 +451,42 @@ class TheV02EmitterWritesTheRevisedShape(unittest.TestCase):
 
     def test_the_receipt_evidence_names_the_bytes(self):
         receipt = b'{"a": 1}\r\n'
-        rd = I.receipt_evidence(receipt, root_b64=ROOT, uri="https://example.com/r.json")
+        rd = I.receipt_evidence(receipt, uri="https://example.com/r.json")
         self.assertEqual(rd, {"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(receipt).hexdigest()},
-                              "mediaType": "application/json", "uri": "https://example.com/r.json",
-                              "annotations": {"merkleRootB64": ROOT}})
+                              "mediaType": "application/json", "uri": "https://example.com/r.json"})
         self.assertEqual(set(I.receipt_evidence(receipt)), {"name", "digest", "mediaType"})
         with self.assertRaises(BundleFormatError):
             I.receipt_evidence("not bytes")
+
+    def test_the_receipt_evidence_digest_covers_the_signature_and_is_no_merkle_root(self):
+        # Revision 2 of the draft: for a signed receipt the artifact includes the signature when it is part of the
+        # supplied receipt, and an internal Merkle root is not a substitute. A proofbundle receipt file
+        # carries its signature and its Merkle root inside the same JSON object, so the digest over the
+        # file's bytes covers both, and the root appears nowhere in the entry.
+        from proofbundle.bundle import recompute_merkle_root_b64
+        from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
+        claim, _ = build_eval_claim(
+            suite="safety-refusals", suite_version="1.2.0", metric="refusal_rate",
+            comparator=">=", threshold="0.98", score="0.994", n=500,
+            model_id="acme/secret-model-7b", dataset_id="acme/internal-redteam-set",
+            issuer=issuer_fingerprint(_SIGNER), timestamp="2026-07-05T12:00:00Z",
+            model_salt=b"\x11" * 16, dataset_salt=b"\x11" * 16)
+        bundle = emit_eval_receipt(claim, _SIGNER)
+        self.assertIn("signature", bundle)
+        raw = (json.dumps(bundle, indent=2) + "\n").encode("utf-8")
+        entry = I.receipt_evidence(raw)
+        self.assertEqual(entry["digest"], {"sha256": hashlib.sha256(raw).hexdigest()})
+        other_sig = json.loads(raw)
+        other_sig["signature"] = dict(other_sig["signature"], **{k: "AAAA" for k in other_sig["signature"]
+                                                                if isinstance(other_sig["signature"][k], str)})
+        raw2 = (json.dumps(other_sig, indent=2) + "\n").encode("utf-8")
+        self.assertNotEqual(I.receipt_evidence(raw2)["digest"], entry["digest"],
+                            "the signature is part of the artifact the digest names")
+        root = recompute_merkle_root_b64(bundle)["stated_b64"]
+        root_hex = base64.b64decode(root).hex()
+        flat = json.dumps(entry)
+        self.assertNotIn(root, flat)
+        self.assertNotIn(root_hex, flat)
 
     def test_no_secret_and_no_plaintext(self):
         with self.assertRaises(BundleFormatError):
@@ -441,7 +496,7 @@ class TheV02EmitterWritesTheRevisedShape(unittest.TestCase):
 
     def test_roundtrip_through_dsse(self):
         env = I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, root_b64=ROOT,
-                                            evidence=[I.receipt_evidence(b"{}\n", root_b64=ROOT)])
+                                            evidence=[I.receipt_evidence(b"{}\n")])
         self.assertEqual(env["payloadType"], "application/vnd.in-toto+json")
         res = I.verify_eval_result_dsse(env, _pub(), expected_predicate_type=I.EVAL_RESULT_V02_PREDICATE_TYPE)
         self.assertIs(res["ok"], True, res)
@@ -459,6 +514,194 @@ class TheV02EmitterWritesTheRevisedShape(unittest.TestCase):
                 with self.subTest(profile=profile, model=bool(model), dataset=bool(dataset)):
                     st = _statement_v02(subject_profile=profile, model=model, dataset=dataset)
                     self.assertEqual(I.classify_eval_result_v02_predicate(st), (True, ""))
+
+
+def _identity_case(identity: str, case: str):
+    """The exactly-once table of revision 2 for one identity. Returns (statement, expected ok)."""
+    statement = _base_statement()
+    pred = statement["predicate"]
+    digest = {"model": "e4" * 32, "dataset": "f5" * 32}[identity]
+    descriptor = {"name": f"public-{identity}", "digest": {"sha256": digest}}
+    commitment = pred["commitments"].pop(identity)
+    if case == "neither":
+        return statement, False
+    if case == "commitment only":
+        pred["commitments"][identity] = commitment
+        return statement, True
+    if case == "descriptor only":
+        pred[identity] = descriptor
+        return statement, True
+    if case == "both":
+        pred["commitments"][identity] = commitment
+        pred[identity] = descriptor
+        return statement, False
+    if case == "descriptor without digest":
+        pred[identity] = {"name": f"public-{identity}", "uri": f"https://example.com/{identity}"}
+        return statement, False
+    if case == "descriptor without digest beside a commitment":
+        pred["commitments"][identity] = commitment
+        pred[identity] = {"name": f"public-{identity}", "uri": f"https://example.com/{identity}"}
+        return statement, False
+    if case == "also the Statement subject, identified once in the predicate":
+        statement["subject"] = [dict(descriptor)]
+        pred[identity] = descriptor
+        return statement, True
+    if case == "only the Statement subject, not in the predicate":
+        statement["subject"] = [dict(descriptor)]
+        return statement, False
+    if case == "only an evidence reference, not in the predicate":
+        pred["evidence"] = [dict(descriptor)]
+        return statement, False
+    if case == "commitment and an evidence reference to the same artifact":
+        pred["commitments"][identity] = commitment
+        pred["evidence"] = [dict(descriptor)]
+        return statement, True
+    raise AssertionError(case)
+
+
+IDENTITY_CASES = ("neither", "commitment only", "descriptor only", "both", "descriptor without digest",
+                  "descriptor without digest beside a commitment",
+                  "also the Statement subject, identified once in the predicate",
+                  "only the Statement subject, not in the predicate",
+                  "only an evidence reference, not in the predicate",
+                  "commitment and an evidence reference to the same artifact")
+
+
+class TheExactlyOnceRuleForEachIdentity(unittest.TestCase):
+    """Revision 2 of the draft, the conformance check: both locations are inspected, both or neither is refused, a
+    present representation must satisfy its own field rules, and subject and evidence never count.
+    One generated test per identity and case, so each row of the table has its own red and green."""
+
+
+def _make_identity_test(identity: str, case: str):
+    def test(self):
+        statement, expected = _identity_case(identity, case)
+        res = _verify_v02(statement)
+        self.assertIs(res["content_root_ok"], True)
+        self.assertIs(res["ok"], expected, res.get("predicate_shape_detail"))
+        if not expected:
+            self.assertIn(identity, res["predicate_shape_detail"])
+    return test
+
+
+for _identity in ("model", "dataset"):
+    for _i, _case in enumerate(IDENTITY_CASES):
+        setattr(TheExactlyOnceRuleForEachIdentity, f"test_{_identity}_{_i:02d}_" + "_".join(
+            _case.replace(",", "").split()), _make_identity_test(_identity, _case))
+
+
+class TheReleasedV01Statements(unittest.TestCase):
+    """G2 with regression evidence: v0.1 envelopes as released versions emitted them, each with its
+    origin, verified under the old rules. The expected verdicts are the released 6.1.0 verifier's, not
+    this head's, so a change of the old contract shows as a difference here."""
+
+    ORIGIN_WORDING = {"release-artifact": "fixture from release ",
+                      "tag-reconstruction": "own reconstruction from the source at tag "}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
+        cls.own = base64.b64decode(cls.corpus["public_key_b64"])
+        cls.other = base64.b64decode(cls.corpus["other_public_key_b64"])
+        cls.keys = cls.corpus["verdict_keys"]
+
+    def _verdict(self, envelope, key):
+        res = I.verify_eval_result_dsse(envelope, key)
+        return res, {k: res[k] for k in self.keys}
+
+    def test_every_statement_names_an_origin_that_matches_its_kind(self):
+        kinds = set()
+        for entry in self.corpus["entries"]:
+            with self.subTest(entry=entry["id"]):
+                wording = self.ORIGIN_WORDING[entry["origin_kind"]]
+                self.assertTrue(entry["origin"].startswith(wording), entry["origin"])
+                self.assertTrue(entry["id"].startswith(
+                    {"release-artifact": "release-", "tag-reconstruction": "reconstruction-"}[entry["origin_kind"]]))
+                statement = json.loads(base64.b64decode(entry["envelope"]["payload"]))
+                self.assertEqual(statement["predicateType"], V01)
+                kinds.add(entry["origin_kind"])
+        self.assertEqual(kinds, set(self.ORIGIN_WORDING))
+        self.assertGreaterEqual(len(self.corpus["entries"]), 14)
+
+    def test_each_statement_gets_the_released_verifiers_verdict(self):
+        for entry in self.corpus["entries"]:
+            with self.subTest(entry=entry["id"]):
+                res, verdict = self._verdict(entry["envelope"], self.own)
+                self.assertEqual(verdict, entry["release_6_1_0_verdict"])
+                self.assertIs(res["ok"], True)
+                self.assertIs(entry["own_verdict"]["ok"], True, "the emitting version accepted its own statement")
+                self.assertIsNone(res["predicate_shape_ok"], "a v0.1 statement is judged under the v0.1 rules")
+                self.assertEqual(res["statement"], json.loads(base64.b64decode(entry["envelope"]["payload"])))
+
+    def test_each_statement_under_another_key_gets_the_released_verdict(self):
+        for entry in self.corpus["entries"]:
+            with self.subTest(entry=entry["id"]):
+                _, verdict = self._verdict(entry["envelope"], self.other)
+                self.assertEqual(verdict, entry["release_6_1_0_verdict_other_key"])
+                self.assertIs(verdict["ok"], False)
+
+    def test_the_negative_variants_get_the_released_verdict(self):
+        seen = 0
+        for entry in self.corpus["entries"]:
+            for negative in entry["negatives"]:
+                with self.subTest(entry=entry["id"], case=negative["case"]):
+                    _, verdict = self._verdict(negative["envelope"], self.own)
+                    self.assertEqual(verdict, negative["release_6_1_0_verdict"])
+                    self.assertIs(verdict["ok"], False)
+                    seen += 1
+        self.assertEqual(seen, 6)
+
+    def test_the_v01_emitter_writes_the_release_fixtures_byte_for_byte(self):
+        from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
+        claim, _ = build_eval_claim(
+            suite="safety-refusals", suite_version="1.2.0", metric="refusal_rate",
+            comparator=">=", threshold="0.98", score="0.994", n=500,
+            model_id="acme/secret-model-7b", dataset_id="acme/internal-redteam-set",
+            issuer=issuer_fingerprint(_SIGNER), timestamp="2026-07-05T12:00:00Z",
+            model_salt=b"\x11" * 16, dataset_salt=b"\x11" * 16)
+        receipt = {"subject_profile": "receipt", "root_b64": ROOT,
+                   "harness": {"name": "inspect_ai", "version": "0.3.244"}}
+        calls = {
+            "receipt, jcs-sha256-v1": (claim, dict(receipt, content_root_alg=I.CONTENT_ROOT_ALG)),
+            "receipt, legacy-sortkeys-json-v0": (claim, dict(receipt, content_root_alg=I.LEGACY_CONTENT_ROOT_ALG)),
+            "public-model": (claim, {"subject_profile": "public-model", "subject_name": "acme/open-model-7b",
+                                     "subject_sha256": "a" * 64, "root_b64": ROOT}),
+            "release-gate": (claim, {"subject_profile": "release-gate",
+                                     "subject_name": "acme/inference-service:1.4.2",
+                                     "subject_sha256": "b" * 64, "root_b64": ROOT}),
+            "receipt with preRegistration and anchors": (
+                dict(claim, prereg_sha256="e5" * 32),
+                dict(receipt, anchors=[{"kind": "example-anchor", "digest": {"sha256": "cc" * 32}}])),
+        }
+        released = {e["variant"]: e["envelope"] for e in self.corpus["entries"]
+                    if e["origin_kind"] == "release-artifact"}
+        self.assertEqual(set(released), set(calls))
+        for variant, (c, kw) in calls.items():
+            with self.subTest(variant=variant):
+                self.assertEqual(I.export_eval_result_dsse(c, _SIGNER, **kw), released[variant])
+
+    def test_dispatch_the_same_predicate_under_v02_gets_the_revised_rules(self):
+        for entry in self.corpus["entries"]:
+            with self.subTest(entry=entry["id"]):
+                statement = json.loads(base64.b64decode(entry["envelope"]["payload"]))
+                statement["predicateType"] = V02
+                statement.pop("contentRootAlg", None)
+                res = I.verify_eval_result_dsse(_sign(statement), _pub(), expected_predicate_type=None)
+                self.assertIs(res["ok"], False)
+                self.assertIs(res["predicate_shape_ok"], False)
+                self.assertIn("evaluator", res["predicate_shape_detail"])
+
+    def test_dispatch_a_revised_predicate_under_v01_gets_the_old_rules(self):
+        # The v0.1 contract never checked the predicate's shape, and it still does not: dispatch is by
+        # the declared type, not by what the predicate looks like.
+        statement = _base_statement()
+        statement["predicateType"] = V01
+        res = I.verify_eval_result_dsse(_sign(statement), _pub())
+        self.assertIs(res["ok"], True)
+        self.assertIsNone(res["predicate_shape_ok"])
+        del statement["predicate"]["evaluator"]
+        res = I.verify_eval_result_dsse(_sign(statement), _pub())
+        self.assertIs(res["ok"], True, "no v0.2 rule reaches a v0.1 statement")
 
 
 class TheCommandLine(unittest.TestCase):
@@ -500,8 +743,10 @@ class TheCommandLine(unittest.TestCase):
         statement = json.loads(base64.b64decode(env["payload"]))
         self.assertEqual(statement["predicateType"], V02)
         self.assertEqual(statement["predicate"]["evaluator"], {"id": EVALUATOR})
-        self.assertEqual(statement["predicate"]["evidence"][0]["digest"],
-                         {"sha256": hashlib.sha256(self.receipt.read_bytes()).hexdigest()})
+        entry = statement["predicate"]["evidence"][0]
+        self.assertEqual(entry, {"name": "eval-receipt", "mediaType": "application/json",
+                                 "digest": {"sha256": hashlib.sha256(self.receipt.read_bytes()).hexdigest()}},
+                         "the digest of the receipt file's bytes, and no Merkle root beside it")
         code, text = self._run("intoto", str(out), "--verify", "--pub", self.pub)
         self.assertEqual(code, 0, text)
         self.assertIn(V02, text)

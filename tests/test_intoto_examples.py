@@ -49,7 +49,7 @@ def _build_examples() -> dict:
     bundle = emit_eval_receipt(claim, signer)
     receipt_text = json.dumps(bundle, indent=2) + "\n"
     root = recompute_merkle_root_b64(bundle)["stated_b64"]
-    evidence = [receipt_evidence(receipt_text.encode("utf-8"), root_b64=root, uri=_RECEIPT_URI)]
+    evidence = [receipt_evidence(receipt_text.encode("utf-8"), uri=_RECEIPT_URI)]
     out = {"eval-receipt.json": receipt_text}
     out["private-model-commitment.statement.json"] = to_eval_result_v02_statement(
         claim, subject=resolve_subject("receipt", claim, root_b64=root), evaluator_id=_EVALUATOR,
@@ -106,6 +106,9 @@ class TestIntotoExamples(unittest.TestCase):
                 with self.subTest(example=name):
                     self.assertEqual(stmt["predicate"]["evidence"][0]["digest"],
                                      {"sha256": hashlib.sha256(receipt).hexdigest()})
+                    # An internal Merkle root is not a substitute for the artifact's digest, and it is
+                    # not written beside it either (revision 2 of the draft).
+                    self.assertNotIn("annotations", stmt["predicate"]["evidence"][0])
 
     def test_the_public_model_example_identifies_the_model_by_descriptor(self):
         pred = _statements()["public-model.statement.json"]["predicate"]

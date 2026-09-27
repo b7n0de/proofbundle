@@ -35,8 +35,8 @@ class TestIntotoSpecDiff(unittest.TestCase):
     def test_upstream_draft_uses_the_intoto_namespace_and_notes_the_vendor_alias(self):
         # The spec draft proposes the in-toto.io type. The vendor alias is disclosed beside the mirror,
         # in docs/upstream/README.md, and no longer inside it. REASON FOR THE MOVE (2026-09-28): the
-        # mirror is now the upstream file byte for byte, and the upstream file carries no
-        # proofbundle-specific note, so a note appended to the copy would make it a different file.
+        # mirror is now the upstream file byte for byte plus the repository's header comment; the
+        # appended proofbundle note was neither, so it moved next to the mirror.
         draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
         self.assertIn("https://in-toto.io/attestation/eval-result/v0.1", draft)
         beside = (ROOT / "docs" / "upstream" / "README.md").read_text(encoding="utf-8")
@@ -98,13 +98,17 @@ class TestSubmittedPredicateInvariants(unittest.TestCase):
                           f"detection performance")
 
     def test_both_docs_carry_the_three_revisions(self):
-        # The #575 revision of 2026-09-28: the evaluator role, one identification each for model and
-        # dataset, and evidence[] with a mandatory digest in place of the receipt block.
+        # The #575 revision of 2026-09-28 (revision 2): the evaluator role, exactly one of commitment and
+        # descriptor for each of model and dataset, `salted` fixed to true, and evidence[] with a
+        # mandatory digest of the artifact itself in place of the receipt block.
         for pfad, text in self._docs().items():
             self.assertIn("evaluator.id", text, f"{pfad} does not name the evaluator role")
-            self.assertIn("exactly one identification", text,
+            self.assertIn("exactly one of", text,
                           f"{pfad} lost the rule that model and dataset are each identified once")
+            self.assertIn("MUST set `salted` to", text, f"{pfad} lost the salted obligation")
             self.assertIn("MUST carry `digest`", text, f"{pfad} lost the digest obligation")
+            self.assertIn("Merkle root is not a substitute", text,
+                          f"{pfad} lost the rule that an internal Merkle root does not replace the digest")
 
     def test_the_mirror_carries_neither_old_field(self):
         draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
@@ -113,19 +117,25 @@ class TestSubmittedPredicateInvariants(unittest.TestCase):
 
     def test_the_mirror_names_the_pr_as_the_source_of_truth(self):
         # The copy must not drift into looking authoritative. It also must not keep claiming the PR
-        # is unopened, which is how it read until 2026-08-07. REASON FOR THE MOVE (2026-09-28): these
-        # sentences were an HTML comment at the top of the mirror; the mirror is now the upstream file
-        # byte for byte, so they stand in docs/upstream/README.md, together with the SHA-256 of the
-        # mirror, which makes any later edit of the mirror visible as a mismatch here.
+        # is unopened, which is how it read until 2026-08-07. Its header says both.
+        draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_text(encoding="utf-8")
+        self.assertIn("575", draft, "the mirror does not name the PR it mirrors")
+        self.assertIn("source of truth", draft,
+                      "the mirror does not say which side wins when the two differ")
+        self.assertNotIn("NOT yet opened as", draft, "the mirror still claims the PR is unopened")
+
+    def test_the_mirror_without_its_header_is_the_upstream_file_byte_for_byte(self):
+        # 2026-09-28: the mirror is the upstream file plus the repository's own header comment, and
+        # nothing else. Removing the header must give the upstream bytes, whose SHA-256 is pinned in
+        # docs/upstream/README.md; any other edit of the mirror is a mismatch here.
+        raw = (ROOT / "docs" / "upstream" / "eval-result.md").read_bytes()
+        header = re.compile(rb"<!-- MIRROR .*? -->\n\n", re.DOTALL)
+        self.assertEqual(len(header.findall(raw)), 1, "the mirror carries exactly one header comment")
+        upstream = header.sub(b"", raw, count=1)
         beside = (ROOT / "docs" / "upstream" / "README.md").read_text(encoding="utf-8")
-        self.assertIn("575", beside, "the note beside the mirror does not name the PR it mirrors")
-        self.assertIn("source of truth", beside,
-                      "the note beside the mirror does not say which side wins when the two differ")
-        self.assertNotIn("not yet opened", beside, "the note still claims the PR is unopened")
-        draft = (ROOT / "docs" / "upstream" / "eval-result.md").read_bytes()
         pins = re.findall(r"`([0-9a-f]{64})`", beside)
-        self.assertIn(hashlib.sha256(draft).hexdigest(), pins,
-                      "docs/upstream/README.md does not pin the SHA-256 of the mirror as it stands")
+        self.assertIn(hashlib.sha256(upstream).hexdigest(), pins,
+                      "the mirror without its header is not the upstream file pinned in docs/upstream/README.md")
 
 
 if __name__ == "__main__":

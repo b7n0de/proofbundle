@@ -1,0 +1,707 @@
+{
+ "about": "eval-result v0.1 envelopes as released versions emitted them, and the verdicts the released 6.1.0 verifier gives on them. Made by make_corpus.py in this directory.",
+ "public_key_b64": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+ "other_public_key_b64": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=",
+ "verdict_keys": [
+  "ok",
+  "predicate_type",
+  "predicate_type_ok",
+  "content_root_alg",
+  "content_root_ok",
+  "content_root_detail"
+ ],
+ "entries": [
+  {
+   "id": "release-6.1.0-wheel/receipt, jcs-sha256-v1",
+   "origin": "fixture from release 6.1.0 (the published wheel, sha256 f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b)",
+   "origin_kind": "release-artifact",
+   "version": "6.1.0",
+   "variant": "receipt, jcs-sha256-v1",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [
+    {
+     "case": "one payload byte changed, signature kept",
+     "envelope": {
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOmZhbHNlLCJ0aHJlc2hvbGQiOiIwLjk4In1dLCJjb21taXRtZW50cyI6eyJkYXRhc2V0Ijp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiJ9LCJtb2RlbCI6eyJhbGciOiJzaGEyNTYtc2FsdGVkLXYxIiwic2FsdGVkIjp0cnVlLCJ2YWx1ZSI6IjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIifX0sImV2YWx1YXRlZEF0IjoiMjAyNi0wNy0wNVQxMjowMDowMFoiLCJoYXJuZXNzIjp7Im5hbWUiOiJpbnNwZWN0X2FpIiwidmVyc2lvbiI6IjAuMy4yNDQifSwicmVjZWlwdCI6eyJtZXJrbGVSb290QjY0IjoiY21WalpXbHdkQzF0WlhKcmJHVXRjbTl2ZEE9PSIsInNjaGVtYSI6InByb29mYnVuZGxlL3YwLjEifSwic2FtcGxlU2l6ZSI6NTAwLCJzdWJqZWN0RGlnZXN0Tm90ZSI6InN1YmplY3QuZGlnZXN0IGlzIGEgYmluZGVyIG92ZXIgdGhlIHJlY2VpcHQgY29tbWl0bWVudHMrcm9vdCwgbm90IGFuIGFydGlmYWN0IGhhc2giLCJzdWJqZWN0UHJvZmlsZSI6InJlY2VpcHQiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSJ9LCJuYW1lIjoiZXZhbC1yZWNlaXB0In1dfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "jcs-sha256-v1",
+      "content_root_ok": true,
+      "content_root_detail": ""
+     }
+    },
+    {
+     "case": "re-signed over bytes that are not canonical for the declared content root",
+     "envelope": {
+      "payload": "ewogIl90eXBlIjogImh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLAogImNvbnRlbnRSb290QWxnIjogImpjcy1zaGEyNTYtdjEiLAogInByZWRpY2F0ZSI6IHsKICAiYXNzdXJhbmNlTGV2ZWwiOiAic2VsZl9hdHRlc3RlZCIsCiAgImNsYWltcyI6IFsKICAgewogICAgImNvbXBhcmF0b3IiOiAiPj0iLAogICAgIm1ldHJpYyI6ICJyZWZ1c2FsX3JhdGUiLAogICAgInBhc3NlZCI6IHRydWUsCiAgICAidGhyZXNob2xkIjogIjAuOTgiCiAgIH0KICBdLAogICJjb21taXRtZW50cyI6IHsKICAgImRhdGFzZXQiOiB7CiAgICAiYWxnIjogInNoYTI1Ni1zYWx0ZWQtdjEiLAogICAgInNhbHRlZCI6IHRydWUsCiAgICAidmFsdWUiOiAiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiIKICAgfSwKICAgIm1vZGVsIjogewogICAgImFsZyI6ICJzaGEyNTYtc2FsdGVkLXYxIiwKICAgICJzYWx0ZWQiOiB0cnVlLAogICAgInZhbHVlIjogIjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIiCiAgIH0KICB9LAogICJldmFsdWF0ZWRBdCI6ICIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsCiAgImhhcm5lc3MiOiB7CiAgICJuYW1lIjogImluc3BlY3RfYWkiLAogICAidmVyc2lvbiI6ICIwLjMuMjQ0IgogIH0sCiAgInJlY2VpcHQiOiB7CiAgICJtZXJrbGVSb290QjY0IjogImNtVmpaV2x3ZEMxdFpYSnJiR1V0Y205dmRBPT0iLAogICAic2NoZW1hIjogInByb29mYnVuZGxlL3YwLjEiCiAgfSwKICAic2FtcGxlU2l6ZSI6IDUwMCwKICAic3ViamVjdERpZ2VzdE5vdGUiOiAic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsCiAgInN1YmplY3RQcm9maWxlIjogInJlY2VpcHQiLAogICJzdWl0ZSI6IHsKICAgIm5hbWUiOiAic2FmZXR5LXJlZnVzYWxzIiwKICAgInZlcnNpb24iOiAiMS4yLjAiCiAgfSwKICAidmVyaWZpZXIiOiB7CiAgICJpZCI6ICJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUiCiAgfQogfSwKICJwcmVkaWNhdGVUeXBlIjogImh0dHBzOi8vYjduMGRlLmNvbS9hdHRlc3RhdGlvbi9ldmFsLXJlc3VsdC92MC4xIiwKICJzdWJqZWN0IjogWwogIHsKICAgImRpZ2VzdCI6IHsKICAgICJzaGEyNTYiOiAiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSIKICAgfSwKICAgIm5hbWUiOiAiZXZhbC1yZWNlaXB0IgogIH0KIF0KfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "ITRVkUG43qRWcnZNc0X95+GXu/WNhgi4IXqAuvRsdLV7Er0W/xnOdr5YuWdmxs5TDWsF/3d0s9Z9JB1d7aFUAA=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "jcs-sha256-v1",
+      "content_root_ok": false,
+      "content_root_detail": "payload is not canonical for its declared contentRootAlg='jcs-sha256-v1' (algorithm-confusion / tamper, fail-closed)"
+     }
+    }
+   ],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "release-6.1.0-wheel/receipt, legacy-sortkeys-json-v0",
+   "origin": "fixture from release 6.1.0 (the published wheel, sha256 f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b)",
+   "origin_kind": "release-artifact",
+   "version": "6.1.0",
+   "variant": "receipt, legacy-sortkeys-json-v0",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "KsNJdwgwhvKqO2PnFtyvd+p3JBhu3RENJSr4VU9NZHdH2BcQUNjy2di1Pqzvt4rG4NmvukVpD46luVOtPG8rDQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "legacy-sortkeys-json-v0",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [
+    {
+     "case": "one payload byte changed, signature kept",
+     "envelope": {
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOmZhbHNlLCJ0aHJlc2hvbGQiOiIwLjk4In1dLCJjb21taXRtZW50cyI6eyJkYXRhc2V0Ijp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiJ9LCJtb2RlbCI6eyJhbGciOiJzaGEyNTYtc2FsdGVkLXYxIiwic2FsdGVkIjp0cnVlLCJ2YWx1ZSI6IjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIifX0sImV2YWx1YXRlZEF0IjoiMjAyNi0wNy0wNVQxMjowMDowMFoiLCJoYXJuZXNzIjp7Im5hbWUiOiJpbnNwZWN0X2FpIiwidmVyc2lvbiI6IjAuMy4yNDQifSwicmVjZWlwdCI6eyJtZXJrbGVSb290QjY0IjoiY21WalpXbHdkQzF0WlhKcmJHVXRjbTl2ZEE9PSIsInNjaGVtYSI6InByb29mYnVuZGxlL3YwLjEifSwic2FtcGxlU2l6ZSI6NTAwLCJzdWJqZWN0RGlnZXN0Tm90ZSI6InN1YmplY3QuZGlnZXN0IGlzIGEgYmluZGVyIG92ZXIgdGhlIHJlY2VpcHQgY29tbWl0bWVudHMrcm9vdCwgbm90IGFuIGFydGlmYWN0IGhhc2giLCJzdWJqZWN0UHJvZmlsZSI6InJlY2VpcHQiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSJ9LCJuYW1lIjoiZXZhbC1yZWNlaXB0In1dfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "KsNJdwgwhvKqO2PnFtyvd+p3JBhu3RENJSr4VU9NZHdH2BcQUNjy2di1Pqzvt4rG4NmvukVpD46luVOtPG8rDQ=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "legacy-sortkeys-json-v0",
+      "content_root_ok": true,
+      "content_root_detail": ""
+     }
+    },
+    {
+     "case": "re-signed over bytes that are not canonical for the declared content root",
+     "envelope": {
+      "payload": "ewogIl90eXBlIjogImh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLAogInByZWRpY2F0ZSI6IHsKICAiYXNzdXJhbmNlTGV2ZWwiOiAic2VsZl9hdHRlc3RlZCIsCiAgImNsYWltcyI6IFsKICAgewogICAgImNvbXBhcmF0b3IiOiAiPj0iLAogICAgIm1ldHJpYyI6ICJyZWZ1c2FsX3JhdGUiLAogICAgInBhc3NlZCI6IHRydWUsCiAgICAidGhyZXNob2xkIjogIjAuOTgiCiAgIH0KICBdLAogICJjb21taXRtZW50cyI6IHsKICAgImRhdGFzZXQiOiB7CiAgICAiYWxnIjogInNoYTI1Ni1zYWx0ZWQtdjEiLAogICAgInNhbHRlZCI6IHRydWUsCiAgICAidmFsdWUiOiAiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiIKICAgfSwKICAgIm1vZGVsIjogewogICAgImFsZyI6ICJzaGEyNTYtc2FsdGVkLXYxIiwKICAgICJzYWx0ZWQiOiB0cnVlLAogICAgInZhbHVlIjogIjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIiCiAgIH0KICB9LAogICJldmFsdWF0ZWRBdCI6ICIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsCiAgImhhcm5lc3MiOiB7CiAgICJuYW1lIjogImluc3BlY3RfYWkiLAogICAidmVyc2lvbiI6ICIwLjMuMjQ0IgogIH0sCiAgInJlY2VpcHQiOiB7CiAgICJtZXJrbGVSb290QjY0IjogImNtVmpaV2x3ZEMxdFpYSnJiR1V0Y205dmRBPT0iLAogICAic2NoZW1hIjogInByb29mYnVuZGxlL3YwLjEiCiAgfSwKICAic2FtcGxlU2l6ZSI6IDUwMCwKICAic3ViamVjdERpZ2VzdE5vdGUiOiAic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsCiAgInN1YmplY3RQcm9maWxlIjogInJlY2VpcHQiLAogICJzdWl0ZSI6IHsKICAgIm5hbWUiOiAic2FmZXR5LXJlZnVzYWxzIiwKICAgInZlcnNpb24iOiAiMS4yLjAiCiAgfSwKICAidmVyaWZpZXIiOiB7CiAgICJpZCI6ICJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUiCiAgfQogfSwKICJwcmVkaWNhdGVUeXBlIjogImh0dHBzOi8vYjduMGRlLmNvbS9hdHRlc3RhdGlvbi9ldmFsLXJlc3VsdC92MC4xIiwKICJzdWJqZWN0IjogWwogIHsKICAgImRpZ2VzdCI6IHsKICAgICJzaGEyNTYiOiAiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSIKICAgfSwKICAgIm5hbWUiOiAiZXZhbC1yZWNlaXB0IgogIH0KIF0KfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "EjFyDsj75gKmP1lJfYyOUSfwwjTYQWLqRQxifpDBW3wkj3CrptGelrCgwQ0Pl0vvfcAcqYdPLnubtwr7UzcaBg=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "legacy-sortkeys-json-v0",
+      "content_root_ok": false,
+      "content_root_detail": "payload is not canonical for its declared contentRootAlg='legacy-sortkeys-json-v0' (algorithm-confusion / tamper, fail-closed)"
+     }
+    }
+   ],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "legacy-sortkeys-json-v0",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "legacy-sortkeys-json-v0",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "release-6.1.0-wheel/public-model",
+   "origin": "fixture from release 6.1.0 (the published wheel, sha256 f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b)",
+   "origin_kind": "release-artifact",
+   "version": "6.1.0",
+   "variant": "public-model",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsInJlY2VpcHQiOnsibWVya2xlUm9vdEI2NCI6ImNtVmpaV2x3ZEMxdFpYSnJiR1V0Y205dmRBPT0iLCJzY2hlbWEiOiJwcm9vZmJ1bmRsZS92MC4xIn0sInNhbXBsZVNpemUiOjUwMCwic3ViamVjdFByb2ZpbGUiOiJwdWJsaWMtbW9kZWwiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSJ9LCJuYW1lIjoiYWNtZS9vcGVuLW1vZGVsLTdiIn1dfQ==",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "kGyLYTwHLaLh+nRpKyouQelyrLBbM/7s+U5UtmOdzD9a5I2eWTyNv2j7q1EdtkiWcMnF/MpKPGyWZxuN7J9YCw=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "release-6.1.0-wheel/release-gate",
+   "origin": "fixture from release 6.1.0 (the published wheel, sha256 f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b)",
+   "origin_kind": "release-artifact",
+   "version": "6.1.0",
+   "variant": "release-gate",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsInJlY2VpcHQiOnsibWVya2xlUm9vdEI2NCI6ImNtVmpaV2x3ZEMxdFpYSnJiR1V0Y205dmRBPT0iLCJzY2hlbWEiOiJwcm9vZmJ1bmRsZS92MC4xIn0sInNhbXBsZVNpemUiOjUwMCwic3ViamVjdFByb2ZpbGUiOiJyZWxlYXNlLWdhdGUiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiJ9LCJuYW1lIjoiYWNtZS9pbmZlcmVuY2Utc2VydmljZToxLjQuMiJ9XX0=",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "sepsrjQ3zO5+GIyYtQZQLSJpQU8FU5OkHTAyWcC9q7vutTg88Yl+mtrZS1Oks3idGwfyEy1SlSfxy8Cca+EmDQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "release-6.1.0-wheel/receipt with preRegistration and anchors",
+   "origin": "fixture from release 6.1.0 (the published wheel, sha256 f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b)",
+   "origin_kind": "release-artifact",
+   "version": "6.1.0",
+   "variant": "receipt with preRegistration and anchors",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYW5jaG9ycyI6W3siZGlnZXN0Ijp7InNoYTI1NiI6ImNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MifSwia2luZCI6ImV4YW1wbGUtYW5jaG9yIn1dLCJhc3N1cmFuY2VMZXZlbCI6InNlbGZfYXR0ZXN0ZWQiLCJjbGFpbXMiOlt7ImNvbXBhcmF0b3IiOiI+PSIsIm1ldHJpYyI6InJlZnVzYWxfcmF0ZSIsInBhc3NlZCI6dHJ1ZSwidGhyZXNob2xkIjoiMC45OCJ9XSwiY29tbWl0bWVudHMiOnsiZGF0YXNldCI6eyJhbGciOiJzaGEyNTYtc2FsdGVkLXYxIiwic2FsdGVkIjp0cnVlLCJ2YWx1ZSI6IjgwZWU0ZGQ1N2I0NjA0NDljZjQ4OThhNTZjNTg4YzZlYjY0YmRhNTY1MTFmNDkyZjUwY2ViNzBkOWY0YzJhMmIifSwibW9kZWwiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiIyZDZkZjFmZGY3YWI4NzFhMGM3YjBiYWMwYzMyMTk0NTUwOTdjZmNmMmI5NDhlYjEwODI4M2VkMmQ3MWU4MmUyIn19LCJldmFsdWF0ZWRBdCI6IjIwMjYtMDctMDVUMTI6MDA6MDBaIiwiaGFybmVzcyI6eyJuYW1lIjoiaW5zcGVjdF9haSIsInZlcnNpb24iOiIwLjMuMjQ0In0sInByZVJlZ2lzdHJhdGlvbiI6eyJhbGciOiJzaGEyNTYiLCJ2YWx1ZSI6ImU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTVlNWU1ZTUifSwicmVjZWlwdCI6eyJtZXJrbGVSb290QjY0IjoiY21WalpXbHdkQzF0WlhKcmJHVXRjbTl2ZEE9PSIsInNjaGVtYSI6InByb29mYnVuZGxlL3YwLjEifSwic2FtcGxlU2l6ZSI6NTAwLCJzdWJqZWN0RGlnZXN0Tm90ZSI6InN1YmplY3QuZGlnZXN0IGlzIGEgYmluZGVyIG92ZXIgdGhlIHJlY2VpcHQgY29tbWl0bWVudHMrcm9vdCwgbm90IGFuIGFydGlmYWN0IGhhc2giLCJzdWJqZWN0UHJvZmlsZSI6InJlY2VpcHQiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSJ9LCJuYW1lIjoiZXZhbC1yZWNlaXB0In1dfQ==",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "7bbRzrvLxl1xHAcyQ7PO3uiPZ5cAtX6yzc3Cy84t83uD2uOU6oLj+UnnRLjSzv6vswry1YksKTGh/dzhQxTJBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v2.0.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v2.0.0 (commit b598971eae01b6b5eb84241a59884b677d854208)",
+   "origin_kind": "tag-reconstruction",
+   "version": "2.0.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "KsNJdwgwhvKqO2PnFtyvd+p3JBhu3RENJSr4VU9NZHdH2BcQUNjy2di1Pqzvt4rG4NmvukVpD46luVOtPG8rDQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1"
+   },
+   "negatives": [
+    {
+     "case": "one payload byte changed, signature kept",
+     "envelope": {
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOmZhbHNlLCJ0aHJlc2hvbGQiOiIwLjk4In1dLCJjb21taXRtZW50cyI6eyJkYXRhc2V0Ijp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiJ9LCJtb2RlbCI6eyJhbGciOiJzaGEyNTYtc2FsdGVkLXYxIiwic2FsdGVkIjp0cnVlLCJ2YWx1ZSI6IjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIifX0sImV2YWx1YXRlZEF0IjoiMjAyNi0wNy0wNVQxMjowMDowMFoiLCJoYXJuZXNzIjp7Im5hbWUiOiJpbnNwZWN0X2FpIiwidmVyc2lvbiI6IjAuMy4yNDQifSwicmVjZWlwdCI6eyJtZXJrbGVSb290QjY0IjoiY21WalpXbHdkQzF0WlhKcmJHVXRjbTl2ZEE9PSIsInNjaGVtYSI6InByb29mYnVuZGxlL3YwLjEifSwic2FtcGxlU2l6ZSI6NTAwLCJzdWJqZWN0RGlnZXN0Tm90ZSI6InN1YmplY3QuZGlnZXN0IGlzIGEgYmluZGVyIG92ZXIgdGhlIHJlY2VpcHQgY29tbWl0bWVudHMrcm9vdCwgbm90IGFuIGFydGlmYWN0IGhhc2giLCJzdWJqZWN0UHJvZmlsZSI6InJlY2VpcHQiLCJzdWl0ZSI6eyJuYW1lIjoic2FmZXR5LXJlZnVzYWxzIiwidmVyc2lvbiI6IjEuMi4wIn0sInZlcmlmaWVyIjp7ImlkIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL2F0dGVzdGF0aW9uL2V2YWwtcmVzdWx0L3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSJ9LCJuYW1lIjoiZXZhbC1yZWNlaXB0In1dfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "KsNJdwgwhvKqO2PnFtyvd+p3JBhu3RENJSr4VU9NZHdH2BcQUNjy2di1Pqzvt4rG4NmvukVpD46luVOtPG8rDQ=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "legacy-sortkeys-json-v0",
+      "content_root_ok": true,
+      "content_root_detail": ""
+     }
+    },
+    {
+     "case": "re-signed over bytes that are not canonical for the declared content root",
+     "envelope": {
+      "payload": "ewogIl90eXBlIjogImh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLAogInByZWRpY2F0ZSI6IHsKICAiYXNzdXJhbmNlTGV2ZWwiOiAic2VsZl9hdHRlc3RlZCIsCiAgImNsYWltcyI6IFsKICAgewogICAgImNvbXBhcmF0b3IiOiAiPj0iLAogICAgIm1ldHJpYyI6ICJyZWZ1c2FsX3JhdGUiLAogICAgInBhc3NlZCI6IHRydWUsCiAgICAidGhyZXNob2xkIjogIjAuOTgiCiAgIH0KICBdLAogICJjb21taXRtZW50cyI6IHsKICAgImRhdGFzZXQiOiB7CiAgICAiYWxnIjogInNoYTI1Ni1zYWx0ZWQtdjEiLAogICAgInNhbHRlZCI6IHRydWUsCiAgICAidmFsdWUiOiAiODBlZTRkZDU3YjQ2MDQ0OWNmNDg5OGE1NmM1ODhjNmViNjRiZGE1NjUxMWY0OTJmNTBjZWI3MGQ5ZjRjMmEyYiIKICAgfSwKICAgIm1vZGVsIjogewogICAgImFsZyI6ICJzaGEyNTYtc2FsdGVkLXYxIiwKICAgICJzYWx0ZWQiOiB0cnVlLAogICAgInZhbHVlIjogIjJkNmRmMWZkZjdhYjg3MWEwYzdiMGJhYzBjMzIxOTQ1NTA5N2NmY2YyYjk0OGViMTA4MjgzZWQyZDcxZTgyZTIiCiAgIH0KICB9LAogICJldmFsdWF0ZWRBdCI6ICIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsCiAgImhhcm5lc3MiOiB7CiAgICJuYW1lIjogImluc3BlY3RfYWkiLAogICAidmVyc2lvbiI6ICIwLjMuMjQ0IgogIH0sCiAgInJlY2VpcHQiOiB7CiAgICJtZXJrbGVSb290QjY0IjogImNtVmpaV2x3ZEMxdFpYSnJiR1V0Y205dmRBPT0iLAogICAic2NoZW1hIjogInByb29mYnVuZGxlL3YwLjEiCiAgfSwKICAic2FtcGxlU2l6ZSI6IDUwMCwKICAic3ViamVjdERpZ2VzdE5vdGUiOiAic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsCiAgInN1YmplY3RQcm9maWxlIjogInJlY2VpcHQiLAogICJzdWl0ZSI6IHsKICAgIm5hbWUiOiAic2FmZXR5LXJlZnVzYWxzIiwKICAgInZlcnNpb24iOiAiMS4yLjAiCiAgfSwKICAidmVyaWZpZXIiOiB7CiAgICJpZCI6ICJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUiCiAgfQogfSwKICJwcmVkaWNhdGVUeXBlIjogImh0dHBzOi8vYjduMGRlLmNvbS9hdHRlc3RhdGlvbi9ldmFsLXJlc3VsdC92MC4xIiwKICJzdWJqZWN0IjogWwogIHsKICAgImRpZ2VzdCI6IHsKICAgICJzaGEyNTYiOiAiYTkyYzllNzI5NmIwNjkwMGFjMjgyYzc2YzJmNDI5MjM0ZTIyZGQ2Y2QzY2FlYmY5NjRmMDJiMDk1YTI2NDUwMSIKICAgfSwKICAgIm5hbWUiOiAiZXZhbC1yZWNlaXB0IgogIH0KIF0KfQ==",
+      "payloadType": "application/vnd.in-toto+json",
+      "signatures": [
+       {
+        "sig": "EjFyDsj75gKmP1lJfYyOUSfwwjTYQWLqRQxifpDBW3wkj3CrptGelrCgwQ0Pl0vvfcAcqYdPLnubtwr7UzcaBg=="
+       }
+      ]
+     },
+     "release_6_1_0_verdict": {
+      "ok": false,
+      "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+      "predicate_type_ok": true,
+      "content_root_alg": "legacy-sortkeys-json-v0",
+      "content_root_ok": false,
+      "content_root_detail": "payload is not canonical for its declared contentRootAlg='legacy-sortkeys-json-v0' (algorithm-confusion / tamper, fail-closed)"
+     }
+    }
+   ],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "legacy-sortkeys-json-v0",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "legacy-sortkeys-json-v0",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v2.1.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v2.1.0 (commit 0048f68d9b463cd71507680c64cba4134025ac82)",
+   "origin_kind": "tag-reconstruction",
+   "version": "2.1.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v3.0.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v3.0.0 (commit b264d8ccd79c20d97f3dd438480ba7a74b471590)",
+   "origin_kind": "tag-reconstruction",
+   "version": "3.0.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v3.3.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v3.3.0 (commit 1e72dbf06acf2d619489ebf7fbd06905587b8baf)",
+   "origin_kind": "tag-reconstruction",
+   "version": "3.3.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v3.6.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v3.6.0 (commit 1c26f3ee215c655f763d0c7e6f13a03392fac00e)",
+   "origin_kind": "tag-reconstruction",
+   "version": "3.6.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v4.0.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v4.0.0 (commit 89d4fb90ca395f59843aa840910dbb7c4cda635a)",
+   "origin_kind": "tag-reconstruction",
+   "version": "4.0.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v5.0.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v5.0.0 (commit 840a0a6bf42398db9502a28872e17f83366109f5)",
+   "origin_kind": "tag-reconstruction",
+   "version": "5.0.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v5.1.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v5.1.0 (commit 06ee9ef6d96ea72bb53a0bbf22cca94b78c18126)",
+   "origin_kind": "tag-reconstruction",
+   "version": "5.1.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  },
+  {
+   "id": "reconstruction-v6.0.0/receipt, the version's default content root",
+   "origin": "own reconstruction from the source at tag v6.0.0 (commit 4e32e83b647235bfedf23b55cebe69fdf14fd6f5)",
+   "origin_kind": "tag-reconstruction",
+   "version": "6.0.0",
+   "variant": "receipt, the version's default content root",
+   "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJjb250ZW50Um9vdEFsZyI6Impjcy1zaGEyNTYtdjEiLCJwcmVkaWNhdGUiOnsiYXNzdXJhbmNlTGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY2xhaW1zIjpbeyJjb21wYXJhdG9yIjoiPj0iLCJtZXRyaWMiOiJyZWZ1c2FsX3JhdGUiLCJwYXNzZWQiOnRydWUsInRocmVzaG9sZCI6IjAuOTgifV0sImNvbW1pdG1lbnRzIjp7ImRhdGFzZXQiOnsiYWxnIjoic2hhMjU2LXNhbHRlZC12MSIsInNhbHRlZCI6dHJ1ZSwidmFsdWUiOiI4MGVlNGRkNTdiNDYwNDQ5Y2Y0ODk4YTU2YzU4OGM2ZWI2NGJkYTU2NTExZjQ5MmY1MGNlYjcwZDlmNGMyYTJiIn0sIm1vZGVsIjp7ImFsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJzYWx0ZWQiOnRydWUsInZhbHVlIjoiMmQ2ZGYxZmRmN2FiODcxYTBjN2IwYmFjMGMzMjE5NDU1MDk3Y2ZjZjJiOTQ4ZWIxMDgyODNlZDJkNzFlODJlMiJ9fSwiZXZhbHVhdGVkQXQiOiIyMDI2LTA3LTA1VDEyOjAwOjAwWiIsImhhcm5lc3MiOnsibmFtZSI6Imluc3BlY3RfYWkiLCJ2ZXJzaW9uIjoiMC4zLjI0NCJ9LCJyZWNlaXB0Ijp7Im1lcmtsZVJvb3RCNjQiOiJjbVZqWldsd2RDMXRaWEpyYkdVdGNtOXZkQT09Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvdjAuMSJ9LCJzYW1wbGVTaXplIjo1MDAsInN1YmplY3REaWdlc3ROb3RlIjoic3ViamVjdC5kaWdlc3QgaXMgYSBiaW5kZXIgb3ZlciB0aGUgcmVjZWlwdCBjb21taXRtZW50cytyb290LCBub3QgYW4gYXJ0aWZhY3QgaGFzaCIsInN1YmplY3RQcm9maWxlIjoicmVjZWlwdCIsInN1aXRlIjp7Im5hbWUiOiJzYWZldHktcmVmdXNhbHMiLCJ2ZXJzaW9uIjoiMS4yLjAifSwidmVyaWZpZXIiOnsiaWQiOiJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL2I3bjBkZS5jb20vYXR0ZXN0YXRpb24vZXZhbC1yZXN1bHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJhOTJjOWU3Mjk2YjA2OTAwYWMyODJjNzZjMmY0MjkyMzRlMjJkZDZjZDNjYWViZjk2NGYwMmIwOTVhMjY0NTAxIn0sIm5hbWUiOiJldmFsLXJlY2VpcHQifV19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+     {
+      "sig": "Lkl62RDAYWk88GfAAWNU5mJJKUAZxPmkZr7ySCMaMcApa+aRMuc1QmBmKZg5OhomUaebSmSbwtGfXkcKTJreBQ=="
+     }
+    ]
+   },
+   "own_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "negatives": [],
+   "release_6_1_0_verdict": {
+    "ok": true,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   },
+   "release_6_1_0_verdict_other_key": {
+    "ok": false,
+    "predicate_type": "https://b7n0de.com/attestation/eval-result/v0.1",
+    "predicate_type_ok": true,
+    "content_root_alg": "jcs-sha256-v1",
+    "content_root_ok": true,
+    "content_root_detail": ""
+   }
+  }
+ ]
+}
