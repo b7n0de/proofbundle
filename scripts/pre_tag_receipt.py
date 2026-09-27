@@ -26,7 +26,9 @@ with no filter, attribute, index bit or `core.*` setting in between; see `_baumz
 
 WHAT THAT ESTABLISHES, AND WHAT IT DOES NOT. Established: the working tree equalled the committed head
 before the run and after it, the head and the tree digest were the same at both points, and the output
-digest is over the bytes this process read from that run. Not established: a change made and undone
+digest is over the bytes this process read from that run. Before the run no path lay in the tree that
+the head does not carry, ignored ones included (since 2026-09-27); after it, files the tree's own
+rules ignore may lie there, because the audit wrote them. Not established: a change made and undone
 DURING the run, by the audit program itself or by a concurrent writer, lies between the two
 measurements and is invisible to them; the interpreter and its standard library are trusted, not
 measured; and the audit program's own behaviour is recorded, not judged.
@@ -238,7 +240,12 @@ def build_context(repo: Path, version: str, audit_command: str, runner_identity:
     """
     vorher = _baumzustand_oder_stop(repo, "before the audit")
     exit_code, ausgabe_digest, laenge = _audit_ausfuehren(repo, audit_command, audit_output_file)
-    nachher = _baumzustand_oder_stop(repo, "after the audit ran")
+    # AFTER THE RUN AN IGNORED PATH IS ONE THE AUDIT WROTE: the measurement before refused every
+    # ignored path, so whatever the tree's rules ignore now appeared during the run. A test suite as
+    # the audit writes caches into the tree it runs in (hypothesis writes `.hypothesis/`, measured
+    # 2026-09-27); refusing those would refuse every such audit, and they were not there to be read
+    # when it started. Dirt still refuses here as before.
+    nachher = _baumzustand_oder_stop(repo, "after the audit ran", ignorierte_zulassen=True)
     if nachher != vorher:
         raise SystemExit(
             f"emit: the tree changed while the audit ran (head {vorher['head'][:12]} -> "
@@ -426,16 +433,22 @@ def _pfade_auf_platte(repo_abs: Path) -> list[str]:
     return sorted(raus)
 
 
-def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[str]:
-    """Paths on disk that HEAD does not carry, unless a TRACKED ignore rule hides them.
+def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> tuple[list[str], list[str]]:
+    """(dirt, ignored): the paths on disk that HEAD does not carry, in two lists.
 
     `git check-ignore -v` is asked one thing only: which rule, from which file, hides a path. A
-    path hidden by a rule in a `.gitignore` the head carries is a tool cache the tree itself
-    declared (`.pytest_cache/`, `__pycache__/`, a virtual environment) and is fine. A path hidden
-    by anything else — `.git/info/exclude`, a global `core.excludesFile`, an untracked `.gitignore`
-    — is hidden by state the head does not carry, and refuses. A path no rule hides is untracked
-    and refuses. `core.ignorecase` is forced off for the question, so the rule matching does not
-    inherit a configured equality either.
+    path hidden by a rule in a `.gitignore` the head carries is IGNORED, the second list: a tool
+    cache the tree itself declared (`.pytest_cache/`, `__pycache__/`, a virtual environment), or
+    any other file the tree's rules name. A path hidden by anything else — `.git/info/exclude`, a
+    global `core.excludesFile`, an untracked `.gitignore` — is hidden by state the head does not
+    carry, and is dirt. A path no rule hides is untracked, and is dirt. `core.ignorecase` is forced
+    off for the question, so the rule matching does not inherit a configured equality either.
+
+    WHAT AN IGNORED PATH MEANS IS THE CALLER'S TO DECIDE (owner decision on PR 249, 2026-09-27):
+    before the audit it refuses as dirt does, because the audit can read it and the receipt binds a
+    tree that does not carry it; after the audit it is a file the audit wrote (the measurement
+    before refused any), and the tree's rules say it is not part of the tree. See
+    `_baumzustand_oder_stop`.
 
     THE SOURCE IS JUDGED BY WHAT IT IS, NOT BY ITS NAME (2026-09-27, measured). `check-ignore -v`
     reports an excludes file by the string the configuration gives, and `core.excludesFile =
@@ -454,7 +467,7 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
     """
     kandidaten = [p for p in _pfade_auf_platte(repo_abs) if p not in verfolgt]
     if not kandidaten:
-        return []
+        return [], []
     if any("\n" in p or "\0" in p for p in kandidaten):
         raise SystemExit("emit: a path on disk carries a newline or NUL in its name — refusing, such "
                          "a path cannot be named to git without ambiguity")
@@ -468,6 +481,7 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
         quelle, _zeile, muster, pfad = felder[i:i + 4]
         quelle_je_pfad[pfad[2:] if pfad.startswith("./") else pfad] = (quelle, muster)
     raus: list[str] = []
+    ignoriert: list[str] = []
     for p in kandidaten:
         if p not in quelle_je_pfad:
             raus.append(f"?? {p}")
@@ -482,7 +496,9 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
             continue
         if not _eine_verfolgte_regel_fuer(quelle, p, verfolgt):
             raus.append(f"!! {p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
-    return raus
+            continue
+        ignoriert.append(f"ignored {p} (by {quelle}: {muster!r})")
+    return raus, ignoriert
 
 
 def _eine_verfolgte_regel_fuer(quelle: str, pfad: str, verfolgt: set[str]) -> bool:
@@ -495,7 +511,7 @@ def _eine_verfolgte_regel_fuer(quelle: str, pfad: str, verfolgt: set[str]) -> bo
     return name == ".gitignore" and (not ordner or pfad.startswith(ordner + "/"))
 
 
-def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
+def _baumzustand_oder_stop(repo: Path, wann: str, *, ignorierte_zulassen: bool = False) -> dict:
     """Refuse unless the working tree equals the committed head; return head and tree digest.
 
     THE RECEIPT BINDS `git ls-tree -r HEAD` AND THE RUN READS THE WORKING TREE. Those are two
@@ -541,11 +557,24 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
                           in the index and not in the head is named as such;
       untracked paths     read from the FILESYSTEM by `_pfade_auf_platte`, never from an index or
                           a git listing, and compared by name with the entries of `ls-tree`; a
-                          path the head does not carry refuses unless a rule in a TRACKED
-                          `.gitignore` hides it (`_unverfolgte_pfade` asks `git check-ignore -v`
-                          which rule from which file, with `core.ignorecase` forced off) — hidden
-                          by `.git/info/exclude`, a global `core.excludesFile` or an untracked
-                          `.gitignore` refuses by name, and a nested `.git` refuses by name.
+                          path the head does not carry refuses (`_unverfolgte_pfade` asks `git
+                          check-ignore -v` which rule from which file, with `core.ignorecase`
+                          forced off, only to name the reason) — hidden by `.git/info/exclude`, a
+                          global `core.excludesFile` or an untracked `.gitignore`, or by no rule,
+                          it is dirt; a nested `.git` refuses by name;
+      ignored paths       a path a rule in a TRACKED `.gitignore` hides refuses as well, by name and
+                          as ignored, unless `ignorierte_zulassen` (the measurement after the audit,
+                          see `build_context`).
+
+    AN IGNORED FILE IS NOT IN THE BOUND TREE (a review comment on PR 249 and the owner's decision
+    on it, 2026-09-27, option B, before the tag). Until then a path a tracked rule hides passed as
+    the tree's own word: a file the committed `.gitignore` names, lying uncommitted in the
+    checkout, was read by the audit while the receipt bound `git ls-tree -r HEAD`, which does not
+    carry it (measured at `f17bcd7`: exit 0, and the audit's record held that file's content). What
+    `git status --ignored` lists before the audit now refuses, with the reason named, and the audit
+    does not start. In practice a receipt is produced from a fresh checkout; `git clean -ndX` names
+    what lies there. The paths come from the same walk of the filesystem as the untracked ones, so
+    the refusal does not depend on git's configuration either.
 
     No filter, no attribute, no index bit and no `core.*` setting stands between the bytes on disk
     and the comparison. WHAT THAT COSTS, named rather than smoothed over: a checkout whose files
@@ -647,15 +676,31 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     schmutzig.extend(f"staged {e}" for e in _paare(gestaged))
     # ── untracked paths, read from the filesystem and judged by the tree's own rules ────────────
     verfolgt = {feld.partition("\t")[2] for feld in felder}
-    schmutzig.extend(_unverfolgte_pfade(repo, repo_abs, verfolgt))
+    unverfolgt, ignoriert = _unverfolgte_pfade(repo, repo_abs, verfolgt)
+    schmutzig.extend(unverfolgt)
+    if ignorierte_zulassen:
+        ignoriert = []
+    gruende = []
     if schmutzig:
-        gezeigt = "\n  ".join(schmutzig[:20])
-        mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""
-        raise SystemExit(
-            f"emit: {wann}, the working tree of {repo} carries {len(schmutzig)} uncommitted "
-            f"path(s), and the receipt would bind `git ls-tree -r HEAD` instead — refusing, because "
-            f"the bytes attested would not be the bytes measured:\n  {gezeigt}{mehr}")
+        gruende.append(
+            f"the working tree of {repo} carries {len(schmutzig)} uncommitted path(s), and the "
+            "receipt would bind `git ls-tree -r HEAD` instead — refusing, because the bytes "
+            f"attested would not be the bytes measured:{_aufgezaehlt(schmutzig)}")
+    if ignoriert:
+        gruende.append(
+            f"{len(ignoriert)} ignored path(s) lie in the working tree of {repo} (what `git status "
+            "--ignored` lists): an ignored file is not in the tree the receipt binds, and the audit "
+            "can read it — refusing; produce the receipt from a fresh checkout (`git clean -ndX` "
+            f"names what lies there):{_aufgezaehlt(ignoriert)}")
+    if gruende:
+        raise SystemExit("\n".join(f"emit: {wann}, {grund}" for grund in gruende))
     return {"head": kopf_id, "tree_digest": _tree_digest(repo)}
+
+
+def _aufgezaehlt(zeilen: list[str]) -> str:
+    """The first twenty lines of a refusal, one per line, and how many more there are."""
+    mehr = f"\n  … and {len(zeilen) - 20} more" if len(zeilen) > 20 else ""
+    return "\n  " + "\n  ".join(zeilen[:20]) + mehr
 
 
 def _kein_ordner_darueber(repo_abs: Path, pfad: str, gesehen: dict[str, str | None]) -> str | None:

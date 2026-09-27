@@ -411,18 +411,96 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         self.assertEqual(roh.stdout, "eins\n", "precondition: the raw head still carries eins")
         self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
 
-    def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
-        """Without this the case above would also pass for a gate that refuses every untracked
-        ignore file — and pytest, ruff, mypy and hypothesis all write one (`*`) into their cache
-        directory. A cache whose directory a TRACKED rule ignores is the tree's own word."""
-        (self.baum / ".gitignore").write_text("cache/\n", encoding="utf-8")
+    # ── an ignored file is not in the bound tree (owner decision on PR 249, 2026-09-27) ──────────
+
+    def _ignoriere(self, regeln: str) -> None:
+        """Commit a `.gitignore` with `regeln`: the tree's own rules, tracked."""
+        (self.baum / ".gitignore").write_text(regeln, encoding="utf-8")
         _git(self.baum, "add", ".gitignore")
-        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "ignore the cache")
-        (self.baum / "cache").mkdir()
-        (self.baum / "cache" / ".gitignore").write_text("*\n", encoding="utf-8")
-        (self.baum / "cache" / "x").write_text("cached\n", encoding="utf-8")
-        r = self._emit()
-        self.assertEqual(r.returncode, 0, f"a tool cache behind a tracked rule was refused:\n{r.stdout}\n{r.stderr}")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "ignore rules")
+
+    def test_RED_eine_ignorierte_datei_die_das_audit_liest_wird_vor_dem_audit_abgewiesen(self):
+        """[ZAEHLT] A review comment on PR 249 and the owner's decision on it (2026-09-27, option B,
+        before the tag). A file that a TRACKED `.gitignore` names lies uncommitted in the checkout;
+        `git status` does not list it, `git status --ignored` does. The audit reads it, and the
+        receipt binds `git ls-tree -r HEAD`, which does not carry it. Measured at `f17bcd7`: exit 0,
+        and the audit's record held the ignored file's content. The producer now refuses before the
+        audit starts, names the path and says it is ignored, and the audit never runs."""
+        self._ignoriere("local_settings.py\n")
+        (self.baum / "local_settings.py").write_text("AUDIT_VERDICT = 'pass'\n", encoding="utf-8")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "precondition: a plain git status does not list the ignored file")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all",
+                              "--ignored"), "!! local_settings.py",
+                         "precondition: git status --ignored lists it")
+        gelesen = self.aussen / "das_audit_las"
+        befehl = _python("import pathlib, sys; t = pathlib.Path('local_settings.py').read_text(); "
+                         f"pathlib.Path({str(gelesen)!r}).write_text(t); print(t, end='')")
+        self._abgewiesen(self._emit(befehl), "before the audit", "ignored path",
+                         "ignored local_settings.py", "fresh checkout")
+        self.assertFalse(gelesen.exists(), "the audit ran and read the ignored file")
+
+    def test_jede_form_einer_ignorierten_datei_wird_vor_dem_audit_benannt(self):
+        """The same refusal over the shapes an ignored path takes, each planted alone before the
+        audit: a file under a tracked rule, a cache directory whose own `.gitignore` says `*`, a
+        path below an ignored directory, a name git would read as pathspec magic, and a name that
+        is not UTF-8. Each must refuse before the audit and name the path; none may crash. (A name
+        that is not UTF-8 reaches stderr with its byte escaped, which is the form looked for.)"""
+        import shutil  # noqa: PLC0415
+        self._ignoriere("*.log\ncache/\nbuild/\n")
+        formen = {"a file under a tracked rule": [b"x.log"],
+                  "a cache with its own ignore file": [b"cache/.gitignore", b"cache/x"],
+                  "below an ignored directory": [b"build/lib/proofbundle/signature.py"],
+                  "a name git reads as magic": [b":!y.log"],
+                  "a name that is not UTF-8": [b"caf\xe9.log"]}
+        for form, pfade in formen.items():
+            with self.subTest(form=form):
+                try:
+                    for p in pfade:
+                        ziel = self.baum / os.fsdecode(p)
+                        ziel.parent.mkdir(parents=True, exist_ok=True)
+                        ziel.write_bytes(b"planted before the audit\n")
+                except (OSError, UnicodeError) as e:
+                    self.skipTest(f"this filesystem does not take the name: {e}")
+                gelesen = self.aussen / "das_audit_lief"
+                befehl = _python(f"import pathlib; pathlib.Path({str(gelesen)!r}).write_text('ran')")
+                try:
+                    meldung = self._abgewiesen(self._emit(befehl), "before the audit", "ignored path")
+                    for p in pfade:
+                        self.assertIn(os.fsdecode(p).encode("utf-8", "backslashreplace").decode(),
+                                      meldung)
+                    self.assertFalse(gelesen.exists(), "the audit ran")
+                finally:
+                    for p in pfade:
+                        erster = self.baum / os.fsdecode(p.split(b"/")[0])
+                        if erster.is_dir():
+                            shutil.rmtree(erster)
+                        else:
+                            erster.unlink(missing_ok=True)
+
+    def test_KONTROLLE_ein_werkzeugcache_den_das_audit_schreibt_stoert_nicht(self):
+        """The refusal is about what lies in the tree BEFORE the audit, the tree it reads. A file
+        the audit writes itself did not exist when it started, since the measurement before refuses
+        any: pytest, ruff, mypy and hypothesis write their caches into the tree they run in, and
+        hypothesis puts a `.gitignore` saying `*` into its own. A cache the audit wrote, whose
+        directory a TRACKED rule ignores, does not refuse after the run; without this control the
+        refusal above would also hold for a producer that refuses every real audit."""
+        self._ignoriere("cache/\n")
+        befehl = _python("import pathlib; d = pathlib.Path('cache'); d.mkdir(); "
+                         "(d / '.gitignore').write_text('*\\n'); (d / 'x').write_text('cached\\n'); "
+                         "print('audit ran')")
+        r = self._emit(befehl)
+        self.assertEqual(r.returncode, 0,
+                         f"a cache the audit wrote behind a tracked rule was refused:\n{r.stdout}\n{r.stderr}")
+        self.assertTrue((self.baum / "cache" / "x").is_file(), "precondition: the audit wrote the cache")
+        # ... and the next emit in the same checkout refuses, because now it lies there BEFORE
+        self._abgewiesen(self._emit(), "before the audit", "ignored path", "cache/x")
+
+    def test_KONTROLLE_eine_datei_die_das_audit_schreibt_und_keine_verfolgte_regel_verbirgt(self):
+        """The counterpart: a file the audit writes that no tracked rule hides is untracked, and
+        refuses after the run, as it did before this change."""
+        befehl = _python("import pathlib; pathlib.Path('neu.txt').write_text('x'); print('audit ran')")
+        self._abgewiesen(self._emit(befehl), "after the audit ran", "uncommitted path", "?? neu.txt")
 
     def test_GIT_DIR_in_der_umgebung_lenkt_die_messung_nicht_um(self):
         """[ZAEHLT] Sibling in the environment: with `GIT_DIR`/`GIT_WORK_TREE` pointing at another,

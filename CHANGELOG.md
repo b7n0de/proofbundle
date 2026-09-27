@@ -428,10 +428,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   Named limits, unchanged:
   - A clean tree with a `text eol=crlf` or `ident` attribute, and a tracked or ignored name that
     carries a newline, is refused by design. The real tree has none.
-  - A file that a tracked `.gitignore` of the tree ignores is accepted, whatever the audit reads
-    from it: the tree's own rule declares it (a tool cache is the common case), and the receipt
-    binds the committed tree, not ignored files. Measured: an ignored `ignored.txt` read by the
-    audit emits, on main and on this branch.
+  - A file that a tracked `.gitignore` of the tree ignores stood here as accepted, whatever the
+    audit reads from it. It is refused before the audit since the entry on ignored files below.
   - A `PATH` that leads to a git wrapper is part of the trusted base, like the interpreter.
   - The verifier's cleanliness listing is still `git status`. Index bits (`assume-unchanged`,
     `skip-worktree`) and filters named in `.git/info/attributes` are state inside the reader's
@@ -496,6 +494,40 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   order of the reads: a writer that rewrites a tree for exactly the duration of a second listing
   must not decide the producer's comparison or the digest, and the verifier checks the commit's
   trees before it loads a library that could act when it is loaded).
+
+- **The pre-tag receipt producer refuses a tree in which ignored files lie**
+  (`scripts/pre_tag_receipt.py`). A review comment on the pull request named it, and the maintainer
+  decided to close it before the tag: a file that the committed `.gitignore` names, lying
+  uncommitted in the checkout, is read by the audit, while the receipt binds `git ls-tree -r HEAD`,
+  which does not carry it. Measured on the head before this change: exit 0, and the audit's record
+  held that file's content.
+
+  Now every path on disk that the head does not carry refuses before the audit starts, ignored ones
+  included, and the audit does not run. The refusal names each such path as ignored, with the rule
+  and the file it comes from, and points at a fresh checkout (`git clean -ndX` names what lies
+  there). The paths come from the same walk of the filesystem as the untracked ones, so no
+  configuration decides the answer; `check-ignore` is asked only which rule to name.
+
+  After the audit, a path that a tracked `.gitignore` ignores is a file the audit wrote, because
+  the measurement before refused every one; it does not refuse. A test suite run as the audit writes
+  caches into the tree it runs in (hypothesis writes `.hypothesis/`, measured), and refusing them
+  would refuse every such audit. A file the audit writes that no tracked rule ignores still refuses.
+
+  The release workflow does not run the producer: its pre-tag step runs the release gate, which
+  this change does not touch, so the refusal cannot fire there. On the producer's own path the one
+  writer of ignored files that was found is the audit itself, handled above.
+
+  Named limits:
+  - An empty directory is not a path the walk reports. `git status --ignored` does not list an
+    empty ignored directory either; `git clean -ndX` names it (measured with git 2.34.1).
+  - A file that appears during the run and is gone before the second measurement is still
+    invisible to both measurements, as the entries above say.
+
+  Contract: `tests/test_pre_tag_receipt_refuses_a_dirty_tree.py` (the finding, five shapes of an
+  ignored path planted before the audit, a cache the audit writes, and an untracked file it
+  writes). Four cases of `tests/test_pre_tag_git_configuration_does_not_answer.py` that measure how
+  the answer of `check-ignore` is read now let the audit write their ignored file, because one that
+  lies there before the audit refuses whatever its name.
 
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`

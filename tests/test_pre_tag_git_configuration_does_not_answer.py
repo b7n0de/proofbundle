@@ -92,6 +92,23 @@ def _key_line(priv) -> str:
     return base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n"
 
 
+def _audit_writes(rel: bytes) -> str:
+    """An audit command that writes a file at `rel` (the raw bytes of a path in the tree it runs
+    in), so that the file appears DURING the run.
+
+    WHY SOME CASES PLANT THEIR IGNORED FILE THIS WAY (2026-09-27): an ignored path that lies in the
+    tree BEFORE the audit now refuses by the owner's decision on PR 249, whatever its name. After
+    the audit, a path the tree's own rules ignore is a file the audit wrote and passes, and that is
+    where the reading of `check-ignore`'s answer still decides the verdict; the cases that measure
+    that reading therefore let the audit write the file."""
+    code = ("import os\n"
+            f"p = os.fsdecode(bytes.fromhex({rel.hex()!r}))\n"
+            "os.makedirs(os.path.dirname(p) or '.', exist_ok=True)\n"
+            "open(p, 'wb').write(b'written by the audit\\n')\n"
+            "print('audit ran')\n")
+    return shlex.join([sys.executable, "-c", code])
+
+
 class _Case(unittest.TestCase):
 
     def setUp(self):
@@ -181,13 +198,13 @@ class _Case(unittest.TestCase):
         return ziel
 
     # ── the three tools ──────────────────────────────────────────────────────────────────────
-    def emit(self, repo: pathlib.Path, env: dict | None = None, **extra):
+    def emit(self, repo: pathlib.Path, env: dict | None = None, audit: str | None = None, **extra):
         self._n += 1
         self.payload = self.base / f"payload_{self._n}.bin"
         self.context = self.base / f"context_{self._n}.json"
         return subprocess.run(
             [sys.executable, "-B", str(PRODUCER), "--repo", str(repo), "--version", "9.9.9",
-             "--audit-command", shlex.join([sys.executable, "-c", "print('audit ran')"]),
+             "--audit-command", audit or shlex.join([sys.executable, "-c", "print('audit ran')"]),
              "--audit-output-file", str(self.base / f"record_{self._n}.txt"),
              "--runner-identity", "t", "--produced-at", "2026-09-27T00:00:00Z",
              "--emit-payload", str(self.payload), "--context-out", str(self.context)],
@@ -374,11 +391,22 @@ class AConfiguredExcludesFileHidesNothing(_Case):
 
     def test_CONTROL_a_tracked_rule_still_hides_what_the_tree_ignores(self):
         """The pin must not take the tree's own rules away: `logs/y.txt` is ignored by the tracked
-        `logs/.gitignore`, and a tree whose only extra file is that one emits."""
+        `logs/.gitignore`, and a tree whose only extra file is that one, written by the audit,
+        emits. (Since 2026-09-27 the audit writes it; see `_audit_writes`.)"""
+        r = self._tree()
+        (r / "evil.py").unlink()
+        self.emitted(self.emit(r, audit=_audit_writes(b"logs/y.txt")))
+        self.assertIn("!! logs/y.txt", self.status(r), "precondition: the audit wrote the file")
+
+    def test_CONTROL_before_the_audit_that_file_refuses_as_ignored_not_as_dirt(self):
+        """The same file lying there before the audit refuses (owner decision on PR 249,
+        2026-09-27), and the pin still reads the rule as the tree's own: the refusal names it as
+        ignored, not as an uncommitted path."""
         r = self._tree()
         (r / "evil.py").unlink()
         (r / "logs" / "y.txt").write_text("a log\n", encoding="utf-8")
-        self.emitted(self.emit(r))
+        message = self.refused(self.emit(r), "before the audit", "ignored logs/y.txt")
+        self.assertNotIn("uncommitted path", message)
 
     def test_a_hiding_rule_counts_only_from_a_tracked_gitignore_above_the_path(self):
         """The second layer, measured on its own: which source names the tree's own word about a
@@ -633,12 +661,12 @@ class AnUntrackedNameIsNotAPathspec(_Case):
 
     def test_RED_an_ignored_name_that_looks_like_magic_is_still_ignored(self):
         """Measured on `4e67ba25`: an ignored `:!x.log` made git die with `pathspec magic not
-        supported by this command: 'exclude'`, and a clean tree refused."""
+        supported by this command: 'exclude'`, and a clean tree refused. Since 2026-09-27 the audit
+        writes the file (see `_audit_writes`), so the reading is measured after the run."""
         r = self.repo("magic2", {"a.txt": "a\n", ".gitignore": "*.log\n",
                                  "scripts/pre_tag_audit_gate.py": "# gate\n"})
-        (r / ":!x.log").write_text("a log\n", encoding="utf-8")
-        self.assertEqual(self.status(r), "!! :!x.log\n")
-        self.emitted(self.emit(r))
+        self.emitted(self.emit(r, audit=_audit_writes(b":!x.log")))
+        self.assertEqual(self.status(r), "!! :!x.log\n", "precondition: the audit wrote the file")
 
 
 # ── the executable bit is the owner's ─────────────────────────────────────────────────────────
@@ -720,10 +748,11 @@ class NoEnvironmentNameReachesGit(_Case):
     def test_RED_literal_pathspecs_do_not_refuse_an_ignored_file(self):
         """`check-ignore` rejects every path under `GIT_LITERAL_PATHSPECS=1` (measured: `pathspec
         magic not supported by this command: 'literal'`), so on `4e67ba25` a clean tree with one
-        ignored file refused. The lens saw the name as harmless on a tree with nothing ignored."""
+        ignored file refused. The lens saw the name as harmless on a tree with nothing ignored.
+        Since 2026-09-27 the audit writes the file (see `_audit_writes`)."""
         r = self._clean_tree()
-        (r / "x.log").write_text("a log\n", encoding="utf-8")
-        self.emitted(self.emit(r, GIT_LITERAL_PATHSPECS="1"))
+        self.emitted(self.emit(r, audit=_audit_writes(b"x.log"), GIT_LITERAL_PATHSPECS="1"))
+        self.assertTrue((r / "x.log").is_file(), "precondition: the audit wrote the file")
 
     def test_RED_trace_output_does_not_enter_the_digest(self):
         """Measured on `4e67ba25`: with `GIT_TRACE`, `GIT_TRACE_SETUP` or `GIT_TRACE2_EVENT` on
@@ -779,13 +808,17 @@ class TheIgnoreAnswerIsReadAsTheFilesystemNamesIt(_Case):
         """Green on `4e67ba25`, where the `os.fsdecode` of the `check-ignore` reader was added and no
         case measured it: reverting that one line to UTF-8 with replacement left all ten pre-tag
         files green. With it reverted, `caf\\xe9.log` comes back as `caf\\ufffd.log`, no name on disk
-        matches, and a clean tree refuses."""
+        matches, and a clean tree refuses. Since 2026-09-27 the audit writes the file (see
+        `_audit_writes`)."""
         r = self._tree()
+        probe = self.base / os.fsdecode(b"caf\xe9.probe")
         try:
-            (r / os.fsdecode(b"caf\xe9.log")).write_text("a log\n", encoding="utf-8")
+            probe.write_text("x\n", encoding="utf-8")
         except (OSError, UnicodeError) as e:
             self.skipTest(f"this filesystem does not take a name that is not UTF-8: {e}")
-        self.emitted(self.emit(r))
+        self.emitted(self.emit(r, audit=_audit_writes(b"caf\xe9.log")))
+        self.assertTrue((r / os.fsdecode(b"caf\xe9.log")).is_file(),
+                        "precondition: the audit wrote the file")
 
     def _tree(self) -> pathlib.Path:
         return self.repo("latin1", {"a.txt": "a\n", ".gitignore": "*.log\n",

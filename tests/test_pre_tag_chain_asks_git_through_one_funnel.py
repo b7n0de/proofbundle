@@ -618,10 +618,14 @@ class TheFunnelGivesOneAnswer(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         results = json.loads(r.stdout.strip().splitlines()[-1])
         baseline = results.pop("baseline")
-        # the baseline itself measured something: the planted dirt is seen, the ignored files are not
+        # the baseline itself measured something: the planted dirt is seen as dirt, and the two files
+        # the tree's own rules ignore are named as ignored, not as dirt (they refuse as well since
+        # 2026-09-27, by the owner's decision on PR 249, but under their own reason)
         self.assertIn("?? evil.py", baseline["answers"]["tree"])
         self.assertIn("?? src/evil2.py", baseline["answers"]["tree"])
-        self.assertNotIn("x.log", baseline["answers"]["tree"])
+        self.assertIn("ignored x.log", baseline["answers"]["tree"])
+        self.assertIn("ignored logs/y.txt", baseline["answers"]["tree"])
+        self.assertNotIn("?? x.log", baseline["answers"]["tree"])
         self.assertIn("M src/x.py", baseline["answers"]["tree"])
         # ... and it read the objects HEAD names, not their replacement: `refs/replace/` maps base
         # to second, whose `a.txt` differs from the checkout. Without this line every row is

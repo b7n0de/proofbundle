@@ -56,8 +56,11 @@ from the bytes on disk. Every entry of `git ls-tree -r HEAD` is hashed as a blob
 `git hash-object --no-filters` and compared with the committed object id, its mode is read from
 the file itself, a symbolic link's target is hashed, and a missing or foreign entry refuses by
 name; staged content is compared with `HEAD` on the real index; untracked paths are read from
-the filesystem and compared by name with the same listing, and only a non-negated rule in a
-tracked `.gitignore` may hide one; every git call of the process reads the raw objects
+the filesystem and compared by name with the same listing. Before the audit every such path
+refuses, including one that a tracked `.gitignore` ignores: an ignored file is not in the tree the
+receipt binds, and the audit can read it, so a receipt is produced from a fresh checkout (since
+2026-09-27). After the audit only a file that a non-negated rule in a tracked `.gitignore` ignores
+may lie there, which the audit wrote itself; every git call of the process reads the raw objects
 (`GIT_NO_REPLACE_OBJECTS=1`), so a replacement ref cannot stand in for the head. Thirteen states
 outside the committed tree had each hidden a path from an earlier version, and each has a case
 that was red against it: `status.showUntrackedFiles`, a global excludes file,
