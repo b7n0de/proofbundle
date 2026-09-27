@@ -768,6 +768,30 @@ def _ausschluss_args(work: Path) -> list[str]:
 _AUSSCHLUSS_OHNE_ZIEL_GEMELDET: set[str] = set()
 
 
+#: THE ADDRESS-SPACE CEILING OF THE CHILD (owner answer of 2026-09-27, patch A). An operator that
+#: raises a resource bound also raises every test load built from that bound: under
+#: `budget: data_digests-Schranke praktisch entfernt` the cost curve in
+#: tests/test_budget_kostenkurve.py builds its load for two billion digests. Without a ceiling the
+#: child took the hosted runner down with it: shard 26 of run 36285011022 ended twice with exit 143,
+#: "The runner has received a shutdown signal", while that operator ran. The operator got no verdict,
+#: and the shard wrote no verdict line at all. Under the ceiling the same load ends as a MemoryError
+#: inside the child, a red test the verdict reads like any other. 6 GiB is measured, not guessed:
+#: the unmutated suite of main 1e95b19 passed under it. The standard hosted runner of a public
+#: repository has 16 GB by GitHub's documentation, not measured here.
+CHILD_ADDRESS_SPACE_CAP = 6 * 1024 ** 3
+
+
+def _cap_the_address_space_of_the_child() -> None:
+    """Runs in the child between fork and exec: RLIMIT_AS at most `CHILD_ADDRESS_SPACE_CAP`.
+
+    It lowers and never raises: a limit the caller already set below the ceiling stays as it is.
+    """
+    import resource  # noqa: PLC0415 - POSIX only, and only the child needs it
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    limit = min(x for x in (CHILD_ADDRESS_SPACE_CAP, soft, hard) if x != resource.RLIM_INFINITY)
+    resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+
 def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
                aus: list | None = None, gruen: list | None = None) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
@@ -802,12 +826,14 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
             if gruen is not None:
                 gruen.append(_bestandene_kennungen(bericht, proc.stdout) if rot is not None else None)
             return rot
-    except (subprocess.TimeoutExpired, OSError) as fehler:
+    except (subprocess.SubprocessError, OSError) as fehler:
         # NICHT NUR DER TIMEOUT. Die erste Fassung fing ausschliesslich `TimeoutExpired`; jede
         # andere Stoerung (fehlender Interpreter im schmalen PATH, Ressourcenfehler beim fork)
         # riss den GESAMTEN Shard-Lauf mit rohem Traceback ab, statt diesen einen Operator als
         # NICHT MESSBAR zu fuehren und weiterzugehen. Das war zwar kein falsches Gruen, aber es
         # widersprach dem Muster, das dieser Diff sonst durchhaelt. Gefunden von der Gegenlesung.
+        # `SubprocessError` covers `TimeoutExpired` and a child that could not set its address-space
+        # ceiling (the exception subprocess raises when `preexec_fn` fails): not measurable either.
         print(f"  ! Lauf nicht zu Ende gekommen ({type(fehler).__name__}): NICHT MESSBAR")
         return None
 
@@ -867,6 +893,9 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None,
         # (PR 279, run 36253567619), seven baselines stopped at the former 1800 s, and a selection
         # that reaches almost every module is almost the whole suite.
         timeout=3600,
+        # The ceiling of the child's address space (see `CHILD_ADDRESS_SPACE_CAP`): a load past it
+        # is a red test in the child, not a dead runner.
+        preexec_fn=_cap_the_address_space_of_the_child,
         # PYTHONHASHSEED IS PINNED (Z230 round 2): the verdict compares test ids between the
         # baseline and the mutant run, and a parametrised id or an order built from a set changes
         # with the hash seed from one process to the next.
