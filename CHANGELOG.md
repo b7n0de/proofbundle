@@ -287,6 +287,30 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   11 subtests (100 cases, 975 subtests); they are green against 3a8074fc as well, because they test
   the sweep itself, and the red case they answer is the cleanroom run of the unchanged file.
 
+  **Round 5: reading what the caller hands in runs none of its code** (`anchors`, `assurance`,
+  `decision`, `_membership`). A review of c8865652 found that reading "by what it stores" still ran
+  code of the caller. `dict.get` of the base type compares a stored key whose hash equals the looked-up
+  one through that key's own `__eq__`. In `verify_anchor`, `status or ...` called the status value's
+  `__bool__`, and `isinstance(tt, dict)` read the trustedTime value's `__class__`. When one of them
+  raised, a RuntimeError escaped `verify_anchor`, `verify_anchors` and
+  `verify_decision_receipt(anchors=...)`, and the four documented never-raise functions of the evidence
+  ladder. A key whose `__eq__` answered True stood in for `"ok"` and verified an anchor, and stood in
+  for `"sha256"` or `"level"`. The same happened on main 31816e08. The fail-closed try ended at the
+  verifier call and did not cover the reading of its answer. Now `_membership.stored_str_items`
+  reads a dict by iterating what it stores, and a key counts only when it is exactly a `str`. The
+  anchor result and the ladder inputs are read that way, each value only by its exact type (`is True`,
+  an exact `str`, an `int` read with `int.__int__`). A carried `trustedTime` is a plain copy of
+  JSON scalars. What is not read is named in the detail. The reading of a verifier's result sits
+  inside the fail-closed boundary. `verify_anchor`, `verify_anchors` and `receipt_canonical_root` refuse
+  input whose own code raises while it is read with their documented `BundleFormatError`. `verify_decision_receipt`'s
+  guard around the anchors also takes any other exception, naming only its type. A plain dict,
+  `OrderedDict`, `defaultdict` or method-less subclass storing ok exactly True still verifies. The
+  resolver answers of the ladder, `verify_sequence` and `verify_outcome_receipt` were already read
+  only with `is True` and `type()`, and are held by a test now. Not closed here: validators and
+  verifiers elsewhere in the package that read a caller-built dict directly still run the code of a
+  stored key or value, 37 and 59 surfaces in two generated sweeps (see the commit message). JSON
+  input cannot produce such objects.
+
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
   `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,

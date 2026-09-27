@@ -19,7 +19,7 @@ import enum
 import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
-from ._membership import require_switch
+from ._membership import require_switch, stored_str_items
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
@@ -77,9 +77,14 @@ def _is_digest(obj: Any) -> bool:
     # type, then str.__str__), so a dict or str subclass (an OrderedDict, say) is read as the dict and the str
     # it is, and none of its own methods (get, __getitem__, __eq__) runs. 3a8074fc asked type(obj) is dict and
     # classified an OrderedDict digest as CLAIMED where main 31816e08 said REFERENCE_WELL_FORMED (measured).
+    #
+    # Round 5: dict.get of the base type still compared a stored key whose hash equals hash("sha256") through
+    # that key's own __eq__, so {K("sha256"): ...} with a raising __eq__ made this never-raise function raise
+    # (measured on 3d5b992a), and one whose __eq__ answered True stood in for "sha256". The key is now found by
+    # iterating what the dict stores, and only an exact str key counts (_membership.stored_str_items).
     if not issubclass(type(obj), dict):
         return False
-    value = dict.get(obj, "sha256")
+    value = stored_str_items(obj).get("sha256")
     if not issubclass(type(value), str):
         return False
     return bool(_SHA256_HEX.match(str.__str__(value)))
@@ -283,18 +288,35 @@ def _has_level(field: Any) -> bool:
     3a8074fc asked ``type(field) is dict`` and ``type(level) in (int, EvidenceLevel)``, so an OrderedDict
     field and a level from the caller's own IntEnum were skipped as not applicable, and
     :func:`evidence_ladder_summary`, the AND rollup, rose past them: a CLAIMED OrderedDict field beside a
-    CONTENT_RESOLVED one summarised to CONTENT_RESOLVED, where main 31816e08 said CLAIMED (measured)."""
-    if not issubclass(type(field), dict):
-        return False
-    level_type = type(dict.get(field, "level"))
-    return level_type is not bool and issubclass(level_type, int)
+    CONTENT_RESOLVED one summarised to CONTENT_RESOLVED, where main 31816e08 said CLAIMED (measured).
+
+    Round 5: ``dict.get`` of the base type still compared a stored key whose hash equals ``hash("level")``
+    through that key's own ``__eq__``: ``{K("level"): 0}`` with a raising ``__eq__`` made both rollups, which
+    never raise, raise (measured on 3d5b992a), and one answering True stood in for ``"level"``. The fields
+    are read with :func:`_membership.stored_str_items`, where only an exact str key counts."""
+    return _level_value(field) is not None
 
 
-def _level_value(field: dict) -> int:
-    """The stored level of a field that passed :func:`_has_level`, as a plain int (``int.__int__`` of the
-    base type reads the value an int subclass stores and runs none of its methods)."""
-    level: Any = dict.get(field, "level")
+def _level_value(field: Any) -> Optional[int]:
+    """The level a rollup input stores, as a plain int (``int.__int__`` of the base type reads the value an
+    int subclass stores and runs none of its methods), or None when it stores none (see :func:`_has_level`)."""
+    level: Any = stored_str_items(field).get("level")
+    level_type = type(level)
+    if level_type is bool or not issubclass(level_type, int):
+        return None
     return int.__int__(level)
+
+
+def _level_key(field: Any) -> int:
+    """The sort key of a field that passed :func:`_has_level`: its stored level, read by :func:`_level_value`."""
+    level = _level_value(field)
+    return level if level is not None else -1
+
+
+def _pick(field: dict) -> dict:
+    """``level`` and ``level_name`` of the chosen field, read the way :func:`_level_value` reads them."""
+    stored = stored_str_items(field)
+    return {"level": stored.get("level"), "level_name": stored.get("level_name")}
 
 
 def evidence_ladder_summary(*fields: dict) -> dict:
@@ -309,9 +331,8 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
-    weakest = min(applicable, key=_level_value)
-    return {"level": dict.get(weakest, "level"), "level_name": dict.get(weakest, "level_name"),
-            "fields": list(fields)}
+    weakest = min(applicable, key=_level_key)
+    return {**_pick(weakest), "fields": list(fields)}
 
 
 def evidence_ladder_best(*fields: dict) -> dict:
@@ -325,6 +346,5 @@ def evidence_ladder_best(*fields: dict) -> dict:
     applicable = [f for f in fields if _has_level(f)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
-    strongest = max(applicable, key=_level_value)
-    return {"level": dict.get(strongest, "level"), "level_name": dict.get(strongest, "level_name"),
-            "fields": list(fields)}
+    strongest = max(applicable, key=_level_key)
+    return {**_pick(strongest), "fields": list(fields)}

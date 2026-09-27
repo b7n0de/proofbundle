@@ -930,5 +930,440 @@ class TestTheLadderReadsAnHonestSubclassAsWhatItStores(unittest.TestCase):
                 self.assertEqual(calls, [], "the digest object's own methods ran")
 
 
+# ── round 5: reading what the caller hands in runs none of its code ─────────────────────────────────
+
+
+class _Planted(RuntimeError):
+    """What the hostile objects below raise: not a ProofBundleError or ValueError, so no typed catch takes it."""
+
+
+class _RaisingKey:
+    """A stored key that is not a str, hashes like ``name`` and raises from ``__eq__``: a lookup of ``name``
+    compares through it."""
+
+    def __init__(self, calls: list, name: str):
+        self._calls, self._name = calls, name
+
+    def __hash__(self):
+        return hash(self._name)
+
+    def __eq__(self, other):
+        self._calls.append(f"key {self._name!r} __eq__")
+        raise _Planted(f"the stored key's __eq__ raised ({self._name})")
+
+
+class _ImpersonatingKey(_RaisingKey):
+    """The same, but ``__eq__`` answers True: a lookup of ``name`` returns what it stores."""
+
+    __hash__ = _RaisingKey.__hash__
+
+    def __eq__(self, other):
+        self._calls.append(f"key {self._name!r} __eq__")
+        return True
+
+
+def _raising_str_key(calls: list, name: str):
+    class _RaisingStrKey(str):
+        """A real str subclass holding ``name``; its own ``__eq__`` raises."""
+
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            calls.append(f"str-subclass key {name!r} __eq__")
+            raise _Planted("the str-subclass key's __eq__ raised")
+    return _RaisingStrKey(name)
+
+
+class _RaisingValue:
+    """A stored value every dunder of which raises, its ``__class__`` included."""
+
+    def __init__(self, calls: list):
+        self._calls = calls
+
+    def _raise(self, what):
+        self._calls.append(what)
+        raise _Planted(f"the stored value's {what} raised")
+
+    def __bool__(self):
+        return self._raise("__bool__")
+
+    def __eq__(self, other):
+        return self._raise("__eq__")
+
+    def __hash__(self):
+        return self._raise("__hash__")
+
+    def __iter__(self):
+        return self._raise("__iter__")
+
+    def __len__(self):
+        return self._raise("__len__")
+
+    def __getattr__(self, name):
+        return self._raise(f"__getattr__ {name}")
+
+    @property
+    def __class__(self):
+        return self._raise("__class__")
+
+
+def _raising_subclass_values(calls: list):
+    """Real subclasses of str, int and dict whose own methods raise; they store ordinary content."""
+
+    def _rec(what):
+        calls.append(what)
+        raise _Planted(f"the subclass's own {what} raised")
+
+    class _Str(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            return _rec("str __eq__")
+
+        def __bool__(self):
+            return _rec("str __bool__")
+
+        def __len__(self):
+            return _rec("str __len__")
+
+    class _Int(int):
+        __hash__ = int.__hash__
+
+        def __eq__(self, other):
+            return _rec("int __eq__")
+
+        def __lt__(self, other):
+            return _rec("int __lt__")
+
+        def __gt__(self, other):
+            return _rec("int __gt__")
+
+        def __index__(self):
+            return _rec("int __index__")
+
+        def __int__(self):
+            return _rec("int __int__")
+
+        def __bool__(self):
+            return _rec("int __bool__")
+
+    class _Dict(dict):
+        def get(self, key, default=None):
+            return _rec("dict get")
+
+        def __getitem__(self, key):
+            return _rec("dict __getitem__")
+
+        def __iter__(self):
+            return _rec("dict __iter__")
+
+        def __len__(self):
+            return _rec("dict __len__")
+
+        def __bool__(self):
+            return _rec("dict __bool__")
+
+        def items(self):
+            return _rec("dict items")
+
+        def keys(self):
+            return _rec("dict keys")
+    return _Str, _Int, _Dict
+
+
+class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
+    """Review of c8865652, F1 (P1): ``verify_anchor`` read a registered verifier's result "by what it stores" with
+    ``dict.get`` of the base type, but ``dict.get`` compares a colliding stored key through the key's own
+    ``__eq__``, ``_status or ...`` called the status value's ``__bool__``, and ``isinstance(tt, dict)`` read the
+    trustedTime value's ``__class__``. When one of them raised, a RuntimeError escaped ``verify_anchor``,
+    ``verify_anchors`` and ``verify_decision_receipt(anchors=...)``, whose guard around the anchors took only
+    typed errors. The fail-closed try ended at the verifier CALL and did not cover the reading of its answer. The
+    result is now read by iterating what the dict stores, a key counting only as an exact str, each value only by
+    its exact type, and the whole reading sits inside the fail-closed boundary."""
+
+    _TYPE = "test-reading-runs-no-caller-code/v1"
+
+    def setUp(self):
+        self.answer = None
+        anchors.register_anchor_type(self._TYPE, lambda proof, root, *, frozen, now: self.answer)
+        self.root = hashlib.sha256(b"statement").digest()
+
+    def tearDown(self):
+        anchors._VERIFIERS.pop(self._TYPE, None)
+
+    def _anchor(self, root: bytes) -> dict:
+        return {"type": self._TYPE, "target": "statement", "canonicalRoot": base64.b64encode(root).decode("ascii"),
+                "proof": base64.b64encode(b"proof").decode("ascii")}
+
+    def _decision(self):
+        p = copy.deepcopy(json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8")))
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s, strict=True)
+        return env, pub, anchors.statement_content_root(dsse.load_payload(env))
+
+    def _three(self, answer):
+        """The answer through verify_anchor, verify_anchors(require="any") and verify_decision_receipt."""
+        self.answer = answer
+        one = anchors.verify_anchor(self._anchor(self.root), target_roots={"statement": self.root})
+        many = anchors.verify_anchors([self._anchor(self.root)], target_roots={"statement": self.root},
+                                      require="any")
+        env, pub, root = self._decision()
+        dec = verify_decision_receipt(env, pub, strict=True, anchors=[self._anchor(root)])
+        return one, many, dec
+
+    def test_the_reviews_three_results_fail_closed_through_all_three_calls(self):
+        calls: list = []
+        for label, make in (
+                ("status whose __bool__ raises", lambda: {"ok": False, "status": _RaisingValue(calls)}),
+                ("a key hashing like 'ok' whose __eq__ raises", lambda: {_RaisingKey(calls, "ok"): True}),
+                ("trustedTime whose __class__ raises", lambda: {"ok": True, "trustedTime": _RaisingValue(calls)})):
+            with self.subTest(result=label):
+                calls.clear()
+                one, many, dec = self._three(make())
+                verified = label.startswith("trustedTime")
+                self.assertIs(one["ok"], verified)
+                self.assertIs(many["require_met"], verified)
+                self.assertIs(dec["anchors_ok"], verified)
+                self.assertEqual(calls, [], "the result's own code ran")
+
+    def test_a_stored_key_or_value_of_any_shape_never_escapes_and_never_promotes(self):
+        calls: list = []
+        s_cls, i_cls, d_cls = _raising_subclass_values(calls)
+        not_verified = [
+            ("non-str key 'ok', __eq__ raises", lambda: {_RaisingKey(calls, "ok"): True}),
+            ("non-str key 'ok', __eq__ says equal", lambda: {_ImpersonatingKey(calls, "ok"): True}),
+            ("str-subclass key 'ok', __eq__ raises", lambda: {_raising_str_key(calls, "ok"): True}),
+            ("ok whose dunders raise", lambda: {"ok": _RaisingValue(calls)}),
+            ("ok an int subclass storing 1", lambda: {"ok": i_cls(1)}),
+            ("warn whose dunders raise", lambda: {"ok": False, "warn": _RaisingValue(calls)}),
+            ("OrderedDict with a key 'ok' whose __eq__ raises",
+             lambda: collections.OrderedDict([(_RaisingKey(calls, "ok"), True)])),
+        ]
+        verified = [
+            ("status whose dunders raise", lambda: {"ok": True, "status": _RaisingValue(calls)}),
+            ("status a str subclass", lambda: {"ok": True, "status": s_cls("pass")}),
+            ("detail whose dunders raise", lambda: {"ok": True, "detail": _RaisingValue(calls)}),
+            ("trustedTime whose dunders raise", lambda: {"ok": True, "trustedTime": _RaisingValue(calls)}),
+            ("trustedTime with a key 'source' whose __eq__ raises",
+             lambda: {"ok": True, "trustedTime": {_RaisingKey(calls, "source"): "x"}}),
+            ("trustedTime whose source raises", lambda: {"ok": True, "trustedTime": {"source": _RaisingValue(calls)}}),
+            ("rp_trusted whose dunders raise", lambda: {"ok": True, "rp_trusted": _RaisingValue(calls)}),
+            ("a second key 'warn' whose __eq__ raises", lambda: {"ok": True, _RaisingKey(calls, "warn"): True}),
+        ]
+        for expected, cases in ((False, not_verified), (True, verified)):
+            for label, make in cases:
+                with self.subTest(result=label):
+                    calls.clear()
+                    one, many, dec = self._three(make())
+                    self.assertIs(one["ok"], expected)
+                    self.assertIs(one["warn"], False)
+                    self.assertIs(many["require_met"], expected)
+                    self.assertIs(dec["anchors_ok"], expected)
+                    self.assertIsNot(one.get("rp_trusted", False), True)
+                    self.assertNotIn("trustedTime", one)
+                    self.assertEqual(calls, [], "the result's own code ran")
+        with self.subTest(result="trustedTime a dict subclass whose methods raise, storing a plain source"):
+            calls.clear()
+            one, many, dec = self._three({"ok": True, "trustedTime": d_cls(source="rfc3161_gen_time")})
+            self.assertIs(one["ok"], True)
+            self.assertEqual(one["trustedTime"], {"source": "rfc3161_gen_time"})
+            self.assertIs(type(one["trustedTime"]), dict, "carried as a plain copy, not as the caller's object")
+            self.assertEqual(calls, [], "the result's own code ran")
+
+    def test_what_is_not_read_is_named(self):
+        calls: list = []
+        s_cls, _i, _d = _raising_subclass_values(calls)
+        self.answer = {"ok": True, "status": _RaisingValue(calls), "detail": 5,
+                       "trustedTime": {"source": "x", "nested": {"a": 1}}}
+        out = anchors.verify_anchor(self._anchor(self.root), target_roots={"statement": self.root})
+        self.assertEqual(out["status"], "pass")
+        self.assertIn("status was a value of type _RaisingValue", out["detail"])
+        self.assertIn("detail was a value of type int", out["detail"])
+        self.assertIn("trustedTime", out["detail"])
+        self.assertEqual(calls, [])
+
+    def test_the_reading_is_inside_the_fail_closed_boundary(self):
+        from unittest import mock  # noqa: PLC0415
+
+        def _boom(_value):
+            raise _Planted("reading failed")
+        self.answer = {"ok": True}
+        with mock.patch.object(anchors, "stored_str_items", _boom):
+            out = anchors.verify_anchor(self._anchor(self.root), target_roots={"statement": self.root})
+        self.assertEqual((out["ok"], out["warn"], out["status"]), (False, False, "fail"))
+        self.assertIn("could not be read (an error of type _Planted)", out["detail"])
+
+    def test_a_hostile_anchor_entry_is_a_typed_refusal(self):
+        """The anchor entry itself is the caller's too: what its keys and values run may not escape either.
+        verify_anchor and verify_anchors refuse it with their documented BundleFormatError (and so does
+        receipt_canonical_root for a receipt bundle of that kind), and verify_decision_receipt, which never
+        raises, turns it into a failed anchors verdict."""
+        calls: list = []
+        s_cls, _i, _d = _raising_subclass_values(calls)
+        self.answer = {"ok": True}
+        for label, make in (
+                ("type a str subclass whose __eq__ raises",
+                 lambda a: {**a, "type": s_cls(self._TYPE)}),
+                ("a value whose dunders raise", lambda a: {**a, "anchoredAt": _RaisingValue(calls)}),
+                ("a key 'target' str subclass whose __eq__ raises",
+                 lambda a: {**{k: v for k, v in a.items() if k != "target"},
+                            _raising_str_key(calls, "target"): "statement"})):
+            with self.subTest(entry=label):
+                with self.assertRaises(ProofBundleError):
+                    anchors.verify_anchor(make(self._anchor(self.root)), target_roots={"statement": self.root})
+                with self.assertRaises(ProofBundleError):
+                    anchors.verify_anchors([make(self._anchor(self.root))], target_roots={"statement": self.root},
+                                           require="any")
+                env, pub, root = self._decision()
+                dec = verify_decision_receipt(env, pub, strict=True, anchors=[make(self._anchor(root))])
+                self.assertIs(dec["anchors_ok"], False)
+                self.assertIs(dec["ok"], False)
+        for label, bundle in (("a value whose dunders raise", {"schema": "v1", "x": _RaisingValue(calls)}),
+                              ("a str-subclass value whose __len__ raises", {"schema": s_cls("v1")})):
+            with self.subTest(receipt_canonical_root=label):
+                with self.assertRaises(ProofBundleError):
+                    anchors.receipt_canonical_root(bundle)
+
+    def test_control_an_honest_result_verifies_through_all_three_calls(self):
+        """R3-3: a plain dict, an OrderedDict, a defaultdict and a subclass without methods of its own, each
+        storing ok exactly True, still verify; the built-in trustedTime shapes are carried as they are."""
+
+        class _PlainSubclass(dict):
+            pass
+
+        for label, make in (("dict", dict), ("OrderedDict", collections.OrderedDict),
+                            ("defaultdict", lambda **kw: collections.defaultdict(str, **kw)),
+                            ("a subclass with no method of its own", _PlainSubclass)):
+            with self.subTest(result=label):
+                one, many, dec = self._three(make(ok=True, status="confirmed", detail="verified", rp_trusted=True,
+                                                  trustedTime={"source": "bitcoin_block", "height": 840000}))
+                self.assertIs(one["ok"], True)
+                self.assertEqual((one["status"], one["detail"]), ("confirmed", "verified"))
+                self.assertIs(one["rp_trusted"], True)
+                self.assertEqual(one["trustedTime"], {"source": "bitcoin_block", "height": 840000})
+                self.assertIs(many["require_met"], True)
+                self.assertIs(dec["anchors_ok"], True)
+                self.assertIs(dec["ok"], True, dec["errors"])
+        one, _many, _dec = self._three({"ok": True, "trustedTime": {"source": "rfc3161_gen_time",
+                                                                    "time": "2026-09-27T00:00:00Z", "tz": "Z"}})
+        self.assertEqual(one["trustedTime"], {"source": "rfc3161_gen_time", "time": "2026-09-27T00:00:00Z", "tz": "Z"})
+        one, many, dec = self._three({"ok": False, "detail": "bad proof"})
+        self.assertEqual((one["ok"], one["status"], one["detail"]), (False, "fail", "bad proof"))
+        self.assertIs(many["require_met"], False)
+        self.assertIs(dec["anchors_ok"], False)
+
+
+class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCase):
+    """Review of c8865652, F2 (P1): the round-4 reads in ``assurance`` (``dict.get`` of the base type) still
+    compared a colliding stored key through its own ``__eq__``, so ``{K("sha256"): ...}`` or ``{K("level"): 0}``
+    with a raising ``__eq__`` made ``classify_digest_evidence``, ``classify_receiver_corroboration``,
+    ``evidence_ladder_summary`` and ``evidence_ladder_best``, all documented never to raise, raise RuntimeError.
+    A key now counts only as an exact str and the stored value only by its type, so none of the caller's code
+    runs and nothing it does can raise or stand in for a key it is not."""
+
+    _STRONG = {"level": EvidenceLevel.CONTENT_RESOLVED, "level_name": "CONTENT_RESOLVED"}
+
+    def _digest_surfaces(self):
+        return (("classify_digest_evidence", lambda d: classify_digest_evidence(d, evidence_resolver=lambda x: True)),
+                ("classify_receiver_corroboration", lambda d: classify_receiver_corroboration(
+                    d, evidence_resolver=lambda x: True, independent_attestation_resolver=lambda x: True,
+                    executor_key_id="kid-exec", receiver_key_id="kid-recv")))
+
+    def test_the_reviews_inputs_classify_fail_closed_and_run_nothing(self):
+        calls: list = []
+        for name, classify in self._digest_surfaces():
+            with self.subTest(surface=name):
+                calls.clear()
+                self.assertEqual(classify({_RaisingKey(calls, "sha256"): "a" * 64})["level"], EvidenceLevel.CLAIMED)
+                self.assertEqual(calls, [])
+        for name, rollup, want in (("summary", evidence_ladder_summary, "CONTENT_RESOLVED"),
+                                   ("best", evidence_ladder_best, "CONTENT_RESOLVED")):
+            with self.subTest(surface=name):
+                calls.clear()
+                self.assertEqual(rollup({_RaisingKey(calls, "level"): 0}, self._STRONG)["level_name"], want)
+                self.assertEqual(calls, [])
+
+    def test_a_stored_key_or_value_of_any_shape_never_escapes_and_never_promotes(self):
+        calls: list = []
+        s_cls, i_cls, d_cls = _raising_subclass_values(calls)
+        hex64 = "a" * 64
+        digests = [
+            ("non-str key 'sha256', __eq__ raises", {_RaisingKey(calls, "sha256"): hex64}, EvidenceLevel.CLAIMED),
+            ("non-str key 'sha256', __eq__ says equal", {_ImpersonatingKey(calls, "sha256"): hex64},
+             EvidenceLevel.CLAIMED),
+            ("str-subclass key 'sha256', __eq__ raises", {_raising_str_key(calls, "sha256"): hex64},
+             EvidenceLevel.CLAIMED),
+            ("value whose dunders raise", {"sha256": _RaisingValue(calls)}, EvidenceLevel.CLAIMED),
+            ("value a str subclass storing 64 hex", {"sha256": s_cls(hex64)}, EvidenceLevel.CONTENT_RESOLVED),
+            ("a dict subclass whose methods raise, storing 64 hex", d_cls(sha256=hex64),
+             EvidenceLevel.CONTENT_RESOLVED),
+            ("the digest object's dunders raise", _RaisingValue(calls), EvidenceLevel.CLAIMED),
+        ]
+        for name, classify in self._digest_surfaces():
+            for label, digest, level in digests:
+                with self.subTest(surface=name, digest=label):
+                    calls.clear()
+                    got = classify(digest)["level"]
+                    if name == "classify_receiver_corroboration" and level == EvidenceLevel.CONTENT_RESOLVED:
+                        level = EvidenceLevel.INDEPENDENTLY_ATTESTED
+                    self.assertEqual(got, level)
+                    self.assertEqual(calls, [], "the digest object's own code ran")
+        fields = [
+            ("non-str key 'level', __eq__ raises", {_RaisingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
+            ("non-str key 'level', __eq__ says equal", {_ImpersonatingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
+            ("str-subclass key 'level', __eq__ raises", {_raising_str_key(calls, "level"): 0}, "CONTENT_RESOLVED"),
+            ("level whose dunders raise", {"level": _RaisingValue(calls)}, "CONTENT_RESOLVED"),
+            ("level an int subclass storing 0", {"level": i_cls(0), "level_name": "CLAIMED"}, "CLAIMED"),
+            ("a dict subclass whose methods raise, storing level 0", d_cls(level=0, level_name="CLAIMED"),
+             "CLAIMED"),
+            ("level_name behind a key whose __eq__ raises", {"level": 0, _RaisingKey(calls, "level_name"): "x"},
+             None),
+            ("the field's dunders raise", _RaisingValue(calls), "CONTENT_RESOLVED"),
+        ]
+        for label, field, weakest in fields:
+            with self.subTest(field=label):
+                calls.clear()
+                summary = evidence_ladder_summary(field, self._STRONG)
+                self.assertEqual(summary["level_name"], weakest)
+                if weakest is None:
+                    self.assertEqual(summary["level"], 0)
+                self.assertEqual(evidence_ladder_best(field, self._STRONG)["level_name"], "CONTENT_RESOLVED")
+                self.assertEqual(calls, [], "the field's own code ran")
+
+    def test_not_affected_a_resolvers_answer_whose_dunders_raise_is_read_by_identity(self):
+        """The resolvers of the ladder, of verify_sequence and of verify_outcome_receipt are called inside a try, and
+        their answers were already read only with ``is True`` and ``type()``: an answer whose every dunder
+        raises promotes nothing and runs nothing. Measured at c8865652 as well; held here."""
+        calls: list = []
+        r = classify_receiver_corroboration(_DIGEST, evidence_resolver=lambda d: _RaisingValue(calls),
+                                            independent_attestation_resolver=lambda d: _RaisingValue(calls),
+                                            executor_key_id="kid-exec", receiver_key_id="kid-recv")
+        self.assertEqual(r["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
+        r = classify_receiver_corroboration(_DIGEST, evidence_resolver=lambda d: True,
+                                            independent_attestation_resolver=lambda d: _RaisingValue(calls),
+                                            executor_key_id="kid-exec", receiver_key_id="kid-recv",
+                                            expected_receiver_public_key=_RECV_KEY)
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        seq = build_initial_sequence(_DATA, hash_alg="sha256", time=1000)
+        self.assertIs(_check(verify_sequence(seq, _DATA, anchor_verifier=lambda a: _RaisingValue(calls)),
+                             "renewal:last_anchor").ok, False)
+        s, pub = _keys()
+        env = emit_outcome_receipt(_outcome(receiverRefs=[
+            {"relation": "receiverAck", "digest": {"sha256": "d" * 64}, "receiverKeyId": "kid-recv"}]), s)
+        pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
+                "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
+                         "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: _RaisingValue(calls),
+                                   receiver_attestation_resolver=lambda d: _RaisingValue(calls), trust_pack=pack)
+        self.assertEqual(r["evidence_levels"]["effect"]["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
+        self.assertIsNot(r["receiver_key_bound"], True)
+        dec_p = copy.deepcopy(json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8")))
+        dec_p["evidenceRefs"] = [{"relation": "evalResult", "digest": {"sha256": "b" * 64}}]
+        denv = emit_decision_receipt(dec_p, s, strict=True)
+        r = verify_decision_receipt(denv, pub, strict=True, evidence_resolver=lambda d: _RaisingValue(calls))
+        self.assertEqual(r["evidence_levels"]["evidenceRefs"]["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
+        self.assertEqual(calls, [], "an answer's own code ran")
+
+
 if __name__ == "__main__":
     unittest.main()

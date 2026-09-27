@@ -45,7 +45,7 @@ from typing import Any, Container, Optional, TypeGuard
 
 from .errors import SwitchTypeError
 
-__all__ = ["is_member", "as_dict", "is_bool", "require_switch", "type_name"]
+__all__ = ["is_member", "as_dict", "is_bool", "require_switch", "type_name", "stored_str_items"]
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -201,6 +201,25 @@ def require_switch(value: Any, name: str, *, allow_none: bool = False) -> Option
     raise SwitchTypeError(
         f"{name} must be a bool (True or False{' or None' if allow_none is True else ''}), not a value of type "
         f"{type_name(value)}; a switch that is not a bool is refused rather than read by its truth")
+
+
+def stored_str_items(value: Any) -> dict:
+    """What a ``dict`` (or a dict subclass) stores under keys that are exactly ``str``, as a new plain dict,
+    read without running code of the caller; ``{}`` for a value that is not a dict. Never raises.
+
+    THE DEFECT CLASS, as the violated assumption: *reading a dict by what it stores runs no code of the
+    caller.* ``dict.get(value, "ok")`` of the base type still does: a stored key whose hash equals
+    ``hash("ok")`` is compared through that key's own ``__eq__``, which can raise or answer True and so
+    stand in for ``"ok"`` (measured on 3d5b992a: a registered anchor verifier's result ``{K(): True}``
+    with a raising ``K.__eq__`` escaped ``verify_anchor`` as a RuntimeError, and one answering True
+    verified the anchor). Iterating the base type's items yields each stored key and value without
+    hashing or comparing either, and a key counts only when its type is exactly ``str``, whose hash and
+    comparison run no code of the caller. A key of any other type, a ``str`` subclass included, is left
+    out, so it can neither raise nor answer for a name it is not. The values come back as stored;
+    reading them is the caller's next step and must go by their exact type as well."""
+    if not issubclass(type(value), dict):
+        return {}
+    return {key: item for key, item in dict.items(value) if type(key) is str}
 
 
 def as_dict(value: Any) -> dict:

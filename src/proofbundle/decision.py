@@ -18,7 +18,7 @@ from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
-from ._membership import is_member, require_switch
+from ._membership import is_member, require_switch, type_name
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -808,6 +808,18 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["anchors_ok"] = False
                 r["errors"].append("anchor verification refused malformed anchor input (fail-closed): "
                                    f"{render_safe(exc, quote=False)}")
+                ar = None
+            except Exception as exc:  # noqa: BLE001 - never-raise: anything else from the anchor layer fails closed
+                # Round 5 (review of c8865652, F1): the anchor layer runs caller code (a registered verifier,
+                # the objects of a caller-built anchor list), and a RuntimeError from it escaped this guard,
+                # which took only the typed errors above, out of this never-raise surface (measured on
+                # 3d5b992a). verify_anchors now refuses such input with BundleFormatError itself; this arm keeps
+                # the guard whole for anything else. Only the type is named: rendering the exception could run
+                # the caller's code again.
+                anchor_status = "FAIL"
+                r["anchors_ok"] = False
+                r["errors"].append("anchor verification failed on an error of type "
+                                   f"{type_name(exc)} (fail-closed)")
                 ar = None
             if ar is not None:
                 # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but
