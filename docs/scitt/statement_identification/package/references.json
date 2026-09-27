@@ -1,0 +1,52 @@
+{
+  "package": "SCITT statement identification: three signed statements and the references between them",
+  "reference_format": "a protected header parameter, private-use label -70001, holding an array of [digest algorithm (COSE algorithm identifier), covered bytes (text), digest (bstr)]",
+  "statements": {
+    "01-original.cose.hex": {
+      "public_key": "issuer.pub.pem",
+      "iss": "https://issuer.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "sha256_to_be_signed": "903ef3e6d7c0fcd801e98dc1aadf7f7f92e513e6ffea7e58a39088c5fa8862cd",
+      "sha256_cose_sign1": "1686e2d552c9aad536c96f728e7fe82a6ef3e50431ba562a28894c43cbff3000",
+      "size_bytes": 330
+    },
+    "02-audit.cose.hex": {
+      "public_key": "auditor.pub.pem",
+      "iss": "https://auditor.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "sha256_to_be_signed": "a7b37da817e44396a4234d67062d56283ec01f2e987caf717525bb8af186efe3",
+      "sha256_cose_sign1": "6a91dd41f86b55f6347d0a98b9f6ecf352e3fe5f2f738bdfe20ce4996b5e6b75",
+      "size_bytes": 392
+    },
+    "03-correction.cose.hex": {
+      "public_key": "issuer.pub.pem",
+      "iss": "https://issuer.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "sha256_to_be_signed": "7a2904c9c93f3b5f1a5f769dc5a4607f698164cbaee37a14542f89cdcdee8477",
+      "sha256_cose_sign1": "3154fbe36038ec058a79f183a335cbf510e1ccc34aa27683224f1d19aaf1bdb6",
+      "size_bytes": 450
+    }
+  },
+  "references": [
+    {
+      "from": "02-audit.cose.hex",
+      "location": "protected header, label -70001, entry 0",
+      "to": "01-original.cose.hex",
+      "digest_algorithm": "SHA-256 (COSE algorithm -16)",
+      "covers": "ToBeSigned",
+      "covered_bytes": "the Sig_structure [\"Signature1\", protected, h'', payload] of the referenced COSE_Sign1, encoded as RFC 9052 section 4.4 requires (definite lengths, preferred serialization); external_aad is the empty byte string",
+      "why_these_bytes": "ToBeSigned is what the issuer signed. It stays the same when a transparency service adds a receipt to the unprotected header, when the tag 18 is dropped, or when the outer array is re-encoded, so the same statement has the same digest in every transparency service and outside all of them. A digest of the whole COSE_Sign1 bytes changes in each of those cases.",
+      "digest": "903ef3e6d7c0fcd801e98dc1aadf7f7f92e513e6ffea7e58a39088c5fa8862cd"
+    },
+    {
+      "from": "03-correction.cose.hex",
+      "location": "protected header, label -70001, entry 0",
+      "to": "01-original.cose.hex",
+      "digest_algorithm": "SHA-256 (COSE algorithm -16)",
+      "covers": "ToBeSigned",
+      "covered_bytes": "the Sig_structure [\"Signature1\", protected, h'', payload] of the referenced COSE_Sign1, encoded as RFC 9052 section 4.4 requires (definite lengths, preferred serialization); external_aad is the empty byte string",
+      "why_these_bytes": "ToBeSigned is what the issuer signed. It stays the same when a transparency service adds a receipt to the unprotected header, when the tag 18 is dropped, or when the outer array is re-encoded, so the same statement has the same digest in every transparency service and outside all of them. A digest of the whole COSE_Sign1 bytes changes in each of those cases.",
+      "digest": "903ef3e6d7c0fcd801e98dc1aadf7f7f92e513e6ffea7e58a39088c5fa8862cd"
+    }
+  ]
+}
