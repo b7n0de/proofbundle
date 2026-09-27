@@ -139,6 +139,19 @@ def _first_unsafe_integer(value) -> Optional[int]:
 
 
 def _reject_non_jcs(value) -> None:
+    """Reject values that RFC 8785 / this profile forbids in a claim (`_reject_non_jcs_walk`).
+
+    A value nested deeper than the interpreter recurses is the typed refusal `_jcs_bytes` gives for
+    the same depth, not a RecursionError. Measured at 5a21b199 and on main 1e95b197: `canonicalize`
+    raised a bare RecursionError for a provenance of nested lists from 995 levels (994 on main),
+    from the walk below, which runs before the serializer."""
+    try:
+        _reject_non_jcs_walk(value)
+    except RecursionError as e:
+        raise EvalClaimError("canonicalization failed: the claim nests too deep to serialize") from e
+
+
+def _reject_non_jcs_walk(value) -> None:
     """Recursively reject values that RFC 8785 / this profile forbids in a claim."""
     if isinstance(value, bool):
         return
@@ -157,11 +170,11 @@ def _reject_non_jcs(value) -> None:
         return
     if isinstance(value, dict):
         for v in value.values():
-            _reject_non_jcs(v)
+            _reject_non_jcs_walk(v)
         return
     if isinstance(value, (list, tuple)):
         for v in value:
-            _reject_non_jcs(v)
+            _reject_non_jcs_walk(v)
         return
     raise EvalClaimError(f"unsupported value type {type(value).__name__}")
 

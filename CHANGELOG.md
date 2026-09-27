@@ -236,7 +236,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   walked lists through a list comprehension, a frame of its own per level on Python 3.10, so
   `evalclaim.canonicalize` refused lists nested 497 deep that `rfc8785.dumps` writes (measured: 496
   equal, 497 refused); it walks them with a loop now, and 497, 900 and 990 levels give the bytes
-  `rfc8785.dumps` gives. Three new cases are red at c3ca546b, and a control passes there.
+  `rfc8785.dumps` gives. Three new cases are red at c3ca546b, and a control passes there. The
+  profile walk that runs before the serializer raised a bare `RecursionError` out of `canonicalize`
+  and `emit_eval_receipt` from 995 nested lists (994 on main 1e95b197); it is the typed refusal
+  the serializer's depth gives now. A limit stays, measured on Python 3.10.12: from 993 levels,
+  two below the depth `rfc8785.dumps` writes, `canonicalize` refuses by type.
 
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`

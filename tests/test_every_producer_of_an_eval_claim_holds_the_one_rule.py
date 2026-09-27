@@ -1181,6 +1181,23 @@ class TestTheLastTwoReadsOfRoundFour(_Basis):
                     wert = [wert]
                 self.assertEqual(canonicalize({"provenance": wert}), rfc8785.dumps({"provenance": wert}))
 
+    def test_a_claim_nested_past_the_recursion_limit_is_a_typed_refusal(self):
+        """Lens run 5 at 5a21b199 (both foreign lenses asked about depth; measured by the filer): the
+        profile walk that runs before the serializer raised a bare RecursionError out of
+        `canonicalize` and `emit_eval_receipt` from 995 nested lists (994 on main 1e95b197). It is
+        the typed refusal the serializer's own depth gives now."""
+        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        for tiefe in (995, 5000):
+            with self.subTest(tiefe=tiefe):
+                wert: object = 1
+                for _ in range(tiefe):
+                    wert = [wert]
+                claim = dict(self.basis, provenance={"x": wert})
+                with self.assertRaises(EvalClaimError):
+                    canonicalize(claim)
+                with self.assertRaises(EvalClaimError):
+                    emit_eval_receipt(claim, self.signer)
+
     def test_control_a_plain_status_is_signed_as_given(self):
         status = {"status_list": {"idx": 7, "uri": "https://example.org/status/1"}}
         self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
