@@ -52,6 +52,9 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from ._membership import as_dict, as_list, is_member
+# The one renderer for a value from outside in a message: an integer too long to write in decimal
+# (CVE-2020-10735 cap) is described, not printed, and an ordinary value renders as repr() did.
+from .budget import render_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -172,6 +175,23 @@ def _is_digest(obj: Any) -> bool:
 
 
 # ── bodyCoreDigest ──────────────────────────────────────────────────────────────────────────────
+def _utf8(text: str, was: str) -> bytes:
+    """The UTF-8 bytes a digest is taken over, or AgentReviewError when there are none.
+
+    A str that holds a lone surrogate has no UTF-8 form. Measured on d5747000: an `observed_body`
+    holding one made `.encode` below raise UnicodeEncodeError, which `_pruefe_sichtbaren_block` does
+    not catch, and `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+    `verify_agent_review_any` answered `internal_error`, "a defect in the verifier". As the module's
+    own error it is what a body without a single canonical core already is: NOT_MEASURABLE, which
+    blocks. The same mapping as for a statement RFC 8785 cannot write (`_rfc8785_bytes`)."""
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise AgentReviewError(
+            f"{was} has no UTF-8 form (a lone surrogate), so no digest can be taken over it: "
+            f"{exc}") from exc
+
+
 def body_core_bytes(body: str) -> bytes:
     """The exact UTF-8 bytes the digest is taken over: the body with the disclosure block replaced.
 
@@ -192,12 +212,12 @@ def body_core_bytes(body: str) -> bytes:
             f"{n_begin} disclosure blocks found — a duplicated block has no single canonical core, "
             "fail-closed (an attacker who may add a second block could otherwise choose the digest)")
     if n_begin == 0:
-        return body.encode("utf-8")
+        return _utf8(body, "the body")
     start = body.index(DISCLOSURE_BEGIN)
     end = body.index(DISCLOSURE_END) + len(DISCLOSURE_END)
     if end <= start:
         raise AgentReviewError("disclosure end marker precedes its begin marker — fail-closed")
-    return (body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:]).encode("utf-8")
+    return _utf8(body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:], "the body")
 
 
 def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
@@ -304,7 +324,7 @@ def disclosure_core_bytes(body: str) -> bytes:
     innen = body[start:end].strip("\n")
     innen = _SELFREF_FULL.sub(f"sha256:{DISCLOSURE_SELFREF_TOKEN}", innen)
     innen = _SELFREF_SHORT.sub(f"[{DISCLOSURE_SELFREF_TOKEN}](", innen)
-    return innen.encode("utf-8")
+    return _utf8(innen, "the disclosure block")
 
 
 def disclosure_core_digest(body: str) -> str:
@@ -389,7 +409,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
 
     for k in predicate:
         if not is_member(k, _ALLOWED_TOP):
-            errors.append(f"unknown field {k!r} (additionalProperties:false)")
+            errors.append(f"unknown field {render_safe(k)} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
             errors.append(f"missing required field {req!r}")
@@ -446,7 +466,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
         if (isinstance(tot_, int) and not isinstance(tot_, bool) and isinstance(lst_, list)
                 and tot_ > len(lst_) and not cov_.get("knownGaps")):
             errors.append(
-                f"findingsTotal {tot_} exceeds the {len(lst_)} findings listed, but coverage.knownGaps "
+                f"findingsTotal {render_safe(tot_)} exceeds the {len(lst_)} findings listed, but coverage.knownGaps "
                 "is empty — an unlisted finding must be named as a gap, never left as a silent "
                 "difference between two numbers")
 
@@ -467,7 +487,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                                  code_teil="PRODUCER_VERIFIER")
                                   for e in validate_verifier_block(pr[k]))
                 elif k not in _PRODUCER_FIELDS:
-                    errors.append(f"producer.{k} is not an allowed field")
+                    errors.append(f"producer.{render_safe(k, quote=False)} is not an allowed field")
                 elif not isinstance(pr[k], str):
                     errors.append(f"producer.{k} must be a string")
     return errors
@@ -484,7 +504,7 @@ def _validate_subject(sc: Any) -> list[str]:
                          else (_ISSUE_REQUIRED, _ISSUE_ALLOWED))
     for k in sc:
         if not is_member(k, allowed):
-            errs.append(f"unknown field {k!r} for kind {kind!r}")
+            errs.append(f"unknown field {render_safe(k)} for kind {kind!r}")
     for req in required:
         if req not in sc:
             errs.append(f"missing {req!r} (required for {kind})")
@@ -510,7 +530,7 @@ def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in dec:
         if k not in _DECLARATION_FIELDS | zusatz:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for req in ("authoring", "reviewRuns", "findings", "findingsTotal", "nonClaims"):
         if req not in dec:
             errs.append(f"missing {req!r}")
@@ -624,7 +644,7 @@ def _validate_finding(f: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in f:
         if k not in ("id", "severity", "title", "disposition", "fixCommit", "reason", "evidenceRef"):
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for req in ("id", "severity", "title", "disposition"):
         if req not in f:
             errs.append(f"missing {req!r}")
@@ -782,7 +802,7 @@ def _cap1_abdeckung(cov: dict) -> list:
             errs.append(_shape_err(
                 "CAP1_STATUS_CONTRADICTS_STRATA",
                 f"status {st} contradicts the strata: integrity.complete is "
-                f"{integ.get('complete') if isinstance(integ, dict) else None!r}, which derives "
+                f"{render_safe(integ.get('complete') if isinstance(integ, dict) else None)}, which derives "
                 f"{abgeleitet} — a stated status that disagrees with its own accounting is a claim "
                 f"the accounting refutes"))
     return errs
@@ -804,8 +824,8 @@ def _widerspruch_in_altfeldern(cov: dict) -> list[str]:
     if _is_zahl(obs) and _is_zahl(exp) and obs < exp:
         errs.append(_shape_err(
             "COMPLETE_UNDER_EXPECTATION",
-            f"status COMPLETE but observedRuns {obs} < expectedRuns {exp} — the counters beside the "
-            f"status refute it"))
+            f"status COMPLETE but observedRuns {render_safe(obs)} < expectedRuns {render_safe(exp)} — "
+            f"the counters beside the status refute it"))
     if _is_zahl(exp) and exp == 0:
         errs.append(_shape_err(
             "COMPLETE_OVER_NOTHING",
@@ -838,7 +858,7 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in cov:
         if k not in _COVERAGE_LEGACY_FIELDS and k not in zusatz:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     if "status" not in cov:
         errs.append("missing 'status'")
     elif not is_member(cov.get("status"), _COVERAGE_STATUS):
@@ -857,7 +877,7 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
                 errs.append(f"{numf} must be an integer or null, not {type(v).__name__} "
                             f"(a boolean is an int in Python and is rejected explicitly)")
             elif v < 0:
-                errs.append(f"{numf} must not be negative, got {v} — a negative run count describes "
+                errs.append(f"{numf} must not be negative, got {render_safe(v)} — a negative run count describes "
                             f"nothing that can have happened")
     # MIT STRATA GILT DIE BUCHFUEHRUNG, NICHT DIE ALTEN ZAEHLER (CAP-1 Teil B, v0.2). Sobald einer
     # der drei CAP-1-Blocks da ist, urteilen R0-R8 ueber Vollstaendigkeit und Luecken; die
@@ -921,7 +941,7 @@ def _validate_times(t: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in t:
         if k not in _TIME_FIELDS:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     if "declaredAt" not in t:
         errs.append("missing 'declaredAt'")
     for k in _TIME_FIELDS:
@@ -942,7 +962,7 @@ def _validate_supersession(sup: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in sup:
         if k not in ("supersedes", "corrects", "withdraws"):
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for k in ("supersedes", "corrects", "withdraws"):
         v = sup.get(k)
         if k in sup:
@@ -1230,6 +1250,15 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
+def _listed_of_recorded(fnd: list, total: object) -> str | None:
+    """The phrase `<n> listed of <total> recorded` when the recorded total is a count other than the
+    listed one, else None. ONE PLACE FOR BOTH RENDERERS: a count is an int and not a bool, and it is
+    rendered bounded, so `10**5000` reads `<int, 16610 bits>` instead of raising ValueError."""
+    if isinstance(total, int) and not isinstance(total, bool) and total != len(fnd):
+        return f"{len(fnd)} listed of {render_safe(total)} recorded"
+    return None
+
+
 def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None,
                             legacy_v01: bool | None = None) -> str:
     """The human-visible block, derived deterministically from the predicate.
@@ -1266,15 +1295,23 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
         if rung in rungs:
             weakest = rung
             break
+    # A RENDERER DOES NOT RAISE, and a number too long to write in decimal made both of them do so
+    # (lens run 8 on d5747000): `findingsTotal = 10**5000` passes the validator, a non-negative integer
+    # not below the list, and its f-string raised ValueError ("Exceeds the limit (4300) for integer
+    # string conversion"). The count is rendered bounded now (`render_safe`: `<int, 16610 bits>`), the
+    # one renderer for a value from outside in a message. With the validator taken away, `assertedBy`
+    # and `coverage.status` raised the same way; a value that is no string is unreadable there and read
+    # as absent, as an `assurance` that is no string already is. `findingsTotal` of `true` is no count
+    # either. A valid predicate renders the bytes it rendered before (`_RENDER_PINS`).
     authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in as_list(dec.get("authoring"))
-                                  if isinstance(a, dict)})) or "not stated"
+                                  if isinstance(a, dict) and isinstance(a.get("assertedBy"), str)})
+                          ) or "not stated"
     findings_txt = (", ".join(f"{n} {d}" for d, n in sorted(by_disp.items())) or "none recorded")
-    total = dec.get("findingsTotal")
-    listed_txt = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
-                  else f"{len(fnd)} total")
+    listed_txt = _listed_of_recorded(fnd, dec.get("findingsTotal")) or f"{len(fnd)} total"
+    status = cov.get("status")
     lines = {
         "Involvement": authoring,
-        "Review": f"{len(runs)} run(s), coverage {cov.get('status', 'UNKNOWN')}",
+        "Review": f"{len(runs)} run(s), coverage {status if isinstance(status, str) else 'UNKNOWN'}",
         "Findings": f"{listed_txt} ({findings_txt})",
         "Assurance": f"{weakest} — not independently witnessed",
         # The same idiom as two reads above, and it was left here: `limitations: 5` or `true` passed
@@ -1309,9 +1346,8 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
              if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
                                 "independentlyWitnessed") if r in rungs), "selfDeclared")
-    fnd, total = as_list(dec.get("findings")), dec.get("findingsTotal")
-    zahl = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
-            else f"{len(fnd)}")
+    fnd = as_list(dec.get("findings"))
+    zahl = _listed_of_recorded(fnd, dec.get("findingsTotal")) or f"{len(fnd)}"
     teile = [f"Agent review receipt: [{receipt_digest[:12]}]({receipt_url})",
              f"`sha256:{receipt_digest}`",
              f"{zahl} findings",
@@ -1348,7 +1384,9 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise AgentReviewError(
             "agent-review receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except (ProofBundleError, ValueError, RecursionError) as exc:
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # The one tuple every wrapper names (canonical.NOT_CANONICALIZABLE); it is the list this
+        # function carried on its own before, (ProofBundleError, ValueError, RecursionError).
         raise _NotCanonicalizable(f"not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
@@ -1807,7 +1845,7 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
         else:
             errs.append(_shape_err(
                 "STATEMENT_TYPE_MISMATCH",
-                f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                f"_type is {render_safe(t)}, expected {INTOTO_STATEMENT_TYPE!r} "
                 "(the in-toto spec requires it; an unread _type is an unagreed shape)"))
 
     subj = statement.get("subject")
@@ -1974,7 +2012,7 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
         if k not in ("_type", "subject", "predicateType", "predicate"):
             errs.append(_shape_err(
                 "UNKNOWN_STATEMENT_FIELD",
-                f"unknown statement field {k!r} — this profile allows no extras"))
+                f"unknown statement field {render_safe(k)} — this profile allows no extras"))
     return errs
 
 
@@ -2016,7 +2054,7 @@ def validate_time_claim(tc: object) -> list[str]:
         return [f"timeClaim must be an object, got {type(tc).__name__}"]
     for k in tc:
         if k not in ("kind", "value", "assertedBy", "assurance", "evidenceRef"):
-            errs.append(f"unknown timeClaim field {k!r}")
+            errs.append(f"unknown timeClaim field {render_safe(k)}")
     for req in ("kind", "value", "assertedBy", "assurance"):
         if req not in tc:
             errs.append(f"timeClaim is missing {req!r} — a time without a source is not a claim, "
@@ -2127,7 +2165,7 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
             errs.append(_shape_err(
                 "FIXCOMMIT_NOT_FULL_SHA",
                 f"declaration.findings[{i}].fixCommit must be the full 40-character "
-                f"lowercase hex sha — got {fc!r}"))
+                f"lowercase hex sha — got {render_safe(fc)}"))
 
     sc = predicate.get("subjectContext")
     if isinstance(sc, dict) and not isinstance(sc.get("disclosureCoreDigest"), str):
@@ -2294,7 +2332,7 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
     # isinstance-Test daneben tut beides sichtbar.
     if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
         return {"decision": "insufficient_evidence", "policy_kind": art,
-                "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
+                "reason": f"unknown policy kind {render_safe(art)} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
     zustand = axes.get(achse, "NOT_EVALUATED")
     if zustand == "CONFLICT":
@@ -3325,7 +3363,7 @@ def _pruefe_policy_form(policy: dict, *, quelle: str | None = None) -> None:
         art = zeit.get("kind") if isinstance(zeit, dict) else None
         if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
             raise AgentReviewError(f"policy{wo}: time must be an object with kind in "
-                                   f"{sorted(_POLICY_ACHSE)}, got {zeit!r}")
+                                   f"{sorted(_POLICY_ACHSE)}, got {render_safe(zeit)}")
     name = policy.get("name")
     if name is not None and not isinstance(name, str):
         raise AgentReviewError(f"policy{wo}: name must be a string, not {type(name).__name__}")

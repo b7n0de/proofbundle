@@ -57,6 +57,23 @@ class CanonicalizerUnavailable(ProofBundleError):
     ``decision.py``'s ``DecisionReceiptError``) catch this and re-raise."""
 
 
+#: Everything ``canonicalize_statement`` raises for a VALUE it cannot write, as the one tuple every
+#: wrapper of it names in its ``except`` clause: the structural budget's refusals, which run first
+#: (``BundleFormatError`` for a lone surrogate, a nesting past ``json_depth`` or a value of no JSON
+#: type, ``BudgetExceeded`` for a width, a string length or an integer past ``int_bits``, both
+#: ``ProofBundleError``), the canonicalizer's own ``ValueError`` family (``IntegerDomainError``,
+#: ``FloatDomainError``, ``CanonicalizationError``) and a ``RecursionError``. ``CanonicalizerUnavailable``
+#: is a ``ProofBundleError`` too, so a wrapper names it in an ``except`` of its own BEFORE this one and
+#: keeps its install hint.
+#:
+#: ONE TUPLE, NOT ONE LIST PER WRAPPER. Measured on d5747000: eight of the nine module wrappers caught
+#: only ``ValueError`` and let the budget's refusals out as a bare ``BundleFormatError`` or
+#: ``BudgetExceeded``, so ``subject_binding.require_derived_subject`` raised ``BundleFormatError`` for a
+#: lone surrogate where its docstring promises ``SubjectBindingError``; ``agent_review`` alone named
+#: the three kinds, and the in-toto export named one.
+NOT_CANONICALIZABLE: "tuple[type[BaseException], ...]" = (ProofBundleError, ValueError, RecursionError)
+
+
 def _require_statement_shape(obj: Any) -> None:
     """Fail closed unless ``obj`` is a full in-toto Statement OBJECT (the four ``STATEMENT_REQUIRED_KEYS``).
 
@@ -85,7 +102,8 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
 
     Uses the real ``rfc8785`` canonicalizer (the ``[eval]`` extra), lazily imported; a missing extra is a
     fail-closed ``CanonicalizerUnavailable``. Value errors from a non-JCS-able object (e.g. an unsafe float)
-    propagate unchanged, exactly as calling ``rfc8785.dumps`` directly would.
+    propagate unchanged, exactly as calling ``rfc8785.dumps`` directly would, and so do the refusals of
+    the structural budget that runs before it; ``NOT_CANONICALIZABLE`` names all of them for a wrapper.
 
     ``require_statement_shape=True`` (opt-in, default OFF) fails closed with ``ProofBundleError`` when
     ``statement`` is not a full in-toto Statement (the four ``STATEMENT_REQUIRED_KEYS``) — a guard against

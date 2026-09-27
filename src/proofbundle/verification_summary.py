@@ -16,6 +16,7 @@ import hashlib
 from typing import Any
 
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .errors import ProofBundleError
 from ._membership import is_member
 # RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
@@ -57,7 +58,7 @@ def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     for k in predicate:
         if not is_member(k, _ALLOWED_TOP):
-            errors.append(f"unknown field {k!r} (additionalProperties:false)")
+            errors.append(f"unknown field {render_safe(k)} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
             errors.append(f"missing required field {req!r}")
@@ -81,7 +82,7 @@ def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[
         else:
             for k in pr:
                 if k not in ("id", "keyId"):
-                    errors.append(f"producer.{k} is not an allowed field")
+                    errors.append(f"producer.{render_safe(k, quote=False)} is not an allowed field")
                 elif not isinstance(pr[k], str):
                     errors.append(f"producer.{k} must be a string")
 
@@ -109,7 +110,7 @@ def _validate_level(lvl: Any) -> list[str]:
         return ["must be an object"]
     for k in lvl:
         if not is_member(k, _LEVEL_ALLOWED):
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for req in _LEVEL_REQUIRED:
         if req not in lvl:
             errs.append(f"missing {req!r}")
@@ -141,10 +142,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise VerificationSummaryError(
             "verification summaries need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise VerificationSummaryError(
             f"a verification summary value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

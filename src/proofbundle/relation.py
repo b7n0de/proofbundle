@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .budget import render_keys_safe
+from .budget import render_keys_safe, render_safe
 from .errors import ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -93,7 +93,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
         # Never silently default — exactly where an algorithm-confusion attack would hide.
         errors.append(f"{path}.digestAlgorithm is required (never defaulted)")
     elif alg not in CONTENT_ROOT_ALGS:
-        errors.append(f"{path}.digestAlgorithm {alg!r} is not a registered relation/v0.1 "
+        errors.append(f"{path}.digestAlgorithm {render_safe(alg)} is not a registered relation/v0.1 "
                       f"content-root algorithm {list(CONTENT_ROOT_ALGS)}")
     digest = obj.get("digest")
     if not (isinstance(digest, str) and _SHA256_HEX.match(digest)):
@@ -127,14 +127,14 @@ def validate_relationships(value: Any) -> list[str]:
                 errors.append(f"{path}.{req} is required")
         relation = edge.get("relation")
         if "relation" in edge and relation not in RELATIONS:
-            errors.append(f"{path}.relation {relation!r} is not in the closed vocabulary "
+            errors.append(f"{path}.relation {render_safe(relation)} is not in the closed vocabulary "
                           f"{list(RELATIONS)} (extension only via spec change)")
         if "targetReceiptDigest" in edge:
             _validate_edge_digest(edge["targetReceiptDigest"], f"{path}.targetReceiptDigest", errors)
         if "targetSubjectDigest" in edge:
             _validate_edge_digest(edge["targetSubjectDigest"], f"{path}.targetSubjectDigest", errors)
         if "reasonCode" in edge and edge.get("reasonCode") not in REASON_CODES:
-            errors.append(f"{path}.reasonCode {edge.get('reasonCode')!r} not in {list(REASON_CODES)}")
+            errors.append(f"{path}.reasonCode {render_safe(edge.get('reasonCode'))} not in {list(REASON_CODES)}")
         if "reason" in edge and not isinstance(edge.get("reason"), str):
             errors.append(f"{path}.reason must be a string")
         if "declaredAt" in edge and not (isinstance(edge.get("declaredAt"), str)
@@ -693,8 +693,8 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     for e in edges:
         if e.get("relation") in req and e.get("resolution") != LINEAGE_VERIFIED:
             out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
-                        "message": (f"relation {e.get('relation')!r} must resolve (target attached "
-                                    f"and verified), got {e.get('resolution')}")})
+                        "message": (f"relation {render_safe(e.get('relation'))} must resolve (target attached "
+                                    f"and verified), got {render_safe(e.get('resolution'), quote=False)}")})
 
     # (2) reject_superseded — an attached, verified successor/retractor over THIS receipt.
     if relations_section.get("reject_superseded") and lineage_result.get("supersededByAttached"):
@@ -752,6 +752,6 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         if not (isinstance(_td, str) and _td in set(allowed)):
             out.append({"code": CODE_RELATION_TARGET_MISMATCH,
                         "message": (f"relation {e.get('relation')!r}: edge resolves to parent "
-                                    f"{str(e.get('targetDigest'))[:12]}… which is not in the pinned "
+                                    f"{render_safe(e.get('targetDigest'), quote=False)[:12]}… which is not in the pinned "
                                     "require_relation_target set (decoy/wrong parent)")})
     return out

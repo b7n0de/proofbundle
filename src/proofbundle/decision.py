@@ -464,10 +464,13 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise DecisionReceiptError(
             "decision receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first (a lone surrogate, a
+        # nesting too deep, an integer past its bit budget). On d5747000 only the first did, and
+        # emit_decision_receipt raised a bare BundleFormatError for a decisionId that is a lone
+        # surrogate.
         raise DecisionReceiptError(
             f"a decision receipt value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

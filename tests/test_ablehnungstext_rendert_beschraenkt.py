@@ -28,6 +28,12 @@ Quelltext. Eine Interpolation ``{wert!r}`` prüft er NICHT strukturell — davon
 meisten über Werte, die ``loads_strict`` bereits auf 4300 Ziffern, ``json_depth`` und ``string_len`` begrenzt.
 Der direct-dict-Pfad ist über den Budget-Chokepoint geschlossen; die verbleibende Lücke sind RP-Kwargs, die
 ohne Budget interpoliert werden (die genannten sind umgestellt, siehe ``test_rp_kwarg_typboden_familie``).
+
+CORRECTION, measured on d5747000 (lens run 8): the budget closes the direct-dict path of the verify
+surfaces only. The predicate validators and the two agent-review renderers take a dict directly and
+run no budget, and 42 of their source lines in nine modules raised the raw ValueError for
+``10**5000``; they render through ``render_safe`` now, held by
+``tests/test_every_validator_renders_a_number_bounded.py``.
 """
 from __future__ import annotations
 

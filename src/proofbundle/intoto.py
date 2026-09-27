@@ -18,7 +18,8 @@ from typing import Any, Optional
 
 from ._verdict import require_bool_verdict
 from ._strict_json import loads_strict
-from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
+from .canonical import (CONTENT_ROOT_ALG, NOT_CANONICALIZABLE, CanonicalizerUnavailable,
+                        canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -174,18 +175,33 @@ def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
     * `legacy-sortkeys-json-v0` → the historic `_canonical_body` (json.dumps(sort_keys=True), stdlib only).
 
     An unknown/unregistered id is a fail-closed error: a verifier MUST NOT default a missing/unknown
-    algorithm (that is exactly where an algorithm-confusion attack would hide, ADR 0002 §1)."""
+    algorithm (that is exactly where an algorithm-confusion attack would hide, ADR 0002 §1). A value
+    either serializer cannot write is a `BundleFormatError` too; a missing extra stays
+    `CanonicalizerUnavailable`."""
     if content_root_alg == CONTENT_ROOT_ALG:
         try:
             return canonicalize_statement(statement)
-        except ValueError as exc:
-            # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError) leaves as this
-            # module's typed error, as in agent_review._rfc8785_bytes: the export paths raised the bare
-            # ValueError for a harness value of `2**53` (measured on 8ecb6edf), and the verify path,
-            # `_content_root_binding`, reads a BundleFormatError as the same fail-closed verdict.
+        except CanonicalizerUnavailable:
+            raise   # its own answer: `_content_root_binding` names the missing extra
+        except NOT_CANONICALIZABLE as exc:
+            # Everything the shared path refuses leaves as this module's typed error: the
+            # canonicalizer's own refusal (IntegerDomainError, FloatDomainError; the export paths raised
+            # the bare ValueError for a harness value of `2**53` on 8ecb6edf) and the structural
+            # budget's, which runs first (`export_intoto_dsse` raised a bare BudgetExceeded for a harness
+            # name of `2**8194` on d5747000). The verify path, `_content_root_binding`, reads a
+            # BundleFormatError as the same fail-closed verdict.
             raise BundleFormatError(f"statement is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
-        return _canonical_body(statement)
+        try:
+            return _canonical_body(statement)
+        except (ValueError, TypeError, RecursionError) as exc:
+            # THE LEGACY SERIALIZER REFUSES TOO, and its refusal is the same typed error. Measured on
+            # d5747000: a harness name that is a lone surrogate made `export_intoto_dsse` and
+            # `export_eval_result_dsse` raise a raw UnicodeEncodeError from `.encode("utf-8")`; an
+            # integer past the int->str cap raises ValueError in `json.dumps`, a value of no JSON type
+            # TypeError, and a nesting deeper than the interpreter allows RecursionError.
+            raise BundleFormatError(
+                f"statement cannot be written as {LEGACY_CONTENT_ROOT_ALG} JSON: {exc}") from exc
     raise BundleFormatError(
         f"unknown contentRootAlg {content_root_alg!r}: no silent default for a missing/unknown "
         "algorithm (algorithm-confusion guard, ADR 0002 §1)")

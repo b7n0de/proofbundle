@@ -38,15 +38,24 @@ def load_statement_strict(body: bytes, *, budget: Any = None, require_canonical:
     (which ``json.loads`` accepts but JCS cannot represent) and any non-canonical spelling fail here.
     The canonicalizer is a core dependency; its absence is a broken install and fails closed too.
     """
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
-    b.check("input_bytes", len(body))
+    # AN OVER-BUDGET BODY IS THE BundleFormatError THIS DOCSTRING NAMES, not the budget's own sibling.
+    # Measured on d5747000: a canonical payload holding `2**8194` left as a bare BudgetExceeded (from
+    # the parse), and so did an oversized one (from the check below). Both callers catch the base
+    # class, so their verdicts do not move; a relying party that catches what is documented now can.
+    try:
+        b.check("input_bytes", len(body))
+    except BudgetExceeded as exc:
+        raise BundleFormatError(f"DSSE payload is over the verification budget: {exc}") from exc
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise BundleFormatError(f"DSSE payload is not UTF-8 JSON: {exc}") from exc
     try:
         statement = loads_strict(text, budget=b)
+    except BudgetExceeded as exc:
+        raise BundleFormatError(f"DSSE payload is over the verification budget: {exc}") from exc
     except ValueError as exc:  # json.JSONDecodeError (BOM, trailing garbage, ...)
         raise BundleFormatError(f"DSSE payload is not well-formed JSON: {exc}") from exc
     if not isinstance(statement, dict):

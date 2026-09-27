@@ -21,8 +21,9 @@ here too. Every test in this file up to the last section fails at c3bd89a4.
 
 The last section follows lens run 7 on 8ecb6edf: the policy call held a predicate that is no object
 against the policy as `{}`, and the renderers, with the validator in front taken away, raised on
-`limitations` and on a predicate, `declaration` or `coverage` that is no object. Its 37 cases fail at
-8ecb6edf; the byte-identity pin beside them passes there, because it holds what 8ecb6edf rendered.
+`limitations` and on a predicate, `declaration` or `coverage` that is no object. The section has 38
+cases: 37 fail at 8ecb6edf, and the 38th, the byte-identity pin, passes there, because it holds what
+8ecb6edf rendered (measured with the file of d5747000, 80 cases: 37 red at 8ecb6edf, 79 at c3bd89a4).
 """
 from __future__ import annotations
 

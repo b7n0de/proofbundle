@@ -21,6 +21,7 @@ import hashlib
 from typing import Any, Callable
 
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member
@@ -105,7 +106,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     # additionalProperties:false — any unknown top-level key is fail-closed.
     for k in predicate:
         if not is_member(k, _ALLOWED_TOP):
-            errors.append(f"unknown field {k!r} (additionalProperties:false)")
+            errors.append(f"unknown field {render_safe(k)} (additionalProperties:false)")
 
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -130,7 +131,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
         else:
             for k in ex:
                 if k not in ("id", "keyId"):
-                    errors.append(f"executor.{k} is not an allowed field")
+                    errors.append(f"executor.{render_safe(k, quote=False)} is not an allowed field")
             if "keyId" in ex and not isinstance(ex.get("keyId"), str):
                 errors.append("executor.keyId, when present, must be a string")
 
@@ -140,7 +141,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     st = predicate.get("status")
     if "status" in predicate and not is_member(st, _OUTCOME_STATUS):
-        errors.append(f"status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
+        errors.append(f"status must be one of {sorted(_OUTCOME_STATUS)}, got {render_safe(st)}")
 
     for tp in _TIME_PATHS:
         v = predicate.get(tp)
@@ -152,7 +153,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     if "policyPurpose" in predicate and predicate.get("policyPurpose") != _OUTCOME_POLICY_PURPOSE:
         errors.append(
             f"policyPurpose must be {_OUTCOME_POLICY_PURPOSE!r} for an outcome receipt, "
-            f"got {predicate.get('policyPurpose')!r}")
+            f"got {render_safe(predicate.get('policyPurpose'))}")
 
     lim = predicate.get("limitations")
     if "limitations" in predicate and not (isinstance(lim, list) and all(isinstance(x, str) for x in lim)):
@@ -431,10 +432,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise OutcomeReceiptError(
             "outcome receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise OutcomeReceiptError(
             f"an outcome receipt value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

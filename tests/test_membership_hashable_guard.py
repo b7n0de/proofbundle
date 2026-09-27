@@ -31,8 +31,9 @@ imports them by name, `from .x import NAME`, through a chain of such imports, or
 `from .x import *`), the containers DERIVED from them (`_Sicht`: a set operation between two
 constants, a `set()`, `frozenset()`, `dict()` or `dict.fromkeys()` copy or a set or dict
 comprehension over one or over a module-level tuple, and a local name bound to such an expression,
-also by a walrus in a nested function's default), and single-operator comparisons. A walrus is read
-as the value it passes on, so `k in (s := _A)` is `k in _A` (`_walrus_value`). A binding counts
+also by a walrus in a nested function's default), and single-operator comparisons. A walrus and a
+conditional are read as the values they pass on, through any nesting of the two (`_passed_values`), so
+`k in (s := _A)` is `k in _A` and `k in (s := _A if c else _B)` a test in `_A` or `_B`. A binding counts
 as followed only when a reader reads the name it binds (`_scope_bindings`); a container bound
 anywhere else is reported where it is read. NOT covered: a container built at runtime from a value
 that is not constant (`x in set(allowed)`: two membership tests in the tree,
@@ -127,38 +128,68 @@ def _walrus_value(e):
     return e
 
 
+def _passed_values(e) -> list:
+    """Every expression `e` can pass on: a walrus passes its value, a conditional one of its two
+    branches, through any nesting of the two. `_A if c else (t := _B)` passes `_A` or `_B`.
+
+    ONE RULE FOR BOTH SIDES OF THE GUARD. The lens on d5747000 wrote a walrus over a conditional,
+    `k in (s := _A if c else _B)`: the binding side split the conditional, so `s` was a container and
+    both branches counted as bound, while every reader looked through the walrus, found the conditional
+    and saw no container in it. All three detectors were silent, and six forms of it raised at run time
+    (`.get`, a subscript, a module-level and a local name bound to such a walrus, a chained walrus).
+    Readers and bindings now take the passed values from this one function."""
+    if isinstance(e, ast.NamedExpr):
+        return _passed_values(e.value)
+    if isinstance(e, ast.IfExp):
+        return _passed_values(e.body) + _passed_values(e.orelse)
+    return [e]
+
+
+def _passing_nodes(e) -> list:
+    """`e`, and every walrus, conditional and passed value below it on the way its value is passed on
+    (`_passed_values` gives the last of these only). A binding binds its name to each of them, so that a
+    read inside the value is bound however deep the walrus and the conditional stand around it."""
+    if isinstance(e, ast.NamedExpr):
+        return [e, *_passing_nodes(e.value)]
+    if isinstance(e, ast.IfExp):
+        return [e, *_passing_nodes(e.body), *_passing_nodes(e.orelse)]
+    return [e]
+
+
 def _bindings(ziele: list, wert: ast.AST):
     """(name, value) for every name a binding binds to one value: `X = v`, `X = Y = v`, and a tuple or
     list unpacked element by element, also nested. The review of fc863e2e bound two containers in one
     statement, `_S, _M = {"a"}, {"a": 1}`: the target was a tuple, so neither name was a container, and
-    `_M.get(k)` raised for an unhashable `k` with the guard green. A conditional value binds each of its
-    two branches (`required, allowed = (_A, _B) if pr else (_C, _D)`, as `agent_review._validate_subject`
-    does). A starred target (`_S, *_R = {"a"}, {"b"}, {"c"}`, the lens on c3bd89a4) binds the names
-    around it one to one; the starred name gets a list of the rest, which hashes nothing, so the values
-    that go into it are bound to no name this follows. An unpacking whose value is no tuple or list
-    display (`_S, _M = make()`), or one with a `*x` in the value, binds nothing this can name."""
-    if isinstance(wert, ast.IfExp):
-        yield from _bindings(ziele, wert.body)
-        yield from _bindings(ziele, wert.orelse)
-        return
+    `_M.get(k)` raised for an unhashable `k` with the guard green. A name is bound to the value and to
+    every node its value passes through (`_passing_nodes`): a conditional binds each of its two
+    branches, and so does a conditional under a walrus (`s = (t := _A if c else _B)`, the lens on
+    d5747000; before, only a conditional standing directly as the value was split). An unpacking reads
+    every display the value can pass on (`required, allowed = (_A, _B) if pr else (_C, _D)`, as
+    `agent_review._validate_subject` does). A starred target (`_S, *_R = {"a"}, {"b"}, {"c"}`, the lens
+    on c3bd89a4) binds the names around it one to one; the starred name gets a list of the rest, which
+    hashes nothing, so the values that go into it are bound to no name this follows. An unpacking whose
+    value is no tuple or list display (`_S, _M = make()`), or one with a `*x` in the value, binds nothing
+    this can name."""
     for t in ziele:
         if isinstance(t, ast.Name):
-            yield t.id, wert
+            for v in _passing_nodes(wert):
+                yield t.id, v
             continue
-        if not (isinstance(t, (ast.Tuple, ast.List)) and isinstance(wert, (ast.Tuple, ast.List))
-                and not any(isinstance(e, ast.Starred) for e in wert.elts)):
-            continue
-        stern = [i for i, e in enumerate(t.elts) if isinstance(e, ast.Starred)]
-        if not stern and len(t.elts) == len(wert.elts):
-            paare = list(zip(t.elts, wert.elts))
-        elif len(stern) == 1 and len(wert.elts) >= len(t.elts) - 1:
-            vorn, hinten = stern[0], len(t.elts) - stern[0] - 1
-            paare = (list(zip(t.elts[:vorn], wert.elts[:vorn]))
-                     + list(zip(t.elts[len(t.elts) - hinten:], wert.elts[len(wert.elts) - hinten:])))
-        else:
-            continue
-        for ziel, teil in paare:
-            yield from _bindings([ziel], teil)
+        for anzeige in _passed_values(wert):
+            if not (isinstance(t, (ast.Tuple, ast.List)) and isinstance(anzeige, (ast.Tuple, ast.List))
+                    and not any(isinstance(e, ast.Starred) for e in anzeige.elts)):
+                continue
+            stern = [i for i, e in enumerate(t.elts) if isinstance(e, ast.Starred)]
+            if not stern and len(t.elts) == len(anzeige.elts):
+                paare = list(zip(t.elts, anzeige.elts))
+            elif len(stern) == 1 and len(anzeige.elts) >= len(t.elts) - 1:
+                vorn, hinten = stern[0], len(t.elts) - stern[0] - 1
+                paare = (list(zip(t.elts[:vorn], anzeige.elts[:vorn]))
+                         + list(zip(t.elts[len(t.elts) - hinten:], anzeige.elts[len(anzeige.elts) - hinten:])))
+            else:
+                continue
+            for ziel, teil in paare:
+                yield from _bindings([ziel], teil)
 
 
 def _scope_bindings(wurzel: ast.AST, modulebene: bool) -> list[tuple[str, ast.AST, bool]]:
@@ -222,8 +253,14 @@ def _module_level_art(wert: ast.AST, bekannt: dict[str, str]) -> str | None:
     raised; `_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)` is the same result bound to a name.
     The kind of an operation is the kind of its left side, as Python's is. `dict.fromkeys(...)` and
     `types.MappingProxyType(...)` are dicts whatever they hold (the lens on c3bd89a4 bound both at
-    module level and read `.get(k)` unseen). A walrus is read as its value (`_walrus_value`)."""
+    module level and read `.get(k)` unseen). A walrus is read as its value (`_walrus_value`), and a
+    conditional is one when each of its branches is one, of the first branch's kind: the operand of a
+    set operation is constant whichever branch runs, or it is not constant."""
     wert = _walrus_value(wert)
+    zweige = _passed_values(wert)
+    if len(zweige) > 1:
+        arten = [_module_level_art(z, bekannt) for z in zweige]
+        return arten[0] if all(arten) else None
     if isinstance(wert, (ast.Set, ast.SetComp)):
         return "set"
     if isinstance(wert, (ast.Dict, ast.DictComp)):
@@ -405,7 +442,12 @@ class _Sicht:
     of a pair `_scope_bindings` marks followed, whose name became a container in the scope that binds
     it. `other_uses` counts exactly these as bound. A WALRUS IS READ AS ITS VALUE (`_walrus_value`),
     by every reader here, because it passes that value to the expression around it: a bound walrus
-    value is judged where the walrus stands as well, unless the walrus is a statement of its own."""
+    value is judged where the walrus stands as well, unless the walrus is a statement of its own.
+
+    A CONDITIONAL PASSES ONE OF ITS BRANCHES, and is read through `_passed_values` (the lens on
+    d5747000). As the container of a test or a lookup it is one when any branch is one, because the
+    access hashes whenever that branch runs; as a constant operand or a source it counts only when
+    every branch does, because only then is what it passes on constant."""
 
     def __init__(self, tree: ast.Module, behaelter: dict[str, str]):
         self.behaelter = behaelter
@@ -472,8 +514,12 @@ class _Sicht:
         return eigene
 
     def konstant(self, e: ast.AST, sichtbar: dict[str, str]) -> str | None:
-        """The kind of a constant hashing operand, or None."""
+        """The kind of a constant hashing operand, or None. A conditional is one when every branch is."""
         e = _walrus_value(e)
+        zweige = _passed_values(e)
+        if len(zweige) > 1:
+            arten = [self.konstant(z, sichtbar) for z in zweige]
+            return arten[0] if all(arten) else None
         if isinstance(e, ast.Name):
             return sichtbar.get(e.id) or self.behaelter.get(e.id)
         if isinstance(e, ast.Set) and all(isinstance(x, ast.Constant) for x in e.elts):
@@ -485,8 +531,12 @@ class _Sicht:
     def _source(self, e: ast.AST, sichtbar: dict[str, str]) -> bool:
         """Is `e` something constant a copy is built over: a constant operand, its `.keys()`, a
         module-level tuple constant, a copy of a source (`list`, `tuple`, `sorted`), or a list
-        comprehension or generator over sources? Never `.values()` or `.items()` (see the class)."""
+        comprehension or generator over sources? Never `.values()` or `.items()` (see the class). A
+        conditional is a source when every branch is."""
         e = _walrus_value(e)
+        zweige = _passed_values(e)
+        if len(zweige) > 1:
+            return all(self._source(z, sichtbar) for z in zweige)
         if (isinstance(e, ast.Call) and not e.args and not e.keywords
                 and isinstance(e.func, ast.Attribute) and e.func.attr == "keys"):
             e = e.func.value
@@ -518,9 +568,15 @@ class _Sicht:
 
     def container(self, e: ast.AST, bei: ast.AST) -> tuple[str, str] | None:
         """(label, kind) when `e`, read at `bei`, is a hashing container: a module-level one or a local
-        derived name by its name, a derived expression by its source text. A walrus is its value."""
+        derived name by its name, a derived expression by its source text. A walrus is its value, and a
+        conditional is a container when any branch is one, labelled by its source text: `k in (_A if c
+        else x)` hashes `k` whenever `c` holds."""
         sichtbar = self.visible(bei)
         e = _walrus_value(e)
+        zweige = _passed_values(e)
+        if len(zweige) > 1:
+            arten = [wer[1] for wer in (self.container(z, bei) for z in zweige) if wer is not None]
+            return (ast.unparse(e), arten[0]) if arten else None
         if isinstance(e, ast.Name):
             art = sichtbar.get(e.id) or self.behaelter.get(e.id)
             return (e.id, art) if art else None
@@ -883,6 +939,10 @@ def _hashed_downstream(e: ast.AST | None, parents: dict) -> bool:
             # a walrus hands the elements on to the expression around it (`set((w := list(...)))`,
             # the lens on 8ecb6edf); what the name then carries is the stated limit below
             e = p
+        elif isinstance(p, ast.IfExp) and p.test is not e:
+            # so does a conditional, as one of its branches (`set(list(...) if c else [])`, found while
+            # closing the lens on d5747000, which wrote the same step past the readers)
+            e = p
         else:
             return False
     return False
@@ -961,6 +1021,16 @@ def other_uses(quelle: str, name: str = "<quelle>", modul: str | None = None, is
 
     def use_of(n: ast.AST, art: str) -> tuple[bool, str]:
         p, known = parents.get(n), False
+        if isinstance(p, ast.IfExp) and p.test is not n and bound(n):
+            # A BOUND BRANCH GOES WHERE ITS CONDITIONAL GOES, and is judged there. `_bindings` binds
+            # the conditional and its branches to one name, so the conditional is bound as well, and
+            # where it is the value of a walrus it is judged where the walrus stands. Before, a bound
+            # branch was known by its binding alone, so `foo((s := _A if c else _B))` read as bound
+            # (the lens on d5747000). An UNBOUND branch stays an other use of its own (`IfExp`): the
+            # conditional around it is no container a reader follows, and judging the branch by the
+            # conditional's use would clear it under a rule that assumes one (a set operation with a
+            # constant, whose result a reader then reads).
+            return use_of(p, art)
         if isinstance(p, ast.NamedExpr) and p.value is n:
             # THE VALUE OF A WALRUS GOES TWO WAYS: into the name, which counts as known only when a
             # reader follows it, and into the expression around the walrus, where it is judged as the
@@ -1015,8 +1085,14 @@ def other_uses(quelle: str, name: str = "<quelle>", modul: str | None = None, is
         elif isinstance(p, (ast.If, ast.IfExp, ast.While)) and p.test is n:
             known, use = True, "condition"
         elif isinstance(p, ast.BinOp):
+            # KNOWN ONLY WHEN BOTH OPERANDS ARE CONSTANT, which is what makes the result a derived
+            # container that the readers then read. For a container or a derived expression `n` is
+            # constant by what it is; a walrus or a conditional reached through a binding is constant
+            # only when every value it passes on is (`(s := _A if c else x) | {"a"}` is built at run
+            # time from `x` and is reported, as `_A | x` always was).
             other = p.right if p.left is n else p.left
-            known, use = constant(other, n), f"{type(p.op).__name__} {ast.unparse(other)}"
+            known, use = (constant(other, n) and constant(n, n),
+                          f"{type(p.op).__name__} {ast.unparse(other)}")
         elif bound(n):
             known, use = True, "bound"
         else:
@@ -2161,6 +2237,29 @@ _PLANTED_FORMS: dict[str, tuple[str, object]] = {
     "walrus over a module-level name as the container":
         ('_A = {"a"}\n_X = None\ndef f(k):\n    return k in (_X := _A)\n', []),
     "walrus between a copy of the values and set()": _ueber_die_werte("set((w := list(_M.values())))"),
+    # the lens on d5747000: a walrus over a conditional, unseen by all three detectors; the last four
+    # are siblings of the same class, found while closing it and unseen there too
+    "walrus over a conditional as the container of a membership test":
+        ('_A = {"a"}\n_B = {"b"}\ndef f(k, c=True):\n    return k in (s := _A if c else _B)\n', []),
+    "walrus over a conditional as the object of .get":
+        ('_M = {"a": 1}\n_N = {"b": 2}\ndef f(k, c=True):\n    return (m := _M if c else _N).get(k)\n', []),
+    "walrus over a conditional as the object of a subscript":
+        ('_M = {"a": 1}\n_N = {"b": 2}\ndef f(k, c=True):\n    return (m := _M if c else _N)[k]\n', []),
+    "module-level name bound to a walrus over a conditional":
+        ('_A = {"a"}\n_B = {"b"}\nC = True\n_S = (_T := _A if C else _B)\ndef f(k):\n    return k in _S\n', []),
+    "local name bound to a walrus over a conditional":
+        ('_A = {"a"}\n_B = {"b"}\ndef f(k, c=True):\n    s = (t := _A if c else _B)\n    return k in s\n', []),
+    "chained walrus over a conditional":
+        ('_A = {"a"}\n_B = {"b"}\ndef f(k, c=True):\n    return k in (s := (t := _A if c else _B))\n', []),
+    "walrus over a conditional handed to a function":
+        ('_M = {"a": 1}\n_N = {"b": 2}\ndef _get(m, k):\n    return m.get(k)\n'
+         'def f(k, c=True):\n    return _get((m := _M if c else _N), k)\n', []),
+    "set() over a walrus over a conditional":
+        ('_A = {"a"}\n_B = {"b"}\ndef f(k, c=True):\n    return k in set((s := _A if c else _B))\n', []),
+    "conditional between a copy of the values and set()":
+        _ueber_die_werte("set(list(_M.values()) if v else [])"),
+    "walrus over a conditional with a branch from outside in a set operation":
+        ('_A = {"a"}\ndef f(k, c=True, x=frozenset()):\n    return k in ((s := _A if c else x) | {"a"})\n', []),
     # controls, seen before this change
     "control: unpacking two containers":
         ('_S, _M = {"a"}, {"a": 1}\ndef f(k):\n    return _M.get(k)\n', []),
@@ -2183,7 +2282,10 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
     Every test here fails against the guard of c3bd89a4, but the stated limit at the end, which is
     green on purpose. The lens on 8ecb6edf added nine more forms, each a walrus whose value is itself
     an operand; they fail `test_every_planted_form_that_raises_is_reported` against the guard of
-    8ecb6edf, and `test_a_walrus_passes_its_value_to_the_expression_around_it` fails there too."""
+    8ecb6edf, and `test_a_walrus_passes_its_value_to_the_expression_around_it` fails there too. The
+    lens on d5747000 wrote a walrus over a conditional in six forms, and closing it found four
+    siblings; all ten fail `test_every_planted_form_that_raises_is_reported` against the guard of
+    d5747000, and so does `test_a_conditional_passes_a_branch_to_the_expression_around_it`."""
 
     @staticmethod
     def _funde(quelle: str) -> list:
@@ -2371,6 +2473,51 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
                               ("subscript", lambda k: (m := {"a": 1})[k])):
             with self.subTest(form=label), self.assertRaises(TypeError):
                 access([])
+
+    def test_a_conditional_passes_a_branch_to_the_expression_around_it(self):
+        """The lens on d5747000: `_bindings` split a conditional only where it stood directly as the
+        value, so under a walrus both branches counted as bound while every reader looked through the
+        walrus at a conditional and saw no container. Each hashing use is now reported by the detector
+        that owns the form, a branch is judged where its conditional goes, and a conditional that is
+        iterated, bound or tested as a condition is not reported (anti-parity)."""
+        quelle = textwrap.dedent('''
+            _A = {"a", "b"}
+            _B = {"b"}
+            _M = {"a": 1}
+            _N = {"b": 2}
+            C = True
+            _S = (_T := _A if C else _B)
+            def f(k, c, foo):
+                r1 = k in (s := _A if c else _B)
+                r2 = (m := _M if c else _N).get(k)
+                r3 = (n := _M if c else _N)[k]
+                w = (t := _A if c else _B)
+                r4 = k in w
+                r5 = k in (u := (v := _A if c else _B))
+                r6 = k in _S
+                foo((x := _M if c else _N))
+                for y in (z := _A if c else _B):
+                    pass
+                if (q := _A if c else _B):
+                    pass
+                return r1, r2, r3, r4, r5, r6
+        ''')
+        zeilen = quelle.splitlines()
+
+        def wo(funde) -> list[str]:
+            return [zeilen[z - 1].strip() for z, _c, _w in sorted(funde)]
+
+        self.assertEqual(wo(unguarded_membership_sites(quelle)),
+                         ["r1 = k in (s := _A if c else _B)", "r4 = k in w",
+                          "r5 = k in (u := (v := _A if c else _B))", "r6 = k in _S"])
+        self.assertEqual(wo(constant_lookups(quelle)),
+                         ["r2 = (m := _M if c else _N).get(k)", "r3 = (n := _M if c else _N)[k]"])
+        self.assertEqual(sorted((c, u) for _z, c, u in other_uses(quelle)),
+                         [("_M", "foo(argument 1)"), ("_N", "foo(argument 1)")])
+        for label, access in (("in", lambda k: k in (s := {"a"} if k else {"b"})),
+                              ("get", lambda k: (m := {"a": 1} if k else {"b": 2}).get(k))):
+            with self.subTest(form=label), self.assertRaises(TypeError):
+                access([[1]])
 
     def test_UNTERGRENZE_values_bound_to_a_name_leave_the_guard(self):
         """THE STATED LIMIT, green on purpose although the case is real: a copy of the values bound

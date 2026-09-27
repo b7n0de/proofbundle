@@ -45,12 +45,14 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise SubjectBindingError(
             "subject binding needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes. Measured on 8ecb6edf: `classify_subject`,
-        # `require_derived_subject` and `derive_subject_digest` raised the bare ValueError for a
-        # predicate holding `2**53` or NaN; the decision, outcome and relation verifiers catch every
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first. Measured on 8ecb6edf:
+        # `classify_subject`, `require_derived_subject` and `derive_subject_digest` raised the bare
+        # ValueError for a predicate holding `2**53` or NaN; on d5747000 they still raised a bare
+        # BundleFormatError for a lone surrogate or a nesting past the budget's depth and a bare
+        # BudgetExceeded for `2**8194`. The decision, outcome and relation verifiers catch every
         # exception here and report "could not classify the subject binding", as before.
         raise SubjectBindingError(
             f"the predicate is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
@@ -98,9 +100,10 @@ def classify_subject(statement: Any) -> dict:
       - ``matches`` mirrors ``mode == 'DERIVED'`` for a quick boolean gate.
     A malformed statement (no predicate / no subject digest) is ``EXTERNAL_ATTESTED`` with ``matches`` False —
     fail-closed: we never call an unresolvable subject a genuine commitment. A predicate that RFC 8785 cannot
-    represent (an integer outside +-(2**53 - 1), NaN, Infinity) has no derived digest at all and raises
-    :class:`SubjectBindingError`: reporting it as EXTERNAL_ATTESTED would call a subject that may well be
-    derived "a subject-rehang"."""
+    represent (an integer outside +-(2**53 - 1), NaN, Infinity) or that the structural budget in front of the
+    canonicalizer refuses (a lone surrogate, a nesting past its depth, an integer past its bit budget) has no
+    derived digest at all and raises :class:`SubjectBindingError`: reporting it as EXTERNAL_ATTESTED would call
+    a subject that may well be derived "a subject-rehang"."""
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     n = subject_cardinality(statement)
     if n is not None and n > 1:
@@ -149,7 +152,7 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     # closes the direct-primitive path. Bounded at the same json_depth / json_nodes budget so a hostile deep or
     # node-heavy structure is a FAIL-CLOSED violation (a returned error string), never a crash. DFS pre-order is
     # preserved (children pushed reversed) so the reported violation order is unchanged for legitimate inputs.
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import DEFAULT_BUDGET, render_safe  # noqa: PLC0415 - local import avoids an import cycle
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
     stack: list[tuple[Any, str, int]] = [(obj, path, 0)]
@@ -169,9 +172,14 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
             if allowed is not None:
                 for k in cur:
                     if k not in allowed:
-                        out.append(f"{cur_path or '<root>'}.{k}: undeclared nested key (nested closure violated)")
+                        out.append(f"{cur_path or '<root>'}.{render_safe(k, quote=False)}: undeclared nested "
+                                   "key (nested closure violated)")
             for k, v in reversed(list(cur.items())):
-                child = f"{cur_path}.{k}" if cur_path else k
+                # A PATH IS TEXT, built from a key rendered bounded: a key of `10**5000` (a direct-dict
+                # caller) raised ValueError here and in the message above, out of every validator that
+                # walks its closure (decision, outcome; measured on d5747000). A str key is itself.
+                name = k if isinstance(k, str) else render_safe(k, quote=False)
+                child = f"{cur_path}.{name}" if cur_path else name
                 stack.append((v, child, depth + 1))
         elif isinstance(cur, list):
             item_path = f"{cur_path}[]"

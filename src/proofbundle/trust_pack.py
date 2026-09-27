@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -122,7 +122,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
 
     for k in predicate:
         if not is_member(k, _ALLOWED_TOP):
-            errors.append(f"unknown field {k!r} (additionalProperties:false)")
+            errors.append(f"unknown field {render_safe(k)} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
             errors.append(f"missing required field {req!r}")
@@ -165,20 +165,20 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
             for kid, kv in keys.items():
                 key_ids.add(kid)
                 if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str) or not kv.get("publicKey"):
-                    errors.append(f"keys[{kid!r}] must be an object with a base64 'publicKey'")
+                    errors.append(f"keys[{render_safe(kid)}] must be an object with a base64 'publicKey'")
                     continue
                 alg = kv.get("alg", "ed25519")
                 if alg not in _KEY_ALGS:
-                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {alg!r}")
+                    errors.append(f"keys[{render_safe(kid)}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
                 allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
                 for f in kv:
                     if f not in allowed_fields:
-                        errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                        errors.append(f"keys[{render_safe(kid)}].{render_safe(f, quote=False)} is not an allowed field")
                 # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
                 # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
                 if "scheme" in kv and kv.get("scheme") != "ed25519":
-                    errors.append(f"keys[{kid!r}].scheme, when present, must be 'ed25519'")
+                    errors.append(f"keys[{render_safe(kid)}].scheme, when present, must be 'ed25519'")
                 # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
                 # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
                 # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
@@ -190,24 +190,24 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 try:
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
-                        errors.append(f"keys[{kid!r}].publicKey must be a {want_len}-byte {label} key (got {len(raw)})")
+                        errors.append(f"keys[{render_safe(kid)}].publicKey must be a {want_len}-byte {label} key (got {len(raw)})")
                 except Exception:  # noqa: BLE001
-                    errors.append(f"keys[{kid!r}].publicKey is not valid base64")
+                    errors.append(f"keys[{render_safe(kid)}].publicKey is not valid base64")
                 if is_hybrid:
                     pq = kv.get("publicKeyPq")
                     if not isinstance(pq, str) or not pq:
-                        errors.append(f"keys[{kid!r}].publicKeyPq is required for alg 'hybrid-ed25519-mldsa65'")
+                        errors.append(f"keys[{render_safe(kid)}].publicKeyPq is required for alg 'hybrid-ed25519-mldsa65'")
                     else:
                         try:
                             rawpq = decode_b64(pq)
                             if len(rawpq) != _KEY_RAW_LEN["mldsa65"]:
                                 errors.append(
-                                    f"keys[{kid!r}].publicKeyPq must be a {_KEY_RAW_LEN['mldsa65']}-byte "
+                                    f"keys[{render_safe(kid)}].publicKeyPq must be a {_KEY_RAW_LEN['mldsa65']}-byte "
                                     f"ML-DSA-65 key (got {len(rawpq)})")
                         except Exception:  # noqa: BLE001
-                            errors.append(f"keys[{kid!r}].publicKeyPq is not valid base64")
+                            errors.append(f"keys[{render_safe(kid)}].publicKeyPq is not valid base64")
                 elif "publicKeyPq" in kv:
-                    errors.append(f"keys[{kid!r}].publicKeyPq is only allowed for alg 'hybrid-ed25519-mldsa65'")
+                    errors.append(f"keys[{render_safe(kid)}].publicKeyPq is only allowed for alg 'hybrid-ed25519-mldsa65'")
 
     # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME 32-byte key material dilute
     # every threshold — one physical key would count as N signers. checkpoint.py::witness_quorum learned this
@@ -223,7 +223,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 continue
             if _mat in _seen_material:
                 errors.append(
-                    f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] — key "
+                    f"keys[{render_safe(kid)}] duplicates the key material of keys[{render_safe(_seen_material[_mat])}] — key "
                     "aliasing dilutes thresholds (Sybil), fail-closed")
             else:
                 _seen_material[_mat] = kid
@@ -244,7 +244,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
             _revoked_set = set(revoked) if isinstance(revoked, list) else set()
             for rname, role in roles.items():
                 if rname not in _ROLE_NAMES:
-                    errors.append(f"roles.{rname} is not an allowed role name")
+                    errors.append(f"roles.{render_safe(rname, quote=False)} is not an allowed role name")
                     continue
                 errors.extend(f"roles.{rname}: {e}" for e in _validate_role(role, key_ids, _revoked_set))
 
@@ -261,7 +261,7 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
         return ["must be an object"]
     for f in role:
         if f not in ("keyIds", "threshold"):
-            errs.append(f"unknown field {f!r}")
+            errs.append(f"unknown field {render_safe(f)}")
     kids = role.get("keyIds")
     th = role.get("threshold")
     if not (isinstance(kids, list) and kids and all(isinstance(x, str) and x for x in kids)):
@@ -280,12 +280,12 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     if not (_is_int(th) and th >= 1):
         errs.append("threshold must be an integer >= 1")
     elif isinstance(kids, list) and isinstance(th, int) and th > len(kids):
-        errs.append(f"threshold ({th}) exceeds the number of keyIds ({len(kids)})")
+        errs.append(f"threshold ({render_safe(th)}) exceeds the number of keyIds ({len(kids)})")
     # dead-on-arrival: after removing revoked keys the role can never meet threshold.
     if isinstance(kids, list) and _is_int(th) and th >= 1:
         live = [k for k in kids if k not in revoked]
         if len(live) < th:
-            errs.append(f"threshold ({th}) can never be met — only {len(live)} non-revoked keyIds")
+            errs.append(f"threshold ({render_safe(th)}) can never be met — only {len(live)} non-revoked keyIds")
     return errs
 
 
@@ -303,10 +303,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise TrustPackError(
             "trust packs need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise TrustPackError(
             f"a trust pack value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
@@ -347,7 +347,7 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     known = set(_as_dict(predicate.get("keys")).keys())
     for kid in signers:
         if kid not in known:
-            raise TrustPackError(f"signer keyId {kid!r} is not declared in the pack's keys")
+            raise TrustPackError(f"signer keyId {render_safe(kid)} is not declared in the pack's keys")
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
@@ -577,8 +577,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                                  and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
-                f"version {predicate.get('version')!r} is not greater than the previous version "
-                f"{prev_version} (rollback/freeze, fail-closed)")
+                f"version {render_safe(predicate.get('version'))} is not greater than the previous version "
+                f"{render_safe(prev_version)} (rollback/freeze, fail-closed)")
     if prev_version_digest is not None:
         pvd = predicate.get("prevVersionDigest")
         pvd_hex = pvd.get("sha256") if _is_digest(pvd) else None
@@ -631,7 +631,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         if not r["rotation_authorized"]:
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
-                f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+                f"need {render_safe(prev_root_threshold)} (old root must vouch for the new pack, fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
         # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
         # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:
