@@ -581,6 +581,41 @@ def main() -> int:
     if not (code == 1 and out.startswith("FAIL") and py_unmet is False):
         failures.append(f"trust-pack threshold-unmet mismatch: py={py_unmet} rust={out}/exit{code}")
 
+    # (6b) scitt-ccf/v1 statement signatures (ADR 0009): every shared vector through BOTH verifiers.
+    # tests/fixtures/scitt_statement_signature/vectors.json carries the status and verdict each vector
+    # is built to produce (the oracle); Python and Rust must both give exactly that, the Rust exit
+    # class included (0 confirmed, 1 statement_signature_invalid, 3 a status that is no verdict).
+    from proofbundle.scitt_ccf import verify_statement_signature  # noqa: PLC0415
+    scitt_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json")
+                           .read_text(encoding="utf-8"))
+
+    def _scitt_bytes(parts: list) -> bytes:
+        out = b""
+        for p in parts:
+            if isinstance(p, str):
+                out += bytes.fromhex(p)
+            elif "ref" in p:
+                out += bytes.fromhex(scitt_doc["refs"][p["ref"]])
+            else:
+                out += bytes(p["zeros"])
+        return out
+
+    scitt_n = 0
+    for v in scitt_doc["vectors"]:
+        data = _scitt_bytes(v["statement"])
+        keys = [_scitt_bytes(k) for k in v["keys"]]
+        want = (v["want"]["status"], v["want"]["valid"])
+        py = verify_statement_signature(data, statement_keys=keys)
+        (tmp / "scitt_statement.cbor").write_bytes(data)
+        code, out = _run("verify-scitt-statement-signature", str(tmp / "scitt_statement.cbor"),
+                         *(k.hex() for k in keys))
+        shown = {True: "true", False: "false", None: "none"}[want[1]]
+        want_code = {"confirmed": 0, "statement_signature_invalid": 1}.get(want[0], 3)
+        if py != want or out.split() != [want[0], shown] or code != want_code:
+            failures.append(f"scitt statement signature {v['id']}: built for {want}, "
+                            f"Python {py}, Rust {out}/exit{code}")
+        scitt_n += 1
+
     # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -767,6 +802,8 @@ def main() -> int:
           f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
           f"{', '.join(budget_nur_python)}), "
           "trust-pack root-threshold (met+unmet) agree; "
+          f"scitt-ccf/v1 statement signature: {scitt_n} shared vector(s), Python == Rust == the built "
+          "verdict, the Rust exit class included; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "
